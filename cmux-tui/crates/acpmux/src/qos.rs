@@ -12,8 +12,8 @@
 //! | Tier | Who | macOS | Linux |
 //! |---|---|---|---|
 //! | [`Tier::Serving`] | the daemon | unchanged: acknowledged replies wait on the event journal's sync, so its disk I/O stays at the default tier ([`enter_daemon`]) | unchanged |
-//! | [`Tier::AgentStart`] | agent hosts and their harnesses | disk I/O at `IOPOL_UTILITY`; CPU while the harness starts: the daemon's (unchanged); once its session's start is over: the harness and what it started at nice +11 (priority 20, as the utility clamp), or background class (`cpu_class.rs`) | while it starts: unchanged; then the harness at nice +5 and its host's session (autogroup) at nice 5 |
-//! | [`Tier::Agent`] | background-task runners, and everything they start | CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | nice +5 |
+//! | [`Tier::AgentStart`] | agent hosts and their harnesses | the host's disk I/O at `IOPOL_UTILITY`; its harness back at the default disk tier ([`default_disk_io`]) and the daemon's CPU priority, as a shell in a terminal runs: a `normal` harness (the default) stays at the terminal's class, a `dynamic` one (opt-in) goes to background class only while the Mac is contended, and a `background` one (opt-in) stays there once its start is over (`cpu_class.rs`) | while it starts: unchanged; then the harness at nice +5 and its host's session (autogroup) at nice 5 |
+//! | [`Tier::Agent`] | background-task runners, and everything they start | the daemon's CPU priority and the default disk tier, as a shell in a terminal runs | nice +5 |
 //! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread at `QOS_CLASS_BACKGROUND` for the pass (CPU throttled; its disk I/O at the background class's tier), then back | unchanged |
 //! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` for the read (its CPU; its disk I/O stays at the daemon's default tier), then back | unchanged |
 //!
@@ -32,37 +32,39 @@
 //! Leo's Mac at load average 125 to 256, waking an agent took 10 to 82 s, and one start ran out
 //! its 90 s with 1.8 s of CPU used, its host and harness under the utility clamp and below every
 //! default-priority process on the machine. An agent host therefore starts at the daemon's CPU
-//! priority (its disk I/O still at utility) and spawns its harness there; once the session's start is over (its `initialize` and
-//! `session/new` or `session/load` answered), the daemon lowers the running harness
-//! ([`AGENT_NICE`], `cpu_class::CpuClass::enter`): its builds and tests still run below the app.
+//! priority (its disk I/O still at utility) and spawns its harness there, at the default disk tier.
+//! An agent's turns are work a person waits on too (2026-11-24: over 130 sessions on one Mac, a
+//! NEXT agent's tests took 37 s at the median against 11 s in a terminal, and its slowest builds
+//! 220 s against 52 s; one 1-commit rebase took 87 minutes at 0% CPU, waiting on a throttled
+//! disk). The default `normal` class keeps the terminal's CPU class and normal disk I/O. An
+//! opt-in `dynamic` class temporarily adds background class only while the host is contended. A
+//! `background` session's harness stays lowered once its start is over.
 //!
-//! macOS gives no call that clamps a running process, and a thread's QoS does
-//! not survive exec into another program (a probe on a fleet mini: a child's
-//! new threads come back at the default whatever its parent ran at). The QoS
-//! clamp does: `posix_spawnattr_set_qos_clamp_np`, the call behind
-//! `taskpolicy -c utility`, holds every thread of the process and of every
-//! process it starts. So an agent host re-executes itself in place
-//! (`POSIX_SPAWN_SETEXEC`: same pid, same descriptors) under the clamp before
-//! it starts any thread, and its harness, shells and tools inherit it. The I/O
-//! policy is process wide and inherited across exec, so it needs no re-exec.
+//! An agent's background tasks are work a person waits on too: a build, a test run or a push an
+//! agent started in the background is the turn's result. Until 2026-11-27 each task's runner
+//! re-executed itself under the utility QoS clamp (`taskpolicy -c utility`: priority 20, and the
+//! clamp holds every process it starts) with its disk I/O at `IOPOL_UTILITY`. On a busy Mac (load
+//! 94 on 15 cores) a tagged dogfood build started that way took 21 to 41 minutes at the median
+//! against 2 to 3 minutes the same builds took two weeks before, and a terminal in cmux classic
+//! runs them at the default. So on macOS a task runs as a shell in a terminal runs: the daemon's
+//! CPU priority (never above nice 0) and the default disk tier. `ACPMUX_QOS=background` still
+//! puts tasks in background class. The I/O policy is process wide and inherited across exec.
 //!
 //! A pass that holds a lock chat traffic takes (log retention's compaction
 //! holds the store's writers lock; the upload sweep holds the in-use set) stays
 //! at the daemon's own priority: throttling it would stall every stream.
 //!
-//! Why utility and not background for agents: background class gives the app
+//! Why not background class for agents: background class gives the app
 //! more (manaflow-ai/cmuxterm-hq#4947: a Chromium pane's drag lag under 14 busy
 //! processes was 55 ms p95 at default, 40 ms at utility, 6 ms at background),
 //! but it keeps agent work off the performance cores even on an idle Mac: a
 //! fixed CPU job took 0.9 s at default, 0.8 s at utility and 16.6 s at
 //! background on one thread, and 4.0 / 3.6 / 28.5 s on ten (cmux-mac-mini, 4P +
-//! 6E). `ACPMUX_QOS=background` picks background for agent hosts anyway.
+//! 6E). `ACPMUX_QOS=background` picks background for agent hosts and tasks anyway.
 //!
 //! `ACPMUX_QOS=off` turns all of it off (a process started with it set starts
 //! as before); agent hosts get it through their environment allowlist
 //! (`agent::host_environment`). Best effort: a call that fails leaves the process as it was.
-
-use std::ffi::OsString;
 
 /// How much a process yields to the person at the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,10 +72,12 @@ pub enum Tier {
     /// The daemon: the app waits on it, and its replies wait on the event journal's sync, so
     /// nothing of it yields (only its background threads, [`background_thread`]).
     Serving,
-    /// Agent work: background-task runners and every tool they run.
+    /// Agent work: background-task runners and every tool they run. macOS: a terminal shell's
+    /// CPU priority and disk tier; Linux: nice +5.
     Agent,
-    /// Agent hosts: the daemon's tier while their harness starts (a person waits on a start),
-    /// [`Tier::Agent`]'s once its session's start is over (`cpu_class::CpuClass::enter`).
+    /// Agent hosts: the daemon's CPU tier, disk I/O at utility. Their harnesses run at the
+    /// daemon's tier and the default disk tier; a `dynamic` session's harness goes to background
+    /// class while contended and a `background` session stays there (`cpu_class::CpuClass::enter`).
     AgentStart,
     /// Work nobody waits for: sweeps, retention, cleanup.
     Background,
@@ -106,8 +110,6 @@ pub const fn tier(role: Role) -> Tier {
 
 /// Turns the whole policy off when set to `off`.
 pub const ENV: &str = "ACPMUX_QOS";
-/// Set in a process that already re-executed itself under the clamp.
-pub const CLAMPED_ENV: &str = "ACPMUX_QOS_CLAMPED";
 
 pub(crate) fn enabled() -> bool {
     std::env::var_os(ENV).is_none_or(|v| v != "off")
@@ -140,6 +142,15 @@ pub fn at_least_default_nice() {
             libc::setpriority(libc::PRIO_PROCESS, 0, 0);
         }
     }
+}
+
+/// This process's disk I/O back at the default tier (macOS; elsewhere nothing), as a shell in a
+/// terminal has it: a harness takes it between fork and exec (`cpu_class::start_at_normal`), so
+/// it and every tool its turns run do not inherit its agent host's `IOPOL_UTILITY`, which the
+/// kernel throttles behind any default-tier disk work on the machine. Async-signal-safe: one
+/// syscall on the calling process.
+pub fn default_disk_io() {
+    imp::disk_default();
 }
 
 /// The daemon's tier: acknowledged replies wait on the event journal's sync, so the daemon keeps
@@ -175,9 +186,7 @@ pub fn background_thread() {
 }
 
 /// Put this process in `role`'s tier. Call it first thing in `main`, before
-/// any thread starts: for [`Tier::Agent`] on macOS it re-executes the process
-/// in place and returns only when that is not done (already clamped, turned
-/// off, or the call failed).
+/// any thread starts.
 pub fn enter(role: Role) {
     if !enabled() {
         return;
@@ -197,8 +206,11 @@ pub fn enter(role: Role) {
         // and the harness is lowered once its session's start is over
         // (`cpu_class::CpuClass::enter`).
         Tier::AgentStart => imp::disk_utility(),
+        // A terminal shell's priority on macOS (module docs): the default disk tier, whatever
+        // the daemon's starter left, and its CPU unlowered. Linux: nice +5, as a Linux harness.
         Tier::Agent => {
-            imp::disk_utility();
+            imp::disk_default();
+            #[cfg(not(target_os = "macos"))]
             imp::clamp_cpu_utility();
         }
         // A whole background process is not in the policy yet; threads use
@@ -235,30 +247,14 @@ pub fn on_screen<T>(work: impl FnOnce() -> T) -> T {
     work()
 }
 
-/// The argv and environment an in-place re-exec runs with: this process's
-/// own, plus [`CLAMPED_ENV`], so the new image does not do it again.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn reexec_env(mut vars: Vec<(OsString, OsString)>) -> Vec<(OsString, OsString)> {
-    vars.retain(|(k, _)| k != CLAMPED_ENV);
-    vars.push((CLAMPED_ENV.into(), "utility".into()));
-    vars
-}
-
 #[cfg(target_os = "macos")]
 mod imp {
-    use super::*;
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt;
-
     const IOPOL_TYPE_DISK: libc::c_int = 0;
     const IOPOL_SCOPE_PROCESS: libc::c_int = 0;
     const IOPOL_SCOPE_THREAD: libc::c_int = 1;
+    const IOPOL_IMPORTANT: libc::c_int = 1;
     const IOPOL_UTILITY: libc::c_int = 4;
     const PRIO_DARWIN_BG: libc::c_int = 0x1000;
-    const POSIX_SPAWN_SETEXEC: libc::c_short = 0x0040;
-    /// `POSIX_SPAWN_PROC_CLAMP_UTILITY` (spawn_private.h): the clamp takes its own small
-    /// numbers, not a `qos_class_t` (0x11 is accepted and does nothing; a fleet-mini probe).
-    const POSIX_SPAWN_PROC_CLAMP_UTILITY: u64 = 1;
 
     unsafe extern "C" {
         fn setiopolicy_np(
@@ -270,14 +266,18 @@ mod imp {
         fn getiopolicy_np(iotype: libc::c_int, scope: libc::c_int) -> libc::c_int;
     }
 
-    /// `int posix_spawnattr_set_qos_clamp_np(posix_spawnattr_t *, uint64_t)`.
-    type ClampFn = unsafe extern "C" fn(*mut libc::posix_spawnattr_t, u64) -> libc::c_int;
-
     pub(super) fn disk_utility() {
         // SAFETY: plain syscall wrapper with constant arguments.
         if unsafe { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_UTILITY) } != 0 {
             tracing::debug!("setiopolicy_np: {}", std::io::Error::last_os_error());
         }
+    }
+
+    /// The process's disk I/O at `IOPOL_IMPORTANT`, the tier a process starts at
+    /// ([`super::default_disk_io`]). No logging: it runs between fork and exec.
+    pub(super) fn disk_default() {
+        // SAFETY: plain syscall wrapper with constant arguments, async-signal-safe.
+        unsafe { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_IMPORTANT) };
     }
 
     /// This process's scheduler base priority (`proc_pidinfo` `PROC_PIDTASKINFO`): 31 at the
@@ -304,89 +304,6 @@ mod imp {
         // SAFETY: plain syscall wrapper on the calling thread with constant arguments.
         if unsafe { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_UTILITY) } != 0 {
             tracing::debug!("setiopolicy_np (thread): {}", std::io::Error::last_os_error());
-        }
-    }
-
-    /// The clamp setter, looked up at run time: it is not in the public SDK
-    /// headers, so a macOS without it starts unclamped instead of failing to load.
-    fn clamp_fn() -> Option<ClampFn> {
-        // SAFETY: dlsym with a NUL-terminated name; the symbol, when present,
-        // has this signature (spawn_private.h).
-        let sym = unsafe {
-            libc::dlsym(libc::RTLD_DEFAULT, c"posix_spawnattr_set_qos_clamp_np".as_ptr())
-        };
-        // SAFETY: a non-null result is that function.
-        (!sym.is_null()).then(|| unsafe { std::mem::transmute::<*mut libc::c_void, ClampFn>(sym) })
-    }
-
-    pub(super) fn clamp_cpu_utility() {
-        if std::env::var_os(CLAMPED_ENV).is_some() {
-            return;
-        }
-        let Ok(exe) = std::env::current_exe() else { return };
-        let argv: Vec<OsString> = std::env::args_os().collect();
-        let envp = reexec_env(std::env::vars_os().collect());
-        // Returns only when the re-exec did not happen.
-        if let Err(rc) = spawn_clamped(&exe, &argv, &envp, true) {
-            tracing::debug!("in-place re-exec under the utility clamp failed: {rc}");
-        }
-    }
-
-    /// `posix_spawn` of `path` under the utility clamp: in place of this
-    /// process (`in_place`, which returns only on failure) or as a child, whose
-    /// pid it returns. Errors are the call's code (-1: no clamp setter here, or
-    /// a NUL in an argument).
-    pub(super) fn spawn_clamped(
-        path: &std::path::Path,
-        argv: &[OsString],
-        envp: &[(OsString, OsString)],
-        in_place: bool,
-    ) -> Result<libc::pid_t, libc::c_int> {
-        let set_clamp = clamp_fn().ok_or(-1)?;
-        let cstr = |b: &[u8]| CString::new(b).map_err(|_| -1);
-        let path = cstr(path.as_os_str().as_bytes())?;
-        let argv = argv.iter().map(|a| cstr(a.as_bytes())).collect::<Result<Vec<_>, _>>()?;
-        let envp = envp
-            .iter()
-            .map(|(k, v)| {
-                let mut kv = k.as_bytes().to_vec();
-                kv.push(b'=');
-                kv.extend_from_slice(v.as_bytes());
-                cstr(&kv)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut argv_ptrs: Vec<*mut libc::c_char> =
-            argv.iter().map(|a| a.as_ptr().cast_mut()).chain([std::ptr::null_mut()]).collect();
-        let mut envp_ptrs: Vec<*mut libc::c_char> =
-            envp.iter().map(|a| a.as_ptr().cast_mut()).chain([std::ptr::null_mut()]).collect();
-        // SAFETY: attr is initialized before use and destroyed on every path;
-        // the argument vectors are NUL-terminated and outlive the call. With
-        // SETEXEC a successful posix_spawn does not return (the image is
-        // replaced in place, like execve).
-        unsafe {
-            let mut attr: libc::posix_spawnattr_t = std::ptr::null_mut();
-            let rc = libc::posix_spawnattr_init(&mut attr);
-            if rc != 0 {
-                return Err(rc);
-            }
-            let flags = if in_place { POSIX_SPAWN_SETEXEC } else { 0 };
-            let mut rc = set_clamp(&mut attr, POSIX_SPAWN_PROC_CLAMP_UTILITY);
-            if rc == 0 {
-                rc = libc::posix_spawnattr_setflags(&mut attr, flags);
-            }
-            let mut pid: libc::pid_t = 0;
-            if rc == 0 {
-                rc = libc::posix_spawn(
-                    &mut pid,
-                    path.as_ptr(),
-                    std::ptr::null(),
-                    &attr,
-                    argv_ptrs.as_mut_ptr(),
-                    envp_ptrs.as_mut_ptr(),
-                );
-            }
-            libc::posix_spawnattr_destroy(&mut attr);
-            if rc == 0 { Ok(pid) } else { Err(rc) }
         }
     }
 
@@ -482,6 +399,7 @@ mod imp {
 #[cfg(target_os = "linux")]
 mod imp {
     pub(super) fn disk_utility() {}
+    pub(super) fn disk_default() {}
     pub(super) fn thread_disk_utility() {}
 
     /// nice +5: inherited by everything the process starts. Not undone (an
@@ -518,6 +436,7 @@ mod imp {
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod imp {
     pub(super) fn disk_utility() {}
+    pub(super) fn disk_default() {}
     pub(super) fn thread_disk_utility() {}
     pub(super) fn clamp_cpu_utility() {}
     pub(super) fn process_background() {
@@ -603,41 +522,5 @@ mod tests {
         assert_eq!(class(imp::thread_qos()), before, "the class after a background pass");
         let raised = on_screen(|| class(imp::thread_qos()));
         assert_eq!(raised, class(libc::qos_class_t::QOS_CLASS_USER_INITIATED), "raised after it");
-    }
-
-    /// The clamp takes effect: a child spawned under it, and the shell it
-    /// starts, run at priority 20 (utility), not 31 (cmux#27587's first cut
-    /// passed `QOS_CLASS_UTILITY`, which the setter takes and ignores).
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn a_clamped_child_and_what_it_starts_run_at_utility() {
-        let dir = tempfile::tempdir().unwrap();
-        let out = dir.path().join("pri");
-        let script = format!(
-            "/bin/sh -c 'ps -o pri= -p $$' > '{}'; ps -o pri= -p $$ >> '{}'",
-            out.display(),
-            out.display()
-        );
-        let argv: Vec<OsString> = vec!["sh".into(), "-c".into(), script.into()];
-        let pid = imp::spawn_clamped(std::path::Path::new("/bin/sh"), &argv, &[], false)
-            .expect("spawn under the clamp");
-        let mut status = 0;
-        // SAFETY: waits for the child this test started.
-        unsafe { libc::waitpid(pid, &mut status, 0) };
-        let text = std::fs::read_to_string(&out).unwrap();
-        let pris: Vec<&str> = text.split_whitespace().collect();
-        assert_eq!(pris.len(), 2, "{text:?}");
-        for pri in pris {
-            assert!(pri.starts_with("20"), "expected priority 20, got {text:?}");
-        }
-    }
-
-    #[test]
-    fn the_reexec_marks_itself_once() {
-        let vars = vec![("PATH".into(), "/bin".into()), (CLAMPED_ENV.into(), "stale".into())];
-        let out = reexec_env(vars);
-        assert_eq!(out.iter().filter(|(k, _)| k == CLAMPED_ENV).count(), 1);
-        assert!(out.contains(&(CLAMPED_ENV.into(), "utility".into())));
-        assert!(out.contains(&("PATH".into(), "/bin".into())));
     }
 }

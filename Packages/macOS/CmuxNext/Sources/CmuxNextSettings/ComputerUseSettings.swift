@@ -43,7 +43,12 @@ public nonisolated enum ComputerUseMode: String, Sendable, Hashable, CaseIterabl
 /// - `settle` (`openai`: look at once; `adaptive` waits for the screen to settle): what the engine waits for after each action before it looks again.
 /// - `allowForeground` (off): agents may send input that takes focus or moves the real pointer.
 /// - `livePreview` (on): a chat shows a small live view of the app its agent uses.
+/// - `floatingPreview` (off, prototype): that live view also floats over every app in a panel that
+///   never takes focus; the menu bar's Computer Use menu shows and hides it.
 /// - `menus` (`open`): agents may open pop-up and context menus of background apps (`refuse`: never).
+/// - `whileLocked` (off): while the screen is locked, agents keep using app windows (lists, window
+///   captures, background input to a window); without it every call but status is refused
+///   (`cmux-tui/crates/cmux-computer-use/src/locked.rs`).
 ///
 /// `computerUse.enabled` and `computerUse.driver` are retired. An old file's
 /// `"enabled": false` still turns Computer Use off (mode `off`) until the person picks a mode
@@ -69,7 +74,9 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     public var cursorTag = ComputerUseSettings.cursorTagDefault
     public var settle = ComputerUseSettings.settleDefault
     public var livePreview = ComputerUseSettings.livePreviewDefault
+    public var floatingPreview = ComputerUseSettings.floatingPreviewDefault
     public var menus = ComputerUseSettings.menusDefault
+    public var whileLocked = ComputerUseSettings.whileLockedDefault
     public init() {}
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
@@ -90,7 +97,9 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         if let value = reader.choice("cursorTag", ComputerUseCursorTag.self) { settings.cursorTag = value }
         if let value = reader.choice("settle", ComputerUseSettle.self) { settings.settle = value }
         if let value = reader.bool("livePreview") { settings.livePreview = value }
+        if let value = reader.bool("floatingPreview") { settings.floatingPreview = value }
         if let value = reader.choice("menus", ComputerUseMenus.self) { settings.menus = value }
+        if let value = reader.bool("whileLocked") { settings.whileLocked = value }
         diagnostics = reader.diagnostics
         if let value = root.value(at: deniedAppsPath) {
             if let items = value.arrayValue, items.allSatisfy({ !($0.stringValue ?? "").isEmpty }) {
@@ -116,7 +125,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         let config = PolicyConfig(mode: mode.rawValue, deniedApps: deniedApps, allowOwnMachines: allowOwnMachines,
                                   pauseOnTakeover: pauseOnTakeover, allowForeground: allowForeground,
                                   showCursor: showCursor, cursorTag: cursorTag.rawValue, settle: settle.rawValue, cloudVm: false,
-                                  menus: menus.rawValue, livePreview: livePreview)
+                                  menus: menus.rawValue, livePreview: livePreview, whileLocked: whileLocked)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         // A struct of strings and booleans always encodes; an empty object is the engine's default.
@@ -136,6 +145,9 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         let menus: String
         /// `computerUse.livePreview`: off, the worker streams no window and every card goes.
         let livePreview: Bool
+        /// `computerUse.whileLocked`: the engine's `PolicyConfig.while_locked`. The app's push replaces
+        /// the policy the daemon read from the settings, so a key left out here is off on a Mac.
+        let whileLocked: Bool
     }
 }
 

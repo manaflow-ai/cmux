@@ -1,5 +1,6 @@
 <!-- Before drafting or revising this description, read ../STYLE.md. Lead with the problem and the resulting behavior, keep it proportional, and delete any section or checklist line that does not apply. -->
 <!-- First pull request here? docs/start-here.md covers what reviewers look for and what CI runs for you: https://github.com/manaflow-ai/cmux/blob/main/docs/start-here.md -->
+<!-- Internal notes, measurements and ops tooling go to the maintainers' private repo, not here. -->
 
 ## Summary
 
@@ -42,6 +43,8 @@ Viewed after image: yes
 Visual verdict: <one sentence: would Leo accept this next to ChatGPT/Claude?>
 
 The pr-capture-check job warns on a native UI change without the required evidence or review proof. -->
+
+<!-- iOS change (anything select_flows.py picks: cmux-next-ios/**, Packages/iOS/**, the shared crates it lists)? Run `cmux ios verify` on the pushed head. It merges a moved base first, runs the affected flows on the fleet's warm simulators (pair-e2e when a pairing flow is touched), diffs the screens against the last green build, and posts the proof record the `cmux/ios-fast` gate needs at the current head. A visual change also needs that screen or video diff before it lands. Format: ci/proof-record/README.md. -->
 
 <!-- Performance change (the perf label, or a perf word in the title or description)? Record the deltas so we can look back on them: add a section like the one below, with before and after from the same harness (or, under that heading, `No perf numbers: <why>`). The pr-perf-section-check job warns on a perf PR without one; docs-only PRs are exempt.
 

@@ -2,6 +2,12 @@ import type { Env } from "./env.ts"
 
 export const STUN = "stun:stun.cloudflare.com:3478"
 
+export interface HopServer {
+  kind: "hop"
+  url: string
+  ticket: string
+}
+
 export interface IceServer {
   urls: Array<string>
   username?: string
@@ -10,8 +16,34 @@ export interface IceServer {
 
 const iceTtl = (env: Env) => Math.min(Math.max(Number(env.ICE_TTL_SECONDS ?? "3600") || 3600, 300), 172800)
 
+const b64 = (bytes: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(bytes)))
+
 /**
- * Short-lived TURN credentials from the Cloudflare Realtime TURN key
+ * Our own TURN relay (coturn `use-auth-secret`, eturnal `credentials: ephemeral`): the TURN REST API scheme
+ * (draft-uberti-behave-turn-rest). The username is `<expiry unix seconds>:<label>` and the credential the
+ * base64 HMAC-SHA1 of it under the relay's shared secret, so minting is a local computation: no vendor call,
+ * no per-byte meter, nothing to cache. `TURN_SELF_URLS` is a comma list of turn:/turns: URLs.
+ */
+/** The accepted own-relay URLs, or undefined when the relay is not usable (no turn:/turns: URL, or no secret).
+ * Both `selfTurn` and `cachedIceServers` decide on this one parse, so a malformed `TURN_SELF_URLS` falls back
+ * to the cached Cloudflare path instead of an uncached Cloudflare call per request. */
+export const selfTurnUrls = (env: Env): Array<string> | undefined => {
+  const urls = (env.TURN_SELF_URLS ?? "").split(",").map((u) => u.trim()).filter((u) => /^turns?:/.test(u))
+  return urls.length && env.TURN_SELF_SECRET ? urls : undefined
+}
+
+export const selfTurn = async (env: Env, ttl: number, now = Date.now()): Promise<IceServer | undefined> => {
+  const urls = selfTurnUrls(env)
+  if (!urls || !env.TURN_SELF_SECRET) return undefined
+  const username = `${Math.floor(now / 1000) + ttl}:cmux`
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.TURN_SELF_SECRET), { name: "HMAC", hash: "SHA-1" }, false, ["sign"])
+  const credential = b64(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(username)))
+  return { urls, username, credential }
+}
+
+/**
+ * Short-lived TURN credentials from our own relay when `TURN_SELF_URLS` and `TURN_SELF_SECRET` are set (Cloudflare
+ * is then never called, so its metered TURN costs nothing); otherwise from the Cloudflare Realtime TURN key
  * (POST /v1/turn/keys/{id}/credentials/generate-ice-servers). Cloudflare STUN is always included,
  * so a missing or failing TURN key still yields a usable (STUN-only) answer with `turn: false`.
  */
@@ -19,7 +51,11 @@ export const iceServers = async (env: Env, fetcher: typeof fetch = fetch): Promi
   const ttl = iceTtl(env)
   const out: Array<IceServer> = []
   let turn = false
-  if (env.TURN_KEY_ID && env.TURN_KEY_API_TOKEN) {
+  const own = await selfTurn(env, ttl)
+  if (own) {
+    out.push(own)
+    turn = true
+  } else if (env.TURN_KEY_ID && env.TURN_KEY_API_TOKEN) {
     try {
       const res = await fetcher(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(env.TURN_KEY_ID)}/credentials/generate-ice-servers`, {
         method: "POST",
@@ -97,7 +133,8 @@ async function loadShared(env: Env, scope: IceScope, ctx: ExecutionContext): Pro
 }
 
 export async function cachedIceServers(env: Env, ctx: ExecutionContext): Promise<IceAnswer> {
-  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return iceServers(env)
+  // Our own relay's credentials are an HMAC away: nothing to cache or wait for.
+  if (selfTurnUrls(env) || !env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return iceServers(env)
   // A TURN mint uses the Worker's key and TTL, irrespective of caller or team.
   // This reserved object in the existing binding is accessible on every ingress.
   const key = JSON.stringify(["turn-cache-v1", env.ENVIRONMENT, env.TURN_KEY_ID, iceTtl(env)])
@@ -117,4 +154,23 @@ export async function cachedIceServers(env: Env, ctx: ExecutionContext): Promise
   } finally {
     clearTimeout(timer)
   }
+}
+
+const base64url = (bytes: ArrayBuffer) => {
+  let text = ""
+  for (const byte of new Uint8Array(bytes)) text += String.fromCharCode(byte)
+  return btoa(text).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+}
+
+/** Mint a short-lived, per-request hop/1 BIND ticket for the authenticated caller. */
+export async function hopServers(env: Env, ttl: number): Promise<Array<HopServer>> {
+  const url = env.HOP_RELAY_URL
+  const secret = env.HOP_RELAY_TICKET_SECRET
+  if (!url?.startsWith("hop://") || !secret || new TextEncoder().encode(secret).byteLength < 32) return []
+  const expires = Math.floor(Date.now() / 1000) + Math.min(Math.max(ttl, 300), 3600)
+  const session = crypto.randomUUID()
+  const body = `hop1.${session}.${expires}`
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body))
+  return [{ kind: "hop", url, ticket: `${body}.${base64url(signature)}` }]
 }

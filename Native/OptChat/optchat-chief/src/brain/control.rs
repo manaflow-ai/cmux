@@ -261,7 +261,6 @@ impl Brain {
             "cancel" => self.control_cancel(&sub),
             "restart" => self.control_restart(&sub, message),
             "priority" => self.control_priority(&sub),
-            "tasks" => self.control_tasks(&sub, call.items.as_ref()),
             other => Err(format!("control: no action {other}")),
         }
     }
@@ -910,6 +909,7 @@ impl Brain {
             s.cancelled = true;
             s.inbox.clear();
             s.after_stop = None;
+            s.told_ms = now_ms();
         }
         self.sign_ins.abandoned(id);
         self.save();
@@ -1008,35 +1008,6 @@ impl Brain {
                 "refused",
                 format!("{id} never started; spawn its task again"),
             ),
-        }
-    }
-
-    /// `control tasks id items`: keeps the subagent chat's task list (acpmux
-    /// `_acpmux/task_list/set`), which its chat and its sidebar row show, for a
-    /// harness that keeps no plan of its own. `[]` clears it.
-    fn control_tasks(&mut self, sub: &SubRecord, items: Option<&Value>) -> Result<String, String> {
-        let id = sub.id.as_str();
-        let Some(session) = sub.session_id.as_deref() else {
-            return outcome(
-                "refused",
-                format!("{id} has no chat yet ({})", state_name(sub, now_ms())),
-            );
-        };
-        let items = items.cloned().unwrap_or_else(|| json!([]));
-        match self.agents.task_list_set(session, &items)? {
-            Value::Null => outcome("done", format!("{id}'s task list is cleared")),
-            list => {
-                let done = list["done"].as_u64().unwrap_or(0);
-                let total = list["total"].as_u64().unwrap_or(0);
-                let now = list["current"]
-                    .as_str()
-                    .map(|c| format!("; now: {c}"))
-                    .unwrap_or_default();
-                outcome(
-                    "done",
-                    format!("{id}'s task list: {done} of {total} done{now}"),
-                )
-            }
         }
     }
 

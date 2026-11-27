@@ -138,7 +138,8 @@ fn page_policy(host: Option<&str>) -> String {
         })
         .map_or_else(String::new, |host| format!(" ws://{host}"));
     format!(
-        "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; \
+        "default-src 'none'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; \
+         style-src 'self' 'unsafe-inline'; \
          img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; \
          connect-src 'self'{websocket}; \
          base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
@@ -269,7 +270,6 @@ pub fn page_bundle_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write as _;
 
     fn packed_tree(name: &str) -> PathBuf {
         let stamp =

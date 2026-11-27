@@ -1,4 +1,5 @@
 #!/bin/sh
+# tooling-steps runs: scripts/cmux-next/web-bundle-key.py scripts/cmux-next/sync-app-runtime.sh
 # Builds every web bundle the cmux-next app ships, from the current sources:
 # the agent pane, the React pages, Agent Activity, the
 # webviews app (diff, markdown and editor pages) and the Chief memory inspector,
@@ -28,6 +29,20 @@
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
+# An inherited `BUN_OPTIONS=--preload PATH` would fail every bun install here; this joins it to --preload=PATH.
+. "$ROOT/scripts/lib/bun-options.sh"
+# bun exits "EACCES accessing temporary directory" when its temp dir is not
+# writable (hetzner-2-21, run 46053948772). Use the first writable candidate.
+if [ -z "${BUN_TMPDIR:-}" ]; then
+  for candidate in "${RUNNER_TEMP:-}" "${TMPDIR:-}" /tmp "${HOME:-}/.cache"; do
+    [ -n "$candidate" ] || continue
+    if mkdir -p "$candidate/bun-tmp" 2>/dev/null && [ -w "$candidate/bun-tmp" ]; then
+      BUN_TMPDIR="$candidate/bun-tmp"
+      export BUN_TMPDIR
+      break
+    fi
+  done
+fi
 MODE=build
 OUT_ROOT=""
 REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"

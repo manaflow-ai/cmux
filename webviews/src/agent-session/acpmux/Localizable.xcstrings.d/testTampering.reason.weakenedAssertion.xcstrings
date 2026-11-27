@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "testTampering.reason.weakenedAssertion" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "استُبدل تأكيد دقيق بمحمول أضعف."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Provjera tačne vrijednosti zamijenjena je slabijim uslovom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En præcis kontrol blev erstattet af en svagere betingelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine exakte Assertion wurde durch ein schwächeres Prädikat ersetzt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An exact assertion was replaced with a weaker predicate."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se sustituyó una aserción exacta por un predicado más débil."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une assertion exacte a été remplacée par un prédicat plus faible."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un’asserzione esatta è stata sostituita con una condizione più debole."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正確なアサーションがより弱い述語に置き換えられました。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានជំនួសលក្ខខណ្ឌផ្ទៀងផ្ទាត់ជាក់លាក់ដោយលក្ខខណ្ឌដែលខ្សោយជាង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "정확한 어설션이 더 약한 조건으로 대체되었습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En nøyaktig kontroll ble erstattet med en svakere betingelse."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dokładną asercję zastąpiono słabszym warunkiem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uma asserção exata foi substituída por uma condição mais fraca."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Точная проверка заменена более слабым условием."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แทนที่เงื่อนไขตรวจสอบแบบตรงตัวด้วยเงื่อนไขที่อ่อนกว่า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kesin bir doğrulama daha zayıf bir koşulla değiştirildi."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Точну перевірку замінено слабшою умовою."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Một điều kiện xác nhận chính xác đã được thay bằng điều kiện yếu hơn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "精确断言已被较弱的谓词替换。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "精確斷言已被較弱的述詞取代。"
+          }
+        }
+      },
+      "comment" : "Agent pane: test-tampering alarm disclosure and actions."
+    }
+  },
+  "version" : "1.0"
+}

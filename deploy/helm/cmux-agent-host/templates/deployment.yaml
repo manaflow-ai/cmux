@@ -1,0 +1,97 @@
+# One host agent per release: one reconcile loop (RFD 0100 section 9, "Order of work"). Recreate, so an
+# upgrade never runs two loops on the same slots.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cmux-agent-host.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cmux-agent-host.labels" . | nindent 4 }}
+    app.kubernetes.io/component: host-agent
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "cmux-agent-host.agentSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cmux-agent-host.agentSelector" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "cmux-agent-host.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.agent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agent.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agent.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: host-agent
+          image: {{ include "cmux-agent-host.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            {{- toYaml .Values.agent.command | nindent 12 }}
+          args:
+            {{- toYaml .Values.agent.args | nindent 12 }}
+            - --config
+            - /etc/cmux-agent-host/config.json
+          env:
+            - name: CMUX_HOST_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CMUX_PLATFORM_URL
+              value: {{ .Values.agent.platformUrl | quote }}
+            - name: CMUX_JOIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cmux-agent-host.joinSecret" . }}
+                  key: {{ .Values.join.existingSecretKey }}
+                  # Unused once the host credential is written; the token is single-use.
+                  optional: true
+            - name: CMUX_HOST_CREDENTIAL_SECRET
+              value: {{ include "cmux-agent-host.hostCredentialSecret" . | quote }}
+            - name: RUST_LOG
+              value: {{ .Values.agent.logLevel | quote }}
+            {{- with .Values.agent.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cmux-agent-host
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "cmux-agent-host.fullname" . }}
+        - name: tmp
+          emptyDir: {}

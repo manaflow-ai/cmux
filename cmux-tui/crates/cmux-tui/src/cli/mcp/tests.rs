@@ -70,6 +70,9 @@ struct Fake {
     /// The requests `Backend::resource_sender` sent (a live file's reloads); no sender
     /// when unset.
     reloads: Option<std::sync::Arc<std::sync::Mutex<Vec<Value>>>>,
+    /// `Backend::resource_job`: a terminal wait sent from its own thread answers
+    /// `resource_result` after this long; none (a wait on the server's thread) when unset.
+    wait_job: Option<Duration>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -190,6 +193,21 @@ impl Backend for Fake {
         Some(std::sync::Arc::new(move |plan: RequestPlan| {
             reloads.lock().unwrap().push(request_value(&plan).expect("a valid request"));
             Ok(json!({}))
+        }))
+    }
+
+    fn resource_job(&self, _session: Option<&str>) -> Option<ResourceJob> {
+        let delay = self.wait_job?;
+        let answer = self.resource_result.clone().unwrap_or_else(|| json!({}));
+        Some(Box::new(move |plan, _prefixes| {
+            assert!(matches!(
+                plan.operation,
+                super::super::command::WireOperation::Typed(
+                    ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit
+                )
+            ));
+            std::thread::sleep(delay);
+            Ok(answer)
         }))
     }
 
@@ -999,7 +1017,7 @@ fn fake_env(
 fn the_settings_file_follows_the_app_override() {
     assert_eq!(
         config::path_from(fake_env(&[("HOME", "/Users/u")])),
-        PathBuf::from("/Users/u/.config/cmux/cmux-next.json")
+        PathBuf::from("/Users/u/.config").join(cmux_config::NEXT_DIR).join("cmux-next.json")
     );
     assert_eq!(
         config::path_from(fake_env(&[
@@ -1442,6 +1460,8 @@ fn agents_workspace_select_focuses_through_the_owners_and_returns_a_receipt() {
     let receipt = &result["structuredContent"];
     assert_eq!(receipt["action"], "workspace.select");
     assert_eq!(receipt["result"]["id"], WORKSPACE);
+    assert_eq!(receipt["result"]["app_shown"], true, "{receipt}");
+    assert!(receipt["result"].get("app_not_shown").is_none(), "{receipt}");
     assert_eq!(receipt["state"]["workspaces"][0]["id"], WORKSPACE);
     assert_eq!(receipt["state"]["windows"][0]["id"], "win_a");
     assert_eq!(receipt["state"]["sources"]["daemon"]["available"], true);
@@ -1552,6 +1572,32 @@ fn agents_action_tools_refuse_invalid_arguments_before_reaching_an_owner() {
         assert_eq!(result["structuredContent"]["state"], "not_run", "{name} {arguments}");
         assert!(server.backend.sent.borrow().is_empty(), "{name} {arguments} reached an owner");
     }
+}
+
+#[test]
+fn agents_workspace_select_says_when_no_window_shows_it() {
+    // The daemon focused the workspace but the app has no such workspace (cloud.open-desktop's
+    // workspace filed in the background, #58421): still a success, and the result says so.
+    let mut server = Server::new(
+        Fake {
+            daemon_snapshot: Some(json!({
+                "id": WORKSPACE,
+                "workspaces": [{"id": WORKSPACE, "focused": true}],
+            })),
+            action_answers: BTreeMap::from([(
+                "goToWorkspace".to_owned(),
+                Err(json!({"code": "not_found", "message": "no such workspace"})),
+            )]),
+            ..Fake::default()
+        },
+        None,
+    );
+    let result = call(&mut server, "agents_workspace_select", json!({"workspace": WORKSPACE}));
+    assert_eq!(result["isError"], false, "{result}");
+    let receipt = &result["structuredContent"];
+    assert_eq!(receipt["result"]["id"], WORKSPACE);
+    assert_eq!(receipt["result"]["app_shown"], false, "{receipt}");
+    assert_eq!(receipt["result"]["app_not_shown"], "not_found", "{receipt}");
 }
 
 #[test]
@@ -1731,6 +1777,7 @@ mod retained;
 mod settings;
 mod slides;
 mod terminal_wait_timeout;
+mod wait_head_of_line;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
     let mut server = Server::new(fake, None);
@@ -1826,6 +1873,18 @@ fn code_mode_lists_only_exec_and_a_script_reaches_every_tool() {
     assert_eq!(both["isError"], true, "{both}");
     let other = call(&mut server, "cmux_exec", json!({"source": "return 1;"}));
     assert_eq!(other["isError"], true, "{other}");
+}
+
+/// A script makes more calls than the old limit of 2000; past the call log's length they are
+/// only counted.
+#[test]
+fn code_mode_scripts_make_more_calls_than_the_old_limit() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let script = "for (let i = 0; i < 2100; i++) { await cmux.workspace_list({}); } return 1;";
+    let ran = call(&mut server, "cmux_exec", json!({"script": script}));
+    assert_eq!(ran["isError"], false, "{ran}");
+    assert_eq!(ran["structuredContent"]["calls"], 2100);
+    assert_eq!(ran["structuredContent"]["result"], 1);
 }
 
 #[test]

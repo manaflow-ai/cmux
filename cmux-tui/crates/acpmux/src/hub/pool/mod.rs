@@ -48,6 +48,7 @@ mod auth;
 mod held;
 pub(crate) mod policy;
 mod reaper;
+mod reserved;
 mod spare;
 mod start;
 use held::{TapSlot, holding_inbound, holding_tap};
@@ -56,6 +57,8 @@ pub(crate) use reaper::run_reaper;
 #[cfg(unix)]
 use reaper::signal_harness;
 pub use reaper::tree_rss_bytes;
+pub use reserved::parse_shapes as parse_home_shapes;
+pub use spare::person_spare_shapes;
 #[cfg(test)]
 pub(super) use start::held_reports_full_access;
 
@@ -116,6 +119,11 @@ pub(crate) struct PoolState {
     /// Harnesses whose spare died, for the spare worker to start again (`spare.rs`).
     spare_restart: StdMutex<Vec<String>>,
     spare_wake: Notify,
+    /// A person request's spare check is running (`spare_on_person_request`): one at a time.
+    spare_presence_busy: AtomicBool,
+    /// A spare a person request wanted was refused (pool off, over the RSS cap, no spec): the
+    /// next person request tries again only after this.
+    spare_presence_retry_at: StdMutex<Option<std::time::Instant>>,
 }
 
 type Spec = (String, Option<String>);
@@ -139,6 +147,8 @@ impl PoolState {
             spare_file: StdMutex::new(()),
             spare_restart: StdMutex::new(Vec::new()),
             spare_wake: Notify::new(),
+            spare_presence_busy: AtomicBool::new(false),
+            spare_presence_retry_at: StdMutex::new(None),
         }
     }
 }
@@ -344,8 +354,50 @@ pub(super) fn started_on(
 }
 
 #[cfg(test)]
+#[path = "key_tests.rs"]
+mod key_tests;
+#[cfg(test)]
 #[path = "model_tests.rs"]
 mod model_tests;
+
+/// The pool's one-reaper claim (`PoolState::reaper`), held by the running reaper task. Dropping
+/// it while held (the task unwinding from a panic) clears the flag, so `start_pool_reaper` starts
+/// a new reaper instead of only waking one that is gone. Released by hand on the normal exit, where
+/// a successor may already have claimed the flag.
+struct ReaperClaim<'a> {
+    flag: &'a AtomicBool,
+    held: bool,
+}
+
+impl ReaperClaim<'_> {
+    fn release(&mut self) {
+        self.held = false;
+        self.flag.store(false, Ordering::SeqCst);
+    }
+}
+
+impl Drop for ReaperClaim<'_> {
+    fn drop(&mut self) {
+        if self.held {
+            self.flag.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
+/// The spawn env a pool key hashes: all of it but the sr2 person mark (`sr2_priority::mark`),
+/// which says who made the chat, not what the agent runs. Every entry starts as the person's
+/// (`pool_spec_in`), and only the person's chats take a pooled Claude Code, the one harness the
+/// mark changes (`lifecycle.rs` `shaped`). Hashed whole, a chat whose creator was not drafted
+/// the same way as its entry never matched it: from cmux#52363 until this, every person's chat
+/// discarded the warm spare and started cold.
+pub(super) fn key_env(
+    env: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<&str, &str> {
+    env.iter()
+        .filter(|(k, _)| k.as_str() != crate::sr2_priority::PERSON_ENV)
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect()
+}
 
 fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::internal(e.to_string())
@@ -403,6 +455,9 @@ impl Hub {
                 if v.hinted {
                     roles.push("hinted");
                 }
+                if v.reserved {
+                    roles.push("reserved");
+                }
                 if v.spare {
                     roles.push("spare");
                 }
@@ -439,7 +494,7 @@ impl Hub {
         let family = draft.family.clone().unwrap_or_default();
         let (credentials, account) = self.pool.auth.fingerprint(&family, &spawn.env);
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        spawn.env.hash(&mut h);
+        key_env(&spawn.env).hash(&mut h);
         credentials.hash(&mut h);
         // Codex's answer for the person's own `cmux` entry, asked once for this spec, off the
         // runtime.
@@ -562,6 +617,16 @@ impl Hub {
             draft.cmux_context = Some(crate::context_inventory::snapshot_session(&draft, &cfg));
         }
         draft.workspace_id = shape.workspace_id.clone();
+        // The pool is the person's (an agent's create warms nothing, `lifecycle.rs`; a pooled
+        // Claude Code starts for the person, `start.rs`): an entry starts as a person's chat
+        // would, so its agent asks sr2 for the person's reserve (`sr2_priority::mark`) like the
+        // chat that takes it. Drafted with no creator, it ran without, and its key (which hashed
+        // the mark, `key_env`) never matched a person's chat.
+        draft.created_by = Some(crate::store::CreatedBy {
+            kind: crate::store::CreatorKind::Person,
+            workspace: shape.workspace_id.clone(),
+            session: None,
+        });
         self.pool_spec_for(&draft, &r.profile, &r.defaults.env, shape.credential.as_ref()).await
     }
 
@@ -949,10 +1014,17 @@ impl Hub {
                     p.claimed_under = Some(off.clone());
                     p.codex_answer = Some(spec.answer.clone());
                     lock(&self.pool.claimed).insert(id.clone(), p);
+                    // A home chat took the machine's reserved warm agent: the next home chat's
+                    // folder is reserved and warmed now, so it starts warm too.
+                    let (reserved, ended) = lock(&self.pool.pool).end_reserved(&spec.key);
+                    self.pool_discard(ended);
+                    if reserved {
+                        self.refill_reserved_home(spec.key.cwd.clone());
+                    }
                     return Some(id);
                 }
-                Take::Discard(old) => {
-                    tracing::info!(harness = %spec.key.harness, "pooled session discarded: its key changed");
+                Take::Discard(old, fields) => {
+                    tracing::info!(harness = %spec.key.harness, differing = %fields.join(","), "pooled session discarded: its key changed");
                     self.pool_discard(old.into_iter().collect());
                     return None;
                 }
@@ -1069,6 +1141,8 @@ impl Hub {
             started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
+        // Its first adoption resumes from a checkpoint, not the whole log (`checkpoint.rs`).
+        self.prime_adoption_checkpoint(session, &p.record.incarnation);
         // A new host: its log is read back again under MDM's off, no end is pending for it, and
         // none of its reports waits (`full_access_bound.rs`).
         session.floor.left_host_read.store(false, Ordering::SeqCst);
@@ -1089,7 +1163,7 @@ impl Hub {
             reported
         };
         if let Some(target) = p.target.take() {
-            let _ = target.send(session.inbound_tx.clone());
+            let _ = target.send(session.inbound_tx().clone());
         }
         let child = p.child.clone();
         *session.child.lock().await = Some(child.clone());
@@ -1131,7 +1205,7 @@ impl Hub {
             self.absorb_session_response(session, res);
         }
         self.append(session, "mux", "pool_taken", json!({"rssBytes": p.rss}));
-        self.set_status(session, SessionStatus::Ready);
+        self.set_status(session, NotWaiting::Ready);
         self.note_launch(session, &child);
         // It started with the person's suggestions (`initialize_params`): right for theirs only.
         let asked_right = self.for_a_person(session);
@@ -1252,6 +1326,9 @@ impl Hub {
         }
         let hub = self.clone();
         tokio::spawn(async move {
+            // A reaper that panics gives its claim back as it unwinds, so the next pooled entry
+            // starts a new one instead of waking a reaper that is gone.
+            let mut claim = ReaperClaim { flag: &hub.pool.reaper, held: true };
             loop {
                 let shut = AtomicBool::new(false);
                 let stopped = async {
@@ -1285,13 +1362,14 @@ impl Hub {
                     },
                 )
                 .await;
-                hub.pool.reaper.store(false, Ordering::SeqCst);
+                claim.release();
                 // An entry added while the reaper was leaving restarts it.
                 let again = !shut.load(Ordering::SeqCst)
                     && !lock(&hub.pool.pool).is_empty()
                     && !hub.pool.stopping.load(Ordering::SeqCst)
                     && !hub.stopping.load(Ordering::SeqCst)
                     && !hub.pool.reaper.swap(true, Ordering::SeqCst);
+                claim.held = again;
                 if !again {
                     return;
                 }
@@ -1413,4 +1491,34 @@ async fn end_pooled_host(record: &HostRecord) {
     let nonce = record.start_nonce.clone();
     let _ = tokio::task::spawn_blocking(move || agent_host::end_left_behind(&nonce)).await;
     agent_host::remove_artifacts(&dir, record);
+}
+
+#[cfg(test)]
+mod reaper_claim_tests {
+    use super::*;
+
+    /// Before: a reaper that panicked left the flag set, so no reaper ever ran again and idle
+    /// pooled harnesses were never ended. After: the claim clears it as the task unwinds.
+    #[tokio::test]
+    async fn a_reaper_that_panics_gives_its_claim_back() {
+        let flag: &'static AtomicBool = Box::leak(Box::new(AtomicBool::new(true)));
+        let died = tokio::spawn(async move {
+            let _claim = ReaperClaim { flag, held: true };
+            panic!("reaper died");
+        })
+        .await;
+        assert!(died.is_err());
+        assert!(!flag.load(Ordering::SeqCst), "a dead reaper still holds the pool's claim");
+    }
+
+    /// A reaper that released its claim on the normal exit never clears a successor's.
+    #[test]
+    fn a_released_claim_leaves_a_successors_claim_alone() {
+        let flag = AtomicBool::new(true);
+        let mut claim = ReaperClaim { flag: &flag, held: true };
+        claim.release();
+        flag.store(true, Ordering::SeqCst);
+        drop(claim);
+        assert!(flag.load(Ordering::SeqCst));
+    }
 }

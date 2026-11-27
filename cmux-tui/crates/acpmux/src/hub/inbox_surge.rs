@@ -3,7 +3,7 @@
 use super::*;
 
 /// The last journaled snapshot powers the single chat row even when older posts leave memory.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug, serde::Serialize, serde::Deserialize)]
 pub(super) struct Counts {
     pub(super) seq: u64,
     held: u64,
@@ -11,6 +11,10 @@ pub(super) struct Counts {
 }
 
 impl Counts {
+    pub(super) fn need_you(&self) -> u64 {
+        self.need_you
+    }
+
     pub(super) fn json(&self) -> Value {
         json!({"held": self.held, "needYou": self.need_you})
     }
@@ -214,7 +218,7 @@ impl Hub {
     /// Surge admission is a preview: Settings > Experimental > Labs > Show Preview Features
     /// (`labs.previewFeatures`), off by default, read at each eligible message so the switch
     /// applies to the next one. Off, every message takes the path it took before the surge inbox.
-    pub(super) fn surge_inbox_on(&self) -> bool {
+    pub(in crate::hub) fn surge_inbox_on(&self) -> bool {
         if let Some(on) = *self.surge_inbox.lock().unwrap_or_else(|e| e.into_inner()) {
             return on;
         }
@@ -243,13 +247,29 @@ impl Hub {
         if !session.inbox().surge_rate.arrival(now, period) {
             return Ok(None);
         }
+        self.hold_in_inbox(session, prompt_id, client, blocks, opts, from).map(Some)
+    }
+
+    /// Keeps a prompt from `from` whole in `session`'s journal and inbox as a held message: no
+    /// turn, steer or inbox notice (the surge, and a held chat: `session_hold.rs`).
+    pub(in crate::hub) fn hold_in_inbox(
+        &self,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        client: &str,
+        blocks: &[Value],
+        opts: &PromptOptions,
+        from: String,
+    ) -> Result<Value, RpcError> {
         if super::super::queue::closing(session) {
             return Err(super::super::queue::closing_error());
         }
-
+        let now = now_ms();
+        let period =
+            session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).reply_period_ms(now);
         let provenance = opts.provenance.as_ref();
         let text = prompt_text(blocks);
-        let notice = tool_notice_of(provenance);
+        let notice = notice_of(provenance, &text);
         let thread = surge_topic(
             opts.thread.as_deref(),
             &text,
@@ -264,14 +284,21 @@ impl Hub {
             from_session.as_deref(),
             sender_meta.as_ref(),
         );
-        let class = opts.class.unwrap_or(if notice.is_some() {
+        // A program's message is an inbox fyi, whatever class it asked for, unless a FIRE
+        // (hq docs/handbook/notice-flood.md rule 1).
+        let program = notice.is_some()
+            || crate::surge_triage::program_notice(
+                &json!({"fromSession": from_session, "sender": sender, "text": text}),
+            );
+        let class = if program && !crate::surge_triage::fire_text(&text) {
             PromptClass::Fyi
         } else {
-            PromptClass::Result
-        });
+            opts.class.unwrap_or(PromptClass::Result)
+        };
         let msg = json!({"promptId": prompt_id, "threadId": thread, "from": from, "fromSession": from_session,
             "class":class,"kind":kind_of(class),"client":client,"text":text,"prompt":blocks,
-            "sender":sender,"surgeHeld":true,"replyPeriodMs":period,"report":is_report(provenance)});
+            "sender":sender,"surgeHeld":true,"replyPeriodMs":period,"report":is_report(provenance),
+            "program":program});
         self.persist_surge_event(
             session,
             "inbox",
@@ -292,11 +319,13 @@ impl Hub {
             // A surge hold is the inbox's own pacing: it stands whether or not the message waited.
             waited: false,
             at: now,
+            within: None,
             text,
             details: provenance.and_then(|p| p.get("details")).cloned(),
             fire: fire_notice(notice.as_ref()),
             tool_notice: notice,
             surge_held: true,
+            verdict: None,
             noticed: true,
             read: false,
             answer: None,
@@ -305,56 +334,12 @@ impl Hub {
         let mut inbox = session.inbox();
         inbox.items.push(item);
         trim(&mut inbox);
-        Ok(Some(
+        Ok(
             json!({"sessionId":session.id,"promptId":prompt_id,"threadId":thread,"inbox":true,"surgeHeld":true,"queued":false}),
-        ))
+        )
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn surge_starts_and_recovers_at_the_receivers_measured_rate() {
-        let mut fast = SurgeRate::default();
-        let mut slow = SurgeRate::default();
-        assert!(!fast.arrival(100, Some(10)));
-        assert!(!slow.arrival(100, Some(100)));
-        assert!(!fast.arrival(150, Some(10)));
-        assert!(slow.arrival(150, Some(100)));
-        assert!(slow.arrival(249, Some(100)));
-        assert!(!slow.arrival(349, Some(100)));
-        slow.restore(500);
-        assert!(slow.arrival(520, Some(100)));
-    }
-
-    #[test]
-    fn surge_bypasses_people_questions_blocks_and_fire() {
-        let blocks = [json!({"type":"text","text":"ordinary report"})];
-        let mut opts = PromptOptions { agent: Some("lane".into()), ..Default::default() };
-        assert!(eligible(&opts, &blocks).is_some());
-        opts.human_authenticated = true;
-        assert!(eligible(&opts, &blocks).is_none());
-        opts.human_authenticated = false;
-        let (_reader, receiver) = tokio::sync::watch::channel(false);
-        opts.reply_reader = Some(receiver);
-        assert!(eligible(&opts, &blocks).is_none());
-        opts.reply_reader = None;
-        for urgent in [PromptClass::Question, PromptClass::Block] {
-            opts.class = Some(urgent);
-            assert!(eligible(&opts, &blocks).is_none());
-        }
-        opts.class = Some(PromptClass::Fyi);
-        opts.agent = None;
-        opts.provenance = Some(crate::prompt_provenance::notice(
-            &json!({"sender":"watcher","severity":"warn"}),
-            "receiver",
-        ));
-        assert_eq!(eligible(&opts, &blocks).as_deref(), Some("watcher"));
-        opts.provenance = Some(crate::prompt_provenance::notice(
-            &json!({"sender":"watcher","severity":"fire"}),
-            "receiver",
-        ));
-        assert!(eligible(&opts, &blocks).is_none());
-    }
-}
+#[path = "inbox_surge_tests.rs"]
+mod tests;

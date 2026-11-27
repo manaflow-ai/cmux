@@ -31,7 +31,9 @@
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
 //   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream,reply] [--reply-words 2000,20000] [--dev] [--profile]
-//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold] [--draft 20000]
+//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold] [--draft 20000] [--frames] [--phases] [--probe FILE]
+// With --frames, a Chromium trace splits each key's keydown-to-paint by what it waited on (keyFrameTrace.ts;
+// `KEY-FRAMES` lines): the key's own task, work queued before its frame, the display tick, the frame's callbacks and rendering.
 // With --queue N the chat has N prompts waiting in its queue above the composer (ComposerQueue), which a key
 // should neither render nor lay out.
 // `--engine webkit` types the same keys in Playwright's WebKit, the engine the Mac app ships: the page's own typing
@@ -48,6 +50,7 @@ import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
 import { reportTrace, traceWindow } from "./styleInvalidationTrace";
 import { sourceMapper } from "./sourceMapper";
+import { FRAME_CATEGORIES, reportFrames, traceFrames } from "./keyFrameTrace";
 let mapUrl: (file: string, line: number, column: number) => string = (file, line) => `${file}:${line + 1}`;
 
 const argv = process.argv.slice(2);
@@ -88,14 +91,31 @@ const DEV = argv.includes("--dev");
 /// stream with no typing; it prints elements restyled per key and per token and what restyled them
 /// (styleInvalidationTrace.ts; `STYLE-TRACE ... SUMMARY` lines).
 const TRACE = argv.includes("--trace");
+/// With --frames: a Chromium trace over the typed keys read per key from keydown to paint: the key's own task, the
+/// work between it and its frame, the wait for the display tick, the frame callbacks ahead of the key's, that frame's
+/// rendering, and a breakdown of every main-thread task in the window (keyFrameTrace.ts; `KEY-FRAMES` lines).
+const FRAMES = argv.includes("--frames");
+/// With --phases: each key's time by phase (keydown, the engine's default action, the editor's input, to its frame)
+/// from the page's own event timestamps, the WebKit run (keyPhases.ts; `KEY-PHASES` lines).
+const PHASES = argv.includes("--phases");
+/// With --probe FILE: a script the page runs before its own code, for a question no flag answers yet; after the keys,
+/// whatever its `window.__probe()` returns prints as one `PROBE` JSON line. The pane builds unminified, so the
+/// probe's stacks and function names read as source.
+const PROBE = flag("--probe");
 const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
+/// --repeat N: each case runs N times and reports the valid attempt with the median keydown-to-paint p99, so one burst
+/// from a job sharing the host (the nightly's cmux-linux pool VMs run several runner slots) is not the reading. WebKit
+/// L0 read p99 155 ms on the 14:17Z 2026-11-26 nightly while its p95 was 39 ms, its handler work 10 ms and its driver
+/// on time; on a quiet host the same row reads 18-29 ms. Every attempt's p99 and validity stay in the table.
+const REPEAT = Number(flag("--repeat") ?? 1);
+if (!Number.isInteger(REPEAT) || REPEAT < 1) throw new Error(`--repeat must be a whole number from 1, not ${REPEAT}`);
 const FLOOR = !argv.includes("--no-floor");
 const COLD = argv.includes("--cold");
 const ENGINE = flag("--engine") ?? (ENGINES.length === 1 ? ENGINES[0]! : "chromium");
 if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error(`--engine must be chromium or webkit, not ${ENGINE}`);
-if (ENGINES.includes("webkit") && (PROFILE || TRACE))
+if (ENGINES.includes("webkit") && (PROFILE || TRACE || FRAMES))
   throw new Error("--profile and --trace read Chromium's DevTools protocol");
 /// Prompts waiting in the chat's queue while the keys are typed (0: none).
 const QUEUED = Number(flag("--queue") ?? 0);
@@ -235,9 +255,9 @@ const releases: (() => unknown)[] = [];
 // arm's build maps over the first's: profile one tree at a time).
 const serveOptions = {
   dev: DEV,
-  unminified: PROFILE || TRACE,
-  sourcemap: PROFILE || TRACE,
-  built: PROFILE || TRACE ? (out: string) => void (mapUrl = sourceMapper(out)) : undefined,
+  unminified: PROFILE || TRACE || FRAMES || PROBE !== undefined,
+  sourcemap: PROFILE || TRACE || FRAMES,
+  built: PROFILE || TRACE || FRAMES ? (out: string) => void (mapUrl = sourceMapper(out)) : undefined,
 };
 
 /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
@@ -292,7 +312,7 @@ async function measure(
       const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
       // One renderer runs the focused page and L2's documents, so its profile is what every key waits behind.
       const cdp = PROFILE && engine === "chromium" ? await page.context().newCDPSession(page) : undefined;
-      const typing = cdp && {
+      const profiled = cdp && {
         start: async () => {
           await cdp.send("Profiler.enable");
           await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
@@ -303,6 +323,16 @@ async function measure(
           printProfile(length, profile);
         },
       };
+      // With --frames, the same per-key split as the legacy modes (keyFrameTrace.ts), over the typed keys under load.
+      const framed = FRAMES &&
+        engine === "chromium" && {
+          start: () => browser.startTracing(page, { categories: FRAME_CATEGORIES }),
+          stop: async () => {
+            const events = (JSON.parse((await browser.stopTracing()).toString()) as { traceEvents: any[] }).traceEvents;
+            reportFrames(`${canonical}-typing ${length}rows`, events, mapUrl);
+          },
+        };
+      const typing = profiled || framed;
       try {
         return {
           engine,
@@ -315,6 +345,8 @@ async function measure(
             stream: STREAM,
             toolLines: TOOL_LINES,
             typing: typing || undefined,
+            phases: PHASES,
+            probe: PROBE && path.resolve(PROBE),
           })),
         };
       } finally {
@@ -416,7 +448,12 @@ async function measure(
     };
     await page.evaluate(() => (window as any).__frameWork.start());
     const typedAt = performance.now();
-    const typedEvents = TRACE ? await traceWindow(browser, page, typeKeys) : (await typeKeys(), undefined);
+    let frameEvents: Awaited<ReturnType<typeof traceFrames>> | undefined;
+    const typedEvents = TRACE
+      ? await traceWindow(browser, page, typeKeys)
+      : FRAMES
+        ? ((frameEvents = await traceFrames(browser, page, typeKeys)), undefined)
+        : (await typeKeys(), undefined);
     const typedMs = performance.now() - typedAt;
     const frameWork = (await page.evaluate(() => (window as any).__frameWork.stop())) as number[];
     await page.waitForTimeout(500);
@@ -443,6 +480,7 @@ async function measure(
         `STYLE-TRACE ${mode}-typing ${rows}rows WINDOW ${JSON.stringify({ keys: KEYS, window_ms: Math.round(typedMs) })}`,
       );
     }
+    if (frameEvents) reportFrames(`${mode}-typing ${rows}rows`, frameEvents, mapUrl);
     if (TRACE && mode === "stream") {
       let run: Record<string, any> = {};
       const events = await traceWindow(browser, page, async () => {
@@ -528,6 +566,14 @@ async function measure(
       to_frame_p50: typing.to_frame?.p50_ms,
       to_frame_p95: typing.to_frame?.p95_ms,
       to_frame_max: typing.to_frame?.max_ms,
+      // Key to its painted frame (perf.ts's post-paint mark, what the perf watch's composer.key_paint judges), the
+      // frames the keys dropped against the measured frame interval, and the longest prompt a key landed in.
+      to_paint_p50: typing.to_paint?.p50_ms,
+      to_paint_p95: typing.to_paint?.p95_ms,
+      to_paint_p99: typing.to_paint?.p99_ms,
+      dropped_frames: typing.dropped_frames,
+      frame_interval_ms: typing.frame_interval_ms,
+      prompt_chars: typing.max_chars,
       longest_task_ms: Math.round(Math.max(0, ...long.map((task) => task.ms)) * 10) / 10,
       long_tasks: long.length,
       composer_per_stream_event: composerPerEvent,
@@ -544,6 +590,33 @@ async function measure(
   } finally {
     await browser.close();
   }
+}
+
+/// One case REPEAT times: the valid attempt with the (lower) median to_paint_p99, else the first attempt.
+async function measureRepeated(
+  port: number,
+  length: number,
+  mode: string,
+  engine: "chromium" | "webkit",
+  replyWords: number,
+): Promise<Record<string, unknown>> {
+  const attempts: Record<string, unknown>[] = [];
+  for (let attempt = 0; attempt < REPEAT; attempt++)
+    attempts.push(await measure(port, length, mode, engine, replyWords));
+  if (REPEAT === 1) return attempts[0]!;
+  const p99 = (row: Record<string, unknown>) => row.to_paint_p99;
+  const valid = attempts
+    .filter((row) => row.valid === true && typeof p99(row) === "number" && Number.isFinite(p99(row)))
+    .sort((a, b) => (p99(a) as number) - (p99(b) as number));
+  const chosen = valid.length ? valid[Math.floor((valid.length - 1) / 2)]! : attempts[0]!;
+  return {
+    ...chosen,
+    attempts: REPEAT,
+    attempts_valid: valid.length,
+    attempt_valid: attempts.map((row) => row.valid ?? null),
+    attempt_to_paint_p95: attempts.map((row) => row.to_paint_p95 ?? null),
+    attempt_to_paint_p99: attempts.map((row) => p99(row) ?? null),
+  };
 }
 
 try {
@@ -577,7 +650,7 @@ try {
     const table: Record<string, unknown>[] = [];
     for (const engine of ENGINES)
       for (const { length, mode, words } of cases)
-        table.push(await measure(port, length, mode, engine as "chromium" | "webkit", words));
+        table.push(await measureRepeated(port, length, mode, engine as "chromium" | "webkit", words));
     console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
     for (const row of table)
       console.log(

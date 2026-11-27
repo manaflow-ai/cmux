@@ -23,8 +23,9 @@ script writes the copies the app's Swift modules compile in. Sources so far:
   (Swift: SettingsPageLayout and SettingsSchema.actions(in:), SettingsSchema+PageLayout*.generated.swift).
   The export resolves it against the rows into settings-schema.json's `page`
   (SettingsPageLayout+Categories.swift).
-- schemas/settings/source/agent-policy.json: which keys an agent may change, and why not
-  (Swift: SettingsSchema+AgentPolicy.generated.swift). Every row of a section source needs a group.
+- schemas/settings/source/agent-policy/: which keys an agent may change, and why not, one <key>.json
+  per key plus _refusals.json (Swift: SettingsSchema+AgentPolicy.generated.swift). Every row of a
+  section source needs a file.
 - schemas/settings/source/row-facts.json: the keys Reset All keeps and cmux-browser shares, and each
   row's validation domain (Swift: SettingsSchema+RowFacts.generated.swift), with its copy of the app id
   pattern of the app manifest schema (cmux-app.schema.json `properties.id.pattern`) for domain:app_id;
@@ -136,8 +137,10 @@ def load_retired():
     entries = data["retired"]
     seen = set()
     for entry in entries:
-        if set(entry) - {"key", "reason", "why", "replaced_by", "values", "since", "until"} or not {"key", "reason"} <= set(entry):
-            raise SystemExit("%s: entry needs key, reason (and optional why, replaced_by, values, since, until): %r" % (RETIRED_SOURCE, entry))
+        if set(entry) - {"key", "reason", "why", "replaced_by", "values", "since", "until", "migrated_by_app"} or not {"key", "reason"} <= set(entry):
+            raise SystemExit("%s: entry needs key, reason (and optional why, replaced_by, values, since, until, migrated_by_app): %r" % (RETIRED_SOURCE, entry))
+        if "migrated_by_app" in entry and not isinstance(entry["migrated_by_app"], bool):
+            raise SystemExit("%s: migrated_by_app must be a boolean for %r" % (RETIRED_SOURCE, entry["key"]))
         check_window(entry)
         key = entry["key"]
         parts = key.split(".")
@@ -205,7 +208,9 @@ def retired_swift(entries):
         rows.append("        %s: %s," % (swift_string(entry["key"]), swift_string(entry["reason"])))
     def path(key):
         return "[%s]" % ", ".join(swift_string(part) for part in key.split("."))
-    replaced = []
+    # One row may replace several old keys (updates.automatic replaced three toggles): its entries keep the
+    # file's order, the order they are read in.
+    by_row = {}
     for entry in entries:
         if "replaced_by" not in entry:
             continue
@@ -215,7 +220,8 @@ def retired_swift(entries):
             values = "[%s]" % (pairs or ":")
         else:
             values = "nil"
-        replaced.append("        %s: (old: %s, values: %s)," % (path(entry["replaced_by"]), path(entry["key"]), values))
+        by_row.setdefault(entry["replaced_by"], []).append("(old: %s, values: %s)" % (path(entry["key"]), values))
+    replaced = ["        %s: [%s]," % (path(row), ", ".join(olds)) for row, olds in by_row.items()]
     return """// {header}
 
 extension SettingsSchema {{
@@ -228,12 +234,13 @@ extension SettingsSchema {{
 {rows}
     ]
 
-    /// Retired keys a row took the place of, by the row's path: the old key's path and what its
-    /// values read as in the row (any other value reads as the row's default; `nil`: a plain
-    /// rename, every value reads as is). While the row is unset Settings shows the old key's
-    /// value, and every write or reset of the row removes the old key (``RenamedSettingKeys``), as
-    /// the daemon does (cmux-config `schema::retired`).
-    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue]?)] = [
+    /// Retired keys a row took the place of, by the row's path: each old key's path and what its
+    /// values read as in the row (`nil`: a plain rename, every value reads as is), in the order
+    /// they are read (the first old key whose value is listed wins; any other value reads as the
+    /// row's default). While the row is unset Settings shows that value, and every write or reset
+    /// of the row removes every old key (``RenamedSettingKeys``), as the daemon does (cmux-config
+    /// `schema::retired`).
+    static let replacedKeys: [[String]: [(old: [String], values: [JSONValue: JSONValue]?)]] = [
 {replaced}
     ]
 }}
@@ -882,7 +889,14 @@ def section_swift(section, data):
         pieces.append(("list", joined_var_swift(section, data), None, []))
     # The type of each list body: the section type while it stays under MAX_TYPE_LINES, then
     # <type>2, <type>3... (a list the section type forwards). Joins stay on the section type.
-    home, used, index = {}, 0, 0
+    # The section type's own lines count first: its parser constants (a row without a swift_owner puts them in an
+    # `extension <type>` block) and its joins, so the lists only fill what is left (agent-pane-display's 232 lines of
+    # constants took AgentPaneDisplaySettingsSchema to 1029, 2026-11-27).
+    used = sum(line_count(block) + 1 for block in constant_blocks if block[0] == "extension %s {" % section["type"])
+    used += sum(line_count(piece[1]) + 1 for piece in pieces if isinstance(piece, tuple) and piece[0] == "join")
+    used += sum(line_count(piece[1]) + 3 for piece in pieces
+                if isinstance(piece, tuple) and piece[0] == "list" and not piece[2])
+    home, index = {}, 0
     for piece in pieces:
         if isinstance(piece, tuple) and piece[0] in ("list", "part") and piece[2]:
             size = line_count(piece[1]) + 3
@@ -1213,7 +1227,8 @@ def page_categories_swift(data):
 
 # Per-row facts the schema export writes beside each row's definition: the agent policy, the keys
 # Reset All keeps and cmux-browser shares, validation domains and the conformance samples.
-POLICY_SOURCE = "schemas/settings/source/agent-policy.json"
+POLICY_SOURCE = "schemas/settings/source/agent-policy"
+POLICY_REFUSALS = "_refusals.json"
 POLICY_SWIFT = SCHEMA_DIR + "/SettingsSchema+AgentPolicy.generated.swift"
 REFUSALS_SWIFT = SCHEMA_DIR + "/SettingsSchema+AgentRefusals.generated.swift"
 FACTS_SOURCE = "schemas/settings/source/row-facts.json"
@@ -1263,36 +1278,52 @@ def section_row_keys():
 
 
 def load_agent_policy():
+    """The agent policy directory as {"$comment", "refusals", "groups"}: one file per key (<key>.json,
+    {agent, why?}) plus _refusals.json, so two pull requests that each add a setting never touch the same
+    line. Keys with the same agent and why are one group, in key order."""
     src = POLICY_SOURCE
-    data = load_json(src)
-    if set(data) != {"$comment", "refusals", "groups"}:
-        fail(src, "fields are $comment, refusals, groups")
+    head = load_json(src + "/" + POLICY_REFUSALS)
+    if set(head) != {"$comment", "refusals"}:
+        fail(src + "/" + POLICY_REFUSALS, "fields are $comment, refusals")
     reasons = []
-    for refusal in data["refusals"]:
+    for refusal in head["refusals"]:
         if set(refusal) != {"id", "doc"} or not IDENT.match(refusal["id"]) or refusal["id"] in SWIFT_KEYWORDS \
                 or refusal["id"] in reasons or refusal["id"] == "settable":
             fail(src, "a refusal is {id, doc} with a unique identifier id: %r" % refusal)
         check_note(src, refusal["id"], refusal["doc"])
         reasons.append(refusal["id"])
-    seen = set()
-    for group in data["groups"]:
-        if set(group) - {"agent", "why", "keys"} or not group.get("keys"):
-            fail(src, "a group is {agent, why, keys} with keys: %r" % group)
-        if group["agent"] != "settable" and group["agent"] not in reasons:
-            fail(src, "agent %r is settable or a refusal id" % group["agent"])
-        check_note(src, "why", group.get("why"))
-        for key in group["keys"]:
-            check_key(src, key)
-            if key in seen:
-                fail(src, "%s is in two groups" % key)
-            seen.add(key)
-    retired = {entry["key"] for entry in load_retired()} & seen
+    groups, by_reason, seen = [], {}, set()
+    names = sorted(name for name in os.listdir(os.path.join(ROOT, src)) if name != POLICY_REFUSALS)
+    for name in names:
+        where = src + "/" + name
+        if not name.endswith(".json"):
+            fail(where, "the policy directory holds only <key>.json files and " + POLICY_REFUSALS)
+        key = name[: -len(".json")]
+        check_key(where, key)
+        if key.lower() in seen:
+            fail(where, "two files name %s (keys differ only in case, which a Mac checkout cannot hold)" % key)
+        seen.add(key.lower())
+        entry = load_json(where)
+        if not isinstance(entry, dict) or set(entry) - {"agent", "why"} or "agent" not in entry:
+            fail(where, "a key's policy is {agent, why?}: %r" % entry)
+        if entry["agent"] != "settable" and entry["agent"] not in reasons:
+            fail(where, "agent %r is settable or a refusal id" % entry["agent"])
+        check_note(where, "why", entry.get("why"))
+        reason = (entry["agent"], entry.get("why"))
+        if reason not in by_reason:
+            by_reason[reason] = {"agent": entry["agent"], "keys": []}
+            if entry.get("why"):
+                by_reason[reason]["why"] = entry["why"]
+            groups.append(by_reason[reason])
+        by_reason[reason]["keys"].append(key)
+    keys = {key for group in groups for key in group["keys"]}
+    retired = {entry["key"] for entry in load_retired()} & keys
     if retired:
         fail(src, "retired keys have no policy: %s" % sorted(retired))
-    missing = section_row_keys() - seen
+    missing = section_row_keys() - keys
     if missing:
-        fail(src, "rows with no agent policy: %s" % sorted(missing))
-    return data
+        fail(src, "rows with no agent policy (add %s/<key>.json): %s" % (src, sorted(missing)))
+    return {"$comment": head["$comment"], "refusals": head["refusals"], "groups": groups}
 
 
 def agent_policy_swift(data):

@@ -22,7 +22,7 @@ async fn chat(answer: Option<&'static str>) -> (Arc<Hub>, Arc<Session>) {
 
 fn hold(hub: &Hub, s: &Session, id: &str, thread: &str, class: &str, text: &str) {
     let msg = json!({"promptId": id, "threadId": thread, "from": "lane-a", "class": class,
-        "text": text, "surgeHeld": true});
+        "text": text, "surgeHeld": true, "fromSession": "lane-a-session"});
     hub.append(s, "mux", "inbox", msg);
 }
 
@@ -466,7 +466,7 @@ async fn failed_journal_writes_lose_no_decision_and_no_delivery() {
 
 fn hold_from(hub: &Hub, s: &Session, id: &str, from: &str, thread: &str, text: &str) {
     let msg = json!({"promptId": id, "threadId": thread, "from": from, "class": "fyi",
-        "text": text, "surgeHeld": true});
+        "text": text, "surgeHeld": true, "fromSession": format!("{from}-session")});
     hub.append(s, "mux", "inbox", msg);
 }
 
@@ -556,6 +556,7 @@ async fn a_question_and_an_expired_report_are_never_repeats() {
             from: "lane-b".into(),
             class: "question".into(),
             text: "which base?".into(),
+            program: false,
         }],
     )
     .remove(0);
@@ -713,4 +714,129 @@ async fn a_fork_never_sends_its_parents_owed_digest_or_uses_its_grants() {
     assert_eq!(item(&events, "c1")["category"], "needs_this_session", "no inherited grant");
     assert_eq!(digested(&hub, &child.id), [json!(["c1"])], "the parent's digest is not sent");
     assert!(digested(&hub, &owner.id).is_empty());
+}
+
+/// A held message from a program: no session sent it (glaeda-land, hang-watch, NOW).
+fn hold_program(hub: &Hub, s: &Session, id: &str, thread: &str, class: &str, text: &str) {
+    let msg = json!({"promptId": id, "threadId": thread, "from": thread, "class": class,
+        "text": text, "surgeHeld": true, "sender": {"session": null, "relay": null}});
+    hub.append(s, "mux", "inbox", msg);
+}
+
+fn need_you(hub: &Hub, s: &Session) -> Value {
+    hub.inbox_threads(s)["surge"]["needYou"].clone()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn program_notices_never_count_and_a_read_lowers_need_you_at_once() {
+    // The model would call every one of them actionable, and each asks the person.
+    let (hub, s) = chat(Some("1 this\n2 this\n3 this")).await;
+    hold_program(&hub, &s, "g1", "glaeda-land", "block", "land stopped #51600: needs approval");
+    hold_program(
+        &hub,
+        &s,
+        "h1",
+        "hang-watch",
+        "question",
+        "turn stuck 31 min; can the person look?",
+    );
+    hold_program(&hub, &s, "n1", "now-md", "block", "NOW: 15 red; the owner must sign in");
+    hold_program(
+        &hub,
+        &s,
+        "f1",
+        "now-fire",
+        "block",
+        "FIRE runner label stalled; approve a restart",
+    );
+    hold(&hub, &s, "a1", "review", "question", "can the person pick a base?");
+    hold(&hub, &s, "a2", "deploy", "block", "deploy needs the owner's approval");
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    for id in ["g1", "h1", "n1"] {
+        assert_eq!(item(&events, id)["category"], "fyi", "{id}");
+        assert_eq!(item(&events, id)["decidedBy"], "rule", "{id}");
+    }
+    assert_eq!(item(&events, "f1")["category"], "needs_this_session", "a FIRE still reaches it");
+    assert_eq!(need_you(&hub, &s), 3, "the FIRE and the two agents' asks, no program notice");
+
+    // Reading a thread lowers needYou now, with no pass; its held messages left memory
+    // (`hold` journals them only), as `trim` lets them go on a busy chat.
+    hub.inbox_thread(&s, "review", true);
+    assert_eq!(need_you(&hub, &s), 2);
+    hub.inbox_thread(&s, "review", true);
+    assert_eq!(need_you(&hub, &s), 2, "a second read changes nothing");
+    hub.inbox_thread(&s, "deploy", false);
+    assert_eq!(need_you(&hub, &s), 2, "a look without marking read changes nothing");
+    hub.inbox_thread(&s, "deploy", true);
+    hub.inbox_thread(&s, "now-fire", true);
+    assert_eq!(need_you(&hub, &s), 0);
+
+    // A restart rebuilds the journal from the log: the reads stand.
+    hub.surge_triage_journals.lock().unwrap().remove(&s.id);
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
+    assert_eq!(need_you(&hub, &s), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_program_notice_an_older_pass_opened_stops_counting_at_the_next_pass() {
+    let (hub, s) = chat(Some("1 this")).await;
+    hold_program(&hub, &s, "g1", "glaeda-land", "result", "merged #51600");
+    // What a daemon before the rule journaled: the model called it this chat's.
+    let old = json!({"batchId": "b0", "recipient": s.id, "digestPromptId": "d0", "items": [
+        {"promptId": "g1", "threadId": "glaeda-land", "category": "needs_this_session",
+         "decidedBy": "model", "from": "glaeda-land", "label": "merged", "class": "result"}]});
+    hub.persist_surge_triage(&s, old, 1).unwrap();
+    assert_eq!(need_you(&hub, &s), 1);
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
+    assert_eq!(need_you(&hub, &s), 0, "the pass counts it again under the rule");
+}
+
+/// RFD 0158 §16: three votes run, and only what two of them agree on is decided.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn consensus_runs_three_votes_and_keeps_the_majority() {
+    let (hub, _s) = chat(None).await;
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = calls.clone();
+    hub.set_surge_triager(Some(Arc::new(move |_| {
+        let n = seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Some(["1 noise\n2 this", "1 noise\n2 handled", "1 this\n2 noise"][n % 3].to_owned())
+    })));
+    let list = vec![
+        triage::Held {
+            prompt_id: "p1".into(),
+            thread_id: "t1".into(),
+            from: "a".into(),
+            class: "fyi".into(),
+            text: "green".into(),
+            program: false,
+        },
+        triage::Held {
+            prompt_id: "p2".into(),
+            thread_id: "t2".into(),
+            from: "a".into(),
+            class: "fyi".into(),
+            text: "hmm".into(),
+            program: false,
+        },
+    ];
+    let batch = triage::batches("coord", list).remove(0);
+    let owners = Owners::default();
+    let kept = hub.surge_triage_voted(None, &batch, &owners, CONSENSUS_VOTES).await;
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(kept[0].as_ref().map(|d| d.category), Some(triage::Category::Noise));
+    assert_eq!(kept[1], None, "a three-way split stays held");
+    let one = hub.surge_triage_voted(None, &batch, &owners, 1).await;
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 4, "one vote is one call");
+    assert!(one.iter().all(Option::is_some));
+}
+
+#[test]
+fn consensus_is_off_unless_turned_on() {
+    let on = json!({"agents": {"harnessMagic": {"consensus": {"enabled": true}}}});
+    assert!(!consensus_enabled_with(None, None));
+    assert!(!consensus_enabled_with(Some(&json!({})), None));
+    assert!(consensus_enabled_with(Some(&on), None));
+    assert!(!consensus_enabled_with(Some(&on), Some("0")));
+    assert!(consensus_enabled_with(None, Some("1")));
 }

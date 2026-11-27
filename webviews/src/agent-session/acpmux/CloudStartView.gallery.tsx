@@ -67,31 +67,31 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
   height: 380,
   variants: {
     // The quiet view a person sees while a start is on its way (no showSteps): one line that names the
-    // stage, then why the chat waits and about how long. `inline` is the shipped look; the
+    // stage and counts its seconds live (then m:ss), never a guess at how long it usually takes. `inline` is the shipped look; the
     // `quiet-stacked-*`, `quiet-hint-*` and `quiet-thinking` variants show the other arms of
     // `cloud-start-quiet-look` on the same stages.
     "quiet-machine": {
-      note: "Just sent: the line says the Cloud machine is starting and that it usually takes under a minute.",
+      note: "Just sent: the line says the Cloud machine is starting, with its live seconds.",
       props: { start: { ...begun, step: "machine" } },
     },
     "quiet-copy": {
-      note: "The machine is up and the project copies; with no progress reported, the usual wait.",
+      note: "The machine is up and the project copies; with no progress reported, only its seconds.",
       props: { start: { ...begun, step: "folder", ...known } },
     },
     "quiet-copy-progress": {
-      note: "The copy reports its files: the line shows them in place of the usual wait.",
+      note: "The copy reports its files: the line shows them after its seconds.",
       props: { start: { ...begun, ...copyProgress } },
     },
     "quiet-setup": {
-      note: "The environment's setup script runs for the first time: a few minutes the first time.",
+      note: "The environment's setup script runs for the first time, with its seconds.",
       props: { start: { ...begun, ...setupRunning } },
     },
     "quiet-agent": {
-      note: "Last stage: the agent starts on the machine, usually a few seconds.",
+      note: "Last stage: the agent starts on the machine, with its seconds.",
       props: { start: { ...begun, step: "opening", agent: "Claude Code", ...known } },
     },
     "quiet-stacked-machine": {
-      note: "Arm stacked: the stage on the live line, the usual wait as a secondary line under it.",
+      note: "Arm stacked: the stage and its seconds on the live line, the copy's progress (when it reports) under it.",
       props: { start: { ...begun, step: "machine" }, quietLook: "stacked" },
     },
     "quiet-stacked-setup": {
@@ -319,6 +319,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
       },
     },
     "start-failed-retry": {
+      // retry-prompt-ok: Retry sends the start prompt again and starts a billed Cloud machine.
       note: "A start that failed on its way with no retry flag (the agent didn't start): Retry sends it again under the same key, Run on This Mac beside it.",
       props: {
         start: {
@@ -454,6 +455,53 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           clone: { state: "done", ...timing },
           setup: { state: "failed", status: "failed", logTail: "npm ERR! missing script: build", ...timing },
         },
+      },
+    },
+    "recovery-setup-selected": {
+      note: "A failed setup keeps its target and offers Edit cloud environment before Retry.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          environment: "env_selected",
+          retryable: true,
+          message: "Environment setup failed.",
+          setup: { state: "failed", status: "failed", hasScript: true, logTail: "setup exited with status 1" },
+        },
+        onOpenEnvironment: () => undefined,
+        onRetry: () => undefined,
+      },
+    },
+    "recovery-setup-resolved": {
+      note: "A failed setup keeps its target and offers Edit cloud environment before Retry.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          environment: "env_selected",
+          environmentId: "env_resolved",
+          retryable: true,
+          message: "Environment setup failed.",
+          setup: { state: "failed", status: "failed", hasScript: true, logTail: "setup exited with status 1" },
+        },
+        onOpenEnvironment: () => undefined,
+        onRetry: () => undefined,
+      },
+    },
+    "recovery-setup-status-only": {
+      note: "A failed setup keeps its target and offers Edit cloud environment before Retry.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          environment: "env_selected",
+          environmentId: "env_resolved",
+          retryable: true,
+          message: "Environment setup failed.",
+          setup: { state: "pending", status: "failed", hasScript: true, logTail: "setup exited with status 1" },
+        },
+        onOpenEnvironment: () => undefined,
+        onRetry: () => undefined,
       },
     },
     "checklist-setup-skipped": {

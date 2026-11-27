@@ -5,7 +5,11 @@ name: PR checks
 # the step table (ci/steps.toml, `job = "advisory"`, `blocks = false`, `class = "idle"`), run at once by
 # scripts/ci/ci_steps.py from the base commit's copy, never the pull request's code. None fails a pull
 # request: a failed or timed-out step is a warning annotation, and the job's name ends "(advisory)", which
-# landing tools read as never a pull request's own red. The description lints run in pr-body-checks.yml.
+# landing tools read as never a pull request's own red. On a push it also runs the description lints (capture,
+# design spec, Performance table, cloud backend), which were pr-body-checks.yml's own job on every push (973 jobs
+# in the 24 h to 2026-11-21T12Z); pr-body-checks.yml now runs them only on a media-tour or
+# perf label, which this workflow does not take (a description edit re-lints at the next push). A docs-only push (the `paths:` below) gets no lints: none of them
+# judges a docs-only change.
 #
 # CI v2 step 6, "advisory steps leave the PR's machines" (cmuxterm-hq docs/design/ci-v2.md). They were six
 # jobs (base-only, link, swift-logic, size, ui-review, split) on every push: 24 h to 2026-11-21T12Z, 10,498
@@ -62,8 +66,10 @@ on:
       - "docs/ci/node-product-cache-maintenance.md"
       - "plans/cmux-next/actions.md"
       - "docs/mdm/managed-preferences.md"
+      - "cmux-tui/crates/cmux-app-host/generated/REFERENCE.md"
       - "docs/ci/health-report.md"
       - "docs/privacy.md"
+      - "docs/network-requirements.md"
       - "**/notices/**"
       - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
       - "cmux-tui/README.md"
@@ -75,6 +81,7 @@ on:
       - "cmux-tui/crates/cmux-extension-sdk/README.md"
       - "cmux-tui/vendor/terminput-crossterm/README.md"
       - "mux/packages/brain/conformance/README.md"
+      - "Native/OptChat/chief-kernel/src/turn_checks.md"
     # docs-only paths: END
   # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
   # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
@@ -115,7 +122,7 @@ jobs:
     # Blacksmith, any other run the CI_TRUSTED_RUNNER selector (as the old ui-review and swift-logic jobs), never
     # RUNNER_POOLS (its x64 pools lead with persistent machines). Not cmux-gcp-pr-control-jit-x64: on 2026-11-21 that
     # label queued 1,860 jobs and this job waited on it 10+ min (cmux-next.yml's control jobs left it the same day).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     timeout-minutes: 15
     permissions:
       contents: read
@@ -256,6 +263,12 @@ jobs:
             esac
             keep+=("$step")
           done
+          # The description lints (pr-body-checks.yml's, until CI v2 step 6's second cut) on every push: on a
+          # draft, a base-only update, a fork and under CI_QUOTA_HOLD too, as they ran there (each reads the
+          # files API only when git could not list the paths). pr-body-checks.yml keeps the edits and labels.
+          case "$ACTION" in
+            opened|synchronize|reopened|ready_for_review) keep+=(capture design-spec perf-section cloud-backend) ;;
+          esac
           echo "steps=${keep[*]}" >> "$GITHUB_OUTPUT"
           echo "Steps for this ${ACTION} event: ${keep[*]:-none}" | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -265,7 +278,7 @@ jobs:
         id: checkout
         if: steps.pick.outputs.steps != ''
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 1
@@ -282,7 +295,69 @@ jobs:
             scripts/cmux-next/swift-logic-lines.py
             scripts/cmux-next/swift-logic-delta.py
             scripts/cmux-next/swift-logic-pr-status.py
+            scripts/ci/pr_capture_check.py
+            scripts/cmux-next/media/path_map.py
+            scripts/ci/pr_design_spec_check.py
+            .github/design-surfaces.json
+            scripts/ci/pr_perf_section_check.py
+            scripts/ci/pr_cloud_backend_check.py
+            .github/cloud-backend-paths.json
+            .gitmodules
           sparse-checkout-cone-mode: false
+
+      # The paths the description lints read, from the event's merge commit and its first parent (the base),
+      # in a scratch repository: trees only, no blobs, read as data and never run. Only the merge of this head
+      # counts. Each list is its own step with its own `listed` output, so one that fails costs only the steps
+      # that read it: capture and perf then read the files API, design spec and cloud backend skip.
+      # paths.txt: a rename as both paths; status.txt: each path with its status; tree.txt and
+      # design-surfaces.json: the merged tree and its surface map; capture-paths.txt: renames under the new name.
+      - name: List the changed paths
+        id: paths
+        if: contains(format(' {0} ', steps.pick.outputs.steps), ' design-spec ')
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          URL: ${{ github.server_url }}/${{ github.repository }}.git
+          MERGE_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          repo="$RUNNER_TEMP/body-paths"
+          git init -q "$repo"
+          git -C "$repo" remote add origin "$URL"
+          timeout 90 git -C "$repo" fetch --no-tags --no-recurse-submodules --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA"
+          [ "$(git -C "$repo" rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ]
+          git -C "$repo" diff --name-only -z --no-renames "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/paths.txt"
+          git -C "$repo" diff --name-status --no-renames "$MERGE_SHA^1" "$MERGE_SHA" > "$RUNNER_TEMP/status.txt"
+          echo "listed=true" >> "$GITHUB_OUTPUT"
+
+      - name: List the merged tree and its surface map
+        id: tree
+        if: steps.paths.outputs.listed == 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          MERGE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          repo="$RUNNER_TEMP/body-paths"
+          git -C "$repo" ls-tree -r --name-only "$MERGE_SHA" > "$RUNNER_TEMP/tree.txt"
+          git -C "$repo" show "$MERGE_SHA:.github/design-surfaces.json" > "$RUNNER_TEMP/design-surfaces.json" || true
+          echo "listed=true" >> "$GITHUB_OUTPUT"
+
+      # Last, since rename detection may fetch blobs.
+      - name: List the changed paths with renames
+        id: renames
+        if: steps.paths.outputs.listed == 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          MERGE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          repo="$RUNNER_TEMP/body-paths"
+          timeout 90 git -C "$repo" diff --name-only -z -M "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/capture-paths.txt"
+          echo "listed=true" >> "$GITHUB_OUTPUT"
 
       - name: Restore this pull request's Swift facts cache
         if: contains(format(' {0} ', steps.pick.outputs.steps), ' swift-logic ') && steps.checkout.outcome == 'success'
@@ -312,6 +387,13 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           MERGE_SHA: ${{ github.sha }}
           BODY: ${{ github.event.pull_request.body }}
+          TITLE: ${{ github.event.pull_request.title }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          ADDITIONS: ${{ github.event.pull_request.additions }}
+          DELETIONS: ${{ github.event.pull_request.deletions }}
+          PATHS_LISTED: ${{ steps.paths.outputs.listed }}
+          TREE_LISTED: ${{ steps.tree.outputs.listed }}
+          CAPTURE_LISTED: ${{ steps.renames.outputs.listed }}
           FEED_URL: https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/
           CHECKOUT: ${{ steps.checkout.outcome }}
           PICKED: ${{ steps.pick.outputs.steps }}

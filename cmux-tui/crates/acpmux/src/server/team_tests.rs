@@ -47,6 +47,16 @@ struct FakeHub {
     /// Every mark-read try waits out the HTTP client's 30 s and then fails, as a hub that holds
     /// the request and never answers.
     stalled_reads: std::sync::atomic::AtomicBool,
+    /// Every listen call, in order: `open ADDRESS TTL`, `ls`, `close ID`.
+    listen_calls: Mutex<Vec<String>>,
+}
+
+const LISTEN: &str = "lsn_0123456789abcdef0123456789abcdef";
+
+fn listens() -> crate::mesh::Listens {
+    serde_json::from_value(json!({"listening": [{"id": LISTEN, "teamAddress": "@sam/coordinator",
+        "listener": "me", "openedBy": "me", "openedAt": 1, "expiresAt": 2}], "listeners": []}))
+    .unwrap()
 }
 
 impl MeshHub for FakeHub {
@@ -117,6 +127,28 @@ impl MeshHub for FakeHub {
 
     fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
         panic!("recipient acknowledgement must not send a delivery ack")
+    }
+
+    fn listen_open<'a>(
+        &'a self,
+        address: &'a str,
+        ttl: Option<u64>,
+    ) -> BoxFuture<'a, Result<crate::mesh::Listen, HubError>> {
+        self.listen_calls.lock().unwrap().push(format!("open {address} {ttl:?}"));
+        Box::pin(async { Ok(listens().listening.remove(0)) })
+    }
+
+    fn listens(&self) -> BoxFuture<'_, Result<crate::mesh::Listens, HubError>> {
+        self.listen_calls.lock().unwrap().push("ls".into());
+        Box::pin(async { Ok(listens()) })
+    }
+
+    fn listen_close<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<crate::mesh::Listens, HubError>> {
+        self.listen_calls.lock().unwrap().push(format!("close {id}"));
+        Box::pin(async { Ok(crate::mesh::Listens::default()) })
     }
 }
 
@@ -501,6 +533,8 @@ async fn team_receipt_origin_survives_restart_and_gates_owner_sends_without_wire
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,
@@ -633,6 +667,7 @@ fn http_hub(url: &str, token_command: &[&str]) -> Arc<dyn MeshHub> {
             team_messaging: true,
             credential: None,
             control_from: Vec::new(),
+            direct_send: false,
         })
         .unwrap(),
     )
@@ -685,3 +720,72 @@ async fn a_team_read_the_hub_never_answers_ends_within_its_bound() {
     assert_eq!(read["error"]["data"]["retryable"], true, "{read}");
     assert!(read["error"]["message"].as_str().unwrap().contains("did not answer"), "{read}");
 }
+
+#[tokio::test]
+async fn listen_passes_open_ls_close_and_read_through_to_the_hub() {
+    let (hub, fake) = setup(true);
+    let mut caller = Rpc::connect(&hub, Origin::Local, Some((OWN, true))).await;
+    let opened = caller
+        .call(
+            method::MUX_TEAM_LISTEN,
+            json!({"op": "open", "to": "sam/coordinator", "ttlSeconds": 3600}),
+        )
+        .await;
+    assert_eq!(opened["result"]["id"], LISTEN, "{opened}");
+    let listed = caller.call(method::MUX_TEAM_LISTEN, json!({"op": "ls"})).await;
+    assert_eq!(listed["result"], serde_json::to_value(listens()).unwrap(), "{listed}");
+    let closed = caller.call(method::MUX_TEAM_LISTEN, json!({"op": "close", "id": LISTEN})).await;
+    assert_eq!(closed["result"], json!({"listening": [], "listeners": []}), "{closed}");
+    assert_eq!(
+        *fake.listen_calls.lock().unwrap(),
+        vec![
+            "open @sam/coordinator Some(3600)".to_owned(),
+            "ls".to_owned(),
+            format!("close {LISTEN}")
+        ]
+    );
+    // Another member's messages, passed on whole: not scoped to this session's own address.
+    let read = caller
+        .call(method::MUX_TEAM_LISTEN, json!({"op": "read", "to": "@sam/coordinator", "before": 7}))
+        .await;
+    assert_eq!(read["result"]["messages"].as_array().map(Vec::len), Some(2), "{read}");
+    assert_eq!(
+        *fake.browsed.lock().unwrap(),
+        vec![(false, Some("@sam/coordinator".to_owned()), Some(7))]
+    );
+}
+
+#[tokio::test]
+async fn listen_refuses_remote_callers_bad_addresses_and_bad_ids_before_the_hub() {
+    let (hub, fake) = setup(true);
+    for (origin, caller) in [(Origin::Peer, None), (Origin::Local, Some((OWN, false)))] {
+        let mut denied = Rpc::connect(&hub, origin, caller).await;
+        for op in ["open", "ls", "close", "read"] {
+            let reply = denied
+                .call(
+                    method::MUX_TEAM_LISTEN,
+                    json!({"op": op, "to": "@sam/coordinator", "id": LISTEN}),
+                )
+                .await;
+            assert!(reply.get("error").is_some(), "{op}: {reply}");
+        }
+    }
+    let mut caller = Rpc::connect(&hub, Origin::Local, Some((OWN, true))).await;
+    for params in [
+        json!({"op": "open", "to": "nobody"}),
+        json!({"op": "open", "to": "@sam/co ordinator"}),
+        json!({"op": "read"}),
+        json!({"op": "close", "id": "lsn_../../messages"}),
+        json!({"op": "close", "id": "lsn_0123456789ABCDEF0123456789ABCDEF"}),
+        json!({"op": "close"}),
+        json!({"op": "watch"}),
+    ] {
+        let reply = caller.call(method::MUX_TEAM_LISTEN, params.clone()).await;
+        assert_eq!(reply["error"]["code"], -32602, "{params}: {reply}");
+    }
+    assert!(fake.listen_calls.lock().unwrap().is_empty());
+    assert!(fake.browsed.lock().unwrap().is_empty());
+}
+
+#[path = "team_directory_tests.rs"]
+mod directory;

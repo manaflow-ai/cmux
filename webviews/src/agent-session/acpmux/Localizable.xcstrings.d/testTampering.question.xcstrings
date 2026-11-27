@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "testTampering.question" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تحتاج تغييرات الاختبارات هذه إلى مراجعة. اشرح سبب تغيير هذه الاختبارات أو إضعافها، أو أعدها إلى حالتها السابقة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ove promjene testova treba pregledati. Objasnite zašto ste promijenili ili oslabili ove testove ili ih vratite."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disse testændringer skal gennemgås. Forklar, hvorfor du ændrede eller svækkede disse tests, eller gendan dem."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Teständerungen müssen überprüft werden. Erkläre, warum du diese Tests geändert oder abgeschwächt hast, oder stelle sie wieder her."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These test changes need review. Explain why you changed or weakened these tests, or restore them."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estos cambios en las pruebas necesitan revisión. Explica por qué cambiaste o debilitaste estas pruebas, o restáuralas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ces modifications de tests doivent être examinées. Explique pourquoi tu as modifié ou affaibli ces tests, ou restaure-les."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Queste modifiche ai test richiedono una revisione. Spiega perché hai modificato o indebolito questi test, oppure ripristinali."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "これらのテスト変更は確認が必要です。テストを変更または弱めた理由を説明するか、元に戻してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការផ្លាស់ប្តូរការធ្វើតេស្តទាំងនេះត្រូវការការពិនិត្យ។ សូមពន្យល់ពីមូលហេតុដែលអ្នកបានផ្លាស់ប្តូរ ឬធ្វើឱ្យការធ្វើតេស្តទាំងនេះខ្សោយ ឬស្ដារពួកវាឡើងវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 테스트 변경을 검토해야 합니다. 테스트를 변경하거나 검증을 약화한 이유를 설명하거나 원래대로 복원하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disse testendringene må gjennomgås. Forklar hvorfor du endret eller svekket disse testene, eller gjenopprett dem."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Te zmiany testów wymagają sprawdzenia. Wyjaśnij, dlaczego te testy zostały zmienione lub osłabione, albo je przywróć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estas alterações nos testes precisam de revisão. Explique por que você alterou ou enfraqueceu estes testes, ou restaure-os."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эти изменения тестов требуют проверки. Объясните, почему вы изменили или ослабили эти тесты, либо восстановите их."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การเปลี่ยนแปลงการทดสอบเหล่านี้ต้องได้รับการตรวจสอบ อธิบายว่าทำไมคุณจึงเปลี่ยนหรือทำให้การทดสอบเหล่านี้เข้มงวดน้อยลง หรือคืนค่าการทดสอบเหล่านี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu test değişiklikleri incelenmeli. Bu testleri neden değiştirdiğinizi veya zayıflattığınızı açıklayın ya da geri yükleyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ці зміни тестів потребують перевірки. Поясніть, чому ви змінили або послабили ці тести, або відновіть їх."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các thay đổi kiểm thử này cần được xem xét. Hãy giải thích vì sao bạn thay đổi hoặc làm yếu các kiểm thử này, hoặc khôi phục chúng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这些测试更改需要审核。请解释为什么更改或弱化了这些测试，或将其还原。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這些測試變更需要審查。請解釋為什麼變更或弱化了這些測試，或將其還原。"
+          }
+        }
+      },
+      "comment" : "Question sent by Ask why and shown in the transcript; exact test evidence follows separately."
+    }
+  },
+  "version" : "1.0"
+}

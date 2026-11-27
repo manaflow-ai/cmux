@@ -9,7 +9,7 @@
 #                                   over 7 days ago; --from takes any build) as NAME; remade
 #                                   from another app, it clears the state of the identity it replaces.
 #                                   --customize: its customize folder is NAME/customize (CMUX_CUSTOMIZE_DIR
-#                                   in its LSEnvironment), not the account's ~/.config/cmux/customize, so a
+#                                   in its LSEnvironment), not the account's ~/.config/cmux-next/customize, so a
 #                                   measurement's extension saves never reach the Mac's own cmux
 #                                   --live-code: a live code build's copy watches live-code/ for
 #                                   Swift patches (docs/cmux-next/live-code.md)
@@ -22,9 +22,24 @@
 #                                   Every copy shows the SIM icon (side-icon/AppIcon-Side.icns: a dark tile
 #                                   with an amber SIM band) so it is never taken for the real app in the Dock or
 #                                   the app switcher; --keep-icon keeps the original's icon (a look of the icon)
-#   side-instance.sh launch NAME [--front] [-- ARGS...]
-#                                   open it (behind the front app unless --front); records its pid. Where
-#                                   `mac-budget` is on PATH (Leo's laptop), an agent's launch first waits for
+#   side-instance.sh launch NAME [--parked|--shown|--front] [-- ARGS...]
+#                                   open it and record its pid. Where its windows go (CMUX_SIDE_PLACEMENT
+#                                   parked|shown|front sets the default; parked when unset):
+#                                   --parked  on a virtual display no person looks at (park-display.m, held
+#                                             until the copy stops), never activating the app or taking focus
+#                                             (CMUX_NEXT_NO_ACTIVATE=1, CMUX_NEXT_TEST_WINDOW_SCREEN=its index).
+#                                             Window shots and window recordings still see them. Falls back to
+#                                             --shown, and says so, when the display cannot be made (no clang,
+#                                             no console session, a headless Mac whose virtual display
+#                                             AppKit never lists: tried once per boot, CMUX_SIDE_PARK_RETRY=1)
+#                                   --shown   on the person's screens, behind their app (`open -g`, as every
+#                                             launch was before parked: measurements and fleet display
+#                                             recordings keep it with CMUX_SIDE_PLACEMENT=shown)
+#                                   --front   in front, active: for a person who asked to look at it
+#                                   Leo, 2026-11-22: "when you guys are testing stuff on [a test Mac], if you're
+#                                   trying to capture or whatever, ideally you guys are in some sort of
+#                                   background"
+#                                   Where `mac-budget` is on PATH (Leo's laptop), an agent's launch first waits for
 #                                   room in the Mac's memory budget (SIDE_INSTANCE_BUDGET_WAIT_S, default 1800)
 #                                   and is recorded with its owner and a deadline for the budget's reaper
 #   side-instance.sh stop NAME      quit it: the pid launch recorded, then what still runs from the copy
@@ -55,8 +70,7 @@
 #   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment), its
 #                   customize/ folder (CMUX_CUSTOMIZE_DIR: local/customize, the folder its daemon watches), and
 #                   its debug-tunables.json (CMUX_NEXT_DEBUG_TUNABLES_FILE) with Live web reload on, so it
-#                   loads its web overlay. A copy of cmux NEXT DEV cannot: the app reads web-dev.json
-#                   only under DEV's own bundle id (WebDevOverride.isAvailable); a nightly's copy can.
+#                   loads its web overlay (every build reads web-dev.json, under any bundle id).
 #   web-overlay/    its web overlay (CMUX_WEB_OVERLAY_DIR), web-slot/ its dev server state
 #   live-code/      with --live-code, the folder its live code watcher reads (CMUX_LIVE_CODE_DIR)
 # A side instance starts signed out with fresh settings; its own sign-in survives a remake through
@@ -171,6 +185,91 @@ restore_sign_in() {
   rm -rf "$kept"
 }
 
+# The park display (park-display.m): a virtual display no person looks at, which a parked copy's windows open on.
+# Built once per source into the root (an ad hoc signed .app, so `open` starts it in the console session even
+# from ssh), held until the copy's pid file goes or its pid ends. SIDE_INSTANCE_PARK_APP: a stand-in for tests.
+park_app() {
+  if [[ -n "${SIDE_INSTANCE_PARK_APP:-}" ]]; then echo "$SIDE_INSTANCE_PARK_APP"; return 0; fi
+  local src key out
+  src="$(dirname "${BASH_SOURCE[0]}")/park-display.m"
+  [[ -f "$src" ]] || { echo "side-instance: $src is missing" >&2; return 1; }
+  key="$(shasum "$src" | cut -c1-12)"
+  out="$root/.park-display/$key/park-display.app"
+  if [[ ! -x "$out/Contents/MacOS/park-display" ]]; then
+    command -v clang >/dev/null 2>&1 || { echo "side-instance: no clang to build the park display" >&2; return 1; }
+    rm -rf "$root/.park-display"
+    mkdir -p "$out/Contents/MacOS"
+    clang -fobjc-arc -O2 -framework AppKit -framework CoreGraphics "$src" -o "$out/Contents/MacOS/park-display" 2>"$root/.park-display/build.log" \
+      || { echo "side-instance: building the park display failed ($root/.park-display/build.log)" >&2; return 1; }
+    cat >"$out/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>park-display</string>
+<key>CFBundleIdentifier</key><string>com.cmuxterm.side-instance.park-display</string>
+<key>CFBundleName</key><string>cmux park display</string>
+<key>LSBackgroundOnly</key><true/>
+</dict></plist>
+PLIST
+    codesign -s - -f "$out" >/dev/null 2>&1 || true
+  fi
+  echo "$out"
+}
+# This boot's id: a park display that failed is not tried again until the Mac restarts. SIDE_INSTANCE_BOOT_ID: tests.
+park_boot_id() {
+  [[ -n "${SIDE_INSTANCE_BOOT_ID:-}" ]] && { echo "$SIDE_INSTANCE_BOOT_ID"; return; }
+  sysctl -n kern.boottime 2>/dev/null | sed -n 's/.*sec = \([0-9]*\).*/\1/p' || true
+}
+# Starts the park display for $name; prints its NSScreen index. Its pid goes to $dir/park.pid.
+# A park display that cannot be made on this Mac (a headless CI Mac whose virtual display AppKit never lists) costs one
+# try per boot and park-display.m source, not every launch: the failure is remembered in $root/.park-display/failed,
+# and a launch waits only while the helper still runs. Before, each launch on such a Mac waited the full 15 s and
+# a measured `cmux app try` side phase went from 8 s to 25.9 s (retry 0.8 s to 17.3 s; cmuxterm-hq
+# goals/team-dev-build-is-swap.md). CMUX_SIDE_PARK_RETRY=1 tries again (a display plugged in since).
+park_start() {
+  local park ready="$dir/park.ready" pid="" memo="$root/.park-display/failed" boot tries
+  park="$(park_app)" || return 1
+  boot="$(park_boot_id)"
+  if [[ -z "${CMUX_SIDE_PARK_RETRY:-}" && -n "$boot" && -f "$memo" && "$(cat "$memo")" == "$park $boot" ]]; then
+    echo "side-instance: the park display failed on this Mac since it started (CMUX_SIDE_PARK_RETRY=1 tries again)" >&2
+    return 1
+  fi
+  rm -f "$ready" "$dir/park.log"
+  open -g -n --stderr "$dir/park.log" "$park" --args --pid-file "$dir/pid" --ready-file "$ready" \
+    || { echo "side-instance: open $park failed" >&2; return 1; }
+  # Up to 15 s for the ready line; after the first second, an exited helper ends the wait (park-display.m gives up
+  # after 10 s and says why in its log).
+  for tries in $(seq 1 150); do
+    [[ -s "$ready" ]] && break
+    if (( tries > 10 )) && ! pgrep -f "$park/Contents/MacOS/park-display --pid-file $dir/pid" >/dev/null 2>&1; then
+      [[ -s "$ready" ]] && break
+      echo "side-instance: the park display exited without a screen after $((tries / 10)) s" >&2
+      break
+    fi
+    /bin/sleep 0.1
+  done
+  if [[ ! -s "$ready" ]]; then
+    echo "side-instance: the park display was not ready: $(tail -c 300 "$dir/park.log" 2>/dev/null)" >&2
+    pkill -f "$park/Contents/MacOS/park-display --pid-file $dir/pid" 2>/dev/null || true
+    [[ -n "$boot" ]] && { mkdir -p "$root/.park-display"; echo "$park $boot" >"$memo"; }
+    return 1
+  fi
+  rm -f "$memo"
+  pid="$(pgrep -n -f "$park/Contents/MacOS/park-display --pid-file $dir/pid" || true)"
+  [[ -n "$pid" ]] && echo "$pid" >"$dir/park.pid"
+  sed -n 's/^ready .*screen=\([0-9][0-9]*\).*/\1/p' "$ready"
+}
+# Ends this copy's park display: the pid park_start recorded, only while it is still a park display.
+park_stop() {
+  local pid
+  [[ -f "$dir/park.pid" ]] || return 0
+  pid="$(cat "$dir/park.pid")"
+  if [[ -n "$pid" ]] && ps -o command= -p "$pid" 2>/dev/null | grep -q 'park-display --pid-file'; then
+    kill -TERM "$pid" 2>/dev/null || true
+  fi
+  rm -f "$dir/park.pid" "$dir/park.ready"
+}
+
 case "$cmd" in
   make)
     # SIDE_INSTANCE_DEFAULT_APP: a stand-in for tests (tests/test_side_instance_stale_default.py).
@@ -237,7 +336,7 @@ case "$cmd" in
     "$buddy" -c "Print :LSEnvironment" "$plist" >/dev/null 2>&1 || "$buddy" -c "Add :LSEnvironment dict" "$plist"
     plist_set "$plist" LSEnvironment:CMUX_NEXT_CONFIG_FILE "$dir/config/cmux-next.json"
     # Its own customize folder (local/customize: the folder its daemon watches, where `cmux customize`
-    # and `cmux ext` write): without it every copy on the Mac shares ~/.config/cmux/customize, so one
+    # and `cmux ext` write): without it every copy on the Mac shares ~/.config/cmux-next/customize, so one
     # copy's extension shows in another's sidebar and a save reloads both.
     mkdir -p "$dir/config/customize"
     plist_set "$plist" LSEnvironment:CMUX_CUSTOMIZE_DIR "$dir/config/customize"
@@ -349,14 +448,17 @@ PY
     echo "$name: $app ($bundle)"
     ;;
   launch)
-    front="" args=()
+    placement="${CMUX_SIDE_PLACEMENT:-parked}" args=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --front) front=1; shift ;;
+        --front) placement=front; shift ;;
+        --shown) placement=shown; shift ;;
+        --parked) placement=parked; shift ;;
         --) shift; args=("$@"); break ;;
         *) usage 1 ;;
       esac
     done
+    case "$placement" in parked|shown|front) ;; *) die "CMUX_SIDE_PLACEMENT is parked, shown or front, not $placement" ;; esac
     app="$(app_of)"
     if running; then echo "$name already runs (pid $(pid_of))"; exit 0; fi
     # On a Mac with a memory budget for agents' apps (leo-workspace tools/mac_budget.py, linked as mac-budget on
@@ -369,9 +471,27 @@ PY
       "$budget" admit --kind side --name "$name" --wait "${SIDE_INSTANCE_BUDGET_WAIT_S:-1800}" --holder-pid $$ \
         || die "$name did not start: the Mac's memory budget for agent apps stayed full (mac-budget status names who holds it)"
     fi
+    # A pid left by a copy that died would end a new park display at once (it exits when that pid is gone).
+    rm -f "$dir/pid"
+    park_stop
     # -n: a new process even when Launch Services still maps the id elsewhere; -g: behind the front app.
-    open_args=(-n); [[ -z "$front" ]] && open_args+=(-g)
-    open "${open_args[@]}" "$app" ${args[@]+--args "${args[@]}"}
+    open_args=(-n)
+    [[ "$placement" == front ]] || open_args+=(-g)
+    if [[ "$placement" == parked ]]; then
+      # The app never activates and no window of it becomes key; every window opens on the park display's screen
+      # (TestWindowPlacement, WindowPlacement). A build older than those knobs opens behind, as --shown.
+      if screen="$(park_start)"; then
+        open_args+=(--env CMUX_NEXT_NO_ACTIVATE=1 --env CMUX_NEXT_TEST_WINDOW_SCREEN="$screen")
+      else
+        placement=shown
+        echo "$name: no park display (see above); its windows open behind your app instead (--shown)" >&2
+      fi
+    fi
+    # A driver's downloads folder (DownloadsFolder: Debug and bench builds read it; Release ignores it): a
+    # copy under test never writes the account's ~/Downloads, whose first write waits on macOS's access
+    # prompt, a prompt nobody answers on a fleet Mac (browser-auth-webkit.sh, as kit_downloads.py).
+    [[ -n "${CMUX_NEXT_DOWNLOADS_DIR:-}" ]] && open_args+=(--env CMUX_NEXT_DOWNLOADS_DIR="$CMUX_NEXT_DOWNLOADS_DIR")
+    if ! open "${open_args[@]}" "$app" ${args[@]+--args "${args[@]}"}; then park_stop; die "open $app failed"; fi
     exe="$app/Contents/MacOS/$("$buddy" -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")"
     launched=""
     # The newest process whose executable is exactly the copy's (a plain comparison: the path holds
@@ -382,14 +502,14 @@ PY
       [[ -n "$launched" ]] && break
       /bin/sleep 0.1
     done
-    [[ -n "$launched" ]] || die "$name did not start"
+    [[ -n "$launched" ]] || { park_stop; die "$name did not start"; }
     echo "$launched" >"$dir/pid"
     if [[ -n "$budget" ]]; then
       "$budget" record --name "$name" --kind side --app "$app" --pid "$launched" \
         --stop-argv "[\"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")\", \"stop\", \"$name\"]" \
         --stop-env "{\"CMUX_SIDE_ROOT\": \"$root\"}" || true
     fi
-    echo "$name: pid $launched"
+    echo "$name: pid $launched ($placement$([[ -f "$dir/park.pid" ]] && echo ", on park display screen $(sed -n 's/.*screen=\([0-9]*\).*/\1/p' "$dir/park.ready")"))"
     ;;
   stop)
     [[ -f "$marker" ]] || { echo "$name is not running"; exit 0; }
@@ -400,13 +520,24 @@ PY
       kill -0 "$recorded" 2>/dev/null && die "$name (pid $recorded) is still running after 30 s"
     fi
     rm -f "$dir/pid"
+    park_stop
     # The daemon and helpers the copy started run from its bundle and outlive it.
     left="$(copy_pids)"
     if [[ -n "$left" ]]; then
       # shellcheck disable=SC2086 # one pid per word
       kill -TERM $left 2>/dev/null || true
       for _ in $(seq 1 75); do [[ -z "$(copy_pids)" ]] && break; /bin/sleep 0.2; done
-      if [[ -n "$(copy_pids)" ]]; then die "processes of $name still run: $(copy_pids | tr '\n' ' ')"; fi
+      # A helper that ignores TERM for 15 s gets KILL: copy_pids matches only executables inside this
+      # copy's own bundle, so nothing else can be hit. Before, stop died here and hot-verify marked a
+      # look whose every step passed as failed (cmux#38805, 2 helpers left after TERM).
+      left="$(copy_pids)"
+      if [[ -n "$left" ]]; then
+        echo "side-instance: $name: $(echo $left | wc -w | tr -d ' ') process(es) ignored TERM for 15 s, sending KILL: $(echo $left)" >&2
+        # shellcheck disable=SC2086 # one pid per word
+        kill -KILL $left 2>/dev/null || true
+        for _ in $(seq 1 25); do [[ -z "$(copy_pids)" ]] && break; /bin/sleep 0.2; done
+      fi
+      if [[ -n "$(copy_pids)" ]]; then die "processes of $name still run after KILL: $(copy_pids | tr '\n' ' ')"; fi
     fi
     if command -v mac-budget >/dev/null 2>&1; then mac-budget release --name "$name" || true; fi
     echo "$name stopped"

@@ -32,6 +32,7 @@ Useful flags:
 cmux-vault --json scan
 cmux-vault sync --agent codex --dry-run
 cmux-vault sync --limit 25
+cmux-vault sync --no-redact   # upload transcripts without masking secret shapes
 cmux-vault resume --agent claude <session-id>
 cmux-vault resume --force <session-id>
 ```
