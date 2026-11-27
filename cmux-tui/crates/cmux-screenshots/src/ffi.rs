@@ -20,7 +20,7 @@ use std::ffi::{CString, c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type or a function.
-pub const CMUX_SCREENSHOTS_ABI_VERSION: u32 = 3;
+pub const CMUX_SCREENSHOTS_ABI_VERSION: u32 = 4;
 
 /// A scan rule (a source's `rule` from `cmux_screenshots_detect`).
 pub struct CmuxScreenshotsRule {
@@ -283,35 +283,6 @@ pub unsafe extern "C" fn cmux_screenshots_rule_item_kind(
             modified: 0.0,
         };
         reader::item_kind(&entry, &rule.inner).map_or(0, MediaKind::raw)
-    })
-}
-
-/// Whether the scan reads a directory entry as a subfolder, `depth` levels below the source folder.
-///
-/// # Safety
-/// `rule` is null or a live rule; `name` is null or `name_len` readable bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_screenshots_rule_enters(
-    rule: *const CmuxScreenshotsRule,
-    entry_kind: u32,
-    hidden: bool,
-    name: *const u8,
-    name_len: usize,
-    depth: usize,
-) -> bool {
-    // SAFETY: caller contract.
-    let Some(rule) = (unsafe { rule.as_ref() }) else { return false };
-    // SAFETY: caller contract.
-    let name = unsafe { text(name, name_len) };
-    guard(false, || {
-        let entry = Entry {
-            kind: EntryKind::from_raw(entry_kind),
-            hidden,
-            name: &name,
-            system_kind: MediaKind::Other,
-            modified: 0.0,
-        };
-        reader::enters(&entry, depth, &rule.inner)
     })
 }
 
@@ -1182,15 +1153,6 @@ mod tests {
             },
             0
         );
-        let folder = "m_1";
-        // SAFETY: as above.
-        assert!(unsafe {
-            cmux_screenshots_rule_enters(rule, 2, false, folder.as_ptr(), folder.len(), 0)
-        });
-        // SAFETY: as above.
-        assert!(!unsafe {
-            cmux_screenshots_rule_enters(rule, 2, false, folder.as_ptr(), folder.len(), 1)
-        });
         // SAFETY: freed once.
         unsafe { cmux_screenshots_rule_free(rule) };
         let bad = "[]";
