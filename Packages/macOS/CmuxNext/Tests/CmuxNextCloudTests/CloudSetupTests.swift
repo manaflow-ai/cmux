@@ -37,8 +37,20 @@ struct CloudSetupTests {
     @Test func aConnectionThatCannotServeDoesNotCount() async {
         let off = CloudSetup.Connection(id: "claude-login", families: ["claude"], enabled: false)
         let signedOut = CloudSetup.Connection(id: "claude-2", families: ["claude"], signedIn: false)
-        let connections = Connections(.init(personal: [off, signedOut], organization: nil))
+        let connections = Connections(.init(personal: [off, signedOut], organization: []))
         #expect(await setup(connections).decide(harness: "claude", model: nil) == .setup(family: "claude", model: nil))
+    }
+
+    /// The team's keys unread (their status read failed): nothing shows that the team's shared key does not serve the
+    /// chat, so it starts as before instead of showing Set up Cloud to a team-key person with no connection of their own.
+    @Test func unreadTeamKeysStartAsBefore() async {
+        let connections = Connections(.init(personal: [.init(id: "claude-login", families: ["claude"], servesCloud: false)], organization: nil))
+        let rule = setup(connections)
+        #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .fallback)
+        #expect(await rule.decide(harness: "claude", model: "claude-opus-5-5") == .start)
+        // Read and empty is still a read: nothing serves, so Set up Cloud.
+        connections.snapshot.organization = []
+        #expect(await rule.decide(harness: "claude", model: nil) == .setup(family: "claude", model: nil))
     }
 
     @Test func theOrganizationServesWhenThePersonHasNothing() async {

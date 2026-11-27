@@ -34,6 +34,8 @@ public final class TeamAgentKeys {
     @ObservationIgnored private var removeKeys: [Slot: String] = [:]
     private var loadedScope: Scope?
     private var workingScope: Scope?
+    /// The refreshes waiting on the running gesture (``refresh()``), resumed when it ends.
+    @ObservationIgnored private var settling: [CheckedContinuation<Void, Never>] = []
     private var generation = 0
     private(set) var rows: [JSONValue] = []
     private(set) var manage = false
@@ -58,8 +60,16 @@ public final class TeamAgentKeys {
     var currentProblem: Problem? { problem.flatMap { $0.scope == scope() ? $0 : nil } }
     var currentDone: (agent: String, removed: Bool)? { done.flatMap { $0.scope == scope() ? (agent: $0.agent, removed: $0.removed) : nil } }
 
-    /// `team.agent_key.status` for the active team; on Settings mount, focus, refresh and a team switch.
-    public func refresh() async { await run(nil) { _, _ in } }
+    /// `team.agent_key.status` for the active team; on Settings mount, focus, refresh and a team switch. One asked while
+    /// a gesture for the same scope runs waits for that gesture's own read, so a Cloud start's check (CloudSetup) never
+    /// reads the keys as unloaded only because Settings was reading them at the same moment.
+    public func refresh() async {
+        if let bound = scope(), bound.team != nil, workingScope == bound {
+            await withCheckedContinuation { settling.append($0) }
+            return
+        }
+        await run(nil) { _, _ in }
+    }
 
     /// Sets or replaces AGENT's team key. SECRET is trimmed (a paste usually ends in a newline) and
     /// checked like the API does, so a bad paste never leaves the Mac.
@@ -115,7 +125,14 @@ public final class TeamAgentKeys {
         workingScope = bound
         problem = nil
         if agent != nil { done = nil }
-        defer { if generation == ticket { workingScope = nil } }
+        defer {
+            if generation == ticket {
+                workingScope = nil
+                let woken = settling
+                settling = []
+                for waiter in woken { waiter.resume() }
+            }
+        }
         do {
             try await mutate(bound, ticket)
             let value = try await call(bound, "team.agent_key.status", [:], nil)

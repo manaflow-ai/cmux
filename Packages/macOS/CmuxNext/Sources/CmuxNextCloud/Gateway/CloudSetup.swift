@@ -55,15 +55,16 @@ public final class CloudSetup {
         /// The connection a Cloud chat on `family` uses (Revision 2): the picker's `account` when it
         /// serves Cloud for that family, else the first enabled Cloud-serving one of that family in
         /// the daemon's order, else the organization's shared key. With this Mac's connections unread
-        /// (no daemon, an acpmux before `_acpmux/connections`) and no shared key the answer is
-        /// ``Choice/fallback``: the chat starts as before.
+        /// (no daemon, an acpmux before `_acpmux/connections`) or the team's keys unread (their status read failed)
+        /// and no shared key the answer is ``Choice/fallback``: the chat starts as before, as nothing read shows that
+        /// nothing serves it.
         public func choice(family: String, model: String?, account: String?) -> Choice {
             if let personal {
                 let serving = personal.filter { $0.enabled && $0.signedIn && $0.servesCloud && $0.families.contains(family) }
                 if let pick = serving.first(where: { $0.id == account }) ?? serving.first { return .connection(id: pick.id, family: family) }
             }
             if organization?.contains(family) == true { return .organization(family: family) }
-            return personal == nil ? .fallback : .setup(family: family, model: model)
+            return personal == nil || organization == nil ? .fallback : .setup(family: family, model: model)
         }
 
         /// Whether a connection serves `family`; nil when this Mac's connections were not read.

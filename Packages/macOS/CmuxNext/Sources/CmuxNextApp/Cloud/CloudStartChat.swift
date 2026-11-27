@@ -343,8 +343,8 @@ extension CloudStartChat {
             guard let services else { return .init(personal: nil, organization: nil) }
             let personal = await QuitAgents.environment(services)?.cloudConnections()
             let keys = services.accounts.agentKeys
-            guard !keys.scopeIsSignedOut else { return .init(personal: personal, organization: nil) }
-            if !keys.loaded { await keys.refresh() }
+            guard !keys.scopeIsSignedOut, !keys.isPersonal else { return .init(personal: personal, organization: []) } // no shared key to read: none serves
+            if !keys.loaded { await keys.refresh() } // a read already running is waited for (TeamAgentKeys.refresh)
             let rows = keys.currentAgents.compactMap { row in row["agent"]?.stringValue.map { (agent: $0, set: row["set"]?.boolValue == true) } }
             return .init(personal: personal, organization: keys.loaded ? CloudSetup.Snapshot.organization(keys: rows) : nil)
         }
