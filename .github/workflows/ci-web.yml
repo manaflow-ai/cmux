@@ -104,7 +104,7 @@ jobs:
       unit_tests: ${{ steps.scope.outputs.unit_tests }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           fetch-depth: 2
@@ -350,7 +350,7 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
 
@@ -473,7 +473,7 @@ jobs:
         working-directory: webviews
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The merge commit with its parents: a red is compared with the merge parent's.
           fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
@@ -490,8 +490,15 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.4"
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
       # Restore only: the react-apps-check shards save this key.
       - name: Restore the Bun package cache
+        if: ${{ steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -573,7 +580,7 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
@@ -645,7 +652,7 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
@@ -727,7 +734,7 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Checkout
         timeout-minutes: 6
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
@@ -743,10 +750,16 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -756,7 +769,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -856,7 +869,7 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
@@ -1001,7 +1014,7 @@ jobs:
         run: echo "CMUX_WEB_TEST_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           # A pull request's merge commit with its parents: ui-rules and gallery
@@ -1106,13 +1119,19 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
       # The source build installs webviews dependencies before the test suite;
       # cache Bun's package blobs on this lane so a new source key
       # does not redownload the lockfile from scratch.
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref == 'refs/heads/feat-cmux-next' }}
+        if: ${{ ((steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref == 'refs/heads/feat-cmux-next') && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -1122,7 +1141,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ ((steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref != 'refs/heads/feat-cmux-next') && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -1156,6 +1175,23 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
+
+      # Shard 1's independent checks overlap the steps they do not read (scripts/ci/shard1_background.sh): the merge
+      # driver test (80 s in job 137332637156) needs only git and Python, so it starts here and runs beside the source
+      # checks and the bundle build; its own step below waits for it and keeps its id and outcome. Leo, 2026-11-22:
+      # "if it's relaly so big then you guys need to be hurrying up and thining more innovatively".
+      - name: Start the merge driver test
+        id: merge-driver-start
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: |
+          # The same skip as its wait step below: a pull request that changes none of its inputs never starts it.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ -f "$CMUX_PR_CHANGED_FILES" ] &&
+            ! grep -qE '^(scripts/|tests/|\.gitattributes|\.claude/|\.codex/|\.github/workflows/ci-web\.yml|webviews/[^/]+$)' "$CMUX_PR_CHANGED_FILES"; then
+            echo "no input of this check changed: skipped on this pull request"
+            exit 0
+          fi
+          scripts/ci/shard1_background.sh start merge-driver -- python3 tests/test_install_git_hooks.py
 
       # The web bundles are build output (cx-vn5): this builds them into the
       # gitignored resource paths that the budget, React Compiler and webviews
@@ -1241,10 +1277,44 @@ jobs:
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
       # they run once, on shard 1: one red check, not one per shard.
+      # The PR-scoped rules (133 s in job 137332637156) need the install and the bundles, not the checks or the
+      # engines after them: they start here and run beside those; Check PR-scoped webview rules waits for them.
+      - name: Start the PR-scoped webview rules
+        id: pr-scoped-start
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
+        continue-on-error: true
+        env:
+          CI_PR_SCOPED_BASE_BESIDE: ${{ vars.CI_PR_SCOPED_BASE_BESIDE || '1' }}
+          PR_SCOPED_RULES: &pr-scoped-rules |
+            check=scripts/tests/test_pr_scoped_webviews_checks.py
+            if [ "$GITHUB_EVENT_NAME" != pull_request ]; then exec python3 "$check"; fi
+            base="$RUNNER_TEMP/pr-scoped-base"
+            base_run() {
+              git worktree add -q --detach "$base" HEAD^1 &&
+                ln -s "$PWD/webviews/node_modules" "$base/webviews/node_modules" &&
+                if [ -f "$base/$check" ]; then
+                  python3 scripts/ci/unittest_results.py "$base/$check" "$RUNNER_TEMP/pr-scoped-base.json" >"$RUNNER_TEMP/pr-scoped-base.log" 2>&1 || true
+                fi
+            }
+            pid=
+            # Its own process group (set -m), so a green head stops the whole base run, the fixture's children too.
+            if [ "$CI_PR_SCOPED_BASE_BESIDE" != 0 ]; then set -m; base_run & pid=$!; set +m; fi
+            if python3 scripts/ci/unittest_results.py "$check" "$RUNNER_TEMP/pr-scoped-head.json"; then
+              [ -z "$pid" ] || { kill -TERM -- "-$pid" 2>/dev/null; wait "$pid" 2>/dev/null; } || true
+              exit 0
+            fi
+            if [ -n "$pid" ]; then wait "$pid" || true; else base_run || true; fi
+            [ ! -f "$RUNNER_TEMP/pr-scoped-base.log" ] || { echo "::group::base run"; cat "$RUNNER_TEMP/pr-scoped-base.log"; echo "::endgroup::"; }
+            python3 scripts/ci/guards_new_reds.py --label "PR-scoped webview rule" \
+              "$RUNNER_TEMP/pr-scoped-head.json" "$RUNNER_TEMP/pr-scoped-base.json"
+        run: scripts/ci/shard1_background.sh start pr-scoped -- bash -ec "$PR_SCOPED_RULES"
+
+      # Started in the background with the job's setup (Start the merge driver test); this waits for its status.
       - name: Generated bundle merge driver
         id: merge-driver
         if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' && steps.hook-suites.outputs.merge_driver != 'false' }}
         continue-on-error: true
+        timeout-minutes: 15
         run: |
           # These two test the repo's hooks, merge drivers and formatter, not a webview: a pull request that changes
           # none of their inputs (scripts/, tests/, hook settings, .gitattributes, webviews' top-level config and this
@@ -1254,7 +1324,7 @@ jobs:
             echo "no input of this check changed: skipped on this pull request"
             exit 0
           fi
-          python3 tests/test_install_git_hooks.py
+          scripts/ci/shard1_background.sh wait merge-driver -- python3 tests/test_install_git_hooks.py
 
       # Runs after the webviews install, so the real-vp case runs too.
       - name: Post-edit formatting hook
@@ -1316,6 +1386,14 @@ jobs:
             done <<< "$pieces"
             exit "$status"
           fi
+          # The compiler bail check (84 s, warn-only here) reads no other check's output: it runs beside the rest. Like
+          # the other warn-only checks below, it runs on a feat-cmux-next push and in the post-merge batch, never on a
+          # pull request.
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            bails_log="$RUNNER_TEMP/compiler-bails.log"
+            bun run check:compiler-bails > "$bails_log" 2>&1 &
+            bails=$!
+          fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" --skip typecheck || status=1
           # The warn-only checks below never fail a pull request into feat-cmux-next: they cost about 2.5 of shard 1's 19
           # minutes (1,660 shard 1 jobs a day) to print warnings. A feat-cmux-next push and the post-merge batch still
@@ -1324,12 +1402,14 @@ jobs:
             echo "warn-only webviews checks run on the base's pushes, not on a pull request"
             exit "$status"
           fi
-          for check in check:design-tokens check:menu-gutters check:transcript-icons check:key-hints check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:instrument-tokens check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors check:compiler-bails; do
+          for check in check:design-tokens check:menu-gutters check:transcript-icons check:key-hints check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:look-addons check:surface-roles check:layout-grid check:design-scale check:instrument-tokens check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
           ./node_modules/.bin/vp fmt --check || echo "::warning title=webviews format (warn-only)::vp fmt --check found unformatted files; see the step log"
           ./node_modules/.bin/vp lint || echo "::warning title=webviews lint (warn-only)::vp lint found issues; see the step log"
+          wait "$bails" || echo "::warning title=webviews check:compiler-bails (warn-only)::see the step log"
+          echo "::group::check:compiler-bails"; cat "$bails_log"; echo "::endgroup::"
           exit "$status"
 
       # The fixit-compile patch (ci-oops 0a) comes from the type check, which runs in webviews-typecheck now; that job
@@ -1357,6 +1437,8 @@ jobs:
       # red with it and skipped its tests (#49118). On a pull request, a red one is run again on the merge parent's
       # copy (a worktree of HEAD^1), and only a test red here and not there fails (guards_new_reds.py), as the tests do.
       # Leo, 2026-11-21: "these sorts of things probably shouldn't happen". A push keeps every red.
+      # Started after the bundle build (Start the PR-scoped webview rules); this waits for its status and runs it here
+      # when it never started.
       # The base run starts beside the head's, not after a red one: head then base, one after the other, was 320-416 s
       # of shard 1's 16 min in 17 pull request jobs on 2026-11-25 (about 170 s each). A green head stops the base run
       # and charges nothing. CI_PR_SCOPED_BASE_BESIDE=0 runs the base only after a red head again.
@@ -1364,30 +1446,11 @@ jobs:
         id: pr-scoped-rules
         if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
+        timeout-minutes: 20
         env:
           CI_PR_SCOPED_BASE_BESIDE: ${{ vars.CI_PR_SCOPED_BASE_BESIDE || '1' }}
-        run: |
-          check=scripts/tests/test_pr_scoped_webviews_checks.py
-          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then exec python3 "$check"; fi
-          base="$RUNNER_TEMP/pr-scoped-base"
-          base_run() {
-            git worktree add -q --detach "$base" HEAD^1 &&
-              ln -s "$PWD/webviews/node_modules" "$base/webviews/node_modules" &&
-              if [ -f "$base/$check" ]; then
-                python3 scripts/ci/unittest_results.py "$base/$check" "$RUNNER_TEMP/pr-scoped-base.json" >"$RUNNER_TEMP/pr-scoped-base.log" 2>&1 || true
-              fi
-          }
-          pid=
-          # Its own process group (set -m), so a green head stops the whole base run, the fixture's children too.
-          if [ "$CI_PR_SCOPED_BASE_BESIDE" != 0 ]; then set -m; base_run & pid=$!; set +m; fi
-          if python3 scripts/ci/unittest_results.py "$check" "$RUNNER_TEMP/pr-scoped-head.json"; then
-            [ -z "$pid" ] || { kill -TERM -- "-$pid" 2>/dev/null; wait "$pid" 2>/dev/null; } || true
-            exit 0
-          fi
-          if [ -n "$pid" ]; then wait "$pid" || true; else base_run || true; fi
-          [ ! -f "$RUNNER_TEMP/pr-scoped-base.log" ] || { echo "::group::base run"; cat "$RUNNER_TEMP/pr-scoped-base.log"; echo "::endgroup::"; }
-          python3 scripts/ci/guards_new_reds.py --label "PR-scoped webview rule" \
-            "$RUNNER_TEMP/pr-scoped-head.json" "$RUNNER_TEMP/pr-scoped-base.json"
+          PR_SCOPED_RULES: *pr-scoped-rules
+        run: scripts/ci/shard1_background.sh wait pr-scoped -- bash -ec "$PR_SCOPED_RULES"
 
       # The React Compiler's output (CMUX_VITE_TRANSFORM_CACHE, webviews/reactCompiler.mjs) from earlier runs. A
       # shard's 4 concurrent dev-server files each compiled the agent pane on an empty cache: about 90 s each before
@@ -1553,6 +1616,15 @@ jobs:
             left=$(( job_started + CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 - now ))
             export CMUX_WEB_TEST_RETRY_DEADLINE=$(( left > 0 ? left : 0 ))
             export CMUX_WEB_TEST_RETRY_BUDGET="$CMUX_WEB_TEST_RETRY_DEADLINE"
+            # A push or dispatch (the post-merge batch at 45 min) also stops its first pass there: no file starts, and
+            # none runs, past the same point, so the step ends with what it finished and the uploads (Upload this
+            # push's webview results, the history job) still run. Without it, 5 of 8 post-merge shards a tick were
+            # still in their first pass at 45 min and GitHub cancelled them with no result at all (11-26 13:15Z to
+            # 11-27 01:47Z: 44 shards, 1,998 job-min, 0 passes), while shards 2, 3 and 7 ended at 37 min with a
+            # verdict. A pull request's shard keeps its first pass whole (90 min; react-apps-base-check reads it).
+            if [ "${GITHUB_EVENT_NAME:-}" != pull_request ]; then
+              export CMUX_WEB_TEST_STOP_AT=$(( job_started + CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 ))
+            fi
           fi
           mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
           # A recorded run (a push, a batch tick, a post-merge batch run) records its webview inputs key with its
@@ -1847,7 +1919,7 @@ jobs:
         run: echo "CMUX_WEB_TEST_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Checkout the merge commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -2042,7 +2114,7 @@ jobs:
       # older, where agent-pane-no-capsules still passed, so a red the merge
       # parent already had (#27019's capsule bars) was charged to the change.
       - name: Checkout the merge commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -2581,7 +2653,7 @@ jobs:
       - name: Checkout the shard helper
         id: durations-checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           sparse-checkout: |
@@ -2644,7 +2716,7 @@ jobs:
       - name: Checkout the history helper
         id: history-checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           sparse-checkout: |
@@ -2769,6 +2841,8 @@ jobs:
           backend: r2
           path: .webviews-test-history-cache
           key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          # Pull requests judge base reds by this entry: a save that wrote nothing fails, not warns.
+          required: true
 
       # A base red is excused on every pull request, so nothing made it anyone's: react-apps-check was red on every
       # completed push run from 2026-11-11 16:59 UTC to 2026-11-13 and model-picker-scaling on 62 recorded pushes in
@@ -2792,7 +2866,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
@@ -2896,7 +2970,7 @@ jobs:
           --health-retries 30
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
 
