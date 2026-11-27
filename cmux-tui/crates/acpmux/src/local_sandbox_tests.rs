@@ -20,16 +20,6 @@ fn the_setting_is_on_by_default_fails_closed_and_policy_only_tightens() {
     assert!(!enabled_by(false, false));
 }
 
-#[test]
-fn a_managed_push_counts_only_a_forced_on() {
-    apply_managed_push(Some(true));
-    assert!(MANAGED_ON.load(Ordering::Relaxed));
-    apply_managed_push(Some(false));
-    assert!(!MANAGED_ON.load(Ordering::Relaxed));
-    apply_managed_push(None);
-    assert!(!MANAGED_ON.load(Ordering::Relaxed));
-}
-
 fn sample() -> Bound {
     Bound {
         cwd: "/Users/a/code/app".into(),
@@ -128,6 +118,23 @@ fn a_worktree_gets_its_git_folders() {
 }
 
 #[test]
+fn untrusted_worktree_metadata_cannot_add_an_arbitrary_write_root() {
+    let t = tempfile::tempdir().unwrap();
+    let folder = t.path().join("checkout");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(".git"), "gitdir: /\n").unwrap();
+    assert!(git_dirs(&folder).is_empty());
+
+    let common = t.path().join("repo/.git");
+    std::fs::create_dir_all(&common).unwrap();
+    let own = common.join("worktrees/wt");
+    std::fs::create_dir_all(&own).unwrap();
+    std::fs::write(own.join("commondir"), "/\n").unwrap();
+    std::fs::write(folder.join(".git"), format!("gitdir: {}\n", own.display())).unwrap();
+    assert_eq!(git_dirs(&folder), vec![canonical(&own)]);
+}
+
+#[test]
 fn claude_codes_own_sandbox_is_seen_from_any_settings_source() {
     let t = tempfile::tempdir().unwrap();
     let (cwd, home) = (t.path().join("cwd"), t.path().join("home"));
@@ -160,6 +167,11 @@ fn claude_codes_own_sandbox_is_seen_from_any_settings_source() {
     std::fs::create_dir_all(&configured).unwrap();
     std::fs::write(configured.join("settings.json"), on).unwrap();
     assert!(claude_sandbox_on(&[], &cwd, &home, Some(&configured)));
+    // An explicit source list excludes user and enterprise settings. A user setting
+    // must not make acpmux skip its outer sandbox when Claude will not read it.
+    assert!(!claude_sandbox_on(&s(&["--setting-sources", "project,local"]), &cwd, &home, None));
+    std::fs::write(cwd.join(".claude/settings.json"), on).unwrap();
+    assert!(claude_sandbox_on(&s(&["--setting-sources", "project"]), &cwd, &home, None));
 }
 
 #[test]
@@ -184,4 +196,10 @@ fn a_folder_at_or_above_home_is_never_a_write_root() {
     let t = tempfile::tempdir().unwrap();
     let b = bound(&s(&["--add-dir", "/"]), t.path(), &env).unwrap();
     assert!(!b.folders.iter().any(|d| home.starts_with(d)), "{:?}", b.folders);
+}
+
+#[test]
+fn profile_does_not_grant_tool_executable_write_roots() {
+    assert!(!PROFILE.contains(r#"(subpath (string-append (param "AGENT_HOME") "/.local"))"#));
+    assert!(!PROFILE.contains(r#"(subpath (string-append (param "AGENT_HOME") "/.cargo"))"#));
 }

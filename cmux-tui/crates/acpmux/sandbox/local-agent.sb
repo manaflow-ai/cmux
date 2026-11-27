@@ -39,7 +39,6 @@
   (subpath (string-append (param "AGENT_HOME") "/.claude"))
   (regex (string-append "^" (param "AGENT_HOME_RE") "/\\.claude\\.json"))
   (subpath (string-append (param "AGENT_HOME") "/.codex"))
-  (subpath (string-append (param "AGENT_HOME") "/.local"))
   (subpath (string-append (param "AGENT_HOME") "/.cache"))
   (subpath (string-append (param "AGENT_HOME") "/Library/Caches"))
   (subpath (string-append (param "AGENT_HOME") "/Library/Logs"))
@@ -49,7 +48,9 @@
   (subpath (string-append (param "AGENT_HOME") "/.config/cmux"))
   (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/cmux"))
   ;; toolchains: package caches and build outputs
-  (subpath (string-append (param "AGENT_HOME") "/.cargo"))
+  (subpath (string-append (param "AGENT_HOME") "/.cargo/registry"))
+  (subpath (string-append (param "AGENT_HOME") "/.cargo/git"))
+  (subpath (string-append (param "AGENT_HOME") "/.cargo/.package-cache"))
   (subpath (string-append (param "AGENT_HOME") "/.rustup"))
   (subpath (string-append (param "AGENT_HOME") "/.npm"))
   (subpath (string-append (param "AGENT_HOME") "/.bun"))

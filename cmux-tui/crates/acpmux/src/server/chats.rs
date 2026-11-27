@@ -555,12 +555,9 @@ pub(super) async fn route(
             let forced = full_access_managed
                 .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
             hub.apply_full_access_push(forced).await;
-            // `sessions.sandbox` as MDM or the team policy forces it (`local_sandbox.rs`): only a
-            // forced `true` counts; the policy can turn the sandbox on, never off.
-            let sandbox_managed = params.get("sandboxManaged") == Some(&Value::Bool(true));
-            crate::local_sandbox::apply_managed_push(
-                sandbox_managed.then(|| params.get("sandbox") == Some(&Value::Bool(true))),
-            );
+            // `sessions.sandbox` management is read from cmux's managed-preference source by
+            // `local_sandbox::enabled`. Never trust the effective value sent over this local
+            // socket: a sandboxed agent can call `_acpmux/chat_settings` too.
             hub.apply_prompt_suggestions_push(prompt_suggestions_forced(&params)?).await;
             hub.set_session_recap(settings.session_recap);
             hub.set_terminal_chat_writable(settings.terminal_chat_writable).await;

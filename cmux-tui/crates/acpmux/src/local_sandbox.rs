@@ -47,14 +47,6 @@ pub(crate) const SETTING: &str = "sessions.sandbox";
 
 pub(crate) const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 
-/// Whether MDM or the team policy forces the sandbox on (`_acpmux/chat_settings`).
-static MANAGED_ON: AtomicBool = AtomicBool::new(false);
-
-/// The app's push: `Some(true)` forces it on; anything else forces nothing (only tightens).
-pub(crate) fn apply_managed_push(forced: Option<bool>) {
-    MANAGED_ON.store(forced == Some(true), Ordering::Relaxed);
-}
-
 /// The settings file's answer: on unless it sets `sessions.sandbox` to false. Unreadable: on.
 pub(crate) fn file_wants(settings: &crate::user_settings::Settings) -> bool {
     match settings {
@@ -69,7 +61,9 @@ pub(crate) fn file_wants(settings: &crate::user_settings::Settings) -> bool {
 
 /// Whether a new local chat's Claude Code runs in the sandbox.
 pub(crate) fn enabled() -> bool {
-    enabled_by(MANAGED_ON.load(Ordering::Relaxed), file_wants(&crate::user_settings::read()))
+    let managed = cmux_config::managed::default_reader(|name| std::env::var(name).ok()).read();
+    let managed_on = managed.forced.get(SETTING) == Some(&Value::Bool(true));
+    enabled_by(managed_on, file_wants(&crate::user_settings::read()))
 }
 
 pub(crate) fn enabled_by(managed_on: bool, file_wants: bool) -> bool {
@@ -163,24 +157,50 @@ pub(crate) fn git_dirs(folder: &Path) -> Vec<PathBuf> {
         return Vec::new();
     };
     if dot_git.is_dir() {
-        return vec![dot_git];
+        let Ok(dot_git) = std::fs::canonicalize(dot_git) else { return Vec::new() };
+        return dot_git
+            .file_name()
+            .is_some_and(|name| name == ".git")
+            .then_some(vec![dot_git])
+            .unwrap_or_default();
     }
     let Ok(text) = std::fs::read_to_string(&dot_git) else { return Vec::new() };
     let Some(gitdir) = text.lines().find_map(|l| l.strip_prefix("gitdir:")) else {
         return Vec::new();
     };
     let base = dot_git.parent().unwrap_or(Path::new("/"));
-    let gitdir = base.join(gitdir.trim());
+    let Ok(gitdir) = std::fs::canonicalize(base.join(gitdir.trim())) else {
+        return Vec::new();
+    };
+    if !gitdir.is_dir() {
+        return Vec::new();
+    }
+    let Some(common_root) = gitdir
+        .ancestors()
+        .find(|path| path.file_name().is_some_and(|name| name == ".git") && path.is_dir())
+    else {
+        return Vec::new();
+    };
+    let Ok(common_root) = std::fs::canonicalize(common_root) else { return Vec::new() };
+    if !gitdir.starts_with(&common_root) {
+        return Vec::new();
+    }
     let mut out = vec![gitdir.clone()];
     if let Ok(common) = std::fs::read_to_string(gitdir.join("commondir")) {
-        out.push(gitdir.join(common.trim()));
+        if let Ok(common) = std::fs::canonicalize(gitdir.join(common.trim()))
+            && common.is_dir()
+            && common.starts_with(&common_root)
+        {
+            out.push(common);
+        }
     }
     out
 }
 
 /// Whether Claude Code's own Bash sandbox is on for this launch. Claude applies the highest
 /// precedence setting for this one key: managed settings, the last `--settings` value, project
-/// local settings, project settings, then the configured Claude home (or `~/.claude`).
+/// local settings, project settings, then the configured Claude home (or `~/.claude`). The
+/// `--setting-sources` flag removes sources from this list just as Claude Code does.
 pub(crate) fn claude_sandbox_on(
     args: &[String],
     cwd: &Path,
@@ -202,31 +222,56 @@ pub(crate) fn claude_sandbox_on(
     };
 
     let mut last_settings = None;
+    let mut setting_sources = None;
     let mut words = args.iter();
     while let Some(word) = words.next() {
         if word == "--settings" {
             last_settings = words.next().map(String::as_str).map(str::to_owned);
+        } else if word == "--setting-sources" {
+            setting_sources = words.next().map(str::to_owned);
         } else if let Some(setting) = word.strip_prefix("--settings=") {
             last_settings = Some(setting.to_owned());
+        } else if let Some(sources) = word.strip_prefix("--setting-sources=") {
+            setting_sources = Some(sources.to_owned());
         }
     }
+    let source_enabled = |source: &str| {
+        setting_sources
+            .as_deref()
+            .map_or(true, |sources| sources.split(',').any(|candidate| candidate.trim() == source))
+    };
 
-    [
-        "/Library/Application Support/ClaudeCode/managed-settings.json",
-        "/etc/claude-code/managed-settings.json",
-    ]
-    .iter()
-    .map(Path::new)
-    .find_map(file)
-    .or_else(|| last_settings.as_deref().and_then(settings_value))
-    .or_else(|| file(&cwd.join(".claude/settings.local.json")))
-    .or_else(|| file(&cwd.join(".claude/settings.json")))
-    .or_else(|| {
-        let config_dir =
-            claude_config_dir.map(Path::to_path_buf).unwrap_or_else(|| agent_home.join(".claude"));
-        file(&config_dir.join("settings.json"))
-    })
-    .unwrap_or(false)
+    source_enabled("enterprise")
+        .then(|| {
+            [
+                "/Library/Application Support/ClaudeCode/managed-settings.json",
+                "/etc/claude-code/managed-settings.json",
+            ]
+            .iter()
+            .map(Path::new)
+            .find_map(file)
+        })
+        .flatten()
+        .or_else(|| last_settings.as_deref().and_then(settings_value))
+        .or_else(|| {
+            source_enabled("local")
+                .then(|| file(&cwd.join(".claude/settings.local.json")))
+                .flatten()
+        })
+        .or_else(|| {
+            source_enabled("project").then(|| file(&cwd.join(".claude/settings.json"))).flatten()
+        })
+        .or_else(|| {
+            source_enabled("user")
+                .then(|| {
+                    let config_dir = claude_config_dir
+                        .map(Path::to_path_buf)
+                        .unwrap_or_else(|| agent_home.join(".claude"));
+                    file(&config_dir.join("settings.json"))
+                })
+                .flatten()
+        })
+        .unwrap_or(false)
 }
 
 /// The port of an `ANTHROPIC_BASE_URL` that the profile does not already open (443, 80, 22 or
