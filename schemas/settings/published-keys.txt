@@ -51,6 +51,16 @@ agentPane.display.senderIcon.badge
 agentPane.display.senderIcon.corner
 agentPane.display.senderIcon.lead
 agentPane.display.sessionInfo.placement
+agentPane.display.sessionInfo.sections.carried
+agentPane.display.sessionInfo.sections.changes
+agentPane.display.sessionInfo.sections.connectors
+agentPane.display.sessionInfo.sections.context
+agentPane.display.sessionInfo.sections.environment
+agentPane.display.sessionInfo.sections.outputs
+agentPane.display.sessionInfo.sections.sources
+agentPane.display.sessionInfo.sections.subagents
+agentPane.display.sessionInfo.sections.tasks
+agentPane.display.sessionInfo.sections.usage
 agentPane.display.statusVerbs.custom
 agentPane.display.statusVerbs.mode
 agentPane.display.streaming
@@ -92,6 +102,9 @@ agents.autoRetry.attempts
 agents.autoRetry.capacityFallbackAfter
 agents.autoRetry.enabled
 agents.autoRetry.intervalSeconds
+agents.autoSettle.idleDays
+agents.autoSettle.onClose
+agents.autoSettle.onMerge
 agents.cacheCompact.enabled
 agents.cacheCompact.minContextPercent
 agents.cacheCompact.minContextTokens
@@ -137,6 +150,7 @@ agents.trust.ownOrgs
 agents.trust.projectRoots
 announcements.enabled
 announcements.fetch
+app.captureScreenshotGlobalHotKey
 app.confirmQuit
 app.globalHotKey
 app.hideDockIconWithoutWindows
@@ -397,6 +411,7 @@ chief.subagentSidebar
 chief.subagentSidebarHideWords
 chief.subagentSidebarMinWords
 chief.subagentSidebarShowWords
+cloud.addFolderLive
 cloud.agentMemory.follow
 cloud.agentsStartWithoutAsking
 cloud.autoCloud
@@ -406,6 +421,7 @@ cloud.newWorkspacesInCloud
 cloud.turnCheckpoints
 cloud.useMyClaudeLoginOnMyCloudMachines
 cloud.useMyCodexLoginOnMyCloudMachines
+cloud.useMyGitHubLogin
 computerUse.allowForeground
 computerUse.allowOwnMachines
 computerUse.cursorTag
@@ -519,6 +535,7 @@ experiments.palettePreview
 experiments.paletteV2
 experiments.quietConnect
 experiments.seeThroughDock
+experiments.setupShelf
 experiments.startedTaskTitleChip
 experiments.terminalAgentMark
 experiments.terminalHistory
