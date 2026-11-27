@@ -148,7 +148,8 @@ export function AgentMessageRow({
   // it goes, and the toggle reads as an empty one, so the chevron comes back to its words. Gone, it
   // has no width to watch, so the line's width says when it has room again: the room it had when it
   // went plus what the line has grown since. The line's width never follows the preview's, so the
-  // two never chase each other.
+  // two never chase each other. A showing one is watched too: it shrinks without the line (a font
+  // or a status arriving), and once gone only the line's rule brings it back.
   const previewRef = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const preview = previewRef.current;
@@ -171,6 +172,7 @@ export function AgentMessageRow({
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(line);
+    observer.observe(preview);
     return () => observer.disconnect();
   });
   const closeToToggle = (event?: unknown) => {
