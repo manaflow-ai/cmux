@@ -78,3 +78,29 @@ fn browser_rules_refuse_a_request_that_is_not_their_json() {
     let (code, _) = call("browser_rules_link_action", br#"{"gesture": "wave"}"#);
     assert_eq!(code, ERR_INVALID);
 }
+
+#[test]
+fn browser_rules_profile_book_edit_round_trips_a_book_through_the_c_abi() {
+    let id = "12345678-1234-4234-8234-123456789abc";
+    let request = json!({"book": null, "defaultName": "Default",
+                         "edit": {"create": {"id": id, "name": " Work ", "color": "blue"}}});
+    let (code, created) =
+        call("browser_rules_profile_book_edit", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(
+        created["record"],
+        json!({"id": id, "name": "Work", "color": "blue", "position": 1})
+    );
+
+    let request = json!({"book": created["book"], "edit": {"delete": {"id": id}}});
+    let (code, deleted) =
+        call("browser_rules_profile_book_edit", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(deleted["book"]["pending_cleanup"], json!([id]));
+
+    let request = json!({"book": deleted["book"], "edit": {"create": {"id": id, "name": "Again"}}});
+    let (code, refused) =
+        call("browser_rules_profile_book_edit", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(refused, json!({"error": "pendingCleanup"}));
+}

@@ -18,16 +18,45 @@
 //! | `browser_rules_tab_state_apply` | `{machine, event}` or `{machine, events}` | `{machine, changed}` |
 //! | `browser_rules_tab_state_security` | `{url}` | the scheme-level [`SecurityState`](crate::tab_state::SecurityState) |
 //! | `browser_rules_tab_state_committed_security` | `{url, hasOnlySecureContent, certificateBypassed}` | the [`SecurityState`](crate::tab_state::SecurityState) |
+//! | `browser_rules_profile_resolve` | `{explicit, workspace, room, known}` | the profile id a new tab gets |
+//! | `browser_rules_profile_source` | `{tabProfile, workspace, room, known}` | [`CascadeSource`](crate::profiles::CascadeSource) |
+//! | `browser_rules_profile_shows_tab_badge` | `{tabProfile, workspaceEffective}` | a bool |
+//! | `browser_rules_profile_is_valid_id` | `{id}` | a bool |
+//! | `browser_rules_profile_engine_profile` | `{id}` | the engine profile UUID, or null |
+//! | `browser_rules_profile_wire_id` | `{profile}` | the wire id |
+//! | `browser_rules_profile_monogram` | `{record}` | what the badge shows |
+//! | `browser_rules_profile_proxy` | `{proxy}` | `{chromiumServer, chromiumBypassList, webKitPort, webKitExcludedDomains}` |
+//! | `browser_rules_profile_valid_name` | `{name}` | `{ok}` or `{error}` ([`ProfileBookError`]) |
+//! | `browser_rules_profile_valid_color` | `{color}` | `{ok}` or `{error}` |
+//! | `browser_rules_profile_valid_icon` | `{icon}` | `{ok}` or `{error}` |
+//! | `browser_rules_profile_book_read` | `{book, defaultName}` | the [`ProfileBook`] |
+//! | `browser_rules_profile_book_ordered` | `{book}` | the records in display order |
+//! | `browser_rules_profile_book_engine_profile` | `{book, id}` | the engine profile UUID |
+//! | `browser_rules_profile_book_edit` | `{book, defaultName, edit}` | `{book, record}` or `{error}` |
+//! | `browser_rules_profile_chromium_directories` | `{id, names}` | the directory names |
+//! | `browser_rules_profile_cleanup_claim` | `{claims, pending, open}` | `{claims, ready}` |
+//! | `browser_rules_profile_cleanup_release` | `{claims, ids}` | the claims |
+//! | `browser_rules_profile_off_the_record_begin` | `{state, profile}` | the state |
+//! | `browser_rules_profile_off_the_record_end` | `{state, profile}` | `{state, ended}` |
+//! | `browser_rules_profile_off_the_record_is` | `{state, profile}` | `{active, offTheRecord}` |
+//!
+//! A book in a request is the stored book file's JSON, read as the app reads it
+//! ([`ProfileBook::from_json`]; `defaultName` names a default profile it lacks, else `Default`).
 
 use crate::links::{
     self, CefDisposition, ClickMapping, ClickRecord, Gesture, LinkContext, LinkPlacement,
     Modifiers, WebKitLinkClick, WindowCandidate, WindowDecision, WindowRequest,
+};
+use crate::profiles::{
+    self, BrowserProfileId, CleanupClaims, OffTheRecordProfiles, ProfileBook, ProfileBookError,
+    ProfileProxy, ProfileRecord,
 };
 use crate::tab_state::{self, NavigationEvent, TabState, TabStateMachine};
 use crate::{address, calculator};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Why an op failed.
 #[derive(Debug, PartialEq, Eq)]
@@ -132,6 +161,311 @@ struct SecurityRequest {
     certificate_bypassed: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CascadeRequest {
+    #[serde(default)]
+    explicit: Option<String>,
+    #[serde(default)]
+    tab_profile: Option<String>,
+    #[serde(default)]
+    workspace: Option<String>,
+    #[serde(default)]
+    room: Option<String>,
+    #[serde(default)]
+    known: BTreeSet<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BadgeRequest {
+    #[serde(default)]
+    tab_profile: Option<String>,
+    workspace_effective: String,
+}
+
+#[derive(Deserialize)]
+struct IdRequest {
+    #[serde(default)]
+    id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ProfileRequest {
+    profile: BrowserProfileId,
+}
+
+#[derive(Deserialize)]
+struct RecordRequest {
+    record: ProfileRecord,
+}
+
+#[derive(Deserialize)]
+struct ProxyRequest {
+    proxy: ProfileProxy,
+}
+
+#[derive(Deserialize)]
+struct NameRequest {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct ColorRequest {
+    #[serde(default)]
+    color: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct IconRequest {
+    #[serde(default)]
+    icon: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BookRequest {
+    #[serde(default)]
+    book: Value,
+    #[serde(default)]
+    default_name: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    edit: Option<BookEdit>,
+}
+
+/// One edit of a [`ProfileBook`], named as the Swift method it ports.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum BookEdit {
+    Create {
+        id: String,
+        name: String,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        icon: Option<String>,
+        #[serde(default)]
+        source: Option<BTreeMap<String, String>>,
+    },
+    Rename {
+        id: String,
+        name: String,
+    },
+    SetColor {
+        id: String,
+        #[serde(default)]
+        color: Option<String>,
+    },
+    SetIcon {
+        id: String,
+        #[serde(default)]
+        icon: Option<String>,
+    },
+    Move {
+        id: String,
+        index: i64,
+    },
+    Delete {
+        id: String,
+    },
+    MarkDeleted {
+        id: String,
+    },
+    FinishCleanup {
+        ids: Vec<String>,
+    },
+    RequireReusable {
+        id: String,
+    },
+}
+
+#[derive(Deserialize)]
+struct DirectoriesRequest {
+    id: String,
+    #[serde(default)]
+    names: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ClaimRequest {
+    #[serde(default)]
+    claims: CleanupClaims,
+    #[serde(default)]
+    pending: Vec<String>,
+    #[serde(default)]
+    open: BTreeSet<BrowserProfileId>,
+    #[serde(default)]
+    ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct OffTheRecordRequest {
+    #[serde(default)]
+    state: OffTheRecordProfiles,
+    profile: BrowserProfileId,
+}
+
+/// `{ok: value}` for an accepted value, `{error: reason}` for a refused one.
+fn checked<T: serde::Serialize>(result: Result<T, ProfileBookError>) -> Value {
+    match result {
+        Ok(value) => json!({"ok": value}),
+        Err(error) => json!({"error": error}),
+    }
+}
+
+fn read_book(book: Value, default_name: Option<&str>) -> Result<ProfileBook, OpError> {
+    let book = if book.is_null() { json!({}) } else { book };
+    ProfileBook::from_json(book, default_name.unwrap_or(DEFAULT_NAME))
+        .map_err(|error| OpError::Invalid(error.to_string()))
+}
+
+/// The default profile's name when a request names none (the Swift string's English value).
+const DEFAULT_NAME: &str = "Default";
+
+fn edit_book(
+    book: &mut ProfileBook,
+    edit: BookEdit,
+) -> Result<Option<ProfileRecord>, ProfileBookError> {
+    match edit {
+        BookEdit::Create { id, name, color, icon, source } => {
+            book.create(&id, &name, color.as_deref(), icon.as_deref(), source).map(Some)
+        }
+        BookEdit::Rename { id, name } => book.rename(&id, &name).map(|()| None),
+        BookEdit::SetColor { id, color } => book.set_color(&id, color.as_deref()).map(|()| None),
+        BookEdit::SetIcon { id, icon } => book.set_icon(&id, icon.as_deref()).map(|()| None),
+        BookEdit::Move { id, index } => book.move_to(&id, index).map(|()| None),
+        BookEdit::Delete { id } => book.delete(&id).map(|()| None),
+        BookEdit::MarkDeleted { id } => {
+            book.mark_deleted(&id);
+            Ok(None)
+        }
+        BookEdit::FinishCleanup { ids } => {
+            book.finish_cleanup(&ids);
+            Ok(None)
+        }
+        BookEdit::RequireReusable { id } => book.require_reusable(&id).map(|()| None),
+    }
+}
+
+fn profile_op(op: &str, request: Value) -> Result<Value, OpError> {
+    match op {
+        "browser_rules_profile_resolve" => {
+            let CascadeRequest { explicit, workspace, room, known, .. } = parse(request)?;
+            Ok(json!(profiles::resolve(
+                explicit.as_deref(),
+                workspace.as_deref(),
+                room.as_deref(),
+                |id| known.contains(id),
+            )))
+        }
+        "browser_rules_profile_source" => {
+            let CascadeRequest { tab_profile, workspace, room, known, .. } = parse(request)?;
+            Ok(encode(&profiles::source(
+                tab_profile.as_deref(),
+                workspace.as_deref(),
+                room.as_deref(),
+                |id| known.contains(id),
+            )))
+        }
+        "browser_rules_profile_shows_tab_badge" => {
+            let BadgeRequest { tab_profile, workspace_effective } = parse(request)?;
+            Ok(json!(profiles::shows_tab_badge(tab_profile.as_deref(), &workspace_effective)))
+        }
+        "browser_rules_profile_is_valid_id" => {
+            let IdRequest { id } = parse(request)?;
+            Ok(json!(id.is_some_and(|id| profiles::is_valid_id(&id))))
+        }
+        "browser_rules_profile_engine_profile" => {
+            let IdRequest { id } = parse(request)?;
+            Ok(encode(&profiles::engine_profile(id.as_deref())))
+        }
+        "browser_rules_profile_wire_id" => {
+            let ProfileRequest { profile } = parse(request)?;
+            Ok(json!(profiles::wire_id(&profile)))
+        }
+        "browser_rules_profile_monogram" => {
+            let RecordRequest { record } = parse(request)?;
+            Ok(json!(record.monogram()))
+        }
+        "browser_rules_profile_proxy" => {
+            let ProxyRequest { proxy } = parse(request)?;
+            Ok(json!({
+                "chromiumServer": proxy.chromium_server(),
+                "chromiumBypassList": proxy.chromium_bypass_list(),
+                "webKitPort": proxy.webkit_port(),
+                "webKitExcludedDomains": proxy.webkit_excluded_domains(),
+            }))
+        }
+        "browser_rules_profile_valid_name" => {
+            let NameRequest { name } = parse(request)?;
+            Ok(checked(profiles::valid_name(&name)))
+        }
+        "browser_rules_profile_valid_color" => {
+            let ColorRequest { color } = parse(request)?;
+            Ok(checked(profiles::valid_color(color.as_deref())))
+        }
+        "browser_rules_profile_valid_icon" => {
+            let IconRequest { icon } = parse(request)?;
+            Ok(checked(profiles::valid_icon(icon.as_deref())))
+        }
+        "browser_rules_profile_book_read" => {
+            let BookRequest { book, default_name, .. } = parse(request)?;
+            Ok(encode(&read_book(book, default_name.as_deref())?))
+        }
+        "browser_rules_profile_book_ordered" => {
+            let BookRequest { book, default_name, .. } = parse(request)?;
+            Ok(encode(&read_book(book, default_name.as_deref())?.ordered()))
+        }
+        "browser_rules_profile_book_engine_profile" => {
+            let BookRequest { book, default_name, id, .. } = parse(request)?;
+            Ok(encode(&read_book(book, default_name.as_deref())?.engine_profile(id.as_deref())))
+        }
+        "browser_rules_profile_book_edit" => {
+            let BookRequest { book, default_name, edit, .. } = parse(request)?;
+            let edit = edit.ok_or_else(|| OpError::Invalid("edit is required".into()))?;
+            let mut book = read_book(book, default_name.as_deref())?;
+            Ok(match edit_book(&mut book, edit) {
+                Ok(record) => json!({"book": book, "record": record}),
+                Err(error) => json!({"error": error}),
+            })
+        }
+        "browser_rules_profile_chromium_directories" => {
+            let DirectoriesRequest { id, names } = parse(request)?;
+            Ok(json!(profiles::chromium_directories(&id, &names)))
+        }
+        "browser_rules_profile_cleanup_claim" => {
+            let ClaimRequest { mut claims, pending, open, .. } = parse(request)?;
+            let ready = claims.claim(&pending, |profile| open.contains(profile));
+            Ok(json!({"claims": claims, "ready": ready}))
+        }
+        "browser_rules_profile_cleanup_release" => {
+            let ClaimRequest { mut claims, ids, .. } = parse(request)?;
+            claims.release(&ids);
+            Ok(encode(&claims))
+        }
+        "browser_rules_profile_off_the_record_begin" => {
+            let OffTheRecordRequest { mut state, profile } = parse(request)?;
+            state.begin(profile);
+            Ok(encode(&state))
+        }
+        "browser_rules_profile_off_the_record_end" => {
+            let OffTheRecordRequest { mut state, profile } = parse(request)?;
+            let ended = state.end(&profile);
+            Ok(json!({"state": state, "ended": ended}))
+        }
+        "browser_rules_profile_off_the_record_is" => {
+            let OffTheRecordRequest { state, profile } = parse(request)?;
+            Ok(json!({
+                "active": state.contains(&profile),
+                "offTheRecord": state.is_off_the_record(&profile),
+            }))
+        }
+        other => Err(OpError::UnknownOp(other.to_owned())),
+    }
+}
+
 fn parse<T: DeserializeOwned>(request: Value) -> Result<T, OpError> {
     serde_json::from_value(request).map_err(|error| OpError::Invalid(error.to_string()))
 }
@@ -233,6 +567,7 @@ pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
                 certificate_bypassed,
             )))
         }
+        other if other.starts_with("browser_rules_profile_") => profile_op(other, request),
         other => Err(OpError::UnknownOp(other.to_owned())),
     }
 }
