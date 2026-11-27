@@ -179,7 +179,9 @@ jobs:
           done
           git config core.sparseCheckout true
           printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
-          git checkout -q -f --detach "$SHA"
+          # 8 parallel workers halve writing the ~69k-file tree (12.5 -> 6.2 s median, fresh .git or a sparse widen after a
+          # narrower job on this VM; rnd rc-c6f133b4).
+          git -c checkout.workers=8 checkout -q -f --detach "$SHA"
           [[ $reuse == fresh ]] || git sparse-checkout reapply
           echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
 
@@ -277,23 +279,31 @@ jobs:
             # older base counts (ci_receipt.py base_covers). A failed read leaves no tree, and the gates run.
             # The tree comes from git, not the REST API: the installation's REST budget was spent on every
             # dispatch from 07:08Z to 07:45Z on 2026-11-27, and a REST read of the commit missed all 12 lane heads.
-            # One commit object, no trees or blobs (--filter=tree:0 --depth=1), in a throwaway repository.
+            # Commit objects only, no trees or blobs (--filter=tree:0), in a throwaway repository: the head and its
+            # parents (--depth=2). Prints the head's tree, then its first parent's tree when the head is GitHub's
+            # update-branch merge of the base into the lane: no lane tested that commit, but its first parent is the
+            # lane's own commit, whose receipt ci_receipt.py asks for next (4 of 11 lane misses, 2026-11-27 11:35Z-12:45Z).
             head_commit_tree() {
-              local dir auth tree
+              local dir auth tree parent=""
               dir="$(mktemp -d)"
               git init -q --bare "$dir"
               auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
               if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-                git -C "$dir" fetch -q --no-tags --no-recurse-submodules --depth=1 --filter=tree:0 \
+                git -C "$dir" fetch -q --no-tags --no-recurse-submodules --depth=2 --filter=tree:0 \
                   "https://github.com/$GITHUB_REPOSITORY" "$1" >&2; then
                 tree="$(git -C "$dir" rev-parse "$1^{tree}")"
+                if [[ "$(git -C "$dir" log -1 --format='%P%n%cn%n%s' "$1")" =~ ^[0-9a-f]{40}\ [0-9a-f]{40}$'\n'GitHub$'\n'"Merge branch '$BRANCH' into " ]]; then
+                  parent="$(git -C "$dir" rev-parse "$1^1^{tree}" 2>/dev/null || true)"
+                fi
               fi
               rm -rf "$dir"
-              printf '%s' "${tree:-}"
+              printf '%s %s' "${tree:-}" "$parent"
             }
             if [[ "$head_ref" == lane/* && "${LANE:-1}" != 0 ]]; then
-              if head_tree="$(head_commit_tree "$head")" && [[ "$head_tree" =~ ^[0-9a-f]{40}$ ]]; then
+              read -r head_tree parent_tree <<<"$(head_commit_tree "$head")" || true
+              if [[ "${head_tree:-}" =~ ^[0-9a-f]{40}$ ]]; then
                 { echo "head_tree=$head_tree"; echo "merge_tree="; echo "lane_dispatch=true"; } >> "$GITHUB_OUTPUT"
+                if [[ "${parent_tree:-}" =~ ^[0-9a-f]{40}$ ]]; then echo "lane_parent_tree=$parent_tree" >> "$GITHUB_OUTPUT"; fi
               else
                 echo "::notice title=CI receipt::could not read #$PR's head tree; the gates run"
               fi
@@ -399,6 +409,7 @@ jobs:
           BASE: ${{ steps.resolve.outputs.base }}
           HEAD_TREE: ${{ steps.resolve.outputs.head_tree }}
           MERGE_TREE: ${{ steps.resolve.outputs.merge_tree }}
+          LANE_PARENT_TREE: ${{ steps.resolve.outputs.lane_parent_tree }}
           AUDIT_PERCENT: ${{ vars.CI_RECEIPT_AUDIT_PERCENT }}
           LANE: ${{ vars.CI_LANE_RECEIPTS }}
           RUN_URL_SELF: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -427,6 +438,10 @@ jobs:
           # A lane's own pass recorded with the controller (on unless vars.CI_LANE_RECEIPTS=0), when the base's
           # verifier knows it.
           if [[ "${LANE:-1}" != 0 ]] && grep -q -- '"--lane"' "$verifier/ci_receipt.py"; then DISCOVER_ARGS+=(--lane); fi
+          # An update-branch head's lane commit (resolve), when the base's verifier knows to ask for it.
+          if [[ -n "${LANE_PARENT_TREE:-}" ]] && grep -q -- '"--lane-parent-tree"' "$verifier/ci_receipt.py"; then
+            DISCOVER_ARGS+=(--lane-parent-tree "$LANE_PARENT_TREE")
+          fi
           python3 -I "$verifier/ci_receipt.py" verify fast-gates --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" \
             --base "$BASE" --head-tree "$HEAD_TREE" --merge-tree "$MERGE_TREE" --audit-percent "$AUDIT_PERCENT" \
             ${DISCOVER_ARGS[@]+"${DISCOVER_ARGS[@]}"} --output "$GITHUB_OUTPUT"
@@ -497,6 +512,8 @@ jobs:
             /Packages/
             /cmux-tui/
             /webviews/
+            # Webviews checks load the gallery and setup JSON directly from examples/.
+            /examples/
             # webviews/vite.config.ts loads the markdown host plugin, which resolves this folder: without it the
             # webviews type check fails on ENOENT before it checks a file (14 files, 6.7 MB).
             /Resources/markdown-viewer/
