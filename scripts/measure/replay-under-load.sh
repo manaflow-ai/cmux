@@ -8,7 +8,7 @@
 # pass, with the [his Mac's] reading as a second series."
 #
 #   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE]
-#     [--painter react|dom-floor|worker]   (bench-only viewport painter A/B: webviews/bench/support/viewportPainter.ts)
+#     [--painter react|dom-floor|worker|native]   (bench-only viewport painter A/B: webviews/bench/support/viewportPainter.ts; native = Experiments nativeTranscript)
 #
 # --cores N runs the load and the replay on the first N CPUs only (taskset), so a shared VM gives up N cores, not all
 # of them; nproc inside is N and stress-ng runs 4*N workers there. Without it the whole machine is loaded: only a VM
