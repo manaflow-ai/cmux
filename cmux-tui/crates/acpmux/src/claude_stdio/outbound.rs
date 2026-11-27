@@ -23,7 +23,7 @@ impl Translator {
                         let suggestions = prompt_suggestions::enabled_in_settings() && !for_agent;
                         let mut request = initialize_request(suggestions);
                         if self.stop_condition.load(std::sync::atomic::Ordering::Relaxed) {
-                            request.set_path(&["hooks", "Stop"], json!([{"hookCallbackIds": [super::hook_callback::STOP_CALLBACK], "timeout": 5}]));
+                            request.set_path(&["hooks", "Stop"], json!([{"hookCallbackIds": [super::hook_callback::STOP_CALLBACK], "timeout": super::hook_callback::STOP_TIMEOUT_S}]));
                         }
                         if self.plugin_hook_home.get().is_some() {
                             super::hook_callback::add_tool_hooks(&mut request);
@@ -634,7 +634,8 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
     request.set(
         "hooks",
         json!({"PreToolUse": [{
-            "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK], "timeout": 90
+            "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK],
+            "timeout": super::hook_callback::SYNC_TIMEOUT_S
         }, {
             "matcher": "*", "hookCallbackIds": [super::policy_gate::GATE_CALLBACK],
             "timeout": super::policy_gate::GATE_TIMEOUT_S, "onFailure": "block"

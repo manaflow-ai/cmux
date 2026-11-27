@@ -63,7 +63,10 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
 
     def test_the_mac_job_regenerates_the_settings_exports_into_the_artifact(self):
         regenerate = step(PR, "action-exports", "Regenerate the settings exports")
-        self.assertEqual(regenerate["if"], "needs.action-areas.outputs.settings == 'true'")
+        # A skipped Linux job or its explicit fallback needs a Mac; an ordinary failure does not.
+        self.assertEqual(regenerate["if"], "needs.action-areas.outputs.settings == 'true' && "
+                                           "(needs.settings-exports-linux.result == 'skipped' || "
+                                           "needs.settings-exports-linux.outputs.fallback == 'true')")
         self.assertIn("regenerate-settings-exports.sh", regenerate["run"])
         work = Path(tempfile.mkdtemp())
         temp = work / "runner-temp"
@@ -87,7 +90,9 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         self.assertIn("needs.action-areas.outputs.settings", env["SETTINGS"])
         # A pack from the same merge commit's cmux-next generated-files job counts as verified exports too
         # (tests/test_base_autofix_pushed_exports.py PrAutofixTakesTheGeneratedFilesPack).
-        self.assertEqual(env["SETTINGS_VERIFIED"], "${{ needs.generated-exports.outputs.hit == 'true' && 'true' || "
+        # So does the Linux settings exports job's own verdict.
+        self.assertEqual(env["SETTINGS_VERIFIED"], "${{ (needs.generated-exports.outputs.hit == 'true' || "
+                                                   "needs.settings-exports-linux.outputs.verified == 'true') && 'true' || "
                                                    "needs.action-exports.outputs.settings-verified }}")
 
 
