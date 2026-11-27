@@ -480,6 +480,16 @@ export function useSlashNames(commands: readonly SlashCommand[] | undefined): Sl
   return kept.current.names;
 }
 
+/// Whether `text` uses a command where the field draws one blue (`slashTokens`): its first word by
+/// any command's name, a skill or saved prompt anywhere outside code.
+export function usesCommand(text: string, names: SlashNames): boolean {
+  if (!names.leading.size) return false;
+  const lead = promptStart(text);
+  return commandWords(text).some(
+    ({ start, word }) => names.anywhere.has(word) || (start === lead && names.leading.has(word)),
+  );
+}
+
 /// The command words in `text`, one text block: each `/name` that starts the block or follows a
 /// boundary and runs to the next, whose name `names` allows there. `lead`: where the prompt's first
 /// word starts in `text`, where every command counts. `from`/`to` limit the scan to the words

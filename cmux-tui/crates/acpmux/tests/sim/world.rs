@@ -24,6 +24,20 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
 const APP: &str = "app";
+
+thread_local! {
+    /// Every hub this thread's simulations built: each must be gone once its simulation is
+    /// dropped (`left_alive`).
+    static HUBS: RefCell<Vec<std::sync::Weak<Hub>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// How many of the hubs built since the last call outlive their simulation.
+fn left_alive() -> (usize, usize) {
+    HUBS.with(|h| {
+        let hubs = std::mem::take(&mut *h.borrow_mut());
+        (hubs.iter().filter(|w| w.strong_count() > 0).count(), hubs.len())
+    })
+}
 const TICK: Duration = Duration::from_millis(10);
 
 /// Which faults a run injects.
@@ -82,6 +96,8 @@ pub struct Run {
     pub uninterrupted: Option<Outcome>,
     pub trace: Vec<String>,
     pub simulated: Duration,
+    /// Of the hubs this run's simulations built, how many outlived them, and how many there were.
+    pub hubs: (usize, usize),
 }
 
 pub fn human(d: Duration) -> String {
@@ -94,6 +110,8 @@ pub fn human(d: Duration) -> String {
 }
 
 pub fn run(seed: u64, opts: &Options) -> Run {
+    // Whatever an earlier run left is its own: this run counts only the hubs it builds.
+    let _ = left_alive();
     let mut rng = Rng::new(seed);
     let plan = Plan::draw(&mut rng.split(1), opts.faults.0);
     let faulty = simulate(seed, &plan, opts);
@@ -110,7 +128,7 @@ pub fn run(seed: u64, opts: &Options) -> Run {
     trace.extend(same_instant_sorted(&faulty.app.trace));
     let simulated =
         faulty.simulated + uninterrupted.as_ref().map_or(Duration::ZERO, |u| u.simulated);
-    Run { plan, faulty, uninterrupted, trace, simulated }
+    Run { plan, faulty, uninterrupted, trace, simulated, hubs: left_alive() }
 }
 
 /// The trace in time order, and within one simulated instant in text order. Within an instant
@@ -156,6 +174,7 @@ fn config() -> Config {
 async fn daemon(disk: Arc<Disk>, agents: Arc<Agents>, incarnation: u64) -> turmoil::Result {
     acpmux::sim_agent::install(agents.factory(incarnation));
     let hub = Hub::new(config(), Box::new(SimStore(disk)));
+    HUBS.with(|h| h.borrow_mut().push(Arc::downgrade(&hub)));
     let _ = hub.person.install_spawn_key(app::PERSON_KEY);
     {
         let hub = hub.clone();

@@ -11,6 +11,10 @@ name: Cloud MVP Nightly readback
 #   gh workflow run cloud-mvp-nightly-readback.yml --ref feat-cmux-next -f build=4592220755201
 
 on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/cloud-mvp-nightly-readback.yml
   workflow_dispatch:
     inputs:
       build:
