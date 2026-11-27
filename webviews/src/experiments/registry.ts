@@ -24,6 +24,8 @@ import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartCompos
 import { composerFooterFacts } from "../agent-session/acpmux/composerFooterFacts.experiment";
 import { composerMachineAtRest } from "../agent-session/acpmux/composerMachineAtRest.experiment";
 import { cloudStartJustGo } from "../agent-session/acpmux/cloudStartJustGo.experiment";
+import { sendDrawsFirst } from "../agent-session/acpmux/sendDrawsFirst.experiment";
+import { waitSpinnerDelay } from "../agent-session/acpmux/waitSpinnerDelay.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
@@ -130,6 +132,7 @@ import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
+import { transcriptScrollPacer } from "../agent-session/acpmux/transcriptScrollPacer.experiment";
 import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
 import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
@@ -261,6 +264,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerFooterFacts,
   composerMachineAtRest,
   cloudStartJustGo,
+  sendDrawsFirst,
+  waitSpinnerDelay,
   cmuxLinkLook,
   sentPasteJoin,
   sentMessageLook,
@@ -279,6 +284,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerDockMotion,
   teamAudit,
   jumpPairLook,
+  transcriptScrollPacer,
   shortcutKeycaps,
   holdToApprove,
   holdToApproveDuration,
