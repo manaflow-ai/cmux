@@ -127,6 +127,16 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         // crash-allow: git and gh read this exit code (a helper's refusal, gh's own status); no runtime or daemon runs yet
         std::process::exit(i32::from(code));
     }
+    // A harness's hook entry for the hook host (`hook_host/`): no runtime, one request to the
+    // daemon, or the rules run here when it cannot be reached.
+    if args.first().is_some_and(|a| a == crate::hook_host::CLI_ARG) {
+        let home = std::env::var_os("ACPMUX_HOME")
+            .filter(|h| !h.is_empty())
+            .map(std::path::PathBuf::from)
+            .or_else(|| invocation.home.clone())
+            .unwrap_or_else(crate::config::home);
+        return crate::hook_host::main(args.get(1..).unwrap_or_default(), &home);
+    }
     // The held pipes' host (`hub_carrier_pipe_host.rs`): its own runtime, no daemon start.
     #[cfg(all(unix, feature = "hub-carrier"))]
     if args.first().is_some_and(|a| a == crate::hub_carrier_pipe_host::PIPE_HOST_ARG) {
