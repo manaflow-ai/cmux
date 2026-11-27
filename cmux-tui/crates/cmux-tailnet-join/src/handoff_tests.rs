@@ -118,3 +118,13 @@ fn adopt_starts_a_handshake_with_every_online_peer_once_running() {
     assert!(wait < kick && s.contains("[ $i -gt 20 ] && break"));
     assert!(s.contains("</dev/null >/dev/null 2>&1 &"), "never holds the adopt run's output");
 }
+
+#[test]
+fn stand_down_stops_the_node_and_deletes_its_state_without_signing_out() {
+    let command = stand_down_command();
+    assert!(command.contains("pkill -x tailscaled"));
+    assert!(command.contains(STATE_FILE));
+    assert!(!command.contains("tailscale logout"), "the new holder runs this node");
+    assert!(!command.contains("cmux-tailnet-state"), "the state is never printed");
+    assert!(command.ends_with("echo cmux-tailnet-stood-down"));
+}
