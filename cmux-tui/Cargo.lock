@@ -88,6 +88,7 @@ dependencies = [
  "cmux-tailnet-join",
  "cmux-tailnet-local",
  "cmux-transport",
+ "cmux-transport-rewrite",
  "cmux-tui-hooks",
  "cmux-tui-platform",
  "cmux-unix-socket",
@@ -252,6 +253,7 @@ dependencies = [
  "libc",
  "pulldown-cmark",
  "ratatui",
+ "regex",
  "serde_json",
  "syntect",
  "tokio",
@@ -2233,6 +2235,7 @@ dependencies = [
  "cmux-egress",
  "cmux-process",
  "cmux-scope",
+ "cmux-transport-rewrite",
  "flate2",
  "futures-util",
  "hex",
@@ -2734,6 +2737,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-proxy"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "rcgen",
+ "rustls",
+ "rustls-platform-verifier",
+ "serde",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "url",
+ "webpki-roots",
+]
+
+[[package]]
 name = "cmux-pty"
 version = "1.0.0"
 dependencies = [
@@ -2824,6 +2846,7 @@ name = "cmux-rd-screen-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-rd-screen",
+ "cmux-vnc",
  "serde_json",
 ]
 
@@ -2884,6 +2907,7 @@ dependencies = [
  "cmux-link",
  "cmux-netwatch",
  "cmux-process",
+ "cmux-proxy",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
@@ -3387,6 +3411,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-transport-rewrite"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-tui"
 version = "1.0.0"
 dependencies = [
@@ -3450,6 +3478,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
+ "cmux-proxy",
  "cmux-pty",
  "cmux-rd-host",
  "cmux-rd-link",
@@ -3631,6 +3660,7 @@ dependencies = [
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-theme-tokens",
+ "cmux-transport-rewrite",
  "cmux-tui-cdp",
  "cmux-tui-cloud-conversations",
  "cmux-tui-image-paste",
@@ -5424,6 +5454,7 @@ name = "ghostty-vt-sys"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "cmux-transport-rewrite",
 ]
 
 [[package]]

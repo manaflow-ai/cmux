@@ -10,6 +10,7 @@
     "product-reuse": {"what": "A green compile receipt or built product for the same tree, reused instead of compiled again (scripts/ci/reuse_app_host_products.py, nightly_release_product_reuse.py, dev_release_product_reuse.py, reuse_release_product.py, job_reuse.py)", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#product-reuse"}
   },
   "jobs": {
+    "agent-pane-acpmux-cache.yml:save": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cas-replay.yml:b1": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cas-replay.yml:u2": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cas-replay.yml:w1": {"class": "linux-rust", "warm": ["actions-cache"]},
@@ -24,10 +25,10 @@
     "ios-link-ffi-linux.yml:linkage": {"class": "linux-build", "warm": [], "exempt": "cold: builds the Linux FFI library and runs its linkage tests without a shared build directory"},
     "ios-review-gate.yml:seed-goldens": {"class": "linux-rust", "warm": [], "exempt": "cold: builds cmux-shotdiff to file the captured stills under their input keys"},
     "ios-sim-linux-build.yml:build-fleet": {"class": "fleet-dispatch", "warm": [], "exempt": "dispatches the simulator build to the fleet and uploads its products; no local compilation"},
-    "nightly.yml:report-nightly-shelf-red": {"class": "mac-run-product", "warm": [], "exempt": "updates the shelf issue after a failed check; the reporter builds nothing"},
+    "nightly.yml:report-nightly-shelf-red": {"class": "mac-report", "warm": [], "exempt": "updates the shelf issue after a failed check; the reporter builds nothing"},
     "pause-ab.yml:ab": {"class": "linux-js", "warm": [], "exempt": "Bun runs the unit tests and staging A/B script directly from source"},
-    "pr-pipeline.yml:ios-fast": {"class": "ios", "warm": [], "exempt": "cold: builds the changed iOS target and runs its tests without a shared DerivedData source"},
-    "pr-pipeline.yml:ios-macos": {"class": "mac-build", "warm": [], "exempt": "cold: runs the kit macOS Swift tests without an explicit shared SwiftPM cache"},
+    "pr-pipeline.yml:ios-fast": {"class": "ios", "warm": ["deriveddata-reuse"]},
+    "pr-pipeline.yml:ios-macos": {"class": "mac-build", "warm": [], "exempt": "cold: hosted runners start the kit tests from an empty checkout; an owned Mac retains ignored build products"},
     "shotdiff.yml:shotdiff": {"class": "linux-rust", "warm": [], "exempt": "cold: builds and tests the release cmux-shotdiff crate without a shared Cargo target"},
     "chief-evals.yml:fleet-ab": {"class": "linux-rust", "warm": ["deriveddata-reuse"]},
     "cloud-chief-turn-proof.yml:proof": {"class": "linux-rust", "warm": ["actions-cache"]},
