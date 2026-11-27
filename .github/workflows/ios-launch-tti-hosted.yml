@@ -22,7 +22,7 @@ on:
       after:
         description: After ref (branch or SHA)
         required: false
-        default: 6ddaccc370e914a2ca8196465e0b51693a7030b1
+        default: 9b3a8cad3aa27cdeaf015c4b92295206d054429b
 
 permissions:
   contents: read
@@ -41,9 +41,9 @@ jobs:
       matrix:
         include:
           - leg: before
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || '635ec280ada04c6002e07852d3f06f1af949f992' }}
+            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || '38721c8c1e53ad0e06ceee1abe4c26a4f9434e0e' }}
           - leg: after
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || '6ddaccc370e914a2ca8196465e0b51693a7030b1' }}
+            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || '9b3a8cad3aa27cdeaf015c4b92295206d054429b' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
