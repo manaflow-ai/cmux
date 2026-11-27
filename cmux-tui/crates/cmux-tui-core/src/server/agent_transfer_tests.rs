@@ -1504,6 +1504,7 @@ fn a_tail_first_move_stages_the_tail_and_sends_the_history_after() {
     assert_eq!(data["prepare_id"], json!("pre_1"));
     assert_eq!(data["after_seq"], json!(7));
     assert_eq!(data["history_later"], json!(true));
+    assert!(!mux.agent_transfers.moving_session(SESSION));
     let sent = fake.frame();
     assert_eq!(sent["method"], json!("_acpmux/transfer_prepare"));
     assert_eq!(sent["params"], json!({"sessionId":SESSION,"historyLater":{"keepTurns":4}}));
@@ -1534,6 +1535,7 @@ fn a_tail_first_move_stages_the_tail_and_sends_the_history_after() {
     let begun = ok_data(&begun).clone();
     assert_eq!(begun["staged"], json!(true));
     assert_eq!(begun["history_later"], json!(true));
+    assert!(mux.agent_transfers.moving_session(SESSION));
     let sent = fake.frame();
     assert_eq!(sent["method"], json!("_acpmux/transfer_begin"));
     assert_eq!(

@@ -246,7 +246,8 @@ struct Move {
     files: BundleFiles,
     epoch: u64,
     touched: Instant,
-    session_id: String,
+    /// Set after begin freezes the source. A prepared prefix leaves its chat running.
+    moving_session: Option<String>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -390,7 +391,9 @@ impl AgentTransfers {
     }
 
     pub(crate) fn moving_session(&self, session: &str) -> bool {
-        lock(&self.moves).values().any(|entry| entry.session_id == session)
+        lock(&self.moves).values().any(|entry| {
+            entry.moving_session.as_deref() == Some(session) && entry.touched.elapsed() < STALE
+        })
     }
 }
 
@@ -1093,7 +1096,8 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
     };
     let transfers = &mux.agent_transfers;
     match prepared {
-        Prepared::Receive { manifest, guard, cwd, moved, stage_id } => {
+        Prepared::Receive { mut manifest, guard, cwd, moved, stage_id } => {
+            let shares = manifest.remove(TRANSFER_FIELD);
             let epoch = manifest_epoch(manifest.get("epoch"))?;
             let mut params = json!({"manifest": manifest, "guard": guard});
             if let Some(stage_id) = &stage_id {
@@ -1105,7 +1109,7 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
             else {
                 return Err(Refusal::Unguarded.into());
             };
-            let transferred_share_ids = if let Some(payload) = manifest.get(TRANSFER_FIELD) {
+            let transferred_share_ids = if let Some(payload) = &shares {
                 match import_transferred_chat_shares(mux, &moved.session_id, payload) {
                     Ok(ids) => {
                         start_transferred_share_hosts(mux, &ids);
@@ -1204,8 +1208,12 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
             if let Some(shares) = export_transferred_chat_shares(mux, &source_session) {
                 manifest.insert(TRANSFER_FIELD, shares);
             }
-            let entry =
-                Move { files, epoch, touched: Instant::now(), session_id: source_session.clone() };
+            let entry = Move {
+                files,
+                epoch,
+                touched: Instant::now(),
+                moving_session: Some(source_session.clone()),
+            };
             lock(&transfers.moves).insert(transfer_id.clone(), entry);
             // Begun from the staged prefix, which held no history: the history is owed.
             let staged = manifest.get("prefix").is_some_and(|p| !p.is_null());
