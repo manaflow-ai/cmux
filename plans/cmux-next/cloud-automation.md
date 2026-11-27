@@ -268,7 +268,7 @@ Not migrated: remote-tab.md:16 and :156 already state the RT8 rule.
 
 ## 14. Decisions recorded (CLOUD-AUTOMATION, coordinator 2026-10-04)
 
-D-A1 the fork's Chrome-style build is the engine; Chrome for Testing x86_64 is the interim. D-A2 CJK fonts in the image; ffmpeg and heavy tools are first-use role packages. D-A3 per-session display API on one shared display until cmux-cua has one X11 connection per display. D-A4 per-user SSH CA for personal machines, team CA for team machines. D-A5 ffmpeg on first use. D-A6 x264 with openh264 fallback. D-A7 the rotation lead creates environment `cmux-next-vm-image-dev` with only the cmux-next dev key; no bake before the coordinator confirms it. Bakes stay `workflow_dispatch` only; The `cloud-vm-image-lock` step in `ci/steps.toml` runs the lock and sshd tests on path changes.
+D-A1 the fork's Chrome-style build is the engine; Chrome for Testing x86_64 is the interim. D-A2 CJK fonts in the image; ffmpeg and heavy tools are first-use role packages. D-A3 per-session display API on one shared display until cmux-cua has one X11 connection per display. D-A4 per-user SSH CA for personal machines, team CA for team machines. D-A5 ffmpeg on first use. D-A6 x264 with openh264 fallback. D-A7 the rotation lead creates environment `cmux-next-vm-image-dev` with only the cmux-next dev key; no bake before the coordinator confirms it. Bakes stay `workflow_dispatch` only; the `cloud-vm-image-lock` step in `ci/steps.toml` runs the lock and sshd tests on path changes.
 
 ## 15. Image changes landed (no bake yet)
 
