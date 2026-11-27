@@ -240,7 +240,8 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
 /// `package`: CmuxNextHostedChief's thin callers use it too.
 /// Any Rust home rule (`cmux_home_call`), for the service targets that may not import
 /// CmuxNextHomeModel (the layer gate): CmuxNextHostedChief's `chiefs_*` and `reach_*` ops.
-package nonisolated enum HomeEngineRules {
+package nonisolated struct HomeEngineRules {
+    package nonisolated init() {}
     package static func call<In: Encodable, Out: Decodable>(_ op: String, _ input: In) throws -> Out {
         try HomeRules.call(op, input)
     }
