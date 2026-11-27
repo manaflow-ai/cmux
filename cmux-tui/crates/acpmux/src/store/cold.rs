@@ -440,6 +440,17 @@ impl LocalStore {
         Ok(bytes.len() as u64)
     }
 
+    /// See [`Store::cloud_configured`]. A config that does not read counts as not set up.
+    pub(super) fn cloud_configured(&self) -> bool {
+        self.cloud().is_ok_and(|cloud| cloud.is_some())
+    }
+
+    /// See [`Store::offloaded`].
+    pub(super) fn offloaded(&self, id: &str) -> bool {
+        crate::home_fs::try_exists_nofollow(self.cloud_stub_path(id)).unwrap_or(false)
+            && !crate::home_fs::try_exists_nofollow(self.cold_path(id)).unwrap_or(true)
+    }
+
     /// See [`Store::register_cloud_root`]. Reads every chat folder's stub (one small file each),
     /// so it runs once per batch. A stub that cannot be read is left out, and logged.
     pub(super) fn register_cloud_root(&self) -> Result<Option<usize>> {

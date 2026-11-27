@@ -876,6 +876,12 @@ impl Store for ForkView {
     fn register_cloud_root(&self) -> Result<Option<usize>> {
         self.inner.register_cloud_root()
     }
+    fn cloud_configured(&self) -> bool {
+        self.inner.cloud_configured()
+    }
+    fn offloaded(&self, id: &str) -> bool {
+        self.inner.offloaded(id)
+    }
     fn on_rehydrate(&self, hook: RehydrateHook) {
         self.inner.on_rehydrate(hook)
     }

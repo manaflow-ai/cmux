@@ -591,6 +591,14 @@ pub trait Store: Send + Sync {
     fn register_cloud_root(&self) -> Result<Option<usize>> {
         Ok(None)
     }
+    /// Cloud history is set up for this store's home (its config reads; no request).
+    fn cloud_configured(&self) -> bool {
+        false
+    }
+    /// The chat's archive went to cloud history: its stub is here and no `cold.zst`.
+    fn offloaded(&self, _id: &str) -> bool {
+        false
+    }
     /// Called with a chat's id each time its log comes back from its cold archive, on any path
     /// (a read, an append, a fork's history): the hub drops the chat's preview
     /// (`hub/cold_archive.rs`). Called inside the store's own locks: it must take none of its
@@ -1789,6 +1797,14 @@ impl Store for LocalStore {
 
     fn register_cloud_root(&self) -> Result<Option<usize>> {
         LocalStore::register_cloud_root(self)
+    }
+
+    fn cloud_configured(&self) -> bool {
+        LocalStore::cloud_configured(self)
+    }
+
+    fn offloaded(&self, id: &str) -> bool {
+        LocalStore::offloaded(self, id)
     }
 
     fn on_rehydrate(&self, hook: RehydrateHook) {
