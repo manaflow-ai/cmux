@@ -119,7 +119,7 @@ const isTextField = (element: Element | null): element is HTMLInputElement | HTM
   !!element &&
   (element.localName === "textarea" ||
     (element.localName === "input" &&
-      /^(text|search|url|tel|email|password|number|)$/.test((element as HTMLInputElement).type ?? "")));
+      /^(text|search|url|tel|email|number|)$/.test((element as HTMLInputElement).type ?? "")));
 
 function editableRoot(element: Element | null): HTMLElement | null {
   let node = element as HTMLElement | null;
@@ -160,12 +160,16 @@ function textPoint(root: Node, at: number): [Node, number] {
 function captureCaret(doc: Document): Caret | null {
   const active = doc.activeElement;
   if (isTextField(active)) {
+    // Email and number inputs keep their value and focus, but have no selection API.
+    const start = active.selectionStart;
+    const end = active.selectionEnd;
+    if (start === null || end === null) return null;
     const path = elementPath(active);
     if (!path) return null;
     return {
       path,
-      start: active.selectionStart ?? active.value.length,
-      end: active.selectionEnd ?? active.value.length,
+      start,
+      end,
       backward: active.selectionDirection === "backward",
       text: active.value,
     };
@@ -211,7 +215,7 @@ export function captureHandoff(doc: Document = document): SwapHandoff {
   }
   const fields: SwapHandoff["fields"] = [];
   for (const field of doc.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")) {
-    if (!isTextField(field) || field.closest("[data-cmux-swap-kept]") || field.type === "password") continue;
+    if (!isTextField(field) || field.closest("[data-cmux-swap-kept]")) continue;
     if (field.value === field.defaultValue) continue;
     const path = elementPath(field);
     if (path) fields.push({ path, value: field.value });
@@ -344,7 +348,9 @@ function putBack(doc: Document, handoff: SwapHandoff): void {
   if (!caret || caretBack(doc, caret)) return;
   const element = find(doc, caret.path);
   if (!element) return;
-  if (isTextField(element)) {
+  if (element.localName === "input" || element.localName === "textarea") {
+    // The replacement bundle may have changed the input type since capture.
+    if (!isTextField(element) || element.selectionStart === null || element.selectionEnd === null) return;
     if (doc.activeElement !== element)
       focusRoute(element, "system", "a web swap gives the caret back", { preventScroll: true });
     element.setSelectionRange(caret.start, caret.end, caret.backward ? "backward" : "forward");
