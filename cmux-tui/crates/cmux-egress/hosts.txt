@@ -123,7 +123,6 @@ app.slack.com
 # sends: the sign-in's device code for your Kimi tokens, and the refresh token when one expires
 # when: when you connect Kimi Code, and when its token is renewed
 # off: disconnect Kimi Code in Settings > Models
-auth.kimi.ai
 # Kimi's sign-in service in China, when you connect a Kimi Code subscription there
 # sends: the sign-in's device code for your Kimi tokens, and the refresh token when one expires
 # when: when you connect Kimi Code in China, and when its token is renewed
@@ -133,7 +132,6 @@ auth.kimi.com
 # sends: the sign-in's one-time code for your ChatGPT tokens, and the refresh token when one expires
 # when: when you sign in with ChatGPT, and when that sign-in's token is renewed
 # off: sign out of ChatGPT in Settings > Models
-auth.openai.com
 # xAI's sign-in service, when you connect a SuperGrok subscription
 # sends: the sign-in's device code for your SuperGrok tokens, and the refresh token when one expires
 # when: when you connect SuperGrok, and when its token is renewed
