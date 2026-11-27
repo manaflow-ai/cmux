@@ -1,7 +1,7 @@
 public import Foundation
 
 /// The app's pinned Linux build for a Cloud machine too old to update in place (the legacy exec update,
-/// `CloudLegacyMachineUpdate` in CmuxNextApp): the commit its daemon reports once it runs it, and the binary's
+/// `CloudLegacyMachineUpdate` in CmuxNextRemote): the commit its daemon reports once it runs it, and the binary's
 /// SHA-256. Rust reads the bundle's manifest or the CLI's answer and refuses anything that is not plain
 /// lowercase hex (`moves::pin`); this reads the manifest file and asks the CLI.
 public struct CloudLegacyPin: Sendable, Equatable, Codable {

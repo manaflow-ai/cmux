@@ -50,7 +50,7 @@ impl NewIds {
 
 /// A create's or an invite-chat's terms, checked: a TTL of 1 minute to 7 days, 1 to 8 uses (to
 /// 1000 for a link made with a role, `view` or `talk`), and a `create_id` of 1 to 64 bytes when
-/// there is one.
+/// there is one. Drive is never a link role.
 fn terms(
     ttl_secs: u64,
     uses: u32,
@@ -60,7 +60,9 @@ fn terms(
 ) -> Result<ShareTerms, &'static str> {
     let id_ok =
         create_id.as_ref().is_none_or(|id| !id.is_empty() && id.len() <= MAX_CREATE_ID_BYTES);
-    if !(MIN_TTL_SECS..=MAX_TTL_SECS).contains(&ttl_secs)
+    if role == Some(Role::Drive)
+        || signed_in_role == Some(Role::Drive)
+        || !(MIN_TTL_SECS..=MAX_TTL_SECS).contains(&ttl_secs)
         || !(1..=if role.is_some() { MAX_LINK_USES } else { MAX_USES }).contains(&uses)
         || !id_ok
     {
@@ -278,10 +280,10 @@ pub(super) fn invite_in(
             invited_at: now,
             state: InviteState::Invited,
         };
-        retire_general_access_guests(share, &account);
+        retire_general_access_guests(share, &account, role);
         return Ok((answer, true));
     }
-    retire_general_access_guests(share, &account);
+    retire_general_access_guests(share, &account, role);
     if share.team_id.is_none() && share.invitees.len() >= MAX_INVITEES {
         // Team shares keep removals: forgetting one would readmit the account through the team.
         share.invitees.retain(|i| i.state == InviteState::Invited);
@@ -296,15 +298,17 @@ pub(super) fn invite_in(
     Ok((answer, true))
 }
 
-/// Inviting an account ends its previous link or team grants. It must join again with the
-/// role the owner chose. The earlier connections close at the next `settle`, and a retry joins
-/// by the invitation.
-fn retire_general_access_guests(share: &mut LinkShare, account: &str) {
+/// Inviting an account ends its previous link or team grants. The earlier connections close
+/// at the next `settle`. A Drive invite preserves the old general-access attempt so it cannot
+/// be replayed as accepting the invitation.
+fn retire_general_access_guests(share: &mut LinkShare, account: &str, role: Role) {
     let general_access = |g: &Guest| g.via.is_some() && g.account.as_deref() == Some(account);
     for guest in share.guests.iter_mut().filter(|g| general_access(g)) {
         if guest.state == GuestState::Active {
             guest.state = GuestState::Left;
         }
-        guest.attempt_id_sha256 = String::new();
+        if role != Role::Drive {
+            guest.attempt_id_sha256.clear();
+        }
     }
 }
