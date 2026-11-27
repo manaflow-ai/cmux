@@ -109,6 +109,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var createTeam: String?
         public var createSent: Bool = false
         public var environmentId: String?
+        public var ensuredEnvironment: String?
         public var setup: CloudStartSetup?
         /// `machine` was made for this send by this plan (the platform's workspace machine it created now): a start
         /// that can't go on deletes it, as one the App made for it. A machine it found or a reservation it bound is never deleted.
@@ -138,7 +139,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
         /// The route to record with a send on `route`: nil for a ledger that keeps none (it takes no `--route`).
         public func recorded(_ route: CloudCreateRoute) -> CloudCreateRoute? { keepsCreateRoute ? route : nil }
 
-        enum CodingKeys: String, CodingKey { case machine, newName, createKey, tabKey, targetPane, createTeam, createSent, environmentId, setup, madeForSend, createRoute, keepsCreateRoute }
+        enum CodingKeys: String, CodingKey { case machine, newName, createKey, tabKey, targetPane, createTeam, createSent, environmentId, ensuredEnvironment, setup, madeForSend, createRoute, keepsCreateRoute }
 
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -150,6 +151,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
             createTeam = try container.decodeIfPresent(String.self, forKey: .createTeam)
             createSent = try container.decodeIfPresent(Bool.self, forKey: .createSent) ?? false
             environmentId = try container.decodeIfPresent(String.self, forKey: .environmentId)
+            ensuredEnvironment = try container.decodeIfPresent(String.self, forKey: .ensuredEnvironment)
             setup = try container.decodeIfPresent(CloudStartSetup.self, forKey: .setup)
             madeForSend = try container.decodeIfPresent(Bool.self, forKey: .madeForSend) ?? false
             // A route this app does not know is none: with the create sent, that is the relay (``CloudMachineRequest/createRoute(personsOwnCreate:team:)``).
@@ -280,16 +282,28 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// changes once the chat is frozen, then `thenSync` (Move to Another Machine: a pull from the machine the chat
     /// leaves, then a seed of the one it goes to); `askFirst` narrows it to an asking policy first; `vmKind` is the
     /// Cloud API's answer for this app on the link in use. `login`: the owner's agent login, on stdin only
-    /// (`--login-stdin`), which the machine starts the moved chat's agent with.
+    /// (`--login-stdin`), which the machine starts the moved chat's agent with. The Mac's acpmux
+    /// socket lets the CLI recheck Cloud consent for the saved connection after the frozen copy.
     public func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, thenSync: FrozenSync? = nil,
-                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil, login: [String: String]? = nil) async throws -> Answer {
+                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil, login: CloudAgentCredential? = nil,
+                          loginConnection: String? = nil, loginSocket: String? = nil) async throws -> Answer {
         struct Call: Encodable {
             var verb = "agent-move"
             var from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync?, thenSync: FrozenSync?, askFirst: Bool, vmKind: String?
             var toPid: Int32?
             var login: Bool
         }
-        let stdin = try login.map { try JSONSerialization.data(withJSONObject: ["env": $0]) }
+        let stdin: Data?
+        if let login {
+            guard let loginSocket else { return Answer(ok: false, errorCode: "connections.not_cloud") }
+            var consent: [String: String] = ["socket": loginSocket, "id": login.connectionID]
+            consent["instance"] = login.instance
+            var credentials: [String: Any] = ["env": login.env, "consent": consent]
+            if let loginConnection { credentials["connection"] = loginConnection }
+            stdin = try JSONSerialization.data(withJSONObject: credentials)
+        } else {
+            stdin = nil
+        }
         return try await run(Call(from: from, surface: surface, to: to, cwd: cwd, sync: sync, thenSync: thenSync, askFirst: askFirst,
                                   vmKind: vmKind, toPid: toPID, login: login != nil), stdin: stdin).answer
     }
@@ -507,6 +521,9 @@ public nonisolated struct CloudMoveCLI: Sendable {
         guard read.answer.ok, let id = object?["machine"]?.stringValue else {
             throw CloudAppOpFailure(code: read.answer.errorCode ?? "cmux.cloud.bad_response", message: read.answer.error ?? "the workspace ensure answered no machine")
         }
+        if let selected = object?["selected_environment"]?.stringValue, selected != environment {
+            throw CloudAppOpFailure(code: "environment_mismatch", message: "The chosen machine cannot serve the selected Cloud environment.")
+        }
         return id
     }
 
@@ -668,11 +685,17 @@ public nonisolated struct CloudMoveCLI: Sendable {
     private func run<Call: Encodable>(_ call: Call, reading: String = "plain", stdin: Data? = nil,
                                       stderrLine: (@Sendable (String) -> Void)? = nil, limit: Duration? = nil) async throws -> Read {
         let result = try await output(call, stdin: stdin, stderrLine: stderrLine, bound: limit)
-        let request = ReadRequest(reading: reading, stdout: String(decoding: result.stdout, as: UTF8.self),
-                              stderr: String(decoding: result.stderr, as: UTF8.self), status: result.status)
+        let stdout = String(decoding: result.stdout, as: UTF8.self)
+        let request = ReadRequest(reading: reading, stdout: stdout,
+                                  stderr: String(decoding: result.stderr, as: UTF8.self), status: result.status)
         var read = CloudMoveCore().call("cli_read", request, as: Read.self)
             ?? Read(answer: Answer(ok: false, errorCode: Self.badAnswer, error: "exit \(result.status)"))
-        read.answer = Self.withSeedFields(read.answer, stdout: request.stdout)
+        read.answer = Self.withSeedFields(read.answer, stdout: stdout)
+        if reading == "start-chat-plan", read.answer.ok, read.plan?.ensuredEnvironment == nil,
+           let line = stdout.split(whereSeparator: \.isNewline).last(where: { $0.hasPrefix("{") }),
+           let reply = try? JSONDecoder().decode(JSONValue.self, from: Data(line.utf8)) {
+            read.plan?.ensuredEnvironment = reply["ensured"]?["selected_environment"]?.stringValue
+        }
         return read
     }
 }

@@ -131,6 +131,7 @@ dependencies = [
  "rusqlite",
  "rustls",
  "schemars 1.2.2",
+ "security-framework",
  "serde",
  "serde_json",
  "sha1",
@@ -2875,8 +2876,11 @@ dependencies = [
  "hmac",
  "libc",
  "md-5",
+ "rustls",
+ "rustls-native-certs",
  "sha1",
  "snow",
+ "socket2",
  "windows-sys 0.61.2",
 ]
 

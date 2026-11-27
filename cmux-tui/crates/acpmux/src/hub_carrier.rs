@@ -1014,6 +1014,12 @@ impl HubCarrier {
         self.dial_service(daemon, CircuitService::Acpmux).await
     }
 
+    /// Whether a kept circuit to `daemon` on `lane` is open now (relay or direct), so
+    /// [`Self::dial_service_on`] that lane opens a stream on it and asks the relay for nothing.
+    pub fn kept_live(&self, daemon: &str, lane: CircuitLane) -> bool {
+        self.kept.has_live(daemon, lane) || self.direct.kept.has_live(daemon, lane)
+    }
+
     /// [`Self::dial`] to `service` on that machine. A service other than the acpmux listener is
     /// named in the circuit's first record, and the dial returns once the machine answered that
     /// it reached it (or fails with its refusal). A named service rides the machine's kept
@@ -1510,6 +1516,9 @@ impl HubCarrier {
     /// One pass of [`Self::keep_reopening`]: every machine at once, each slot locked while its
     /// circuit opens, so a dial to that machine waits on this open rather than racing it.
     pub async fn reopen_closed(&self) -> usize {
+        // Machines with nothing kept go first, so the map is only those with something to keep.
+        self.kept.prune();
+        self.direct.kept.prune();
         let slots: Vec<_> =
             self.kept.to_reopen().into_iter().chain(self.direct.kept.to_reopen()).collect();
         let opened =
@@ -3159,3 +3168,7 @@ mod silent_circuit_tests;
 #[cfg(test)]
 #[path = "hub_carrier_kept_hedge_tests.rs"]
 mod kept_hedge_tests;
+
+#[cfg(test)]
+#[path = "hub_carrier_kept_prune_tests.rs"]
+mod kept_prune_tests;
