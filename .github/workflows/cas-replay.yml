@@ -37,20 +37,26 @@ on:
       - "scripts/cmux-next/web-bundle-archive.py"
       - "webviews/**"
       - ".github/workflows/cas-replay.yml"
+      - "scripts/ci/verify_cas_replay_artifact.py"
       - "tests/test_cas_web_ota_replay.py"
       - "tests/test_cas_derived_data_replay.py"
       - "tests/test_cas_mac_update_replay.py"
       - "tests/test_cas_acpmux_update_replay.py"
+      - "tests/test_cas_replay_workflow.py"
+      - "tests/test_verify_cas_replay_artifact.py"
   pull_request:
     paths:
       - "cmux-tui/crates/cmux-cas/**"
       - "scripts/cas/**"
       - "scripts/cmux-next/web-bundle-archive.py"
       - ".github/workflows/cas-replay.yml"
+      - "scripts/ci/verify_cas_replay_artifact.py"
       - "tests/test_cas_web_ota_replay.py"
       - "tests/test_cas_derived_data_replay.py"
       - "tests/test_cas_mac_update_replay.py"
       - "tests/test_cas_acpmux_update_replay.py"
+      - "tests/test_cas_replay_workflow.py"
+      - "tests/test_verify_cas_replay_artifact.py"
   workflow_dispatch:
     inputs:
       count:
@@ -129,6 +135,9 @@ jobs:
               "source_sha": source_sha,
               "runner_os": os.environ["RUNNER_OS"],
               "runner_arch": os.environ["RUNNER_ARCH"],
+              "build_profile": "release",
+              "cargo_package": "cmux-cas",
+              "cargo_bin": "cas-replay",
               "rust_toolchain_sha256": toolchain_sha,
               "binary_sha256": binary_sha,
           }
