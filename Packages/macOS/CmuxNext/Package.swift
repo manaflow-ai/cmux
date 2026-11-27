@@ -195,7 +195,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 3491ee0d72b80bcc67ee19fc8508772952bcc226f5fee78455ee4b37a3a73b05
+// app-ffi-pin-checksum: 98829f80d66089f3ff43912d0d83ab4ae18488594d1f65fb69b083f90896fdbc
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -2859,17 +2859,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
-            ],
-            swiftSettings: daemonSwiftSettings
-        ),
-        // Writes schemas/settings/settings-schema.json and docs/mdm from CmuxNextSettings alone, so
-        // scripts/cmux-next/regenerate-settings-exports.sh needs no test bundle (any test target that
-        // fails to compile used to hold every settings export back). Not linked into the app.
-        .executableTarget(
-            name: "CmuxNextSettingsExport",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextCompat",
-                "CmuxNextSettings",
             ],
             swiftSettings: daemonSwiftSettings
         ),
