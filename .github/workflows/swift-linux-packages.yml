@@ -132,6 +132,8 @@ jobs:
           - group: ios-kit
             packages: cmux-next-ios/CmuxMobileKit
           # Whole packages that pass on Linux; CmuxIrohTransport's IrohLib and dnssd suites run on a Mac in relay-tls.yml.
+          - group: CmuxAgentBrands
+            packages: Packages/Shared/CmuxAgentBrands
           - group: CmuxChiefList
             packages: Packages/Shared/CmuxChiefList
           - group: CmuxConnectivityTelemetry
