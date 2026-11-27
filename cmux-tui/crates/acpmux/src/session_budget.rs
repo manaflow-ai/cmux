@@ -112,7 +112,7 @@ pub(crate) fn sessions_slice_weight(get: &dyn Fn(&str) -> Option<String>) -> Opt
 /// idle scope got 0.35% against a `CPUWeight=100` scope (weight 1, the lowest, would get 1%).
 /// Off, it is a plain task.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum TaskClass {
+pub enum TaskClass {
     #[default]
     Task,
     Filler,
