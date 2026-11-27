@@ -648,7 +648,8 @@ jobs:
   # vars.CI_IOS_FAST_VERDICT=0 turns it off.
   ios-fast-runner:
     name: ios fast verdict runner
-    if: ${{ vars.CI_IOS_FAST_VERDICT != '0' }}
+    # Why: docs/ci/cmux-next-workflow-notes/2026-11-27-ios-fast-unset-switch.md
+    if: ${{ format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
