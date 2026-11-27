@@ -11,15 +11,20 @@ fn hub() -> Arc<Hub> {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let cfg = json!({"harnesses": {
                         "fake": {"argv": ["python3", fake]},
-                        "other": {"argv": ["python3", fake], "family": "other"},
+                        // `normal` is a non-asking mode in the shared table.  Use the
+                        // deliberately unclassified `strict` mode so these cross-family
+                        // fixtures exercise the fork itself rather than the subsession guard.
+                        "other": {"argv": ["python3", fake], "family": "other",
+                                  "env": {"FAKE_NEW_MODE": "strict"}},
                         // Takes its model over ACP and refuses `bad-model`.
                         "picky": {"argv": ["python3", fake], "family": "picky",
                                   "env": {"FAKE_PICKER": "1", "FAKE_REFUSE_ID": "bad-model"}},
                         // Takes its model at spawn, from its defaults' env only.
-                        "spawned": {"argv": ["python3", fake], "family": "spawned"},
+                        "spawned": {"argv": ["python3", fake], "family": "spawned",
+                                    "env": {"FAKE_NEW_MODE": "strict"}},
                         // Takes its model at spawn, as Claude Code does, and lists two.
                         "listing": {"argv": ["python3", fake], "family": "listing",
-                                    "env": {"FAKE_MODEL_ARG": "${model}"},
+                                    "env": {"FAKE_MODEL_ARG": "${model}", "FAKE_NEW_MODE": "strict"},
                                     "models": ["haiku", "opus"]}},
                      "defaults": {"spawned": {"env": {"FAKE_MODEL_ARG": "${model}"}}},
                      "defaultHarness": "fake",
@@ -225,6 +230,7 @@ fn lister_hub(calls: &std::path::Path) -> Arc<Hub> {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let lister = json!({"argv": ["python3", fake], "family": "lister",
                         "env": {"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude",
+                                "FAKE_PICKER_INITIAL_MODE": "acceptEdits",
                                 "FAKE_CALLS": calls.to_str().unwrap()}});
     // `nofork` has no session/fork: its fork is made from acpmux's transcript. `lister2` is
     // another harness of the same family, a switch target with the same modes.
