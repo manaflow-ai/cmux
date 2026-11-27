@@ -451,6 +451,15 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual((row["log"]["bind_probe"]["agent_bind"], row["log"]["bind_probe"]["host_service"]),
                          ("other", "other"))
         self.assertNotIn("m_1", json.dumps(row))
+        row = logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM, "bind_probe": {
+            "outcome": "ran", "out": "agent_bind=no_line\nagent_journal_lines=42\nagent_last=updater\n"}}))
+        self.assertEqual((row["log"]["bind_probe"]["agent_last"], row["log"]["bind_probe"]["agent_journal_lines"]),
+                         ("updater", 42))
+        row = logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM, "bind_probe": {
+            "outcome": "ran", "out": "agent_last=/var/lib/cmux secret\nagent_journal_lines=x1\n"}}))
+        self.assertEqual(row["log"]["bind_probe"]["agent_last"], "other")
+        self.assertNotIn("agent_journal_lines", row["log"]["bind_probe"])
+        self.assertNotIn("secret", json.dumps(row))
         self.assertNotIn("10.0.0", json.dumps(logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM,
                                                                "bind_probe": {"outcome": "ran", "out": out}}))))
 

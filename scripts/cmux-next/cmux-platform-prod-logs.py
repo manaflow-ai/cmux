@@ -545,6 +545,12 @@ UPTIME_BANDS = ((60, "lt60s"), (300, "60s-300s"), (900, "300s-900s"))
 CURL_ERROR = re.compile(r"curl: \((\d{1,3})\)")
 HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
 # The bind agent's own state (cmux-platform#2182 NeverBoundProbe.ts guestAgentLines): fixed tokens only.
+# The class of the bind agent's last cloud or updater line when it logged no bind line (cmux-platform#2332
+# NeverBoundProbe agent_last): which bind_now step held it. Only these fixed tokens leave; anything else reads "other".
+AGENT_LAST = frozenset({
+    "bind_line", "install_key_failed", "wireguard_key_failed", "waiting_bind_file", "bound_file_unreadable",
+    "updater", "no_line", "cloud_other",
+})
 AGENT_BIND = re.compile(r"^(no_line|none|noise_key_wait|noise_key_gave_up|restart_gate|daemon_info_failed|"
                         r"retry_http_\d{3}|retry_other|refused_[a-z._]{1,40}|invalid|bound|other)$")
 HOST_SERVICE = frozenset({"active", "activating", "inactive", "failed", "deactivating", "reloading", "unknown"})
@@ -593,6 +599,11 @@ def probe_facts(out):
             facts["noise_identity"] = min(999, int(ln.split("=", 1)[1]))
         elif ln.startswith("agent_bind_lines=") and ln.split("=", 1)[1].isdigit():
             facts["agent_bind_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_journal_lines=") and ln.split("=", 1)[1].isdigit():
+            facts["agent_journal_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_last="):
+            v = ln.split("=", 1)[1]
+            facts["agent_last"] = v if v in AGENT_LAST else "other"
         elif ln.startswith("agent_bind="):
             v = ln.split("=", 1)[1]
             facts["agent_bind"] = v if AGENT_BIND.match(v) else "other"
