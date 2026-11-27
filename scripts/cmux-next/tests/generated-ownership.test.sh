@@ -157,6 +157,9 @@ rows=(
   "4|cmux-tui/crates/cmux-core/src/lib.rs|1|1|none"               # cargo fmt
   "4|Native/OptChat/optchat-chief/src/main.rs|1|1|none"
   "5|cmux-tui/Cargo.lock|1|0|none"                                # a lock: apply refuses lockfiles by design
+  "5b|cmux-tui/crates/acpmux/spec/acpmux-protocol.json|1|1|none"
+  "5b|cmux-tui/crates/acpmux/spec/acpmux-abi.surface.json|1|1|none"
+  "5c|cmux-tui/spec/api-compat.surface.json|1|1|out"              # checked daemon ABI baseline
   "5a|cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift|1|1|none"  # uniffi Swift bindings
   "6|scripts/ci/job-inputs-always.json|0|1|none"                  # job_inputs.py fix: PR autofix only (--job-inputs), never remade on a moved tip
 )
