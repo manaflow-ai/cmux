@@ -2442,6 +2442,35 @@ pub fn reset(snapshot: &Snapshot) {
         self.assertIn(f"{self.MOVED_TO}:", output)
         self.assertIn("unwrap", output)
 
+    def move_old_to_the_app(self, extra=""):
+        """`git mv` Old.swift (its base try!) within the Kit module, plus EXTRA lines in its struct."""
+        moved = f"{PKG}/Sources/CmuxNextKit/Renamed.swift"
+        self.git("mv", f"{PKG}/Sources/CmuxNextKit/Old.swift", moved)
+        if extra:
+            self.write(moved, OLD.replace('    func name()', extra + '    func name()'))
+        self.commit("moves Old.swift to the app")
+        return moved
+
+    def test_a_renamed_file_keeps_its_existing_findings(self):
+        # 2026-11-27: a695910bf8bb moved SleepySceneView.swift with its two raw font sizes, and the ast-grep layer
+        # read them as new: the base run never scanned the old path, the head's keyed the new one.
+        self.move_old_to_the_app()
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_renamed_file_that_adds_a_finding_is_refused(self):
+        moved = self.move_old_to_the_app('    let other = try! NSRegularExpression(pattern: "b+")\n')
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the added try! must not reach origin")
+        self.assertIn(f"{moved}:", output)
+
     def move_the_scan_file(self, sites):
         """install_with_scan_sites(2), then SCAN `git mv`d to another crate with SITES lines and its row moved."""
         moved = "cmux-tui/crates/fixture-moved/src/scan.rs"

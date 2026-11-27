@@ -20,6 +20,9 @@ from pathlib import Path
 
 import yaml
 
+from runs_on_labels import resolve_labels
+from test_ci_same_repo_linux_owned_first import same_repository
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next-ios-kit.yml"
 BENCH_IDS = ("bench-macos", "bench-ios")
@@ -81,7 +84,8 @@ class BenchRunsAfterARedStep(unittest.TestCase):
         self.assertIn('test "$LINT_RESULT" = success', lint["run"])
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         linux = jobs["connection-notices"]
-        self.assertEqual(linux["runs-on"], jobs["runner"]["runs-on"])
+        # The unprivileged lint runs on owned Linux for same-repository PRs.
+        self.assertEqual(resolve_labels(same_repository(linux["runs-on"], "pull_request")), {"cmux-linux"})
         self.assertEqual(linux["needs"], "runner")
         self.assertIn(linux["if"].removeprefix("${{ ").removesuffix(" }}"), jobs["kit-tests"]["if"])
         check = next(step for step in linux["steps"] if step.get("name") == "Connection notices")

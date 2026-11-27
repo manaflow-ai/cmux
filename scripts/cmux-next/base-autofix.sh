@@ -13,7 +13,7 @@
 #   - SDK wire layers: every language binding's generated files from
 #     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk);
 #   - the daemon capability export: plans/cmux-next/daemon-capabilities.json from
-#     DaemonEndpoint.swift (scripts/cmux-next/check-daemon-capabilities-fresh.py; with --capabilities);
+#     cmux-tui/spec/gui-capabilities.json (scripts/cmux-next/check-daemon-capabilities-fresh.py; with --capabilities);
 #   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
 #     committed action catalog export (web/scripts/export-docs-shortcuts.ts;
 #     with --docs-shortcuts);
