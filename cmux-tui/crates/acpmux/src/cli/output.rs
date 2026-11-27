@@ -1264,6 +1264,9 @@ pub(crate) async fn collect_reply(
     };
     let mut permissions = PermissionProgress::default();
     let mut attempt = 0u32;
+    // A transport gap can hide output or side effects. Once one occurs, only follow this
+    // prompt id: an agent-error retry under a new id could repeat already-performed work.
+    let mut transport_gap = false;
     let mut client = client;
     let mut reconnect_pause = Duration::from_millis(50);
     // A retry after an agent error is a new turn on purpose, so it gets a
@@ -1276,6 +1279,7 @@ pub(crate) async fn collect_reply(
             Ok(r) => return Ok(r),
             Err(e) => {
                 if waiting_transport_error(&e) {
+                    transport_gap = true;
                     client =
                         reconnect_prompt(&client, deadline, id, e, &mut reconnect_pause).await?;
                     prompt.resend = true;
@@ -1288,7 +1292,7 @@ pub(crate) async fn collect_reply(
                     // the turn may have run.
                     .map(|a| a.retryable && a.detail == "agent_error")
                     .unwrap_or(false);
-                if !retryable || attempt >= opts.retries {
+                if transport_gap || !retryable || attempt >= opts.retries {
                     return Err(e);
                 }
                 attempt += 1;
@@ -1789,6 +1793,52 @@ mod prompt_tests {
             );
             proxy.abort();
         }
+    }
+
+    /// Output followed by a lost terminal reply must not become a fresh execution when
+    /// reconnect recovers the original internal error without replaying that output.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn waiting_send_never_retries_under_a_new_id_after_a_transport_gap() {
+        let (hub, daemon, dir) = daemon().await;
+        let session = daemon
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = session["sessionId"].as_str().unwrap();
+        let (client, faults, proxy) = peer_fault_proxy(
+            daemon.socket(),
+            &dir.path().join("peer.sock"),
+            vec![(method::SESSION_PROMPT, "after:peer_disconnected")],
+        )
+        .await;
+        let prompt = PromptId::new(None);
+        let opts = CollectOpts {
+            timeout: Some(20),
+            deadline: None,
+            on_permission: OnPermission::Deny,
+            stall_secs: 0,
+            retries: 2,
+            steer: false,
+        };
+        let error = collect_reply(client, id, "fail-after-update: already acted", opts, &prompt)
+            .await
+            .err()
+            .expect("the original agent error must survive reconnect");
+        assert_eq!(
+            error.downcast_ref::<crate::cli::errors::AppError>().unwrap().detail,
+            "agent_error"
+        );
+        assert!(faults.lock().unwrap().is_empty(), "the lost terminal reply must fire");
+        assert_eq!(
+            hub.events(id, 0, 1000).unwrap().iter().filter(|e| e.kind == "user_message").count(),
+            1,
+            "an internal error after reconnect cannot authorize a new prompt id"
+        );
+        let deliveries = hub.outbox.list(None, 100).0;
+        assert_eq!(deliveries.len(), 1);
+        assert_eq!(deliveries[0].prompt_id(), prompt.id);
+        proxy.abort();
     }
 
     /// A transport failure answering an ask must reattach, not mark the unanswered ask seen
