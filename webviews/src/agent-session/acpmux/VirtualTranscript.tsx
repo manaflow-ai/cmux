@@ -4137,7 +4137,8 @@ function TranscriptView({
         if (
           expected === undefined
             ? !measured.placement.drawn.has(id)
-            : sameDrawn(measured.placement.drawn.get(id), expected)
+            : expected.sessionId !== measured.placement.sessionId ||
+              sameDrawn(measured.placement.drawn.get(id), expected)
         )
           changedDrawn.current.delete(id);
   }, [measured]);

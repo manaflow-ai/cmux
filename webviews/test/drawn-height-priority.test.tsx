@@ -94,7 +94,7 @@ if (consumeStart < 0 || consumeEnd < 0) throw new Error("missing committed place
 const consumeCommitted = compileFunction(
   new Bun.Transpiler({ loader: "ts" }).transformSync(`${comparison}
 const drawnCommitted = true;
-const measured = { placement: { drawn } };
+const measured = { placement: { drawn, sessionId: "chat" } };
 ${source.slice(consumeStart, consumeEnd)}`),
   ["drawn", "changedDrawn"],
 ) as (drawn: Drawn, changedDrawn: Ref<Map<string, Height | undefined>>) => void;
@@ -185,6 +185,14 @@ test("committing another row's height preserves a pending correction's dirty ent
   });
   expect(dom!.window.document.querySelector("[data-height]")!.getAttribute("data-height")).toBe("200");
   expect(control.dirty.size).toBe(0);
+});
+
+test("a committed session change drops abandoned corrections from the previous chat", () => {
+  const dirty = new Map<string, Height | undefined>([
+    ["old-row", { sessionId: "previous-chat", version: 1, width: 600, height: 200 }],
+  ]);
+  consumeCommitted(LayeredMap.empty<Height>(), { current: dirty });
+  expect(dirty.size).toBe(0);
 });
 
 test("idle equal-height confirmations leave no dirty placement IDs", async () => {
