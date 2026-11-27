@@ -43,6 +43,7 @@ pub mod location;
 pub mod managed;
 pub mod migrations;
 pub mod owner;
+pub mod project;
 pub mod project_actions;
 pub mod refusal;
 pub mod render;
