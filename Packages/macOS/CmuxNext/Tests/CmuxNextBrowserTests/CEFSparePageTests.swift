@@ -105,11 +105,15 @@ extension CEFSparePageSuites {
             let (runtime, root) = try Self.runtime()
             defer { Self.tearDown(runtime, root) }
             let page = try Self.spareWithPage(runtime, settlePlaceholder: false)
+            let placeholder = try #require(runtime.spareWindow.host?.placeholder)
+            var stopped = 0
+            placeholder.onLoadingStopped = { stopped += 1 }
             SpareSpy.clearRecords()
 
             runtime.handle(.loadingState(browser: page, loading: true, canGoBack: false, canGoForward: false))
             #expect(SpareSpy.log.isEmpty, "a loading placeholder is not frozen")
             runtime.handle(.loadingState(browser: page, loading: false, canGoBack: false, canGoForward: false))
+            #expect(stopped == 1, "the loading completion callback fires once")
             #expect(SpareSpy.log == ["freeze \\(page)"], "the settled event freezes it exactly once")
             runtime.handle(.loadingState(browser: page, loading: false, canGoBack: false, canGoForward: false))
             #expect(SpareSpy.log == ["freeze \\(page)"], "duplicate settled events do not refreeze")
