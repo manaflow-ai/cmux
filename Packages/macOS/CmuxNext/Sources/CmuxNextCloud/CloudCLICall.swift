@@ -29,6 +29,19 @@ public struct CloudCLICall: Sendable {
         return Data(line)
     }
 
+    /// A long-running `cmux` call answering in lines: arguments, stdin, environment (nil: the app's), each stdout line.
+    public typealias Lines = @Sendable (_ arguments: [String], _ stdin: Data, _ environment: [String: String]?,
+                                        _ line: @escaping @Sendable (Data) -> Void) async -> Void
+
+    /// ``Lines`` on this build's `cmux`, bounded by `timeout`; cancelling the caller ends the child.
+    public func lines(timeout: Duration) -> Lines {
+        { [cli] arguments, stdin, environment, line in
+            guard let binary = await cli.resolve() else { return }
+            _ = try? await ProcessRunner.run(executable: binary, arguments: arguments, environment: environment, stdin: stdin,
+                                             timeout: timeout, stdoutLine: { if !$0.isEmpty { line(Data($0.utf8)) } }, clock: ContinuousClock())
+        }
+    }
+
     /// `cmux cloud automation-relay` as the signed-in person of `auth`: what `cmux automation
     /// --target cloud`, the Automations page and the Chief's automation tool call (the app's
     /// `cloud.automation`). The forward takes `{op, params?, idempotency_key?}` as JSON bytes and
