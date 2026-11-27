@@ -119,6 +119,7 @@ fn time<T>(reps: usize, mut f: impl FnMut() -> T) -> Duration {
 
 struct Row {
     scan: Duration,
+    scan_right: bool,
     seed: Duration,
     warm: Duration,
     append: Duration,
@@ -129,7 +130,9 @@ fn row(n: usize) -> Row {
     cfg.store.mode = crate::config::StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
     let s = chat(&hub, "bench", n);
-    assert_eq!(scan_last(&hub, "bench"), vec!["the last reply".to_owned()]);
+    // The old read stops at 5000 records: past a tool run that long it answers without the
+    // reply (wrong, not only slow), so its answer is reported, not asserted.
+    let scan_right = scan_last(&hub, "bench") == vec!["the last reply".to_owned()];
     let scan = time(5, || scan_last(&hub, "bench"));
     let t = Instant::now();
     assert_eq!(hub.last_replies(&s, 1).unwrap().0, vec!["the last reply".to_owned()]);
@@ -141,7 +144,7 @@ fn row(n: usize) -> Row {
         hub.append(&s, "in", "tool_call_update", tick.clone());
         hub.last_replies(&s, 1).unwrap()
     });
-    Row { scan, seed, warm, append }
+    Row { scan, scan_right, seed, warm, append }
 }
 
 #[test]
@@ -150,8 +153,8 @@ fn last_reply_read_is_flat_at_10x() {
     if std::env::var_os("ACPMUX_BENCH").is_some() {
         for (n, r) in [(10_000, &small), (100_000, &big)] {
             eprintln!(
-                "reply_slot n={n}: scan(before) {:?}  seed(first read) {:?}  slot(warm) {:?}  append+read {:?}",
-                r.scan, r.seed, r.warm, r.append
+                "reply_slot n={n}: scan(before) {:?} right={}  seed(first read) {:?}  slot(warm) {:?}  append+read {:?}",
+                r.scan, r.scan_right, r.seed, r.warm, r.append
             );
         }
     }
