@@ -1262,7 +1262,7 @@ fn gate_wait(reopens_at: tokio::time::Instant, jitter: f64) -> Duration {
 /// Whether `delivery`, a message (not a projection intent, which keeps its own schedule), is
 /// past [`RETRY_FOR_MS`] since it was handed over and still not delivered.
 fn expired(delivery: &Delivery, now: u64) -> bool {
-    !delivery.projection_only() && now >= delivery.created_at.saturating_add(RETRY_FOR_MS)
+    delivery.past_retry_window(now)
 }
 
 /// The wait before the next attempt of `delivery`: the next of [`RETRY_DELAYS_SECS`], then
