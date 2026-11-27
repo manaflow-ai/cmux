@@ -4,6 +4,7 @@ import Testing
 import UIKit
 @testable import CmuxMobileAgentChat
 import CmuxMobileSupport
+import CmuxMobileDesign
 
 /// A chat controller can outlive its window while the app-wide tracker hears a
 /// keyboard hide. The controller's own notification observer then has no hide
@@ -11,16 +12,88 @@ import CmuxMobileSupport
 /// (`MobileKeyboardFrameTracker.dropKeyboardWithoutOwner`).
 @MainActor
 @Suite(.serialized) struct ChatKeyboardReconcileTests {
+    private static func look(background: String, picture: UIImage?) throws -> CmuxMobileChatLook {
+        let appearance = CmuxMobileMacAppearance(
+            theme: .init(background: background, foreground: "#cdd6f4",
+                         palette: ["#45475a", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#bac2de",
+                                   "#585b70", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#a6adc8"]),
+            chat: .init(background: background, foreground: "#cdd6f4", backgroundOpacity: 0.45))
+        let palette = try #require(CmuxMobileMacPalette(appearance))
+        return CmuxMobileChatLook(chat: try #require(appearance.chat), palette: palette, picture: picture)
+    }
+
+    private func ownedController() -> (ChatTranscriptController, UIWindow) {
+        let controller = ChatTranscriptController(
+            placement: .owned, surface: AgentChatSurface(), store: AgentChatStore(source: SmoothChatTests.Silent()),
+            empty: AnyView(EmptyView()), dock: AnyView(Color.clear.frame(height: 96)), jump: nil
+        )
+        controller.topInset = 44
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        return (controller, window)
+    }
+
+    private func rgba(_ color: UIColor?, _ controller: UIViewController) -> [CGFloat]? {
+        guard let color = color?.resolvedColor(with: controller.traitCollection) else { return nil }
+        var (r, g, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        guard color.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
+        return [r, g, b, a].map { ($0 * 255).rounded() }
+    }
+
+    /// The top chrome is installed for an owned chat and frames the header. The ground is behind the
+    /// transcript, so the rows scroll under the glass bar (an opaque shelf over them hid that).
+    @Test func anOwnedChatGetsTopChromeThatDoesNotCoverTheScroll() throws {
+        let (controller, window) = ownedController()
+        defer { window.isHidden = true }
+        controller.applyChatLook(nil)
+        controller.view.layoutIfNeeded()
+
+        let chrome = try #require(controller.view.subviews.first { $0.accessibilityIdentifier == "agentChat.topChrome" })
+        #expect(chrome.frame.height >= 44, "owned chat top chrome must cover its header: \(chrome.frame)")
+        #expect(chrome.backgroundColor == .clear || chrome.backgroundColor == nil, "an opaque shelf hides the scroll under the glass bar")
+        controller.topInset = 68
+        controller.view.layoutIfNeeded()
+        #expect(chrome.frame.height >= 68, "top chrome lost the updated safe-area inset: \(chrome.frame)")
+    }
+
+    @Test func theGroundBehindTheTranscriptFollowsTheLook() throws {
+        let (controller, window) = ownedController()
+        defer { window.isHidden = true }
+
+        controller.applyChatLook(nil)
+        #expect(rgba(controller.view.backgroundColor, controller) == rgba(.cmuxMobileBackground, controller), "stock ground")
+
+        let flat = try Self.look(background: "#1e1e2e", picture: nil)
+        controller.applyChatLook(flat)
+        #expect(rgba(controller.view.backgroundColor, controller) == [0x1e, 0x1e, 0x2e, 255], "a flat look paints its ground")
+
+        let picture = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        }
+        controller.applyChatLook(try Self.look(background: "#1e1e2e", picture: picture))
+        #expect(rgba(controller.view.backgroundColor, controller)?.last == 0, "a picture look stays clear so the picture shows")
+
+        // And back: the flat ground returns, not a stale clear.
+        controller.applyChatLook(flat)
+        #expect(rgba(controller.view.backgroundColor, controller) == [0x1e, 0x1e, 0x2e, 255])
+    }
+
     @Test func aDetachedHideReturnsTheChatDockToTheBottom() throws {
         let center = NotificationCenter()
         let tracker = MobileKeyboardFrameTracker(notificationCenter: center)
         tracker.keyboardOwnerPresent = { false }
+        // This test's window has no scene, so UIKit's keyboard layout guide never
+        // moves for a posted frame (the iOS 26 simulator kept the dock at rest, CI run
+        // 45364817994). The dock then follows the notified frames, the path a stalled
+        // guide takes. The override is this controller's own, so no other suite's
+        // controller sees it (the shared probe latch stays untouched).
         let store = AgentChatStore(source: SmoothChatTests.Silent())
         let surface = AgentChatSurface()
         let controller = ChatTranscriptController(
             placement: .owned, surface: surface, store: store,
             empty: AnyView(EmptyView()), dock: AnyView(Color.clear.frame(height: 96)), jump: nil,
-            keyboardTracker: tracker
+            keyboardTracker: tracker, assumesStalledLayoutGuide: true
         )
         // The kit's test host has no window scene (connectedScenes is empty there), so the window
         // is made without one when none exists. The posted frame is then built from the view's

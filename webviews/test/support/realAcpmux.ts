@@ -214,7 +214,10 @@ export async function startRealAcpmux(options: RealAcpmuxOptions): Promise<RealA
         for await (const chunk of stream) logText += decoder.decode(chunk);
       })();
     }
-    const deadline = Date.now() + 30_000;
+    // A loaded CI runner starts acpmux slowly: on cmux#55911's web-browser (run 45569957948) the restarted
+    // daemon logged its first line 15 s after its spawn and opened its socket at 24 s, past a 30 s bound.
+    // The tests' own timeout is 360 s; a daemon that never listens still fails here, with its log.
+    const deadline = Date.now() + 90_000;
     while (Date.now() < deadline) {
       if (daemon.exitCode !== null) throw new Error(`acpmux exited ${daemon.exitCode}:\n${logText}`);
       const open = await fetch(`http://127.0.0.1:${daemonPort}/`).then(

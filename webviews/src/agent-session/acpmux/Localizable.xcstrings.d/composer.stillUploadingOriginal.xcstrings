@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.stillUploadingOriginal" : {
+      "comment" : "Agent pane: the quiet mark on a staged image whose full-size original has failed to upload for a while and is being tried again on its own (no button); the preview still sends. {name} is the image",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ما زلنا نحاول رفع النسخة الأصلية من {name}…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Još pokušavamo otpremiti original za {name}…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prøver stadig at uploade originalen af {name}…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das Original von {name} wird weiter hochzuladen versucht…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Still trying to upload the original of {name}…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seguimos intentando subir el original de {name}…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nouvelle tentative d’envoi de l’original de {name} en cours…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stiamo ancora provando a caricare l’originale di {name}…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} の元の画像のアップロードを引き続き試しています…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "នៅតែព្យាយាមផ្ទុកឡើងរូបភាពដើមនៃ {name}…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} 원본 업로드를 계속 시도하는 중…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prøver fortsatt å laste opp originalen av {name}…"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nadal próbujemy przesłać oryginał {name}…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ainda tentando enviar o original de {name}…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Продолжаем пытаться загрузить оригинал {name}…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ยังคงพยายามอัปโหลดต้นฉบับของ {name}…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{name} dosyasının orijinali yüklenmeye çalışılmaya devam ediliyor…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Досі намагаємося завантажити оригінал {name}…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vẫn đang thử tải lên bản gốc của {name}…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "仍在尝试上传 {name} 的原图…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "仍在嘗試上傳 {name} 的原圖…"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

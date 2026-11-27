@@ -215,11 +215,14 @@ fn short_bound(rest: &[&str]) -> bool {
 
 /// A wait's bound in seconds: `90`, `90s`, `2m`, `1h`.
 fn seconds(value: &str) -> Option<f64> {
-    let (number, unit) = match value.char_indices().last()? {
-        (at, 's') => (&value[..at], 1.0),
-        (at, 'm') => (&value[..at], 60.0),
-        (at, 'h') => (&value[..at], 3600.0),
-        _ => (value, 1.0),
+    let (number, unit) = if let Some(number) = value.strip_suffix('s') {
+        (number, 1.0)
+    } else if let Some(number) = value.strip_suffix('m') {
+        (number, 60.0)
+    } else if let Some(number) = value.strip_suffix('h') {
+        (number, 3600.0)
+    } else {
+        (value, 1.0)
     };
     number.parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| n * unit)
 }
@@ -634,14 +637,16 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
     };
     // A heavy build or test on a Cloud machine with AutoCloud on runs on a fork (RFD 0144
     // piece 3): the class is read from the text first, so no other call reads the settings.
+    // With `CMUX_WORK_PLACER=1` the work placer decides instead, from this host's samples
+    // (`placement/work_wire.rs`); off, nothing changes.
     let run_vm = crate::placement::run_vm::heavy_class(command)
         .and_then(|_| {
             let machine = crate::placement::sub_fork::this_machine();
-            crate::placement::run_vm::goes(
-                crate::placement::run_vm::run_vms_on(),
-                machine.as_deref(),
-                command,
-            )
+            let on = crate::placement::run_vm::run_vms_on();
+            if crate::placement::work_place::enabled() {
+                return crate::placement::work_wire::hook_goes(on, machine.as_deref(), command);
+            }
+            crate::placement::run_vm::goes(on, machine.as_deref(), command)
         })
         .map(|_| crate::placement::run_vm::wrap(&self_words(), command));
     let background =
