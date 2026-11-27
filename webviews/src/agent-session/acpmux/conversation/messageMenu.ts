@@ -17,6 +17,7 @@ import { currentLanguage, type Translate } from "../i18n";
 import { replyMenuTime } from "./relativeTime";
 import { selectionText } from "./chipCopy";
 import { onVisualViewport } from "../../../ui/visualViewportBox";
+import { composerSettingsSnapshot } from "../composerSettings";
 import { markPopupWithin } from "../../../ui/popupWithin";
 import {
   sendPromptAgainMenu,
@@ -45,7 +46,18 @@ export type MessageMenuTarget = {
   sendPromptAgain?: SendPromptAgainMenu;
   /// The message's web links and images, each once, for Open Link.
   links?: string[];
+  /// A prompt I sent with attachments: where `agentPane.attachmentView` draws them now, for the
+  /// menu's Attachments Inline / Attachments at Top pair (Leo, 2026-11-27: "it should be toggleable
+  /// one or the other"). The same setting as Settings' Attachment View and the composer's right-click.
+  attachmentView?: "inline" | "strip";
 };
+
+/// Whether a sent prompt carries any attachment: an image, a recorded non-text part, a file.
+export function promptHasAttachments(row: AcpmuxRow): boolean {
+  return Boolean(
+    row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"),
+  );
+}
 
 /// What the page reports on `contextmenu`: the message under the pointer, and the selected
 /// transcript text when the pointer is inside it (Quote in Reply, Search the Web...).
@@ -244,6 +256,8 @@ export function messageMenuTarget(
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
   // A prompt too large to send is refused the same way again: no Retry, Edit takes an attachment out.
   if (row.kind === "user" && row.failed && retryHelps(sendCause(row.delivery))) target.retryRowId = row.id;
+  if (row.kind === "user" && promptHasAttachments(row))
+    target.attachmentView = composerSettingsSnapshot().attachmentView === "inline" ? "inline" : "strip";
   const links = webLinks(row.text);
   if (links.length > 0) target.links = links;
   return target;
