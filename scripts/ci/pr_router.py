@@ -142,14 +142,14 @@ def affects(config: dict, files: list[str]) -> bool:
 
 
 def table_steps(config: dict, files: list[str], table: Path | None = None, full: bool = True,
-                full_ci: bool = True) -> list[str] | None:
+                full_ci: bool = True, tier: str = "full") -> list[str] | None:
     """The steps of the callee's `table_jobs` this change routes; None when the table cannot be read. FULL: the head
     is in the full tier (else FULL_TIER_JOBS route nothing). FULL_CI: the PR carries `full-ci` (else
-    full_ci_only_jobs() route nothing)."""
+    full_ci_only_jobs() route nothing). TIER: the step table's tier ("pr" leaves its `tier = "push"` steps to the push run)."""
     # Any failure to read the table (a missing file, bad TOML, a wrong shape, a runner that does not import)
     # starts the pipeline, whose own run reports it: the router routes more, never less, and never fails on it.
     try:
-        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
+        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files, tier=tier)
     except Exception:  # noqa: BLE001
         return None
     held = () if full_ci else full_ci_only_jobs()
@@ -164,7 +164,7 @@ def table_steps(config: dict, files: list[str], table: Path | None = None, full:
 
 
 def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None = None,
-                      full: bool = True, full_ci: bool = True) -> list[str]:
+                      full: bool = True, full_ci: bool = True, tier: str = "full") -> list[str]:
     """Which of the step table's jobs the change routes, for pr-pipeline.yml's job `if:`s: every `table_jobs` job
     when the change or the table is unknown (the router routes more, never less). FULL: the head is in the full
     tier; else no job of FULL_TIER_JOBS. FULL_CI: the PR carries `full-ci`; else no job of full_ci_only_jobs()."""
@@ -174,10 +174,16 @@ def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None
     if files is None:
         return jobs
     try:
-        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
+        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files, tier=tier)
     except Exception:  # noqa: BLE001
         return jobs
     return [job for job in jobs if routed.get(job)]
+
+
+def pipeline_tier(labels: set[str]) -> str:
+    """"pr": a pull request's step table leaves the `tier = "push"` steps to the push tier. "full": the `full-ci`
+    label, or vars.CI_PR_PIPELINE_TIER=full (the workflow sets CI_PR_PIPELINE_TIER), runs every routed step."""
+    return "full" if FULL_CI in labels or os.environ.get("CI_PR_PIPELINE_TIER") == "full" else "pr"
 
 
 def route(event: dict, callees: dict, files: list[str] | None,
@@ -264,7 +270,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
             continue
         if "table_jobs" in config:
             steps = table_steps(config, files, full=tier == "full" or FULL_CI in labels,
-                                full_ci=FULL_CI in labels or added == FULL_CI)
+                                full_ci=FULL_CI in labels or added == FULL_CI, tier=pipeline_tier(labels))
             if steps == []:
                 why[name] = "the change routes no step of " + ", ".join(config["table_jobs"])
                 continue
@@ -484,7 +490,8 @@ def main(argv: list[str]) -> int:
         full = decided[0] == "full" or FULL_CI in labels
         added = str((event.get("label") or {}).get("name") or "") if event.get("action") == "labeled" else ""
         table = [job for job in table_jobs_routed(callees, files, full=full,
-                                                  full_ci=FULL_CI in labels or added == FULL_CI) if job not in rows]
+                                                  full_ci=FULL_CI in labels or added == FULL_CI,
+                                                  tier=pipeline_tier(labels)) if job not in rows]
         if rows:
             why["pr-pipeline.yml"] = why.get("pr-pipeline.yml", "") + (
                 f" (table jobs that ran green at the previous head stay off: {', '.join(sorted(rows))})")
