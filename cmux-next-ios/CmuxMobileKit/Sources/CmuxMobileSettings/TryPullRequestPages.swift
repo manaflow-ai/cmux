@@ -53,7 +53,10 @@ struct TryPullRequestPage: View {
             installSection
             switch model.load {
             case .loading:
-                Section { CmuxSpinner(label: Text("Loading pull requests…")) }
+                Section {
+                    CmuxSpinner(label: Text("Loading pull requests…"))
+                        .placeholderBound("settings.trypr.loading", .milliseconds(2000))
+                }
             case .failed(let message):
                 Section {
                     Text(verbatim: message).foregroundStyle(theme.colors.label2)
