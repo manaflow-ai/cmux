@@ -286,6 +286,12 @@ class WorkflowShape(unittest.TestCase):
                               f'add {{"prefix": "tests/{name}.py", "python": ["tests/test_cmux_next_fast_gates.py"]}} to '
                               "scripts/ci/focused-tests-extra.json")
 
+    def test_checkout_holds_webviews_example_assets(self):
+        # Webviews' gallery and setup checks read JSON under examples/ at build time. Keep the whole directory in the
+        # sparse checkout so the fast-gates web bundle does not fail before its assertions run.
+        patterns = step_named(job(workflow())["steps"], "Checkout")["with"]["sparse-checkout"].split()
+        self.assertIn("/examples/", patterns)
+
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
         # A feat-cmux-next pull request runs it from pr-router.yml (scripts/ci/pr_router.json), with no path filter
@@ -565,6 +571,38 @@ class WorkflowShape(unittest.TestCase):
         self.assertFalse(any("uses" in step for step in audit["steps"]))
         self.assertIn("audience=cmux-ci-lane-receipt", audit["steps"][0]["run"])
 
+    def test_head_commit_tree_names_the_lane_commit_under_an_update_branch_merge(self):
+        # 4 of 11 lane misses on 2026-11-27 were GitHub's update-branch merge heads; the receipt is the lane commit's.
+        body = step_named(job(workflow(), "resolve")["steps"], "Resolve the head and the base")["run"]
+        start = body.index("head_commit_tree() {")
+        func = textwrap.dedent(body[start:re.compile(r"\n *}\n").search(body, start).end()])
+        func = func.replace('GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader '
+                            'GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \\\n', '')
+        func = func.replace('"https://github.com/$GITHUB_REPOSITORY"', '"file://$SRC"')
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            def git(*args, **env):
+                return subprocess.run(["git", "-C", str(src), *args], check=True, capture_output=True, text=True,
+                                      env={**os.environ, "GIT_AUTHOR_NAME": "a", "GIT_AUTHOR_EMAIL": "a@x",
+                                           "GIT_COMMITTER_NAME": "a", "GIT_COMMITTER_EMAIL": "a@x", **env}
+                                      ).stdout.strip()
+            subprocess.run(["git", "init", "-q", "-b", "feat-cmux-next", str(src)], check=True)
+            git("commit", "-q", "--allow-empty", "-m", "base")
+            git("checkout", "-q", "-b", "lane/x")
+            (src / "f").write_text("lane\n"); git("add", "f"); git("commit", "-q", "-m", "lane change")
+            lane = git("rev-parse", "HEAD")
+            git("checkout", "-q", "feat-cmux-next")
+            (src / "g").write_text("base\n"); git("add", "g"); git("commit", "-q", "-m", "base moves")
+            git("checkout", "-q", "lane/x")
+            git("merge", "-q", "--no-ff", "-m", "Merge branch 'feat-cmux-next' into lane/x", "feat-cmux-next",
+                GIT_COMMITTER_NAME="GitHub")
+            merge = git("rev-parse", "HEAD")
+            def run(commit):
+                script = f'set -u; BRANCH=feat-cmux-next; SRC={src}; GH_TOKEN=x\n{func}\nhead_commit_tree {commit}'
+                return subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True).stdout
+            self.assertEqual(run(merge), f"{git('rev-parse', merge + '^{tree}')} {git('rev-parse', lane + '^{tree}')}")
+            self.assertEqual(run(lane), f"{git('rev-parse', lane + '^{tree}')} ")
+
     def test_a_lane_head_takes_its_receipt_at_the_merger_dispatch(self):
         # 78 of 100 fast-gates runs on 2026-11-26 were the merger's dispatches; on feat-cmux-next the pull request event
         # skips the gates, so a lane receipt has to count there (Leo: "Shift checks left into the lanes").
@@ -576,8 +614,9 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn('if [[ "$head_ref" == lane/* && "${LANE:-1}" != 0 ]]; then', body)
         # The head tree is read over git, not REST: the REST budget was spent on every dispatch on 2026-11-27.
         self.assertNotIn("git/commits/$head", body)
-        self.assertIn('head_tree="$(head_commit_tree "$head")"', body)
-        self.assertIn("--depth=1 --filter=tree:0", body)
+        self.assertIn('read -r head_tree parent_tree <<<"$(head_commit_tree "$head")"', body)
+        self.assertIn("--depth=2 --filter=tree:0", body)
+        self.assertIn('echo "lane_parent_tree=$parent_tree"', body)
         self.assertIn('echo "merge_tree="; echo "lane_dispatch=true"', body)
         self.assertEqual(resolve["env"]["LANE"], "${{ vars.CI_LANE_RECEIPTS }}")
         verify = step_named(steps, "Verify the local test receipt")
@@ -2367,6 +2406,17 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual(self.module.added(dump(1276995), dump(1180412)), [])
         self.assertEqual(self.module.added(dump(1276995) + "Error: new crash\n", dump(1180412)), ["Error: new crash"])
 
+    def test_a_mktemp_log_dir_keys_without_its_random_suffix(self):
+        # cmux#54186's fast gates (run 46043766720): the base's bundle red, charged as one new `log:` line.
+        def red(suffix: str, tmp: str = "/tmp") -> str:
+            return ("web bundle matrix: RED in 47s: bundle:pages\n"
+                    f"  log: {tmp}/web-bundle-matrix.{suffix}/logs/bundle-pages.log\n")
+        self.assertEqual(self.module.added(red("QNX9SC"), red("a1B2c3")), [])
+        mac = "/var/folders/xy/abc123/T"
+        self.assertEqual(self.module.added(red("QNX9SC", mac), red("Zz9Yy8", mac)), [])
+        self.assertEqual(self.module.added(red("QNX9SC") + "  log: /tmp/other.QNX9SC/x.log\n", red("a1B2c3")),
+                         ["  log: /tmp/other.QNX9SC/x.log"])
+
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:
             return (f"  x typescript(TS2322): Type '{{ a: number; }}' is not assignable to type 'Props'.\n"
@@ -2479,6 +2529,51 @@ class DeepenFallbackTests(unittest.TestCase):
     def test_any_other_failure_still_fails(self):
         with self.assertRaises(SystemExit):
             self.run_deepen_fetch({"--filter=tree:0": "fatal: could not read from remote repository"})
+
+
+class FetchesSkipSubmodules(unittest.TestCase):
+    """Fast gates only read history: a fetch that recursed into submodules failed run 46017930661 on a reused pool
+    workspace with "Could not access submodule 'ghostty'" (handbook whole-origin-fetch-pulls-submodule-pins)."""
+
+    def test_every_fetch_passes_no_recurse_submodules(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux_next_fast_gates.py").read_text(encoding="utf-8")
+        calls = re.findall(r'git\(repo, "fetch",[^\n]*', source)
+        self.assertTrue(calls)
+        for call in calls:
+            self.assertIn('"--no-recurse-submodules"', call)
+
+
+class BunTmpdir(unittest.TestCase):
+    """Every gate gets a writable BUN_TMPDIR (cmux#59800: web lint failed `EACCES accessing temporary directory`)."""
+
+    @staticmethod
+    def module():
+        spec = importlib.util.spec_from_file_location("cmux_next_fast_gates_under_test", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_one_is_made_under_the_runner_temp_and_exported(self):
+        with tempfile.TemporaryDirectory() as runner:
+            env = {"RUNNER_TEMP": runner}
+            made = self.module().ensure_bun_tmpdir(env)
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+            self.assertEqual(made.parent, Path(runner))
+            self.assertTrue(os.access(made, os.W_OK))
+
+    def test_a_caller_set_one_is_kept(self):
+        env = {"BUN_TMPDIR": "/somewhere", "RUNNER_TEMP": "/nonexistent"}
+        self.assertIsNone(self.module().ensure_bun_tmpdir(env))
+        self.assertEqual(env["BUN_TMPDIR"], "/somewhere")
+
+    def test_an_unusable_runner_temp_falls_back_to_the_system_temp(self):
+        env = {"RUNNER_TEMP": "/nonexistent/runner-temp"}
+        made = self.module().ensure_bun_tmpdir(env)
+        try:
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+        finally:
+            if made:
+                made.rmdir()
 
 
 if __name__ == "__main__":

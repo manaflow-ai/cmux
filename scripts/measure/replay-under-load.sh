@@ -62,7 +62,11 @@ trap cleanup EXIT
 if ! command -v stress-ng >/dev/null 2>&1; then
   sudo -n apt-get install -y stress-ng >"$work/apt.log" 2>&1 || true
 fi
-command -v stress-ng >/dev/null 2>&1 || { echo "replay-under-load.sh: no stress-ng (apt-get install stress-ng)" >&2; exit 1; }
+# A runner with neither stress-ng nor root to install it (the fleet's CI runners) loads its CPUs with plain shell busy
+# loops instead: the same 4*nproc runnable threads, without matrixprod's cache pressure. The reading names which ran
+# (ported from cmux#56545, whose lane went idle).
+load_tool=stress-ng
+command -v stress-ng >/dev/null 2>&1 || load_tool=busy-loops
 n="$(nproc)"
 stressors=$((4 * n))
 cd "$root/webviews" || exit 1
@@ -75,7 +79,15 @@ bun scripts/pages/gen-strings.mjs >"$work/strings.log" 2>&1 || { tail -20 "$work
 
 # The load first, by PID (this script started it; cleanup stops only it), and enough of it to be running before the
 # replay's warm-up ends.
-stress-ng --cpu "$stressors" --cpu-method matrixprod --timeout 900s --quiet >"$work/stress.log" 2>&1 &
+if [ "$load_tool" = stress-ng ]; then
+  stress-ng --cpu "$stressors" --cpu-method matrixprod --timeout 900s --quiet >"$work/stress.log" 2>&1 &
+else
+  # One parent for every loop: cleanup's kill of this PID makes it stop its own jobs and nothing else.
+  bash -c 'trap "kill \$(jobs -p) 2>/dev/null; exit 0" TERM INT
+    for _ in $(seq "$1"); do (while :; do :; done) & done
+    sleep 900 & wait $!; kill $(jobs -p) 2>/dev/null' _ "$stressors" \
+    >"$work/stress.log" 2>&1 &
+fi
 stress_pid=$!
 sleep 10
 # Runnable threads on our CPUs while the replay runs: every 5 s, the threads of this run's process tree in state R,
@@ -120,9 +132,9 @@ else
   grep -v -F '[BABEL] Note:' "$work/bench.log" | tail -3
 fi
 python3 -I - "$work" "$out" "$n" "$stressors" "$load1" "$status" "$(git rev-parse HEAD)" "$(hostname -s)" \
-  "${REPLAY_UNDER_LOAD_PINNED:+pinned}" <<'PY'
+  "${REPLAY_UNDER_LOAD_PINNED:+pinned}" "$load_tool" <<'PY'
 import datetime, json, os, sys
-work, out, n, stressors, load1, status, commit, host, pinned = sys.argv[1:10]
+work, out, n, stressors, load1, status, commit, host, pinned, load_tool = sys.argv[1:11]
 n, stressors, load1 = int(n), int(stressors), float(load1)
 try:
     bench = json.load(open(os.path.join(work, "bench.json")))
@@ -144,7 +156,7 @@ except (OSError, ValueError):
 # On the whole machine the load average is the reading; on a --cores slice, the run's runnable threads over its CPUs.
 per_core = (sum(samples) / len(samples) / n) if (pinned and samples) else load1 / n
 doc = {**bench, "schema": "perf-vm-replay/v1", "bench_schema": bench.get("schema"), "host": host, "commit": commit,
-       "cores": n, "stressors": stressors, "load_1m": load1, "load_per_core": round(per_core, 2),
+       "cores": n, "stressors": stressors, "load_tool": load_tool, "load_1m": load1, "load_per_core": round(per_core, 2),
        "load_basis": "runnable threads on the run's CPUs" if pinned else "/proc/loadavg over nproc",
        "at": bench.get("at") or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
 if status != "0" and "error" not in doc:
