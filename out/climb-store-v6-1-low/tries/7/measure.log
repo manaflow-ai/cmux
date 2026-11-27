@@ -1,0 +1,19 @@
+kind	label	mode	profile	phase	wall_s	down_bytes	up_bytes	asks	git_bytes	tree_bytes	st1_s	st2_s	rss_mb	rc	note	s@github-v4-bad	s@store-v6-1-low	s@store-v6-8
+projection	try7	folder	store-v6-1-low	serve_start	0.048					235708168					{"entries": 15825, "files": 14102, "bytes": 235708168, "walk_ms": 47.7, "manifest_bytes": 169404, "largest": "cmux-tui/crates/cmux-palette-ranker/tests/corpus/palette-corpus.json", "largest_bytes": 2335987}			
+projection	try7	folder	store-v6-1-low	mount_rg	0.019	169412	0	0					7.5		{"connect_ms": 0.1, "manifest_fetch_ms": 10.6, "manifest_bytes": 169404, "decode_ms": 3.7, "mount_ms": 3.7, "entries": 15826}			
+projection	try7	folder	store-v6-1-low	rg_cold	8.613	182894587	68945	1408					25.2	0	out=			
+projection	try7	folder	store-v6-1-low	rg_warm	0.118	8	5	1					25.2	0	out=			
+projection	try7	folder	store-v6-1-low	rg_overlay_stats											{"remote_reads": 14055, "remote_bytes": 182813003, "cache_hits": 17769}			
+projection	try7	folder	store-v6-1-low	mount_gitstatus	0.018	169412	0	0					7.5		{"connect_ms": 0.0, "manifest_fetch_ms": 10.5, "manifest_bytes": 169404, "decode_ms": 3.7, "mount_ms": 3.0, "entries": 15826}			
+projection	try7	folder	store-v6-1-low	gitstatus_cold	18.181	186086695	69317	1437					25.5	0	out=0			
+projection	try7	folder	store-v6-1-low	gitstatus_warm	0.047	0	0	0					26.0	0	out=0			
+projection	try7	folder	store-v6-1-low	gitstatus_overlay_stats											{"remote_reads": 14088, "remote_bytes": 186004754, "cache_hits": 14218}			
+[measure] folder serve_start: 0.048 s down=0 asks=0 rc=0
+[measure] folder mount_rg: 0.019 s down=169412 asks=0 rc=0
+[measure] folder rg_cold: 8.613 s down=182894587 asks=1408 rc=0
+[measure] folder rg_warm: 0.118 s down=8 asks=1 rc=0
+[measure] folder rg_overlay_stats: None s down=0 asks=0 rc=0
+[measure] folder mount_gitstatus: 0.018 s down=169412 asks=0 rc=0
+[measure] folder gitstatus_cold: 18.181 s down=186086695 asks=1437 rc=0
+[measure] folder gitstatus_warm: 0.047 s down=0 asks=0 rc=0
+[measure] folder gitstatus_overlay_stats: None s down=0 asks=0 rc=0

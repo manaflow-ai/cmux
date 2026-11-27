@@ -1,0 +1,19 @@
+kind	label	mode	profile	phase	wall_s	down_bytes	up_bytes	asks	git_bytes	tree_bytes	st1_s	st2_s	rss_mb	rc	note	s@github-v4-bad	s@store-v6-1-low	s@store-v6-8
+projection	try1	folder	store-v6-8	serve_start	0.051					235708168					{"entries": 15825, "files": 14102, "bytes": 235708168, "walk_ms": 51.4, "manifest_bytes": 169404, "largest": "cmux-tui/crates/cmux-palette-ranker/tests/corpus/palette-corpus.json", "largest_bytes": 2335987}			
+projection	try1	folder	store-v6-8	mount_rg	0.013	169412	0	0					7.5		{"connect_ms": 0.1, "manifest_fetch_ms": 4.3, "manifest_bytes": 169404, "decode_ms": 4.2, "mount_ms": 3.2, "entries": 15826}			
+projection	try1	folder	store-v6-8	rg_cold	2.232	182894595	68958	1411					25.8	0	out=			
+projection	try1	folder	store-v6-8	rg_warm	0.133	0	0	0					25.8	0	out=			
+projection	try1	folder	store-v6-8	rg_overlay_stats											{"remote_reads": 14055, "remote_bytes": 182813003, "cache_hits": 17784}			
+projection	try1	folder	store-v6-8	mount_gitstatus	0.012	169412	0	0					7.5		{"connect_ms": 0.1, "manifest_fetch_ms": 4.4, "manifest_bytes": 169404, "decode_ms": 3.7, "mount_ms": 3.2, "entries": 15826}			
+projection	try1	folder	store-v6-8	gitstatus_cold	11.086	186086687	69312	1436					26.8	0	out=0			
+projection	try1	folder	store-v6-8	gitstatus_warm	0.047	0	0	0					27.3	0	out=0			
+projection	try1	folder	store-v6-8	gitstatus_overlay_stats											{"remote_reads": 14088, "remote_bytes": 186004754, "cache_hits": 14218}			
+[measure] folder serve_start: 0.051 s down=0 asks=0 rc=0
+[measure] folder mount_rg: 0.013 s down=169412 asks=0 rc=0
+[measure] folder rg_cold: 2.232 s down=182894595 asks=1411 rc=0
+[measure] folder rg_warm: 0.133 s down=0 asks=0 rc=0
+[measure] folder rg_overlay_stats: None s down=0 asks=0 rc=0
+[measure] folder mount_gitstatus: 0.012 s down=169412 asks=0 rc=0
+[measure] folder gitstatus_cold: 11.086 s down=186086687 asks=1436 rc=0
+[measure] folder gitstatus_warm: 0.047 s down=0 asks=0 rc=0
+[measure] folder gitstatus_overlay_stats: None s down=0 asks=0 rc=0
