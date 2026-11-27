@@ -152,6 +152,8 @@ class Inputs:
     whole: str = ""  # why the step reads the whole tree; empty when its inputs are the sets above
     runs_named: bool = False  # it runs a tree path built from a variable: any code file it names may run
     declared: bool = False  # a source it reaches declares its reads (`# guard-inputs:`) where the text cannot show them
+    named_runs: set[str] = field(default_factory=set)  # code files a source names and may run (runs_named): followed
+    # unless the source declares its reads, which then stand for theirs (they stay inputs, as data)
 
     def reaches(self, path: str) -> bool:
         if self.whole or path in self.files:
@@ -270,6 +272,9 @@ class Tree:
         declared = declared_inputs(text)
         if current.endswith(".py") or text.startswith(("#!/usr/bin/env python", "#!/usr/bin/python")):
             found.whole = self.python(current, text, found, changed)
+            if declared is None:
+                found.files |= found.named_runs
+                found.data -= found.named_runs
             return self.declare(current, declared, found, changed)
         code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(("#", "//")))
         marker = GIT_OR_BASE.search(code) or SHELL_WALK.search(code)
@@ -372,7 +377,7 @@ class Tree:
         whole = whole or executed.whole
         run = executed.files
         if executed.runs_named:
-            run |= {f for f in named.files if f.endswith(CODE_SUFFIXES)}
+            found.named_runs |= {f for f in named.files if f.endswith(CODE_SUFFIXES)} - run
         found.files |= run
         found.data |= named.files - run
         found.folders |= named.folders
@@ -392,7 +397,11 @@ class Tree:
             elif isinstance(node, ast.Call):
                 callee = dotted(node.func)
                 if callee.endswith(("import_module", "__import__")):
-                    dynamic = True
+                    first = node.args[0] if node.args else None
+                    if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                        names.add(first.value)  # __import__("re"): that module, named
+                    else:
+                        dynamic = True
                 if callee in ("sys.path.insert", "sys.path.append") and node.args:
                     place = source.where(node.args[-1])
                     if place and place[0] == REPO_ROOT:

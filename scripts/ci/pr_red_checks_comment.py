@@ -51,6 +51,8 @@ repository's GITHUB_TOKEN REST budget (1,000/h, shared by every workflow) is kep
 Env: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, HEAD_SHA, GITHUB_API_URL (default api.github.com),
 BASE_SHA, OWN_CHECKS_GREEN, PR_HEAD_REMOTE (the git remote the head is read from; default origin).
 """
+# guard-inputs: .github/workflows/ scripts/ci/
+# Its git reads are the pull request's ref from the remote (ls-remote, fetch, diff), not this tree's files.
 import json
 import os
 import re
