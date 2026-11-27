@@ -23,7 +23,7 @@ use serde_json::{Map, Value, json};
 
 /// The features this build carries, by the name their setting and counters use. A builder adds
 /// its feature here; an empty list stamps `enabled: []` and reads no settings.
-pub(crate) const FEATURES: &[&str] = &["turnRules", "cacheAlarm"];
+pub(crate) const FEATURES: &[&str] = &["turnRules", "cacheAlarm", "prefetch"];
 
 /// The settings key of `feature`'s off switch.
 pub(crate) fn setting_key(feature: &str) -> String {
@@ -194,6 +194,18 @@ mod tests {
         assert_eq!(msg["harnessMagic"], json!({"enabled": ["verify"], "verify": {"runs": 3}}));
         let off = json!({"agents": {"harnessMagic": {"b": {"enabled": false}}}});
         assert_eq!(enabled_list(&["a", "b"], Some(&off), &no_env), vec!["a".to_owned()]);
+    }
+
+    #[test]
+    fn prefetch_is_stamped_by_its_own_switch() {
+        // The scorecard's byFeature splits only on what is stamped; prefetch's module reads the
+        // same setting and kill switch (`hub/prefetch.rs`), so the stamp matches what ran.
+        assert!(FEATURES.contains(&"prefetch"));
+        assert_eq!(setting_key("prefetch"), crate::hub::prefetch::SETTING_ENABLED);
+        assert_eq!(env_key("prefetch"), crate::hub::prefetch::ENV_KILL);
+        assert!(enabled_list(FEATURES, None, &no_env).contains(&"prefetch".to_owned()));
+        let off = json!({"agents": {"harnessMagic": {"prefetch": {"enabled": false}}}});
+        assert!(!enabled_list(FEATURES, Some(&off), &no_env).contains(&"prefetch".to_owned()));
     }
 
     #[test]
