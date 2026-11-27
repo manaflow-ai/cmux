@@ -49,6 +49,8 @@ const RECORD_VIDEO = process.env.CMUX_GALLERY_RECORD_VIDEO === "1";
 /** `CMUX_GALLERY_ECHO_TRACE=1`: the page's `motion-trace` console lines go to the runner's output (a frame trace while
  *  finding an undeclared move; undeclared-run.sh). */
 const ECHO_TRACE = process.env.CMUX_GALLERY_ECHO_TRACE === "1";
+const INPUT_KEYS_PATH = process.env.CMUX_GALLERY_INPUT_KEYS;
+const INPUT_KEYS = INPUT_KEYS_PATH && existsSync(INPUT_KEYS_PATH) ? JSON.parse(readFileSync(INPUT_KEYS_PATH, "utf8")) as Record<string, unknown> : undefined;
 const LEDGER_PATH = process.env.CMUX_GALLERY_FREESTYLE_LEDGER ?? "/Users/lawrence/fun/cmuxterm-hq/.cmux-scratch/pane-protocol/gallery/freestyle-ledger.json";
 /** Published matrix runs (tailnet, every member): https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/matrix/<run>/ */
 const PUBLISH_URL = "https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/matrix";
@@ -435,14 +437,37 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
   const workers: Map<Engine, Browser>[] = [];
   const launch = async (engine: Engine): Promise<Browser> => browserTypes[engine].launch({ headless: true, timeout: 30_000, ...(engine === "chromium" ? (process.env.CMUX_CHROME_HEADLESS_SHELL ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL } : { channel: "chrome" }) : {}) });
   const screenshotName = (item: MatrixCase, engine: Engine) => `${safeFilePart(item.id)}-${engine}.png`;
-  const failedResult = (item: MatrixCase, engine: Engine, error: unknown): Record<string, unknown> => ({
-    id: item.id,
-    engine,
-    screenshot: screenshotName(item, engine),
-    params: item.params ?? {},
-    ready: "error",
-    error: error instanceof Error ? error.message : String(error),
-  });
+  const inputKey = (engine: Engine): Record<string, unknown> | undefined => {
+    const variants = INPUT_KEYS?.variants;
+    const value = variants && typeof variants === "object" ? (variants as Record<string, unknown>)[engine] : undefined;
+    if (!value || typeof value !== "object") return undefined;
+    const raw = value as Record<string, unknown>;
+    const family = typeof INPUT_KEYS?.family === "string" ? INPUT_KEYS.family : "desktop-gallery";
+    const key = typeof raw.key === "string" ? raw.key : undefined;
+    if (!key) return undefined;
+    return {
+      schema: "cmux.desktop-input-key/v1",
+      family,
+      runtime: "linux-gallery",
+      variant: engine,
+      key,
+      files: raw.files,
+      revision: raw.revision ?? raw.rev ?? INPUT_KEYS?.revision,
+      store: `${family}-linux-gallery-${engine}-${key}`,
+    };
+  };
+  const failedResult = (item: MatrixCase, engine: Engine, error: unknown): Record<string, unknown> => {
+    const key = inputKey(engine);
+    return {
+      id: item.id,
+      engine,
+      screenshot: screenshotName(item, engine),
+      params: item.params ?? {},
+      ready: "error",
+      error: error instanceof Error ? error.message : String(error),
+      ...(key ? { input_key: key } : {}),
+    };
+  };
   const renderOne = async (browsers: Map<Engine, Browser>, item: MatrixCase, engine: Engine): Promise<Record<string, unknown>> => {
     const started = Date.now();
     let result: Record<string, unknown>;
@@ -479,6 +504,8 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
         result = failedResult(item, engine, secondError);
       }
     }
+    const key = inputKey(engine);
+    if (key) result.input_key = key;
     console.log(`rendered ${item.id} ${engine} ready=${String(result.ready)} ${Date.now() - started}ms`);
     return result;
   };
