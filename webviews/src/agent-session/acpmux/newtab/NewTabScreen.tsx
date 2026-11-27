@@ -18,7 +18,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
-import { useKeyStyleSettings, useListKeys } from "../../../ui/useListKeys";
+import { MODIFIER_KEYS, useKeyStyleSettings, useListKeys } from "../../../ui/useListKeys";
 import type { ConnectKind } from "../environments";
 import { githubFolder, githubFolderRepo } from "../githubRepos";
 import { useSendAfterCheckout } from "../sendAfterCheckout";
@@ -2161,6 +2161,8 @@ export function NewTabScreen(props: Props) {
     submit();
   };
   const keyDown = (event: KeyboardEvent) => {
+    // Showing shortcut hints is not input: the host refreshes its lists at first use.
+    if (MODIFIER_KEYS.has(event.key)) return;
     touch();
     if (composing.current || event.isComposing || event.keyCode === 229) return;
     if (isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
