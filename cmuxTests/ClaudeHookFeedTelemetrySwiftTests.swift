@@ -220,6 +220,10 @@ struct ClaudeHookFeedTelemetrySwiftTests {
             "<task-id>monitor-still-running</task-id>",
             "<event>line of output</event>",
             "</task-notification>",
+            "<task-notification>",
+            "<task-id>agent-still-running</task-id>",
+            "<status>running</status>",
+            "</task-notification>",
         ].joined(separator: "\n")
         let event = try feedEvent(
             name: "notified",
@@ -229,6 +233,26 @@ struct ClaudeHookFeedTelemetrySwiftTests {
                 "session_id": "claude-notified-session",
                 "hook_event_name": "UserPromptSubmit",
                 "prompt": prompt,
+            ]
+        )
+        #expect(
+            event["finished_task_ids"] as? [String] == ["toolu_01HkStoppedSubagentSpawn", "a1656ab09850cfa84"],
+            "event=\(event)"
+        )
+    }
+
+    /// A large payload is spooled in its compact form and parsed again on
+    /// replay, when the prompt is only a preview.
+    @Test func replayedCompactPromptKeepsFinishedTaskIDs() throws {
+        let event = try feedEvent(
+            name: "replayed",
+            subcommand: "prompt-submit",
+            hookEventName: "UserPromptSubmit",
+            payload: [
+                "session_id": "claude-replayed-session",
+                "hook_event_name": "UserPromptSubmit",
+                "prompt": "<task-notification> <task-id>a1656ab09850cfa84</task-id> <tool-use-id>toolu_01Hk",
+                "finished_task_ids": ["toolu_01HkStoppedSubagentSpawn", "a1656ab09850cfa84"],
             ]
         )
         #expect(
