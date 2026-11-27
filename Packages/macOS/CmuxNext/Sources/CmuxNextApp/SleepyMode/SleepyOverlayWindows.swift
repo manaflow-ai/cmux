@@ -1,4 +1,6 @@
 import CmuxNextDesign
+import CmuxNextFloating
+import CmuxNextKeepAwake
 import AppKit
 
 /// Covers every screen with a ``SleepyOverlayWindow`` showing ``SleepySceneView``,
