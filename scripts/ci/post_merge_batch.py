@@ -2,9 +2,9 @@
 """The post-merge batch tier: the base's deferred checks run once per pile of merges, not once per merge.
 
 RFD 0023 (cmuxterm-hq docs/rfd/0023-ci-10x.md), Leo's third direction: "everything else runs
-once post-merge, batched". About every 10 merges (NEXT_POST_MERGE_EVERY_MERGES, default 10; 0 turns
+once post-merge, batched". About every 100 merges (NEXT_POST_MERGE_EVERY_MERGES, default 100; 0 turns
 the count off), or once the window has passed when fewer have landed (vars.NEXT_POST_MERGE_WINDOW_MINUTES,
-default 120), the newest feat-cmux-next tip gets one run of
+default 240), the newest feat-cmux-next tip gets one run of
 every suite in .github/post-merge-batch.json, covering every squash commit since the last tested
 tip. A job that was green on the last tip where it ran and is red now is bisected over the
 covered commits, running only that job, and the culprit gets a revert pull request through
@@ -51,11 +51,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".github" / "post-merge-batch.json"
 WORKFLOW = "cmux-next-post-merge.yml"
-DEFAULT_WINDOW_MINUTES = 120
+DEFAULT_WINDOW_MINUTES = 240
 # A batch run starts once the tip is this many commits (squash merges) ahead of the newest batch run's commit
 # (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."; at about 40 merges an hour
 # that is a batch every 15 min, one run covering ten merges). The window above stays the fallback for a quiet base.
-DEFAULT_EVERY_MERGES = 10
+DEFAULT_EVERY_MERGES = 100
 # A batch run's run-name starts with this; a probe's with PROBE (the workflow's run-name).
 BATCH = "batch"
 PROBE = "probe"
@@ -846,6 +846,14 @@ def probe_conclusion(verdicts: dict[str, tuple[str, str]], probe: Probe) -> str:
     """A probe run's verdict: the job with the red job's name, else the worst of the suite's jobs
     (the probe ran the whole suite when the red job had no manifest id); "" when it gave none."""
     mine = {n: c for n, (s, c) in verdicts.items() if s == probe.suite}
+    if probe.job not in mine:
+        # A matrix leg ("s / health (0)") that never ran is listed by its bare name ("s / health"): the matrix
+        # did not expand. Probe run 45969411338 (gallery-health, 11-27): its plan lost its runner, health showed as
+        # skipped by its bare name, and the suite's worst job (the lost plan, a failure) was read as the leg's red,
+        # so the bisect moved to c5385caf with c6ff1246 judged bad on no evidence.
+        bare = re.sub(r" \([^()]*\)$", "", probe.job)
+        if bare != probe.job and bare in mine:
+            mine[probe.job] = mine[bare]
     if mine.get(probe.job) == "skipped" and any(c not in ("success", "skipped") for c in mine.values()):
         return ""  # skipped behind a job that failed or lost its runner: no verdict, worth running again
     return mine.get(probe.job) or ("failure" if "failure" in mine.values() else "success" if mine and all(c in ("success", "skipped") for c in mine.values()) else "")

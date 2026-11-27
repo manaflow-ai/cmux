@@ -81,6 +81,7 @@ on:
       - docs/cmux-next/guide/pages.json
       - examples/looks/**
       - examples/gallery/gallery.json
+      - examples/setups/*/cmux-setup.json
       - webviews/test/fixtures/**
       # Why: note-489
       - webviews/src/**
@@ -361,21 +362,6 @@ on:
       - scripts/gh-merge-green  # tests/test_base_red_excuse.py
       - scripts/install-axe-ci.sh  # tests/test_base_red_excuse.py
       - .github/post-merge-batch.json  # scripts/ci/base_red_excuse.py
-      - skills/cmux-extension-author/prompts/add-animation.md
-      - skills/cmux-extension-author/prompts/clone-app-flow.md
-      - skills/cmux-extension-author/prompts/composer-slash-command.md
-      - skills/cmux-extension-author/prompts/new-tab-page.md
-      - skills/cmux-extension-author/prompts/palette-command.md
-      - skills/cmux-extension-author/prompts/sidebar-show.md
-      - skills/cmux-extension-author/recipes/command.md
-      - skills/cmux-extension-author/recipes/composer-command.md
-      - skills/cmux-extension-author/recipes/composer-mention.md
-      - skills/cmux-extension-author/recipes/live-section.md
-      - skills/cmux-extension-author/recipes/newtab.md
-      - skills/cmux-extension-author/recipes/pane.md
-      - skills/cmux-extension-author/recipes/section.md
-      - skills/cmux-extension-author/recipes/session-info.md
-      - skills/cmux-extension-author/recipes/widget.md
       - skills/cmux-extension-author/**
   push:
     branches: [main, feat-cmux-next]
@@ -404,6 +390,7 @@ on:
       - docs/cmux-next/guide/pages.json
       - examples/looks/**
       - examples/gallery/gallery.json
+      - examples/setups/*/cmux-setup.json
       - scripts/cmux-next/check-generator-inputs.sh
       # Why: note-526
       - scripts/cmux-next/generated-autofixable.sh
@@ -748,21 +735,6 @@ on:
       - scripts/gh-merge-green  # tests/test_base_red_excuse.py
       - scripts/install-axe-ci.sh  # tests/test_base_red_excuse.py
       - .github/post-merge-batch.json  # scripts/ci/base_red_excuse.py
-      - skills/cmux-extension-author/prompts/add-animation.md
-      - skills/cmux-extension-author/prompts/clone-app-flow.md
-      - skills/cmux-extension-author/prompts/composer-slash-command.md
-      - skills/cmux-extension-author/prompts/new-tab-page.md
-      - skills/cmux-extension-author/prompts/palette-command.md
-      - skills/cmux-extension-author/prompts/sidebar-show.md
-      - skills/cmux-extension-author/recipes/command.md
-      - skills/cmux-extension-author/recipes/composer-command.md
-      - skills/cmux-extension-author/recipes/composer-mention.md
-      - skills/cmux-extension-author/recipes/live-section.md
-      - skills/cmux-extension-author/recipes/newtab.md
-      - skills/cmux-extension-author/recipes/pane.md
-      - skills/cmux-extension-author/recipes/section.md
-      - skills/cmux-extension-author/recipes/session-info.md
-      - skills/cmux-extension-author/recipes/widget.md
       - skills/cmux-extension-author/**
   # Why: note-366
   workflow_dispatch:

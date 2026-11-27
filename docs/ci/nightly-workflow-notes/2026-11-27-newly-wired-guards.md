@@ -1,7 +1,7 @@
 # Newly wired guard merge verification
 
 PR #58134 adds executable guard steps relative to base
-`cf894f6816d761f2b3bf2d211d1048713caf5d32`. A previously failing test becomes this PR's own red when the PR first wires it.
+`f00dca18a8e2c54e695c0b7eb7e58fbd743248db`. A previously failing test becomes this PR's own red when the PR first wires it.
 Registry validation alone does not execute these tests. Run the exact workflow
 steps below on the proposed merge head; retain the head SHA, terminal exit and
 results file with the PR's verification evidence. The command derives added steps from that base rather than maintaining a second list. Every added step must pass.
@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 import yaml
 
-base = "cf894f6816d761f2b3bf2d211d1048713caf5d32"
+base = "f00dca18a8e2c54e695c0b7eb7e58fbd743248db"
 workflow = ".github/workflows/ci-guards.yml"
 receipt = Path("/tmp/58134-newly-wired-guards.json")
 
@@ -64,8 +64,8 @@ jobs but missing from workflow triggers. The generated trigger repair covers
 SDK push and pull requests, TUI spec push, Windows pull requests, and the SDK
 post-merge batch. The focused suite passes all 59 tests after this repair.
 
-Static attribution at `7fb2dfcf0abd1a0f0343d6c34d527dd978f0b834` executed
-the following commands on clean base `cf894f6816d761f2b3bf2d211d1048713caf5d32`.
+Static attribution of the conflict-resolved merge tree executed
+the following commands on clean base `f00dca18a8e2c54e695c0b7eb7e58fbd743248db`.
 Each exits 1 on both trees with the same complete output after replacing only
 the absolute base checkout path with the head checkout path. Checker hashes
 also match. These failures are separate from the newly wired guard execution.
@@ -73,5 +73,5 @@ also match. These failures are separate from the newly wired guard execution.
 | Command | Matching output SHA256 |
 | --- | --- |
 | `python3 scripts/lint-xcstrings.py` | `157a390d41e2422f3799c7a44c9dba8fe1d68115ec7463af2062476f127af6d7` |
-| `python3 scripts/localization_catalog.py check` | `e6053a04e0943c64a18bcf7d19a949ec8059a167f331d26e963eb8a7eb31150d` |
+| `python3 scripts/localization_catalog.py check` | `fe95ca24c3ddc40b4989f7d7426fe03b9aec9f46ed42bd87b15919740e46472b` |
 | `python3 scripts/check-workspace-package-groups.py --check` | `77fd2770afa07d3b30ba81bc265f02c06b8c0fb5ee07690b3e41f84f54f890ea` |
