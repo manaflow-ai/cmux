@@ -5,7 +5,7 @@
 //! the socket is 0600 and gone once serve exits.
 #![cfg(target_os = "linux")]
 
-use crate::carrier_support;
+mod carrier_support;
 
 use std::io::{BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt as _;

@@ -96,7 +96,7 @@ import Testing
         options.layout = .classic
         let card = Self.card(Self.chat { $0.ports = ":3000"; $0.branch = "main"; $0.directory = "~/code/site" },
                              pullRequests: badge, options: options)
-        #expect(card.ports.map(\.link) == ["http://localhost:3000/"])
+        #expect(card.facts.contains { $0.kind == "ports" })
         #expect(try #require(card.facts.last).isPreview, "kinds: \(card.facts.map(\.kind))")
     }
 

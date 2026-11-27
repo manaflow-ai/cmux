@@ -43,7 +43,7 @@ import Testing
         let pane = PaneContentView(stripModel: TabStripModel(tabs: items), reveal: LaunchReveal(deadline: .zero))
         let registry = ActionRegistry.standard()
         let toolbar = PaneToolbar(registry: { registry })
-        // The chat is selected (kind nil: no pins); `paneKinds` is what the pane's other tabs offer, Split Right pinned.
+        // The chat is selected (kind nil: no pins); `paneKinds` is what the pane's other tabs offer, with Split Right pinned.
         toolbar.update(target: "t0", kind: nil, pinned: ["splitRight"], paneKinds: paneKinds)
         pane.toolbar = toolbar
         pane.frame = NSRect(x: 0, y: 0, width: width, height: 400)
@@ -63,7 +63,7 @@ import Testing
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil); window.close() }
-        // Left: a pane that also holds a terminal (its toolbar keeps its pin's room). Right: chats only (no room kept).
+        // Left: a pane that also holds a terminal (its toolbar keeps the pin's room). Right: chats only (no room kept).
         let (left, leftChat) = pane(width: CGFloat(width), paneKinds: [.terminal], in: window)
         let (right, rightChat) = pane(width: CGFloat(width), paneKinds: [], in: window)
         #expect(left.toolbar?.view.reservedCount == 1, "the terminal's pin keeps its room for the strip")
@@ -84,6 +84,6 @@ import Testing
         #expect(view.tabRowWidth == PaneToolbarView.trailingGap)
         #expect(view.intrinsicContentSize.width > view.tabRowWidth, "the strip keeps the reserved room")
         view.show([], zoomed: true, reserving: 3)
-        #expect(view.tabRowWidth == PaneToolbarView.trailingGap + Metrics.tabBarControlSide)
+        #expect(view.tabRowWidth == PaneToolbarView.trailingGap + TitlebarBandButton.side)
     }
 }

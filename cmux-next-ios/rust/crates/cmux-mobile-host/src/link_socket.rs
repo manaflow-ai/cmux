@@ -18,23 +18,6 @@
 //!   a link to the peer (reused while it lives), `auth` as a Mac with this
 //!   Mac's identity key (the peer may answer `pending` while its person
 //!   decides; each is passed on as `{"pending":true}`), then the channel.
-//!   With `"closeLine":true` the peer's refusal is not lost: when the channel
-//!   closes with a code other than `eof`, one last line
-//!   `{"error":CODE,"message":REASON}` follows its bytes (for line-JSON
-//!   services such as `pair-requests`, `cmux mobile pair-requests`).
-//! - `{"op":"pair-requests","args":{...}}`: the `pair-requests` service's
-//!   list or answer for a request waiting on THIS Mac (`pair_requests.rs`,
-//!   [`crate::pair_requests::answer_locally`]), asked by its own user here, so
-//!   an agent on one Mac needs no click in the app (`cmux mobile pair-requests`
-//!   without `--mac`). One answer line, then the socket closes.
-//! - `{"op":"traffic"}`: this host's bytes in and out per service since it
-//!   started, and per second over the last 10 s and 60 s (`traffic.rs`;
-//!   `cmux device traffic`).
-//! - `{"op":"phone-page","device":D|null,"method":M,"params":P}`: an agent's
-//!   `browser.page.*` call on a tab the phone shows in its own web view
-//!   (`phone_page.rs`, RFD 0089; `cmux browser tab_…@phone VERB`). One answer
-//!   line, `{"ok":true,"device_id":D,"value":V}` or a refusal such as
-//!   `phone_not_linked`, then the socket closes.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -56,9 +39,6 @@ use crate::pairing::MacIdentity;
 
 /// How long a dial may take before the CLI hears `timeout`.
 const DIAL_TIMEOUT: Duration = Duration::from_secs(20);
-/// How long a cached Mac-to-Mac link may hear nothing after a keepalive
-/// ping before it closes (and the next socket dials anew).
-const CACHED_LINK_KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long the peer's person may take to decide (its `APPROVAL_WAIT` and a margin).
 const AUTH_TIMEOUT: Duration = Duration::from_secs(150);
 /// A request line's size limit.
@@ -69,8 +49,6 @@ pub struct Dialer {
     pub device_id: String,
     pub device_name: String,
     pub base_url: String,
-    /// A dev build's `x-cmux-build-space` (`HostConfig::build_space`).
-    pub build_space: Option<cmux_mobile_link::BuildSpace>,
     pub tokens: Arc<Tokens>,
     pub ice: IceSource,
     /// The current signaling socket (`None` while reconnecting).
@@ -79,8 +57,6 @@ pub struct Dialer {
     pub activity: Arc<crate::activity::Activity>,
     /// Live links by peer device id (one per peer, reused by every request).
     pub links: Mutex<HashMap<String, Arc<Link>>>,
-    /// This hostd's pairing, whose waiting requests `{"op":"pair-requests"}` answers.
-    pub pairing: Option<crate::pairing::Pairing>,
 }
 
 /// `<dir>/<session>.link.sock` for the daemon socket `<dir>/<session>.sock`.
@@ -149,44 +125,13 @@ async fn handle(stream: UnixStream, dialer: Arc<Dialer>) -> Result<()> {
             reply(&mut write, answer).await
         }
         Some("open") => open(&dialer, &request, read, write).await,
-        Some("traffic") => reply(&mut write, traffic_reply(Instant::now())).await,
-        Some("phone-page") => {
-            let device = request.get("device").and_then(Value::as_str);
-            let method = request.get("method").and_then(Value::as_str).unwrap_or_default();
-            let params = request.get("params").unwrap_or(&Value::Null);
-            reply(&mut write, crate::phone_page::PHONES.call(device, method, params).await).await
-        }
-        Some("pair-requests") => {
-            // Only this user reaches this socket (`same_user`): the trust of the app's Allow.
-            let args = request.get("args").cloned().unwrap_or_else(|| json!({}));
-            reply(&mut write, crate::pair_requests::answer_locally(dialer.pairing.as_ref(), &args)).await
-        }
-        _ => {
-            reply(
-                &mut write,
-                json!({"error": "bad_request", "message": "op is machines, open, pair-requests, phone-page or traffic"}),
-            )
-            .await
-        }
+        _ => reply(&mut write, json!({"error": "bad_request", "message": "op is machines or open"})).await,
     }
-}
-
-/// `{"op":"traffic"}`: this host's bytes in and out per service (`traffic.rs`).
-fn traffic_reply(now: Instant) -> Value {
-    let mut answer = crate::traffic::TRAFFIC.report(now);
-    if let Some(fields) = answer.as_object_mut() {
-        fields.insert("ok".into(), json!(true));
-        fields.insert("pid".into(), json!(std::process::id()));
-    }
-    answer
 }
 
 async fn machines(dialer: &Dialer) -> Result<Vec<Value>> {
     let token = dialer.tokens.access_token().await?;
-    let devices = ApiClient::new(&dialer.base_url, &token)
-        .with_build_space(dialer.build_space.clone())
-        .my_devices()
-        .await?;
+    let devices = ApiClient::new(&dialer.base_url, &token).my_devices().await?;
     Ok(devices
         .into_iter()
         .filter(|d| d.kind == "mac")
@@ -246,8 +191,7 @@ async fn open(
     };
     record(dialer, &peer, &service, origin, "allowed");
     reply(&mut write, json!({"ok": true, "ms": started.elapsed().as_millis() as u64})).await?;
-    let close_line = request.get("closeLine").and_then(Value::as_bool) == Some(true);
-    splice(channel, read.get_mut(), &mut write, close_line).await;
+    splice(channel, read.get_mut(), &mut write).await;
     Ok(())
 }
 
@@ -264,19 +208,12 @@ fn record(dialer: &Dialer, peer: &str, service: &str, origin: &'static str, deci
 }
 
 /// Bytes both ways until either side ends; a channel close ends the socket.
-/// `close_line`: a close other than `eof` is written as one last JSON line
-/// (the peer's refusal code and reason) before the socket ends.
 async fn splice(
     channel: cmux_mobile_link::Channel,
     read: &mut tokio::net::unix::OwnedReadHalf,
     write: &mut tokio::net::unix::OwnedWriteHalf,
-    close_line: bool,
 ) {
-    let (mut sender, mut receiver) = channel.split();
-    // This Mac's own use of another machine counts as `remote` (traffic.rs).
-    let meter = crate::traffic::TRAFFIC.meter(crate::traffic::Kind::Remote);
-    sender.count_into(Arc::clone(&meter));
-    receiver.count_into(meter);
+    let (sender, mut receiver) = channel.split();
     let upstream = async {
         let mut buffer = vec![0u8; 64 * 1024];
         loop {
@@ -292,24 +229,10 @@ async fn splice(
         sender.close("eof", "").await;
     };
     let downstream = async {
-        let mut ended_on_newline = true;
-        let closed = loop {
-            match receiver.recv().await {
-                Some(ChannelEvent::Data(bytes)) => {
-                    ended_on_newline = bytes.last().is_none_or(|b| *b == b'\n');
-                    if write.write_all(&bytes).await.is_err() {
-                        break None;
-                    }
-                }
-                Some(ChannelEvent::Closed(info)) => break Some(info),
-                None => break None,
+        while let Some(ChannelEvent::Data(bytes)) = receiver.recv().await {
+            if write.write_all(&bytes).await.is_err() {
+                break;
             }
-        };
-        if close_line && let Some(info) = closed.filter(|info| info.code != "eof") {
-            let mut line = if ended_on_newline { Vec::new() } else { b"\n".to_vec() };
-            line.extend(json!({"error": info.code, "message": info.reason}).to_string().into_bytes());
-            line.push(b'\n');
-            let _ = write.write_all(&line).await;
         }
         let _ = write.shutdown().await;
     };
@@ -344,19 +267,15 @@ async fn link_to(
         peer,
         TransportKind::WireGuard,
         &options,
-        // The link stays cached and is reused while open: keep the old 20 s
-        // dead-peer bound here, not the phone link's longer one
-        // (`KEEPALIVE_TIMEOUT`, which outlasts a phone's blackout).
-        LinkConfig { keepalive_timeout: CACHED_LINK_KEEPALIVE_TIMEOUT, ..LinkConfig::default() },
+        LinkConfig::default(),
     )
     .await
     .map_err(|error| match error.to_string() {
         text if text.contains("offline") => ("offline", "that machine is offline".to_owned()),
         text => ("unreachable", text),
     })?;
-    let tunnel_keys = connected.tunnel_keys.clone();
     let link = Arc::new(connected.link);
-    authenticate(&link, tunnel_keys.as_ref(), dialer, &identity, peer, write).await?;
+    authenticate(&link, dialer, &identity, peer, write).await?;
     dialer.links.lock().expect("links").insert(peer.to_owned(), Arc::clone(&link));
     Ok(link)
 }
@@ -364,48 +283,26 @@ async fn link_to(
 /// `auth` as a Mac: the peer's challenge signed with this Mac's identity key.
 async fn authenticate(
     link: &Link,
-    tunnel_keys: Option<&crate::pairing::TunnelKeys>,
     dialer: &Dialer,
     identity: &MacIdentity,
     peer: &str,
     write: &mut tokio::net::unix::OwnedWriteHalf,
 ) -> Result<(), Refused> {
     let closed = |what: &str| ("closed", format!("the link closed during {what}"));
-    let mut args = json!({"identityKey": identity.public_key(), "approvalKey": "", "name": dialer.device_name, "kind": "mac"});
-    // On a tunnel, this Mac's signature covers the keys its tunnel handshook with.
-    if tunnel_keys.is_some() {
-        args["proofVersion"] = json!(crate::pairing::PROOF_V2);
-    }
-    let mut channel = link.open("auth", args).await.map_err(|_| closed("auth"))?;
+    let mut channel = link
+        .open(
+            "auth",
+            json!({"identityKey": identity.public_key(), "approvalKey": "", "name": dialer.device_name, "kind": "mac"}),
+        )
+        .await
+        .map_err(|_| closed("auth"))?;
     let challenge = next_reply(&mut channel).await?;
     let nonce = challenge.get("challenge").and_then(Value::as_str).unwrap_or_default();
     if challenge.get("mac").and_then(Value::as_str) != Some(peer) {
         return Err(("bad_reply", "that machine answered for another device id".to_owned()));
     }
-    let v2 = challenge.get("proofVersion").and_then(Value::as_str) == Some(crate::pairing::PROOF_V2);
-    let message = match tunnel_keys {
-        Some(keys) if v2 => crate::pairing::challenge_message_v2(
-            peer,
-            &dialer.device_id,
-            nonce,
-            identity.public_key(),
-            "",
-            "pair",
-            keys,
-        ),
-        // The answering Mac said v2 on a link with no tunnel keys here: not this link's Mac.
-        None if v2 => {
-            return Err(("bad_reply", "that machine proved a tunnel this link does not have".to_owned()));
-        }
-        _ => crate::pairing::challenge_message(
-            peer,
-            &dialer.device_id,
-            nonce,
-            identity.public_key(),
-            "",
-            "pair",
-        ),
-    };
+    let message =
+        crate::pairing::challenge_message(peer, &dialer.device_id, nonce, identity.public_key(), "", "pair");
     let signature = identity.sign(&message).ok_or(("unavailable", "could not sign".to_owned()))?;
     channel
         .send(Bytes::from(json!({"signature": signature}).to_string()))

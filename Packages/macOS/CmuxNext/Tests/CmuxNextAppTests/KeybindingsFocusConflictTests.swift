@@ -126,7 +126,7 @@ import Testing
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let url = FileManager.default.temporaryDirectory.appending(path: "cnc-kb-restore-\(UUID().uuidString).json")
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         return (services, KeybindingPageWrites(registry: services.registry, settings: settings, file: services.keybindingsFile))
     }

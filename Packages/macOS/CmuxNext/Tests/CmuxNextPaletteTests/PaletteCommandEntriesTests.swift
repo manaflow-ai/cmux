@@ -3,7 +3,7 @@ import CmuxNextActions
 import Testing
 
 /// ``PaletteController/commandEntries()`` lists the Commands palette's runnable rows, and
-/// ``PaletteController/runCommand(_:shown:relativeTo:)`` runs one as the palette would: the shared
+/// ``PaletteController/runCommand(_:relativeTo:)`` runs one as the palette would: the shared
 /// source another surface (the New Tab page's dropdown) lists actions from.
 @MainActor
 struct PaletteCommandEntriesTests {

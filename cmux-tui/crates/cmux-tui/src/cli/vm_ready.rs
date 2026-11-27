@@ -27,7 +27,6 @@ use serde_json::{Map, Value, json};
 
 use super::GlobalArgs;
 use super::cloud_start_chat::{Runner, step_result};
-use super::start_stages::{Marks, claim_to_bound};
 
 /// The applier's status file on a Cloud machine (cmux-cloud-start-core machine_config.rs `status_path`).
 pub(super) const CONFIG_STATUS: &str = "/home/cmux/.cmux/machine-config/status.json";
@@ -35,7 +34,7 @@ pub(super) const CONFIG_STATUS: &str = "/home/cmux/.cmux/machine-config/status.j
 const CONFIG_LOG: &str = "/home/cmux/.cmux/machine-config/setup.log";
 /// How long `--wait` waits by default: a clone and a dependency install fit.
 pub(super) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20 * 60);
-pub(super) const MAX_TIMEOUT: Duration = Duration::from_secs(3 * 60 * 60);
+const MAX_TIMEOUT: Duration = Duration::from_secs(3 * 60 * 60);
 /// Between two reads of the machine or its status file.
 const POLL: Duration = Duration::from_secs(3);
 
@@ -156,14 +155,8 @@ pub(super) fn wait_until_ready(runner: &mut dyn Runner, ready: Ready<'_>) -> Res
             json!({"machine_config": ready.created.get("machine_config")}),
         ));
     }
-    // The start marks as cloud-journey.ts names them (start_stages.rs): the create answered, running, set up.
-    let mut marks = Marks::new(ready.started);
-    let created = runner.now();
-    marks.mark("created", created);
     let (id, title) =
         wait_running(runner, ready.id.as_deref(), ready.name, ready.replaces, deadline)?;
-    let running = runner.now();
-    marks.mark("running", running);
     let target = format!("vm:{id}");
     let mut answer = Map::new();
     answer.insert("machine_id".into(), json!(id));
@@ -171,21 +164,12 @@ pub(super) fn wait_until_ready(runner: &mut dyn Runner, ready: Ready<'_>) -> Res
     answer.insert("title".into(), json!(title));
     if ready.configured {
         let status = wait_config(runner, &id, deadline)?;
-        let applied = runner.now();
-        marks.mark("machine_config", applied);
         answer.insert("machine_config".into(), status);
         answer.insert("secrets".into(), deliver(runner, &id, deadline)?);
-        let delivered = runner.now();
-        marks.mark("secrets", delivered);
     }
-    let now = runner.now();
-    let elapsed = now.saturating_duration_since(ready.started);
+    let elapsed = runner.now().saturating_duration_since(ready.started);
     answer
         .insert("elapsed_ms".into(), json!(u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)));
-    answer.insert("stages".into(), marks.finish(now));
-    if let Some(split) = claim_to_bound(ready.created) {
-        answer.insert("claim_to_bound".into(), split);
-    }
     answer.insert(
         "next".into(),
         json!({
@@ -307,11 +291,7 @@ pub(super) fn fresh_vm_name() -> String {
 }
 
 /// Prints `result`: with `--json` the object, else one line a person reads; an error as the app's verbs print one.
-/// `timings`: the answer's `stages` as a table on stderr too (start_stages.rs).
-pub(super) fn print(global: &GlobalArgs, result: Result<Value, Value>, timings: bool) -> i32 {
-    if let Ok(value) = &result {
-        super::start_stages::print_table(timings, value);
-    }
+pub(super) fn print(global: &GlobalArgs, result: Result<Value, Value>) -> i32 {
     match result {
         Ok(value) if global.output == super::OutputMode::Human => {
             let title = value.get_str("title").unwrap_or_default();
@@ -350,9 +330,8 @@ pub(super) fn print(global: &GlobalArgs, result: Result<Value, Value>, timings: 
     }
 }
 
-/// `cmux vm new … --wait` with the app: `Some(exit code)`; `None` when `tail` has no `--wait`. `timings`: `--timings`
-/// was given (taken out of `tail`).
-pub(super) fn run_if_requested(global: &GlobalArgs, tail: &[String], timings: bool) -> Option<i32> {
+/// `cmux vm new … --wait` with the app: `Some(exit code)`; `None` when `tail` has no `--wait`.
+pub(super) fn run_if_requested(global: &GlobalArgs, tail: &[String]) -> Option<i32> {
     let request = match parse(tail, fresh_vm_name)? {
         Ok(request) => request,
         Err(message) => {
@@ -365,5 +344,5 @@ pub(super) fn run_if_requested(global: &GlobalArgs, tail: &[String], timings: bo
         }
     };
     let mut runner = super::cloud_start_chat::self_runner(global);
-    Some(print(global, new_and_wait(&mut runner, &request), timings))
+    Some(print(global, new_and_wait(&mut runner, &request)))
 }

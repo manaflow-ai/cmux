@@ -24,13 +24,12 @@ use cmux::{
     JournalIngress, JournalProducerManifest, JournalReplayPolicy, JournalSensitivity, JournalStart,
     JournalSubject, MutationOptions, ReadScreenOptions, ResourceChange, ResourceReference,
     Selector, Session, SessionEvent, SessionId, SessionJournalOptions, StreamCancellation,
-    Terminal, TerminalId, TerminalLifecycle,
+    Terminal, TerminalId,
 };
 use serde_json::json;
 
 use crate::background_agent::{AgentJobTracker, PlatformProcesses, ProbeObservation};
 use crate::detect::{AgentState, ScreenDetectTracker};
-use crate::first_scan::{ListedTerminal, first_scan_ids};
 use crate::manifest::{DetectionInput, ManifestSet};
 use crate::process as process_discovery;
 use crate::reconnect::{Pass, run_passes};
@@ -85,16 +84,6 @@ impl ScannerState {
             emission_nonce: format!("{}-{}", std::process::id(), now_nanos()),
             emission_sequence: 0,
         }
-    }
-
-    /// The detector holds state for `terminal_id`: a tracker entry, a probe
-    /// cache, an agent job, or a journal request that it must send again.
-    fn knows_terminal(&self, terminal_id: &str) -> bool {
-        self.tracker.tracks(terminal_id)
-            || self.pending_appends.contains_key(terminal_id)
-            || self.agent_jobs.contains_key(terminal_id)
-            || self.process_cache.entries.contains_key(terminal_id)
-            || self.process_info_cache.entries.contains_key(terminal_id)
     }
 
     fn retain_terminals(&mut self, live: &HashSet<String>) {
@@ -427,13 +416,8 @@ fn scan_connection(
     );
     state.retain_terminals(&live_ids);
     let mut deadlines = HashMap::<String, Instant>::new();
-    let listed = snapshots.iter().map(|item| ListedTerminal {
-        id: item.id.as_str(),
-        exited: item.lifecycle == TerminalLifecycle::Exited,
-        known: state.knows_terminal(item.id.as_str()),
-    });
-    for id in first_scan_ids(listed) {
-        deadlines.insert(id.to_string(), Instant::now());
+    for id in live_ids {
+        deadlines.insert(id, Instant::now());
     }
     loop {
         let now = Instant::now();
@@ -1204,6 +1188,3 @@ fn now_nanos() -> u128 {
 fn emission_idempotency_key(nonce: &str, sequence: u64) -> String {
     format!("agent-emission-{nonce}-{sequence}")
 }
-
-#[cfg(test)]
-mod knows_terminal_tests;

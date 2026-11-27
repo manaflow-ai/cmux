@@ -13,9 +13,6 @@ struct AgentChatMenuActionCatalogTests {
         "agentPane.toggleMinimap",
         "agentPane.revealCwdInFinder",
         "agentPane.openCwdInTerminal",
-        "agentPane.openCwdInEditor",
-        "agentPane.openCwdInApp",
-        "agentPane.copyCwdPath",
     ]
 
     @Test func menuActionsArePaletteCliAndMcpRows() throws {

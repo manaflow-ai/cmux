@@ -14,29 +14,23 @@ ensure_tailnet_go() {
   # workflows that clean a kept clone run `chmod -R u+w .build/go-path` before `git clean`.
   export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOFLAGS=-modcacherw
   export GOPATH="$root/.build/go-path" GOMODCACHE="$root/.build/go-path/pkg/mod" GOCACHE="$root/.build/go-cache"
-  # The version is cmux-tailnet's go-version (build.rs and the workflows' setup-go read it), so a bump is one
-  # file plus the four checksums below, never a second pin. Read with builtins: callers may have a bare PATH.
-  local here="${BASH_SOURCE[0]%/*}" want=""
-  [[ "$here" != "${BASH_SOURCE[0]}" ]] || here=.
-  read -r want <"$here/../../cmux-tui/crates/cmux-tailnet/go-version" || true
-  [[ -n "$want" ]] || { echo "error: no Go version in cmux-tui/crates/cmux-tailnet/go-version" >&2; return 3; }
-  local os arch sum dir="$root/.build/go-$want" tmp
+  local os arch sum dir="$root/.build/go-1.27.1" tmp
   local installed=""
   if command -v go >/dev/null 2>&1; then installed="$(go version 2>/dev/null || true)"; fi
   if [[ ! "$installed" =~ go1\.(2[1-9]|[3-9][0-9])([.[:space:]]|$) ]]; then
     # Linux fleet builders cross-build the macOS acpmux (build-acpmux.sh) with no Go on the image.
-    case "$want $(uname -s)-$(uname -m)" in
-      "1.27.1 Darwin-arm64") os=darwin arch=arm64; sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
-      "1.27.1 Darwin-x86_64") os=darwin arch=amd64; sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
-      "1.27.1 Linux-x86_64") os=linux arch=amd64; sum=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445 ;;
-      "1.27.1 Linux-aarch64" | "1.27.1 Linux-arm64") os=linux arch=arm64; sum=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec ;;
-      *) echo "error: no pinned Go $want for $(uname -s) $(uname -m) (cmux-tui/crates/cmux-tailnet/go-version; add its checksums to scripts/ci/tailnet-go.sh); install Go 1.21 or later in the build job" >&2; return 3 ;;
+    case "$(uname -s)-$(uname -m)" in
+      Darwin-arm64) os=darwin arch=arm64; sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
+      Darwin-x86_64) os=darwin arch=amd64; sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
+      Linux-x86_64) os=linux arch=amd64; sum=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445 ;;
+      Linux-aarch64|Linux-arm64) os=linux arch=arm64; sum=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec ;;
+      *) echo "error: no pinned Go for $(uname -s) $(uname -m); install Go 1.21 or later in the build job" >&2; return 3 ;;
     esac
     if [[ ! -x "$dir/go/bin/go" ]]; then
       # Extract beside the target and rename, so a cut-off extract never looks complete.
       tmp="$dir.partial"
       rm -rf "$dir" "$tmp" && mkdir -p "$tmp" || return 3
-      curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go$want.$os-$arch.tar.gz" || return 3
+      curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go1.27.1.$os-$arch.tar.gz" || return 3
       if command -v shasum >/dev/null 2>&1; then
         echo "$sum  $tmp/go.tgz" | shasum -a 256 -c - || return 3
       else
@@ -46,6 +40,6 @@ ensure_tailnet_go() {
     fi
     export PATH="$dir/go/bin:$PATH"
   fi
-  # libtailscale's go.mod selects the go-version Go; GOTOOLCHAIN=auto switches to it inside that folder.
+  # libtailscale's go.mod selects Go 1.27.1; GOTOOLCHAIN=auto switches to it inside that folder.
   go version || return 3
 }

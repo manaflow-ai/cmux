@@ -1,0 +1,126 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "computerUse.target.unsupported": {
+      "comment": "Keep the JSON field names and kind value in English.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer use cannot check this target shape. Use pid and window_id, or target with kind window, pid, and window_id."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ操作では、このターゲット形式を確認できません。pid と window_id、または kind が window で pid と window_id を含む target を使用してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Computersteuerung kann dieses Zielformat nicht prüfen. Verwenden Sie pid und window_id oder target mit kind window, pid und window_id."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le contrôle de l’ordinateur ne peut pas vérifier ce format de cible. Utilisez pid et window_id, ou target avec kind window, pid et window_id."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن للتحكم بالكمبيوتر التحقق من صيغة الهدف هذه. استخدم pid وwindow_id، أو target مع kind بقيمة window وpid وwindow_id."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El control del ordenador no puede comprobar este formato de destino. Use pid y window_id, o target con kind window, pid y window_id."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電腦操作無法檢查此目標格式。請使用 pid 和 window_id，或使用 kind 為 window 且包含 pid 和 window_id 的 target。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "计算机操作无法检查此目标格式。请使用 pid 和 window_id，或使用 kind 为 window 且包含 pid 和 window_id 的 target。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터 사용 기능이 이 대상 형식을 확인할 수 없습니다. pid와 window_id 또는 kind가 window이고 pid와 window_id를 포함하는 target을 사용하세요."
+          }
+        }
+      }
+    },
+    "computerUse.target.captureExcluded": {
+      "comment": "A refusal Computer use returns to the agent for a window that keeps itself out of screen capture (a consent or password prompt).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer use cannot use this window. It is a prompt that only the person can answer, and it is not in screenshots."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ操作ではこのウインドウを使用できません。これは本人だけが応答できる確認画面で、スクリーンショットには写りません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Computersteuerung kann dieses Fenster nicht verwenden. Es ist eine Abfrage, die nur die Person beantworten kann, und es erscheint nicht in Bildschirmfotos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le contrôle de l’ordinateur ne peut pas utiliser cette fenêtre. C’est une demande à laquelle seule la personne peut répondre, et elle n’apparaît pas dans les captures d’écran."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن للتحكم في الكمبيوتر استخدام هذه النافذة. إنها مطالبة لا يجيب عنها إلا الشخص نفسه، ولا تظهر في لقطات الشاشة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El control del ordenador no puede usar esta ventana. Es una solicitud que solo la persona puede responder y no aparece en las capturas de pantalla."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電腦操作無法使用此視窗。這是只有本人才能回應的提示，且不會出現在截圖中。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑操作无法使用此窗口。这是只有本人才能回应的提示，且不会出现在截图中。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터 제어는 이 창을 사용할 수 없습니다. 본인만 응답할 수 있는 확인 창이며 스크린샷에 나타나지 않습니다."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

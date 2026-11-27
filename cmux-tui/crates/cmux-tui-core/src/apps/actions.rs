@@ -17,6 +17,8 @@ use std::sync::OnceLock;
 
 use serde_json::Value;
 
+const ACTIONS_JSON: &str = include_str!("../../../../../plans/cmux-next/action-surfaces.json");
+
 /// Agent-surface exemptions an app may never run.
 const REFUSED: &[&str] = &[
     "credentials",
@@ -42,8 +44,7 @@ pub enum ActionDecision {
 fn catalog() -> &'static HashMap<String, String> {
     static CATALOG: OnceLock<HashMap<String, String>> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        let text = crate::packed_catalogs::ACTION_SURFACES.inflate();
-        let doc: Value = serde_json::from_str(&text).expect("action catalog is JSON");
+        let doc: Value = serde_json::from_str(ACTIONS_JSON).expect("action catalog is JSON");
         doc["actions"]
             .as_array()
             .into_iter()
@@ -89,5 +90,33 @@ pub fn decide(id: Option<&str>) -> ActionDecision {
 }
 
 #[cfg(test)]
-#[path = "actions_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_exemptions_bind_apps_and_everything_else_needs_a_gesture() {
+        assert_eq!(decide(Some("palette.auth.signIn")), ActionDecision::Refused("credentials"));
+        assert_eq!(decide(Some("quit")), ActionDecision::Refused("endsApp"));
+        assert_eq!(decide(Some("keepMacAwake")), ActionDecision::Refused("systemChange"));
+        assert_eq!(decide(Some("taskManager.killProcess")), ActionDecision::Refused("liveInput"));
+        assert_eq!(decide(Some("newWindow")), ActionDecision::NeedsGesture);
+        assert_eq!(decide(Some("openSettings")), ActionDecision::NeedsGesture);
+        assert_eq!(decide(Some("made.up")), ActionDecision::Unknown);
+        assert_eq!(decide(None), ActionDecision::Unknown);
+    }
+
+    /// The person's own cmux-next.json actions (`cmuxConfig.<name>`) are not in the catalog: only
+    /// the customize app (the person's own folder) may run them, with a gesture like any action.
+    #[test]
+    fn only_the_customize_app_runs_the_persons_own_config_actions() {
+        assert_eq!(
+            decide_for("local/customize", Some("cmuxConfig.tests")),
+            ActionDecision::NeedsGesture
+        );
+        assert_eq!(decide_for("local/customize", Some("newWindow")), ActionDecision::NeedsGesture);
+        assert_eq!(decide_for("local/customize", Some("quit")), ActionDecision::Refused("endsApp"));
+        assert_eq!(decide_for("local/customize", Some("cmuxConfig.")), ActionDecision::Unknown);
+        assert_eq!(decide_for("local/spy", Some("cmuxConfig.tests")), ActionDecision::Unknown);
+        assert_eq!(decide_for("cmux/demo", Some("cmuxConfig.tests")), ActionDecision::Unknown);
+    }
+}

@@ -80,5 +80,5 @@ if [ ! -S "$socket" ]; then
   echo "error: no socket at $socket" | tee "$out/error.txt"
   exit 0
 fi
-# golden.py drive waits for the window and for the launch layout to settle before its first scenario.
+sleep 5
 python3 "$here/golden.py" drive "$socket" "$out"

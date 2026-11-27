@@ -1,6 +1,6 @@
 //! An agent hook that changes no durable state is live state, not journal.
 //!
-//! A large session, 2026-11-10 (826 workspaces, 170 agents): 64 % of the
+//! Lawrence's daemon, 2026-11-10 (826 workspaces, 170 agents): 64 % of the
 //! journal rows were `agent.state.changed` (a tool call, a notification, a
 //! hook cmux has no name for), 3.3 a second, each one a registry commit and
 //! two more lock takes for retry bookkeeping. Such a row moves nothing a

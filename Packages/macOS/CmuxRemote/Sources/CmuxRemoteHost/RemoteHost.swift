@@ -48,7 +48,7 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
     let layout: RemoteHostLayout
     let permissions: PermissionAuthority
     let screen: ScreenWorkerSupervisor
-    let computerUse: ComputerUseSupervisor
+    let computerUse: ComputerUseWorkers
     let children: RemoteChildLifetime
     let captureLease: RemoteCaptureLease
     private let core: HostCore
@@ -71,20 +71,11 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
                                                        home: ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory())
         let launch = WorkerLaunch(executable: executable, environment: workerEnvironment, logPath: layout.log,
                                   stateDirectory: stateDirectory, scope: scope, lifetime: children)
-        let permissions = PermissionAuthority(probe: PermissionAuthority.processProbe(executable: executable, logPath: layout.log, lifetime: children))
-        self.permissions = permissions
+        permissions = PermissionAuthority(probe: PermissionAuthority.processProbe(executable: executable, logPath: layout.log, lifetime: children))
         let core = HostCore(secret: bootstrap.supervisorSecret, daemonBuild: bootstrap.daemonBuild, daemonSocket: bootstrap.daemonSocket)
         self.core = core
         screen = ScreenWorkerSupervisor(launch: launch, layout: layout) { core.statusChanged() }
-        computerUse = ComputerUseSupervisor(launch: launch, layout: layout, onChange: { core.statusChanged() },
-                                            requestPermission: { permission in
-                                                // The worker's engine asked: macOS names cmux Remote in its prompt.
-                                                // The probe spawns a process: off the main thread, then the prompt on it.
-                                                Task.detached {
-                                                    _ = permissions.refresh()
-                                                    _ = await MainActor.run { permissions.request(permission) }
-                                                }
-                                            })
+        computerUse = ComputerUseWorkers(launch: launch, layout: layout) { core.statusChanged() }
         super.init()
         core.host = self
         core.config = (bootstrap.computerUse, bootstrap.screenSharing, bootstrap.headless)
@@ -104,8 +95,7 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
     }
 
     /// Starts serving: both sockets, the first probe, the Screen Sharing worker
-    /// when sharing is on (the Computer Use worker waits for the app's policy), and the
-    /// Accessibility change observer.
+    /// when sharing is on, and the Accessibility change observer.
     public func start() throws {
         let supervisor = try LocalSocket.listen(layout.supervisorSocket)
         let app = try LocalSocket.listen(layout.appSocket)
@@ -114,7 +104,6 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
         LocalSocket.serve(app, name: "remote-app") { channel in core.serveApp(channel) }
         Task.detached { await core.refresh() }
         screen.setWanted(core.config.screenSharing)
-        computerUse.setWanted(core.config.computerUse)
         // macOS posts this when the Accessibility list changes: a grant reaches the feature without a poll.
         accessibilityObserver = DistributedNotificationCenter.default().addObserver(
             forName: NSNotification.Name("com.apple.accessibility.api"), object: nil, queue: .main) { _ in
@@ -151,7 +140,6 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
         shuttingDown = true
         children.freeze()
         screen.setWanted(false)
-        computerUse.stopAll()
         let children = self.children, layout = self.layout
         // task-owner: one bounded shutdown per host. A child that outlives SIGTERM by 15 s gets
         // SIGKILL; the host then exits either way, so frozen admission never outlives it.
@@ -162,45 +150,20 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
             }
             unlink(layout.supervisorSocket)
             unlink(layout.appSocket)
-            unlink(layout.computerUseSocket)
             exit(0)
         }
     }
 
-    // MARK: Quit
+    // MARK: Quit & Reopen
 
-    /// System Settings' "Quit & Reopen" after a Screen Recording grant: the
-    /// new grant reaches the features through new workers, and the host keeps
-    /// its daemon link and stays. Any other quit (Activity Monitor, `quit app`,
-    /// logout) is the person's: the daemon hears it, so it does not start the
-    /// host again on its own, and the host ends its workers and exits.
+    /// macOS asks to quit and reopen cmux Remote after a Screen Recording
+    /// grant. The new grant reaches the features through new workers; the host
+    /// keeps its daemon link and stays.
     public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let quitter = Self.quitSenderBundleID()
-        if Self.isQuitAndReopen(senderBundleID: quitter) {
-            logger.notice("quit requested (Quit & Reopen after a grant): restarting workers instead")
-            let core = self.core
-            Task.detached { await core.refresh(forceRestart: true) }
-            return .terminateCancel
-        }
-        logger.notice("quit requested by \(quitter ?? "unknown", privacy: .public): stopping")
-        core.announceQuit()
-        shutDown()
-        // shutDown exits once the workers are reaped; logout waits for that exit.
-        return .terminateLater
-    }
-
-    /// The bundle id of the process that sent the quit Apple event, if any.
-    static func quitSenderBundleID() -> String? {
-        guard let event = NSAppleEventManager.shared().currentAppleEvent,
-              let pid = event.attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr))?.int32Value, pid > 0 else {
-            return nil
-        }
-        return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
-    }
-
-    /// Whether a quit is System Settings' Quit & Reopen after a privacy grant.
-    nonisolated static func isQuitAndReopen(senderBundleID: String?) -> Bool {
-        senderBundleID == "com.apple.systempreferences" || senderBundleID == "com.apple.Settings"
+        logger.notice("quit requested (Quit & Reopen after a grant): restarting workers instead")
+        let core = self.core
+        Task.detached { await core.refresh(forceRestart: true) }
+        return .terminateCancel
     }
 }
 
@@ -253,7 +216,12 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         if let pid = screen.pid { screenWorker["pid"] = Int(pid) }
         if let started = screen.startedAt { screenWorker["stale"] = started < grantsChanged }
         workers[RemoteWorkerKind.screenSharing.rawValue] = screenWorker
-        workers[RemoteWorkerKind.computerUse.rawValue] = host.computerUse.statusFields(grantsChangedAt: grantsChanged)
+        let running = host.computerUse.running
+        workers[RemoteWorkerKind.computerUse.rawValue] = [
+            "state": running.isEmpty ? "idle" : "running",
+            "pids": running.keys.sorted().map(Int.init),
+            "stale": running.values.contains { $0 < grantsChanged },
+        ]
         var result: [String: Any] = [
             "protocol": RemoteWire.maximumProtocol, "build": RemoteHost.build, "pid": Int(getpid()),
             "bundle_id": Bundle.main.bundleIdentifier ?? "", "name": Bundle.main.infoDictionary?["CFBundleName"] as? String ?? "",
@@ -274,13 +242,6 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         }
     }
 
-    /// The person quit cmux Remote: tells the daemon before the host exits.
-    func announceQuit() {
-        let line = RemoteWire.event("quit")
-        let channels = lock.withLock { supervisors }
-        for channel in channels { channel.write(line) }
-    }
-
     /// Probes the grants. A grant that appeared since a worker started
     /// restarts that worker (now when idle, else after its session); `forceRestart`
     /// restarts idle workers whatever the probe says (Quit & Reopen).
@@ -291,10 +252,10 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         if changed || forceRestart {
             logger.notice("grants \(snapshot.map { "ax=\($0.accessibility) sr=\($0.screenRecording)" } ?? "unknown", privacy: .public); restarting stale workers")
             host.screen.restart(force: false)
-            // A process that ran before a grant can keep the old Screen Recording answer: a new
-            // Computer Use worker reads the new one. Its sessions and grants live in its state
-            // directory, and calls carry call_id, so agents lose nothing.
-            host.computerUse.restart()
+            // A Computer Use worker reads Screen Recording once, at start: end it, and the app's
+            // helper start (its restart budget) opens a new channel, so the grant applies without
+            // a relaunch of anything the person sees.
+            host.computerUse.stopAll()
         }
         statusChanged()
     }
@@ -372,7 +333,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         case "restart":
             switch (params["worker"] as? String).flatMap(RemoteWorkerKind.init(rawValue:)) {
             case .screenSharing: host.screen.restart(force: params["force"] as? Bool ?? false)
-            case .computerUse: host.computerUse.restart()
+            case .computerUse: host.computerUse.stopAll()
             case nil: return RemoteWire.failure(id: id, code: "bad_request", message: "worker must be computer-use or screen-sharing")
             }
             return RemoteWire.answer(id: id, result: status())
@@ -386,7 +347,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             // A new headless choice reaches the worker at its next start (now when idle).
             if host.screen.setEnvironment("CMUX_REMOTE_HEADLESS", next.headless ? "1" : "0") { host.screen.restart(force: false) }
             host.screen.setWanted(next.screenSharing)
-            host.computerUse.setWanted(next.computerUse)
+            if !next.computerUse { host.computerUse.stopAll() }
             statusChanged()
             return RemoteWire.answer(id: id, result: status())
         case "app_grant":
@@ -397,49 +358,6 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             lock.withLock { appGrant = (stamp, fresh) }
             return RemoteWire.answer(id: id, result: ["socket": host.layout.appSocket, "secret": RemoteWire.hex(fresh),
                                                       "host_pid": Int(getpid())])
-        case "computer_use.endpoint":
-            // The daemon's `computer-use-endpoint`: acpmux never reads files. A starting worker gets a few
-            // seconds (this request's own task waits, never the main thread).
-            let supervisor = host.computerUse
-            let wait = min(Double((params["wait_ms"] as? Int) ?? 5000), 30000) / 1000
-            let endpoint = await Task.detached { WorkerReply(supervisor.endpoint(wait: wait)) }.value
-            return RemoteWire.answer(id: id, result: endpoint.value)
-        case "computer_use.config":
-            // The verified app's policy (the daemon forwards only its requests).
-            guard let policy = params["config"] as? [String: Any],
-                  let data = try? JSONSerialization.data(withJSONObject: policy, options: [.sortedKeys]) else {
-                return RemoteWire.failure(id: id, code: "bad_request", message: "computer_use.config needs config (a PolicyConfig object)")
-            }
-            host.computerUse.configure(policy: data, motion: (params["motion"] ?? policy["cursorMotion"]) as? [String: Any],
-                                       machine: params["machine"] as? String, computerUse: config.computerUse)
-            statusChanged()
-            return RemoteWire.answer(id: id, result: status())
-        case "computer_use.approvals":
-            // Saved approvals: list, forget, always, never, revoke_sessions (the verified app only, through the daemon).
-            guard let action = params["action"] as? String,
-                  ["list", "forget", "always", "never", "revoke_sessions"].contains(action) else {
-                return RemoteWire.failure(id: id, code: "bad_request",
-                                          message: "computer_use.approvals needs action list, forget, always, never or revoke_sessions")
-            }
-            var line: [String: Any] = ["type": "approvals", "action": action]
-            if let app = params["app_id"] as? String { line["app_id"] = app }
-            var reply = await host.computerUse.request(line)
-            // `list`: the saved approvals and the questions waiting (the panel asks on this Mac, so none wait here).
-            if action == "list", reply["ok"] as? Bool == true {
-                reply["result"] = ["saved": reply["result"] ?? [String: Any](), "pending": [Any]()]
-            }
-            reply["id"] = id ?? NSNull()
-            return RemoteWire.line(reply)
-        case "computer_use.session":
-            // The person's menu bar, through the daemon (Stop and Show Cursor from any local
-            // connection; Resume from the verified app only, checked there).
-            guard let line = Self.computerUseSessionLine(params) else {
-                return RemoteWire.failure(id: id, code: "bad_request",
-                                          message: "computer_use.session needs a session and action stop, resume, spotlight or raise_window")
-            }
-            var reply = await host.computerUse.request(line)
-            reply["id"] = id ?? NSNull()
-            return RemoteWire.line(reply)
         case "drain":
             lock.withLock { draining = true }
             statusChanged()
@@ -452,20 +370,6 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
                 return RemoteWire.line(reply)
             }
             return RemoteWire.failure(id: id, code: "unknown_method", message: "unknown method \(method)")
-        }
-    }
-
-    /// The worker's control line for a `computer_use.session` request, nil when it is malformed.
-    static func computerUseSessionLine(_ params: [String: Any]) -> [String: Any]? {
-        guard let session = params["session"] as? String, !session.isEmpty, session.utf8.count <= 256 else { return nil }
-        switch params["action"] as? String {
-        case let action? where action == "stop" || action == "resume":
-            var line: [String: Any] = ["type": "session", "action": action, "session": session]
-            if let label = params["label"] as? String { line["label"] = String(label.prefix(80)) }
-            return line
-        case "spotlight": return ["type": "cursor/spotlight", "session": session]
-        case "raise_window": return ["type": "window/raise", "session": session]
-        default: return nil
         }
     }
 
@@ -490,18 +394,17 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         let result: CaptureLeaseResult
         if method == "capture.prepare" {
             result = await host.captureLease.prepare(binding, children: host.children,
-                                                    workerAbsent: host.screen.pid == nil && host.computerUse.pid == nil)
+                                                    workerAbsent: host.screen.pid == nil && host.computerUse.running.isEmpty)
         } else if method == "capture.cleanup.unprepared" {
-            let (screen, computerUse) = (host.screen, host.computerUse)
+            let screen = host.screen
             result = await host.captureLease.cleanupUnprepared(binding, children: host.children,
-                                                               stopWorkers: { screen.setWanted(false); computerUse.stopAll() })
+                                                               stopWorkers: { screen.setWanted(false) })
         } else {
             guard await host.captureLease.beginCleanup(binding) else {
                 return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: "remote_lease_mismatch").fields)
             }
             host.children.freeze()
             host.screen.setWanted(false)
-            host.computerUse.stopAll()
             host.children.stopOwnedChildren()
             let exited = await host.children.waitUntilEmpty(timeout: .seconds(15))
             result = await host.captureLease.cleanup(binding, writersExited: exited)
@@ -514,7 +417,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
 
     /// The app's connections: a hello with the secret from `app_grant`, from
     /// that exact process; then one `open` that turns the connection into a
-    /// channel (the Screen Sharing worker's socket).
+    /// channel (Computer Use control, or the Screen Sharing worker's socket).
     func serveApp(_ channel: LineChannel) {
         channel.setReadTimeout(5)
         guard let hello = channel.readObject(), hello["type"] as? String == "hello",
@@ -531,11 +434,16 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         let id = request["id"]
         switch request["channel"] as? String {
         case RemoteWorkerKind.computerUse.rawValue:
-            // Computer Use is no app channel any more: the worker serves agents on its own socket,
-            // which the daemon hands to acpmux (`computer_use.endpoint`).
-            channel.write(RemoteWire.failure(id: id, code: "bad_request",
-                                             message: "Computer Use has no app channel; the daemon serves computer-use-endpoint"))
-            channel.close()
+            guard config.computerUse else {
+                channel.write(RemoteWire.failure(id: id, code: "off", message: "Computer Use is off"))
+                return channel.close()
+            }
+            // The tagged DEV app this channel's agents may drive (legacy dogfood scope; only the app opens a channel).
+            let prefix = "com.cmuxterm.app.debug."
+            let allowed = (request["allowed_target_bundle_id"] as? String).flatMap {
+                $0.hasPrefix(prefix) && $0.count > prefix.count && $0.allSatisfy { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" } ? $0 : nil
+            }
+            host.computerUse.open(for: channel, id: id, environment: ["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS": allowed ?? ""])
         case RemoteWorkerKind.screenSharing.rawValue:
             // A worker that is starting answers within seconds; this connection's own thread waits for it.
             guard host.screen.waitReady(until: Date().addingTimeInterval(10)),

@@ -155,23 +155,15 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(String(describing: request) == "copyText")
     }
 
-    /// The page's copy needs the person's recent gesture, and it goes through the write the model was given: a test
-    /// never writes the person's own clipboard (`NSPasteboard.general`), and a fleet session has no pasteboard
-    /// server, where every write failed and the copy answered "unavailable".
     @Test func copyRequestsRequireARecentPersonGesture() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let general = NSPasteboard.general.changeCount
-        var copied: [String] = []
-        let model = AgentPaneModel(host: NoHost(), sessionId: "session-a", writeClipboard: { copied.append($0); return true })
-        let view = try #require(AgentPaneView(model: model, source: .bundled(file)))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file)))
         defer { view.close() }
         let refused = await view.model.respond(to: .copyText("private reference"))
         #expect((refused["error"] as? [String: Any])?["code"] as? String == "transport.gesture_required")
         view.model.transport.gestures.record()
         let accepted = await view.model.respond(to: .copyText("private reference"))
-        #expect(accepted["ok"] as? Bool == true, "the copy answered \(accepted)")
-        #expect(copied == ["private reference"], "the refused copy wrote, or the accepted one did not")
-        #expect(NSPasteboard.general.changeCount == general, "the test's copy wrote the person's clipboard")
+        #expect(accepted["ok"] as? Bool == true)
     }
 
     /// The button's on state follows the panel: open makes the panel, closed removes it.
@@ -636,9 +628,10 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(sent == ["fold:context:0"])
     }
 
-    /// A line with a control at its right end keeps the grip at its left, in the gutter before its icon:
-    /// the grip's box stays inside the line, clear of the icon, and far from the control.
-    @Test func aGripBesideATrailingControlStaysInTheLeftGutter() throws {
+    /// A line with a control at its right end keeps its grip in its right inset: the grip's box stays
+    /// inside the line and clear of the control, and still holds every dot (CMUX-298: an icon box centred
+    /// on the dots ran from width - 12 to width + 4).
+    @Test func aGripPastATrailingControlStaysInsideTheLine() throws {
         let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil })
         let line = SessionInfoLineView(line: SessionInfoLine(
             id: "remote", kind: .row, symbol: "cursorarrow.rays", title: "Remote Control", toggle: true,
@@ -651,22 +644,19 @@ struct AgentPaneNativeSessionInfoTests {
             line.layoutSubtreeIfNeeded()
             let toggle = try #require(line.subviews.first { $0 is NSSwitch })
             let grip = try #require(line.subviews.compactMap { $0 as? SessionInfoGripView }.first)
-            let icon = try #require(line.subviews.compactMap { $0 as? NSImageView }.first { !$0.isHidden })
             let hit = try #require(line.gripHitRect)
-            #expect(hit.minX >= line.bounds.minX - 0.5, "the grip's box runs past the line: \(hit) in \(line.bounds)")
-            #expect(hit.maxX <= icon.frame.minX + 0.5, "the grip's box covers the icon: \(hit), icon \(icon.frame)")
-            #expect(hit.maxX < toggle.frame.minX)
+            #expect(hit.maxX <= line.bounds.maxX + 0.5, "the grip's box runs past the line: \(hit) in \(line.bounds)")
+            #expect(hit.minX >= toggle.frame.maxX - 0.5, "the grip's box covers the switch: \(hit), switch \(toggle.frame)")
             #expect(hit.minX <= grip.frame.minX + 0.5 && grip.frame.maxX <= hit.maxX + 0.5)
         }
     }
 
     /// Section headers follow the web panel's SessionInfoSection: a medium-weight title (never the bold
     /// chrome header) on the rows' title column, a chevron after the title that shows on hover, and the
-    /// six-dot grip in the gutter left of the header's icon or title that shows only on hover (Lawrence,
-    /// 2026-11-15: "move the grabber dots to left, we have space on the left of the text"). At rest neither glyph draws, no
+    /// six-dot grip at the header's right edge that shows only on hover. At rest neither glyph draws, no
     /// `line.3.horizontal` grip sits over the icons, and hovering moves no title (Leo, 2026-11-02: "WE
     /// FUCKING HAD THESE" and, on the always-on grips, "THESE ARE JUST SO INSANELY STUPID LOOKING").
-    @Test func sectionHeadersShowTheirChevronAndLeftGutterGripOnlyOnHover() throws {
+    @Test func sectionHeadersShowTheirChevronAndRightEdgeGripOnlyOnHover() throws {
         let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil })
         func view(_ line: SessionInfoLine) -> SessionInfoLineView {
             let view = SessionInfoLineView(line: line, ink: ink)
@@ -681,7 +671,8 @@ struct AgentPaneNativeSessionInfoTests {
             view.subviews.compactMap { $0 as? SessionInfoGripView }.first
         }
         func images(_ view: SessionInfoLineView) -> [NSImageView] { view.subviews.compactMap { $0 as? NSImageView } }
-        /// Whether the line's trailing meta (a head's count and meter) all shows.
+        /// Whether the line's trailing meta (a head's count and meter) is hidden; true for a line with none.
+        func countHidden(_ view: SessionInfoLineView) -> Bool { view.trailingMeta.allSatisfy { $0.isHidden } }
         func countShown(_ view: SessionInfoLineView) -> Bool { view.trailingMeta.allSatisfy { !$0.isHidden } }
 
         let context = view(SessionInfoLine(id: "context", kind: .header, symbol: "gauge", title: "Context", trailing: "94K / 200K",
@@ -724,27 +715,44 @@ struct AgentPaneNativeSessionInfoTests {
 
         let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
                                                     windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
-        // The meters and counts keep the trailing column to themselves: the grip takes no slot there.
+        // At rest the meters draw in the trailing column, left of the grip's own slot, at any width.
         #expect(context.trailingMeta.count == 2 && progress.trailingMeta.count == 2)
+        #expect(context.gripHasOwnSlot && progress.gripHasOwnSlot && !changes.gripHasOwnSlot)
+        for width in [200, 260, 320, 560] as [CGFloat] {
+            for line in [context, progress] {
+                line.frame.size.width = width
+                line.layoutSubtreeIfNeeded()
+                let hit = try #require(line.gripHitRect)
+                for meta in line.trailingMeta { #expect(meta.frame.maxX <= hit.minX + 0.5) }
+            }
+        }
+        for line in [context, progress] {
+            line.frame.size.width = 320
+            line.layoutSubtreeIfNeeded()
+        }
         for line in [context, changes, plain, machine, progress] {
             let before = try title(line)
             line.mouseEntered(with: enter)
             line.layoutSubtreeIfNeeded()
             #expect(line.showsGrip)
             #expect(try title(line) == before)
-            // The grip sits in the gutter left of the line's first mark (its icon, else its title), and
-            // the count stays on its edge: nothing in the trailing column moves or hides.
+            // The grip takes the trailing value's place: its dots end on the trailing column's right edge,
+            // the rows' (Leo, 2026-11-07: "the grip and the lef tside aren't flush"), the count hides under
+            // it, and nothing else reaches its box.
             let handle = try #require(grip(line))
             let hit = try #require(line.gripHitRect)
             #expect(!handle.isHidden)
             #expect(handle.frame.size == SessionInfoGripView.size)
-            let firstMark = images(line).filter { !$0.isHidden && $0.frame.maxX <= before.minX }.map(\.frame.minX).min() ?? before.minX
-            #expect(handle.frame.maxX <= firstMark + 0.5)
-            #expect(hit.minX >= -0.5 && hit.maxX <= firstMark + 0.5)
-            #expect(handle.frame.minX >= hit.minX - 0.5 && handle.frame.maxX <= hit.maxX + 0.5)
-            #expect(countShown(line))
+            #expect(abs(handle.frame.maxX - (line.bounds.maxX - SessionInfoMetrics.trail)) < 0.5)
+            #expect(hit.width == LayoutGrid.iconBox && abs(hit.midX - handle.frame.midX) < 0.5)
+            if line.gripHasOwnSlot {
+                // A head with a meter keeps its grip in a slot of its own: its count and meter stay.
+                #expect(countShown(line))
+            } else {
+                #expect(countHidden(line))
+            }
             for other in line.subviews where other !== handle && !other.isHidden {
-                #expect(other.frame.minX >= hit.maxX - 0.5)
+                #expect(other.frame.maxX <= hit.minX)
             }
             // Hovering the head lights neither the head nor the grip; only the grip's own box lights.
             #expect(line.layer?.backgroundColor == nil || line.line.kind == .row)
@@ -816,9 +824,7 @@ struct AgentPaneNativeSessionInfoTests {
         // A drag that starts on the header's title, away from the grip, reorders too (Lucas,
         // 2026-11-10: "you don't necessarily need to hover on the 6 dot selector").
         sent.removeAll()
-        // On the title's own text: the empty icon column left of it holds the grip.
-        let titleLabel = try #require(changes.subviews.compactMap { $0 as? ChromeLabel }.first { $0.stringValue == "Changes" })
-        let title = NSPoint(x: titleLabel.frame.minX + 6, y: start.y)
+        let title = NSPoint(x: changes.bounds.minX + 24, y: start.y)
         #expect(!hit.contains(title))
         changes.mouseDown(with: try mouse(.leftMouseDown, title, in: changes))
         changes.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: title.x, y: title.y + (drop.y - title.y) / 2), in: changes))

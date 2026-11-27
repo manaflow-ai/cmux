@@ -1,5 +1,4 @@
 import { slackEnabled } from "../chief-slack.ts"
-import { meterSlackTurn, reportSlackAwake } from "./slack-meter.ts"
 import { finishJobDestinations } from "../chief-brain-cc/job-destination.ts"
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context"
 import { ackWake, chiefPrincipal, postReply, readConversation, typing } from "./brain-io.ts"
@@ -435,21 +434,11 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<"pending" | 
   const post = !ok ? "none" : reply === "" || isNoReply(reply) ? "no_reply" : "pending"
   b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? machineReply !== undefined ? linkIds(reply) : clipReply(linkIds(reply)) : null, post, id)
   b.sql.exec(`UPDATE cb_inbox SET state = ? WHERE turn = ?`, ok ? "done" : "failed", id)
-  meterTurn(b, id)
   if (!ok) [console.warn(JSON.stringify({ msg: "chief_brain.turn_failed", run: id, reason: String(reason).slice(0, 300), error: runError(b.sql, id)?.slice(0, 300) })), await turnFailedNotice(b.doEnv, b.sql, b.config(), row.conversation, id, String(reason), runError(b.sql, id))]
   b.announce(id, [])
   if (post === "pending") await b.postAndSchedule(id)
   else await b.finish(id)
   if (!b.machineRoute() && !b.memory.settled()) await b.schedule("compact", "compact", Date.now() + RETRY_MS)
-}
-
-/** RFD 0123: a turn a Slack message started costs its sender the awake time (slack-meter.ts), reported off the turn's path. */
-function meterTurn(b: ChiefBrainDO, id: string): void {
-  if (!slackEnabled(b.doEnv)) return
-  const t = b.sql.exec<{ trigger_kind: string; trigger_message: string; started: number; ended: number | null }>(`SELECT trigger_kind, trigger_message, started, ended FROM cb_turn WHERE id = ?`, id).toArray()[0]
-  if (!t || t.trigger_kind !== "slack" || t.ended === null) return
-  const agent = b.config().agent
-  if (meterSlackTurn(b.sql, id, t.trigger_message, Number(t.started), Number(t.ended)) && agent) b.doCtx.waitUntil(reportSlackAwake(b.doEnv, b.sql, agent).catch(() => undefined))
 }
 
 export async function postAndSchedule(b: ChiefBrainDO, id: string): Promise<void> {

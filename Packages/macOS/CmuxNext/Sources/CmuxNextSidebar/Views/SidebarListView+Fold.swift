@@ -166,21 +166,15 @@ extension SidebarListViewComponents {
         var end = headerIndex + 1
         while end < new.rows.count, new.rows[end].group == id, !new.rows[end].key.isGroupHeader { end += 1 }
         let block = Array(new.rows[headerIndex..<end])
-        let own = styled(SidebarGroupLine.lines(block, colors: lineColors, style: model.groupHeaderDetails.background) { frame(for: $0) })
-        let start = styled(SidebarGroupLine.lines(block, colors: lineColors, style: model.groupHeaderDetails.background) { self.rowViews[$0.key]?.drawnFrame ?? self.frame(for: $0) })
+        let own = styled(SidebarGroupLine.lines(block, colors: lineColors) { frame(for: $0) })
+        let start = styled(SidebarGroupLine.lines(block, colors: lineColors) { self.rowViews[$0.key]?.drawnFrame ?? self.frame(for: $0) })
         let dy = new.totalHeight - old.totalHeight
         var lines = groupLineViews.lines.filter { $0.group != id }
         if dy != 0 {
-            for index in lines.indices where lines[index].frame.minY > header.y {
-                lines[index].frame.origin.y += dy
-                lines[index].rail?.origin.y += dy
-            }
-            // An uncolored parent's block holds the folded group: its bottom, and its rail's, moves with the fold.
+            for index in lines.indices where lines[index].frame.minY > header.y { lines[index].frame.origin.y += dy }
+            // An uncolored parent's block holds the folded group: its bottom moves with the fold.
             for index in lines.indices where lines[index].isBlock && lines[index].frame.minY <= header.y
-                && lines[index].frame.maxY > header.y {
-                lines[index].frame.size.height += dy
-                lines[index].rail?.size.height += dy
-            }
+                && lines[index].frame.maxY > header.y { lines[index].frame.size.height += dy }
         }
         // In list order, top to bottom, as a full rebuild lists them.
         lines.insert(contentsOf: own, at: lines.firstIndex { $0.frame.minY > header.y } ?? lines.count)

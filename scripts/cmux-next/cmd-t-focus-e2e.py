@@ -21,9 +21,6 @@ Exit status 0 when every check passes.
 """
 import argparse, json, os, socket, subprocess, sys, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from state_wait import wait_stable, wait_until  # noqa: E402
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
 parser.add_argument("--daemon-socket", help="the app's daemon socket (default: derived from --socket)")
@@ -107,18 +104,6 @@ def wait(check, seconds, step=0.5):
     return None
 
 
-def surfaces_settled(what):
-    """Until the app's own report of its windows, panes and tabs (debug.surfaces) holds still. Best effort."""
-    if wait_stable(lambda: rpc("debug.surfaces"), what, timeout=10, interval=0.2, reads=3, raise_on_timeout=False) is None:
-        print(f"debug.surfaces never answered: {what}", flush=True)
-
-
-def chord_actions():
-    """What the key router would run for Cmd-T and Cmd-N here (debug.key dry_run: nothing runs)."""
-    return tuple((rpc("debug.key", {"key": k, "modifiers": ["command"], "dry_run": True}) or {}).get("action")
-                 for k in ("t", "n"))
-
-
 def workspaces():
     """{workspace id: (group, [tab ids])} from the daemon."""
     snapshot = line_json(daemon_socket(), {"id": 1, "cmd": "list-workspaces"}, 30)
@@ -141,7 +126,7 @@ def opened(step):
     fresh = wait(lambda: [k for k in workspaces() if k not in before], 15)
     if fresh:
         FOCUSED[0] = fresh[0]
-    surfaces_settled("the new workspace to mount")
+    time.sleep(2)  # test harness: the workspace mounts
     return reply
 
 
@@ -161,7 +146,7 @@ def press(letter, case, expects):
     print(case, "Cmd-" + letter.upper() + ":", key(letter), flush=True)
     grew = lambda now: now if sum(len(t) for _, t in now.values()) > sum(len(t) for _, t in before.values()) else None
     changed = wait(lambda: grew(workspaces()), 15)
-    surfaces_settled("the new tab to be selected and its page to mount")
+    time.sleep(1)  # test harness: the new tab is selected and its page mounts
     page = wait(shows_new_tab_page, 10)
     now = workspaces()
     new_ws = [k for k in now if k not in before]
@@ -250,20 +235,10 @@ def sweep_shortcuts():
         ran > 0 and not delivered)
 
 
-def reloaded(before, swap_changed):
-    """Until the config reload reached the key router: when the swap changed, Cmd-T and Cmd-N route elsewhere."""
-    if not swap_changed or None in before:
-        return  # no change to see, or a build without dry_run (sweep_shortcuts reports that)
-    if wait_until(lambda: chord_actions() != before, "the key router to take the reloaded config", timeout=10,
-                  interval=0.1, raise_on_timeout=False) is None:
-        print(f"the config reload never reached the key router: Cmd-T/Cmd-N still {before}", flush=True)
-
-
 def setting(path, value):
     saved = (rpc("settings.get", {"path": path}) or {}).get("value")
-    before = chord_actions()
     print(path, "was:", saved, "set:", rpc("settings.set", {"path": path, "value": value}), flush=True)
-    reloaded(before, bool(saved) != bool(value))
+    time.sleep(1)  # test harness: the config reloads
     return saved
 
 
@@ -288,7 +263,7 @@ def main():
         sweep_shortcuts()
         reply = action("openBrowser", {"url": "about:blank"}, focus=True)
         wait(lambda: created(reply) and tab(created(reply)), 20)
-        surfaces_settled("the browser tab to be selected")
+        time.sleep(1)  # test harness: the browser tab is selected
         press("t", "Cmd-T on a browser tab opens a tab there", "tab")
 
         # Cmd-I: a new workspace whose only tab is an agent chat, with no tab strip.
@@ -301,9 +276,8 @@ def main():
         print("newTab (workspace):", opened(lambda: action("newTab", focus=True)), flush=True)
         press("n", "swapped: Cmd-N on a terminal opens a tab", "tab")
         press("t", "swapped: Cmd-T on the New Tab page opens a workspace", "workspace")
-        before = chord_actions()
         restore("tabs.swapCmdTAndCmdN", swap)
-        reloaded(before, bool(swap) is not True)  # the swap was on; it changes unless it was on before the run
+        time.sleep(1)  # test harness: the config reloads
         press("n", "swap off again: Cmd-N opens a workspace", "workspace")
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "cmd-t-focus.png")})
     finally:

@@ -44,8 +44,7 @@ pub struct Found {
     pub range: Range<usize>,
 }
 
-static GITLEAKS: cmux_embed::PackedStr =
-    cmux_embed::packed_str!(include_str!("../rules/secrets/gitleaks.toml"));
+const GITLEAKS: &str = include_str!("../rules/secrets/gitleaks.toml");
 const LABELS: &str = include_str!("../rules/secrets/labels.toml");
 
 // Shared by assignment scanning and structured tool-input redaction. The structured
@@ -173,31 +172,6 @@ struct Rules {
     /// value of a `NAME=value` whose name does not say secret or password
     /// (`GIT_COMMIT=<sha>`). A rule that names a header or a key keeps them.
     ids: Allow,
-    /// Every rule's keywords in one automaton, so a text is searched once for all of them
-    /// (`Rules::gated`) instead of once per keyword per rule.
-    /// `None` only if the automaton cannot be built; then every rule is tried (slower, same answer).
-    keyword_search: Option<aho_corasick::AhoCorasick>,
-    /// For each pattern of `keyword_search`, the rules whose keyword it is.
-    keyword_rules: Vec<Vec<usize>>,
-}
-
-impl Rules {
-    /// Which rules a text can match at all: those with no keywords, and those with one of
-    /// theirs in `lower` (the text, ASCII-lowercased). Same answer as asking each rule.
-    fn candidates(&self, lower: &str) -> Vec<bool> {
-        let Some(search) = &self.keyword_search else {
-            return vec![true; self.rules.len()];
-        };
-        let mut open: Vec<bool> = self.rules.iter().map(|r| r.keywords.is_empty()).collect();
-        for m in search.find_overlapping_iter(lower) {
-            for &rule in self.keyword_rules.get(m.pattern().as_usize()).into_iter().flatten() {
-                if let Some(slot) = open.get_mut(rule) {
-                    *slot = true;
-                }
-            }
-        }
-        open
-    }
 }
 
 /// A Go RE2 pattern as the `regex` crate reads it: Go takes a `{` that
@@ -263,7 +237,7 @@ fn own(id: &str, label: &str, pattern: &str, group: usize) -> Rule {
 /// gitleaks' rules in file order, then cmux's own, then gitleaks' `generic-*`,
 /// so a known shape names its kind where a generic match overlaps it.
 static RULES: LazyLock<Rules> = LazyLock::new(|| {
-    let config: Config = toml::from_str(&GITLEAKS.inflate()).expect("constant pattern"); // crash-allow: constant pattern
+    let config: Config = toml::from_str(GITLEAKS).expect("constant pattern"); // crash-allow: constant pattern
     let labels: LabelsConfig = toml::from_str(LABELS).expect("constant pattern"); // crash-allow: constant pattern
     let mut rules: Vec<Rule> = config
         .rules
@@ -327,25 +301,7 @@ static RULES: LazyLock<Rules> = LazyLock::new(|| {
         ..AllowConfig::default()
     })
     .expect("constant pattern"); // crash-allow: constant pattern
-    let mut keywords: Vec<&str> = Vec::new();
-    let mut keyword_rules: Vec<Vec<usize>> = Vec::new();
-    for (index, rule) in rules.iter().enumerate() {
-        for keyword in &rule.keywords {
-            match keywords.iter().position(|k| *k == keyword.as_str()) {
-                Some(at) => {
-                    if let Some(list) = keyword_rules.get_mut(at) {
-                        list.push(index);
-                    }
-                }
-                None => {
-                    keywords.push(keyword);
-                    keyword_rules.push(vec![index]);
-                }
-            }
-        }
-    }
-    let keyword_search = aho_corasick::AhoCorasick::new(&keywords).ok();
-    Rules { rules, global, ids, keyword_search, keyword_rules }
+    Rules { rules, global, ids }
 });
 
 static ENTROPY_CANDIDATE: LazyLock<Regex> =
@@ -475,17 +431,14 @@ pub fn scans() -> u64 {
 /// Every secret in `text`, in order, with overlapping finds merged into one.
 pub fn find(text: &str) -> Vec<Found> {
     SCANS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    #[cfg(test)]
-    watched::count(text);
     let rules = &*RULES;
     let bytes = text.as_bytes();
     let lower = text.to_ascii_lowercase();
     let data: Vec<Range<usize>> = DATA_URI.find_iter(bytes).map(|m| m.range()).collect();
     let inside_data = |r: &Range<usize>| data.iter().any(|d| d.start <= r.start && r.end <= d.end);
     let mut all: Vec<(usize, Found)> = Vec::new();
-    let candidates = rules.candidates(&lower);
     for (order, rule) in rules.rules.iter().enumerate() {
-        if !candidates.get(order).copied().unwrap_or(true) {
+        if !rule.keywords.is_empty() && !rule.keywords.iter().any(|k| lower.contains(k.as_str())) {
             continue;
         }
         for caps in rule.re.captures_iter(bytes) {
@@ -565,34 +518,6 @@ pub fn mask(text: &str) -> String {
     }
     out.push_str(&text[at..]);
     out
-}
-
-/// Scans of texts starting with a marker a test watches: `SCANS` counts every test's scans at once.
-#[cfg(test)]
-pub(crate) mod watched {
-    use std::sync::Mutex;
-
-    static MARKERS: Mutex<Vec<(String, usize)>> = Mutex::new(Vec::new());
-
-    /// Counts the scans of texts starting with `marker` from now on.
-    pub(crate) fn watch(marker: &str) {
-        MARKERS.lock().unwrap_or_else(|e| e.into_inner()).push((marker.to_owned(), 0));
-    }
-
-    /// The scans of texts starting with `marker` since `watch(marker)`.
-    pub(crate) fn scans_of(marker: &str) -> usize {
-        let markers = MARKERS.lock().unwrap_or_else(|e| e.into_inner());
-        markers.iter().filter(|(m, _)| m == marker).map(|(_, n)| n).sum()
-    }
-
-    pub(super) fn count(text: &str) {
-        let mut markers = MARKERS.lock().unwrap_or_else(|e| e.into_inner());
-        for (marker, n) in markers.iter_mut() {
-            if text.starts_with(marker.as_str()) {
-                *n += 1;
-            }
-        }
-    }
 }
 
 #[cfg(test)]

@@ -80,11 +80,12 @@ NON_PRODUCT_TOOLING_PREFIXES = (
     "scripts/git-hooks/",
 )
 NON_PRODUCT_TOOLING = frozenset({
+    "scripts/benchmark-dev-fleet-warm-slots.py",
     "scripts/check-pbxproj-group-membership.py",
     "scripts/check-pbxproj.sh",
     "scripts/check-test-determinism.py",
+    "scripts/dev-fleet-warm-slot.py",
     "scripts/install-git-hooks.sh",
-    "scripts/merge-cargo-lock.py",
     "scripts/merge-pbxproj.py",
     "scripts/merge-xcstrings.py",
     "scripts/normalize-pbxproj.py",
@@ -200,7 +201,7 @@ def reaches_product(path: str) -> bool:
         return False
     if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
         return False
-    if path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-computer-use/"):
+    if path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/"):
         return False
     return True
 

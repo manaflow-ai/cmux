@@ -48,6 +48,7 @@ final class ScreenSharingLiveUITests: XCTestCase {
         // By identifier: a predicate over every text times out while the screen redraws at 30-60 fps.
         let stats = app.staticTexts["screen.stats"]
         XCTAssertTrue(stats.waitForExistence(timeout: 180), "stream never started\n\(app.debugDescription)")
+        settle(app, 3)
         attach(app, "04-streaming-portrait")
 
         let screen = app.scrollViews["screen.view"]
@@ -56,37 +57,38 @@ final class ScreenSharingLiveUITests: XCTestCase {
 
         // Direct touch: tap = click, double tap = double click, two-finger tap = right click.
         center.tap()
-        nextFrame(app)
+        settle(app, 1.5)
         attach(app, "05-tap-click")
         center.doubleTap()
-        nextFrame(app)
+        settle(app, 1.5)
         attach(app, "06-double-click")
         screen.twoFingerTap()
-        nextFrame(app)
+        settle(app, 1.5)
         attach(app, "07-two-finger-right-click")
         // Press and hold, then drag: a left drag.
         center.press(forDuration: 0.8, thenDragTo: screen.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.57)))
-        nextFrame(app)
+        settle(app, 1.5)
         attach(app, "08-hold-drag")
 
         // Keyboard: type into the Mac.
         let keyboardButton = app.buttons["Keyboard"].firstMatch
         if keyboardButton.waitForExistence(timeout: 5) {
             keyboardButton.tap()
+            settle(app, 1)
             // The screen's key target is a plain UIKeyInput view XCUITest can't focus: type on the system keyboard.
             for key in ["h", "e", "l", "l", "o"] where app.keyboards.keys[key].waitForExistence(timeout: 5) {
                 app.keyboards.keys[key].tap()
             }
-            nextFrame(app)
+            settle(app, 1.5)
             attach(app, "09-typed")
             // Sticky ⌘ from the keyboard bar, then a tap: a ⌘-click on the Mac.
             let command = app.buttons["⌘ modifier"]
             if command.waitForExistence(timeout: 5) {
                 command.tap()
                 keyboardButton.tap()
-                _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 5)
+                settle(app, 1)
                 center.tap()
-                nextFrame(app)
+                settle(app, 1.5)
                 attach(app, "10-command-click")
             } else {
                 keyboardButton.tap()
@@ -99,19 +101,22 @@ final class ScreenSharingLiveUITests: XCTestCase {
         if input.waitForExistence(timeout: 5) {
             input.tap()
             app.buttons["Trackpad"].firstMatch.tap()
+            settle(app, 1)
             // Hide the drawer so the strokes below land on the screen, not on it.
             hideTrackpad(app)
             screen.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.55))
                 .press(forDuration: 0.05, thenDragTo: screen.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.56)))
+            settle(app, 1)
             center.tap()
-            nextFrame(app)
+            settle(app, 1.5)
             attach(app, "10b-trackpad-move-and-tap")
             // The menu's on/off items: Stream stats off hides the stats line, on brings it back.
             openViewerSettings(app)
             if app.buttons["Stream stats"].firstMatch.waitForExistence(timeout: 5) {
                 app.buttons["Stream stats"].firstMatch.tap()
-                XCTAssertTrue(app.staticTexts["screen.stats"].waitForNonExistence(timeout: 5), "stats line still shown")
+                settle(app, 1)
                 attach(app, "10c-stats-off")
+                XCTAssertFalse(app.staticTexts["screen.stats"].exists, "stats line still shown")
                 openViewerSettings(app)
                 app.buttons["Stream stats"].firstMatch.tapIfExists()
             }
@@ -126,13 +131,11 @@ final class ScreenSharingLiveUITests: XCTestCase {
         }
 
         // Landscape: the shared screen turns with the phone.
-        let window = app.windows.firstMatch
         XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertTrue(until(5) { window.frame.width > window.frame.height }, "did not turn to landscape")
-        nextFrame(app)
+        settle(app, 2.5)
         attach(app, "11-landscape")
         XCUIDevice.shared.orientation = .portrait
-        XCTAssertTrue(until(5) { window.frame.height > window.frame.width }, "did not turn back to portrait")
+        settle(app, 2)
 
         // Close: the session ends on both sides, the app is portrait again.
         app.buttons["screen.close"].tap()
@@ -177,25 +180,10 @@ final class ScreenSharingLiveUITests: XCTestCase {
         return XCTWaiter().wait(for: [done], timeout: timeout) == .completed
     }
 
-    /// A frame from the Mac arrived after the last input: the stats line, which redraws (at most
-    /// every 0.5 s) only as frames arrive, changed. Bounded; a still Mac screen sends none.
+    /// Lets the Mac's next frames arrive before a screenshot (a bounded wait on the test clock, not app sync).
     @MainActor
-    func nextFrame(_ app: XCUIApplication, timeout: TimeInterval = 3) {
-        let stats = app.staticTexts["screen.stats"]
-        guard stats.exists else { return }
-        let before = stats.label
-        _ = until(timeout) { !stats.exists || stats.label != before }
-    }
-
-    /// Polls `ok` until it holds, bounded.
-    @MainActor
-    func until(_ timeout: TimeInterval, _ ok: () -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if ok() { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-        }
-        return ok()
+    func settle(_ app: XCUIApplication, _ seconds: TimeInterval) {
+        _ = app.staticTexts["never-appears"].waitForExistence(timeout: seconds)
     }
 
     @MainActor

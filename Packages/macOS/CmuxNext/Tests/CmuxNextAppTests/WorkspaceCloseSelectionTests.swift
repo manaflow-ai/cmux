@@ -234,7 +234,7 @@ struct WorkspaceCloseSelectionTests {
         #expect(close("n", shown: "n", rows: rows, rule: rule) == (asTheCloses ? "b" : "d"))
     }
 
-    // MARK: Cost (a large session: 826 workspaces)
+    // MARK: Cost (Lawrence's session: 826 workspaces)
 
     /// With no relation held, a selection change, a close and a selection repair ask nothing about the window's
     /// members and read no rows; with one held, the repair asks the registry the two facts Rust wants (the owner,

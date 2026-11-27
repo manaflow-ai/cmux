@@ -22,7 +22,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 api="${CLOUD_FREESTYLE_API_URL:-https://api.freestyle.sh}"
 keyfile="${FREESTYLE_KEY_FILE:?FREESTYLE_KEY_FILE}"
 hq="${HQ_DIR:?HQ_DIR (a cmuxterm-hq checkout on main)}"
-gh_version="${GH_VERSION:-2.105.0}"  # 2.105.0: `gh event listen` (PR events)
+gh_version="${GH_VERSION:-2.102.1}"
 auth() { printf 'header = "authorization: Bearer %s"\n' "$(cat "$keyfile")"; }
 call() { curl -sS -m 600 -K <(auth) -H 'content-type: application/json' -X "$1" "$api$2" ${3:+--data-binary "$3"}; }
 exec_root() { # exec_root COMMAND [STDIN_FILE]   (EXEC_MS: its time limit, default 300000)

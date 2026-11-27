@@ -11,5 +11,3 @@ description = "cmux-next ThemeTokens: chrome colors derived from the user's Ghos
 workspace = true
 
 [dependencies]
-# The design tokens compiled in compressed (src/spec.rs).
-cmux-embed.workspace = true

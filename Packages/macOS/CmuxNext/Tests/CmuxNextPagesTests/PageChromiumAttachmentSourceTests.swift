@@ -139,54 +139,6 @@ struct PageChromiumAttachmentSourceTests {
         view.close()
     }
 
-    /// Chromium's own page window took a Finder drop (CEF reports the drag's entry, never its drop):
-    /// once the drag is over natively, the page's drop message reports its files, marked as the
-    /// page window's (no event, so no gesture), and the chat links them where they are instead of
-    /// streaming them (Leo, 2026-11-22: "IT IS LITERALLY COMING FROM FUCKING DISK"). While the drag
-    /// is still under way, or past its window, it reports nothing.
-    @Test func aDropThePageWindowTookReportsItsFilesOnceTheDragIsOver() async throws {
-        defer { try? FileManager.default.removeItem(at: root) }
-        let hosting = FakeChromiumHosting()
-        let (view, page) = try await started(hosting)
-        let recording = [URL(fileURLWithPath: "/Users/me/Desktop/Screen Recording.mov")]
-        var finished = false
-        var asked: [[URL]] = []
-        view.chromiumDragFinished = { urls in asked.append(urls); return finished }
-        var dropped: [[URL]] = []
-        var onPageWindow: [Bool] = []
-        view.onFilesDropped = { [weak view] urls in
-            dropped.append(urls)
-            onPageWindow.append(view?.droppedOnPageWindow ?? false)
-        }
-        let entered = Date(timeIntervalSince1970: 1_793_000_000)
-        view.now = { entered }
-        page.onEvent?(.filesDragged(recording))
-        // Still dragging: page script's early message reports nothing, and the drag stays.
-        page.onEvent?(.devTools(Self.pageDrop))
-        await Self.settle(view, page)
-        #expect(dropped.isEmpty)
-        // Dropped on the page window: the mouse is up, the drag pasteboard still names the file.
-        finished = true
-        view.now = { entered.addingTimeInterval(3) }
-        page.onEvent?(.devTools(Self.pageDrop))
-        await Self.settle(view, page)
-        #expect(dropped == [recording])
-        #expect(onPageWindow == [true])
-        #expect(asked.last == recording)
-        #expect(view.droppedOnPageWindow == false)
-        // Once.
-        page.onEvent?(.devTools(Self.pageDrop))
-        await Self.settle(view, page)
-        #expect(dropped == [recording])
-        // A drag past its window reports nothing.
-        page.onEvent?(.filesDragged(recording))
-        view.now = { entered.addingTimeInterval(PageWebView.chromiumDropWindow + 10) }
-        page.onEvent?(.devTools(Self.pageDrop))
-        await Self.settle(view, page)
-        #expect(dropped == [recording])
-        view.close()
-    }
-
     private static let pageDrop = FakeChromiumPage.bindingCall(["name": PageChromiumDocumentScripts.pageDropHandler, "body": [String: String]()])
 
     /// Cmd-V in the page (the shim's key event) is the paste the host hears, through one entry.

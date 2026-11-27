@@ -30,7 +30,7 @@ import Testing
         let url = directory.appending(path: "cmux.json")
         let json = #"{"appearance": {"background": "\#(Self.work)", "backgroundOpacity": \#(backgroundOpacity)}}"#
         try Data(json.utf8).write(to: url)
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
 

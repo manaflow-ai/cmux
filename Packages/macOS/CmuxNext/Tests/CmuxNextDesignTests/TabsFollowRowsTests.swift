@@ -3,8 +3,9 @@ import CmuxNextDesignTokens
 import CoreGraphics
 import Testing
 
-/// Tabs follow the workspace rows at every density (Lawrence 2026-11-11; Lucas 2026-11-14: sidebar rows and tabs one
-/// height and one text size): Helium's and Chrome's 30 pt vertical tab row at Default and Comfortable.
+/// Tabs follow the workspace rows (Lawrence 2026-11-11; the rows are the reference, #39984), except where a density sets
+/// its browser row (Lawrence 2026-11-13: Helium's 28 pt row at Default, 20 at Compact, Chrome's 34 at Spacious): there
+/// the pill is that row with the density's one gap above and below it. The corner is the row's share of Helium's 8 on 28.
 @MainActor @Suite(.serialized) struct TabsFollowRowsTests {
     @Test(arguments: DensityPreset.allCases)
     func aTabIsTheDensitysRow(preset: DensityPreset) {
@@ -16,34 +17,21 @@ import Testing
         let browserRow = preset.tokens.tokens["browserRowHeight"].map { CGFloat($0) }
         let row = browserRow ?? sidebarRow
         #expect(Metrics.tabHeight == row, "\(preset): the tab is \(Metrics.tabHeight), the row \(row)")
-        // The strip padding above and below the tab: the density's own `browserRowGap`, else Default's
-        // 3 pt times the density's factor.
-        let gap = preset.tokens.tokens["browserRowGap"].map { CGFloat($0) * 2 } ?? (3 * CGFloat(preset.scaleFactor) * 2).rounded()
-        #expect(Metrics.tabStripHeight - Metrics.tabHeight == gap, "\(preset): the strip is \(Metrics.tabStripHeight), the tab \(Metrics.tabHeight)")
-        #expect(Metrics.tabCornerRadius == (9 * CGFloat(preset.scaleFactor) * 2).rounded() / 2)
-    }
-
-    /// A tab is a list row's height at every sidebar density and text size, not only the defaults: Default's 29 pt row
-    /// is its 27 pt list row with the fill only the sidebar's Compact density draws (Codex review).
-    @Test(arguments: DensityPreset.allCases)
-    func aTabIsAListRowAtEverySidebarSetting(preset: DensityPreset) {
-        let design = DesignSettings.shared
-        let saved = (design.densityTokens, design.sidebarSections.density, design.sidebarSections.textSize)
-        defer { (design.densityTokens, design.sidebarSections.density, design.sidebarSections.textSize) = saved }
-        design.densityTokens = preset.tokens
-        for density in SidebarDensity.allCases {
-            for textSize in SidebarTextSize.allCases {
-                design.sidebarSections.density = density
-                design.sidebarSections.textSize = textSize
-                let row = SidebarRowTokens.current.listRowHeight
-                #expect(Metrics.tabHeight == row, "\(preset) \(density)/\(textSize): the tab is \(Metrics.tabHeight), the row \(row)")
-            }
+        if browserRow != nil {
+            #expect(Metrics.tabStripHeight - Metrics.tabHeight == 2 * (Metrics.browserRowGap ?? 0), "\(preset): one gap above and below the pill")
+        } else if Metrics.tabsFollowRows {
+            #expect(Metrics.tabStripHeight - Metrics.tabHeight == MetricTunables.tabStripHeight.value - MetricTunables.tabHeight.value,
+                    "\(preset): the room around the pill is the density's")
+        } else {
+            #expect(Metrics.tabStripHeight - Metrics.tabHeight == 6, "\(preset): 3 pt above and below the pill")
         }
+        // Chrome's tab corner, 8 on 30, at every density (Lawrence 2026-11-11).
+        #expect(Metrics.tabCornerRadius == Metrics.chromeRowCornerRadius(height: Metrics.tabHeight))
     }
 
     /// A density that sets its strip (Compact 26) still fits a taller row: a roomier sidebar density and larger
     /// sidebar text make the row taller than the density's, and the strip grows by as much (Codex review, #42393).
-    @Test(arguments: [DensityPreset.ultraCompact, .compact])
+    @Test(arguments: [DensityPreset.ultraCompact, .compact, .cozy])
     func aSetStripGrowsWithATallerRow(preset: DensityPreset) {
         let design = DesignSettings.shared
         let saved = (design.densityTokens, design.sidebarSections.density, design.sidebarSections.textSize)

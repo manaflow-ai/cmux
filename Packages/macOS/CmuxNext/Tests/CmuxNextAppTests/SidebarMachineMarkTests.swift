@@ -143,8 +143,7 @@ import Testing
             let cloud = SidebarMachine(id: MachineID("cloud-\(label)"), name: "cloud", kind: .cloud, status: status)
             let cloudSection = SidebarSection(kind: .machine(cloud), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("cloud-ws"), title: "ws"))])
             let options = SidebarModel(sections: [section(mac), cloudSection]).listOptions()
-            // The status alone: a Cloud row never names its machine (2026-11-10).
-            #expect(SidebarLayout.machineLabel(cloudSection, options: options) == label)
+            #expect(SidebarLayout.machineLabel(cloudSection, options: options) == "cloud · \(label)")
         }
     }
 
@@ -187,13 +186,11 @@ import Testing
             row.subviews.filter { !$0.isHidden && $0.alphaValue > 0 && !$0.frame.isEmpty }.map { String(describing: type(of: $0)) }.sorted()
         }
         let local = try #require(rows["This Mac"])
-        let ssh = try #require(rows["gpu-box"])
-        #expect(shown(ssh) == shown(local), "gpu-box draws more than this Mac's row: \(shown(ssh)) vs \(shown(local))")
-        #expect((ssh.accessibilityLabel() ?? "").contains("gpu-box"), "the row's label lost its machine")
-        // A Cloud row draws no cloud (cmux#55668: only a Cloud chat's tab wears it) and never names the machine.
-        let cloud = try #require(rows["cloud-a"])
-        #expect(shown(cloud) == shown(local), "\(shown(cloud)) vs \(shown(local))")
-        let label = cloud.accessibilityLabel() ?? ""
-        #expect(!label.contains("cloud-a"), "\(label)")
+        for name in ["cloud-a", "gpu-box"] {
+            let row = try #require(rows[name])
+            #expect(shown(row) == shown(local), "\(name) draws more than this Mac's row: \(shown(row)) vs \(shown(local))")
+            let label = row.accessibilityLabel() ?? ""
+            #expect(label.contains(name), "\(name): the row's label lost its machine: \(label)")
+        }
     }
 }

@@ -1,0 +1,921 @@
+//! Binary framing for the local terminal-host data plane.
+//!
+//! The public cmux-tui control protocol remains JSON. This framing is for
+//! bounded, local Unix-socket streams between a terminal host, its daemon,
+//! and disposable renderers. The header is deliberately fixed-width and
+//! little-endian so non-Rust clients can implement it without sharing a
+//! serializer or ABI.
+
+use std::fmt;
+use std::io::{self, Read, Write};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
+
+pub const MAGIC: [u8; 4] = *b"CMTH";
+pub const HEADER_LEN: usize = 32;
+pub const PROTOCOL_VERSION: u16 = 4;
+pub const LAUNCH_ACTIVATION_PROTOCOL_VERSION: u16 = 4;
+pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
+pub const MAX_KITTY_IMAGE_ALIASES: usize = 4_096;
+pub const KITTY_IMAGE_ALIAS_COUNT_LEN: usize = size_of::<u16>();
+pub const KITTY_IMAGE_ALIAS_ENCODED_LEN: usize = 2 * size_of::<u32>();
+const EXIT_PAYLOAD_VERSION: u16 = 1;
+const EXIT_PAYLOAD_HEADER_LEN: usize = 12;
+const EXIT_PAYLOAD_STATUS_LEN: usize = EXIT_PAYLOAD_HEADER_LEN + 4;
+pub const MAX_EXIT_REASON_BYTES: usize = 4096;
+const LAUNCH_FAILURE_PAYLOAD_VERSION: u16 = 1;
+const LAUNCH_FAILURE_PAYLOAD_HEADER_LEN: usize = 2 * size_of::<u16>();
+pub const MAX_LAUNCH_FAILURE_MESSAGE_BYTES: usize = 4096;
+/// The live Output or Resized payload is not independently renderable. Its
+/// immediately following sequenced frame must be Colors, and consumers must
+/// apply both before publishing terminal state.
+pub const FLAG_COLORS_FOLLOW: u32 = 1 << 0;
+/// ClientHello opt-in and HostHello acknowledgement for targeted ViewerSize
+/// control responses. This handshake-only flag lets compatible peers negotiate the
+/// optimization without exposing an unknown ResizeAck to legacy renderers.
+pub const FLAG_VIEWER_SIZE_ACKS: u32 = 1 << 1;
+/// ClientHello opt-in and HostHello acknowledgement for the smart terminal
+/// stream. Smart clients receive an explicit Snapshot/Colors/Ready barrier,
+/// followed by retained and live raw PTY Output frames from a source cursor
+/// that is independent of the authoritative host parser's cursor. Their
+/// Resized payload is cols:u16 + rows:u16, optionally followed by cell pixel
+/// width:u16 + height:u16, and carries no Colors pair.
+///
+/// Legacy renderers do not set this bit and retain the existing normalized,
+/// parser-ordered stream and coupled color semantics.
+pub const FLAG_SMART_RENDERER: u32 = 1 << 2;
+/// Protocol-v4 HostHello flag. The authenticated launch-owner connection must
+/// send `Activate` after its daemon has durably committed public topology.
+pub const FLAG_LAUNCH_ACTIVATION_REQUIRED: u32 = 1 << 3;
+/// ClientHello opt-in and HostHello acknowledgement for the optional
+/// generic terminal metadata tail in a Snapshot payload. The bit is separate
+/// from the protocol version so older persistent hosts and renderers can keep
+/// using the exact v4 snapshot layout.
+pub const FLAG_TERMINAL_METADATA: u32 = 1 << 4;
+/// ClientHello opt-in and HostHello acknowledgement for viewer-size priority.
+/// The host echoes it only to a renderer granted `RESIZE`. While any such
+/// renderer holds a viewer size, the canonical grid is the per-dimension
+/// minimum over those renderers alone; every other viewer crops or pans.
+/// Hosts that predate the bit reject the whole hello, so peers send it only
+/// when the host record advertises support.
+pub const FLAG_VIEWER_SIZE_PRIORITY: u32 = 1 << 5;
+/// Protocol-v4 ClientHello opt-in and HostHello acknowledgement for PTY
+/// custody. Only the durable owner (role admin, rights exactly
+/// `ADMIN | CLIPBOARD_READ`) may set it, and only toward a host whose record
+/// advertises `supports_pty_custody`. The host then sends one `PtyCustody`
+/// frame carrying a duplicate of its PTY master descriptor and closes the
+/// connection; the owner keeps the PTY open if the host dies.
+pub const FLAG_PTY_CUSTODY: u32 = 1 << 6;
+/// ClientHello opt-in and HostHello acknowledgement for the OSC 7501 program
+/// status records after the terminal metadata tail of a Snapshot payload
+/// (cx-6so.36.6). Only with `FLAG_TERMINAL_METADATA`, and only toward a host
+/// whose record advertises `supports_program_status`; older hosts reject the
+/// unknown bit.
+pub const FLAG_PROGRAM_STATUS: u32 = 1 << 7;
+/// ClientHello opt-in and HostHello acknowledgement for the OSC 133 shell
+/// state (prompt, running command) in the Snapshot payload, right after the
+/// terminal metadata tail (cx-6so.59). Only with `FLAG_TERMINAL_METADATA`,
+/// and only toward a host whose record advertises `supports_shell_activity`;
+/// older hosts reject the unknown bit.
+pub const FLAG_SHELL_ACTIVITY: u32 = 1 << 8;
+/// ResizeAck payload flag: this request changed the canonical grid and its
+/// sequenced Resized+Colors transition was enqueued immediately before the
+/// targeted acknowledgement.
+pub const RESIZE_ACK_CANONICAL_CHANGED: u32 = 1 << 0;
+/// `ClearHistoryAck` status: the host applied the emulator clear or wrote the
+/// alternate-screen fallback key before acknowledging the request.
+pub const CLEAR_HISTORY_ACK_OK: u8 = 0;
+/// `ClearHistoryAck` status: active input reached retained history, so the host
+/// made no emulator or PTY change.
+pub const CLEAR_HISTORY_ACK_PRESERVATION_FAILED: u8 = 1;
+/// Backward source alias for the original undifferentiated failure status.
+pub const CLEAR_HISTORY_ACK_FAILED: u8 = CLEAR_HISTORY_ACK_PRESERVATION_FAILED;
+/// `ClearHistoryAck` status: output did not reach a safe parser boundary before
+/// the bounded wait expired, so the host made no emulator or PTY change.
+pub const CLEAR_HISTORY_ACK_STREAM_TIMEOUT: u8 = 2;
+/// `ClearHistoryAck` status: the alternate-screen fallback key could not be
+/// encoded, so the host made no emulator or PTY change.
+pub const CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE: u8 = 3;
+/// `ClearHistoryAck` status: another validated pre-execution failure occurred.
+pub const CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED: u8 = 4;
+/// `ClearHistoryAck` status: a PTY write or flush failed after delivery may
+/// have begun.
+pub const CLEAR_HISTORY_ACK_AMBIGUOUS: u8 = 5;
+/// `ClearHistoryAck` status: the PTY accepted no fallback bytes before the
+/// bounded write deadline expired.
+pub const CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT: u8 = 6;
+
+/// Authoritative process completion as retained by the terminal host.
+///
+/// This is also the durable public outcome union. Keep the tagged JSON shape
+/// strict so sidecar recovery, terminal snapshots, session events, and
+/// `terminal.wait_exit` cannot disagree about success or signal semantics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TerminalExitOutcome {
+    Exit { code: i32 },
+    Signal { signal: i32, core_dumped: bool },
+    Unknown { reason: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalExit {
+    pub outcome: TerminalExitOutcome,
+    pub exited_at_ms: u64,
+}
+
+impl TerminalExit {
+    pub fn from_exit_status(status: &std::process::ExitStatus) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+
+            if let Some(signal) = status.signal() {
+                return Self::now(TerminalExitOutcome::Signal {
+                    signal,
+                    core_dumped: status.core_dumped(),
+                });
+            }
+        }
+
+        match status.code() {
+            Some(code) => Self::now(TerminalExitOutcome::Exit { code }),
+            None => Self::unknown("process ended without an exit code or signal"),
+        }
+    }
+
+    pub fn unknown(reason: impl Into<String>) -> Self {
+        let mut reason = reason.into();
+        if reason.is_empty() {
+            reason = "terminal exit outcome is unavailable".to_string();
+        }
+        truncate_utf8(&mut reason, MAX_EXIT_REASON_BYTES);
+        Self::now(TerminalExitOutcome::Unknown { reason })
+    }
+
+    pub fn now(outcome: TerminalExitOutcome) -> Self {
+        let exited_at_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64;
+        Self { outcome, exited_at_ms }
+    }
+
+    pub(crate) fn is_valid(&self) -> bool {
+        match &self.outcome {
+            TerminalExitOutcome::Exit { code } => *code >= 0,
+            TerminalExitOutcome::Signal { signal, .. } => *signal > 0,
+            TerminalExitOutcome::Unknown { reason } => {
+                !reason.is_empty() && reason.len() <= MAX_EXIT_REASON_BYTES
+            }
+        }
+    }
+}
+
+/// Wait for a PTY child and report whether the wait reaped it successfully.
+///
+/// Callers that retain an owning guard can use the boolean to avoid issuing a
+/// second kill against a PID that may already have been reused after a
+/// successful wait.
+pub(crate) fn wait_for_native_child_status_with_reap_result(
+    child: &mut (dyn cmux_pty::Child + Send + Sync),
+) -> (TerminalExit, bool) {
+    let child: &mut dyn cmux_pty::Child = child;
+    if let Some(child) = child.downcast_mut::<std::process::Child>() {
+        return match child.wait() {
+            Ok(status) => (TerminalExit::from_exit_status(&status), true),
+            Err(error) => (TerminalExit::unknown(format!("wait failed: {error}")), false),
+        };
+    }
+    match child.wait() {
+        Ok(status) if status.signal().is_some() => {
+            (TerminalExit::unknown(format!("numeric signal status unavailable: {status}")), true)
+        }
+        Ok(status) => match i32::try_from(status.exit_code()) {
+            Ok(code) => (TerminalExit::now(TerminalExitOutcome::Exit { code }), true),
+            Err(_) => (
+                TerminalExit::unknown(format!(
+                    "portable exit code exceeds signed 32-bit range: {}",
+                    status.exit_code()
+                )),
+                true,
+            ),
+        },
+        Err(error) => (TerminalExit::unknown(format!("wait failed: {error}")), false),
+    }
+}
+
+fn truncate_utf8(value: &mut String, max_bytes: usize) {
+    if value.len() <= max_bytes {
+        return;
+    }
+    let boundary = (0..=max_bytes).rev().find(|&index| value.is_char_boundary(index)).unwrap_or(0);
+    value.truncate(boundary);
+}
+
+/// Exit payload layout is version:u16, outcome_kind:u8, flags:u8,
+/// exited_at_ms:u64, then code/signal:i32 or UTF-8 reason bytes. Signal flag
+/// bit zero is `core_dumped`; all other flags are reserved and must be zero.
+pub fn encode_terminal_exit(exit: &TerminalExit) -> Vec<u8> {
+    let reason_len = match &exit.outcome {
+        TerminalExitOutcome::Unknown { reason } => reason.len().min(MAX_EXIT_REASON_BYTES),
+        TerminalExitOutcome::Exit { .. } | TerminalExitOutcome::Signal { .. } => 4,
+    };
+    let mut payload = Vec::with_capacity(EXIT_PAYLOAD_HEADER_LEN + reason_len);
+    payload.extend_from_slice(&EXIT_PAYLOAD_VERSION.to_le_bytes());
+    match &exit.outcome {
+        TerminalExitOutcome::Exit { code } => {
+            payload.extend_from_slice(&[1, 0]);
+            payload.extend_from_slice(&exit.exited_at_ms.to_le_bytes());
+            payload.extend_from_slice(&code.to_le_bytes());
+        }
+        TerminalExitOutcome::Signal { signal, core_dumped } => {
+            payload.extend_from_slice(&[2, u8::from(*core_dumped)]);
+            payload.extend_from_slice(&exit.exited_at_ms.to_le_bytes());
+            payload.extend_from_slice(&signal.to_le_bytes());
+        }
+        TerminalExitOutcome::Unknown { reason } => {
+            payload.extend_from_slice(&[3, 0]);
+            payload.extend_from_slice(&exit.exited_at_ms.to_le_bytes());
+            let mut reason = reason.clone();
+            truncate_utf8(&mut reason, MAX_EXIT_REASON_BYTES);
+            payload.extend_from_slice(reason.as_bytes());
+        }
+    }
+    payload
+}
+
+pub fn decode_terminal_exit(payload: &[u8]) -> Result<TerminalExit, ProtocolError> {
+    const MALFORMED: ProtocolError = ProtocolError::MalformedExitPayload;
+    if payload.len() < EXIT_PAYLOAD_HEADER_LEN {
+        return Err(MALFORMED);
+    }
+    let version = wire_u16(payload, 0).ok_or(MALFORMED)?;
+    if version != EXIT_PAYLOAD_VERSION {
+        return Err(MALFORMED);
+    }
+    let kind = wire_u8(payload, 2).ok_or(MALFORMED)?;
+    let flags = wire_u8(payload, 3).ok_or(MALFORMED)?;
+    let exited_at_ms = wire_u64(payload, 4).ok_or(MALFORMED)?;
+    let outcome = match kind {
+        1 if flags == 0 && payload.len() == EXIT_PAYLOAD_STATUS_LEN => {
+            let code = wire_i32(payload, 12).ok_or(MALFORMED)?;
+            if code < 0 {
+                return Err(ProtocolError::MalformedExitPayload);
+            }
+            TerminalExitOutcome::Exit { code }
+        }
+        2 if flags & !1 == 0 && payload.len() == EXIT_PAYLOAD_STATUS_LEN => {
+            let signal = wire_i32(payload, 12).ok_or(MALFORMED)?;
+            if signal <= 0 {
+                return Err(ProtocolError::MalformedExitPayload);
+            }
+            TerminalExitOutcome::Signal { signal, core_dumped: flags & 1 != 0 }
+        }
+        3 if flags == 0
+            && payload.len() > EXIT_PAYLOAD_HEADER_LEN
+            && payload.len() <= EXIT_PAYLOAD_HEADER_LEN + MAX_EXIT_REASON_BYTES =>
+        {
+            let reason =
+                std::str::from_utf8(payload.get(EXIT_PAYLOAD_HEADER_LEN..).ok_or(MALFORMED)?)
+                    .map_err(|_| ProtocolError::MalformedExitPayload)?
+                    .to_string();
+            TerminalExitOutcome::Unknown { reason }
+        }
+        _ => return Err(ProtocolError::MalformedExitPayload),
+    };
+    Ok(TerminalExit { outcome, exited_at_ms })
+}
+
+/// Machine-readable category for a terminal host that could not publish a
+/// launched PTY.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u16)]
+pub enum HostLaunchFailureKind {
+    PtyCapacityExhausted = 1,
+    LaunchFailed = 2,
+}
+
+impl HostLaunchFailureKind {
+    pub const fn reason_code(self) -> &'static str {
+        match self {
+            Self::PtyCapacityExhausted => "pty_capacity_exhausted",
+            Self::LaunchFailed => "terminal_launch_failed",
+        }
+    }
+}
+
+impl TryFrom<u16> for HostLaunchFailureKind {
+    type Error = ProtocolError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            value if value == Self::PtyCapacityExhausted as u16 => Ok(Self::PtyCapacityExhausted),
+            value if value == Self::LaunchFailed as u16 => Ok(Self::LaunchFailed),
+            _ => Err(ProtocolError::MalformedLaunchFailurePayload),
+        }
+    }
+}
+
+/// Bounded launch failure returned on the bootstrap pipe before the hidden
+/// host exits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostLaunchFailure {
+    pub kind: HostLaunchFailureKind,
+    pub message: String,
+}
+
+impl HostLaunchFailure {
+    pub fn bounded(kind: HostLaunchFailureKind, mut message: String) -> Self {
+        if message.len() > MAX_LAUNCH_FAILURE_MESSAGE_BYTES {
+            let mut end = MAX_LAUNCH_FAILURE_MESSAGE_BYTES;
+            while !message.is_char_boundary(end) {
+                end -= 1;
+            }
+            message.truncate(end);
+        }
+        Self { kind, message }
+    }
+}
+
+impl fmt::Display for HostLaunchFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for HostLaunchFailure {}
+
+pub fn encode_host_launch_failure(failure: &HostLaunchFailure) -> Result<Vec<u8>, ProtocolError> {
+    if failure.message.is_empty() || failure.message.len() > MAX_LAUNCH_FAILURE_MESSAGE_BYTES {
+        return Err(ProtocolError::MalformedLaunchFailurePayload);
+    }
+    let mut payload = Vec::with_capacity(LAUNCH_FAILURE_PAYLOAD_HEADER_LEN + failure.message.len());
+    payload.extend_from_slice(&LAUNCH_FAILURE_PAYLOAD_VERSION.to_le_bytes());
+    payload.extend_from_slice(&(failure.kind as u16).to_le_bytes());
+    payload.extend_from_slice(failure.message.as_bytes());
+    Ok(payload)
+}
+
+pub fn decode_host_launch_failure(payload: &[u8]) -> Result<HostLaunchFailure, ProtocolError> {
+    if !(LAUNCH_FAILURE_PAYLOAD_HEADER_LEN + 1
+        ..=LAUNCH_FAILURE_PAYLOAD_HEADER_LEN + MAX_LAUNCH_FAILURE_MESSAGE_BYTES)
+        .contains(&payload.len())
+    {
+        return Err(ProtocolError::MalformedLaunchFailurePayload);
+    }
+    const MALFORMED: ProtocolError = ProtocolError::MalformedLaunchFailurePayload;
+    let version = wire_u16(payload, 0).ok_or(MALFORMED)?;
+    if version != LAUNCH_FAILURE_PAYLOAD_VERSION {
+        return Err(MALFORMED);
+    }
+    let kind = HostLaunchFailureKind::try_from(wire_u16(payload, 2).ok_or(MALFORMED)?)?;
+    let message =
+        std::str::from_utf8(payload.get(LAUNCH_FAILURE_PAYLOAD_HEADER_LEN..).ok_or(MALFORMED)?)
+            .map_err(|_| ProtocolError::MalformedLaunchFailurePayload)?
+            .to_string();
+    Ok(HostLaunchFailure { kind, message })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u16)]
+pub enum MessageKind {
+    Bootstrap = 1,
+    Ready = 2,
+    ClientHello = 3,
+    HostHello = 4,
+    Snapshot = 5,
+    Output = 6,
+    Resized = 7,
+    Colors = 8,
+    Title = 9,
+    Pwd = 10,
+    Bell = 11,
+    Exit = 12,
+    ResyncRequired = 13,
+    Launch = 14,
+    /// Response to `MintCapability`; payload is one 32-byte capability.
+    Capability = 15,
+    /// Targeted response to an acknowledged `ViewerSize`; payload is
+    /// canonical cols:u16 + rows:u16 + result_flags:u32.
+    ResizeAck = 16,
+    /// Targeted response to `ClearHistory`; payload is one status byte.
+    ClearHistoryAck = 17,
+    /// Targeted response to `SetCellPixelSize`; payload is the committed
+    /// cell width:u16 + height:u16.
+    CellPixelSizeAck = 18,
+    /// Targeted response to `SetKittyGraphicsLimits`; payload is the applied
+    /// four-field resource limit tuple.
+    KittyGraphicsLimitsAck = 19,
+    /// Bootstrap-pipe response when the host could not create its PTY or
+    /// child. The bounded UTF-8 payload preserves the owning process's error
+    /// instead of making the launcher infer failure from EOF.
+    LaunchFailed = 20,
+    /// Targeted confirmation that `Terminate` reached the authoritative host.
+    /// The PTY group shutdown continues asynchronously after this receipt.
+    TerminateAck = 21,
+    /// Targeted source fence for a daemon that will detach from a persistent
+    /// host. Every live frame admitted before this receipt is queued before it,
+    /// and this client is removed from live publication before the receipt.
+    DetachAck = 22,
+    /// Targeted confirmation that `Input` reached the authoritative PTY writer.
+    InputAck = 23,
+    /// Host-originated read of the owner's clipboard (OSC 52) on a
+    /// `CLIPBOARD_READ` connection: token:u64 + location:u8. Request id and
+    /// sequence are zero; the token names the read.
+    ClipboardReadRequest = 24,
+    /// The host refused the open read itself (timeout or terminal end):
+    /// token:u64, request id and sequence zero. Never sent after a reply.
+    ClipboardReadCancel = 25,
+    /// Answer to a `FLAG_PTY_CUSTODY` hello: version:u16=1, child_pid:u32,
+    /// session_id:u32, with the PTY master descriptor attached as
+    /// `SCM_RIGHTS`. The host closes the connection after it.
+    PtyCustody = 26,
+    /// Private-pipe launch of a replacement host that adopts an inherited
+    /// PTY master and its running session instead of spawning a child.
+    LaunchAdopt = 27,
+    Input = 100,
+    Paste = 101,
+    ViewerSize = 102,
+    ReleaseViewer = 103,
+    Terminate = 104,
+    /// Admin request: little-endian rights:u32 + ttl_ms:u32.
+    MintCapability = 105,
+    /// Admin request: complete encoded Ghostty frontend defaults. New hosts
+    /// advertise support in their durable discovery record.
+    SetDefaults = 106,
+    /// Input-authorized request: clear retained primary-screen history in the
+    /// authoritative parser, or encode the optional key on the alternate
+    /// screen. New hosts advertise support in their durable discovery record.
+    ClearHistory = 107,
+    /// Protocol-v2 admin request: cell width:u16 + height:u16. The host
+    /// commits both its PTY and authoritative Ghostty parser before replying.
+    SetCellPixelSize = 108,
+    /// Protocol-v3 admin request: image bytes, in-flight bytes, image count,
+    /// and placement count as four little-endian u64 values.
+    SetKittyGraphicsLimits = 109,
+    /// Protocol-v4 launch-owner request. A newly launched host keeps its PTY
+    /// reader behind a bounded kernel-buffer barrier until the daemon has
+    /// durably committed the terminal's public topology.
+    Activate = 110,
+    /// Admin request for a final source-ordered receipt before a daemon closes
+    /// its persistent-host connection.
+    Detach = 111,
+    /// `CLIPBOARD_READ` answer: token:u64 + outcome:u8 (0 refused, 1
+    /// granted) + text blob, ignored when refused.
+    ClipboardReadReply = 112,
+}
+
+impl TryFrom<u16> for MessageKind {
+    type Error = ProtocolError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::Bootstrap),
+            2 => Ok(Self::Ready),
+            3 => Ok(Self::ClientHello),
+            4 => Ok(Self::HostHello),
+            5 => Ok(Self::Snapshot),
+            6 => Ok(Self::Output),
+            7 => Ok(Self::Resized),
+            8 => Ok(Self::Colors),
+            9 => Ok(Self::Title),
+            10 => Ok(Self::Pwd),
+            11 => Ok(Self::Bell),
+            12 => Ok(Self::Exit),
+            13 => Ok(Self::ResyncRequired),
+            14 => Ok(Self::Launch),
+            15 => Ok(Self::Capability),
+            16 => Ok(Self::ResizeAck),
+            17 => Ok(Self::ClearHistoryAck),
+            18 => Ok(Self::CellPixelSizeAck),
+            19 => Ok(Self::KittyGraphicsLimitsAck),
+            20 => Ok(Self::LaunchFailed),
+            21 => Ok(Self::TerminateAck),
+            22 => Ok(Self::DetachAck),
+            23 => Ok(Self::InputAck),
+            24 => Ok(Self::ClipboardReadRequest),
+            25 => Ok(Self::ClipboardReadCancel),
+            26 => Ok(Self::PtyCustody),
+            27 => Ok(Self::LaunchAdopt),
+            100 => Ok(Self::Input),
+            101 => Ok(Self::Paste),
+            102 => Ok(Self::ViewerSize),
+            103 => Ok(Self::ReleaseViewer),
+            104 => Ok(Self::Terminate),
+            105 => Ok(Self::MintCapability),
+            106 => Ok(Self::SetDefaults),
+            107 => Ok(Self::ClearHistory),
+            108 => Ok(Self::SetCellPixelSize),
+            109 => Ok(Self::SetKittyGraphicsLimits),
+            110 => Ok(Self::Activate),
+            111 => Ok(Self::Detach),
+            112 => Ok(Self::ClipboardReadReply),
+            other => Err(ProtocolError::UnknownMessageKind(other)),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct Frame {
+    pub version: u16,
+    pub kind: MessageKind,
+    pub flags: u32,
+    pub request_id: u64,
+    /// Host-to-client live-stream position.
+    ///
+    /// Snapshot and its immediately following full-state Colors frame carry
+    /// the same boundary and consume no sequence numbers. Every subsequent
+    /// live Output, Colors, Resized, Title, Pwd, Bell, Exit, or
+    /// ResyncRequired frame consumes exactly one contiguous number. Control
+    /// request/response frames have a nonzero `request_id`, carry sequence
+    /// zero, and are outside that ordered stream. A client that sees a gap or
+    /// duplicate must disconnect and take a new Snapshot; continuing would
+    /// silently corrupt its terminal mirror.
+    ///
+    /// When Output changes application-authored colors, observes cursor-
+    /// semantic activity that must be replayed even when the resolved pair is
+    /// unchanged, or orders a SetDefaults transition, it carries
+    /// [`FLAG_COLORS_FOLLOW`]; its full-state Colors frame is exactly the next
+    /// sequence. Resized always carries that flag and likewise has its complete
+    /// Colors state exactly next. Producers publish each pair atomically;
+    /// consumers stage the first frame and expose only the paired state.
+    /// Snapshot keeps flags zero: its same-boundary Colors frame is a mandatory
+    /// bootstrap rule rather than a live-stream transition.
+    /// ClientHello/HostHello may negotiate [`FLAG_VIEWER_SIZE_ACKS`]. Unknown
+    /// flags, flags on Colors or other message kinds, an unflagged Resized, and
+    /// a flagged live frame not followed by Colors are protocol errors.
+    pub sequence: u64,
+    pub payload: Vec<u8>,
+}
+
+/// Payloads carry clipboard text, input and screen contents, so the Debug
+/// form names the frame and its size and never prints payload bytes.
+impl fmt::Debug for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Frame")
+            .field("version", &self.version)
+            .field("kind", &self.kind)
+            .field("flags", &self.flags)
+            .field("request_id", &self.request_id)
+            .field("sequence", &self.sequence)
+            .field("len", &self.payload.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Frame {
+    pub fn new(kind: MessageKind, payload: Vec<u8>) -> Self {
+        Self { version: PROTOCOL_VERSION, kind, flags: 0, request_id: 0, sequence: 0, payload }
+    }
+}
+
+#[derive(Debug)]
+pub enum ProtocolError {
+    Io(io::Error),
+    InvalidMagic([u8; 4]),
+    InvalidVersion(u16),
+    UnknownMessageKind(u16),
+    PayloadTooLarge { len: usize, max: usize },
+    Truncated { expected: usize, actual: usize },
+    MalformedExitPayload,
+    MalformedLaunchFailurePayload,
+    DecoderFailed,
+}
+
+impl fmt::Display for ProtocolError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(error) => write!(f, "terminal-host protocol I/O failed: {error}"),
+            Self::InvalidMagic(actual) => {
+                write!(f, "bad terminal-host protocol magic {actual:?}")
+            }
+            Self::InvalidVersion(version) => {
+                write!(f, "bad terminal-host protocol version {version}")
+            }
+            Self::UnknownMessageKind(kind) => {
+                write!(f, "unknown terminal-host message kind {kind}")
+            }
+            Self::PayloadTooLarge { len, max } => {
+                write!(f, "terminal-host payload is {len} bytes; maximum is {max}")
+            }
+            Self::Truncated { expected, actual } => {
+                write!(f, "truncated terminal-host frame: expected {expected} bytes, got {actual}")
+            }
+            Self::MalformedExitPayload => write!(f, "malformed terminal-host exit payload"),
+            Self::MalformedLaunchFailurePayload => {
+                write!(f, "malformed terminal-host launch-failure payload")
+            }
+            Self::DecoderFailed => write!(f, "terminal-host decoder is unusable after an error"),
+        }
+    }
+}
+
+impl std::error::Error for ProtocolError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<io::Error> for ProtocolError {
+    fn from(value: io::Error) -> Self {
+        Self::Io(value)
+    }
+}
+
+/// Copy the `N` bytes at `offset` out of `bytes`, or `None` when `bytes` is
+/// too short. Every fixed-layout decoder reads through this so a short or
+/// lying payload is an error, never an out-of-bounds panic.
+pub(crate) fn wire_array<const N: usize>(bytes: &[u8], offset: usize) -> Option<[u8; N]> {
+    bytes.get(offset..offset.checked_add(N)?)?.try_into().ok()
+}
+
+pub(crate) fn wire_u8(bytes: &[u8], offset: usize) -> Option<u8> {
+    bytes.get(offset).copied()
+}
+
+pub(crate) fn wire_u16(bytes: &[u8], offset: usize) -> Option<u16> {
+    wire_array(bytes, offset).map(u16::from_le_bytes)
+}
+
+pub(crate) fn wire_u32(bytes: &[u8], offset: usize) -> Option<u32> {
+    wire_array(bytes, offset).map(u32::from_le_bytes)
+}
+
+pub(crate) fn wire_u64(bytes: &[u8], offset: usize) -> Option<u64> {
+    wire_array(bytes, offset).map(u64::from_le_bytes)
+}
+
+pub(crate) fn wire_i32(bytes: &[u8], offset: usize) -> Option<i32> {
+    wire_array(bytes, offset).map(i32::from_le_bytes)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Header {
+    version: u16,
+    kind: MessageKind,
+    flags: u32,
+    payload_len: usize,
+    request_id: u64,
+    sequence: u64,
+}
+
+fn parse_header(bytes: &[u8], max_payload: usize) -> Result<Header, ProtocolError> {
+    let truncated = || ProtocolError::Truncated { expected: HEADER_LEN, actual: bytes.len() };
+    let header: [u8; HEADER_LEN] = wire_array(bytes, 0).ok_or_else(truncated)?;
+    let magic = wire_array::<4>(&header, 0).ok_or_else(truncated)?;
+    if magic != MAGIC {
+        return Err(ProtocolError::InvalidMagic(magic));
+    }
+    let version = wire_u16(&header, 4).ok_or_else(truncated)?;
+    if version == 0 {
+        return Err(ProtocolError::InvalidVersion(version));
+    }
+    let kind = MessageKind::try_from(wire_u16(&header, 6).ok_or_else(truncated)?)?;
+    let flags = wire_u32(&header, 8).ok_or_else(truncated)?;
+    let payload_len =
+        usize::try_from(wire_u32(&header, 12).ok_or_else(truncated)?).unwrap_or(usize::MAX);
+    if payload_len > max_payload {
+        return Err(ProtocolError::PayloadTooLarge { len: payload_len, max: max_payload });
+    }
+    let request_id = wire_u64(&header, 16).ok_or_else(truncated)?;
+    let sequence = wire_u64(&header, 24).ok_or_else(truncated)?;
+    Ok(Header { version, kind, flags, payload_len, request_id, sequence })
+}
+
+/// Validate an encoded CMTH header and return its declared payload length.
+///
+/// Async readers can use this after reading exactly [`HEADER_LEN`] bytes so
+/// the wire layout remains owned by this module.
+pub fn frame_payload_len(
+    encoded_header: &[u8],
+    max_payload: usize,
+) -> Result<usize, ProtocolError> {
+    if encoded_header.len() != HEADER_LEN {
+        return Err(ProtocolError::Truncated {
+            expected: HEADER_LEN,
+            actual: encoded_header.len(),
+        });
+    }
+    Ok(parse_header(encoded_header, max_payload.min(MAX_FRAME_PAYLOAD))?.payload_len)
+}
+
+fn encode_header(frame: &Frame, max_payload: usize) -> Result<[u8; HEADER_LEN], ProtocolError> {
+    if frame.version == 0 {
+        return Err(ProtocolError::InvalidVersion(frame.version));
+    }
+    if frame.payload.len() > max_payload {
+        return Err(ProtocolError::PayloadTooLarge { len: frame.payload.len(), max: max_payload });
+    }
+    let payload_len = u32::try_from(frame.payload.len()).map_err(|_| {
+        ProtocolError::PayloadTooLarge { len: frame.payload.len(), max: max_payload }
+    })?;
+    let mut header = [0u8; HEADER_LEN];
+    header[0..4].copy_from_slice(&MAGIC);
+    header[4..6].copy_from_slice(&frame.version.to_le_bytes());
+    header[6..8].copy_from_slice(&(frame.kind as u16).to_le_bytes());
+    header[8..12].copy_from_slice(&frame.flags.to_le_bytes());
+    header[12..16].copy_from_slice(&payload_len.to_le_bytes());
+    header[16..24].copy_from_slice(&frame.request_id.to_le_bytes());
+    header[24..32].copy_from_slice(&frame.sequence.to_le_bytes());
+    Ok(header)
+}
+
+/// The header of a frame with no flags, request id or sequence (an `Input` key), as [`write_frame`] writes it,
+/// built on the stack: the inline key write sends it and the payload in one call, with no copy of the payload.
+/// `version` is the connection's (never 0) and `payload_len` at most [`MAX_FRAME_PAYLOAD`].
+pub(crate) fn input_frame_header(
+    version: u16,
+    kind: MessageKind,
+    payload_len: u32,
+) -> [u8; HEADER_LEN] {
+    let [m0, m1, m2, m3] = MAGIC;
+    let [v0, v1] = version.to_le_bytes();
+    let [k0, k1] = (kind as u16).to_le_bytes();
+    let [l0, l1, l2, l3] = payload_len.to_le_bytes();
+    // magic, version, kind, flags 0, payload length, request id 0, sequence 0 (`encode_header`'s layout).
+    [
+        m0, m1, m2, m3, v0, v1, k0, k1, 0, 0, 0, 0, l0, l1, l2, l3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0,
+    ]
+}
+
+/// One frame: its header and payload in one vectored write ([`write_frames`]).
+pub fn write_frame(writer: &mut impl Write, frame: &Frame) -> Result<(), ProtocolError> {
+    write_frames(writer, std::slice::from_ref(frame))
+}
+
+pub fn encode_frame(frame: &Frame) -> Result<Vec<u8>, ProtocolError> {
+    let mut bytes = Vec::with_capacity(HEADER_LEN.saturating_add(frame.payload.len()));
+    write_frame(&mut bytes, frame)?;
+    Ok(bytes)
+}
+
+/// Read one complete frame. Clean EOF before a header returns `None`; EOF
+/// after any part of a frame is a truncation error.
+pub fn read_frame(
+    reader: &mut impl Read,
+    max_payload: usize,
+) -> Result<Option<Frame>, ProtocolError> {
+    let max_payload = max_payload.min(MAX_FRAME_PAYLOAD);
+    let mut header_bytes = [0u8; HEADER_LEN];
+    let mut header_read = 0;
+    while header_read < HEADER_LEN {
+        let Some(unread) = header_bytes.get_mut(header_read..) else {
+            break;
+        };
+        match reader.read(unread) {
+            Ok(0) if header_read == 0 => return Ok(None),
+            Ok(0) => {
+                return Err(ProtocolError::Truncated { expected: HEADER_LEN, actual: header_read });
+            }
+            Ok(count) => header_read = header_read.saturating_add(count),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let header = parse_header(&header_bytes, max_payload)?;
+    let mut payload = vec![0u8; header.payload_len];
+    let mut payload_read = 0;
+    while payload_read < payload.len() {
+        let Some(unread) = payload.get_mut(payload_read..) else {
+            break;
+        };
+        match reader.read(unread) {
+            Ok(0) => {
+                return Err(ProtocolError::Truncated {
+                    expected: HEADER_LEN + payload.len(),
+                    actual: HEADER_LEN + payload_read,
+                });
+            }
+            Ok(count) => payload_read = payload_read.saturating_add(count),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(Some(Frame {
+        version: header.version,
+        kind: header.kind,
+        flags: header.flags,
+        request_id: header.request_id,
+        sequence: header.sequence,
+        payload,
+    }))
+}
+
+/// Incremental decoder for nonblocking or callback-driven stream readers.
+/// It parses and validates the header before retaining any payload bytes, so
+/// an advertised oversized frame cannot force a correspondingly large
+/// allocation.
+pub struct FrameDecoder {
+    buffer: Vec<u8>,
+    expected_total: Option<usize>,
+    max_payload: usize,
+    failed: bool,
+}
+
+impl FrameDecoder {
+    pub fn new(max_payload: usize) -> Self {
+        Self {
+            buffer: Vec::with_capacity(HEADER_LEN),
+            expected_total: None,
+            max_payload: max_payload.min(MAX_FRAME_PAYLOAD),
+            failed: false,
+        }
+    }
+
+    pub fn push(&mut self, mut input: &[u8]) -> Result<Vec<Frame>, ProtocolError> {
+        if self.failed {
+            return Err(ProtocolError::DecoderFailed);
+        }
+        let result = self.push_inner(&mut input);
+        if result.is_err() {
+            self.failed = true;
+        }
+        result
+    }
+
+    fn push_inner(&mut self, input: &mut &[u8]) -> Result<Vec<Frame>, ProtocolError> {
+        let mut frames = Vec::new();
+        loop {
+            if self.expected_total.is_none() {
+                if self.buffer.len() < HEADER_LEN {
+                    if input.is_empty() {
+                        break;
+                    }
+                    let count = HEADER_LEN.saturating_sub(self.buffer.len());
+                    self.take_input(input, count);
+                    if self.buffer.len() < HEADER_LEN {
+                        break;
+                    }
+                }
+                let header = parse_header(&self.buffer, self.max_payload)?;
+                let expected_total = HEADER_LEN.saturating_add(header.payload_len);
+                self.expected_total = Some(expected_total);
+                self.buffer.reserve(header.payload_len);
+            }
+
+            let expected_total = self.expected_total.unwrap_or(HEADER_LEN);
+            if self.buffer.len() < expected_total {
+                if input.is_empty() {
+                    break;
+                }
+                let count = expected_total.saturating_sub(self.buffer.len());
+                self.take_input(input, count);
+                if self.buffer.len() < expected_total {
+                    break;
+                }
+            }
+
+            let header = parse_header(&self.buffer, self.max_payload)?;
+            let mut payload = std::mem::replace(&mut self.buffer, Vec::with_capacity(HEADER_LEN));
+            payload.drain(..HEADER_LEN.min(payload.len()));
+            self.expected_total = None;
+            frames.push(Frame {
+                version: header.version,
+                kind: header.kind,
+                flags: header.flags,
+                request_id: header.request_id,
+                sequence: header.sequence,
+                payload,
+            });
+        }
+        Ok(frames)
+    }
+
+    /// Move up to `count` bytes from the front of `input` into the buffer.
+    fn take_input(&mut self, input: &mut &[u8], count: usize) {
+        let (taken, rest) = input.split_at(count.min(input.len()));
+        self.buffer.extend_from_slice(taken);
+        *input = rest;
+    }
+
+    pub fn finish(&self) -> Result<(), ProtocolError> {
+        if self.failed {
+            return Err(ProtocolError::DecoderFailed);
+        }
+        if self.buffer.is_empty() && self.expected_total.is_none() {
+            return Ok(());
+        }
+        Err(ProtocolError::Truncated {
+            expected: self.expected_total.unwrap_or(HEADER_LEN),
+            actual: self.buffer.len(),
+        })
+    }
+
+    pub fn buffered_len(&self) -> usize {
+        self.buffer.len()
+    }
+}
+
+mod frame_batch;
+pub(crate) use frame_batch::{MAX_BATCH_BYTES, MAX_BATCH_FRAMES, write_frames};
+
+#[cfg(test)]
+mod tests;

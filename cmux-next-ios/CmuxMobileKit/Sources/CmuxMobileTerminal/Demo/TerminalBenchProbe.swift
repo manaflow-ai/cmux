@@ -34,11 +34,6 @@ public final class TerminalBenchProbe: @unchecked Sendable {
 
     public init() {}
 
-    /// The screen's rows as text (trailing blanks trimmed, scrollback first), read from the
-    /// terminal on demand. The terminal screen sets it at its first presented frame while the
-    /// probe is active; the agent CLI hybrid bench compares it with the Mac's screen.
-    nonisolated(unsafe) public var readScreen: (@MainActor () -> [String]?)?
-
     /// Times the drain: from `since` until Ghostty has processed session byte
     /// `end`, read back as ``Snapshot/drainMs``. Already there: zero.
     public func timeDrain(until end: Int, since: CFTimeInterval) {

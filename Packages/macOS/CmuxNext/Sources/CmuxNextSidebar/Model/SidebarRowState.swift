@@ -21,13 +21,8 @@ public nonisolated enum SidebarRowState: Hashable, Sendable {
     /// the daemon replies. Like a placeholder it is never interactive: the
     /// daemon does not know the workspace yet.
     case creating
-    /// A chat's row travelling to another machine (`SidebarChatMove`): drawn
-    /// as before with the move's step and bar, never interactive (not
-    /// dragged either): it is neither machine's row until the chat lands.
-    case moving
 
-    /// True for a row that names no daemon workspace yet (a placeholder, a
-    /// workspace still being created, or a row in a move): no selection,
-    /// menu, drag or save.
-    public var isPending: Bool { self == .placeholder || self == .creating || self == .moving }
+    /// True for a row that names no daemon workspace yet (a placeholder, or a
+    /// workspace still being created): no selection, menu, drag or save.
+    public var isPending: Bool { self == .placeholder || self == .creating }
 }

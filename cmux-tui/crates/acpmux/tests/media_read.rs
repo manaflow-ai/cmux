@@ -221,15 +221,16 @@ async fn media_of_a_peers_chat_is_read_on_the_peer() {
     let opened = ca.open(&remote, "out/clip.mp4").await;
     assert_eq!(opened["result"]["peer"], "b", "{opened}");
     assert_eq!(ca.read(&remote, "out/clip.mp4", 400).await, ("video/mp4".into(), clip()));
-    // The link carries every client's reads: a handle is its own client's, and one client
-    // holds past the old limit of 8 with room left on the link for another's.
-    // The open above is still held.
+    // The link carries every client's reads: a handle is its own client's, and one client's
+    // full table leaves room on the link for another's.
+    // The open above is still held: it counts as one of this client's places.
     let mut held = vec![opened["result"]["handle"].clone()];
-    while held.len() < 20 {
+    while held.len() < acpmux::hub::media_handles::MAX_HANDLES {
         let opened = ca.open(&remote, "out/clip.mp4").await;
         assert!(opened["result"]["handle"].is_string(), "{opened}");
         held.push(opened["result"]["handle"].clone());
     }
+    assert_eq!(reason(&ca.open(&remote, "out/clip.mp4").await), "media.handles");
     let mut other = client(&a, Origin::Local);
     assert_eq!(reason(&other.range(&remote, &held[0], 0, 10).await), "media.handle");
     let theirs = other.open(&remote, "out/clip.mp4").await;
@@ -277,7 +278,7 @@ async fn older_peer(calls: Arc<AtomicUsize>) -> u16 {
     let port = l.local_addr().unwrap().port();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = l.accept().await {
-            let Ok(mut ws) = acpmux::server::accept_ws(tcp).await else { continue };
+            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let calls = calls.clone();
             tokio::spawn(async move {
                 // Non-text frames (the client's pings, #38015) are not requests: skip them.

@@ -50,11 +50,6 @@ final class TabHoverCardView: NSView {
     let memoryRow = HoverCardRowView()
     private let rows = NSStackView()
     private let thumbnail = NSView()
-    /// The tab's glyph in the middle of the picture frame while the tab has no picture (a page still
-    /// loading, a page never captured), as Chrome's card shows a tab with no preview: the frame keeps its
-    /// size, so the card never changes height when a picture lands or when the next tab has none.
-    private let placeholderIcon = NSImageView()
-    private static var placeholderIconSize: CGFloat { 24 }
     /// The tab's status in the shared indicator, trailing the title's first line.
     /// Follows its panel's occlusion: the panel orders front after the card moves into it.
     private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
@@ -63,15 +58,6 @@ final class TabHoverCardView: NSView {
     private var rowsTop: NSLayoutConstraint?
     private static var indicatorSize: CGFloat { 13 }
     private var thumbnailHeight: NSLayoutConstraint?
-    /// A tab card keeps room for the title's second line, so a one-line title ("github.com") and a two-line
-    /// one give cards of one height: a sweep across them no longer steps the card by a line (user 2026-11-20).
-    /// Measured on a two-line label in the title's font, so it is the height a wrapped title takes.
-    private lazy var titleTwoLines: NSLayoutConstraint = {
-        let probe = ChromeLabel(wrappingLabelWithString: "X\nX")
-        probe.font = titleLabel.font
-        probe.maximumNumberOfLines = 2
-        return titleLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: ceil(probe.fittingSize.height))
-    }()
     private var thumbnailTop: NSLayoutConstraint?
     /// Group cards list at most this many member titles.
     static let maxGroupLines = 8
@@ -85,11 +71,8 @@ final class TabHoverCardView: NSView {
         super.init(frame: .zero)
         let content = self
         titleLabel.font = HoverCardStyle.shared.titleFont
-        // Two lines, the second truncated, as Chrome's card titles a tab. A truncating break mode alone turns
-        // wrapping off (as NSCell's does): the title was one cut line ("Comparing 9650ac9f5...", user 2026-11-20).
         titleLabel.maximumNumberOfLines = 2
-        titleLabel.lineBreakMode = .byWordWrapping
-        titleLabel.truncatesLastVisibleLine = true
+        titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.preferredMaxLayoutWidth = Self.restWidth - 2 * Self.padding
         kindIcon.imageScaling = .scaleProportionallyUpOrDown
         thumbnail.wantsLayer = true
@@ -97,9 +80,6 @@ final class TabHoverCardView: NSView {
         thumbnail.layer?.cornerCurve = .continuous
         thumbnail.layer?.masksToBounds = true
         thumbnail.layer?.contentsGravity = .resizeAspectFill
-        placeholderIcon.imageScaling = .scaleProportionallyUpOrDown
-        placeholderIcon.translatesAutoresizingMaskIntoConstraints = false
-        thumbnail.addSubview(placeholderIcon)
         rows.orientation = .vertical
         rows.alignment = .leading
         rows.spacing = HoverCardStyle.shared.rowGap
@@ -128,10 +108,6 @@ final class TabHoverCardView: NSView {
             thumbnail.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             thumbnail.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             thumbnail.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
-            placeholderIcon.centerXAnchor.constraint(equalTo: thumbnail.centerXAnchor),
-            placeholderIcon.centerYAnchor.constraint(equalTo: thumbnail.centerYAnchor),
-            placeholderIcon.widthAnchor.constraint(equalToConstant: Self.placeholderIconSize),
-            placeholderIcon.heightAnchor.constraint(equalToConstant: Self.placeholderIconSize),
         ])
         let leading = titleLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p)
         let rowsTop = rows.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: HoverCardStyle.shared.titleGap)
@@ -160,9 +136,7 @@ final class TabHoverCardView: NSView {
             titleLabel.textColor = Palette.textPrimary
             thumbnail.layer?.backgroundColor = Palette.hoverFill.cgColor
             setKindIcon(tint: Palette.textSecondary)
-            placeholderIcon.image = iconImage(tint: Palette.textTertiary, size: Self.placeholderIconSize)
         }
-        updatePlaceholder()
         for row in [placeRow, statusRow, detailRow, memoryRow] { row.applyColors() }
     }
 
@@ -174,13 +148,11 @@ final class TabHoverCardView: NSView {
                 cpuHistory.removeAll()
             }
             self.item = item
-            titleTwoLines.isActive = true
             setActivity(item.indicator, style: item.busyStyle)
             render()
             // The thumbnail frame is the controller's: it shows or hides once the tab's own is known.
         case .group(let group, let titles):
             item = nil
-            titleTwoLines.isActive = false
             report = nil
             cpuHistory.removeAll()
             let shown = titles.prefix(Self.maxGroupLines)
@@ -272,22 +244,12 @@ final class TabHoverCardView: NSView {
 
     /// The title's leading glyph: the tab's own icon, tinted like the strip draws it (a favicon as is).
     private func setKindIcon(tint: NSColor) {
-        kindIcon.image = iconImage(tint: tint, size: Self.iconSize)
-        kindIcon.isHidden = kindIcon.image == nil
-        titleLeading?.constant = Self.padding + (kindIcon.isHidden ? 0 : Self.iconSize + Metrics.space2)
-        rowsLeading?.constant = titleLeading?.constant ?? Self.padding
-        updateTitleWidth()
-    }
-
-    /// The tab's own glyph at `size`, tinted like the strip draws it (a favicon as is); nil for a tab with none.
-    private func iconImage(tint: NSColor, size: CGFloat) -> NSImage? {
         let scale = window?.backingScaleFactor ?? 2
+        let size = Self.iconSize
         let cg: CGImage? = switch item?.icon {
         case .image(let image)?: image.cgImage
         case .agentMark(let brand)?:
             TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: size, scale: scale)
-        case .terminalAgentMark(let brand)?:
-            TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: size, scale: scale, terminal: DesignSettings.shared.terminalAgentMarks)
         case .icon(let name)?:
             TabPackIconCache.shared.image(name: name, tint: tint, size: size, scale: scale)
                 ?? TabSymbolCache.shared.image(named: IconCatalog.bundled.entry(for: name)?.sf ?? "questionmark.square.dashed",
@@ -296,7 +258,11 @@ final class TabHoverCardView: NSView {
             TabSymbolCache.shared.image(named: name, tint: tint, pointSize: Metrics.smallIconSize, size: size, scale: scale)
         case .none?, nil: nil
         }
-        return cg.map { NSImage(cgImage: $0, size: NSSize(width: size, height: size)) }
+        kindIcon.image = cg.map { NSImage(cgImage: $0, size: NSSize(width: size, height: size)) }
+        kindIcon.isHidden = kindIcon.image == nil
+        titleLeading?.constant = Self.padding + (kindIcon.isHidden ? 0 : Self.iconSize + Metrics.space2)
+        rowsLeading?.constant = titleLeading?.constant ?? Self.padding
+        updateTitleWidth()
     }
 
     /// A row shows only with content; a stack row that hides gives up its line.
@@ -341,14 +307,11 @@ final class TabHoverCardView: NSView {
     /// The thumbnail the card shows.
     private(set) var thumbnailImage: CGImage?
 
-    /// The tab's picture, or nil for the placeholder (the tab's glyph on the frame's fill). With `fades`,
-    /// a picture landing on the placeholder fades in (a fetch that took a while); otherwise, and always
-    /// when one tab's picture replaces another's, it swaps at once (two tabs never blend, and a sweep across
-    /// tabs whose pictures are at hand draws each tab's picture in the frame its card moves).
-    func setThumbnail(_ image: CGImage?, fades: Bool = true) {
-        let landing = fades && thumbnailImage == nil && image != nil
+    /// Only a thumbnail landing in an empty frame fades in; one tab's image
+    /// replacing another's swaps at once (two tabs never blend).
+    func setThumbnail(_ image: CGImage?) {
+        let landing = thumbnailImage == nil && image != nil
         thumbnailImage = image
-        updatePlaceholder()
         guard let layer = thumbnail.layer else { return }
         performWithTheme {
             layer.backgroundColor = Palette.hoverFill.cgColor
@@ -356,14 +319,6 @@ final class TabHoverCardView: NSView {
         layer.actions = landing ? ["contents": Motion.crossfadeAction] : nil
         Motion.hoverCards.transaction(landing ? .crossfade : nil) { layer.contents = image }
     }
-
-    /// The glyph shows only while the frame has no picture.
-    private func updatePlaceholder() {
-        placeholderIcon.isHidden = thumbnailImage != nil || placeholderIcon.image == nil
-    }
-
-    /// Whether the frame shows the placeholder now (tests).
-    var showsPlaceholder: Bool { showsThumbnail && !placeholderIcon.isHidden }
 }
 
 extension TabHoverCardView: HoverCardTextReporting {

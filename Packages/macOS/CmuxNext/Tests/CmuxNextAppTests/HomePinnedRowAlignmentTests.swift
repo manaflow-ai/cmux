@@ -33,12 +33,6 @@ import Testing
     /// Device pixels at 2x: frames snap to half points.
     static let tolerance: CGFloat = 0.5
 
-    static func at(_ c: Case, preset: DensityPreset, _ body: () throws -> Void) rethrows {
-        try DensityTokens.$scoped.withValue(preset.tokens) {
-            try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize, body)
-        }
-    }
-
     /// The list as the sidebar document draws it: the top block (Home), the Pinned block (one text-only pinned
     /// workspace), then a machine list with a text-only workspace and one with an icon.
     static func list(width: CGFloat) -> (SidebarListView, NSWindow) {
@@ -90,26 +84,22 @@ import Testing
         list.convert(NSPoint(x: value, y: 0), from: view).x
     }
 
-    /// Home's glyph sits in the one icon slot that starts where a text-only row's title starts (Leo 2026-10-28: "the
-    /// alignment"). A pinned row draws no pin there (Leo 2026-11-23, ask c-b5d3e0efb6).
-    @Test(arguments: cases, DensityPreset.allCases)
-    func everyRowsLeadingGlyphSitsInTheIconSlot(_ c: Case, preset: DensityPreset) throws {
-        try Self.at(c, preset: preset) {
+    /// Home's glyph and the pin sit in the one icon slot that starts where a text-only row's title starts (Leo
+    /// 2026-10-28: "the alignment").
+    @Test(arguments: cases)
+    func everyRowsLeadingGlyphSitsInTheIconSlot(_ c: Case) throws {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let home = try Self.item(list, Self.home.id), pin = try Self.item(list, Self.pinned.id)
             let loose = try Self.row(list, Self.loose)
             let textX = Self.x(list, loose.title.frame.minX, in: loose)
             // The slot every leading glyph's ink fills (`SidebarStyle.rowGlyphOpticalSide`, Lawrence 2026-11-09: one size).
-            // A glyph wider than tall (Home's house) stands at the slot's height, starts on its leading edge (Lucas
-            // 2026-11-24), and may run past its trailing edge up to `maxAspect` of it.
-            let spill = SidebarStyle.rowGlyphOpticalSide * (SidebarOpticalGlyph.maxAspect - 1)
-            let slot = textX...(textX + SidebarStyle.rowGlyphOpticalSide + spill)
+            let slot = textX...(textX + SidebarStyle.rowGlyphOpticalSide)
             // The glyph's frame snaps its origin and its size to whole pixels (a crisp bitmap): up to half a 1x pixel each.
             let snapped = Self.tolerance + 0.5
-            #expect(pin.pinInkFrame == nil, "\(c.testDescription): the pinned row draws a pin")
-            let homeInk = try #require(home.glyphInkFrame, "Home drew no glyph")
-            for (name, ink, row) in [("Home's glyph", homeInk, home)] {
+            let homeInk = try #require(home.glyphInkFrame, "Home drew no glyph"), pinInk = try #require(pin.pinInkFrame, "the pinned row drew no pin")
+            for (name, ink, row) in [("Home's glyph", homeInk, home), ("the pin", pinInk, pin)] {
                 let minX = Self.x(list, ink.minX, in: row), maxX = Self.x(list, ink.maxX, in: row)
                 #expect(minX >= slot.lowerBound - snapped && maxX <= slot.upperBound + snapped,
                         "\(c.testDescription): \(name) spans \(minX)...\(maxX), the icon slot \(slot)")
@@ -120,37 +110,40 @@ import Testing
     /// https://github.com/manaflow-ai/cmux/issues/38061: a pinned row's pin ("CLOUDMUX") did not line up under Home's
     /// house. Home's row and a pinned row share one fixed-width icon column (one x, one width), and Home's ink
     /// starts on its leading edge, where a text-only row's title starts (Lawrence 2026-11-09, "home/pin icons not left
-    /// aligned with 'Fix…'"), at every density, minimal mode, width and text size.
-    @Test(arguments: cases, DensityPreset.allCases)
-    func homesGlyphStartsOnTheTextOnlyTitlesEdge(_ c: Case, preset: DensityPreset) throws {
-        try Self.at(c, preset: preset) {
+    /// aligned with 'Fix…'"); the narrow pin centers under it (#42431), at every density, minimal mode, width and text size.
+    @Test(arguments: cases)
+    func homesGlyphAndThePinStartOnOneEdge(_ c: Case) throws {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
-            let home = try Self.item(list, Self.home.id)
+            let home = try Self.item(list, Self.home.id), pin = try Self.item(list, Self.pinned.id)
             let homeColumn = list.convert(home.leadingColumnFrame, from: home)
-            try #require(homeColumn.width > 0, "\(c.testDescription): Home has no icon column")
+            let pinColumn = list.convert(pin.leadingColumnFrame, from: pin)
+            try #require(homeColumn.width > 0 && pinColumn.width > 0, "\(c.testDescription): a row has no icon column")
+            #expect(abs(homeColumn.minX - pinColumn.minX) <= Self.tolerance && abs(homeColumn.width - pinColumn.width) <= Self.tolerance,
+                    "\(c.testDescription): Home's icon column \(homeColumn.minX) + \(homeColumn.width), the pinned row's \(pinColumn.minX) + \(pinColumn.width)")
             let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
+            let pinInk = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin)
             let loose = try Self.row(list, Self.loose)
             let titleX = Self.x(list, loose.title.frame.minX, in: loose)
             // Each glyph snaps to the window's pixel grid on its own, so on a 1x screen an edge or a center can land one
             // device pixel off a column that starts on a half point (as PinnedRowsShareHomeColumnTests allows).
             let pixel = max(Self.tolerance, 1 / max(1, window.backingScaleFactor))
-            // Home's house stands at the rows' glyph height (Lucas 2026-11-16: as tall as the App Store's bag), so it is a
-            // little wider than its square. Its ink starts on the column's edge, where a text-only title starts, and runs
-            // past the square's trailing edge only (Lucas 2026-11-24: the red light, the house, a globe and a text-only
-            // title on one line).
+            // Home's house fills the column's width, so its ink starts on the column's edge, where a text-only title starts.
             #expect(abs(homeInk.minX - homeColumn.minX) <= pixel,
                     "\(c.testDescription): Home's glyph starts at \(homeInk.minX), its icon column at \(homeColumn.minX)")
             #expect(abs(homeInk.minX - titleX) <= pixel,
                     "\(c.testDescription): Home's glyph starts at \(homeInk.minX), a text-only title at \(titleX)")
+            // The pin is a narrow mark: it centers under the house (https://github.com/manaflow-ai/cmux/issues/42431).
+            #expect(abs(pinInk.midX - homeInk.midX) <= pixel,
+                    "\(c.testDescription): the pin centers at \(pinInk.midX), Home's glyph at \(homeInk.midX)")
         }
     }
 
-    /// Home's label and the title of a workspace row with an icon start at one text column; a text-only pinned row's
-    /// title starts where a text-only workspace row's does, as it has no pin before it (Leo 2026-11-23, ask c-b5d3e0efb6).
-    @Test(arguments: cases, DensityPreset.allCases)
-    func titlesAfterALeadingGlyphStartAtOneColumn(_ c: Case, preset: DensityPreset) throws {
-        try Self.at(c, preset: preset) {
+    /// Home's label, a pinned row's title and the title of a workspace row with an icon start at one text column.
+    @Test(arguments: cases)
+    func titlesAfterALeadingGlyphStartAtOneColumn(_ c: Case) throws {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let home = try Self.item(list, Self.home.id), pin = try Self.item(list, Self.pinned.id)
@@ -158,10 +151,7 @@ import Testing
             let homeTitle = Self.x(list, home.titleFrame.minX, in: home)
             let pinTitle = Self.x(list, pin.titleFrame.minX, in: pin)
             let iconTitle = Self.x(list, iconRow.title.frame.minX, in: iconRow)
-            let loose = try Self.row(list, Self.loose)
-            let looseTitle = Self.x(list, loose.title.frame.minX, in: loose)
-            #expect(abs(looseTitle - pinTitle) <= Self.tolerance,
-                    "\(c.testDescription): a text-only workspace row's title at \(looseTitle), the pinned title at \(pinTitle)")
+            #expect(abs(homeTitle - pinTitle) <= Self.tolerance, "\(c.testDescription): Home's label at \(homeTitle), the pinned title at \(pinTitle)")
             #expect(abs(homeTitle - iconTitle) <= Self.tolerance,
                     "\(c.testDescription): Home's label at \(homeTitle), an icon row's title at \(iconTitle)")
         }

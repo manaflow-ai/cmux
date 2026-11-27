@@ -18,7 +18,7 @@ import Testing
         let url = home.appending(path: "cmux-next.json")
         try Data("{}".utf8).write(to: url)
         let registry = ActionRegistry.standard()
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(registry: registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         return (ContextMenusPageProvider { ContextMenusSettingsPage(registry: registry, settings: settings) }, registry, home)
@@ -90,23 +90,5 @@ import Testing
             _ = try await route.call(ContextMenusPageProvider.prefix + "set", params: ["menu": "tab", "layout": ["items": "closeTab"]], context: Self.click)
         }
         #expect(registry.contextMenuLayouts.isEmpty)
-    }
-    /// 2026-11-16, Settings opens late: every Settings open (and every host-lists watch event) built
-    /// all 35 menus' rows, layouts and JSON again on the main thread, 8-19 ms a record in 2-3 records
-    /// per open on cmux-lawrence-2 (`debug.hangs`: ContextMenuLayout.generatedOrder, menuJSON). Read
-    /// again with nothing changed, the host lists' menus come back at once; a save still shows
-    /// (aSaveArrangesTheMenuAndTheGeneratedLayoutSavesAsNone).
-    @Test func anUnchangedReadDoesNotBuildTheMenusAgain() async throws {
-        let (route, registry, home) = try await Self.route()
-        defer { try? FileManager.default.removeItem(at: home) }
-        _ = ContextMenuCatalog.shared.entries(for: .workspaceRow) // the catalog, built once per process
-        _ = registry.showsCustomizeMenuItem
-        let clock = ContinuousClock()
-        var built = JSONValue.null
-        let first = clock.measure { built = route.hostJSON }
-        var again = JSONValue.null
-        let second = clock.measure { again = route.hostJSON }
-        #expect(again == built)
-        #expect(second * 5 < first, "an unchanged read built the menus again: \(second) after \(first)")
     }
 }

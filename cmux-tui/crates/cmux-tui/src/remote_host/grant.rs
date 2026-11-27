@@ -166,7 +166,7 @@ pub(crate) fn now_rfc3339() -> String {
     rfc3339(secs)
 }
 
-pub(crate) fn rfc3339(secs: u64) -> String {
+fn rfc3339(secs: u64) -> String {
     let days = (secs / 86_400) as i64;
     let rem = secs % 86_400;
     // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
@@ -188,5 +188,11 @@ pub(crate) fn rfc3339(secs: u64) -> String {
 }
 
 #[cfg(test)]
-#[path = "grant_tests.rs"]
-mod tests;
+mod tests {
+    #[test]
+    fn rfc3339_formats_known_instants() {
+        assert_eq!(super::rfc3339(0), "1970-01-01T00:00:00Z");
+        assert_eq!(super::rfc3339(1_792_488_779), "2026-10-20T09:32:59Z");
+        assert_eq!(super::rfc3339(951_782_400), "2000-02-29T00:00:00Z");
+    }
+}

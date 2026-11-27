@@ -10,7 +10,6 @@ import {
   type Connection,
   type TeamIntegrationPolicy
 } from "@cmux/protocol"
-import { MAX_LINKED_REPOS } from "../integrations/provider-core.ts"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { personalTeamIdFor } from "./user.ts"
 
@@ -205,36 +204,6 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         if (c.status === d.value.status && c.status_detail === d.value.detail) return { ok: true, state, value: c, changed: false }
         const { status_detail: _old, ...rest } = c
         const next: Connection = { ...rest, status: d.value.status, ...(d.value.detail ? { status_detail: d.value.detail } : {}), updated_at: ctx.now }
-        return { ok: true, state: { ...state, connections: { ...state.connections, [c.id]: next } }, value: next, outbox: [outbox(next)] }
-      }
-
-      case "connection.github.sync": {
-        const d = decodeParams<{ connection: string; scopes_granted?: Array<string>; repos_removed?: Array<string>; repos_added?: Array<string> }>(internalByName.get(op)!, params)
-        if (!d.ok) return d
-        const c = state.connections[d.value.connection]
-        if (!c) return reject("selector.not_found", "connection not found")
-        if (c.provider !== "github" || c.status === "revoked" || c.status === "pending" || c.status === "expired") return { ok: true, state, value: c, changed: false }
-        const gone = new Set((d.value.repos_removed ?? []).map((r) => r.toLowerCase()))
-        const repos = c.resources?.repos
-        // A recorded list loses the repositories that left the installation and gains the ones the linking
-        // user added (deduped case-insensitively, sorted, never past MAX_LINKED_REPOS); `null` (the whole installation) stays.
-        let kept = Array.isArray(repos) ? repos.filter((r) => !gone.has(r.toLowerCase())) : repos
-        if (Array.isArray(kept) && d.value.repos_added?.length) {
-          const have = new Set(kept.map((r) => r.toLowerCase()))
-          const added: Array<string> = []
-          for (const r of d.value.repos_added) {
-            if (kept.length + added.length >= MAX_LINKED_REPOS) break
-            if (have.has(r.toLowerCase()) || gone.has(r.toLowerCase())) continue
-            have.add(r.toLowerCase())
-            added.push(r)
-          }
-          if (added.length > 0) kept = [...kept, ...added].sort()
-        }
-        const scopes = d.value.scopes_granted ? [...d.value.scopes_granted].sort() : c.scopes_granted
-        const sameScopes = scopes.length === c.scopes_granted.length && scopes.every((s, i) => s === c.scopes_granted[i])
-        const sameRepos = kept === repos || (Array.isArray(kept) && Array.isArray(repos) && kept.length === repos.length && kept.every((r, i) => r === repos[i]))
-        if (sameScopes && sameRepos) return { ok: true, state, value: c, changed: false }
-        const next: Connection = { ...c, scopes_granted: scopes, ...(c.resources ? { resources: { ...c.resources, repos: kept ?? null } } : {}), updated_at: ctx.now }
         return { ok: true, state: { ...state, connections: { ...state.connections, [c.id]: next } }, value: next, outbox: [outbox(next)] }
       }
 

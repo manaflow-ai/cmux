@@ -5,7 +5,6 @@ use anyhow::{Result, ensure};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
-use tokio_util::sync::CancellationToken;
 
 pub const RUNNER_TOKEN_ENV: &str = "CMUX_WORKFLOW_RUNNER_TOKEN";
 
@@ -14,7 +13,6 @@ pub struct Service {
     proofs: Mutex<BTreeMap<(String, u64), String>>,
     gates: Mutex<BTreeMap<String, Weak<tokio::sync::Mutex<()>>>>,
     runners: Mutex<BTreeMap<(String, u64), Runner>>,
-    cancellations: Mutex<BTreeMap<(String, u64), CancellationToken>>,
 }
 
 struct Runner {
@@ -29,7 +27,6 @@ impl Default for Service {
             proofs: Mutex::new(BTreeMap::new()),
             gates: Mutex::new(BTreeMap::new()),
             runners: Mutex::new(BTreeMap::new()),
-            cancellations: Mutex::new(BTreeMap::new()),
         }
     }
 }
@@ -79,16 +76,6 @@ impl Service {
         let token = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
         proofs.retain(|(id, _), _| id != &run.id);
         proofs.insert(key, token.clone());
-        let mut cancellations = self.cancellations.lock().unwrap_or_else(|e| e.into_inner());
-        cancellations.retain(|(id, _), cancellation| {
-            if id == &run.id {
-                cancellation.cancel();
-                false
-            } else {
-                true
-            }
-        });
-        cancellations.insert((run.id.clone(), run.generation), CancellationToken::new());
         Ok(Some(token))
     }
 
@@ -101,32 +88,6 @@ impl Service {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&(run_id.to_owned(), generation));
-        if let Some(cancellation) = self
-            .cancellations
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&(run_id.to_owned(), generation))
-        {
-            cancellation.cancel();
-        }
-    }
-
-    /// A wait holds this token while the runner owns the generation.  Pausing,
-    /// replacing, or losing the runner cancels it so an in-flight wait wakes
-    /// immediately instead of waiting for an activity notification.
-    pub fn runner_cancellation(&self, run_id: &str, generation: u64) -> CancellationToken {
-        if let Some(cancellation) = self
-            .cancellations
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&(run_id.to_owned(), generation))
-            .cloned()
-        {
-            return cancellation;
-        }
-        let cancellation = CancellationToken::new();
-        cancellation.cancel();
-        cancellation
     }
 
     pub fn track_runner(
@@ -152,16 +113,6 @@ impl Service {
             let keys = runners.keys().filter(|(id, _)| id == run_id).cloned().collect::<Vec<_>>();
             keys.into_iter().filter_map(|key| runners.remove(&key)).collect::<Vec<_>>()
         };
-        self.cancellations.lock().unwrap_or_else(|e| e.into_inner()).retain(
-            |(id, _), cancellation| {
-                if id == run_id {
-                    cancellation.cancel();
-                    false
-                } else {
-                    true
-                }
-            },
-        );
         for Runner { stop, done } in stopped {
             let _ = stop.send(());
             let _ = done.await;
@@ -187,5 +138,41 @@ impl Service {
 }
 
 #[cfg(test)]
-#[path = "service_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn workflow_runs_gates_preserve_waiters_and_release_finished_runs() {
+        let service = Service::default();
+        let gate = service.gate("wf-live");
+        let held = gate.clone().lock_owned().await;
+        let waiter = service.gate("wf-live");
+        assert!(Arc::ptr_eq(&gate, &waiter));
+        assert!(waiter.try_lock().is_err());
+        let old = Arc::downgrade(&gate);
+        drop(gate);
+        // A held guard must keep every new caller on the same lock.
+        let again = service.gate("wf-live");
+        assert!(Arc::ptr_eq(&waiter, &again));
+        drop(held);
+        let next = waiter.lock_owned().await;
+        assert!(again.try_lock().is_err());
+        drop(next);
+        drop(again);
+        assert!(old.upgrade().is_none(), "a finished run retained its operation lock");
+    }
+
+    #[test]
+    fn workflow_runs_gate_registry_does_not_grow_with_run_history() {
+        let service = Service::default();
+        let live = service.gate("wf-live");
+        for index in 0..100 {
+            drop(service.gate(&format!("wf-finished-{index}")));
+        }
+        assert!(
+            service.gates.lock().unwrap().len() <= 2,
+            "the gate registry retained completed run history"
+        );
+        assert!(Arc::ptr_eq(&live, &service.gate("wf-live")));
+    }
+}

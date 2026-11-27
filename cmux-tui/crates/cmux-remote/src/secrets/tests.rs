@@ -10,7 +10,6 @@ use super::seal::{self, Purpose};
 use super::{MachineSecrets, files};
 use crate::crypto::StaticIdentity;
 
-mod git_host;
 mod partial_writes;
 mod window;
 

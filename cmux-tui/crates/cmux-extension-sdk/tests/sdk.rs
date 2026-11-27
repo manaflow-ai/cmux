@@ -1,12 +1,11 @@
 use cmux_extension_sdk::{
-    API_VERSION, EVENTS, Manifest, RUNTIME_VERSION, ReasoningMenu, Region, SDK_VERSION, SIGNALS,
-    Severity, check_package, event, is_valid,
+    API_VERSION, EVENTS, Manifest, RUNTIME_VERSION, Region, SDK_VERSION, SIGNALS, Severity,
+    check_package, event, is_valid,
 };
 use serde_json::Value;
 use std::path::PathBuf;
 
 fn repo() -> PathBuf {
-    // affected-reads: examples/extensions
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
@@ -30,8 +29,7 @@ fn the_rust_table_is_the_runtimes_own_tables() {
     );
     for e in EVENTS {
         assert_eq!(events[e.name]["reads"], e.reads, "{}", e.name);
-        let scope = events[e.name].get("scope").unwrap_or(&scopes["ops"][e.reads]["scope"]);
-        assert_eq!(scope, e.scope, "{}", e.name);
+        assert_eq!(scopes["ops"][e.reads]["scope"], e.scope, "{}", e.name);
     }
     assert_eq!(event("workspace.changed").map(|e| e.scope), Some("workspace:read"));
     let signals = json(host.join("generated/signals.json"));
@@ -72,8 +70,6 @@ fn listening_asks_for_the_events_scope_once_and_refuses_an_unknown_stream() {
     for stream in ["settings.changed", "theme.changed"] {
         assert_eq!(event(stream).map(|e| e.scope), Some("settings:read"), "{stream}");
     }
-    // The Cloud's GitHub webhooks: heard with the GitHub read grant, not any integration's.
-    assert_eq!(event("github.changed").map(|e| e.scope), Some("integration:github:read"));
 }
 
 /// The example extension's manifest, made with the builder: the places, scopes and activation
@@ -121,52 +117,7 @@ fn the_builder_makes_the_example_extensions_manifest() {
     );
 }
 
-/// The forkable workspace list (examples/extensions/workspace-list) draws the whole list
-/// (`cmux.sidebar/1`) and the same list as a section; the builder makes its manifest and cmux's
-/// validator takes it.
-#[test]
-fn the_builder_makes_a_workspace_list_that_replaces_the_built_in_one() {
-    let dir = repo().join("examples/extensions/workspace-list");
-    let example = json(dir.join("cmux-app.json"));
-    let built = Manifest::new(
-        "local/workspace-list",
-        "Workspace list",
-        "1.0.0",
-        "The built-in workspace list.",
-    )
-    .sidebar("renderSidebar", "Workspaces", "sidebar.left")
-    .section("renderSection", "Workspaces", "sidebar.left", Region::Middle)
-    .listen("workspace.changed")
-    .and_then(|m| m.listen("agent_chat.changed"))
-    .expect("known streams")
-    .scope("workspace:write", "Show a workspace when you click its row.");
-    let issues = built.validate();
-    assert!(is_valid(&issues), "{issues:?}");
-    let built = built.to_json();
-    assert_eq!(built["implements"]["cmux.sidebar/1"]["export"], "renderSidebar");
-    for key in ["id", "version", "engines", "runtime"] {
-        assert_eq!(built[key], example[key], "{key}");
-    }
-    let mut interfaces =
-        example["implements"].as_object().expect("implements").keys().collect::<Vec<_>>();
-    interfaces.sort();
-    assert_eq!(interfaces, ["cmux.section/1", "cmux.sidebar/1"]);
-    // dist/main.js is build output: the only error an unbuilt checkout has.
-    let report = check_package(&dir);
-    let errors: Vec<_> = report
-        .issues
-        .iter()
-        .filter(|i| i.severity == Severity::Error)
-        .map(|i| (i.path.as_str(), i.code))
-        .collect();
-    assert!(
-        errors.is_empty() || errors == [("/runtime/main", "path.missing")],
-        "{:?}",
-        report.issues
-    );
-}
-
-/// A New Tab view (`cmux.newtab/1`, picked with `tabs.newTabApp`): the builder writes the
+/// A whole New Tab page (`cmux.newtab/1`, picked with `tabs.newTabApp`): the builder writes the
 /// place, its activation and the scope a launcher's buttons need, and cmux's validator takes it.
 #[test]
 fn the_builder_makes_a_whole_new_tab_page_cmux_loads() {
@@ -189,41 +140,6 @@ fn the_builder_makes_a_whole_new_tab_page_cmux_loads() {
         index.contains("export function newTab("),
         "the TypeScript package names the place too"
     );
-}
-
-/// A widget (`cmux.widget/1`): the builder writes its sizes, refresh and places, cmux's validator
-/// takes it, and a large-only widget offered to the sidebar (which holds small and medium) is
-/// refused.
-#[test]
-fn the_builder_makes_a_widget_cmux_loads() {
-    let manifest = Manifest::new("local/clock", "Clock", "0.1.0", "The time, at a glance.").widget(
-        "renderClock",
-        "Clock",
-        "clock",
-        &["small", "medium"],
-        Some(60),
-        &[],
-    );
-    let issues = manifest.validate();
-    assert!(is_valid(&issues), "{issues:?}");
-    let json = manifest.to_json();
-    let place = &json["implements"]["cmux.widget/1"];
-    assert_eq!(place["export"], "renderClock");
-    assert_eq!(place["options"]["sizes"], serde_json::json!(["small", "medium"]));
-    assert_eq!(place["options"]["refresh"], serde_json::json!({ "everySeconds": 60 }));
-    assert!(place["options"].get("places").is_none(), "no places means both");
-    assert_eq!(json["activation"], serde_json::json!(["onInterface:cmux.widget/1"]));
-
-    let wrong = Manifest::new("local/big", "Big", "0.1.0", "Large only.").widget(
-        "renderBig",
-        "Big",
-        "square",
-        &["large"],
-        None,
-        &["sidebar"],
-    );
-    assert!(wrong.to_json()["implements"]["cmux.widget/1"]["options"].get("refresh").is_none());
-    assert!(!is_valid(&wrong.validate()), "the sidebar holds no large tile");
 }
 
 /// Composer places are data: the builder writes the slash commands and mention items into the
@@ -256,25 +172,6 @@ fn the_builder_adds_composer_commands_and_mentions_cmux_accepts() {
         "{:?}",
         twice.validate()
     );
-}
-
-#[test]
-fn model_picker_layouts_are_validated_without_activation() {
-    for (layout, option) in
-        [(ReasoningMenu::Column, "column"), (ReasoningMenu::Separate, "separate")]
-    {
-        let manifest = Manifest::new("local/model-picker", "Picker", "0.1.0", "Model picker.")
-            .model_picker(layout);
-        assert!(is_valid(&manifest.validate()), "{:?}", manifest.validate());
-        let mut json = manifest.to_json();
-        assert!(json.get("activation").is_none());
-        let place = &mut json["implements"]["cmux.composer.model.picker/1"];
-        assert!(place.get("export").is_none());
-        assert_eq!(place["options"]["modelMenu"], "search");
-        assert_eq!(place["options"]["reasoningMenu"], option);
-        place["options"]["reasoningMenu"] = "other".into();
-        assert!(!is_valid(&cmux_extension_sdk::validate(&json)));
-    }
 }
 
 /// A chat widget (`cmux.chat.widget/1`): the builder writes the place, the tools it answers and
@@ -334,40 +231,4 @@ fn the_builder_makes_a_chat_widget_cmux_loads() {
         index.contains("export function chatWidget("),
         "the TypeScript package names the place too"
     );
-}
-
-/// `Manifest::composer_chip` writes `cmux.composer.chip/1` data cmux's validator takes, with no
-/// export and no activation; a chip id twice is refused as cmux refuses it.
-#[test]
-fn the_builder_adds_composer_chips_cmux_accepts() {
-    let manifest = Manifest::new("local/chips", "Chips", "0.1.0", "Composer chips.")
-        .composer_chip("branch", "Branch", "Work on the current git branch.", None)
-        .composer_chip("tests", "Tests", "Run the tests first.", Some("Ask for a test run"));
-    let issues = manifest.validate();
-    assert!(is_valid(&issues), "{issues:?}");
-    let json = manifest.to_json();
-    let chips = &json["implements"]["cmux.composer.chip/1"];
-    assert_eq!(chips["options"]["chips"][1]["detail"], "Ask for a test run");
-    assert_eq!(chips["options"]["chips"][0]["insert"], "Work on the current git branch.");
-    assert!(chips.get("export").is_none());
-    assert!(json.get("activation").is_none(), "data places activate no script: {json}");
-
-    let twice = Manifest::new("local/chips", "Chips", "0.1.0", "Composer chips.")
-        .composer_chip("branch", "A", "a", None)
-        .composer_chip("branch", "B", "b", None);
-    assert!(
-        twice.validate().iter().any(|i| i.code == "interface.options.duplicate"),
-        "{:?}",
-        twice.validate()
-    );
-}
-
-#[test]
-fn motion_contract_is_exported() {
-    use cmux_extension_sdk::motion;
-    use serde_json::json;
-    assert_eq!(motion::SCHEMA, "cmux.motion/1");
-    let parsed = motion::Motion::parse(&json!({"spring": {"response": 0.3}})).expect("a spring");
-    assert_eq!(parsed, motion::Motion::Spring { response: 0.3, damping_fraction: 1.0 });
-    assert!(motion::normalize_prop("transition", &json!("zoom")).expect("owned").is_err());
 }

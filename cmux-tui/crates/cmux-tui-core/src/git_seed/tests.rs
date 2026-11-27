@@ -102,8 +102,6 @@ struct World {
     remote: PathBuf,
     mac: PathBuf,
     base: String,
-    /// The machine's warm mirrors (on, as on a machine; `None`: every clone is direct).
-    mirrors: Option<PathBuf>,
 }
 
 impl World {
@@ -130,8 +128,7 @@ impl World {
         git(&remote, &["config", "uploadpack.allowAnySHA1InWant", "true"]);
         git(&mac, &["remote", "add", "origin", remote.to_str().unwrap()]);
         git(&mac, &["fetch", "-q", "origin"]);
-        let mirrors = Some(home.join("mirrors"));
-        Self { home, remote, mac, base, mirrors }
+        Self { home, remote, mac, base }
     }
 
     fn service(&self) -> GitSeedService {
@@ -144,7 +141,6 @@ impl World {
                 ],
             },
             credentials: Some(vec![Credential::Anonymous]),
-            mirrors: self.mirrors.clone(),
         };
         GitSeedService::with_config(Roots::new([self.home.path.clone()]), config)
     }
@@ -751,15 +747,10 @@ fn the_bundle_copy_is_private_and_removed() {
     assert!(!snapshot.bundle.exists(), "the upload is removed");
 }
 
-mod borrow;
-mod carry;
-mod dogfood;
 mod export;
 mod head_first;
 mod hold;
-mod mirror;
 mod moves;
-mod play;
 
 #[test]
 fn clone_job_releases_only_successful_repository_sync() {
@@ -788,7 +779,6 @@ fn agent_service(world: &World) -> GitSeedService {
             ],
         },
         credentials: Some(vec![Credential::CmuxGithub(HELPER.into())]),
-        mirrors: world.mirrors.clone(),
     };
     GitSeedService::with_config(Roots::new([world.home.path.clone()]), config)
 }

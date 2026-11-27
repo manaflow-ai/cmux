@@ -22,7 +22,7 @@
  *
  * Auth:
  *   sr2           no login passed: the machine's team mode, the SR2/CodeRouter gateway (the default)
- *   subscription  a Claude Pro/Max login, CLAUDE_CODE_OAUTH_TOKEN, sent with the agent's start as the app sends a Cloud model connection (cmux#40159)
+ *   subscription  a Claude Pro/Max login, CLAUDE_CODE_OAUTH_TOKEN (the Mac's login copy; dev and dogfood only)
  *   api-key       ANTHROPIC_API_KEY, put in Claude's settings on the machine (the chat card's API-key route)
  *   team-key      a key from the team's settings (CMUX_MATRIX_TEAM_KEY_TEAM names the team that has one)
  * A row whose credential is absent is SKIP with the reason, never a pass. Exit 0 only when no run cell failed.

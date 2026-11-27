@@ -41,9 +41,6 @@ async fn a_query_the_host_never_answers_times_out() {
         protocol_max: agent_host::PROTOCOL_MAX,
         host_build: "fake".into(),
         socket: socket.clone(),
-        claude_translator: false,
-        host_level: 0,
-        holder: None,
     };
     // A fake host: answers hello, then reads every frame and answers none.
     tokio::spawn(async move {
@@ -59,7 +56,6 @@ async fn a_query_the_host_never_answers_times_out() {
             acked_h: 0,
             max_out_id: 0,
             exited: None,
-            launch_credential: Default::default(),
         };
         agent_host::write_frame(&mut wr, &hello).await.unwrap();
         while let Ok(Some(_)) = agent_host::read_frame::<_, ControllerFrame>(&mut rd).await {}

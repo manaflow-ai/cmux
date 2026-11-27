@@ -97,7 +97,6 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
 from bench_launch import LaunchError, crash_reports, crash_summary, launch_app  # noqa: E402
-from state_wait import wait_stable  # noqa: E402
 
 if len(sys.argv) > 2 and sys.argv[1] == "--merge":
     MERGE = (sys.argv[2], sys.argv[3:])
@@ -322,7 +321,7 @@ class App:
         global SOCKET
         _, SOCKET = launch_app(opts.app, env, os.path.join(OUT, "app.log"), timeout=180, on_start=started)
         self.teardown.remember()  # the daemon runs now: its pid and state root
-        settle_session("the launch (restore, first pages)")  # before the first measure
+        time.sleep(3)  # test script: launch work (restore, first pages) ends before the first measure
 
     def stop(self):
         try:
@@ -408,21 +407,6 @@ def attach_crash_reports(report):
 def topology():
     reply = rpc("snapshot.get")
     return (reply.get("topology") or {}) if isinstance(reply, dict) else {}
-
-
-def at_rest():
-    """What a measure starts from: the topology's shape and the URL of every shown Chromium page (debug.cef)."""
-    cef = rpc("debug.cef") or {}
-    pages = sorted(str(e.get("url")) for e in (cef.get("devtools") if isinstance(cef, dict) else None) or []
-                   if isinstance(e, dict))
-    return json.dumps([shape(topology()), pages], sort_keys=True)
-
-
-def settle_session(what, timeout=30.0):
-    """Until the session holds still: at_rest() reads the same for 1 s (restores, tabs and first page loads in).
-    Best effort, as the fixed wait was: past `timeout` it says so and goes on."""
-    if wait_stable(at_rest, what, timeout=timeout, interval=0.1, reads=10, raise_on_timeout=False) is None:
-        note(f"every-action: {what} did not hold still in {timeout:g} s")
 
 
 def panes_of(workspace):
@@ -832,7 +816,7 @@ class Sweep:
             self.builder.action("goToWorkspace", {"workspace": workspace})
             wait(lambda: self.builder.focused_workspace() == workspace, 20)
             self.builder.focus_pane(panes[0])
-            settle_session("the light session's first page loads")
+            time.sleep(3)  # test script: the pages' first loads end
             topo = topology()
             self.summary = {"workspaces": len(topo.get("workspaces") or []), "measured": workspace, "measured_panes": len(panes),
                             "measured_tabs": len(self.builder.tabs(workspace, panes[0])), "refusals": self.builder.refusals[:10]}
@@ -901,10 +885,7 @@ class Sweep:
         rpc("action.run", {"action": "tab.focus", "target": f"tab:{pick[0]}", "focus": True})
         if kind == "omnibar":
             rpc("action.run", {"action": "focusLocation", "focus": True})
-        # The base pane shows the tab, then debug.frames read answers once the main thread rendered it.
-        wait(lambda: selected_of(next((p for w in topology().get("workspaces") or [] if w.get("id") == self.base["workspace"]
-                                       for p in panes_of(w) if p.get("id") == self.base["pane"]), {})) == pick[0], 5.0)
-        rpc("debug.frames", {"action": "read"})
+        time.sleep(0.15)  # test script: the selection's first frame before the measured input
         return True
 
     def chromium_tabs(self):
@@ -1296,7 +1277,7 @@ class Sweep:
             # wait for it to go. If it never goes, the check fails the session with 61.
             wait(lambda: base_ws not in shape(topology())["workspaces"], 10.0)
         self.check_stress_shape()
-        settle_session("the rebuilt session's pages")
+        time.sleep(2)  # test script: rebuilt pages load
         self.snapshot_base(workspace)
 
     def replace_tab(self, workspace, pane, tab, kind):
@@ -1379,8 +1360,7 @@ class Sweep:
         t_reply = uptime()
         # The handler's action.commit ends after the Core Animation commit that carries its changes.
         SIGNPOSTS.wait_commit(action_id, t_send, 3.0)
-        # sleep-ok: the frame window's length (--settle) is the measurement: the action's animation runs inside it.
-        time.sleep(settle)
+        time.sleep(settle)  # test script: the animation the action started runs out inside the frame window
         t_end = uptime()
         frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
         hangs = rpc("debug.hangs", {"limit": 8}) or {}
@@ -1631,8 +1611,7 @@ class Sweep:
         t0 = uptime()
         extra = body() or {}
         wall = (uptime() - t0) * 1000
-        # sleep-ok: the recording window's tail is the measurement: the gesture's trailing frames land in it.
-        time.sleep(settle)
+        time.sleep(settle)  # test script: trailing frames of the gesture
         frames = rpc("debug.frames", {"action": "stop"}) or {}
         hangs = rpc("debug.hangs", {"limit": 8}) or {}
         return {"wall_ms": round(wall, 1), "frames": {"refresh_ms": round(frames.get("refresh_ms") or 0, 2), "count": frames.get("frames"),
@@ -1828,23 +1807,11 @@ class Sweep:
 
         def fullscreen():
             rpc("debug.window_transition", {"action": "start"})
-            def geometry():
-                reply = rpc("debug.window_transition", {"action": "geometry"})
-                return json.dumps(reply, sort_keys=True)
-
-            def animate(what):
-                # The window's frame moves off where it was, then holds still: the system animation ran out.
-                start = geometry()
-                if wait(lambda: geometry() != start, 5.0, step=0.1) is None:
-                    note(f"every-action: {self.session}: {what}: the window frame never moved")
-                    return
-                wait_stable(geometry, what, timeout=10, interval=0.1, reads=4, raise_on_timeout=False)
-
             def body():
                 rpc("debug.key", {"key": "f", "modifiers": ["cmd", "control"]})
-                animate("the full-screen animation")
+                time.sleep(1.5)  # test harness: the full-screen animation (system, ~0.7 s) runs out
                 rpc("debug.key", {"key": "f", "modifiers": ["cmd", "control"]})
-                animate("the exit animation")
+                time.sleep(1.5)  # test harness: the exit animation runs out
             out = self.frames_during(body)
             out["transition"] = rpc("debug.window_transition", {"action": "stop"})
             return out
@@ -1859,9 +1826,7 @@ class Sweep:
             slot = pane["tab_slots"][-1]
             def body():
                 rpc("debug.mouse", {"action": "move", "x": sx + slot[0] + slot[1] / 2, "y": sy + sh / 2})
-                # The hover card shows once its delay ran out.
-                wait(lambda: (lambda c: isinstance(c, dict) and (c.get("card_showing") == "true" or c.get("visible") in (True, "true")))(
-                    rpc("debug.hover_cards")), 5.0)
+                time.sleep(1.2)  # test harness: the hover card's delay
             out = self.frames_during(body)
             cards = rpc("debug.hover_cards") or {}
             out["card"] = {k: cards.get(k) for k in ("phase", "kind", "visible") if isinstance(cards, dict)}
@@ -1919,7 +1884,6 @@ class Sweep:
         self.build()
         self.launches.append(self.check_validity())
         self.validity = self.launches[0]
-        # sleep-ok: a 3 s idle recording window; its length is the measurement.
         self.idle = self.frames_during(lambda: time.sleep(3.0) and None, settle=0)
         note(f"every-action: {self.session} idle frames {json.dumps(self.idle['frames'])}")
         later = []
@@ -2033,9 +1997,9 @@ class Sweep:
             bad.append(f"default engine {cef.get('default_engine')}")
         if cef.get("ready_after_launch_s") is None:
             bad.append(f"Chromium not ready (state {cef.get('state')})")
-        web_dev_path = "~/.config/cmux-next/web-dev.json" if sys.platform == "darwin" else "~/.config/cmux/web-dev.json"
-        if os.path.exists(os.path.expanduser(web_dev_path)):
-            bad.append(web_dev_path)
+        web_dev = os.path.exists(os.path.expanduser("~/.config/cmux/web-dev.json"))
+        if web_dev:
+            bad.append("~/.config/cmux/web-dev.json")
         shown = None
         if self.show("chromium"):
             # The picked tab itself, among the shown CEF tabs (debug.cef devtools: one entry per shown CEF tab of every

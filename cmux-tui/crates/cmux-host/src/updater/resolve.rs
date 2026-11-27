@@ -29,51 +29,23 @@ pub(super) fn rollback_waits(
     true
 }
 
-/// Runs a rollback once carrier sessions let it ([`rollback_waits`]), again
-/// after each bind in flight that refused it (`try_rollback` answers its
-/// wait). False when `wait` says the waiter stopped. Each refusal marks the
-/// restart pending, so no new bind starts and the refusals end with the
-/// in-flight bind's mark ([`super::gate::BIND_IN_FLIGHT_FOR`]).
-pub(super) fn rollback_when_clear(
-    carrier: &mut impl FnMut() -> Option<String>,
-    mut try_rollback: impl FnMut() -> Option<Duration>,
-    mut wait: impl FnMut(Duration) -> bool,
-) -> bool {
-    loop {
-        if !rollback_waits(carrier, &mut wait) {
-            return false;
-        }
-        match try_rollback() {
-            None => return true,
-            Some(d) => {
-                if !wait(d) {
-                    return false;
-                }
-            }
-        }
-    }
-}
-
-/// The health timeout's rollback ([`rollback_when_clear`]) waits for carrier
-/// sessions and binds in flight, waking on the role's messages; false when
-/// the role stops (the guard still covers it).
+/// The health timeout's rollback waits for carrier sessions, waking on the
+/// role's messages; false when the role stops (the guard still covers it).
 pub(super) fn timeout_rollback_waits(
     carrier: &mut impl FnMut() -> Option<String>,
-    try_rollback: impl FnMut() -> Option<Duration>,
     rx: &Receiver<Msg>,
 ) -> bool {
-    rollback_when_clear(carrier, try_rollback, |d| wait(rx, d))
+    rollback_waits(carrier, |d| wait(rx, d))
 }
 
 /// The guard's rollback (`cmux host update guard`, a oneshot unit with no
-/// start timeout) waits for carrier sessions and binds in flight by
-/// sleeping; `sleep` is injected for the tests.
+/// start timeout) waits for carrier sessions by sleeping; `sleep` is
+/// injected for the tests.
 pub(super) fn guard_rollback_waits(
     carrier: &mut impl FnMut() -> Option<String>,
-    try_rollback: impl FnMut() -> Option<Duration>,
     mut sleep: impl FnMut(Duration),
 ) {
-    rollback_when_clear(carrier, try_rollback, |d| {
+    rollback_waits(carrier, |d| {
         sleep(d);
         true
     });

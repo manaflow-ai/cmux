@@ -428,19 +428,9 @@ fn append_failure_retries_keep_the_source_and_respect_a_later_removed_record() {
             ])
             .env(CHILD, directory.path())
             .env(MODE, mode)
-            // Pipes, not the suite's own stdout: under `ulimit -f 0` a write to an inherited
-            // log file fails (EFBIG), so the child's first line panicked it (exit 101) in CI.
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
+            .status()
             .unwrap();
-        assert!(
-            status.status.success(),
-            "append failure {mode} child: {}\n{}{}",
-            status.status,
-            String::from_utf8_lossy(&status.stdout),
-            String::from_utf8_lossy(&status.stderr)
-        );
+        assert!(status.success(), "append failure {mode} child: {status}");
     }
 }
 
@@ -976,25 +966,4 @@ async fn a_truncated_snapshot_releases_the_remote_mark_drain_only_with_a_rebuild
     writer.process_batch();
     assert_eq!(hub.rebuild_count(), 1);
     assert!(hub.snapshot().get_row(&RowKey::new("peer", "live")).is_none());
-}
-
-/// Many machines leaving at once share one turn's budget: 200 one-row origins leave in a single
-/// `advance_origins(256)`, not one origin (and one group sync) per writer turn.
-#[test]
-fn small_leaving_origins_share_one_turn() {
-    let (hub, mut writer) = Hub::new(SummaryIndex::new());
-    let hosts: Vec<String> = (0..200).map(|n| format!("m-{n:03}")).collect();
-    for host in &hosts {
-        writer.origin(host, OriginState::Connected, 1).unwrap();
-        let mut row = remote(format!("{host}-1"), 1);
-        row.origin = host.as_str().into();
-        writer.apply(row).unwrap();
-    }
-    for host in &hosts {
-        writer.origin(host, OriginState::Removed, 2).unwrap();
-    }
-    let used = writer.advance_origins(256);
-    let index = hub.snapshot();
-    assert!(hosts.iter().all(|h| !index.is_origin_leaving(h)), "used {used} of 256");
-    assert!(ids(&hub).is_empty());
 }

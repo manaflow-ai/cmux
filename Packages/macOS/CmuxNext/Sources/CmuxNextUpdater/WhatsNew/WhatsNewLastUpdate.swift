@@ -1,4 +1,3 @@
-import CmuxNextCompat
 public import Foundation
 
 /// The update this build came from (cx-ncc.45, decision D1 2026-10-10:
@@ -45,7 +44,7 @@ nonisolated public struct WhatsNewLastUpdateStore: Sendable {
 
     /// `~/Library/Application Support/cmux-next/<bundle id>/last-update.json`.
     public static func app(bundleIdentifier: String?) -> WhatsNewLastUpdateStore {
-        let support = NextSupport.applicationSupportDirectory()
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return WhatsNewLastUpdateStore(url: support.appending(path: "cmux-next/\(bundleIdentifier ?? "cmux")/last-update.json",
                                                               directoryHint: .notDirectory))
     }

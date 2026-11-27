@@ -130,49 +130,12 @@ public enum TerminalChatOpen: Hashable, Sendable {
 /// Toggle Terminal and Chat: the chats of the Mac a terminal's session pairs with, and the
 /// View Only chat the Mac's Toggle opens (acpmux adopt with `watch: true`).
 @MainActor
-public protocol TerminalChatBackend: TerminalChatKeeping {
+public protocol TerminalChatBackend: AnyObject {
     /// The Mac's own acpmux chats now (no request; empty when its acpmux is not connected).
     func terminalChatListings(on macID: String) -> [TerminalChatListing]
     /// `session/new` with `_meta.acpmux.adopt {harness, agentSessionId, watch: true}`, as the
     /// Mac's Toggle Terminal and Chat sends it, in the folder of terminal tab `terminalTabID`.
     func openTerminalChat(harness: String, session: String, terminalTabID: String, on macID: String) async throws -> TerminalChatOpen
-    /// Every chat of the Mac is in `terminalChatListings` (its whole list was read on this
-    /// connection): a kept chat missing from it is gone.
-    func terminalChatListedWhole(on macID: String) -> Bool
-}
-
-extension TerminalChatBackend {
-    public func terminalChatListedWhole(on macID: String) -> Bool { false }
-}
-
-/// What this phone keeps of Toggle Terminal and Chat on disk, per account and Mac, so a relaunch
-/// with the Mac out of reach opens a terminal on its chat's kept turns and each tab on the face
-/// the person left it on (sign-out deletes it). The live backend keeps it in `KeptTerminalChats`;
-/// mock mode is given the same file.
-@MainActor
-public protocol TerminalChatKeeping: AnyObject {
-    /// The chat this phone kept as terminal `harness` `session`'s on `macID`.
-    func keptTerminalChat(harness: String, session: String, on macID: String) -> String?
-    /// Keeps `chat` as the session's chat; nil forgets it.
-    func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String)
-    /// The face the person last chose for tab `tabID` on `macID`: true chat, false terminal.
-    func keptTerminalChatFace(tabID: String, on macID: String) -> Bool?
-    /// Keeps the face the person chose for tab `tabID`.
-    func keepTerminalChatFace(_ showsChat: Bool, tabID: String, on macID: String)
-    /// The kept pairings were read from disk: until then `keptTerminalChat` answers nil for a
-    /// pairing that is kept.
-    var keptTerminalChatsLoaded: Bool { get }
-    /// Returns once the kept pairings are read (the read runs off the main thread).
-    func loadKeptTerminalChats() async
-}
-
-extension TerminalChatKeeping {
-    public func keptTerminalChat(harness: String, session: String, on macID: String) -> String? { nil }
-    public func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String) {}
-    public func keptTerminalChatFace(tabID: String, on macID: String) -> Bool? { nil }
-    public func keepTerminalChatFace(_ showsChat: Bool, tabID: String, on macID: String) {}
-    public var keptTerminalChatsLoaded: Bool { true }
-    public func loadKeptTerminalChats() async {}
 }
 
 extension AgentChatsBackend {

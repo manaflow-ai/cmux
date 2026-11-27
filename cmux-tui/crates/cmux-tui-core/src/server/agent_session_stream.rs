@@ -1,6 +1,5 @@
 //! Attach replay and live-stream delivery, shared by every native attach caller.
 use super::agent_session_link::list_gate::SessionListFilter;
-use super::agent_session_link::list_source;
 use super::*;
 use crate::panic_free::JsonFields;
 use cmux_json::JsonSet as _;
@@ -76,18 +75,6 @@ pub(super) fn connect_and_attach(
         refuse(&writer, id, Refusal::UnknownTab);
         return;
     }
-    // A side chat (acpmux's `side` tag on the page) is the owner's alone: it is remembered, and
-    // a teammate's, team member's or link guest's attach to it ends here, before any record.
-    if side_known::tagged(&page) {
-        sessions.sides.remember(&resolved);
-        sessions.sides.remember(&record_session);
-    }
-    if author.is_some() && (side_known::tagged(&page) || sessions.sides.contains(&resolved)) {
-        release(sessions);
-        link.close();
-        refuse(&writer, id, Refusal::NotTrusted);
-        return;
-    }
     slot.lock().unwrap_or_else(|e| e.into_inner()).session = Some(resolved.clone());
     // Session status changes (`_acpmux/session_changed`) come only to
     // watchers; the reader keeps only this session's and its descendants'.
@@ -106,42 +93,14 @@ pub(super) fn connect_and_attach(
         watch.set("_meta", meta.clone());
         own.set("_meta", meta.clone());
     }
-    let capabilities = link.capabilities(meta.as_ref(), CALL_TIMEOUT);
-    // On the v2 list (row 7c) the one-row watch is the switch, and the descendants come by
-    // `page` with `family`, its hot part only (`agent_session_children::kin_ids`, the cap of
-    // 256 kept; decision 301): no row but theirs is read. The list is opened first, so a daemon
-    // without it gets v1's requests and no more; the watch goes on before the kin are read, so
-    // a child started meanwhile is followed.
-    let source = if capabilities.iter().any(|c| c == list_source::INFO_ROWS) {
-        agent_session_children::kin_source(&socket, &link)
+    let local = SessionListFilter { local_only: true, ..SessionListFilter::default() };
+    let own = local.gate(own, link.capabilities(meta.as_ref(), CALL_TIMEOUT));
+    let watched = if own.served() {
+        watch.set("limit", json!(1));
+        link.call("_acpmux/watch", watch, CALL_TIMEOUT)
+            .and_then(|_| link.call_whole_list("_acpmux/sessions", own.params, CALL_TIMEOUT))
     } else {
-        Ok(None)
-    };
-    let kin = source.and_then(|source| {
-        let Some(mut source) = source else { return Ok(None) };
-        let mut switch = watch.clone();
-        switch.set("limit", json!(1));
-        link.call("_acpmux/watch", switch, CALL_TIMEOUT)?;
-        agent_session_children::kin_ids(&mut source, &resolved, false).map(Some)
-    });
-    let watched = match kin {
-        Ok(Some(ids)) => Ok(ids),
-        Err(error) => Err(error),
-        // No v2 list: v1's list of this machine's sessions, walked here (a named fallback).
-        Ok(None) => {
-            let local = SessionListFilter { local_only: true, ..SessionListFilter::default() };
-            let own = local.gate(own, capabilities);
-            let list = if own.served() {
-                watch.set("limit", json!(1));
-                link.call("_acpmux/watch", watch, CALL_TIMEOUT).and_then(|_| {
-                    link.call_whole_list("_acpmux/sessions", own.params, CALL_TIMEOUT)
-                })
-            } else {
-                link.call_whole_list("_acpmux/watch", watch, CALL_TIMEOUT)
-                    .map(|list| own.narrow(list))
-            };
-            list.map(|list| agent_session_children::descendant_ids(&resolved, &list))
-        }
+        link.call_whole_list("_acpmux/watch", watch, CALL_TIMEOUT).map(|list| own.narrow(list))
     };
     // A list read whole from bad pages would follow only some of the session's descendants,
     // and lose the changes of the rest; the client attaches again instead.
@@ -177,7 +136,8 @@ pub(super) fn connect_and_attach(
     if attachment.author.is_none()
         && let Ok(watched) = &watched
     {
-        attachment.follow_children(watched);
+        attachment
+            .follow_children(&agent_session_children::descendant_ids(&attachment.session, watched));
     }
     for pending in page.pointer("/session/pending").and_then(Value::as_array).into_iter().flatten()
     {
@@ -370,7 +330,7 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
             // stream, which ends with the `overflow` close (the stream's own
             // overflow text), and the client replays from what it holds.
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
-                attachment.end_unsent();
+                attachment.end(None);
             }
         }
         "_acpmux/permission_pending" if same_session => {
@@ -379,7 +339,7 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
             }
             let event = json!({"event": "agent-session-permission", "surface": attachment.surface, "request": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
-                attachment.end_unsent();
+                attachment.end(None);
             }
         }
         // The session's own changes, and its descendants' (`agent-session-children-v1`),
@@ -397,16 +357,17 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
             }
             let event = json!({"event": "agent-session-changed", "surface": attachment.surface, "change": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
-                attachment.end_unsent();
+                attachment.end(None);
             }
         }
         // Who is in the chat: acpmux sends the whole set on every change, to a client that asked.
-        // To a teammate only when its bind asked for presence (`labs.chatMultiplayer`): the set
-        // names who else has the chat open.
-        "_acpmux/presence" if same_session && attachment.hears_presence() => {
+        // Not to a teammate yet: the set names who else has the chat open.
+        "_acpmux/presence"
+            if same_session && attachment.author.is_none() && attachment.wants_presence() =>
+        {
             let event = json!({"event": "agent-session-presence", "surface": attachment.surface, "presence": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
-                attachment.end_unsent();
+                attachment.end(None);
             }
         }
         // A prompt this attachment sent: to its chat, or to a side chat it opened and follows.
@@ -423,5 +384,31 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
 }
 
 #[cfg(test)]
-#[path = "agent_session_stream_draft_tests.rs"]
-mod draft_tests;
+mod draft_tests {
+    use super::*;
+
+    #[test]
+    fn a_teammate_page_keeps_every_record_but_drafts() {
+        let page = json!({"events": [{"seq": 1, "kind": "user_message"},
+            {"seq": 2, "kind": "composer", "msg": {"text": "secret"}}, {"seq": 3, "kind": "queued"}]});
+        let kept = without_drafts(page);
+        let seqs: Vec<u64> =
+            kept["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect();
+        assert_eq!(seqs, vec![1, 3]);
+        assert!(is_draft(&json!({"kind": "composer"})));
+        let page = json!({"events": [], "session": {"sessionId": "s", "name": "chat",
+            "status": "running", "cwd": "/Users/owner/secret", "parentId": "p", "startedBy": "p",
+            "spawnedBy": "p", "children": 2, "tags": {"lane": "x"}, "tools": [{"name": "Bash"}],
+            "rules": true, "mcpServers": [], "pullRequests": ["https://example.com/1"],
+            "agentSessionId": "thread", "peer": "other", "turn": {"turnId": "t"}}});
+        let session = &without_drafts(page)["session"];
+        assert_eq!(
+            session,
+            &json!({"sessionId": "s", "name": "chat", "status": "running", "turn": {"turnId": "t"}})
+        );
+        assert!(!is_draft(&json!({"kind": "user_message"})));
+        let page = json!({"events": [], "presence": {"sessionId": "s", "participants": [
+            {"id": "tailnet:other@example.com", "name": "Other"}]}});
+        assert_eq!(without_drafts(page), json!({"events": []}), "no one's presence");
+    }
+}

@@ -3,7 +3,6 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextDesignTokens
 @testable import CmuxNextSidebar
-import CmuxNextTestSupport
 import Testing
 
 /// Lucas 2026-11-10: "for the density make sure that they are all relatively proportional in terms of
@@ -13,7 +12,7 @@ import Testing
 /// - the toggle's glyph sits that same distance right of the lights;
 /// - every top-row button has one size, the +'s;
 /// - the lights, the toggle, Back and Forward sit one gap apart, glyph to glyph (Lawrence 2026-11-11).
-@MainActor @Suite(.serialized, .closesItsWindows) struct TopRowSpacingDensityTests {
+@MainActor @Suite(.serialized) struct TopRowSpacingDensityTests {
     /// The glyph's drawn extent (alpha > 0.3) in window x, from the button's image centered in its frame.
     private func ink(_ button: NSButton) throws -> ClosedRange<CGFloat> {
         let image = try #require(button.image), size = image.size, s: CGFloat = 4

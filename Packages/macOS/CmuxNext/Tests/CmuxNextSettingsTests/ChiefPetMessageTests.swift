@@ -19,7 +19,7 @@ import Testing
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let url = home.appending(path: "cmux-next.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         let registry = ActionRegistry.standard()
         let summons = Summons()
@@ -75,7 +75,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         let url = home.appending(path: "cmux-next.json")
         try Data(#"{"home": {"chiefPetEnabled": true}}"#.utf8).write(to: url)
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         #expect(settings.snapshot.homeChiefPetEnabled)

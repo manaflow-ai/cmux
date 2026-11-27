@@ -46,9 +46,7 @@ import Testing
 
     @Test func storedTokenIsUsableUntilAMinuteBeforeItsExpiry() {
         let now = Date(timeIntervalSince1970: 10_000)
-        let token = AccessTokenExpiry(token: Self.jwt(exp: 10_000 + 600))
-        #expect(token.accountID == "u1")
-        #expect(token.isUsable(at: now))
+        #expect(AccessTokenExpiry(token: Self.jwt(exp: 10_000 + 600)).isUsable(at: now))
         #expect(AccessTokenExpiry(token: Self.jwt(exp: 10_000 + 61)).isUsable(at: now))
         #expect(!AccessTokenExpiry(token: Self.jwt(exp: 10_000 + 59)).isUsable(at: now))
         #expect(!AccessTokenExpiry(token: Self.jwt(exp: 9_000)).isUsable(at: now))

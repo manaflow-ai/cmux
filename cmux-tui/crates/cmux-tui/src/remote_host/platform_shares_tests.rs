@@ -610,8 +610,7 @@ fn an_every_chat_platform_share_never_takes_the_place_of_a_local_share() {
     // The proxy still lets her prompt the shared chat.
     let frame = json!({"cmd": "agent-session-prompt", "surface": 3, "text": "hi"});
     let author = json!({"login": TEAMMATE});
-    let filtered =
-        crate::remote_host::agent_proxy::filter(&outcome.config, &author, BOOT, false, frame);
+    let filtered = crate::remote_host::agent_proxy::filter(&outcome.config, &author, BOOT, frame);
     assert!(filtered.is_ok(), "{filtered:?}");
 }
 
@@ -678,25 +677,6 @@ fn two_concurrent_removals_end_with_neither_chat_shared() {
     answer.unwrap();
     assert_eq!(api.live_sessions(ANA), None, "neither chat is shared");
     assert!(api.shares.borrow().iter().all(|s| s.revoked_at.is_some()));
-}
-
-#[test]
-fn unshare_by_share_id_revokes_the_replacement_made_while_the_prompt_waits() {
-    let api = Platform::default();
-    api.live(ANA, &["a", "b"]);
-    let id = api.shares.borrow()[0].id.clone();
-    // While the prompt is open, another writer replaces the named share (`c` added).
-    let answer = unshare_while(&api, &[id.as_str()], &|| {
-        let (answer, ..) = run("share", &["c", ANA], false, &elsewhere(), &api);
-        answer.unwrap();
-    });
-    assert!(answer.unwrap()["revoked"]["revoked_at"].is_number());
-    assert_eq!(api.live_sessions(ANA), None, "the replacement is revoked, not left live");
-    // A share id that is not live is refused, and nothing is revoked.
-    let revokes = api.revokes.borrow().len();
-    let (answer, ..) = run("unshare", &[id.as_str()], false, &elsewhere(), &api);
-    assert!(answer.unwrap_err().to_string().contains("no such live share"));
-    assert_eq!(api.revokes.borrow().len(), revokes);
 }
 
 #[test]

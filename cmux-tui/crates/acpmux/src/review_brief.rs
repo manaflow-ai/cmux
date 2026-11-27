@@ -2,8 +2,8 @@
 //! dropped and why, and the spots it was unsure about, drawn from its own log for whoever reviews
 //! its diff.
 //!
-//! The brief is a [`Fold`] of the chat's records: its first prompt, its latest plan (a plan tool's
-//! `rawInput.plan`), the sentences of its replies that hedge ("not sure",
+//! The brief is a [`Fold`] of the chat's records: its first prompt, its latest plan (an ACP `plan`
+//! update, or a plan tool's `rawInput.plan`), the sentences of its replies that hedge ("not sure",
 //! "couldn't verify") or drop an approach ("didn't work", "instead"), and its edits. An edit that
 //! puts back the text an earlier edit replaced is a revert; one that writes that change again is
 //! a redo; the same text rewritten three times running is rework. An edit counts once its tool
@@ -34,12 +34,14 @@ pub const KINDS: &[&str] = &[
     "agent_message_chunk",
     "tool_call",
     "tool_call_update",
+    "plan",
     "turn_started",
     "turn_result",
 ];
 
 const MAX_GOAL: usize = 600;
 const MAX_PLAN_TEXT: usize = 1200;
+const MAX_PLAN: usize = 12;
 const MAX_NOTE: usize = 280;
 const MAX_REJECTED: usize = 6;
 const MAX_HEDGES: usize = 10;
@@ -126,6 +128,15 @@ const REJECTIONS: &[&str] = &[
     "switch to",
     "switching to",
 ];
+
+/// One plan entry, as the chat's latest plan has it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanItem {
+    pub content: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub status: String,
+}
 
 /// A sentence from a reply: a dropped approach.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -245,6 +256,8 @@ pub struct Fold {
     #[serde(default)]
     plan_text: String,
     #[serde(default)]
+    plan: Vec<PlanItem>,
+    #[serde(default)]
     rejected: Vec<Note>,
     #[serde(default)]
     hedges: Vec<Spot>,
@@ -272,6 +285,7 @@ impl Default for Fold {
             seq: 0,
             goal: String::new(),
             plan_text: String::new(),
+            plan: Vec::new(),
             rejected: Vec::new(),
             hedges: Vec::new(),
             edit_spots: Vec::new(),
@@ -321,6 +335,26 @@ impl Fold {
                 self.pending.clear();
             }
             "agent_message_chunk" if rec.dir == "in" => self.chunk(rec),
+            "plan" if rec.dir == "in" => {
+                let Some(params) = own_params(rec) else { return };
+                if let Some(entries) = params.pointer("/update/entries").and_then(Value::as_array) {
+                    self.plan = entries
+                        .iter()
+                        .filter_map(|e| {
+                            let content = e.get("content").and_then(Value::as_str)?.trim();
+                            (!content.is_empty()).then(|| PlanItem {
+                                content: clip(content, MAX_NOTE),
+                                status: e
+                                    .get("status")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                            })
+                        })
+                        .take(MAX_PLAN)
+                        .collect();
+                }
+            }
             "tool_call" | "tool_call_update" if rec.dir == "in" => {
                 let Some(params) = own_params(rec) else { return };
                 let Some(update) = params.get("update") else { return };
@@ -529,6 +563,7 @@ impl Fold {
         json!({
             "goal": fold.goal,
             "planText": fold.plan_text,
+            "plan": fold.plan,
             "rejected": fold.rejected,
             "unsure": unsure,
         })

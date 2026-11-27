@@ -6,110 +6,9 @@ use std::path::Path;
 #[cfg(test)]
 use std::path::PathBuf;
 use std::process::{Output, Stdio};
-use std::time::Duration;
-
-/// The route `cmux-ci test` takes to the fleet's Linux pool: a plain command, not a dev build.
-const POOL_KIND: &str = "fast-checks";
-const POOL_LABEL: &str = "cmux-next-linux";
-/// One wait's bound from job creation, unless `timeoutMs` names another (within the cap).
-const DEFAULT_TIMEOUT_SECS: u64 = 3600;
-const MAX_TIMEOUT_SECS: u64 = 10800;
-/// The client's own time to answer past its `--timeout`: the terminal read plus the complete
-/// log, which `cmux-ci wait --full-log` may take up to 600 s to receive.
-const WAIT_GRACE_SECS: u64 = 660;
-/// Submit, status and cancel are single controller round trips.
-const CALL_SECS: u64 = 300;
-
-/// Why a CI placement did not produce a command result. Every failure carries one in
-/// `data.reason`, so a workflow can branch on it instead of matching message text.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Reason {
-    /// No installed authenticated `cmux-ci` client. Nothing ran, locally or remotely.
-    Unavailable,
-    /// The controller refused the submission or its binding; no replacement job exists.
-    Refused,
-    /// A submission may have queued but was never acknowledged; resume reattaches by key.
-    Unacknowledged,
-    /// The controller stopped answering during the wait; the job keeps its place.
-    Unreachable,
-    /// The job did not end within its deadline and was cancelled.
-    Deadline,
-    /// A receipt or output does not match the saved intent.
-    Binding,
-    /// The job ended without a verifiable command status or complete output.
-    Incomplete,
-    /// The command ran and exited nonzero (or the job failed or was cancelled).
-    Failed,
-}
-
-impl Reason {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Unavailable => "ci.unavailable",
-            Self::Refused => "ci.refused",
-            Self::Unacknowledged => "ci.unacknowledged",
-            Self::Unreachable => "ci.unreachable",
-            Self::Deadline => "ci.deadline",
-            Self::Binding => "ci.binding",
-            Self::Incomplete => "ci.incomplete",
-            Self::Failed => "ci.failed",
-        }
-    }
-}
-
-fn fail(reason: Reason, message: impl std::fmt::Display) -> RpcError {
-    RpcError::internal(message.to_string()).with_data(json!({"reason": reason.as_str()}))
-}
-
-fn fail_with(reason: Reason, message: impl std::fmt::Display, mut data: Value) -> RpcError {
-    if let Some(map) = data.as_object_mut() {
-        map.insert("reason".into(), json!(reason.as_str()));
-    }
-    RpcError::internal(message.to_string()).with_data(data)
-}
 
 fn error(message: impl std::fmt::Display) -> RpcError {
     RpcError::internal(message.to_string())
-}
-
-/// The controller answers with JSON on success; anything else is a binding failure.
-fn parse(bytes: &[u8]) -> Result<Value, RpcError> {
-    serde_json::from_slice(bytes).map_err(|_| fail(Reason::Binding, "CI client answered no JSON"))
-}
-
-fn timeout_secs(options: &Value) -> Result<u64, RpcError> {
-    match options.get("timeoutMs") {
-        None => Ok(DEFAULT_TIMEOUT_SECS),
-        Some(value) => value
-            .as_u64()
-            .filter(|ms| (1000..=MAX_TIMEOUT_SECS * 1000).contains(ms))
-            .map(|ms| ms.div_ceil(1000))
-            .ok_or_else(|| {
-                RpcError::invalid_params(format!(
-                    "timeoutMs must be a whole number from 1000 to {}",
-                    MAX_TIMEOUT_SECS * 1000
-                ))
-            }),
-    }
-}
-
-fn bound(intent: &CiIntent) -> u64 {
-    if intent.timeout_secs == 0 { DEFAULT_TIMEOUT_SECS } else { intent.timeout_secs }
-}
-
-/// Seconds left of the intent's bound, counted from the job's creation, so a resumed wait
-/// never extends the deadline it started with.
-fn remaining(intent: &CiIntent, job: &Value, now: chrono::DateTime<chrono::Utc>) -> u64 {
-    let bound = bound(intent);
-    let created = job
-        .get("created_at")
-        .and_then(Value::as_str)
-        .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
-        .map(|at| at.with_timezone(&chrono::Utc));
-    let Some(created) = created else { return bound };
-    let elapsed = u64::try_from((now - created).num_seconds()).unwrap_or(0);
-    // At least one second: a resumed run past its deadline still reads the terminal state once.
-    bound.saturating_sub(elapsed).max(1)
 }
 
 async fn git(cwd: &Path, args: &[&str]) -> Result<String, RpcError> {
@@ -172,7 +71,7 @@ pub(crate) async fn prepare(
     command: &str,
     options: &Value,
 ) -> Result<CiIntent, RpcError> {
-    let repo = github_repo(&git(&run.cwd, &["config", "--get", "remote.origin.url"]).await?)?;
+    let repo = github_repo(&git(&run.cwd, &["remote", "get-url", "origin"]).await?)?;
     let source_ref = git(&run.cwd, &["rev-parse", "--verify", "HEAD^{commit}"]).await?;
     if source_ref.len() != 40 || !source_ref.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(error("CI source must resolve to a full commit SHA"));
@@ -183,7 +82,6 @@ pub(crate) async fn prepare(
         Some(Value::String(target)) => target.clone(),
         Some(_) => return Err(RpcError::invalid_params("targetWorker must be a string")),
     };
-    let timeout_secs = timeout_secs(options)?;
     let request_key =
         format!("wf-{}", crate::workflow_runs::digest(&format!("{}:{activity}", run.id)));
     // Generic controller jobs do not promise exit_code. A final wrapper-owned marker
@@ -201,9 +99,6 @@ pub(crate) async fn prepare(
         source_ref,
         command: format!("/bin/sh -c {}", quote(&body)),
         target_worker,
-        kind: POOL_KIND.into(),
-        label: POOL_LABEL.into(),
-        timeout_secs,
     })
 }
 
@@ -219,14 +114,12 @@ impl Client {
         }
     }
 
-    /// One client process, bounded. A missing client is `ci.unavailable`: nothing ran.
-    async fn call_within(&self, args: &[String], bound: Duration) -> Result<Output, RpcError> {
-        let resolved = crate::config::user_program("cmux-ci");
-        let program = resolved.as_path();
+    async fn call(&self, args: &[String]) -> Result<Output, RpcError> {
+        let program = Path::new("cmux-ci");
         #[cfg(test)]
         let program = self.program.as_deref().unwrap_or(program);
         tokio::time::timeout(
-            bound,
+            std::time::Duration::from_secs(300),
             tokio::process::Command::new(program)
                 .args(args)
                 .stdin(Stdio::null())
@@ -234,19 +127,8 @@ impl Client {
                 .output(),
         )
         .await
-        .map_err(|_| {
-            fail(
-                Reason::Unacknowledged,
-                "CI client gave no answer in its bound; request key is retained for reconciliation",
-            )
-        })?
-        .map_err(|_| {
-            fail(Reason::Unavailable, "authenticated cmux-ci client unavailable; no local fallback")
-        })
-    }
-
-    async fn call(&self, args: &[String]) -> Result<Output, RpcError> {
-        self.call_within(args, Duration::from_secs(CALL_SECS)).await
+        .map_err(|_| error("CI client timed out; request key is retained for reconciliation"))?
+        .map_err(|_| error("authenticated cmux-ci client unavailable; no local fallback"))
     }
 
     async fn submit(&self, intent: &CiIntent, receipt: &Path) -> Result<Value, RpcError> {
@@ -257,7 +139,7 @@ impl Client {
             "--request-key".into(),
             intent.request_key.clone(),
             "--kind".into(),
-            intent.kind.clone(),
+            "cmux".into(),
             "--repo".into(),
             intent.repo.clone(),
             "--ref".into(),
@@ -265,80 +147,33 @@ impl Client {
             "--receipt".into(),
             receipt.to_string_lossy().into_owned(),
         ];
-        if !intent.label.is_empty() {
-            args.extend(["--label".into(), intent.label.clone()]);
-        }
         if !intent.target_worker.is_empty() {
             args.extend(["--target-worker".into(), intent.target_worker.clone()]);
         }
-        let output = match self.call(&args).await {
-            Err(error) if reason_of(&error) == Some(Reason::Unavailable) => return Err(error),
-            output => output,
-        };
-        if let Ok(output) = &output
-            && output.status.success()
-        {
-            return parse(&output.stdout);
-        }
-        // A lost acknowledgement may already have queued the job. Lookup is read-only;
-        // the identical POST then proves that this intent is the key's binding (or 409).
-        let status = self
-            .call(&["status".into(), "--request-key".into(), intent.request_key.clone()])
-            .await?;
-        match status.status.code() {
-            Some(0) => {}
-            // No job holds the key and the controller answered the submit: it took nothing.
-            Some(1) if output.as_ref().is_ok_and(|o| o.status.code() != Some(3)) => {
-                let why = output.as_ref().map(|o| last_line(&o.stderr)).unwrap_or_default();
-                return Err(fail(Reason::Refused, format!("CI submission refused: {why}")));
-            }
-            _ => {
-                return Err(fail(
-                    Reason::Unacknowledged,
-                    "CI submission unacknowledged; resume reattaches by the saved request key",
+        let output = self.call(&args).await;
+        if !output.as_ref().is_ok_and(|output| output.status.success()) {
+            // A lost acknowledgement may already have queued the job. Lookup is read-only;
+            // the identical POST then proves that this intent is the key's binding (or 409).
+            let status = self
+                .call(&["status".into(), "--request-key".into(), intent.request_key.clone()])
+                .await?;
+            if !status.status.success() {
+                return Err(error(
+                    "CI submission unacknowledged; resume with the saved request key",
                 ));
             }
+            binding(
+                &serde_json::from_slice::<Value>(&status.stdout).map_err(error)?,
+                intent,
+                None,
+            )?;
+            let output = self.call(&args).await?;
+            if !output.status.success() {
+                return Err(error("CI request binding refused; no replacement job was submitted"));
+            }
+            return serde_json::from_slice(&output.stdout).map_err(error);
         }
-        binding(&parse(&status.stdout)?, intent, None)?;
-        let output = self.call(&args).await?;
-        if !output.status.success() {
-            return Err(fail(
-                Reason::Refused,
-                "CI request binding refused; no replacement job was submitted",
-            ));
-        }
-        parse(&output.stdout)
-    }
-
-    /// One wait for the job's end, bounded by the intent's deadline. The client follows the
-    /// job on the controller and rides out short outages; this process never re-polls.
-    async fn wait(
-        &self,
-        id: &str,
-        seconds: u64,
-        log: &Path,
-        receipt: &Path,
-    ) -> Result<Option<i32>, RpcError> {
-        let args: [String; 8] = [
-            "wait".into(),
-            id.to_owned(),
-            "--timeout".into(),
-            seconds.to_string(),
-            "--full-log".into(),
-            log.to_string_lossy().into_owned(),
-            "--receipt".into(),
-            receipt.to_string_lossy().into_owned(),
-        ];
-        let bound = Duration::from_secs(seconds + WAIT_GRACE_SECS);
-        match self.call_within(&args, bound).await {
-            Ok(output) => Ok(output.status.code()),
-            Err(error) if reason_of(&error) == Some(Reason::Unacknowledged) => Err(fail_with(
-                Reason::Unreachable,
-                "CI wait gave no answer past its deadline; the job keeps its place",
-                json!({"jobId": id}),
-            )),
-            Err(error) => Err(error),
-        }
+        serde_json::from_slice(&output?.stdout).map_err(error)
     }
 
     async fn cancel(&self, intent: &CiIntent, receipt: Option<&Value>) -> Result<(), RpcError> {
@@ -348,17 +183,10 @@ impl Client {
                 let output = self
                     .call(&["status".into(), "--request-key".into(), intent.request_key.clone()])
                     .await?;
-                match output.status.code() {
-                    Some(0) => parse(&output.stdout)?,
-                    // No job holds the key: nothing was queued, so nothing runs.
-                    Some(1) => return Ok(()),
-                    _ => {
-                        return Err(fail(
-                            Reason::Unreachable,
-                            "CI cancellation cannot establish request binding",
-                        ));
-                    }
+                if !output.status.success() {
+                    return Err(error("CI cancellation cannot establish request binding"));
                 }
+                serde_json::from_slice(&output.stdout).map_err(error)?
             }
         };
         let (id, digest) = binding(&job, intent, None)?;
@@ -383,37 +211,10 @@ impl Client {
             ])
             .await?;
         if !result.status.success() {
-            return Err(fail(Reason::Refused, "conditional CI cancellation refused"));
+            return Err(error("conditional CI cancellation refused"));
         }
         Ok(())
     }
-}
-
-fn reason_of(error: &RpcError) -> Option<Reason> {
-    let reason = error.data.as_ref()?.get("reason")?.as_str()?;
-    [
-        Reason::Unavailable,
-        Reason::Refused,
-        Reason::Unacknowledged,
-        Reason::Unreachable,
-        Reason::Deadline,
-        Reason::Binding,
-        Reason::Incomplete,
-        Reason::Failed,
-    ]
-    .into_iter()
-    .find(|candidate| candidate.as_str() == reason)
-}
-
-fn last_line(bytes: &[u8]) -> String {
-    let text = String::from_utf8_lossy(bytes);
-    text.lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or("")
-        .chars()
-        .take(300)
-        .collect()
 }
 
 /// A successful keyed POST enforces the controller's complete immutable digest. Older
@@ -435,21 +236,17 @@ fn binding(
         || field("command") != intent.command
         || field("repo") != intent.repo
         || field("ref") != intent.source_ref
-        || field("kind") != intent.kind
-        || (!intent.label.is_empty()
-            && !job.get("labels").and_then(Value::as_array).is_some_and(|labels| {
-                labels.iter().any(|l| l.as_str() == Some(intent.label.as_str()))
-            }))
+        || field("kind") != "cmux"
         || (previous.is_some_and(|p| {
             p.get("id") != job.get("id") || p.get("command_digest") != job.get("command_digest")
         }))
     {
-        return Err(fail(Reason::Binding, "CI receipt does not match the saved request binding"));
+        return Err(error("CI receipt does not match the saved request binding"));
     }
     if job.get("pin_requested").and_then(Value::as_str).unwrap_or_else(|| field("target_worker"))
         != intent.target_worker
     {
-        return Err(fail(Reason::Binding, "CI requested target differs from saved intent"));
+        return Err(error("CI requested target differs from saved intent"));
     }
     Ok((id.to_owned(), digest.to_owned()))
 }
@@ -461,61 +258,27 @@ async fn finish_wait(
     intent: &CiIntent,
     job: &Value,
 ) -> Result<Value, RpcError> {
-    let id = job.get("id").cloned().unwrap_or(Value::Null);
-    match code {
-        // The deadline passed with the job unfinished. The caller's cleanup cancels it.
-        Some(2) => {
-            return Err(fail_with(
-                Reason::Deadline,
-                format!("CI job did not end within {} s", bound(intent)),
-                json!({"jobId": id}),
-            ));
-        }
-        Some(3) => {
-            return Err(fail_with(
-                Reason::Unreachable,
-                "CI controller stopped answering during the wait; the job keeps its place",
-                json!({"jobId": id}),
-            ));
-        }
-        _ => {}
-    }
     let terminal: Value = serde_json::from_slice(
         &tokio::fs::read(receipt)
             .await
-            .map_err(|_| fail(Reason::Incomplete, "CI wait returned no terminal receipt"))?,
+            .map_err(|_| error("CI wait returned no terminal receipt"))?,
     )
-    .map_err(|_| fail(Reason::Incomplete, "CI terminal receipt is not JSON"))?;
+    .map_err(error)?;
     binding(&terminal, intent, Some(job))?;
+    if code == Some(74) {
+        return Err(error("CI complete output unavailable"));
+    }
     let state = terminal.get("state").and_then(Value::as_str);
     if !matches!(state, Some("done" | "failed" | "cancelled")) {
-        return Err(fail(Reason::Incomplete, "CI wait returned a nonterminal job"));
+        return Err(error("CI wait returned a nonterminal job"));
     }
-    // Keep the verified terminal receipt in every later failure, so cleanup does not cancel
-    // a job that already ended.
-    let ended = |reason, message: &str, text: &[u8]| {
-        fail_with(
-            reason,
-            message,
-            json!({"jobId":id,"state":state,"exitCode":Value::Null,
-                "text":String::from_utf8_lossy(text),"ciReceipt":terminal}),
-        )
-    };
-    if code == Some(74) {
-        return Err(ended(Reason::Incomplete, "CI complete output unavailable", &[]));
-    }
-    let mut output = tokio::fs::read(log)
-        .await
-        .map_err(|_| ended(Reason::Incomplete, "CI complete output unavailable", &[]))?;
+    let mut output =
+        tokio::fs::read(log).await.map_err(|_| error("CI complete output unavailable"))?;
     // Source/setup failures and cancellation may end before the wrapper can report.
     // Keep their verified complete diagnostic output without inventing an exit status.
     let incomplete = |message| {
-        let reason = if matches!(state, Some("failed" | "cancelled")) {
-            Reason::Failed
-        } else {
-            Reason::Incomplete
-        };
-        ended(reason, message, &output)
+        error(message).with_data(json!({"jobId":job.get("id"),
+        "state":state,"exitCode":Value::Null,"text":String::from_utf8_lossy(&output),"ciReceipt":terminal}))
     };
     let marker = format!("\ncmux-workflow-exit-{}:", intent.request_key);
     let end = output
@@ -544,26 +307,9 @@ async fn finish_wait(
         "text":String::from_utf8_lossy(&output),"data":base64::engine::general_purpose::STANDARD.encode(&output),
         "fromByte":0,"nextByte":output.len(),"skippedBytes":0,"ciReceipt":terminal});
     if code != Some(0) || state != Some("done") || status != 0 {
-        return Err(fail_with(Reason::Failed, "workflow CI command did not succeed", view));
+        return Err(error("workflow CI command did not succeed").with_data(view));
     }
     Ok(view)
-}
-
-/// One wait, bounded by the deadline counted from the job's creation: a resume after a
-/// restart reattaches to the same job and keeps the deadline it started with. Pause cancels
-/// the job, which ends this wait; its outcome is then fenced by generation.
-async fn settle(
-    client: &Client,
-    intent: &CiIntent,
-    id: &str,
-    job: &Value,
-    dir: &Path,
-) -> Result<Value, RpcError> {
-    let log = dir.join("output.log");
-    let receipt = dir.join("terminal.json");
-    let seconds = remaining(intent, job, chrono::Utc::now());
-    let code = client.wait(id, seconds, &log, &receipt).await?;
-    finish_wait(code, &receipt, &log, intent, job).await
 }
 
 impl Hub {
@@ -595,27 +341,50 @@ impl Hub {
             )
             .map_err(error)?;
         drop(gate);
-        let outcome = settle(&client, intent, &id, &job, files.path()).await;
-        // Parent cleanup reads the current activity. Persist a verified terminal receipt
-        // so it does not issue a redundant cancellation after a finished command.
-        let view = match &outcome {
-            Ok(view) => Some(view),
-            Err(error) => error.data.as_ref(),
-        };
-        if let Some(terminal) = view.and_then(|view| view.get("ciReceipt")) {
-            let _gate = self.workflow_runs.gate(&run.id).lock_owned().await;
+        let log = files.path().join("output.log");
+        let receipt = files.path().join("terminal.json");
+        loop {
             self.workflow_runs
                 .store()
-                .update_activity_policy(
-                    &run.id,
-                    generation,
-                    &run.owner_session_id,
-                    &activity.id,
-                    json!({"ciReceipt":terminal}),
-                )
+                .authorize(&run.id, generation, &run.owner_session_id)
                 .map_err(error)?;
+            let result = client
+                .call(&[
+                    "wait".into(),
+                    id.clone(),
+                    "--timeout".into(),
+                    "60".into(),
+                    "--full-log".into(),
+                    log.to_string_lossy().into_owned(),
+                    "--receipt".into(),
+                    receipt.to_string_lossy().into_owned(),
+                ])
+                .await?;
+            if result.status.code() == Some(2) {
+                continue;
+            }
+            let outcome = finish_wait(result.status.code(), &receipt, &log, intent, &job).await;
+            // Parent cleanup reads the current activity. Persist a verified terminal receipt
+            // so it does not issue a redundant cancellation after a finished command.
+            let view = match &outcome {
+                Ok(view) => Some(view),
+                Err(error) => error.data.as_ref(),
+            };
+            if let Some(terminal) = view.and_then(|view| view.get("ciReceipt")) {
+                let _gate = self.workflow_runs.gate(&run.id).lock_owned().await;
+                self.workflow_runs
+                    .store()
+                    .update_activity_policy(
+                        &run.id,
+                        generation,
+                        &run.owner_session_id,
+                        &activity.id,
+                        json!({"ciReceipt":terminal}),
+                    )
+                    .map_err(error)?;
+            }
+            return outcome;
         }
-        outcome
     }
 
     pub(crate) async fn workflow_ci_cancel(
@@ -709,16 +478,12 @@ intent = json.loads((root/'intent.json').read_text())
 state = root/'job.json'
 with (root/'calls.jsonl').open('a') as f: f.write(json.dumps(args)+'\n')
 if op == 'submit':
-    if (root/'refuse').exists():
-        sys.stderr.write('controller: 422 label is not served by any pool\n')
-        sys.exit(9)
     wanted = {'command':flag('--command'),'repo':flag('--repo'),'ref':flag('--ref'),'kind':flag('--kind'),'target_worker':flag('--target-worker'),'request_key':flag('--request-key')}
     if state.exists():
         job=json.loads(state.read_text())
         if any(job[k] != v for k,v in wanted.items()): sys.exit(9)
     else:
-        labels=[flag('--label')] if '--label' in args else []
-        job=dict(wanted,id='a'*24,command_digest='sha256:'+'b'*64,state='queued',labels=labels,created_at='2026-11-20T21:10:39.886522Z')
+        job=dict(wanted,id='a'*24,command_digest='sha256:'+'b'*64,state='queued')
         state.write_text(json.dumps(job))
         (root/'created').write_text('one job')
     if (root/'lose-ack').exists():
@@ -736,10 +501,7 @@ elif op == 'cancel':
     state.write_text(json.dumps(job))
     print(json.dumps(job))
 elif op == 'wait':
-    if (root/'down').exists(): sys.exit(3)
-    if (root/'stall').exists(): sys.exit(2)
     job=json.loads(state.read_text())
-    (root/'ran').open('a').write('run\n')
     result=subprocess.run(job['command'],shell=True,cwd=root,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
     job['state']='done' if result.returncode == 0 else 'failed'
     pathlib.Path(flag('--receipt')).write_text(json.dumps(job))
@@ -914,146 +676,6 @@ else: sys.exit(9)
             "https://github.com/example/project?token=secret",
         ] {
             assert!(github_repo(url).is_err());
-        }
-    }
-
-    fn calls(dir: &Path) -> Vec<Value> {
-        std::fs::read_to_string(dir.join("calls.jsonl"))
-            .unwrap_or_default()
-            .lines()
-            .map(|s| serde_json::from_str(s).unwrap())
-            .collect()
-    }
-
-    fn reason(error: &RpcError) -> &str {
-        error.data.as_ref().and_then(|d| d["reason"].as_str()).unwrap_or("")
-    }
-
-    #[tokio::test]
-    async fn workflow_ci_step_runs_on_the_linux_pool_and_reports_back_with_one_wait() {
-        let dir = tempfile::tempdir().unwrap();
-        repository(dir.path()).await;
-        let intent =
-            prepare(&run(dir.path()), "activity", "printf placed", &json!({"timeoutMs":90000}))
-                .await
-                .unwrap();
-        assert_eq!((intent.kind.as_str(), intent.label.as_str()), (POOL_KIND, POOL_LABEL));
-        assert_eq!(intent.timeout_secs, 90);
-        let client = fake(dir.path(), &intent, false);
-        let job = client.submit(&intent, &dir.path().join("submit.json")).await.unwrap();
-        let (id, _) = binding(&job, &intent, None).unwrap();
-        let view = settle(&client, &intent, &id, &job, dir.path()).await.unwrap();
-        assert_eq!(view["text"], "placed");
-        assert_eq!(view["exitCode"], 0);
-        assert_eq!(view["ciReceipt"]["state"], "done");
-        let calls = calls(dir.path());
-        let submit = calls.iter().find(|call| call[0] == "submit").unwrap();
-        let args: Vec<&str> = submit.as_array().unwrap().iter().filter_map(Value::as_str).collect();
-        assert!(args.windows(2).any(|w| w == ["--kind", POOL_KIND]));
-        assert!(args.windows(2).any(|w| w == ["--label", POOL_LABEL]));
-        // One wait for the whole job, bounded by what is left of its deadline: no re-polls.
-        let waits: Vec<_> = calls.iter().filter(|call| call[0] == "wait").collect();
-        assert_eq!(waits.len(), 1);
-        let seconds: u64 = waits[0][3].as_str().unwrap().parse().unwrap();
-        assert!((1..=90).contains(&seconds));
-    }
-
-    #[tokio::test]
-    async fn workflow_ci_refused_unavailable_unreachable_and_late_fail_with_typed_reasons() {
-        let dir = tempfile::tempdir().unwrap();
-        repository(dir.path()).await;
-        let marker = dir.path().join("must-not-exist");
-        let command = format!("touch {}", quote(marker.to_str().unwrap()));
-        let intent = prepare(&run(dir.path()), "activity", &command, &json!({})).await.unwrap();
-
-        let missing = Client { program: Some(dir.path().join("missing-client")) };
-        let error = missing.submit(&intent, &dir.path().join("r.json")).await.unwrap_err();
-        assert_eq!(reason(&error), "ci.unavailable");
-
-        let client = fake(dir.path(), &intent, false);
-        std::fs::write(dir.path().join("refuse"), "").unwrap();
-        let error = client.submit(&intent, &dir.path().join("r.json")).await.unwrap_err();
-        assert_eq!(reason(&error), "ci.refused");
-        assert!(error.message.contains("label is not served"), "{}", error.message);
-        assert!(!dir.path().join("created").exists());
-        std::fs::remove_file(dir.path().join("refuse")).unwrap();
-
-        let job = client.submit(&intent, &dir.path().join("r.json")).await.unwrap();
-        let (id, _) = binding(&job, &intent, None).unwrap();
-        std::fs::write(dir.path().join("down"), "").unwrap();
-        let error = settle(&client, &intent, &id, &job, dir.path()).await.unwrap_err();
-        assert_eq!(reason(&error), "ci.unreachable");
-        assert_eq!(error.data.as_ref().unwrap()["jobId"], id);
-        std::fs::remove_file(dir.path().join("down")).unwrap();
-
-        std::fs::write(dir.path().join("stall"), "").unwrap();
-        let error = settle(&client, &intent, &id, &job, dir.path()).await.unwrap_err();
-        assert_eq!(reason(&error), "ci.deadline");
-        // Cleanup cancels the unfinished job by its exact binding.
-        client.cancel(&intent, Some(&job)).await.unwrap();
-        assert_eq!(calls(dir.path()).last().unwrap()[0], "cancel");
-        assert!(!marker.exists());
-        assert!(!dir.path().join("ran").exists());
-    }
-
-    #[tokio::test]
-    async fn workflow_ci_resume_reattaches_the_same_job_and_never_runs_it_twice() {
-        let dir = tempfile::tempdir().unwrap();
-        repository(dir.path()).await;
-        let intent =
-            prepare(&run(dir.path()), "activity", "printf once", &json!({})).await.unwrap();
-        let client = fake(dir.path(), &intent, false);
-        // First runner: submits, then the daemon dies before the wait.
-        let first = client.submit(&intent, &dir.path().join("a.json")).await.unwrap();
-        // Resumed runner: the saved intent submits again under the same key and attaches.
-        let saved: CiIntent =
-            serde_json::from_str(&serde_json::to_string(&intent).unwrap()).unwrap();
-        let again = client.submit(&saved, &dir.path().join("b.json")).await.unwrap();
-        let (id, _) = binding(&again, &saved, Some(&first)).unwrap();
-        let view = settle(&client, &saved, &id, &again, dir.path()).await.unwrap();
-        assert_eq!(view["text"], "once");
-        assert_eq!(std::fs::read_to_string(dir.path().join("created")).unwrap(), "one job");
-        assert_eq!(std::fs::read_to_string(dir.path().join("ran")).unwrap(), "run\n");
-        // An intent saved before the pool route resumes on its original binding.
-        let legacy: CiIntent = serde_json::from_value(json!({
-            "requestKey": intent.request_key, "repo": intent.repo, "sourceRef": intent.source_ref,
-            "command": intent.command, "targetWorker": ""
-        }))
-        .unwrap();
-        assert_eq!(
-            (legacy.kind.as_str(), legacy.label.as_str(), legacy.timeout_secs),
-            ("cmux", "", 0)
-        );
-        let mut old = first.clone();
-        old["kind"] = json!("cmux");
-        old["labels"] = json!([]);
-        binding(&old, &legacy, None).unwrap();
-        assert!(binding(&first, &legacy, None).is_err());
-    }
-
-    #[test]
-    fn workflow_ci_deadline_counts_from_job_creation_and_bounds_options() {
-        let mut intent = CiIntent {
-            request_key: "wf-x".into(),
-            repo: String::new(),
-            source_ref: String::new(),
-            command: String::new(),
-            target_worker: String::new(),
-            kind: POOL_KIND.into(),
-            label: POOL_LABEL.into(),
-            timeout_secs: 600,
-        };
-        let job = json!({"created_at":"2026-11-20T21:00:00Z"});
-        let at = |s| chrono::DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&chrono::Utc);
-        assert_eq!(remaining(&intent, &job, at("2026-11-20T21:01:40Z")), 500);
-        assert_eq!(remaining(&intent, &job, at("2026-11-20T22:00:00Z")), 1);
-        assert_eq!(remaining(&intent, &json!({}), at("2026-11-20T22:00:00Z")), 600);
-        intent.timeout_secs = 0;
-        assert_eq!(remaining(&intent, &job, at("2026-11-20T21:00:00Z")), DEFAULT_TIMEOUT_SECS);
-        assert_eq!(timeout_secs(&json!({})).unwrap(), DEFAULT_TIMEOUT_SECS);
-        assert_eq!(timeout_secs(&json!({"timeoutMs":1500})).unwrap(), 2);
-        for bad in [json!(10), json!(MAX_TIMEOUT_SECS * 1000 + 1), json!("60000"), json!(-1)] {
-            assert!(timeout_secs(&json!({"timeoutMs":bad})).is_err());
         }
     }
 }

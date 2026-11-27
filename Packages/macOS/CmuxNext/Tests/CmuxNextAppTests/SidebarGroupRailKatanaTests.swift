@@ -4,10 +4,11 @@ import AppKit
 import CmuxNextTestSupport
 import Testing
 
-/// The left bar beside a group's member rows (`GroupLineView`, the group rail), its real layer drawn into a bitmap: an
-/// even capsule, the same round cap at the top and the bottom (Lawrence 2026-11-17: "group left bar is not pixel perfect,
-/// it needs proper even roundness"; it replaced the one-sided katana tip of Leo 2026-11-08, which read as a lopsided top),
-/// full width between them, and its ink reaching its own frame's ends, at every density, text size and look, light and dark.
+/// Leo 2026-11-08: "that top tip area, it looks like a knife. You know what? I'll just call it the katana. It's good. We
+/// need to add it." The left bar beside a group's member rows (`GroupLineView`, the group rail), its real layer drawn
+/// into a bitmap: at the top the katana (the left edge square up to the tip, the top-right corner cut away, the full
+/// width a little lower), at the bottom the round cap (Lawrence msg 19775), and its ink reaching its own frame's ends,
+/// at every density, text size and look, light and dark.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupRailKatanaTests {
     struct Case: CustomTestStringConvertible, Sendable {
         var density: SidebarDensity
@@ -49,7 +50,7 @@ import Testing
     }
 
     @Test(arguments: cases)
-    func theLeftBarIsAnEvenCapsule(_ c: Case) throws {
+    func theLeftBarHasTheKatanaOnTopAndARoundCapBelow(_ c: Case) throws {
         try SidebarGroupChromeShapeTests.withShape(c.connected) {
             try SidebarGroupRailAlignmentTests.with(c.density, .off, textSize: c.textSize) {
                 let (sidebar, window) = SidebarGroupLineLayoutTests.sidebar()
@@ -68,19 +69,30 @@ import Testing
                 func a(_ x: Int, _ y: Int) -> Int { Int(alpha[y * w + x]) }
                 let body = a(w / 2, h / 2)
                 try #require(body > 64, "\(c): the rail's body is not drawn (alpha \(body))")
-                // Each end: the corners rounded away on the end row, the middle reaching it, and the full width a half
-                // width plus two rows in. Both ends alike: no tip on either.
+                // Which bitmap end is the rail's top depends on the context's row order, so each end is read for its shape;
+                // that the tip is the header's end is `SidebarGroupLineShape.body`'s (the path's y 0, the flipped view's top;
+                // theRailsTopIsTheKatana). `render(in:)` ignores `maskedCorners` and rounds every corner of the clip, so the
+                // checks read half the rail's width and two rows in from each end, past that rounding (fleet step
+                // 09b38faf5197fa34cb5dc6c9 drew the tip's left edge rounded only in the bitmap; a 4 pt connected rail's
+                // rounding reaches 16 rows in, step ff2d4d9deaf6ab600bcb7c03).
+                // The katana: the right edge cut away while the left is full. The round cap: both sides full there, and
+                // its middle reaching the end row.
                 let inset = w / 2 + 2
-                func isCap(end: Int, inner: Int) -> Bool {
-                    a(w / 2, end) >= body / 2 && a(0, end) < body && a(w - 1, end) < body
-                        && a(0, inner) >= body / 2 && a(w - 1, inner) >= body / 2
+                func isTip(_ row: Int) -> Bool { a(0, row) >= body / 2 && a(w - 1, row) < body / 3 }
+                func isCap(_ row: Int, end: Int) -> Bool {
+                    a(0, row) >= body / 2 && a(w - 1, row) >= body / 2 && a(w / 2, end) >= body / 2
                 }
-                if !(isCap(end: 0, inner: inset) && isCap(end: h - 1, inner: h - 1 - inset)) {
+                let ends = [(tip: inset, cap: h - 1 - inset, capEnd: h - 1), (tip: h - 1 - inset, cap: inset, capEnd: 0)]
+                if !ends.contains(where: { isTip($0.tip) && isCap($0.cap, end: $0.capEnd) }) {
                     let dump = (Array(0..<min(h, 8)) + Array(max(0, h - 8)..<h)).map { r in
                         "\(r):" + (0..<w).map { String(format: "%02x", a($0, r)) }.joined(separator: " ")
                     }.joined(separator: " | ")
-                    #expect("w \(w) h \(h) body \(body) rows \(dump)" == "an even capsule", "\(c)")
+                    let shape = "w \(w) h \(h) body \(body) rows \(dump)"
+                    #expect(shape == "a katana over a round cap", "\(c)")
                 }
+                // Past the tip's curve (`SidebarGroupLineShape.tipLength`) the rail is its full width again.
+                let tip = Int((SidebarGroupLineShape.tipLength(width: frame.width) * Self.scale).rounded())
+                #expect(a(w - 1, tip + 2) >= body / 2 && a(w - 1, h - 1 - tip - 2) >= body / 2, "\(c): the rail is not full width past its ends")
             }
         }
     }

@@ -30,9 +30,7 @@
 //!   to answer (it says to do nothing when the subagent already runs).
 //! - Once its prompt's turn ends with the subagent still failed (the agent did not resume it),
 //!   or it fails again, the next attempt waits; after the configured attempts it is given up
-//!   (`exhausted`). An outage (capacity, a refused connection) is waited out instead, as a cut
-//!   turn's is: capped, jittered waits until `outage::OUTAGE_HORIZON_MS` after the failure
-//!   (`subagent_retry_outage.rs`). A person's retry (`_acpmux/retry {sessionId, subagentId}`) fires a waiting
+//!   (`exhausted`). A person's retry (`_acpmux/retry {sessionId, subagentId}`) fires a waiting
 //!   attempt now, or sends one more (`subagent_retry/manual.rs`).
 //! - While a retry waits, the subagent's entry in `_meta.acpmux.subagents` carries
 //!   `retry: {attempt, of, reason, nextAt}` (`nextAt` in Unix ms). `retryable` says whether a
@@ -83,11 +81,6 @@ const MAX_ERROR_CHARS: usize = 300;
 /// Most failed subagents a chat keeps with no retry waiting; the oldest failure goes first.
 const MAX_FAILED: usize = 32;
 
-/// An outage's waits: until [`outage::OUTAGE_HORIZON_MS`] after the failure.
-#[path = "subagent_retry_outage.rs"]
-mod outage;
-use outage::{attempt_delay, waits_out};
-
 /// The retries, and `steps`: held through each change that logs a record together with that
 /// record (a failure observed, a Stop or close, a wait planned, given up, fired or skipped), so
 /// the records come in the order the changes did. Taken before the state's lock, never inside.
@@ -124,17 +117,6 @@ fn note_gone(gone: &mut VecDeque<Gone>, id: &str, agent_id: Option<&str>, why: &
         gone.pop_front();
     }
     gone.push_back(Gone { id: id.to_owned(), agent_id: agent_id.map(str::to_owned), why });
-}
-
-/// What the settle of a chat's open retries read of one subagent (`settle_subagent_retries`).
-#[derive(Default)]
-struct Settled {
-    state: Value,
-    agent_id: Value,
-    task: Value,
-    error: Value,
-    /// acpmux's last entry for it left a retry waiting or in flight.
-    open: bool,
 }
 
 #[derive(Default)]
@@ -340,8 +322,6 @@ impl Hub {
                     }
                     "failed" => {
                         let mut sub = subs.remove(id).unwrap_or_default();
-                        // Its failure may name it where no `running` update did (cmux#52916).
-                        sub.name = name.map(str::to_owned).or(sub.name.take());
                         // Failed again: its new failure's update follows.
                         if let Some(f) = sub.failed.take().filter(|f| f.wait.is_some()) {
                             skipped.push((id.to_owned(), f, "superseded", "failed", false));
@@ -543,39 +523,25 @@ impl Hub {
             return;
         }
         drop(open);
-        // Each subagent's last state, agent id, task (its name) and error, and whether acpmux's
-        // last entry left it open.
-        let mut subs: HashMap<String, Settled> = HashMap::new();
-        let kinds = ["subagent_state_update", "subagent_spawned"];
+        // Each subagent's last state and agent id, and whether acpmux's last entry left it open.
+        let mut subs: HashMap<String, (Value, Value, bool)> = HashMap::new();
+        let kinds = ["subagent_state_update"];
         let scanned =
-            self.scan_for_rebuild_off(session, &kinds, &mut |e: crate::store::EventRecord| {
+            self.scan_for_rebuild(session, &kinds, &mut |e: crate::store::EventRecord| {
                 let entries =
                     e.msg.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array);
                 for entry in entries.into_iter().flatten() {
                     let Some(id) = entry.get("id").and_then(Value::as_str) else { continue };
-                    let sub = subs.entry(id.to_owned()).or_default();
-                    // A spawn only names the subagent: its `running` is no state to settle.
-                    let spawn = e.kind == "subagent_spawned";
-                    for (key, slot) in [
-                        ("state", &mut sub.state),
-                        ("agentId", &mut sub.agent_id),
-                        ("error", &mut sub.error),
-                    ] {
-                        if spawn && key != "agentId" {
-                            continue;
-                        }
+                    let sub =
+                        subs.entry(id.to_owned()).or_insert((Value::Null, Value::Null, false));
+                    for (key, slot) in [("state", &mut sub.0), ("agentId", &mut sub.1)] {
                         if let Some(v) = entry.get(key).filter(|v| v.is_string()) {
                             *slot = v.clone();
                         }
                     }
-                    if let Some(v) = ["task", "name"].into_iter().find_map(|k| {
-                        entry.get(k).filter(|v| v.as_str().is_some_and(|s| !s.trim().is_empty()))
-                    }) {
-                        sub.task = v.clone();
-                    }
                     if entry.get("retryable").is_some() {
                         let set = |k: &str| entry.get(k).is_some_and(|v| !v.is_null());
-                        sub.open = set("retry") || set("retryInFlight");
+                        sub.2 = set("retry") || set("retryInFlight");
                     }
                 }
                 true
@@ -584,23 +550,10 @@ impl Hub {
             tracing::warn!(session = %session.id, "settling subagent retries: {e}");
             return;
         }
-        for (id, sub) in subs.into_iter().filter(|(_, s)| s.open) {
-            let state = sub.state.as_str().unwrap_or("failed").to_owned();
-            // An end written after the fact (`recovered`), with what names it and why it failed:
-            // a pane that never read its spawn (an older page) draws nothing for it, and one that
-            // did keeps its line, now with no retry to wait for (cmux#52916: two "Subagent Failed
-            // 0s" lines, nameless and reasonless, under a reply after a restart).
-            let mut entry = json!({"id": id, "parent": null, "state": state,
-                "agentId": sub.agent_id, "retry": null, "retryInFlight": null,
-                "retryable": false, "recovered": true});
-            if let Some(fields) = entry.as_object_mut() {
-                if !sub.task.is_null() {
-                    fields.insert("task".into(), sub.task);
-                }
-                if !sub.error.is_null() {
-                    fields.insert("error".into(), sub.error);
-                }
-            }
+        for (id, (state, agent_id, _)) in subs.into_iter().filter(|(_, s)| s.2) {
+            let state = state.as_str().unwrap_or("failed").to_owned();
+            let entry = json!({"id": id, "parent": null, "state": state, "agentId": agent_id,
+                "retry": null, "retryInFlight": null, "retryable": false});
             self.append_entry(session, &id, &state, entry);
         }
         self.set_retry_open(session, false);
@@ -674,15 +627,9 @@ impl Hub {
             let sub = all.subs.get_mut(&session.id)?.get_mut(id)?;
             let attempts = sub.attempts;
             let failure = sub.failed.as_mut().filter(|f| f.wait.is_none() && !f.idle)?;
-            let now = crate::store::now_ms();
-            // An outage's attempts count on past the configured ones (as a cut turn's do).
-            let of = if waits_out(failure, delays) {
-                delays.len().max(attempts + 1)
-            } else {
-                delays.len()
-            };
-            let delay = match attempt_delay(failure, attempts, delays, &session.id, now) {
-                Some(delay) => delay,
+            let of = delays.len();
+            let delay = match delays.get(attempts) {
+                Some(&delay) => super::auto_resume::staggered(delay, &session.id),
                 None => {
                     failure.idle = true;
                     let failure = failure.clone();
@@ -705,7 +652,7 @@ impl Hub {
                     return None;
                 }
             };
-            let next_at = now + delay;
+            let next_at = crate::store::now_ms() + delay;
             let tool = id.rsplit('/').next().unwrap_or(id);
             let wait = Wait {
                 attempt: attempts + 1,
@@ -990,24 +937,9 @@ impl Hub {
         if open {
             self.set_retry_open(session, true);
         }
-        let mut entry = json!({"id": id, "parent": null, "state": state,
+        let entry = json!({"id": id, "parent": null, "state": state,
             "agentId": failure.agent_id, "retry": retry, "retryInFlight": in_flight,
             "retryable": retryable});
-        // What names it and why it failed, on every entry: a pane whose history starts after its
-        // spawn names its line from this one (cmux#52916).
-        let name = {
-            let all = self.subagent_retries.lock();
-            all.subs.get(&session.id).and_then(|s| s.get(id)).and_then(|s| s.name.clone())
-        };
-        if let Some(fields) = entry.as_object_mut() {
-            if let Some(name) = name {
-                fields.insert("task".into(), Value::String(name));
-            }
-            // Only a failed entry names the failure: a resumed `running` one must not carry it.
-            if state == "failed" && !failure.error.is_empty() {
-                fields.insert("error".into(), Value::String(failure.error.clone()));
-            }
-        }
         self.append_entry(session, id, state, entry);
         // The last open entry settled: no load needs to read the log for it.
         if !open && !self.any_open(session) {

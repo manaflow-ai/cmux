@@ -43,21 +43,16 @@ public struct VerticalTabListMetrics: Equatable, Sendable {
         self.cornerRadius = cornerRadius ?? Metrics.tabCornerRadius // nil: a tab bar tab's corner
     }
 
-    /// The live tokens: rows as tall as the strip's tabs, tiles as wide as the collapsed list allows. A density's
-    /// `verticalTab*` tokens (the Density Playground's Pane tab list) set each size exactly.
+    /// The live tokens: rows as tall as the strip's tabs, tiles as wide as the collapsed list allows.
     public static var current: VerticalTabListMetrics {
-        let token = Metrics.densityToken
-        let rowHeight = token("verticalTabRowHeight") ?? Metrics.tabHeight
-        let padding = token("verticalTabPadding") ?? Metrics.space2
-        let iconSize = token("verticalTabIconSize") ?? Metrics.iconSize
-        let tile = token("verticalTabTileSize")
-            ?? max(iconSize + Metrics.space2, min(rowHeight + Metrics.space1, VerticalTabTunables.collapsedWidth.value - 2 * padding))
+        let rowHeight = Metrics.tabHeight
+        let padding = Metrics.space2
         return VerticalTabListMetrics(
             rowHeight: rowHeight, rowSpacing: VerticalTabTunables.rowSpacing.value, padding: padding, verticalPadding: Metrics.space2,
-            iconSize: iconSize, headerHeight: token("verticalTabHeaderHeight") ?? max(Metrics.space6, rowHeight - Metrics.space1),
-            iconsOnlyHeaderHeight: Metrics.space3, separatorHeight: Metrics.space3, groupIndent: token("verticalTabIndent") ?? Metrics.space3,
-            groupLineWidth: VerticalTabTunables.groupLineWidth.value, tileSize: tile, tileSpacing: Metrics.space1,
-            cornerRadius: token("verticalTabCornerRadius") ?? Metrics.tabCornerRadius
+            iconSize: Metrics.iconSize, headerHeight: max(Metrics.space6, rowHeight - Metrics.space1), iconsOnlyHeaderHeight: Metrics.space3,
+            separatorHeight: Metrics.space3, groupIndent: Metrics.space3, groupLineWidth: VerticalTabTunables.groupLineWidth.value,
+            tileSize: max(Metrics.iconSize + Metrics.space2, min(rowHeight + Metrics.space1, VerticalTabTunables.collapsedWidth.value - 2 * padding)),
+            tileSpacing: Metrics.space1, cornerRadius: Metrics.tabCornerRadius
         )
     }
 }

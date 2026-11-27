@@ -3,9 +3,6 @@
 //! relayed address to the host as a `relay` candidate, the link's last path
 //! before the stream. That the relay then carries a session is tests/turn.rs.
 
-// The in-process TURN server (support/fake_turn.rs) waits with poll(2).
-#![cfg(unix)]
-
 #[path = "support/fake_turn.rs"]
 mod fake_turn;
 #[path = "support/stun.rs"]

@@ -122,17 +122,6 @@ def take_over_any(api: Api, *, repo: str, commits: Iterable[str], key: str = "",
     return False
 
 
-def owner_failed_on_compile_error(repo: str, run_id: int) -> bool:
-    """Whether the owner run's latest attempt failed a build leg on a Rust compile error (#54942's check): a takeover
-    builds the same tree key from the same source and fails the same way. Unreadable: False (no evidence)."""
-    try:
-        from cmux_tui_tree_request_rerun import failed_on_compile_error  # same directory; needs the gh CLI
-        return failed_on_compile_error(repo, str(run_id))
-    except Exception as error:
-        print(f"::warning::could not read owner run {run_id}'s jobs for the compile-error check: {error}")
-        return False
-
-
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", required=True)
@@ -150,10 +139,6 @@ def main(argv: list[str]) -> int:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from cmux_next_tree_notify import GitHub  # noqa: E402
 
-    if exclude_run and owner_failed_on_compile_error(args.repo, exclude_run):
-        print(f"owner run {exclude_run} failed a build leg on a Rust compile error: a re-run builds the same tree "
-              f"and fails the same way; not taken over")
-        return 1
     api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"))
     return 0 if take_over_any(api, repo=args.repo, commits=[args.commit], key=args.key,
                          exclude_run=exclude_run) else 1

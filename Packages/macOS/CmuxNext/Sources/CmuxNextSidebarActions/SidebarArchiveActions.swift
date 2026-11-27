@@ -20,14 +20,6 @@ public protocol SidebarArchiveHost: AnyObject {
     func archiveRefusal(_ error: any Error) -> String
     /// The app's own sidebar document store; nil before it starts.
     var archiveDocument: SidebarDocStore? { get }
-    /// The frontmost window's sidebar sections (every window's sidebar reads the one document); nil before a window
-    /// is up. Settings > Sidebar > Archived Workspaces lists its archived rows.
-    var archiveSections: [SidebarSection]? { get }
-    /// Shows an archived workspace or row in the frontmost window, as a sidebar click does; it stays archived.
-    func archiveOpen(_ entry: SidebarArchivedEntry)
-    /// Closes the workspace (asking about a running program, as the row's close button does) or removes the row;
-    /// the refusal's text, nil when it ran.
-    func archiveDelete(_ entry: SidebarArchivedEntry) -> String?
 }
 
 /// Archive and Unarchive (plans/cmux-next/archiving-DESIGN.md): a workspace, a group or a link, tab

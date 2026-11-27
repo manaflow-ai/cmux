@@ -74,25 +74,10 @@
   },
   {
    "name": "agent.fork",
-   "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below): the split arrow Claude and Codex draw for branching a chat, a stem that runs on up and right while a detached arm peels off down and right.",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12h8l9-9M15.5 3h5v5M14.5 15l6 6M20.5 16v5h-5'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12h8l9-9M15.5 3h5v5M14.5 15l6 6M20.5 16v5h-5'/></svg>",
+   "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below).",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='7' cy='6' r='2.25'/><circle cx='7' cy='18' r='2.25'/><circle cx='17' cy='6' r='2.25'/><path d='M7 8.25v7.5M17 8.25c0 4.75-10 3.25-10 7.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7 8.5v7M17 8.5c0 4.5-10 3-10 7' fill='none' stroke-width='2'/><circle cx='7' cy='6' r='2.5' stroke='none'/><circle cx='7' cy='18' r='2.5' stroke='none'/><circle cx='17' cy='6' r='2.5' stroke='none'/></svg>",
    "alts": [
-    {
-     "label": "Before (Leo 2026-11-22: \"i think this is too cute for a fork chat button. it's reminiscent of github stuff\"): the branch mark, a stem node with a second node curving in",
-     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='7' cy='6' r='2.25'/><circle cx='7' cy='18' r='2.25'/><circle cx='17' cy='6' r='2.25'/><path d='M7 8.25v7.5M17 8.25c0 4.75-10 3.25-10 7.5'/></svg>",
-     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7 8.5v7M17 8.5c0 4.5-10 3-10 7' fill='none' stroke-width='2'/><circle cx='7' cy='6' r='2.5' stroke='none'/><circle cx='7' cy='18' r='2.5' stroke='none'/><circle cx='17' cy='6' r='2.5' stroke='none'/></svg>"
-    },
-    {
-     "label": "Soft knee: the same split arrow, the stem bending into the upper arm on a small curve",
-     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12h6.5c1 0 1.5-.5 2.2-1.2L20.5 3M15.5 3h5v5M14.5 15l6 6M20.5 16v5h-5'/></svg>",
-     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12h6.5c1 0 1.5-.5 2.2-1.2L20.5 3M15.5 3h5v5M14.5 15l6 6M20.5 16v5h-5'/></svg>"
-    },
-    {
-     "label": "Joined split: both arms leave the stem's end, a symmetric turned Y with corner heads",
-     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12h8l9-9M15.5 3h5v5M11.5 12l9 9M20.5 16v5h-5'/></svg>",
-     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12h8l9-9M15.5 3h5v5M11.5 12l9 9M20.5 16v5h-5'/></svg>"
-    },
     {
      "label": "Before (Leo 2026-11-07: \"our generated github icon\"): the fork mark, two top nodes whose tines join one stem to a bottom node",
      "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='7' cy='6' r='2.25'/><circle cx='17' cy='6' r='2.25'/><circle cx='12' cy='18' r='2.25'/><path d='M7 8.25v1.25c0 1.4 1.1 2.5 2.5 2.5h5c1.4 0 2.5-1.1 2.5-2.5V8.25M12 12v3.75'/></svg>",
@@ -134,7 +119,7 @@
      "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-agent-fork' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 14v-2.5L9 8M12 11.5 15 8'/></g></mask></defs><g fill='currentColor' mask='url(#cmxs-agent-fork)'><path d='M8 16.5H6.5a3 3 0 0 1 -3 -3v-6a3 3 0 0 1 3 -3h11a3 3 0 0 1 3 3v6a3 3 0 0 1 -3 3h-5.5L8 19.5Z' stroke='currentColor' stroke-width='1.5' stroke-linejoin='round'/></g></svg>"
     }
    ],
-   "note": "The split arrow Claude and Codex draw for branching a chat: a stem from the left that runs on up and right into an arrowhead, while a detached arm peels off down and right into its own (Leo 2026-11-22: \"dont get cute about it; let's just do claude and codex's symbol for branching/forking chats\"). No nodes, so it stays distinct from git.branch (two nodes, the stem runs out the top) and the pull request mark (two columns and an arrow). The app's fork actions and menu rows name SF arrow.branch, which nothing else uses, and this entry overrides it, so the palette and hand-built menus draw this drawing too.",
+   "note": "The branch mark: a stem between two nodes on the left, and a curve from a third node at the top right that joins the stem above the bottom node (Leo 2026-11-07, of the repository fork mark that came before: \"our generated github icon... man figure somethgn out\"). Distinct from git.branch (two nodes, the stem runs out the top) and the pull request mark (the right node at the bottom, an arrow, no curve). The app's fork actions and menu rows name SF arrow.branch, which nothing else uses, and this entry overrides it, so the palette and hand-built menus draw this drawing too.",
    "replaces": [
     "TurnFork (sprite strip)",
     "arrow.branch",
@@ -198,17 +183,6 @@
     }
    ],
    "note": "Preferred: transcript bubble (agent.chat silhouette, eyes replaced by text lines) so history rows read terminal / browser / agent by shape family. Sparkle is retired as an 'agent' sign since it also means Codex and AI-task.",
-   "replaces": [
-    "sparkles"
-   ]
-  },
-  {
-   "name": "sparkles",
-   "meaning": "Sparkles (Chief Activity and other AI actions).",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5Q13 11 20.5 12Q13 13 12 20.5Q11 13 3.5 12Q11 11 12 3.5Z'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5Q13 11 20.5 12Q13 13 12 20.5Q11 13 3.5 12Q11 11 12 3.5Z'/></svg>",
-   "alts": [],
-   "note": "The four-point sparkle used by Chief Activity.",
    "replaces": [
     "sparkles"
    ]
@@ -318,8 +292,8 @@
   {
    "name": "composer.steer",
    "meaning": "Steer: send a queued message into the running turn now (the queued row's Steer, as ChatGPT and Codex draw it).",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 5.25v6a3.5 3.5 0 0 0 3.5 3.5h9.5M14.5 10.75l4 4 -4 4'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 5.25v6a3.5 3.5 0 0 0 3.5 3.5h9.5M14.5 10.75l4 4 -4 4'/></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 4.5v6a3.5 3.5 0 0 0 3.5 3.5h9.5M14.5 10l4 4-4 4'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 4.5v6a3.5 3.5 0 0 0 3.5 3.5h9.5M14.5 10l4 4-4 4'/></svg>",
    "alts": [],
    "note": "Arrow only, a turn to the right (↪); the button supplies its Steer label.",
    "replaces": []

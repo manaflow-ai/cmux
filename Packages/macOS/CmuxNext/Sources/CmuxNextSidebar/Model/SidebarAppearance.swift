@@ -25,9 +25,6 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
     /// The SF Symbol ``pagePlaceholder`` draws, on every surface that shows a page's favicon (workspace rows, band
     /// items, the hover card's tab rows).
     public static let pagePlaceholderSymbol = "globe"
-    /// The globe a page row draws until its favicon loads: the browser tab's own (`tab.browser`), so a row and its tab
-    /// show one icon (Lucas 2026-11-14).
-    public static let pagePlaceholderIcon = IconName.tabBrowser
 
     /// This icon without the workspace's color (`sidebar.showColors` off): a swatch is no icon, a
     /// symbol is untinted and an emoji has no chip; a favicon is the page's own.

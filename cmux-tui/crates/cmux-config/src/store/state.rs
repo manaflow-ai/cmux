@@ -13,8 +13,7 @@ use crate::effective::EffectiveSettings;
 use crate::jsonc;
 use crate::managed::{ManagedPreferences, TeamPolicyLayer};
 use crate::render::compact;
-use crate::schema::{Row, Schema, accepts};
-use crate::sidebar_look;
+use crate::schema::{Schema, accepts};
 use crate::theme_file::{self, ThemeDiagnosticKind, ThemeFile};
 use crate::value::value_at;
 
@@ -42,7 +41,6 @@ pub struct State {
     pub(crate) effective: EffectiveSettings,
     pub(crate) replay: ReplayLog,
     pub(crate) theme: ThemeLayer,
-    sidebar_look: Option<sidebar_look::SidebarLook>,
 }
 
 /// The active theme file (`appearance.themeFile`) as the owner last read
@@ -94,7 +92,6 @@ impl State {
             effective,
             replay: ReplayLog::default(),
             theme: ThemeLayer::default(),
-            sidebar_look: None,
         };
         state.read_file(file);
         state.recompute();
@@ -109,10 +106,6 @@ impl State {
     }
     pub fn source(&self) -> &str {
         &self.source
-    }
-    /// The last document of the file that parsed (it applies while the file is broken).
-    pub fn file_root(&self) -> &Value {
-        &self.file_root
     }
     pub fn effective(&self) -> &EffectiveSettings {
         &self.effective
@@ -227,16 +220,10 @@ impl State {
                 diagnostics.push(Diagnostic::new(kind, &problem.path, &problem.display()));
             }
         }
-        // The sidebar look fills only what every layer above leaves unset (sidebar_look).
-        self.sidebar_look = sidebar_look::selected(&effective.root, self.schema, &self.domains);
-        if let Some(look) = &self.sidebar_look {
-            effective.root = look.filling(&effective.root);
-        }
         diagnostics.append(&mut effective.diagnostics);
         for row in &self.schema.rows {
-            // An old choice value (a row's alias) reads as its replacement, without a diagnostic.
             if let Some(stored) = value_at(&effective.root, &row.path)
-                && accepts(row, &crate::schema::aliased(row, stored), &self.domains).is_err()
+                && accepts(row, stored, &self.domains).is_err()
             {
                 let message = format!("{} does not accept {}", row.key, compact(stored));
                 diagnostics.push(Diagnostic::new(DiagnosticKind::InvalidValue, &row.key, &message));
@@ -244,28 +231,6 @@ impl State {
         }
         effective.diagnostics = diagnostics;
         self.effective = effective;
-    }
-
-    /// A file value for group headers may override a different value from a lower layer
-    /// even when it equals the schema default. The preset is the last such layer.
-    pub(super) fn overrides_group_background(&self, row: &Row, value: &Value) -> bool {
-        if row.key != sidebar_look::GROUP_BACKGROUND {
-            return false;
-        }
-        self.managed
-            .recommended
-            .get(&row.key)
-            .or_else(|| self.team.defaults.get(&row.key))
-            .or_else(|| self.schema.build_defaults().get(&row.key))
-            .or_else(|| {
-                self.sidebar_look
-                    .as_ref()?
-                    .values
-                    .iter()
-                    .find(|(path, _)| *path == row.path)
-                    .map(|(_, value)| value)
-            })
-            .is_some_and(|inherited| inherited != value)
     }
 
     /// The file root with the active theme file over it (managed keys
@@ -308,14 +273,8 @@ impl State {
         {
             self.theme.last_good = Some((name, text.clone()));
         }
-        // Managed keys, and the keys the person changed over the file (#44894), keep their value.
-        let mut kept: BTreeSet<String> = base.managed_keys.keys().cloned().collect();
-        // Only look rows count, never the colors map: a hand-written "appearance" must not turn
-        // the whole file off (as Swift `ThemeFileExceptionsSetting.keys`).
-        kept.extend(theme_file::exceptions_in(&self.file_root).into_iter().filter(|key| {
-            key != "appearance.themeEdits" && self.schema.row(key).is_some_and(theme_file::is_look)
-        }));
-        let themed = file.applied(&self.file_root, &kept);
+        let managed: BTreeSet<String> = base.managed_keys.keys().cloned().collect();
+        let themed = file.applied(&self.file_root, &managed);
         self.theme.file = Some(file);
         Some(themed)
     }
@@ -335,11 +294,11 @@ pub(super) fn finish(previous: &State, mut next: State, origin: Origin) -> Appli
             replayed: false,
             applied: Vec::new(),
         };
-        return Applied { state: next, changes: Vec::new(), outcome, write: None, undoes: None };
+        return Applied { state: next, changes: Vec::new(), outcome, write: None };
     }
     next.revision = previous.revision + 1;
     let keys = diff::changed_keys(&previous.effective, &next.effective);
     let change = Change { revision: next.revision, keys: keys.clone(), origin };
     let outcome = Outcome { revision: next.revision, keys, replayed: false, applied: Vec::new() };
-    Applied { state: next, changes: vec![change], outcome, write: None, undoes: None }
+    Applied { state: next, changes: vec![change], outcome, write: None }
 }

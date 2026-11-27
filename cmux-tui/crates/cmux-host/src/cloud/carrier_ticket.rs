@@ -27,20 +27,6 @@ pub fn path(machine: &str) -> String {
     format!("/v1/cloud/machines/{machine}/carrier")
 }
 
-/// The bind answer's `carrier_ticket` (a platform that mints the machine's
-/// first Register ticket with its bind) as the reply line the session host
-/// gets, when it is a well-formed ticket for `slot`, the slot the bind file
-/// named; `None` otherwise (an older platform sends none, and the ticket is
-/// then asked for as before).
-pub fn bind_ticket(value: &Value, slot: &str) -> Option<Value> {
-    let ticket = value.get("carrier_ticket")?;
-    let body = json!({ "ok": true, "value": ticket });
-    let reply = reply_for(&Answer::Http { status: 200, body });
-    (reply.get("ok") == Some(&json!(true))
-        && reply.get("slot").and_then(Value::as_str) == Some(slot))
-    .then_some(reply)
-}
-
 /// The `carrier_ticket` object of a socket line: it takes no fields.
 pub fn check_ask(value: &Value) -> Result<(), String> {
     match value {
@@ -83,16 +69,15 @@ pub fn reply_for(answer: &Answer) -> Value {
         Answer::Http { status: 404, .. } => {
             refusal("carrier.unavailable", "cmux has no carrier route here yet.")
         }
-        Answer::Http { status: 429, body } => {
-            super::github::rate_limited("cmux", super::github::retry_after_of(body))
+        Answer::Http { status: 429, .. } => {
+            refusal("rate_limited", "cmux is rate limited. Wait a moment, then retry.")
         }
-        Answer::Http { .. } => super::github::transient_refusal(
-            "carrier.unavailable",
-            "cmux did not answer the carrier ticket request.",
-        ),
-        Answer::Transport => super::github::transient_refusal(
+        Answer::Http { .. } => {
+            refusal("carrier.unavailable", "cmux did not answer the carrier ticket request.")
+        }
+        Answer::Transport => refusal(
             "carrier.unreachable",
-            "This Cloud machine could not reach cmux Cloud for a carrier ticket.",
+            "Check this machine's connection and retry the carrier ticket request.",
         ),
     }
 }

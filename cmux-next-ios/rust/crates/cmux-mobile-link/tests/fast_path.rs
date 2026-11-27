@@ -16,7 +16,7 @@ static CUT: AtomicBool = AtomicBool::new(false);
 
 /// Direct datagrams vanish while `CUT` is set; relayed ones (through a TURN
 /// server) always arrive, 10 ms late each way.
-fn impair(via_turn: bool, from: &SocketAddr, _len: usize) -> Option<Duration> {
+fn impair(via_turn: bool, from: &SocketAddr) -> Option<Duration> {
     let relayed = via_turn || is_test_relay(from);
     if relayed {
         Some(Duration::from_millis(10))

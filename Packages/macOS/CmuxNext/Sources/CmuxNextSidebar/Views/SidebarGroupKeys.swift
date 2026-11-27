@@ -6,8 +6,7 @@ import AppKit
 /// (SIDEBAR-SELECTION-ONE-MODEL); a workspace stop selects and activates it.
 /// Left on a member goes to its header, Left on an open header collapses
 /// it; Right opens a closed header, then enters its first member; Return on
-/// a focused header renames the group. Group by Status headers that fold are disclosure stops (Left folds, Right
-/// unfolds, Space and Return toggle). Tab moves focus into and between
+/// a focused header renames the group. Tab moves focus into and between
 /// the group headers and disclosures (Shift-Tab back, to the workspaces before the first);
 /// Space on a focused header toggles it as a click on its bar does. A
 /// namespace beside the list (not an extension) keeps the list type under
@@ -34,8 +33,6 @@ import AppKit
                 guard row.standsForGroup, let group = row.group else { return [.workspace(id)] }
                 return [.group(group), .workspace(id)]
             case .doneFold, .showMore: return [.fold(row.key)]
-            // A Group by Status header folds like a disclosure; Needs you never folds, so it is no stop.
-            case let .status(section): return section.collapses ? [.fold(row.key)] : []
             default: return []
             }
         }
@@ -127,7 +124,7 @@ import AppKit
         setFocus(nil)
         list.focusedFold = key
         list.showsFocusRing = ring
-        (list.rowViews[key] as? SidebarFoldRingView)?.isKeyboardFocused = ring
+        (list.rowViews[key] as? SidebarDoneFoldRowView)?.isKeyboardFocused = ring
     }
 
     /// Moves keyboard focus to `group` (nil: back to the workspaces) and
@@ -135,7 +132,7 @@ import AppKit
     /// mouse click sets the focus without a ring.
     func setFocus(_ group: GroupID?, ring: Bool = true) {
         if let key = list.focusedFold {
-            (list.rowViews[key] as? SidebarFoldRingView)?.isKeyboardFocused = false
+            (list.rowViews[key] as? SidebarDoneFoldRowView)?.isKeyboardFocused = false
         }
         list.focusedFold = nil
         let old = list.focusedGroup

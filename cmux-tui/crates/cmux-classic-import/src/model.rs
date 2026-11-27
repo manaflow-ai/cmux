@@ -5,12 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The longest workspace key or group id, in UTF-8 bytes, that
-/// `classic_import.record` takes (its `key` and `classic_group`): a classic
-/// id longer than this is never one a plan names, so every step the app
-/// records for a plan fits.
-pub const MAX_KEY_BYTES: usize = 256;
-
 /// A whole classic session file, window by window.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -257,18 +251,6 @@ impl Layout {
         }
     }
 
-    /// Tabs in pane order, first side first, to change in place.
-    pub fn tabs_mut(&mut self) -> Vec<&mut Tab> {
-        match self {
-            Layout::Pane(pane) => pane.tabs.iter_mut().collect(),
-            Layout::Split { first, second, .. } => {
-                let mut tabs = first.tabs_mut();
-                tabs.extend(second.tabs_mut());
-                tabs
-            }
-        }
-    }
-
     /// Calls `change` on every tab, in pane order.
     pub fn for_each_tab(&mut self, change: &mut dyn FnMut(&mut Tab)) {
         match self {
@@ -294,5 +276,42 @@ impl Layout {
 }
 
 #[cfg(test)]
-#[path = "model_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn tab(dir: &str) -> Tab {
+        Tab {
+            working_directory: Some(dir.into()),
+            title: None,
+            url: None,
+            agent: None,
+            scrollback: None,
+        }
+    }
+
+    #[test]
+    fn an_ssh_destination_brackets_ipv6_and_leaves_out_port_22() {
+        let remote = |destination: &str, port| Remote { destination: destination.into(), port };
+        assert_eq!(remote("me@host", Some(22)).ssh_destination(), "me@host");
+        assert_eq!(remote("me@host", Some(2222)).ssh_destination(), "me@host:2222");
+        assert_eq!(remote("::1", None).ssh_destination(), "[::1]");
+        assert_eq!(remote("a@b@fe80::1", Some(23)).ssh_destination(), "a@b@[fe80::1]:23");
+    }
+
+    #[test]
+    fn a_side_with_no_tab_kept_closes_up_and_the_selection_follows_its_tab() {
+        let layout = Layout::Split {
+            orientation: Orientation::Vertical,
+            ratio: 0.3,
+            first: Box::new(Layout::Pane(Pane { tabs: vec![tab("/drop")], selected_tab: 0 })),
+            second: Box::new(Layout::Pane(Pane {
+                tabs: vec![tab("/drop"), tab("/a"), tab("/b")],
+                selected_tab: 2,
+            })),
+        };
+        let kept =
+            layout.keeping(&|tab| tab.working_directory.as_deref() != Some("/drop")).unwrap();
+        assert_eq!(kept, Layout::Pane(Pane { tabs: vec![tab("/a"), tab("/b")], selected_tab: 1 }));
+        assert_eq!(layout.keeping(&|_| false), None);
+    }
+}

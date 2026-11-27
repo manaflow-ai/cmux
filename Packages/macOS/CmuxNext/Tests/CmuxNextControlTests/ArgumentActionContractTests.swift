@@ -127,19 +127,6 @@ import Testing
             }
             var checked = params
             checked["origin"] = nil
-            // The fixture gives every flag one placeholder value (`/tmp/contract`); this test checks the
-            // argument names the CLI sends, so an enumeration argument takes the catalog's first case,
-            // the one value its validation accepts whatever the placeholder (`decision` of Change a
-            // Computer Use Approval takes always or never).
-            if case .object(var args)? = params["args"] {
-                for argument in descriptor.arguments {
-                    guard case .enumeration(let cases) = argument.kind, let first = cases.first,
-                          let given = args[argument.name]?.stringValue,
-                          !cases.contains(where: { $0.value == given }) else { continue }
-                    args[argument.name] = .string(first.value)
-                }
-                checked["args"] = .object(args)
-            }
             #expect(throws: Never.self, "\(source)") {
                 try ControlRouter.validatedRequest(for: Self.info(descriptor), params: checked,
                                                    knownKinds: ActionTargetKind.allCases.map(\.rawValue),

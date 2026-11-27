@@ -61,13 +61,7 @@ impl Machine {
         for sub in ["home/work", "acpmux", "state"] {
             fs::create_dir_all(dir.join(sub)).unwrap();
         }
-        // acpmux refuses a state directory with a writable, non-sticky ancestor: under a 002 umask
-        // (Ubuntu's default, lane VMs) create_dir_all gives 775, so every directory made here is
-        // owner only.
-        fs::set_permissions(root, fs::Permissions::from_mode(0o700)).unwrap();
-        for sub in ["", "home", "home/work", "acpmux", "state"] {
-            fs::set_permissions(dir.join(sub), fs::Permissions::from_mode(0o700)).unwrap();
-        }
+        fs::set_permissions(dir.join("acpmux"), fs::Permissions::from_mode(0o700)).unwrap();
         // Agent session ids as long as a real agent's: a guarded receive
         // refuses a short one.
         let fake = json!({"argv": ["python3", FAKE_AGENT], "family": "fake",
@@ -83,9 +77,6 @@ impl Machine {
                             "defaultHarness": "fake",
                             "webAskingModes": {"fake": ["normal"]}});
         fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
-        // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-        fs::set_permissions(dir.join("acpmux/config.json"), fs::Permissions::from_mode(0o600))
-            .unwrap();
         let machine = Self {
             socket: dir.join("mux.sock"),
             session: format!("cloud-move-journey-{name}"),
@@ -119,7 +110,6 @@ impl Machine {
             .env_remove("CMUX_VM_ID")
             .env_remove("CMUX_CODEROUTER_URL")
             .env_remove("CMUX_TEST_CLOUD_ETC")
-            .env_remove("CMUX_TEST_NO_FILE_OWNER")
             .stdin(Stdio::null());
         for (key, value) in &self.env {
             command.env(key, value);
@@ -214,23 +204,10 @@ impl Acpmux {
         list.into_iter().find(|s| s["sessionId"] == json!(session))
     }
 
-    /// Every record of the chat, page by page: one page stops at its limit (5000 records, or
-    /// fewer at the byte cap), and a long task writes more (a 30 min lid-close task, 2 a tick).
     pub fn events(&mut self, session: &str) -> Vec<Value> {
-        let mut all = Vec::new();
-        let mut after = 0;
-        loop {
-            let page = self.call(
-                "_acpmux/events",
-                json!({"sessionId": session, "afterSeq": after, "limit": 5000}),
-            );
-            all.extend(page["events"].as_array().cloned().unwrap_or_default());
-            let through = page["pageThrough"].as_u64().unwrap_or(after);
-            if page["hasMore"] != json!(true) || through <= after {
-                return all;
-            }
-            after = through;
-        }
+        let page = self
+            .call("_acpmux/events", json!({"sessionId": session, "afterSeq": 0, "limit": 5000}));
+        page["events"].as_array().cloned().unwrap_or_default()
     }
 }
 

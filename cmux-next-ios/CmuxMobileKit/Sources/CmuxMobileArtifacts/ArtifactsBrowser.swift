@@ -149,12 +149,12 @@ public struct ArtifactsBrowser: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
                             .frame(minHeight: 34)
-                            .cmuxMobilePressBackground(Color.primary.opacity(state.filter == item ? 0.16 : 0.06), in: .capsule)
+                            .background(Color.primary.opacity(state.filter == item ? 0.16 : 0.06), in: .capsule)
                             // 44 pt target around the 34 pt capsule.
                             .frame(minHeight: 44)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.cmuxPressFillInLabel)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityAddTraits(state.filter == item ? .isSelected : [])
                 }
             }
@@ -164,7 +164,7 @@ public struct ArtifactsBrowser: View {
         .trailingOverflowFade(width: 24)
         .textCase(nil)
         .foregroundStyle(.primary)
-        .cmuxMobileSensoryFeedback(.selection, trigger: state.filter)
+        .sensoryFeedback(.selection, trigger: state.filter)
     }
 }
 

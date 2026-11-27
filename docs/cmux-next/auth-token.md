@@ -60,7 +60,7 @@ to stderr, or a JSON error with `--json`, and exits non-zero.
 | 5 | `method_not_found` | Update the cmux app. |
 | 1 | `feature.disabled` | Your organization turned cmux Cloud off. |
 | 1 | `managed` | Your organization limits cmux on this Mac to its managed team. Ask for that team only. |
-| 1 | `forbidden` | The API refused that team. With a membership code (`auth.forbidden`, `team.not_member`, or none) the text says to check that your account belongs to it; any other owner code (`owner.state_full`, ...) is named in the text instead, since membership is not the cause. |
+| 1 | `forbidden` | The API refused that team. Check that your account belongs to it. |
 | 1 | `client_too_old` | The team needs a newer cmux. Update it. |
 | 1 | `unavailable` | The cmux API didn't answer, or sent an answer cmux can't use (the message names which). Try again. |
 | 1 | `local_failure` | This Mac couldn't make the token, for example the Keychain refused the install key. The message names the cause, such as `keychain(-25244: …)`. |
@@ -73,21 +73,3 @@ socket. By default that is every process of your macOS user (socket mode
 `automation`). In `cmuxOnly` mode it is only processes started inside cmux. The
 token lasts minutes, but anyone who copies it can use it until it expires, so
 don't paste it into logs or chats.
-
-## Hosted tools in agent chats
-
-Every agent chat gets cmux's hosted MCP server (`cmux-hosted`) by default. It
-gives the agent the tools of your cmux account: GitHub through your cmux
-connectors and the remote MCP servers you added. To turn it off, set
-`agents.hostedMcp.enabled` to `false` in cmux.json, or start the daemon with
-`CMUX_HOSTED_MCP=0`.
-
-- On a Mac, the server asks the app for a token the way `cmux auth token` does
-  and keeps it in memory only, never in a file, an env, argv or a log. If you
-  aren't signed in, the chat lists no hosted tools. The server waits a minute
-  before it asks the app again.
-- On a cmux Cloud machine, no token is on the machine for this. The server
-  sends each MCP message as an `mcp.call` line over the machine agent's socket.
-  The agent adds the machine's own sign-in and sends the message to the
-  platform's `/mcp`, so the bearer never leaves the agent. A tool call that
-  takes the platform longer than 20 s fails with `integration.unreachable`.

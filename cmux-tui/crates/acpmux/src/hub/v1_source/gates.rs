@@ -382,6 +382,16 @@ fn v2_pr03b_catchup_peak_rss() {
     eprintln!("v2.pr03b.catchup_peak_rss small={small:?}");
     eprintln!("v2.pr03b.catchup_peak_rss god={god:?}");
     let chunk = acpmux_core::chat::source::CHUNK_BYTES as u64;
+    for (name, run) in [("small", &small), ("god", &god)] {
+        assert!(run.equal, "{name}: the book equals what translate gives");
+        assert!(run.held_max <= chunk, "{name}: the source held one chunk ({})", run.held_max);
+        assert!(
+            run.read * 5 <= run.log_bytes * 6,
+            "{name}: read {} of {}",
+            run.read,
+            run.log_bytes
+        );
+    }
     // The probe: resident size's rise, which glibc's held free pages and the kernel's page cache
     // move (printed, not gated).
     eprintln!(
@@ -413,16 +423,6 @@ fn v2_pr03b_catchup_peak_rss() {
             small.held_kib, god.held_kib
         )
         .unwrap();
-    }
-    for (name, run) in [("small", &small), ("god", &god)] {
-        assert!(run.equal, "{name}: the book equals what translate gives");
-        assert!(run.held_max <= chunk, "{name}: the source held one chunk ({})", run.held_max);
-        assert!(
-            run.read * 5 <= run.log_bytes * 6,
-            "{name}: read {} of {}",
-            run.read,
-            run.log_bytes
-        );
     }
     assert!(
         ratio <= 1.2,

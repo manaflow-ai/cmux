@@ -113,7 +113,7 @@ extension WindowRules {
     /// The question a destructive action's run asks (the Cloud prompts are asked before this).
     public nonisolated enum Confirmation: String, Decodable, Sendable {
         case inHandler, groupWorkspaces, stash, bulkClose, browserProfileDelete, agentExtensions, spaceDelete,
-             spaceClearDefaults, remoteInstall, tabGroupClose, killProcess, deleteChief, leaveConversation
+             spaceClearDefaults, remoteInstall, updateRollback, tabGroupClose, killProcess, deleteChief, leaveConversation
         /// No question: the action runs.
         case noQuestion = "none"
     }

@@ -8,7 +8,7 @@ set -uo pipefail
 for appcast in $NIGHTLY_FEEDS; do
   out="$RUNNER_TEMP/before-$appcast"
   status=0
-  code="$(curl -sSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 60 -A "cmux-nightly-next-live-check/1" -H "Cache-Control: no-cache" \
+  code="$(curl -sSL --retry 5 --retry-all-errors -A "cmux-nightly-next-live-check/1" -H "Cache-Control: no-cache" \
     -o "$out" -w '%{http_code}' "${CHANNEL_FEED_BASE}/${appcast}?before=${GITHUB_RUN_ID}")" || status=$?
   if [ "$code" = 404 ]; then
     echo absent > "$out"

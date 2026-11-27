@@ -13,7 +13,6 @@ import CmuxNextDesignTokens
     static let ambientFades: [MotionFade: String] = [
         .highlight: "a found Settings row's highlight fading out over a reading pause",
         .hibernateRing: "a hibernated tab's dotted ring fading in (Chromium TabIcon, 1 s)",
-        .wallpaper: "a window background picture crossfading into its next one, which nothing waits on",
         .focusFlash: "the ring flashed where focus moved without a click, fading out slowly enough to be seen",
     ]
 

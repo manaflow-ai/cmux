@@ -13,7 +13,6 @@ use std::time::Duration;
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
-#[cfg(unix)]
 use super::codex_app_server;
 use super::resolve::{Failure, call_as_on};
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -439,15 +438,10 @@ fn await_pump(connection: &mut Connection, recipients: &[String], sent: &mut Sen
     }
 }
 
-/// Windows has no Codex app-server socket: messages stay queued for the agents' hooks.
-#[cfg(not(unix))]
-fn deliver_to_codex_terminals(_: &mut Connection, _: &[String], _: &mut Sent) {}
-
 /// Hand the queued messages of each Codex terminal agent among `recipients`
 /// to Codex through its shared app-server (`codex_app_server`). Other terminal
 /// agents, and a Codex agent the daemon cannot reach now, keep them queued
 /// for their hooks.
-#[cfg(unix)]
 fn deliver_to_codex_terminals(connection: &mut Connection, recipients: &[String], sent: &mut Sent) {
     let terminals: Vec<&String> =
         recipients.iter().filter(|recipient| recipient.starts_with("term_")).collect();

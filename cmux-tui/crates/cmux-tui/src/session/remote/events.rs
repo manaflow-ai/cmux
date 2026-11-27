@@ -11,7 +11,6 @@ impl RemoteSession {
     }
 
     fn invalidate_tree_once(&self) -> bool {
-        self.held_trees().invalidate();
         !self.tree_stale.swap(true, Ordering::AcqRel)
     }
 
@@ -70,7 +69,6 @@ impl RemoteSession {
         }
         let surface = value.get("surface").and_then(Value::as_u64);
         match event {
-            "client-disconnected-by" => true,
             "client-attached"
             | "client-changed"
             | "client-detached"
@@ -88,6 +86,7 @@ impl RemoteSession {
             | "colors-changed"
             | "browser-state"
             | "frame"
+            | "detached"
             | "surface-exited"
             | "agent-changed"
             | "agent-presence-changed"
@@ -96,7 +95,6 @@ impl RemoteSession {
             | "program-status-changed"
             | "size-state"
             | "scroll-changed" => surface == Some(target),
-            "detached" => surface == Some(target),
             _ => true,
         }
     }
@@ -343,19 +341,7 @@ impl RemoteSession {
                     }
                 }
             }
-            Some("client-disconnected-by") => {
-                // A whole-client kick can arrive before any surface attach.
-                self.disconnect_state.record_disconnected_by_peer();
-            }
             Some("detached") => {
-                // cmux-terminal-sizing's detach_reason::DISCONNECTED_BY: a
-                // kick, after which the client must not reconnect by itself.
-                if value.get("reason").and_then(Value::as_str) == Some("disconnected-by")
-                    && value.get("scope").and_then(Value::as_str) != Some("view")
-                    && value.get("view").is_none()
-                {
-                    self.disconnect_state.record_disconnected_by_peer();
-                }
                 if let Some(id) = surface_id() {
                     self.surfaces.lock().unwrap().remove(&id);
                     self.size_states.lock().unwrap().remove(&id);
@@ -380,7 +366,7 @@ impl RemoteSession {
                 self.emit(MuxEvent::Empty);
             }
             Some("tree-changed") => {
-                self.mark_tree_stale();
+                self.tree_stale.store(true, Ordering::Release);
                 self.emit(MuxEvent::TreeChanged);
             }
             Some("size-state") => {
@@ -422,7 +408,6 @@ impl RemoteSession {
                 };
                 let event = MuxEvent::AgentChanged {
                     surface,
-                    terminal_id: value.get("terminal_id").and_then(Value::as_str).map(Arc::from),
                     state: Arc::from(agent.state.as_str()),
                     source: Arc::from(agent.source.as_str()),
                     session: agent.session.as_deref().map(Arc::from),
@@ -449,7 +434,7 @@ impl RemoteSession {
                 self.emit(event);
             }
             Some("layout-changed") => {
-                self.mark_tree_stale();
+                self.tree_stale.store(true, Ordering::Release);
                 if let Some(screen) = value.get("screen").and_then(|v| v.as_u64()) {
                     self.emit(MuxEvent::LayoutChanged(screen, None));
                 } else {
@@ -462,7 +447,7 @@ impl RemoteSession {
                     // refresh may lag this event, but input and reattach must
                     // already fail closed for a known-exited surface.
                     self.drop_surface(id);
-                    self.mark_tree_stale();
+                    self.tree_stale.store(true, Ordering::Release);
                     let end = value.get("end").filter(|end| !end.is_null()).cloned();
                     self.emit(MuxEvent::SurfaceExited(id, end.map(Arc::new)));
                 }
@@ -574,11 +559,11 @@ impl RemoteSession {
                             self.surface_overflow_reconnect_required.load(Ordering::Acquire);
                         if !reconnect_required || !reconnect_was_required {
                             self.emit(MuxEvent::Status(if reconnect_required {
-                                "surface overflow recovery capacity was exhausted; output resumes once this session is attached again"
+                                "surface overflow recovery capacity was exhausted; detach and reconnect to recover"
                                     .to_string()
                             } else if stopped {
                                 format!(
-                                    "surface {surface_id} event stream repeatedly overflowed; its output resumes once this session is attached again"
+                                    "surface {surface_id} event stream repeatedly overflowed; detach and reconnect to recover"
                                 )
                             } else {
                                 format!(
@@ -590,7 +575,7 @@ impl RemoteSession {
                     }
                     return;
                 }
-                self.mark_tree_stale();
+                self.tree_stale.store(true, Ordering::Release);
                 self.start_subscription_recovery();
             }
             Some("status") => {

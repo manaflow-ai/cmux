@@ -39,9 +39,9 @@ elsewhere is left alone. Nothing here touches the lane switches
 never changes, only where overflow goes.
 
 Signing jobs read their runner from the variables in
-signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES (MACOS_RUNNER_26;
-LINUX_RUNNER left it on 2026-11-19), which must only ever name an ephemeral runner: those
-jobs carry no whole-mini claim (tests/test_ci_signing_owned_mac.py). The switch
+signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES (LINUX_RUNNER,
+MACOS_RUNNER_26), which must only ever name an ephemeral runner (rule 7 of
+tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py). The switch
 never writes anything else to one: MACOS_RUNNER_26 has no owned failover (its
 jobs wait for Blacksmith), an override that names a reused machine for one is
 refused, and an older record that still names one as switched to an owned
@@ -92,7 +92,7 @@ LINUX_VARIABLES = (LINUX_VARIABLE, TRUSTED_VARIABLE)
 # is here; CI_CLOUD_FAILOVER can add one.
 # MACOS_RUNNER_26 is not either: signing jobs run on it, so it never names an owned
 # mini (SIGNING_VARIABLES below). On 2026-10-28 the failover pointed it at the std
-# pool, where those signing jobs would have shared a mini without its claim.
+# pool and turned cmux-next-guards.yml's signing-runner-variables red on every PR.
 STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR", "MACOS_RUNNER_DUAL_XCODE")
 # The variables signing jobs take their runner from: the switch writes only an
 # ephemeral label (blacksmith-* or ubuntu-*) to these, or puts back a recorded value.

@@ -59,28 +59,6 @@ import Testing
         #expect(!CEFFirstPaintBridge.isFirstContentfulPaint(wrongMethod, mainFrame: "MAIN"))
     }
 
-    /// A cold load goes ground, then page, in one change (Leo, 2026-11-22: "dont have stupid multi stage loading"):
-    /// the page is see-through from the browser's creation, not from the commit, so closing the pre-commit hole never
-    /// shows Chromium's opaque theme frame. Only a painted (settled) real page is opaque.
-    @Test func aPageIsSeeThroughUntilItsDocumentPaintsFromCreationOn() {
-        func ground(cmux: Bool = false, real: Bool, settled: Bool, fork: Bool = true) -> Bool {
-            PageBackground.showsPaneGround(pageSeeThrough: cmux, pastFirstRealPage: real, documentSettled: settled,
-                                           seeThroughFork: fork)
-        }
-        // A new browser, a spare page, a restored or woken tab: nothing real committed yet.
-        #expect(ground(real: false, settled: false))
-        // Committed, not painted.
-        #expect(ground(real: true, settled: false))
-        // Painted: the document owns the page area, opaque on its own color.
-        #expect(!ground(real: true, settled: true))
-        // A see-through cmux page always shows the pane.
-        #expect(ground(cmux: true, real: true, settled: true))
-        // A fork without the switch cannot be see-through.
-        #expect(!ground(real: false, settled: false, fork: false))
-        #expect(!ground(real: true, settled: false, fork: false))
-        #expect(ground(cmux: true, real: false, settled: false, fork: false))
-    }
-
     private static func lifecycle(_ name: String, frame: String) -> String {
         #"{"method":"Page.lifecycleEvent","params":{"frameId":"\#(frame)","loaderId":"L1","name":"\#(name)","timestamp":1.5}}"#
     }

@@ -66,6 +66,19 @@ struct ChiefAppAcpmuxTests {
         #expect(host.childEnvironment["OPTCHAT_ACPMUX_SUPERVISED"] == nil)
     }
 
+    @Test func onlyNightlysOwnHomeUsesTheAppsAcpmux() {
+        let nightly = ChiefHome.nightlyBundleID
+        #expect(ChiefHome.usesAppAcpmux(isolated: false, buildID: nightly, ownAcpmux: false))
+        // `CMUX_CHIEF_OWN_ACPMUX=1` brings the Chief's own daemon back.
+        #expect(!ChiefHome.usesAppAcpmux(isolated: false, buildID: nightly, ownAcpmux: true))
+        #expect(ChiefHome.ownAcpmux(["CMUX_CHIEF_OWN_ACPMUX": "1"]))
+        #expect(!ChiefHome.ownAcpmux(["CMUX_CHIEF_OWN_ACPMUX": "0"]))
+        #expect(!ChiefHome.ownAcpmux([:]))
+        #expect(!ChiefHome.usesAppAcpmux(isolated: true, buildID: nightly, ownAcpmux: false))
+        #expect(!ChiefHome.usesAppAcpmux(isolated: false, buildID: nil, ownAcpmux: false))
+        #expect(!ChiefHome.usesAppAcpmux(isolated: false, buildID: "com.cmuxterm.app.nightly.cmux-next", ownAcpmux: false))
+    }
+
     // An update relaunch does not stop the Chief host: one this app did not launch on the app's
     // acpmux (the previous build's, on the Chief's own daemon) or whose executable is gone is
     // restarted, and the Chief's own daemon ends unless a named Chief still runs on it.

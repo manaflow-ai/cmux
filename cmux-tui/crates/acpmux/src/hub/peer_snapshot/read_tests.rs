@@ -21,9 +21,7 @@ fn add_idle_peer(hub: &Hub, name: &str) -> Arc<crate::peer::Peer> {
 
 fn row(created: u64) -> Value {
     json!({"sessionId": "m1", "name": "lane", "status": "running", "createdAt": created,
-           "updatedAt": 5, "retry": {"attempt": 1, "of": 3, "nextAt": 99},
-           "timeBreakdown": {"totalMs": 9, "spans": [{"turnId": "t1"}]},
-           "tools": [{"name": "a"}], "toolsMutable": true})
+           "updatedAt": 5, "retry": {"attempt": 1, "of": 3, "nextAt": 99}})
 }
 
 /// Captures `page` of m1 as the hub's forward path does, and waits for it to be written.
@@ -152,10 +150,6 @@ fn a_down_peers_chat_reads_stale_without_a_countdown_across_a_restart() {
     assert!(got["capturedAt"].is_u64());
     assert!(got["summary"].get("retry").is_none(), "no countdown from a peer that is down: {got}");
     assert_eq!(got["summary"]["stale"], true);
-    let left_out = |got: &Value| {
-        ["timeBreakdown", "tools", "toolsMutable"].map(|f| got["summary"].get(f).is_none())
-    };
-    assert_eq!(left_out(&got), [true; 3], "the copy keeps no detail of the row: {got}");
     // The newest within the limit, and more is older.
     let two = hub.peer_snapshot(&json!({"sessionId": "m1", "limit": 2})).unwrap();
     assert_eq!((seqs(&two), two["hasMore"].clone()), (vec![5, 6], json!(true)));
@@ -177,7 +171,6 @@ fn a_down_peers_chat_reads_stale_without_a_countdown_across_a_restart() {
     let got = again.peer_snapshot(&json!({"sessionId": "huge-blue/lane"})).unwrap();
     assert_eq!(seqs(&got), (1..=6).collect::<Vec<_>>());
     assert!(got["summary"].get("retry").is_none(), "{got}");
-    assert_eq!(left_out(&got), [true; 3], "nor after a restart: {got}");
 
     // No row lists it any more (a lease that ended with its VM): host and id.
     again.remote_sessions.write().retain(|_, _| false);
@@ -270,115 +263,4 @@ fn a_loss_not_sent_yet_goes_before_a_read_of_its_peer() {
     let got = hub.peer_snapshot(&json!({"sessionId": "huge-blue/lane"})).unwrap();
     assert!(seqs(&got).is_empty(), "the loss went first: {got}");
     assert!(hub.peer_snapshots.dropped().unsent.is_empty());
-}
-
-fn prompt(seq: u64) -> Value {
-    json!({"sessionId": "m1", "seq": seq, "dir": "mux", "kind": "user_message",
-           "msg": {"text": format!("prompt {seq}")}})
-}
-
-#[test]
-fn capped_peer_turn_keeps_its_opener_across_disk_reload() {
-    let dir = cmux_unix_socket::short_test_dir("acpmux-psr");
-    let hub = hub_at(dir.path());
-    let peer = add_idle_peer(&hub, "huge-blue");
-    hub.apply_peer_notice(
-        "huge-blue",
-        peer.generation,
-        PeerNotice::sessions_from_values(vec![row(42)]),
-    );
-    let mut tail = page(20..=25);
-    tail["hasMore"] = json!(true);
-    tail["turnOpener"] = prompt(2);
-    capture(&hub, &peer, &tail);
-    let request = json!({"host": "huge-blue", "sessionId": "m1", "limit": 2});
-    let got = hub.peer_snapshot(&request).unwrap();
-    assert_eq!(seqs(&got), vec![24, 25]);
-    assert_eq!(got["stale"], true);
-    assert_eq!(got["generation"], 42);
-    hub.peer_snapshots.flush_now();
-    drop(hub);
-    let again = hub_at(dir.path());
-    let start = Instant::now();
-    let got = again.peer_snapshot(&request).unwrap();
-    eprintln!(
-        "PERF cold_peer_snapshot_ms={:.3} opener_present={}",
-        start.elapsed().as_secs_f64() * 1000.0,
-        !got["turnOpener"].is_null()
-    );
-    assert_eq!(got["turnOpener"], prompt(2));
-    assert_eq!(seqs(&got), vec![24, 25]);
-    let peer = add_idle_peer(&again, "huge-blue");
-    again.apply_peer_notice(
-        "huge-blue",
-        peer.generation,
-        PeerNotice::sessions_from_values(vec![row(43)]),
-    );
-    let got = again.peer_snapshot(&request).unwrap();
-    assert!(got["turnOpener"].is_null());
-    assert!(seqs(&got).is_empty());
-}
-
-#[test]
-fn peer_opener_tracks_read_caps_and_store_eviction_without_steers() {
-    let dir = cmux_unix_socket::short_test_dir("acpmux-psr");
-    let hub = hub_at(dir.path());
-    let peer = add_idle_peer(&hub, "huge-blue");
-    hub.apply_peer_notice(
-        "huge-blue",
-        peer.generation,
-        PeerNotice::sessions_from_values(vec![row(42)]),
-    );
-    let mut tail = page(1..=10);
-    tail["events"][0] = prompt(1);
-    tail["events"][4] = prompt(5);
-    tail["events"][5] = prompt(6);
-    tail["events"][5]["msg"]["steer"] = json!(true);
-    capture(&hub, &peer, &tail);
-    let request = json!({"host": "huge-blue", "sessionId": "m1", "limit": 2});
-    assert_eq!(hub.peer_snapshot(&request).unwrap()["turnOpener"], prompt(5));
-    let all = json!({"host": "huge-blue", "sessionId": "m1", "limit": 40});
-    assert!(hub.peer_snapshot(&all).unwrap()["turnOpener"].is_null());
-    // The store itself caps to 40 records in tests; losing the prompt from that run
-    // must not lose the one record needed to render its completed turn.
-    let mut tail = page(1..=55);
-    tail["events"][0] = prompt(1);
-    tail["events"][4] = prompt(5);
-    tail["events"][5] = prompt(6);
-    tail["events"][5]["msg"]["steer"] = json!(true);
-    capture(&hub, &peer, &tail);
-    hub.peer_snapshots.flush_now();
-    drop(hub);
-    let again = hub_at(dir.path());
-    let got = again.peer_snapshot(&request).unwrap();
-    assert_eq!(got["turnOpener"], prompt(5));
-    assert_eq!(seqs(&got), vec![54, 55]);
-}
-
-#[test]
-fn peer_opener_rejects_other_sessions_and_does_not_discard_the_tail_when_oversized() {
-    let dir = cmux_unix_socket::short_test_dir("acpmux-psr");
-    let hub = hub_at(dir.path());
-    let peer = add_idle_peer(&hub, "huge-blue");
-    hub.apply_peer_notice(
-        "huge-blue",
-        peer.generation,
-        PeerNotice::sessions_from_values(vec![row(42)]),
-    );
-    let request = json!({"host": "huge-blue", "sessionId": "m1"});
-    for opener in [
-        json!({"sessionId": "other", "seq": 2, "dir": "mux", "kind": "user_message", "msg": {}}),
-        prompt(21),
-        json!({"sessionId": "m1", "seq": 2, "dir": "mux", "kind": "user_message", "msg": {"steer": true}}),
-        json!({"sessionId": "m1", "seq": 2, "dir": "mux", "kind": "user_message",
-               "msg": {"text": "x".repeat(HEAD_BYTES as usize)}}),
-    ] {
-        let mut tail = page(20..=25);
-        tail["hasMore"] = json!(true);
-        tail["turnOpener"] = opener;
-        capture(&hub, &peer, &tail);
-        let got = hub.peer_snapshot(&request).unwrap();
-        assert_eq!(seqs(&got), (20..=25).collect::<Vec<_>>());
-        assert!(got["turnOpener"].is_null());
-    }
 }

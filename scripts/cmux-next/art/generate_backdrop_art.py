@@ -4,14 +4,10 @@
 art/manifest.json is the one source of truth: each work's Commons source and license,
 its picker collection, its framing hints and its SHA-256. This writes
 
-- Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift (the enum and titles),
+- Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift (the enum and titles) and
+  BackdropArt+Entries.swift (its records), two files to stay under the 400-line file limit,
 - the CmuxNextDesign string catalog entries for each title (every locale the catalog carries),
 - Resources/BackdropArt/<id>.avif for the bundled starter set, copied from art/full.
-
-The works' records (BackdropArt+Entries.swift, `BackdropArt.entry`) are not in git: every build writes
-them from art/manifest.json (BackdropArtEntriesPlugin runs this script with --entries-out DIR), so the
-114 KB table is never a committed generated file. --entries-out DIR writes only that file, and only
-when it changed, so an incremental build recompiles nothing.
 
 Thumbnails (Resources/BackdropArt/<id>.thumb.avif) and art/full/*.avif come from
 scripts/cmux-next/art/render_backdrop_art.py. With --check nothing is written; the
@@ -29,8 +25,7 @@ MANIFEST = ROOT / "art/manifest.json"
 FULL = ROOT / "art/full"
 DESIGN = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextDesign"
 SWIFT = DESIGN / "BackdropArt.swift"
-# The records' file name in the build's plugin work directory (BackdropArtEntriesPlugin).
-ENTRIES_NAME = "BackdropArt+Entries.swift"
+SWIFT_ENTRIES = DESIGN / "BackdropArt+Entries.swift"
 CATALOG = DESIGN / "Resources/Localizable.xcstrings"
 RESOURCES = DESIGN / "Resources/BackdropArt"
 LOCALES = ["ar", "bs", "da", "de", "en", "es", "fr", "it", "ja", "km", "ko", "nb", "pl", "pt-BR", "ru", "th", "tr",
@@ -66,11 +61,6 @@ STATIC = {
         "en": "Doré", "ar": "دوريه", "de": "Doré", "es": "Doré", "fr": "Doré",
         "ja": "ドレ", "ko": "도레", "zh-Hans": "多雷", "zh-Hant": "多雷",
         "bs": "Doré", "da": "Doré", "it": "Doré", "km": "ដូរេ", "nb": "Doré", "pl": "Doré", "pt-BR": "Doré", "ru": "Доре", "th": "โดเร", "tr": "Doré", "uk": "Доре", "vi": "Doré",
-    },
-    "backdrop.collection.eastAsian": {
-        "en": "East Asian Painting", "ar": "الرسم الشرق آسيوي", "de": "Ostasiatische Malerei", "es": "Pintura de Asia oriental", "fr": "Peinture d'Asie de l'Est",
-        "ja": "東アジアの絵画", "ko": "동아시아 회화", "zh-Hans": "东亚绘画", "zh-Hant": "東亞繪畫",
-        "bs": "Istočnoazijsko slikarstvo", "da": "Østasiatisk maleri", "it": "Pittura dell'Asia orientale", "km": "គំនូរអាស៊ីបូព៌ា", "nb": "Østasiatisk maleri", "pl": "Malarstwo wschodnioazjatyckie", "pt-BR": "Pintura do Leste Asiático", "ru": "Живопись Восточной Азии", "th": "จิตรกรรมเอเชียตะวันออก", "tr": "Doğu Asya Resmi", "uk": "Живопис Східної Азії", "vi": "Hội họa Đông Á",
     },
     "backdrop.collection.yours": {
         "en": "Your images", "ar": "صورك", "bs": "Vaše slike", "da": "Dine billeder", "de": "Deine Bilder", "es": "Tus imágenes",
@@ -108,9 +98,7 @@ def render_swift(works: list[dict]) -> str:
         "",
         "/// A public-domain artwork for the window backdrop (cx-t2x.7): well-known paintings and prints",
         "/// from Wikimedia Commons, each cleared as public domain in the US (the artist died 70+ years ago",
-        "/// and the work was published before 1931), and the Frutiger Aero backdrops (`aero-*`), original works",
-        "/// drawn from a seed by cmux-tui/crates/cmux-backdrop-gen and dedicated to the public domain.",
-        "/// Sources and licenses: art/manifest.json.",
+        "/// and the work was published before 1931). Sources and licenses: art/manifest.json.",
         "public nonisolated enum BackdropArt: String, CaseIterable, Sendable {",
     ]
     for work in works:
@@ -119,7 +107,7 @@ def render_swift(works: list[dict]) -> str:
     for work in works:
         key = f"backdrop.{work['id']}.title"
         lines.append(f"        case .{case_name(work['id'])}: String(localized: {swift_string(key)}, "
-                     f"defaultValue: {swift_string(work['title'])}, bundle: .localizedModule)")
+                     f"defaultValue: {swift_string(work['title'])}, bundle: .module)")
     lines += ["        }", "    }", "}", ""]
     return "\n".join(lines)
 
@@ -185,28 +173,14 @@ def update_omissions(works: list[dict], omissions: dict) -> dict:
     return omissions
 
 
-def write_entries(out_dir: Path, works: list[dict]) -> int:
-    """Writes the records into out_dir, leaving an unchanged file alone so the build does not recompile it."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / ENTRIES_NAME
-    text = render_entries(works)
-    if not path.exists() or path.read_text() != text:
-        path.write_text(text)
-    return 0
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true", help="report stale generated files without writing")
-    parser.add_argument("--entries-out", type=Path, metavar="DIR",
-                        help=f"write only {ENTRIES_NAME} into DIR (the build's plugin work directory)")
     args = parser.parse_args()
     works = json.loads(MANIFEST.read_text())["works"]
-    if args.entries_out is not None:
-        return write_entries(args.entries_out, works)
     stale = []
 
-    for path, text in [(SWIFT, render_swift(works))]:
+    for path, text in [(SWIFT, render_swift(works)), (SWIFT_ENTRIES, render_entries(works))]:
         if not path.exists() or path.read_text() != text:
             stale.append(path)
             if not args.check:

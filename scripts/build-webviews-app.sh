@@ -2,8 +2,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# An inherited `BUN_OPTIONS=--preload PATH` would fail every bun install here; this joins it to --preload=PATH.
-. "$ROOT/scripts/lib/bun-options.sh"
 SRC_DIR="$ROOT/webviews"
 OUT_DIR="$ROOT/Resources/markdown-viewer/webviews-app"
 REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"

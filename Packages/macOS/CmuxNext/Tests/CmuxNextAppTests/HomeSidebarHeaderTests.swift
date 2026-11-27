@@ -6,9 +6,9 @@ import CmuxTheme
 import Testing
 
 /// The Home list's header (Leo 2026-10-19, "when the thing is compressed"): on the list with names,
-/// search and the Unread toggle stay on one row at every width; only the search field's
-/// width changes; the row sits in the 52 pt band with no lone button above it. Compose is the chat's
-/// at every width (the user 2026-10-21, `HomeComposeAndTeamTests`). The avatar-only list shows no row
+/// search and the Unread toggle stay on one row at every width; only the search field's width
+/// changes; the row sits in the 52 pt band with no lone button above it. Compose is the chat's at
+/// every width (the user 2026-10-21, `HomeComposeAndTeamTests`). The avatar-only list shows no row
 /// (the user 2026-10-20, as Messages: `HomeNarrowSidebarTests`).
 @MainActor
 struct HomeSidebarHeaderTests {
@@ -20,8 +20,7 @@ struct HomeSidebarHeaderTests {
         let items = [h.search, h.filter]
         #expect(h.compose == .zero)
         #expect(Set(items.map(\.midY)).count == 1, "the row wraps at \(width)")
-        #expect(h.search.height == HomeSidebarHeaderMetrics.standard.searchHeight)
-        #expect(h.filter.height == HomeSidebarHeaderMetrics.standard.side)
+        #expect(items.allSatisfy { $0.height == HomeSidebarHeaderMetrics.standard.side })
         #expect(items.allSatisfy { $0.minX >= 0 && $0.maxX <= width }, "the row overflows \(width)")
         for (a, b) in zip(items, items.dropFirst()) {
             #expect(a.maxX <= b.minX, "items overlap at \(width)")
@@ -41,8 +40,7 @@ struct HomeSidebarHeaderTests {
 
     /// The view follows the layout: the field and the quiet buttons on one row, the field's
     /// bezel and AppKit focus ring off, and no fill on a button at rest.
-    /// The view's width: the list is 8 pt narrower (the panel's inset), and under 180 pt it is avatars only.
-    @Test(arguments: [188, 260, 320] as [CGFloat])
+    @Test(arguments: [180, 260, 320] as [CGFloat])
     func theViewDrawsTheRow(_ width: CGFloat) throws {
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: width, height: 600))
         home.layoutSubtreeIfNeeded()
@@ -58,86 +56,9 @@ struct HomeSidebarHeaderTests {
         #expect(field.frame.midY == home.unreadToggle.frame.midY)
         // MessagesLab's filter menu button is gone: the toggle is the filter.
         #expect(home.list.controller.filterButton.isHidden)
-        #expect((home.unreadToggle.layer?.backgroundColor?.alpha ?? 0) == 0, "the filter has a pill at rest")
-    }
-
-    /// The user, 2026-11-23: "remove this + button" (Messages' header has none). New Chief stays in
-    /// compose's right-click menu, the New Message list and the command palette.
-    @Test func theHeaderHasNoNewChiefButton() {
-        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
-        home.layoutSubtreeIfNeeded()
-        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
-        #expect(!all(home).contains { $0.accessibilityIdentifier() == "cmux.home.sidebar.newChief" })
-    }
-
-    /// Messages' floating sidebar (macOS 26, measured at 2x): the list in a panel 8 pt in from the
-    /// column's left, top and bottom (the top follows the traffic lights in a window), 18 pt
-    /// circular corners, its rim a one-pixel stroke drawn over the list; the column is 8 pt wider
-    /// than the list, so the standard panel is Messages' 320 pt.
-    @Test func theListSitsInMessagesPanel() throws {
-        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 328, height: 600))
-        home.layoutSubtreeIfNeeded()
-        #expect(home.panel.frame == NSRect(x: 8, y: 8, width: 320, height: 584))
-        #expect(home.list.frame.width == 320)
-        #expect(home.preferredWidth == home.list.preferredWidth + 8)
-        let layer = try #require(home.panel.layer)
-        #expect(layer.cornerRadius == 18 && layer.cornerCurve == .circular && layer.masksToBounds)
-        #expect(home.rim.superview === home.panel && home.rim.frame == home.panel.bounds)
-    }
-
-    /// The panel's fill is a shade, not a colour: at a low window opacity the desktop shows through it
-    /// as through the rest of the window (the user, 2026-11-23: "the background needs to blend on low
-    /// opacity/transprency"). Over an opaque surface it is still the surface 5 % toward black (dark). Under
-    /// `legibleCover` the surface tops the cover up, so the list's text stays readable ("being able to read them").
-    @Test(arguments: [true, false])
-    func thePanelFillBlendsWithTheWindow(_ dark: Bool) throws {
-        let surface = NSColor(srgbRed: 0.1, green: 0.2, blue: 0.3, alpha: 0.5)
-        let shade = 1 - (dark ? 0.95 : 1 - 0.74 * 0.08)
-        // Over an opaque window, or one that covers enough: a black shade only.
-        for cover in [1, 0.9, HomeSidebarGlass.legibleCover] {
-            let tint = try #require(HomeSidebarGlass(surface: surface, cover: cover, dark: dark).tint.usingColorSpace(.sRGB))
-            #expect(tint.redComponent == 0 && tint.greenComponent == 0 && tint.blueComponent == 0, "cover \(cover)")
-            #expect(abs(tint.alphaComponent - shade) < 0.0001, "cover \(cover)")
+        for button in [home.unreadToggle] {
+            #expect((button.layer?.backgroundColor?.alpha ?? 0) == 0, "a header button has a pill at rest")
         }
-        // Over a thin window: the panel covers `legibleCover` (and the shade), never all; the surface's hue.
-        for cover in [0, 0.3, 0.5, 0.6] {
-            let tint = try #require(HomeSidebarGlass(surface: surface, cover: cover, dark: dark).tint.usingColorSpace(.sRGB))
-            let total = 1 - (1 - Double(tint.alphaComponent)) * (1 - cover)
-            #expect(abs(total - (1 - (1 - shade) * (1 - HomeSidebarGlass.legibleCover))) < 0.0001, "cover \(cover): \(total)")
-            #expect(tint.alphaComponent < 1)
-            #expect(tint.blueComponent > tint.greenComponent && tint.greenComponent > tint.redComponent, "cover \(cover): not the surface's hue")
-        }
-    }
-
-    /// The field's text is centred on the row (Leo 2026-10-19, "vertically they need to all be
-    /// centered"): an unbezeled search cell draws its line from the frame's top, so the field is
-    /// one text line tall and centred in its capsule, on the buttons' centre line.
-    @Test(arguments: [260, 320, 480] as [CGFloat])
-    func theSearchTextIsCentredOnTheRow(_ width: CGFloat) throws {
-        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: width, height: 600))
-        home.layoutSubtreeIfNeeded()
-        home.list.headerView.needsLayout = true
-        home.list.headerView.layoutSubtreeIfNeeded()
-        let field = home.list.searchField
-        let font = try #require(field.font)
-        #expect(field.frame.height == ceil(NSLayoutManager().defaultLineHeight(for: font)))
-        #expect(abs(field.frame.midY - home.searchCapsule.frame.midY) <= 0.5)
-        #expect(abs(field.frame.midY - home.unreadToggle.frame.midY) <= 0.5)
-    }
-
-    /// The header's glyphs share one centre line by what they draw (Leo 2026-10-19, "vertically
-    /// they need to all be centered"): SF Symbols centre their layout box, and compose's pencil tip
-    /// lifts its box, so its square sat 1.75 pt below the other glyphs.
-    @Test(arguments: ["square.and.pencil", "line.3.horizontal.decrease", "line.3.horizontal.decrease.circle"])
-    func eachHeaderGlyphHasItsInkCentred(_ name: String) throws {
-        let image = try #require(HomeHeaderButton.centredSymbol(name, size: 14))
-        #expect(image.isTemplate)
-        var rect = CGRect(origin: .zero, size: image.size)
-        let cg = try #require(image.cgImage(forProposedRect: &rect, context: nil, hints: nil))
-        let ink = try #require(HomeHeaderButton.inkBounds(cg))
-        let scale = CGFloat(cg.width) / image.size.width
-        #expect(abs(ink.midY / scale - image.size.height / 2) <= 0.5, "\(name) ink is off centre vertically")
-        #expect(abs(ink.midX / scale - image.size.width / 2) <= 0.5, "\(name) ink is off centre horizontally")
     }
 
     @Test func theUnreadToggleFiltersInOneClick() {

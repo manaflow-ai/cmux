@@ -46,8 +46,6 @@ pub mod reduce;
 #[cfg(test)]
 mod refusal_text_tests;
 pub mod reset;
-#[cfg(test)]
-mod scale_tests;
 mod stale;
 #[cfg(test)]
 mod stale_tests;

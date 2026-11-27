@@ -37,8 +37,8 @@ impl Config {
             Some(home) => crate::daemon::is_shared_home(home),
             None => crate::daemon::uses_shared_home(),
         };
-        let listen = crate::daemon_parts::first_run_listen(shared, Some(&websocket.listen));
-        crate::ws_auth::check_listen_address_blocking(listen, websocket.allow_insecure_network)
+        let listen = crate::daemon::first_run_listen(shared, Some(&websocket.listen));
+        crate::server::check_listen_address_blocking(listen, websocket.allow_insecure_network)
             .with_context(|| format!("refusing websocket.listen {listen}"))
     }
 }

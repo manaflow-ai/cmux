@@ -263,19 +263,8 @@ def graphql_open_issues(repo: str) -> list[dict]:
     } for n in issues["nodes"]]
 
 
-def open_freezes(repo: str, issues_file: str | None = None, graphql_first: bool = False) -> list[Freeze]:
-    issues = None
-    if issues_file is None and graphql_first:
-        # merge-freeze.yml: one read per pull request event (about 141 an hour on 2026-11-21) from GraphQL's own
-        # quota, not the repository's GITHUB_TOKEN REST hour every workflow shares. Any failure reads REST below.
-        try:
-            issues = graphql_open_issues(repo)
-        except (subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
-            print(f"warning: the GraphQL freeze list failed ({type(error).__name__}); reading it over REST",
-                  file=sys.stderr)
-    if issues is not None:
-        pass
-    elif issues_file is not None:
+def open_freezes(repo: str, issues_file: str | None = None) -> list[Freeze]:
+    if issues_file is not None:
         # Recorded issues carry what the API calls below would return: labeled_by,
         # labeler_role, labeled_at and last_edited_at.
         issues = [i for i in read_json_list(issues_file)
@@ -362,8 +351,6 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--files", help="changed paths, one per line (default: read from GitHub)")
     check.add_argument("--issues-file", help="the open issues as JSON, instead of reading GitHub")
     check.add_argument("--events-file", help="the pull request's issue events as JSON, instead of reading GitHub")
-    check.add_argument("--graphql-first", action="store_true",
-                       help="read the open freezes over GraphQL first, REST only if that fails (merge-freeze.yml)")
     for name in ("list", "expire"):
         p = sub.add_parser(name)
         p.add_argument("--repo", required=True)
@@ -373,7 +360,7 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.now(timezone.utc)
 
     try:
-        freezes = open_freezes(args.repo, getattr(args, "issues_file", None), getattr(args, "graphql_first", False))
+        freezes = open_freezes(args.repo, getattr(args, "issues_file", None))
         if args.mode == "list":
             for freeze in freezes:
                 print(describe(freeze, now))

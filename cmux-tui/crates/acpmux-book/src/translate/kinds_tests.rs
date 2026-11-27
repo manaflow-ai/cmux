@@ -78,7 +78,6 @@ fn the_tables_are_sorted_with_one_line_a_kind() {
             "session_info_update",
             "status",
             "subsession",
-            "usage_limits",
             "usage_update",
         ]
     );

@@ -17,9 +17,6 @@ import Testing
     final class Mac: @unchecked Sendable {
         private let lock = NSLock()
         private var _prompts: [(text: String, promptID: String, resend: Bool)] = []
-        private var _cancels = 0
-        var cancels: Int { lock.withLock { _cancels } }
-        func cancelled() { lock.withLock { _cancels += 1 } }
         private var _fullAccess: Bool
         init(fullAccess: Bool = true) { _fullAccess = fullAccess }
         var fullAccess: Bool {
@@ -43,9 +40,6 @@ import Testing
                 return [reply(#"{"sessions":[{"sessionId":"s1","name":"lane","harness":"claude","cwd":"/tmp/w","status":"running"}]}"#)]
             case "_acpmux/attach":
                 return [reply(#"{"session":{"sessionId":"s1","status":"running","pending":[]},"hasMore":false,"lastSeq":0,"events":[]}"#)]
-            case "session/cancel":
-                mac.cancelled()
-                return []
             case "session/prompt":
                 let params = object["params"] as? [String: Any]
                 let text = ((params?["prompt"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
@@ -81,8 +75,6 @@ import Testing
         for _ in 0..<2000 where !until() { await Task.yield() }
     }
 
-    // The hold is the Rust prompt outbox's (`ChatPromptOutbox`), in the iOS build only.
-    #if canImport(CmuxMobileLinkFFI)
     @Test func messagesSentDuringABlipGoInOrderOnceTheLinkIsBack() async throws {
         let mac = Mac()
         let (hub, link, source, store) = try await openChat(mac)
@@ -105,7 +97,7 @@ import Testing
         #expect(store.returnedDraft == nil)
     }
 
-    @Test func aMessageHeldPastTheWindowIsMarkedNotSentWhereItWasDrawn() async throws {
+    @Test func aMessageHeldPastTheWindowComesBackWithWhatHappened() async throws {
         let mac = Mac()
         let (hub, link, source, store) = try await openChat(mac)
         defer { withExtendedLifetime(hub) {} }
@@ -113,11 +105,9 @@ import Testing
         await hub.bind(nil)
         store.send(prompt: "run the tests")
         try await Task.sleep(for: .milliseconds(150)) // test: past the shortened window
-        await settle { store.turns.last?.localSend == .notSent }
-        // The message stays where it was drawn, marked on its own row; no toast, no draft back.
-        #expect(store.turns.last?.prompt == "run the tests")
-        #expect(store.clientError == nil)
-        #expect(store.returnedDraft == nil)
+        await settle { store.returnedDraft != nil }
+        #expect(store.returnedDraft?.text == "run the tests")
+        #expect(store.clientError?.hasPrefix("Not sent: mini was unreachable for more than") == true)
         #expect(source.heldPrompts.isEmpty)
 
         // The Mac comes back later: the stale message is not sent behind the person's back.
@@ -125,7 +115,6 @@ import Testing
         for _ in 0..<300 { await Task.yield() }
         #expect(mac.prompts.isEmpty)
     }
-    #endif
 
     /// Leo's lanes run in Bypass permissions, and his phone's Full-access setting was off: a
     /// message to one is refused, truly. The draft comes back with what to change; a reconnect

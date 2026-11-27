@@ -74,13 +74,13 @@ extension TerminalSurfaceView: NSMenuItemValidation {
         if let session, let menu = session.delegate?.terminalSession(session, contextMenuFor: event) { return menu.themeRows(in: themeScope.fullStrength) }
         let menu = NSMenu()
         if hasSelection {
-            menu.addItem(withTitle: String(localized: "terminal.menu.copy", defaultValue: "Copy", bundle: .localizedModule), action: #selector(copy(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "terminal.menu.copy", defaultValue: "Copy", bundle: .module), action: #selector(copy(_:)), keyEquivalent: "")
         }
-        menu.addItem(withTitle: String(localized: "terminal.menu.paste", defaultValue: "Paste", bundle: .localizedModule), action: #selector(paste(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: String(localized: "terminal.menu.paste", defaultValue: "Paste", bundle: .module), action: #selector(paste(_:)), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: String(localized: "terminal.menu.selectAll", defaultValue: "Select All", bundle: .localizedModule), action: #selector(selectAll(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: String(localized: "terminal.menu.selectAll", defaultValue: "Select All", bundle: .module), action: #selector(selectAll(_:)), keyEquivalent: "")
         for item in menu.items { item.target = self }
-        return NSMenu.withoutSystemItems(menu)
+        return menu
     }
 
     // MARK: Drag and drop

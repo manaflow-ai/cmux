@@ -62,14 +62,6 @@ TUIに同じ6桁のコードが表示されます。TUIでEnterを押して承�
 - ブラウザ固有のattachイベントを利用したブラウザサーフェスの表示。
 - 接続プロファイルの保存と、ユーザーが操作できる切断アクション。
 
-## デーモンから配信する(URL ひとつ、開発サーバーなし)
-
-```bash
-scripts/serve-from-daemon.sh --session web --port 7690
-```
-
-このアプリをページ `web` としてページバンドルフォルダーにビルドし、そのフォルダーも配信するループバックリスナー付きのヘッドレスデーモンを起動して(`CMUX_TUI_PAGES_DIR`、spec/transports.md「App listener and page files」)、`http://127.0.0.1:7690/pages/web/#token=…` を表示します。`/pages/` 配下のページは自分のオリジンに接続し、フラグメントにトークンがあればすぐに接続します。Cloud やレーンの VM では `ssh -L 7690:127.0.0.1:7690 HOST` を実行してから、手元のマシンで URL を開きます。`scripts/measure-in-browser.mjs URL OUTDIR` はヘッドレス Chrome で初回描画、キー入力からエコーまでの時間、スクリーンショット 2 枚を記録します。
-
 ## リモートアクセスとワンタップリンク
 
 localhost以外のホストから配信する場合、WebSocket URLは`wss://<hostname>:8443`が既定です。`tailscale serve --https=8443 <ws-port>`などでTLSを前段に置いてください。`?ws=<url>`はアドレスバーから消去され、最後のURLは`localStorage`に保存されます。自動化では`?ws=<url>#token=<token>`を使用します。トークンのフラグメントはHTTPリクエストに含まれず、直ちに消去されて保存されません。

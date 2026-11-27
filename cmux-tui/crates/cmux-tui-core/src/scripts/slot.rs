@@ -19,12 +19,11 @@ use crate::mux::Mux;
 /// A REPL session's id on the wire (`scr_<n>`).
 pub(crate) type SessionId = String;
 
+/// REPL sessions one connection may hold open (starting ones count).
+const MAX_SESSIONS_PER_CLIENT: usize = 8;
+/// One-shot scripts one connection may run at once.
+const MAX_RUNS_PER_CLIENT: usize = 8;
 /// Sessions (REPL and one-shot, starting ones count) this daemon runs at once.
-/// Measured: each is a `cmux-app-host --profile script` process, 8.7 MiB RSS
-/// (3.7 MiB anonymous) idle after a cell (Linux x86_64, dev build, /proc/PID/status
-/// of 4 sessions from `cmux-app-host/tests/script.rs`), whose engine may grow to
-/// SCRIPT_MEMORY_BYTES (64 MiB), plus one reader thread here: 32 bound it at about 2.3 GiB.
-/// A connection has no limit of its own.
 const MAX_SESSIONS: usize = 32;
 /// Console lines one cell may send to its connection; the rest are counted
 /// and dropped, so a chatty script never fills the connection's queue.
@@ -90,8 +89,7 @@ struct Inner {
     sessions: HashMap<SessionId, Entry>,
     /// Requests that start or run a cell, by `(client, request id)`.
     running: HashMap<(u64, String), Running>,
-    /// One-shot runs (until they end) and REPL opens (until they start), by client:
-    /// counted in [`Inner::total`].
+    /// One-shot runs (until they end) and REPL opens (until they start), by client.
     starts: HashMap<u64, usize>,
 }
 
@@ -156,12 +154,13 @@ impl ScriptsSlot {
         })
     }
 
-    /// Reserves a start for `client` and registers `request`; the daemon's
-    /// limit counts starts in progress too. A connection has no limit of its own.
+    /// Reserves a start for `client` and registers `request`; the limits
+    /// count starts in progress too.
     fn reserve(
         &self,
         client: u64,
         request: &str,
+        per_client: usize,
         repl: bool,
     ) -> Result<(SessionId, StartGuard<'_>), ScriptError> {
         let mut inner = self.lock();
@@ -174,6 +173,12 @@ impl ScriptsSlot {
         }
         if inner.total() >= MAX_SESSIONS {
             return Err(limit("too many scripts are running on this daemon"));
+        }
+        let starting = inner.starts.get(&client).copied().unwrap_or(0);
+        let open =
+            if repl { inner.sessions.values().filter(|e| e.client == client).count() } else { 0 };
+        if starting + open >= per_client {
+            return Err(limit("this connection runs too many scripts"));
         }
         *inner.starts.entry(client).or_insert(0) += 1;
         inner.running.insert(key, Running::Starting { cancelled: false });
@@ -244,7 +249,7 @@ impl ScriptsSlot {
         budget: Arc<LogBudget>,
     ) -> Result<Answer, ScriptError> {
         // The reservation counts this run against the limits until it ends.
-        let (id, _guard) = self.reserve(client, &request, false)?;
+        let (id, _guard) = self.reserve(client, &request, MAX_RUNS_PER_CLIENT, false)?;
         let key = (client, request);
         let started = self.start(mux, &id, log);
         let session = self.go_live(&key, started, true)?;
@@ -265,7 +270,7 @@ impl ScriptsSlot {
         log: LogSink,
         budget: Arc<LogBudget>,
     ) -> Result<SessionId, ScriptError> {
-        let (id, guard) = self.reserve(client, &request, true)?;
+        let (id, guard) = self.reserve(client, &request, MAX_SESSIONS_PER_CLIENT, true)?;
         let key = (client, request);
         let started = self.start(mux, &id, log);
         let session = self.go_live(&key, started, false)?;
@@ -395,7 +400,7 @@ impl ScriptsSlot {
         client: u64,
         request: &str,
     ) -> Result<(), ScriptError> {
-        let (_, guard) = self.reserve(client, request, false)?;
+        let (_, guard) = self.reserve(client, request, MAX_RUNS_PER_CLIENT, false)?;
         drop(guard);
         Ok(())
     }
@@ -415,7 +420,3 @@ pub(crate) fn timeout_from(ms: Option<u64>) -> Duration {
     ms.map_or(cmux_app_host::script::DEFAULT_TIMEOUT, Duration::from_millis)
         .clamp(Duration::from_millis(1), cmux_app_host::script::MAX_TIMEOUT)
 }
-
-#[cfg(test)]
-#[path = "slot_tests.rs"]
-mod tests;

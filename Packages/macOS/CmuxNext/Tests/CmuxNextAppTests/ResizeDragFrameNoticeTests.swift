@@ -115,4 +115,57 @@ struct ResizeDragFrameNoticeTests {
         #expect(Set(moves.map(\.minX)) == shown, "the reader heard \(moves.count) moves for \(shown.count) places")
         #expect(moves.last == reader.convert(reader.bounds, to: nil))
     }
+
+    /// A zoom and its unzoom (Cmd-Shift-Enter) move and resize the zooming pane on every frame of their spring, from the
+    /// key's turn on (ZOOM VARIANTS 8: 1.25 ms of the zoom key's turn in AppKit's structural regions). Its views post no
+    /// frame notice on the spring's frames, and each one that changed posts once when it lands.
+    @Test func aZoomsAndAnUnzoomsFramesPostNoFrameNoticeFromThePaneViewsAndTheLandingPostsOnce() throws {
+        let screen = ZoomKeepsCoveredPanesTests.Screen()
+        defer { screen.window.closeAfterTest() }
+        let host = try #require(screen.root.context.hosts["p1"])
+        let views = Self.subtree(host)
+        let notices = Notices(watching: views)
+        defer { notices.stop() }
+        for (tree, zoomed) in [(SplitNode.leaf("p1"), true), (ZoomKeepsCoveredPanesTests.four, false)] {
+            notices.reset()
+            let before = host.frame
+            screen.show(tree, zoomed: zoomed)
+            var frames = 0, sizes: Set<CGFloat> = []
+            while screen.screen.zoomMotion.pane != nil, frames < 600 {
+                #expect(notices.total == 0, "zoomed \(zoomed): frame \(frames) of the spring posted \(notices.total) frame notices")
+                _ = screen.root.advanceFrame(1.0 / 120)
+                sizes.insert(host.frame.width)
+                frames += 1
+            }
+            screen.land()
+            // SETUP: the zoom ran on a spring that resized the pane over many frames.
+            try #require(frames > 5 && sizes.count > 5 && host.frame != before,
+                         "SETUP: zoomed \(zoomed) ran \(frames) frames over \(sizes.count) widths, \(before) -> \(host.frame)")
+            #expect(notices.counts[ObjectIdentifier(host)] == 1,
+                    "zoomed \(zoomed): the pane posted \(notices.counts[ObjectIdentifier(host)] ?? 0) notices, not 1 at the landing")
+            #expect(notices.counts.values.allSatisfy { $0 == 1 }, "zoomed \(zoomed): a pane view posted more than once: \(notices.counts.values.sorted())")
+        }
+        notices.reset()
+        host.setFrameSize(CGSize(width: host.frame.width - 4, height: host.frame.height))
+        #expect(notices.counts[ObjectIdentifier(host)] == 1, "a pane resized after the unzoom posted no frame notice")
+    }
+
+    /// A zoom whose pane leaves the layout before it lands (closed mid-spring) gives its views their notices back: the
+    /// hold must not outlive the motion it was for (review of #38849).
+    @Test func aZoomWhosePaneLeavesMidFlightGivesItsViewsTheirNoticesBack() throws {
+        let screen = ZoomKeepsCoveredPanesTests.Screen()
+        defer { screen.window.closeAfterTest() }
+        let host = try #require(screen.root.context.hosts["p1"])
+        let views = Self.subtree(host)
+        screen.show(.leaf("p1"), zoomed: true)
+        for _ in 0..<3 { _ = screen.root.advanceFrame(1.0 / 120) }
+        // SETUP: the zoom is on its spring and holds the pane's views.
+        try #require(screen.screen.zoomMotion.pane == "p1", "SETUP: the zoom landed in 3 frames")
+        try #require(views.contains { !$0.postsFrameChangedNotifications }, "SETUP: the zoom held none of the pane's views")
+        screen.show(.split("b", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .split("c", axis: .horizontal, ratio: 0.5,
+                                                                                         a: .leaf("p3"), b: .leaf("p4"))), zoomed: false)
+        screen.land()
+        let muted = views.filter { !$0.postsFrameChangedNotifications }
+        #expect(muted.isEmpty, "\(muted.count) of the closed zoom pane's views still post no frame notice")
+    }
 }

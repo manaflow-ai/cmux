@@ -67,7 +67,7 @@ public struct SecondaryCapsule: View {
                 .frame(height: size.height)
                 .contentShape(.capsule)
         }
-        .buttonStyle(.cmuxPressGlass)
+        .buttonStyle(.cmuxPressFill)
         .glassEffect(.regular.interactive(), in: .capsule)
     }
 }

@@ -1,12 +1,8 @@
 //! `acpmux send --from NAME` from outside any session, against a real daemon with its inbox on:
 //! a send that carries this host's sender token (`sender_token.rs`; `ACPMUX_SENDER_TOKEN` or
 //! `--sender-token-file`, the daemon's `ACPMUX_HOME/sender-token`) puts a verified sender in the
-//! receiving chat's inbox, verified by the host token. A wrong token leaves it declared.
+//! receiving chat's inbox, verified by the host token. A wrong token, and none, leave it declared.
 //! Leo, 2026-11-11: "generally the "unverified sender" things should be more verified".
-//! A send that presents none presents its daemon home's own: no sender has to remember to (Leo,
-//! 2026-11-20: "sometimes you guys litearlly dont announce your permissions apparently which fucks
-//! it up"). Each way a named send leaves a host is a case: `--from`, `ACPMUX_FROM` (what `reach`
-//! sets across an ssh hop, and what fleet timers set), and a tool's `--notice`.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -41,18 +37,11 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 fn cli(dir: &Path, args: &[&str], token: Option<&str>) -> Output {
-    cli_from(dir, args, token, None)
-}
-
-fn cli_from(dir: &Path, args: &[&str], token: Option<&str>, from_env: Option<&str>) -> Output {
     let mut cmd = daemon_env::command(dir, daemon_env::Agents::StandIn, &[]);
     cmd.args(args).env("ACPMUX_HOME", dir).env("ACPMUX_LOGIN_ENV", "0").current_dir(dir.join("p"));
-    cmd.env_remove("ACPMUX_SENDER_TOKEN").env_remove("ACPMUX_FROM");
+    cmd.env_remove("ACPMUX_SENDER_TOKEN");
     if let Some(token) = token {
         cmd.env("ACPMUX_SENDER_TOKEN", token);
-    }
-    if let Some(name) = from_env {
-        cmd.env("ACPMUX_FROM", name);
     }
     cmd.output().unwrap()
 }
@@ -108,53 +97,20 @@ fn a_named_send_with_the_host_token_is_a_verified_sender_in_the_inbox() {
     let path_arg = path.to_string_lossy().into_owned();
     let wrong_arg = wrong_file.to_string_lossy().into_owned();
 
-    // How a case names its sender: `--from`, `ACPMUX_FROM`, or a notice's `--sender`.
-    #[derive(Clone, Copy)]
-    enum Named {
-        Flag,
-        Env,
-        Notice,
-    }
-    // One sender: its name, how it is named, its token by the environment, its token file,
-    // and whether the host token verifies it.
-    struct Case<'a> {
-        name: &'a str,
-        named: Named,
-        env: Option<&'a str>,
-        file: Option<&'a str>,
-        verified: bool,
-    }
-    let case = |name, named, env, file, verified| Case { name, named, env, file, verified };
-    let cases = [
-        case("relay-env", Named::Flag, Some(token.as_str()), None, true),
-        case("relay-file", Named::Flag, None, Some(path_arg.as_str()), true),
-        case("relay-wrong", Named::Flag, None, Some(wrong_arg.as_str()), false),
-        // Presents nothing: its daemon home's own token goes with it.
-        case("relay-none", Named::Flag, None, None, true),
-        case("reach-hop", Named::Env, None, None, true),
-        case("land-notice", Named::Notice, None, None, true),
+    // (sender, its token by the environment, its token file, verified by the host token)
+    let cases: [(&str, Option<&str>, Option<&str>, bool); 4] = [
+        ("relay-env", Some(&token), None, true),
+        ("relay-file", None, Some(&path_arg), true),
+        ("relay-wrong", None, Some(&wrong_arg), false),
+        ("relay-none", None, None, false),
     ];
-    for Case { name, named, env, file, verified } in cases {
-        let mut args = vec!["--json", "send", "--no-wait"];
-        match named {
-            Named::Flag => args.extend(["--from", name]),
-            Named::Env => {}
-            Named::Notice => args.extend([
-                "--notice",
-                "--severity",
-                "warn",
-                "--sender",
-                name,
-                "--title",
-                "merge stopped",
-            ]),
-        }
+    for (name, env, file, verified) in cases {
+        let mut args = vec!["--json", "send", "--no-wait", "--from", name];
         if let Some(file) = file {
             args.extend(["--sender-token-file", file]);
         }
         args.extend(["lane", "status: green"]);
-        let from_env = matches!(named, Named::Env).then_some(name);
-        let sent = cli_from(&dir, &args, env, from_env);
+        let sent = cli(&dir, &args, env);
         assert!(sent.status.success(), "{name}: {}", text(&sent));
         let thread = (0..100).find_map(|_| {
             thread_from(&dir, name).or_else(|| {
@@ -185,10 +141,7 @@ fn a_named_send_with_the_host_token_is_a_verified_sender_in_the_inbox() {
     // The token is in nothing the daemon keeps or shows for the chat.
     let inbox = cli(&dir, &["--json", "session", "inbox", "lane"], None);
     let shown = String::from_utf8_lossy(&inbox.stdout);
-    assert!(
-        shown.contains("relay-env") && shown.contains("reach-hop"),
-        "the inbox was read: {shown}"
-    );
+    assert!(shown.contains("relay-env"), "the inbox was read: {shown}");
     assert!(!shown.contains(&token), "the token was shown: {shown}");
     assert!(!shown.contains("\"senderToken\""), "the token's key was shown: {shown}");
 }

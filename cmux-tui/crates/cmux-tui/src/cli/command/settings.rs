@@ -8,7 +8,6 @@
 use cmux_config::Schema;
 use serde_json::{Map, Value, json};
 
-use super::values::validate_decimal;
 use super::{CommandPlan, Flags, ResourceOperation, Selectors, UsageError, request};
 
 pub(super) fn parse(
@@ -26,54 +25,9 @@ pub(super) fn parse(
     if let Some(argv) = argv {
         operands.extend_from_slice(argv);
     }
-    // `--project DIR`: the project layer of DIR (`<project>/.cmux/cmux-next.json`,
-    // cmux_config::project) instead of the user's file.
-    let project = match flags.take("project") {
-        Some(_) if !matches!(verb.as_str(), "get" | "explain" | "set" | "reset" | "unset") => {
-            return Err(UsageError::new("--project goes with get, explain, set, reset and unset"));
-        }
-        Some(folder) => Some(project_folder(&folder)?),
-        None => None,
-    };
-    let key_params = |key: &str| {
-        let mut params = key_params(key);
-        if let Some(folder) = &project {
-            params.insert("project".into(), Value::String(folder.clone()));
-        }
-        params
-    };
-    // `reset --group G`: every setting of a section or group (`settings.reset_group`).
-    if let Some(group) = flags.take("group") {
-        if verb != "reset" || !operands.is_empty() || group.is_empty() {
-            return Err(UsageError::new(
-                "cmux settings reset --group GROUP takes a section (appearance) or section.group (appearance.sidebar) and no key",
-            ));
-        }
-        let params = recovery_params(flags, [("group", group)])?;
-        return request(ResourceOperation::SettingsResetGroup, &selectors, flags, params);
-    }
     match (verb.as_str(), operands.as_slice()) {
-        // Recovery for every writer (page, palette, CLI, agents, hand edits).
-        ("history", []) => {
-            request(ResourceOperation::SettingsHistory, &selectors, flags, Map::new())
-        }
-        ("undo", []) => {
-            let params = recovery_params(flags, [])?;
-            request(ResourceOperation::SettingsUndo, &selectors, flags, params)
-        }
-        ("restore", [revision]) => {
-            validate_decimal("restore REVISION (from `cmux settings history`)", revision)?;
-            let params = recovery_params(flags, [("revision", revision.clone())])?;
-            request(ResourceOperation::SettingsRestore, &selectors, flags, params)
-        }
         ("get", [key]) => {
             request(ResourceOperation::SettingsGet, &selectors, flags, key_params(key))
-        }
-        // `explain KEY`: each layer's value, which won, and the last write that touched it.
-        ("explain", [key]) => {
-            let mut params = key_params(key);
-            params.insert("explain".into(), Value::Bool(true));
-            request(ResourceOperation::SettingsGet, &selectors, flags, params)
         }
         ("set", [key, value]) => {
             let value =
@@ -85,48 +39,10 @@ pub(super) fn parse(
         ("reset" | "unset", [key]) => {
             request(ResourceOperation::SettingsReset, &selectors, flags, key_params(key))
         }
-        // `edit EDITS`: several keys in one atomic write (`settings.edit`). EDITS is a JSON
-        // array of `{"op": "set"|"set_unset"|"reset"|"reset_unchanged", "key", "value"?}`;
-        // `cmux wallpaper` switches modes through it.
-        ("edit", [edits]) => {
-            let edits: Value = serde_json::from_str(edits).ok().filter(Value::is_array).ok_or_else(
-                || {
-                    UsageError::new(
-                        "cmux settings edit takes a JSON array of edits: [{\"op\":\"set\",\"key\":KEY,\"value\":VALUE}, {\"op\":\"reset\",\"key\":KEY}]",
-                    )
-                },
-            )?;
-            let params = Map::from_iter([(String::from("edits"), edits)]);
-            request(ResourceOperation::SettingsEdit, &selectors, flags, params)
-        }
         _ => Err(UsageError::new(
             "unknown or incomplete settings action; run `cmux settings --help` for its actions",
         )),
     }
-}
-
-/// `--project DIR` as the absolute folder the daemon reads (relative to this shell's folder).
-fn project_folder(folder: &str) -> Result<String, UsageError> {
-    let absolute = std::path::absolute(folder)
-        .map_err(|error| UsageError::new(format!("--project {folder}: {error}")))?;
-    Ok(absolute.to_string_lossy().into_owned())
-}
-
-/// `fields` and `--if-revision N` (the settings revision the caller saw;
-/// the owner refuses with revision.conflict when it moved on). The CLI
-/// declares no origin: it is `cli`, so a change to a user-only row is
-/// refused, as for `cmux settings set` without `--yes`.
-fn recovery_params<const N: usize>(
-    flags: &mut Flags,
-    fields: [(&str, String); N],
-) -> Result<Map<String, Value>, UsageError> {
-    let mut params: Map<String, Value> =
-        fields.into_iter().map(|(name, value)| (name.to_owned(), Value::String(value))).collect();
-    if let Some(revision) = flags.take("if-revision") {
-        validate_decimal("--if-revision", &revision)?;
-        params.insert("if_revision".into(), Value::String(revision));
-    }
-    Ok(params)
 }
 
 /// Short CLI names of settings keys: (alias, key). An alias is never a schema key itself. Both
@@ -216,5 +132,16 @@ pub(in crate::cli) fn human_rows(rows: &Value) -> Value {
 }
 
 #[cfg(test)]
-#[path = "settings_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_list_human_table_keeps_values_and_defaults() {
+        let rows =
+            json!([{"key":"sidebar.side", "value":"right", "default":"left", "customized":true}]);
+        assert_eq!(
+            human_rows(&rows),
+            json!([{"key":"sidebar.side", "value":"right", "default":"left"}])
+        );
+    }
+}

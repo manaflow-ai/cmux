@@ -12,7 +12,7 @@ Most of the path is built. It does not reach a person, for three reasons (sectio
 
 | Piece | Where | State |
 |---|---|---|
-| GitHub Apps | `cmux-app` (production, App id 5160807, named "cmux app"; it was `cmux-cloud` until 2026-11-25), `cmux-cloud-staging` (staging, 5160799); the Worker secrets hold each one's client id, client secret and key (see [The App's name](#the-apps-name)) | exist. No new App is needed. |
+| GitHub Apps | `cmux-cloud` (production), `cmux-cloud-staging` (staging); keys in `~/.secrets/cmux-next-integrations-{production,staging}.env` | exist. No new App is needed. |
 | Team connection (install the App, link it to a cmux team) | `backend/apps/api/src/integrations/providers.ts` (`github`), dashboard `integrations/` | built |
 | Token endpoint `POST /v1/integrations/github/token` | `backend/apps/api/src/integrations/github-token-route.ts`, `github-tokens.ts` (Leo, #25044) | built. One repo, the asked permissions only, sealed per-principal ledger in ConnectionDO, reused while 15 min remain, revoked at GitHub on install revoke or machine delete, audited, rate-limited. A `vm` install speaks only for its own live machine (vmGate). |
 | Machine agent minter | `cmux-tui/crates/cmux-host/src/cloud/github.rs`, `github_minter.rs` (#25039) | built. Socket `/run/cmux-vm-agent/agent.sock` (root:cmux 0660). The machine bearer never leaves the agent. |
@@ -28,33 +28,7 @@ Live state (probed 2026-10-27 with the dogfood and staging e2e accounts, `GET /v
 |---|---|---|---|
 | development (`cmux-api-development`) | no | n/a | `cmuxnp-dev-vmimg-ci-40270232246-1` |
 | staging (`cloud-api-staging.cmux.dev`) | yes, `cmux-cloud-staging` | none for the e2e team | no `CLOUD_FREESTYLE_SNAPSHOT` in wrangler.jsonc |
-| production | `cmux-app` (Worker secrets) | not probed | no `CLOUD_FREESTYLE_SNAPSHOT` in wrangler.jsonc |
-
-
-## The App's name
-
-Leo renamed the production App on 2026-11-25 ("I'll go with cmux app then"): "cmux Cloud" (`cmux-cloud`) became
-"cmux app" (`cmux-app`, https://github.com/apps/cmux-app). A rename keeps the App id, client id, keys, client
-secrets and every installation, so no connection moves and nothing mints from another key. It changes the slug, so the
-install URL (`github.com/apps/<slug>/installations/new`) and the bot login (`cmux-app[bot]`). The old slug was taken
-again the same day by a different, empty App (5927057, also "cmux Cloud") that reserves the name: an install URL built
-from a stale `GITHUB_APP_SLUG` sends a person to that App, not ours.
-
-So cmux-api reads the slug from GitHub (`GET /app` with the App's JWT, `providers.ts` `githubAppSlug`, cached an hour)
-and keeps `GITHUB_APP_SLUG` only as the fallback; everything downstream (macOS, the Rust CLI, cmux-platform's
-connector) builds install URLs from the status answer's `app_slug`. Nothing builds a URL from a display name.
-
-What is configuration, per Worker (`cmux-api`, `cmux-api-staging`, `cmux-api-development`): `GITHUB_APP_CLIENT_ID`
-(also the JWT issuer), `GITHUB_APP_CLIENT_SECRET` (the OAuth leg: user authorization during install and
-`login/oauth/authorize`), `GITHUB_APP_PRIVATE_KEY` (PKCS#8), `GITHUB_WEBHOOK_SECRET`, and `GITHUB_APP_SLUG` (fallback).
-Switching a deployment to another App is these five secrets; the old App's connections then stop minting, since an
-installation belongs to one App.
-
-The App's settings that only its owner's settings page changes (no API): the callback URL, which must be the
-console's `/integrations/callback` (`https://console.cmux.dev/integrations/callback` for production), with
-"Request user authorization (OAuth) during installation" on; and the webhook events
-(`bun backend/apps/api/scripts/github-app-drift.ts --live` names any that are missing). The webhook URL and secret are
-API-settable (`PATCH /app/hook/config`); production's points at `https://cloud-api.cmux.dev/v1/hooks/github`.
+| production | `cmux-cloud` (secret file) | not probed | no `CLOUD_FREESTYLE_SNAPSHOT` in wrangler.jsonc |
 
 ## 2. Why it does not work today
 
@@ -121,7 +95,7 @@ token and gh says what it says, after one line from cmux with the API's reason.
 ### 3.3 Connecting a team (person, once)
 
 A team admin installs the cmux GitHub App on their GitHub account or org and picks repositories:
-`https://github.com/apps/<slug>/installations/new` (production: `cmux-app`) through the existing integrations connect
+`https://github.com/apps/cmux-cloud/installations/new` through the existing integrations connect
 flow (the state parameter links it to the team). After that every machine of the team mints for
 those repositories. The Mac app's Set Up GitHub on This Machine should check
 `GET /v1/integrations/github/status` and offer this connect step instead of the device flow
@@ -151,8 +125,6 @@ GitHub; each mint is an audit record with the machine, repo, permissions and tok
    smoke, promote to dev.
 3. Give the development Worker a GitHub App (the staging App's id and key, or a dev App), or give
    staging a Freestyle snapshot, so one env has both halves. Credential step: the person.
-   Chosen 2026-11-17: a dev App, `cmux-cloud-dev`, created from a manifest, with development
-   connects finishing on the staging console (`docs/cmux-next/cloud-dev-github-app.md`).
 4. Connect a test team to the App; on a fresh machine: `git clone` a private repo, `git push` a
    branch, `gh pr list`, `gh pr create`; check the audit records and that no file under the work
    home or `/etc` holds a token.

@@ -1163,7 +1163,7 @@ def mux_protocol_version() -> int:
 
 def secondary_protocols() -> dict[str, object]:
     host_source = strip_rust_comments(
-        (TUI / "crates/cmux-terminal-host-protocol/src/terminal_host_protocol.rs").read_text()
+        (TUI / "crates/cmux-tui-core/src/terminal_host_protocol.rs").read_text()
     )
     host_body = rust_enum_body(host_source, "MessageKind")
     host_messages = {
@@ -1497,7 +1497,7 @@ def validate_secondary_protocols(
         fail("terminal-host v1 message inventory drift")
     terminal_host_doc = (SPEC / "terminal-host.md").read_text()
     terminal_host_source = (
-        TUI / "crates/cmux-terminal-host-protocol/src/terminal_host_protocol.rs"
+        TUI / "crates/cmux-tui-core/src/terminal_host_protocol.rs"
     ).read_text()
     source_documented_host = set(
         re.findall(

@@ -2,7 +2,6 @@ import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxPhonePush
-import CmuxPushRegistration
 import CmuxMobileSupport
 import Foundation
 import StackAuth
@@ -14,7 +13,7 @@ import StackAuth
 /// `LocalConfig.plist` override table, builds the ``CmuxAuthRuntime/AuthCoordinator``
 /// (with a `StackAuthClient`, persistence caches over an injected `UserDefaults`,
 /// and an ``CmuxAuthRuntime/AuthPresentationContextProvider``), and the
-/// ``CmuxPushRegistration/PushRegistrationService``. Replaces `AuthManager.shared`,
+/// ``CmuxAuthRuntime/PushRegistrationService``. Replaces `AuthManager.shared`,
 /// `StackAuthApp.shared`, `AuthPresentationContextProvider.shared`,
 /// `AuthSessionCache.shared`, `AuthUserCache.shared`, and the `AppEnvironment`
 /// secret/URL tables.

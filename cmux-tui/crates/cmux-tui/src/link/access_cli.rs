@@ -9,9 +9,6 @@
 //!   machine, copying it to `DIR/local/<name>-<hash>` there. The grant is
 //!   kept only after that first copy succeeded. A folder another chat of the
 //!   machine shares with the other mode is refused (`grant_mode_conflict`).
-//!   With `--attach` the copy also joins the chat's folders live ([`attach`]):
-//!   the answer gains `attached` (`applied`, `path`), and a machine that
-//!   cannot add it fails the grant with its reason (the copy stays, unused).
 //! - `sync --socket PATH --machine ID [--session ID]`: each shared folder of
 //!   the machine (of that chat) again. `read`: this Mac's changes go and the
 //!   copy is made this Mac's again; nothing comes back. `write`: the
@@ -43,7 +40,6 @@
 
 use cmux_json::JsonSet as _;
 
-mod attach;
 mod grants;
 mod requests;
 mod uploads;
@@ -55,7 +51,7 @@ use serde_json::{Value, json};
 use self::grants::{Grant, Mode, Store};
 use super::sync_cli::{self, Back};
 
-const USAGE: &str = "usage: cmux link access grant --socket PATH --machine ID --session ID --remote-root DIR [--mode read|write] [--attach] FOLDER
+const USAGE: &str = "usage: cmux link access grant --socket PATH --machine ID --session ID --remote-root DIR [--mode read|write] FOLDER
        cmux link access sync --socket PATH --machine ID [--session ID]
        cmux link access revoke --machine ID --session ID [--socket PATH] (--all | FOLDER)
        cmux link access grants [--machine ID] [--session ID]
@@ -63,7 +59,7 @@ const USAGE: &str = "usage: cmux link access grant --socket PATH --machine ID --
        cmux link access upload --socket PATH --remote-root DIR [--upload-id ID] FILE...
        cmux link access upload-cancel --socket PATH --remote-root DIR --upload-id ID
        cmux link access triage --socket PATH --machine ID --session ID [--session ID]...
-       cmux link access answer --socket PATH --machine ID --session ID --request ID [--remote-root DIR] [--attach] (--allow PATH --target PATH | --always PATH --target PATH --folder DIR | --share-secret NAME | --deny [--reason TEXT])
+       cmux link access answer --socket PATH --machine ID --session ID --request ID [--remote-root DIR] (--allow PATH --target PATH | --always PATH --target PATH --folder DIR | --share-secret NAME | --deny [--reason TEXT])
          (--share-secret reads the value from stdin, byte for byte: no newline is removed)";
 
 /// File names that never go from a shared folder (ASCII case folded):
@@ -85,8 +81,6 @@ const SECRET_NAMES: &[&str] = &[
     "credentials",
     "credentials.json",
     "credentials.toml",
-    ".credentials.json",
-    ".claude.json",
     "id_rsa",
     "id_dsa",
     "id_ecdsa",
@@ -108,29 +102,12 @@ const SECRET_SUFFIXES: &[&str] = &[
     ".tfstate",
     ".tfvars",
 ];
-/// Paths (ending a relative path, ASCII case folded) of agent and tool sign-ins that never go: a
-/// project's own `.claude` or `.config` files do.
-const SECRET_PATHS: &[&str] = &[
-    ".codex/auth.json",
-    ".claude/.credentials.json",
-    ".config/gh/hosts.yml",
-    ".docker/config.json",
-];
-/// cmux's sign-in, `.config/<dir>/auth.json`, never goes, in Classic's folder or NEXT's own.
-const CMUX_CONFIG_DIRS: &[&str] = &["cmux", "cmux-next"];
 /// Folders whose files never go from a shared folder.
 const SECRET_FOLDERS: &[&str] =
     &[".ssh", ".aws", ".gnupg", ".kube", ".docker", ".azure", "gcloud", ".gem", ".cargo"];
 
 /// Whether the file at `relative` (in a shared folder) is a secret file.
-pub(super) fn is_secret(relative: &str) -> bool {
-    let folded = relative.to_ascii_lowercase();
-    let ends = |path: &str| folded == path || folded.ends_with(&format!("/{path}"));
-    if SECRET_PATHS.iter().any(|path| ends(path))
-        || CMUX_CONFIG_DIRS.iter().any(|dir| ends(&format!(".config/{dir}/auth.json")))
-    {
-        return true;
-    }
+fn is_secret(relative: &str) -> bool {
     let mut names = relative.split('/').peekable();
     while let Some(name) = names.next() {
         let lower = name.to_ascii_lowercase();
@@ -199,8 +176,6 @@ struct Args {
     secret: Option<String>,
     /// `answer --share-secret NAME`: the value comes on stdin.
     share_secret: bool,
-    /// `grant --attach`, `answer --attach`: the copy joins the chat's folders ([`attach`]).
-    attach: bool,
 }
 
 fn parse(args: &[String]) -> Option<Args> {
@@ -229,7 +204,6 @@ fn parse(args: &[String]) -> Option<Args> {
             "--upload-id" => parsed.upload_id = Some(rest.next()?.clone()),
             "--mode" => parsed.mode = Some(rest.next()?.clone()),
             "--all" => parsed.all = true,
-            "--attach" => parsed.attach = true,
             flag if flag.starts_with('-') => return None,
             value => parsed.positional.push(value.to_string()),
         }
@@ -284,11 +258,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         return 64;
     }
     // A machine too old for this action says so before anything changes.
-    if args.attach && !matches!(action.as_str(), "grant" | "answer") {
-        eprintln!("{USAGE}");
-        return 64;
-    }
-    if let Some(line) = outdated_line(action, args.socket.as_deref(), args.attach) {
+    if let Some(line) = outdated_line(action, args.socket.as_deref()) {
         println!("{line}");
         return 1;
     }
@@ -313,17 +283,7 @@ pub(super) fn run(args: &[String]) -> i32 {
                 eprintln!("{USAGE}");
                 return 64;
             };
-            grant(socket, machine, session, &root, mode, Path::new(&positional[0])).and_then(
-                |mut granted| {
-                    if args.attach {
-                        let remote = granted["grant"]["remote"].as_str().unwrap_or_default();
-                        let folder = granted["grant"]["folder"].as_str().unwrap_or_default();
-                        let attached = attach::attach(socket, session, remote, Path::new(folder))?;
-                        granted.set("attached", attached);
-                    }
-                    Ok(granted)
-                },
-            )
+            grant(socket, machine, session, &root, mode, Path::new(&positional[0]))
         }
         ("sync", Args { socket: Some(socket), machine: Some(machine), positional, .. })
             if positional.is_empty() =>
@@ -432,27 +392,6 @@ pub(super) fn run(args: &[String]) -> i32 {
                 },
                 args.reason.as_deref(),
             )
-            .map(|mut answered| {
-                if args.attach && answered["outcome"] == "delivered" {
-                    // The machine was answered already: a folder that could not join the chat
-                    // is said beside the delivered answer, never instead of it.
-                    let at = answered["at"].as_str().unwrap_or_default();
-                    let folder_remote = answered["folder_remote"].as_str();
-                    let local = args.folder.as_deref().or(positional.first().map(String::as_str));
-                    if let Some(remote) = attach::answered_folder(at, folder_remote) {
-                        let local = Path::new(local.unwrap_or(remote.as_str()));
-                        let (key, value) = match attach::attach(socket, session, &remote, local) {
-                            Ok(attached) => ("attached", attached),
-                            Err(failure) => (
-                                "attach_error",
-                                json!({"error": failure.error, "error_code": failure.code}),
-                            ),
-                        };
-                        answered.set(key, value);
-                    }
-                }
-                answered
-            })
         }
         _ => {
             eprintln!("{USAGE}");
@@ -479,7 +418,7 @@ pub(super) fn run(args: &[String]) -> i32 {
 /// what `action` needs there ([`super::machine_gate`]). `request` runs on the
 /// machine itself and is never gated, and neither is `revoke`: a revoke
 /// always ends the grants on this Mac, whatever the machine runs.
-fn outdated_line(action: &str, socket: Option<&Path>, attach: bool) -> Option<Value> {
+fn outdated_line(action: &str, socket: Option<&Path>) -> Option<Value> {
     let needed = match action {
         "triage" | "answer" => {
             cmux_tui_core::server::agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY
@@ -487,9 +426,7 @@ fn outdated_line(action: &str, socket: Option<&Path>, attach: bool) -> Option<Va
         "grant" | "sync" | "upload" | "upload-cancel" => cmux_tui_core::fs_ops::FS_CAPABILITY,
         _ => return None,
     };
-    let chat_folders = cmux_tui_core::server::agent_transfer::chat_folders::CHAT_FOLDER_CAPABILITY;
-    let needs: &[&str] = if attach { &[needed, chat_folders] } else { &[needed] };
-    super::machine_gate::outdated(socket?, needs).map(|outdated| outdated.line())
+    super::machine_gate::outdated(socket?, &[needed]).map(|outdated| outdated.line())
 }
 
 fn grant(

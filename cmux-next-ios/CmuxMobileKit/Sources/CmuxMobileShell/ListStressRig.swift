@@ -3,7 +3,6 @@
 import CmuxMobileAgentChat
 import CmuxMobileChief
 import CmuxMobileDesign
-import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileTransport
@@ -69,8 +68,6 @@ final class ListStressRig: NSObject {
                 scroll.contentOffset.y = top + (bottom - top) * CGFloat(min(max(fraction, 0), 1))
             }
             rig.log.notice("FRAMELOG list-stress holding \(screen, privacy: .public)")
-            // The capture suites shoot the held screen on this mark, not after a fixed pause.
-            LaunchMarks.shared.markWhenStill("list_hold")
             if settings.pullTrace, let scroll = rig.findScrollView(horizontal: false) { rig.tracePull(scroll) }
             return
         }
@@ -96,11 +93,6 @@ final class ListStressRig: NSObject {
             store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
             store.requestOpen(tabID: "t-g0", in: ws.id)
             shell.tab = .workspaces
-            if settings.macCards {
-                let seeded = ws.tabs, macID = ws.macID
-                let drops = settings.macCardsDrop
-                Task { await ListStressMacCards.seed(tabs: seeded, macID: macID, drops: drops) }
-            }
             try? await Task.sleep(for: .seconds(1))
             // Opening the workspace from the list (the push and its first page).
             FrameIntervalLog.shared.begin("tabs-push")
@@ -123,16 +115,6 @@ final class ListStressRig: NSObject {
             await openTerminals()
         case "chat", "diff", "artifacts":
             guard let ws = store.workspace(id: "ws-cmux") else { return }
-            if screen == "chat", let path = settings.events {
-                // A heavy coordinator's records (coord-sim) instead of the mock agent's replayed turns.
-                let url = URL(fileURLWithPath: path)
-                let history = settings.eventsHistory
-                let mock = AgentSessionDirectory.shared.makeSource
-                AgentSessionDirectory.shared.makeSource = { summary in
-                    summary.id == "t-codex-stress"
-                        ? CoordSimReplaySource(summary: summary, url: url, history: history) : mock(summary)
-                }
-            }
             store.requestOpen(tabID: "t-codex-stress", in: ws.id)
             var opened = ws
             // Codex: no waiting question on open, so the transcript is the replayed history.
@@ -255,7 +237,7 @@ final class ListStressRig: NSObject {
                              url: tab.url, agentStatus: tab.kind == .agent ? (working ? .working : (needsYou ? .waiting : nil)) : nil)
             }
             return Workspace(
-                id: "\(ListStressSettings.seededWorkspacePrefix)\(index)", macID: index % 5 == 4 ? "mbp" : "mac-studio", title: "\(template.title) \(index)",
+                id: "ws-s\(index)", macID: index % 5 == 4 ? "mbp" : "mac-studio", title: "\(template.title) \(index)",
                 directory: template.directory, branch: template.branch, tabs: tabs,
                 lastActivityAt: now.addingTimeInterval(-Double(index) * 600), needsAttention: needsYou, isWorking: working,
                 hasUnread: index % 3 == 0, colorHex: template.colorHex, icon: template.icon

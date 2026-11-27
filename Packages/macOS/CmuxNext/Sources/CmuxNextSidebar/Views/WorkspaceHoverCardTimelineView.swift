@@ -17,7 +17,7 @@ final class WorkspaceHoverCardTimelineView: NSView {
     private static var iconSize: CGFloat { 12 }
     private static var timeColumn: CGFloat { 54 }
 
-    let scrollView = OverlayScrollView()
+    let scrollView = NSScrollView()
     private let header = ChromeLabel(labelWithString: "")
     private let document = FlippedDocumentView()
     private var heightConstraint: NSLayoutConstraint?

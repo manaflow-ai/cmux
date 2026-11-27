@@ -4,17 +4,12 @@
 //! the relay, the path is `turn_relay`, the allocation is refreshed, and bad
 //! credentials or a hostile server fail without bringing the driver down.
 
-// The in-process TURN server (support/fake_turn.rs) waits with poll(2).
-#![cfg(unix)]
-
 #[path = "support/fake_turn.rs"]
 mod fake_turn;
 #[path = "support/stun.rs"]
 mod stun;
 
-use cmux_rd_link::net::{
-    Candidate, CandidateKind, Net, NetConfig, NetEvent, TurnServer, TurnTransport,
-};
+use cmux_rd_link::net::{Candidate, CandidateKind, Net, NetConfig, NetEvent, TurnServer};
 use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
 use cmux_transport::PathKind;
 use fake_turn::{FakeTurn, Options};
@@ -45,17 +40,7 @@ fn start_with(
 }
 
 fn server(turn: &FakeTurn, password: &str) -> TurnServer {
-    TurnServer {
-        addr: turn.addr,
-        username: "alice".into(),
-        password: password.into(),
-        transport: TurnTransport::Udp,
-    }
-}
-
-/// The same server reached over TCP (TURN framing on one stream).
-fn tcp_server(turn: &FakeTurn, password: &str) -> TurnServer {
-    TurnServer { addr: turn.tcp_addr, transport: TurnTransport::Tcp, ..server(turn, password) }
+    TurnServer { addr: turn.addr, username: "alice".into(), password: password.into() }
 }
 
 /// Collects events until `done` holds or `limit` passes, waiting on the event fd.
@@ -186,79 +171,6 @@ fn a_session_runs_through_turn_relays_when_no_direct_path_exists() {
     drop(host);
     assert!(wait(&viewer, &mut at_viewer, |e| e
         .contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)))));
-}
-
-#[test]
-fn a_side_whose_network_blocks_udp_runs_the_session_through_a_tcp_relay() {
-    // The host's UDP relay points at a port nothing answers (UDP blocked); its TCP relay
-    // is the one that allocates. The viewer has UDP. Only relay candidates are exchanged.
-    let turn = FakeTurn::start(Options { lifetime_s: 2, ..Options::default() });
-    let blocked = TurnServer {
-        addr: std::net::UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap(),
-        ..server(&turn, "correct horse")
-    };
-    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
-    let host = start_with(
-        Role::Responder,
-        &h,
-        v.public,
-        vec![blocked, tcp_server(&turn, "correct horse")],
-        true,
-    );
-    let viewer = start(Role::Initiator, &v, h.public, vec![server(&turn, "correct horse")]);
-
-    let (mut at_host, mut at_viewer) = (Vec::new(), Vec::new());
-    assert!(wait(&host, &mut at_host, |e| relay_candidate(e).is_some()), "{at_host:?}");
-    assert!(wait(&viewer, &mut at_viewer, |e| relay_candidate(e).is_some() && done(e)));
-    assert_eq!(turn.stats().tcp_connections, 1);
-    viewer.add_remote_candidate(relay_candidate(&at_host).unwrap());
-    host.add_remote_candidate(relay_candidate(&at_viewer).unwrap());
-    viewer.send_control(b"over tcp".to_vec());
-
-    let hello = NetEvent::Endpoint(EndpointEvent::Link(Event::Control(b"over tcp".to_vec())));
-    let established =
-        |e: &[NetEvent]| e.contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Established)));
-    assert!(wait(&host, &mut at_host, |e| e.contains(&hello)), "{at_host:?}");
-    assert!(wait(&viewer, &mut at_viewer, established));
-    // Odd lengths both ways: ChannelData on the stream is padded, and the padding is not data.
-    for i in 0..20u8 {
-        host.send_datagram(vec![i; 1001]);
-        viewer.send_datagram(vec![i; 333]);
-    }
-    assert!(wait(&viewer, &mut at_viewer, |e| datagrams(e, 1001) >= 18), "host to viewer");
-    assert!(wait(&host, &mut at_host, |e| datagrams(e, 333) >= 18), "viewer to host");
-    assert!(wait(&host, &mut at_host, |e| !path_kinds(e).is_empty()));
-    assert!(path_kinds(&at_host).iter().all(|k| *k == PathKind::TurnRelay));
-
-    // Past two lifetimes the TCP allocation lives on: its refreshes went over the stream.
-    let mut idle = Vec::new();
-    wait_for(&host, &mut idle, Duration::from_millis(4500), |_| false);
-    at_host.extend(idle);
-    for i in 0..20u8 {
-        viewer.send_datagram(vec![i; 901]);
-    }
-    assert!(wait(&host, &mut at_host, |e| datagrams(e, 901) >= 18), "still crossing");
-    let stats = turn.stats();
-    assert_eq!(stats.allocations, 2, "{stats:?}");
-    assert_eq!(stats.expired, 0, "{stats:?}");
-    assert!(stats.refreshes >= 4, "{stats:?}");
-    assert!(!at_host.iter().any(|e| matches!(e, NetEvent::Failed(_))), "{at_host:?}");
-}
-
-#[test]
-fn a_tcp_relay_that_refuses_the_connection_fails_alone() {
-    let turn = FakeTurn::start(Options::default());
-    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
-    let refused = TurnServer { addr: closed, ..tcp_server(&turn, "correct horse") };
-    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
-    let viewer =
-        start(Role::Initiator, &v, h.public, vec![refused, server(&turn, "correct horse")]);
-    let mut seen = Vec::new();
-    let failed = |e: &[NetEvent]| {
-        e.iter().any(|e| matches!(e, NetEvent::RelayFailed { server, .. } if *server == closed))
-    };
-    assert!(wait(&viewer, &mut seen, |e| failed(e) && relay_candidate(e).is_some() && done(e)));
-    assert!(!seen.iter().any(|e| matches!(e, NetEvent::Failed(_))), "{seen:?}");
 }
 
 #[test]

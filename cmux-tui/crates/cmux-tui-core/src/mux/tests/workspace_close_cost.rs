@@ -1,7 +1,7 @@
 //! One `close-workspace` with `end_terminals` (what the app and the benches send) must not cost
 //! more in a bigger session.
 //!
-//! A large session (2026-11-10): 826 workspaces, 858 panes, 1600 tabs, 798 terminals. One close
+//! Lawrence's session (2026-11-10): 826 workspaces, 858 panes, 1600 tabs, 798 terminals. One close
 //! took 132 ms there against 14 ms in an empty session (33 ms at 60 workspaces), all of it under the
 //! registry and state locks, so every other request waited. The close ran the full projection: one
 //! read of the whole stored topology, one row check and one public value for each workspace, a

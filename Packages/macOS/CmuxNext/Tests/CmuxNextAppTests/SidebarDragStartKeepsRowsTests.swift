@@ -253,7 +253,8 @@ import Testing
 
     /// A group dragged up to an empty titled section above it opens that section's zone and drops there: its plan,
     /// made again with the zone open, keeps the group's own place as its origin, so the release is no cancel.
-    /// A document Pinned that refuses the drag opens no zone that would take nothing, at the lift or at the top edge.
+    /// The document's Pinned refuses an item from outside it, as `SidebarDocRecords.keepingPinned` does (Pin is the
+    /// way in): it opens no zone that would take nothing, at the lift or at the top edge.
     @Test func aPinnedThatRefusesOpensNoZone() throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)

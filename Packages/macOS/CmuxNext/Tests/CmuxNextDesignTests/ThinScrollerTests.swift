@@ -27,9 +27,7 @@ struct ThinScrollerTests {
         SystemScrollers.followThin(scrollView)
         let scroller = try #require(scrollView.verticalScroller as? ThinScroller)
         #expect(ThinScroller.knobThickness == 3)
-        // About a macOS overlay scroller's strip, which is also its grab zone (ThinScrollerGrabZoneTests).
-        #expect(ThinScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay) == ThinScroller.width)
-        #expect(ThinScroller.width <= 15)
+        #expect(ThinScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay) <= 12)
         #expect(ThinScroller.isCompatibleWithOverlayScrollers)
         #expect(scroller.knobRect(for: CGRect(x: -2, y: 10, width: 6, height: 40)).width == ThinScroller.knobThickness)
         #expect(scrollView.scrollerStyle == .overlay)

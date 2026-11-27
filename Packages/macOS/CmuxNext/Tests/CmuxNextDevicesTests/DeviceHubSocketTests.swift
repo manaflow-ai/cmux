@@ -65,17 +65,6 @@ final class EventLog: @unchecked Sendable {
         #expect(DeviceHubPush(text: #"{"type":"session.revoked","sessionId":"s1","reason":"device_removed"}"#)
             == .sessionRevoked(sessionID: "s1", reason: "device_removed"))
         #expect(DeviceHubPush(text: #"{"type":"session.ended","sessionId":"s1","reason":"bye"}"#) == .sessionEnded(sessionID: "s1", reason: "bye"))
-        // P7: a pushed or moved share. Absent fields read as an ordinary ticket (above), malformed ones too.
-        #expect(ticket.pushed == false && ticket.movedFrom == nil)
-        let pushedText = ticketText.replacingOccurrences(of: #""scope":"view"}"#, with: #""scope":"view","pushed":true,"movedFrom":"s0"}"#)
-        var pushed = ticket
-        pushed.pushed = true
-        pushed.movedFrom = "s0"
-        #expect(DeviceHubPush(text: pushedText) == .sessionTicket(pushed))
-        let oddText = ticketText.replacingOccurrences(of: #""scope":"view"}"#, with: #""scope":"view","pushed":"yes","movedFrom":7}"#)
-        #expect(DeviceHubPush(text: oddText) == .sessionTicket(ticket))
-        #expect(DeviceHubPush(text: #"{"type":"session.ended","sessionId":"s1","reason":"moved","movedTo":"s2"}"#)
-            == .sessionEnded(sessionID: "s1", reason: "moved", movedTo: "s2"))
         #expect(DeviceHubPush(text: #"{"type":"pong"}"#) == .pong)
         #expect(DeviceHubPush(text: #"{"type":"later.thing"}"#) == .unknown("later.thing"))
         #expect(DeviceHubPush(text: "not json") == nil)
@@ -110,36 +99,6 @@ final class EventLog: @unchecked Sendable {
         #expect(events.contains(.push(.relaysChanged)))
         #expect(events.last == .state(.disconnected))
         #expect(first.closed)
-    }
-
-    @Test(.timeLimit(.minutes(1))) func aHungConnectTimesOutAndRetries() async {
-        struct HangingConnector: DeviceHubSocketConnector {
-            func connect() async throws -> any DeviceHubSocketConnection {
-                try await Task.sleep(for: .seconds(3600))
-                throw CancellationError()
-            }
-        }
-        let socket = DeviceHubSocket(connector: HangingConnector(),
-                                     backoff: Backoff(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0),
-                                     connectTimeout: .milliseconds(10))
-        let log = EventLog()
-        let (retry, signal) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
-        let task = Task {
-            await socket.run { event in
-                log.append(event)
-                if case .state(.reconnecting) = event { signal.yield() }
-            }
-        }
-        for await _ in retry { break }
-        task.cancel()
-        await task.value
-
-        #expect(log.all.contains(.state(.connecting)))
-        #expect(log.all.contains {
-            if case let .state(.reconnecting(reason)) = $0 { return reason.contains("timed out") }
-            return false
-        })
-        #expect(log.all.last == .state(.disconnected))
     }
 
     @Test(.timeLimit(.minutes(1))) func aRemovedDevicesSocketStopsReconnecting() async {

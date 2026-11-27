@@ -16,19 +16,13 @@
 //! Every session scope is in [`SESSIONS_SLICE`], which caps all sessions
 //! together, so several sessions at their own ceilings still leave the
 //! machine (the daemon, ssh, the user manager) room ([`slice_settings`]).
-//! Inside it each session has its own slice, `acpmuxsessions-<id>.slice`, which its
-//! harness scope and its background task scopes share: one total per session
-//! (`session_total.rs`).
 //!
 //! The per-session limits come from the profile's env, then the daemon's:
-//! `ACPMUX_SESSION_MEMORY_MB` (default half the machine's memory, less with a lane cap),
+//! `ACPMUX_SESSION_MEMORY_MB` (default half the machine's memory),
 //! `ACPMUX_SESSION_SWAP_MB` (default one quarter of the machine's swap),
 //! `ACPMUX_SESSION_MEMORY_HIGH_MB` (default nine tenths of that),
-//! `ACPMUX_SESSION_TASKS_MAX` (default 4096), `ACPMUX_SESSION_CPU_WEIGHT`
-//! (default 50; systemd's own is 100), `ACPMUX_SESSION_CPU_QUOTA_PCT` and
-//! `ACPMUX_SESSION_IO_WEIGHT`; the memory default is sized from the host's lane
-//! cap when it has one (`session_budget.rs`, which agent host and background task
-//! scopes share). 0 turns one off. The sessions slice
+//! `ACPMUX_SESSION_TASKS_MAX` (default 4096) and `ACPMUX_SESSION_CPU_WEIGHT`
+//! (default 50; systemd's own is 100). 0 turns one off. The sessions slice
 //! uses `ACPMUX_SESSIONS_SWAP_MAX` (default 75% of the machine's swap). The
 //! two task caps, a scope's and the slice's, are read in one order for both
 //! ([`knob_reader`]): the daemon config's `session.tasksMax` and
@@ -38,7 +32,7 @@
 //! missing or cannot make a scope (no user manager, as in a container), the
 //! harness starts as before; that answer is asked once per `systemd-run` and
 //! limits. macOS gets the process-group half of the valve on the holder track
-//! (cx-t2sqm.3); its harnesses take background CPU class only while the Mac is contended (`cpu_class.rs`).
+//! (cx-t2sqm.3); its harnesses run at background CPU class once started (`cpu_class.rs`).
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 use std::collections::BTreeMap;
@@ -85,7 +79,8 @@ fn prefix(
     env: &BTreeMap<String, String>,
     limits: SessionLimits,
 ) -> Option<Vec<String>> {
-    let properties = properties_on(&knob_reader(env, limits), &crate::session_budget::this_host());
+    let properties =
+        properties_with_swap(&knob_reader(env, limits), physical_memory(), swap_memory());
     if properties.is_empty() {
         return None;
     }
@@ -102,11 +97,7 @@ fn prefix(
         .into_iter()
         .find(|properties| can_scope(&runner, properties, env, limits))?;
     let description = format!("acpmux session {session}");
-    // The session's own slice under the sessions slice, so its harness and its background tasks
-    // share one total (`session_total.rs`); the sessions slice when it is off or not made.
-    let slice = crate::session_total::ensure_blocking(session, env, limits);
-    let slice = slice.as_deref().unwrap_or(SESSIONS_SLICE);
-    Some(scope_argv(&runner.to_string_lossy(), Some(slice), &description, &properties))
+    Some(scope_argv(&runner.to_string_lossy(), Some(SESSIONS_SLICE), &description, &properties))
 }
 
 /// The slice every session scope joins. Dash-free: systemd reads dashes in a
@@ -164,64 +155,30 @@ pub(crate) struct SessionLimits {
     pub swap_mb: Option<u64>,
     pub tasks_max: Option<u64>,
     pub sessions_tasks_max: Option<u64>,
-    /// The host's lane cap the memory default is sized from (`session_budget.rs`).
-    pub lanes: Option<u64>,
-    /// The per-session disk budget, MiB (`session.diskMb`).
-    pub disk_mb: Option<u64>,
 }
 
-/// The daemon config's `session` limits. It reads config.json's `session` alone: a whole
-/// `Config::load` also found every profile and harness and parsed the cached ACP Registry, on each
-/// budget check, 225 MB of transient blocks over a 1 GB chat's restart (dhat, `chat_size_sweep`).
-/// A config that does not read gives the defaults, as before.
-pub(crate) fn daemon_limits() -> SessionLimits {
+fn daemon_limits() -> SessionLimits {
     #[cfg(not(target_os = "linux"))]
     return SessionLimits::default();
     #[cfg(target_os = "linux")]
-    daemon_session_config(&crate::config::Config::path())
-        .map_or_else(SessionLimits::default, |session| session_limits_from(&session))
+    crate::config::Config::load()
+        .map_or_else(|_| SessionLimits::default(), |config| session_limits_from_config(&config))
 }
 
-/// config.json's `session`: none when the file does not read or parse, the default one when it is
-/// missing or names none.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn daemon_session_config(path: &std::path::Path) -> Option<crate::config::SessionResourceConfig> {
-    use std::io::Read as _;
-    #[derive(serde::Deserialize)]
-    struct OnlySession {
-        #[serde(default)]
-        session: crate::config::SessionResourceConfig,
-    }
-    match std::fs::symlink_metadata(path) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Default::default()),
-        Err(_) => return None,
-        Ok(_) => {}
-    }
-    let mut text = String::new();
-    crate::config::private_state_file(path).ok()?.read_to_string(&mut text).ok()?;
-    serde_json::from_str::<OnlySession>(&text).ok().map(|c| c.session)
-}
-
-#[cfg(test)]
 fn session_limits_from_config(config: &crate::config::Config) -> SessionLimits {
-    session_limits_from(&config.session)
-}
-
-fn session_limits_from(session: &crate::config::SessionResourceConfig) -> SessionLimits {
+    let session = &config.session;
     SessionLimits {
         memory_mb: session.memory_mb,
         swap_mb: session.swap_mb,
         tasks_max: session.tasks_max,
         sessions_tasks_max: session.sessions_tasks_max,
-        lanes: session.lanes,
-        disk_mb: session.disk_mb,
     }
 }
 
 /// A knob's value. The task caps: the daemon config, then the profile's env,
 /// then the daemon's, the same for a scope and the shared slice. The memory
 /// knobs: the profile's env, then daemon config, then daemon env.
-pub(crate) fn knob_reader(
+fn knob_reader(
     env: &BTreeMap<String, String>,
     limits: SessionLimits,
 ) -> impl Fn(&str) -> Option<String> + '_ {
@@ -237,7 +194,6 @@ pub(crate) fn knob_reader(
             .or_else(|| match key {
                 "ACPMUX_SESSION_MEMORY_MB" => limits.memory_mb.map(|n| n.to_string()),
                 "ACPMUX_SESSION_SWAP_MB" => limits.swap_mb.map(|n| n.to_string()),
-                "ACPMUX_SESSION_DISK_MB" => limits.disk_mb.map(|n| n.to_string()),
                 _ => None,
             })
             .or_else(|| std::env::var(key).ok())
@@ -282,7 +238,7 @@ fn parse_threads_max(text: &str) -> Option<u64> {
 }
 
 /// The kernel's thread limit, None when unreadable.
-pub(crate) fn threads_max() -> Option<u64> {
+fn threads_max() -> Option<u64> {
     std::fs::read_to_string("/proc/sys/kernel/threads-max")
         .ok()
         .as_deref()
@@ -298,14 +254,12 @@ fn sessions_slice_wanted(
     swap: u64,
     threads_max: Option<u64>,
 ) -> Vec<(&'static str, String)> {
-    let get = knob_reader(env, limits);
-    let mut wanted =
-        slice_settings_with_swap(&get, memory, swap, sessions_tasks_default(threads_max));
-    // CPU classes (RFD 0182 B2): off, the slice's weight is left as it is.
-    if let Some(w) = crate::session_budget::sessions_slice_weight(&get) {
-        wanted.push(("CPUWeight", w.to_string()));
-    }
-    wanted
+    slice_settings_with_swap(
+        &knob_reader(env, limits),
+        memory,
+        swap,
+        sessions_tasks_default(threads_max),
+    )
 }
 
 /// The default `TasksMax` of a session scope: processes and threads
@@ -330,26 +284,43 @@ fn properties(get: &dyn Fn(&str) -> Option<String>, memory: u64) -> Vec<String> 
     properties_with_swap(get, memory, 0)
 }
 
-#[cfg(test)]
 fn properties_with_swap(
     get: &dyn Fn(&str) -> Option<String>,
     memory: u64,
     swap: u64,
 ) -> Vec<String> {
-    let host = crate::session_budget::Host { memory, swap, ..Default::default() };
-    properties_on(get, &host)
-}
-
-/// `-p` pairs for the scope's [`crate::session_budget::Budget`] on `host`.
-fn properties_on(
-    get: &dyn Fn(&str) -> Option<String>,
-    host: &crate::session_budget::Host,
-) -> Vec<String> {
-    crate::session_budget::Budget::read(get, host)
-        .properties()
-        .into_iter()
-        .flat_map(|(key, value)| ["-p".to_owned(), format!("{key}={value}")])
-        .collect()
+    let knob = |key: &str| get(key).and_then(|v| v.trim().parse::<u64>().ok());
+    let mb = |n: u64| n.saturating_mul(1024 * 1024);
+    let max = knob("ACPMUX_SESSION_MEMORY_MB").map_or(memory / 2, mb);
+    // Throttled (reclaim, slower allocation) a little before it is killed.
+    let high = knob("ACPMUX_SESSION_MEMORY_HIGH_MB").map_or(max / 10 * 9, mb);
+    let high = if max > 0 { high.min(max) } else { high };
+    let swap_max = knob("ACPMUX_SESSION_SWAP_MB").map_or(swap / 4, mb);
+    let weight = knob("ACPMUX_SESSION_CPU_WEIGHT").unwrap_or(50).min(10_000);
+    let tasks = tasks_max(get);
+    let on = |value: u64| (value > 0).then(|| value.to_string());
+    let limits = [
+        ("MemoryMax", on(max)),
+        ("MemoryHigh", on(high)),
+        ("MemorySwapMax", on(swap_max)),
+        ("TasksMax", tasks.map(|n| n.to_string())),
+        ("CPUWeight", on(weight)),
+    ];
+    // Every limit off: no scope at all.
+    if limits.iter().all(|(_, value)| value.is_none()) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for (key, value) in limits {
+        // A scope without `TasksMax` gets systemd's `DefaultTasksMax`; off is no cap.
+        let value = match value {
+            Some(value) => value,
+            None if key == "TasksMax" => "infinity".to_owned(),
+            None => continue,
+        };
+        out.extend(["-p".to_owned(), format!("{key}={value}")]);
+    }
+    out
 }
 
 fn without_swap(properties: &[String]) -> Vec<String> {
@@ -541,7 +512,7 @@ fn limit_sessions_slice(
 /// the one at work. Returns how many settings this call changed. Each `systemctl` call is
 /// bounded by [`PROBE_TIMEOUT`].
 #[cfg(target_os = "linux")]
-pub(crate) fn limit_slice(
+fn limit_slice(
     systemctl: &std::path::Path,
     slice: &str,
     wanted: &[(&str, String)],
@@ -619,7 +590,7 @@ fn probe(runner: &std::path::Path, properties: &[String], env: &BTreeMap<String,
 /// to an unlinked temporary file, never a pipe, so a child that leaves a
 /// process behind holding it cannot make the read wait.
 #[cfg(target_os = "linux")]
-pub(crate) fn run_bounded(
+fn run_bounded(
     program: &std::path::Path,
     args: &[String],
     env: &BTreeMap<String, String>,
@@ -683,7 +654,7 @@ pub(crate) fn run_bounded(
 
 /// The machine's memory in bytes (0 when unknown, which leaves memory off).
 #[cfg(target_os = "linux")]
-pub(crate) fn physical_memory() -> u64 {
+fn physical_memory() -> u64 {
     // SAFETY: sysconf only reads system configuration.
     let (pages, size) =
         unsafe { (libc::sysconf(libc::_SC_PHYS_PAGES), libc::sysconf(libc::_SC_PAGESIZE)) };
@@ -693,7 +664,7 @@ pub(crate) fn physical_memory() -> u64 {
 /// The machine's total swap in bytes. A missing or unreadable `/proc` entry
 /// means swap limits stay off, just like an unknown physical memory size.
 #[cfg(target_os = "linux")]
-pub(crate) fn swap_memory() -> u64 {
+fn swap_memory() -> u64 {
     std::fs::read_to_string("/proc/meminfo")
         .ok()
         .and_then(|text| {
@@ -735,7 +706,7 @@ mod tests {
         assert_eq!(
             joined(&props),
             format!(
-                "-p MemoryMax={half} -p MemoryHigh={} -p TasksMax=4096 -p CPUWeight=50 -p IOWeight=50",
+                "-p MemoryMax={half} -p MemoryHigh={} -p TasksMax=4096 -p CPUWeight=50",
                 half / 10 * 9
             )
         );
@@ -817,7 +788,7 @@ mod tests {
         ]);
         assert_eq!(
             joined(&properties(&get, 64 * GIB)),
-            "-p MemoryMax=536870912 -p MemoryHigh=483183819 -p TasksMax=1000 -p CPUWeight=40 -p IOWeight=50"
+            "-p MemoryMax=536870912 -p MemoryHigh=483183819 -p TasksMax=1000 -p CPUWeight=40"
         );
         // An explicit throttle; one above the ceiling is the ceiling.
         let get =
@@ -830,27 +801,20 @@ mod tests {
         let get = from(&[("ACPMUX_SESSION_MEMORY_HIGH_MB", "0")]);
         assert_eq!(
             joined(&properties(&get, 8 * GIB)),
-            format!("-p MemoryMax={} -p TasksMax=4096 -p CPUWeight=50 -p IOWeight=50", 4 * GIB)
+            format!("-p MemoryMax={} -p TasksMax=4096 -p CPUWeight=50", 4 * GIB)
         );
         // No task cap, other limits on: an explicit `infinity`, not systemd's default.
         let get = from(&[("ACPMUX_SESSION_TASKS_MAX", "0"), ("ACPMUX_SESSION_MEMORY_MB", "0")]);
-        assert_eq!(
-            joined(&properties(&get, 0)),
-            "-p TasksMax=infinity -p CPUWeight=50 -p IOWeight=50"
-        );
+        assert_eq!(joined(&properties(&get, 0)), "-p TasksMax=infinity -p CPUWeight=50");
         // Every limit off: no scope at all.
         let off = from(&[
             ("ACPMUX_SESSION_MEMORY_MB", "0"),
             ("ACPMUX_SESSION_TASKS_MAX", "0"),
             ("ACPMUX_SESSION_CPU_WEIGHT", "0"),
-            ("ACPMUX_SESSION_IO_WEIGHT", "0"),
         ]);
         assert!(properties(&off, 64 * GIB).is_empty());
         // Unknown memory and no env: still capped by tasks and weight.
-        assert_eq!(
-            joined(&properties(&from(&[]), 0)),
-            "-p TasksMax=4096 -p CPUWeight=50 -p IOWeight=50"
-        );
+        assert_eq!(joined(&properties(&from(&[]), 0)), "-p TasksMax=4096 -p CPUWeight=50");
         // Unreadable values fall back to the defaults.
         let junk = from(&[("ACPMUX_SESSION_TASKS_MAX", "lots")]);
         assert!(joined(&properties(&junk, 0)).contains("TasksMax=4096"));
@@ -865,8 +829,7 @@ mod tests {
             argv.join(" "),
             "/usr/bin/systemd-run --user --scope --quiet --collect \
              --slice=acpmuxsessions.slice --description=acpmux session s1 \
-             -p MemoryMax=536870912 -p MemoryHigh=483183819 -p TasksMax=4096 -p CPUWeight=50 \
-             -p IOWeight=50 --"
+             -p MemoryMax=536870912 -p MemoryHigh=483183819 -p TasksMax=4096 -p CPUWeight=50 --"
         );
         // The probe stays out of the slice.
         let probe = scope_argv("/usr/bin/systemd-run", None, "acpmux scope probe", &props);
@@ -1153,24 +1116,6 @@ mod tests {
     }
 
     #[test]
-    fn cpu_classes_raise_the_sessions_slice_weight_only_when_on() {
-        let weight = |wanted: &[(&str, String)]| {
-            wanted.iter().find(|(k, _)| *k == "CPUWeight").map(|(_, v)| v.clone())
-        };
-        let empty = BTreeMap::new();
-        let off = sessions_slice_wanted(&empty, SessionLimits::default(), 0, 0, None);
-        assert_eq!(weight(&off), None, "off: the slice's weight is never written");
-        let env = BTreeMap::from([("ACPMUX_SESSION_CPU_CLASSES".to_owned(), "1".to_owned())]);
-        let on = sessions_slice_wanted(&env, SessionLimits::default(), 0, 0, None);
-        assert_eq!(weight(&on).as_deref(), Some("400"));
-        assert_eq!(on.len(), off.len() + 1, "only the weight is added");
-        // Already 400 (`systemctl show`): nothing to write again.
-        assert!(slice_changes("CPUWeight=400\n", &[("CPUWeight", "400".into())]).is_empty());
-        let props = properties(&knob_reader(&env, SessionLimits::default()), 0);
-        assert!(joined(&props).contains("-p CPUWeight=400"), "{props:?}");
-    }
-
-    #[test]
     fn the_slice_and_every_scope_read_the_task_caps_from_one_source() {
         // Two profiles that disagree in their env: with the typed config set,
         // both ask the shared slice for the same cap, so neither rewrites it.
@@ -1192,25 +1137,5 @@ mod tests {
         cfg.set_session_resource("session.tasks_max", "3000").unwrap();
         cfg.set_session_resource("session.sessions_tasks_max", "100000").unwrap();
         assert_eq!(session_limits_from_config(&cfg), config);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn the_daemon_limits_read_the_configs_session_as_a_whole_load_does() {
-        use std::os::unix::fs::PermissionsExt as _;
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("config.json");
-        assert_eq!(daemon_session_config(&path), Some(Default::default()), "no file: defaults");
-        let mut cfg = crate::config::Config::default();
-        cfg.set_session_resource("session.tasks_max", "3000").unwrap();
-        cfg.set_session_resource("session.memory_mb", "6144").unwrap();
-        std::fs::write(&path, serde_json::to_vec(&cfg).unwrap()).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let whole = crate::config::Config::load_from(&path).unwrap();
-        let session = daemon_session_config(&path).unwrap();
-        assert_eq!(session, whole.session);
-        assert_eq!(session_limits_from(&session), session_limits_from_config(&whole));
-        std::fs::write(&path, b"{not json").unwrap();
-        assert_eq!(daemon_session_config(&path), None, "a config that does not read: defaults");
     }
 }

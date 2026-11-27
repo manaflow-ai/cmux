@@ -352,9 +352,6 @@ impl Mux {
                         reopened_key,
                     )?);
                 }
-                // The restored rows move their items back to their old place
-                // in the sidebar document, as `closed.reopen` does (#56144).
-                super::sidebar_doc_sync::sync_from_legacy(transaction)?;
                 Ok(StateChanges::new(
                     json!({
                         "stash_id": stash_id,

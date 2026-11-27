@@ -8,8 +8,6 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
 /// Entries one workspace may hold.
-/// Measured: the bytes of one change; every set sends the workspace's whole status as one
-/// state upsert, at most 64 × (64-byte key + 512-byte text + icon and color) ≈ 40 KB.
 pub(crate) const MAX_STATUS_ENTRIES: usize = 64;
 /// Log lines one workspace keeps; older lines are dropped on append.
 pub(crate) const MAX_LOG_LINES: i64 = 200;

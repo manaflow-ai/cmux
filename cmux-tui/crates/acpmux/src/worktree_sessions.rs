@@ -19,7 +19,7 @@ use serde::Deserialize;
 pub fn default_roots(home: &Path) -> Vec<PathBuf> {
     let mut roots =
         vec![home.join("Projects"), home.join("wt"), home.join("src"), home.join("code")];
-    for parent in [home.join("wt"), home.join(".cmux/worktrees"), home.join(".wt/checkouts")] {
+    for parent in [home.join("wt"), home.join(".cmux/worktrees")] {
         if let Ok(entries) = std::fs::read_dir(&parent) {
             roots.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
         }
@@ -32,17 +32,11 @@ pub fn default_roots(home: &Path) -> Vec<PathBuf> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionFile {
-    #[serde(default)]
-    id: String,
     name: String,
     cwd: PathBuf,
     status: String,
     #[serde(default)]
     updated_at: u64,
-    #[serde(default)]
-    agent_session_id: Option<String>,
-    #[serde(default)]
-    previous_agent_session_ids: Vec<String>,
 }
 
 /// The setting naming more acpmux state folders to read (a supervisor's
@@ -156,18 +150,11 @@ pub fn on_disk(home: &Path, skip: Option<&Path>) -> Vec<Session> {
         for entry in entries.flatten() {
             let Ok(bytes) = std::fs::read(entry.path().join("session.json")) else { continue };
             let Ok(file) = serde_json::from_slice::<SessionFile>(&bytes) else { continue };
-            let ids = std::iter::once(file.id)
-                .chain(file.agent_session_id)
-                .chain(file.previous_agent_session_ids)
-                .filter(|id| !id.is_empty())
-                .collect();
             found.push(Session {
                 name: file.name,
                 cwd: file.cwd,
                 open: running && file.status != "closed",
-                archived_checkout: None,
                 updated_ms: file.updated_at,
-                ids,
             });
         }
     }
@@ -187,5 +174,29 @@ fn daemon_runs(_state: &Path) -> bool {
 }
 
 #[cfg(test)]
-#[path = "worktree_sessions_care_tests.rs"]
-mod care_tests;
+mod care_tests {
+    use super::*;
+
+    #[test]
+    fn care_a_stopped_daemon_s_sessions_are_use_not_open() {
+        let home = std::env::temp_dir()
+            .join(format!("care-sessions-{}", cmux_worktree_care::inventory::now_ms()));
+        // The shared state folder of this home (`BuildIdentity` with no build).
+        let state = cmux_agent_pane_policy::build_identity::BuildIdentity::new(None, None)
+            .acpmux_home(&home);
+        let session = state.join("sessions/one");
+        std::fs::create_dir_all(&session).unwrap();
+        std::fs::write(
+            session.join("session.json"),
+            r#"{"name":"lane","cwd":"/w/a","status":"running","updatedAt":5}"#,
+        )
+        .unwrap();
+        let found: Vec<_> = on_disk(&home, None).into_iter().filter(|s| s.name == "lane").collect();
+        assert_eq!(found.len(), 1);
+        assert!(!found[0].open, "no daemon answers there");
+        assert_eq!(found[0].updated_ms, 5);
+        let skipped = on_disk(&home, Some(&state));
+        assert!(skipped.iter().all(|s| s.name != "lane"));
+        let _ = std::fs::remove_dir_all(home);
+    }
+}

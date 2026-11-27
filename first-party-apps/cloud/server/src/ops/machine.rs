@@ -1,7 +1,7 @@
 //! `cloud.machine.*` over `cmux.wire/1` (contract 1.3): list (paged),
 //! watch, get, create, rename, start, pause, resize, delete,
 //! idle_policy.set, keep, archive_delete, connect_info. Each op sends the checked params to the
-//! backend op of the same name. The list's last page adds the latest surge ([`super::surge`]).
+//! backend op of the same name.
 
 use crate::api::args;
 use crate::api::models::{Machine, Revision, decode_connect_info};
@@ -36,16 +36,11 @@ struct MachinePage {
 
 pub(super) fn run<C: ControlPlane>(
     ctx: &mut Ctx<'_, C>,
-    lifecycle: &mut super::machine_lifecycle::Ledger,
     name: &str,
     raw: &Value,
 ) -> Result<Value, CloudError> {
     match name {
         "cloud.machine.list" => list(ctx, raw),
-        "cloud.machine.pause_all" => {
-            args::object(raw, &[])?;
-            super::pause_all::run(ctx)
-        }
         "cloud.machine.watch" => {
             // The events are the stream (`cloud.machine.watch` lines after
             // each op result); this read only names where it stands.
@@ -70,10 +65,6 @@ pub(super) fn run<C: ControlPlane>(
                 "size",
                 "image",
                 "from_snapshot",
-                // Who started it and how long it may live: the platform checks
-                // and records both (origin, expires_at on the machine).
-                "origin",
-                "ttl_seconds",
                 "size_name",
                 "idle_seconds",
                 "bootstrap",
@@ -92,16 +83,10 @@ pub(super) fn run<C: ControlPlane>(
             args::name(map, "name")?.ok_or_else(|| CloudError::invalid("name is required"))?;
             machine_mutation(ctx, name, trimmed(map, &["machine", "name"]))
         }
-        "cloud.machine.start" | "cloud.machine.pause" | "cloud.machine.delete" => {
+        "cloud.machine.start" | "cloud.machine.pause" => {
             let map = args::object(raw, &["machine"])?;
-            let id = args::id(map, "machine")?;
-            lifecycle.run(ctx, name, id).map_err(|error| {
-                if super::delete_retry::indeterminate(&error) || error.code == codes::BAD_RESPONSE {
-                    super::delete_retry::retry_with_same_key(name, error)
-                } else {
-                    error
-                }
-            })
+            args::id(map, "machine")?;
+            machine_mutation(ctx, name, args::params(map, &["machine"]))
         }
         "cloud.machine.resize" => {
             let map = args::object(raw, &["machine", "size"])?;
@@ -130,6 +115,20 @@ pub(super) fn run<C: ControlPlane>(
             let map = args::object(raw, &["machine"])?;
             args::id(map, "machine")?;
             machine_mutation(ctx, name, args::params(map, &["machine"]))
+        }
+        "cloud.machine.delete" => {
+            let map = args::object(raw, &["machine"])?;
+            let id = args::id(map, "machine")?;
+            let answer = ctx.wire(name, args::params(map, &["machine"]));
+            let result = gone_if_not_found(ctx, id, answer)?;
+            deleted(&result.value)?;
+            // The answer's revision is the removal's: an older upsert of
+            // this machine never brings it back.
+            match result.revision.and_then(|r| Revision::try_from(r).ok()) {
+                Some(revision) => ctx.projection.remove_at(id, revision),
+                None => ctx.projection.remove(id),
+            }
+            Ok(json!({ "deleted": true }))
         }
         "cloud.machine.connect_info" => {
             // Exactly one of `machine` and `host` (contract 1.7).
@@ -221,17 +220,9 @@ fn list<C: ControlPlane>(ctx: &mut Ctx<'_, C>, raw: &Value) -> Result<Value, Clo
         page.next_cursor.as_deref(),
         Some(page.revision),
     );
-    let mut answer = json!({
+    Ok(json!({
         "machines": page.machines,
         "next_cursor": page.next_cursor,
         "revision": ctx.projection.revision(),
-    });
-    // The last page also carries the latest surge (the Machines page's surge
-    // card), from the whole projection; absent when no surge is listed.
-    if page.next_cursor.is_none()
-        && let Some(surge) = super::surge::latest(ctx.projection.machines())
-    {
-        answer["surge"] = json!(surge);
-    }
-    Ok(answer)
+    }))
 }

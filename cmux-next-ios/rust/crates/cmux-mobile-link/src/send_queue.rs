@@ -22,8 +22,6 @@ pub(crate) enum Signal {
 #[derive(Default)]
 struct Queues {
     signals: VecDeque<Signal>,
-    /// How many keepalives lead `signals`, so the next one goes after them (their order kept).
-    keepalives_ahead: usize,
     /// Close requested: what is queued already still goes out.
     closing: bool,
     /// The writer is gone: nothing is accepted any more.
@@ -43,28 +41,12 @@ impl SendQueue {
     }
 
     pub(crate) fn push_signal(&self, signal: Signal) -> Result<(), SignalingError> {
-        self.push(signal, false)
-    }
-
-    /// A keepalive goes ahead of what waits to be sent (after the other keepalives already
-    /// ahead), so its ping is never late behind a burst of offers and ICE candidates.
-    pub(crate) fn push_keepalive(&self, signal: Signal) -> Result<(), SignalingError> {
-        self.push(signal, true)
-    }
-
-    fn push(&self, signal: Signal, keepalive: bool) -> Result<(), SignalingError> {
         {
             let mut queues = self.lock();
             if queues.closed || queues.closing {
                 return Err(SignalingError::Closed);
             }
-            if keepalive {
-                let at = queues.keepalives_ahead.min(queues.signals.len());
-                queues.signals.insert(at, signal);
-                queues.keepalives_ahead = at + 1;
-            } else {
-                queues.signals.push_back(signal);
-            }
+            queues.signals.push_back(signal);
         }
         self.ready.notify_one();
         Ok(())
@@ -81,7 +63,6 @@ impl SendQueue {
     fn pop(&self) -> Option<Option<Message>> {
         let mut queues = self.lock();
         if let Some(signal) = queues.signals.pop_front() {
-            queues.keepalives_ahead = queues.keepalives_ahead.saturating_sub(1);
             return Some(Some(match signal {
                 Signal::Text(text) => Message::Text(text.into()),
                 Signal::Ping => Message::Ping(Vec::new().into()),
@@ -94,7 +75,6 @@ impl SendQueue {
         let mut queues = self.lock();
         queues.closed = true;
         queues.signals.clear();
-        queues.keepalives_ahead = 0;
     }
 
     /// Send what is queued on `sink`, in order, until a close or a send
@@ -154,27 +134,5 @@ mod tests {
             ]
         );
         assert!(queue.push_signal(Signal::Ping).is_err());
-    }
-
-    #[test]
-    fn keepalives_go_ahead_of_queued_signals_in_their_own_order() {
-        let queue = SendQueue::default();
-        queue.push_signal(Signal::Text("offer".into())).unwrap();
-        queue.push_signal(Signal::Text("ice".into())).unwrap();
-        queue.push_keepalive(Signal::Ping).unwrap();
-        queue.push_keepalive(Signal::Text("ping".into())).unwrap();
-        let mut order = Vec::new();
-        while let Some(Some(message)) = queue.pop() {
-            order.push(message);
-        }
-        assert_eq!(
-            order,
-            vec![
-                Message::Ping(Vec::new().into()),
-                Message::Text("ping".into()),
-                Message::Text("offer".into()),
-                Message::Text("ice".into())
-            ]
-        );
     }
 }

@@ -85,7 +85,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
     if rec.is_sidechain || rec.is_meta || rec.is_compact_summary {
         return Ok(());
     }
-    if let Some(at) = super::timestamp(&rec.timestamp) {
+    if let Some(at) = timestamp(&rec.timestamp) {
         state.at = at;
         state.at_ms = at.saturating_mul(1000);
     }
@@ -159,18 +159,13 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
             }
         }
         "assistant" => {
-            // Some Claude transcript versions omit `message.id` on assistant records. Their
-            // record UUID still identifies the streamed message; using an empty key would merge
-            // unrelated replies across turns.
-            let message_id =
-                if message.id.is_empty() { rec.uuid.as_ref() } else { message.id.as_ref() };
             let usage: Usage<'_> = message
                 .usage
                 .and_then(|raw| serde_json::from_str(raw.get()).ok())
                 .unwrap_or_default();
             if let Some(output) = input::count(usage.output_tokens) {
                 state.claude_call(
-                    message_id,
+                    &message.id,
                     super::Tokens {
                         output,
                         input: input::count(usage.input_tokens).unwrap_or(0),
@@ -181,7 +176,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                 );
             }
             if body.get().starts_with('"') {
-                state.text(&input::text(body)?, message_id, message_id, false, out)?;
+                state.text(&input::text(body)?, &message.id, &message.id, false, out)?;
             } else {
                 input::each(body, |raw| {
                     let block: Block<'_> = input::value(raw)?;
@@ -191,8 +186,8 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                             if let Some(raw) = if thinking { block.thinking } else { block.text } {
                                 state.text(
                                     &input::text(raw)?,
-                                    message_id,
-                                    message_id,
+                                    &message.id,
+                                    &message.id,
                                     thinking,
                                     out,
                                 )?;
@@ -211,12 +206,6 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                         }
                         "image" => {
                             let mut row = state.row(RowKind::Image, out)?;
-                            // Its size from its header, on the row, so the page reserves the
-                            // image's box before it reads the body (out of line past 16 KB).
-                            if let Some((w, h)) = block.source.and_then(image_size) {
-                                row.fields.insert("w".into(), w.to_string());
-                                row.fields.insert("h".into(), h.to_string());
-                            }
                             out.row(&row);
                             if let Some(raw) = block.source {
                                 out.body(row.id, BodyField::Source, false, raw);
@@ -236,59 +225,6 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
         _ => {}
     }
     Ok(())
-}
-
-/// An image block's `source` (`{"type":"base64","media_type":..,"data":..}`) sized by its
-/// header, decoding a bounded start of `data` alone. `None` for a URL source or an unread header.
-fn image_size(source: &RawValue) -> Option<(u32, u32)> {
-    #[derive(Deserialize)]
-    struct Source<'a> {
-        #[serde(borrow)]
-        data: Cow<'a, str>,
-    }
-    let source: Source<'_> = serde_json::from_str(source.get()).ok()?;
-    crate::image_dims::base64_image_dims(&source.data)
-}
-
-/// Read the identity used to reconcile a followed prompt with a durable act. This deliberately
-/// does not return tool-result records: those are transcript effects, not user sends. The text is
-/// flattened from text/content blocks so matching has one representation for string and block
-/// prompts.
-pub(super) fn prompt_identity(bytes: &[u8]) -> Result<Option<super::PromptIdentity>, Error> {
-    let rec: Record<'_> = input::parse(bytes)?;
-    if rec.kind != "user" || rec.is_sidechain || rec.is_meta || rec.is_compact_summary {
-        return Ok(None);
-    }
-    let Some(message) = rec.message else { return Ok(None) };
-    let Some(body) = message.content else { return Ok(None) };
-    if body.get() == "null" {
-        return Ok(None);
-    }
-    let mut has_tool_result = false;
-    if body.get().starts_with('[') {
-        input::each(body, |raw| {
-            let block: Block<'_> = input::value(raw)?;
-            has_tool_result |= block.kind == "tool_result";
-            Ok(())
-        })?;
-    }
-    if has_tool_result {
-        return Ok(None);
-    }
-    let mut text = String::new();
-    input::content(body, 0, &mut |part| {
-        text.push_str(part);
-        Ok(())
-    })?;
-    let start = text.trim_start();
-    if start.is_empty()
-        || ["<command-", "<local-command-", "<bash-", "[Request interrupted"]
-            .iter()
-            .any(|prefix| start.starts_with(prefix))
-    {
-        return Ok(None);
-    }
-    Ok(Some(super::PromptIdentity { id: rec.uuid.into_owned(), text }))
 }
 
 pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
@@ -326,4 +262,71 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+/// RFC3339 seconds, independent of local timezone. Missing timestamps inherit checkpoint `at`.
+fn timestamp(s: &str) -> Option<u64> {
+    let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
+    let y = n(0..4)?;
+    let m = n(5..7)?;
+    let d = n(8..10)?;
+    let h = n(11..13)?;
+    let min = n(14..16)?;
+    let sec = n(17..19)?;
+    if s.get(4..5)? != "-"
+        || s.get(7..8)? != "-"
+        || !matches!(s.get(10..11)?, "T" | "t")
+        || s.get(13..14)? != ":"
+        || s.get(16..17)? != ":"
+        || !(1..=12).contains(&m)
+        || !(1..=31).contains(&d)
+        || !(0..=23).contains(&h)
+        || !(0..=59).contains(&min)
+        || !(0..=59).contains(&sec)
+    {
+        return None;
+    }
+    let y = y.checked_sub(i64::from(m <= 2))?;
+    let era = y.div_euclid(400);
+    let yo = y.checked_sub(era.checked_mul(400)?)?;
+    let mp = m.checked_add(if m > 2 { -3 } else { 9 })?;
+    let doy = (153i64.checked_mul(mp)?.checked_add(2)? / 5).checked_add(d)?.checked_sub(1)?;
+    let doe = yo.checked_mul(365)?.checked_add(yo / 4)?.checked_sub(yo / 100)?.checked_add(doy)?;
+    let days = era.checked_mul(146097)?.checked_add(doe)?.checked_sub(719468)?;
+    let tail = s.get(19..)?;
+    let zone = if let Some(frac) = tail.strip_prefix('.') {
+        let pos = frac.find(|c: char| !c.is_ascii_digit())?;
+        if pos == 0 {
+            return None;
+        }
+        frac.get(pos..)?
+    } else {
+        tail
+    };
+    let offset = if matches!(zone, "Z" | "z") {
+        0
+    } else {
+        if zone.len() != 6 || zone.get(3..4)? != ":" {
+            return None;
+        }
+        let zh = zone.get(1..3)?.parse::<i64>().ok()?;
+        let zm = zone.get(4..6)?.parse::<i64>().ok()?;
+        if zh > 23 || zm > 59 {
+            return None;
+        }
+        let v = zh.checked_mul(3600)?.checked_add(zm.checked_mul(60)?)?;
+        match zone.get(..1)? {
+            "+" => v,
+            "-" => v.checked_neg()?,
+            _ => return None,
+        }
+    };
+    u64::try_from(
+        days.checked_mul(86400)?
+            .checked_add(h.checked_mul(3600)?)?
+            .checked_add(min.checked_mul(60)?)?
+            .checked_add(sec)?
+            .checked_sub(offset)?,
+    )
+    .ok()
 }

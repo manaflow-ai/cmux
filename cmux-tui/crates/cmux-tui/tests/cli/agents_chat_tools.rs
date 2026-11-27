@@ -35,12 +35,6 @@ fn machine_with(name: &str, config: Value) -> Daemon {
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
     let trust = json!({work.to_str().unwrap(): "trusted"});
     fs::write(daemon.dir.join("acpmux/trust.json"), trust.to_string()).unwrap();
-    // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-    fs::set_permissions(
-        daemon.dir.join("acpmux/trust.json"),
-        <fs::Permissions as PermissionsExt>::from_mode(0o600),
-    )
-    .unwrap();
     acpmux_daemon(&daemon, &["start"]);
     daemon
 }
@@ -194,9 +188,6 @@ fn error_of(value: &Value) -> &Value {
 /// `--all-tools` lists each tool with its schema and annotations.
 fn mcp(daemon: &Daemon, caller: &str, calls: &[(&str, Value)]) -> (Vec<Value>, Vec<Value>) {
     let mut child = cmux(daemon, Some(caller))
-        // The person said yes to cmux's tools for the agents cmux starts (`agents.cmuxMcp` on), as
-        // acpmux tells a chat it starts; without it `serve` is the off server (mcp.rs `refusal`).
-        .env("CMUX_AGENT_TOOLS_ANSWER", "on")
         .arg("--app-socket")
         .arg(daemon.dir.join("no-app.sock"))
         .args(["mcp", "serve", "--all-tools"])
@@ -354,59 +345,6 @@ fn an_agent_prompts_another_chat_and_reads_its_reply_over_mcp() {
     assert_eq!(calls[0]["text"], "", "{next}");
     assert_eq!(calls[0]["tool"]["kind"], "read", "{next}");
     assert_eq!(calls[0]["tool"]["status"], "completed", "{next}");
-}
-
-/// manaflow-ai/cmux#51004: a Chief relayed a message with `agents_chat_send` and the receiving
-/// chat named its sender `cli`, the person's shell: the daemon cannot verify a chat the app's
-/// acpmux started (it has no launch credential), so the send named no one. Now it names its
-/// chat: a Chief turn by the Chief's own name (`mux.label`), never `cli` or its session name. The
-/// person's send from a shell still names no one.
-#[test]
-fn a_chief_turn_chat_send_names_the_chief_not_cli() {
-    let daemon = machine("chat-chief-name");
-    let workspace = workspace(&daemon);
-    let receiver = chat(&daemon, Some(&workspace));
-    // A Chief turn session, tagged as optchat-chief `acpmux::turn_tags` tags one.
-    let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
-    let created = Acp::connect(&daemon).call(
-        "session/new",
-        json!({"cwd": work.to_str().unwrap(), "mcpServers": [],
-               "_meta": {"acpmux": {"harness": "fake",
-                   "tags": {"mux.label": "Chief", "cmux.chief.participant": "agent_mux"}}}}),
-    );
-    let chief = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
-
-    let (_, results) = mcp(
-        &daemon,
-        chief,
-        &[("agents_chat_send", json!({"target": receiver, "text": "relayed ask"}))],
-    );
-    assert_eq!(results[0]["isError"], false, "{}", results[0]);
-    let page = read_until(&daemon, chief, json!({"target": receiver}), |items| {
-        items.iter().any(|item| item["role"] == "turn_end")
-    });
-    let items = page["items"].as_array().unwrap();
-    let prompts = items_of(items, "user");
-    assert_eq!(prompts.len(), 1, "{page}");
-    assert_eq!(prompts[0]["origin"], "agent_message", "{page}");
-    assert_eq!(prompts[0]["from_name"], "Chief", "the chat names the Chief: {page}");
-    let text = prompts[0]["text"].as_str().unwrap();
-    assert!(text.contains("from Chief (cli)"), "the agent reads it from the Chief: {text}");
-
-    // The person at a shell names no one.
-    let (code, sent) = agents_chat(&daemon, None, &["send", &receiver, "--", "from my shell"]);
-    assert_eq!(code, Some(0), "{sent}");
-    let next = read_until(
-        &daemon,
-        chief,
-        json!({"target": receiver, "after": page["next_after"]}),
-        |items| items.iter().any(|item| item["role"] == "turn_end"),
-    );
-    let later = next["items"].as_array().unwrap();
-    let person = items_of(later, "user");
-    assert_eq!(person.len(), 1, "{next}");
-    assert_eq!(person[0]["from"], "cli", "{next}");
-    assert!(person[0].get("from_name").is_none(), "a shell's send names no one: {next}");
 }
 
 #[test]
@@ -620,12 +558,6 @@ fn a_chat_send_that_cannot_reach_its_chat_fails_with_its_receipt() {
     // a hosted agent outlives a plain shutdown, and the next daemon adopts it.
     acpmux_daemon(&daemon, &["shutdown", "--end-agents"]);
     fs::write(daemon.dir.join("acpmux/config.json"), acpmux_config(false).to_string()).unwrap();
-    // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-    fs::set_permissions(
-        daemon.dir.join("acpmux/config.json"),
-        <fs::Permissions as PermissionsExt>::from_mode(0o600),
-    )
-    .unwrap();
     acpmux_daemon(&daemon, &["start"]);
 
     let (code, receipt) =
@@ -800,10 +732,8 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
     let (code, policy) = chat_json(as_caller(), &["new", "--policy", "approve-all"]);
     assert_eq!(code, Some(2), "{policy}");
 
-    // A workspace this session does not have starts nothing (a well-formed id: a malformed one is
-    // refused earlier, as `validation.invalid`).
-    let missing = format!("ws_{}", "0".repeat(32));
-    let (code, unknown) = chat_json(as_caller(), &["new", "--workspace", &missing, "--", "hi"]);
+    // A workspace this session does not have starts nothing.
+    let (code, unknown) = chat_json(as_caller(), &["new", "--workspace", "ws_nope", "--", "hi"]);
     assert_eq!(code, Some(3), "{unknown}");
     assert_eq!(error_of(&unknown)["code"], "selector.not_found", "{unknown}");
     let (code, both) = chat_json(as_caller(), &["new", "--workspace", "a", "--pane", "b"]);

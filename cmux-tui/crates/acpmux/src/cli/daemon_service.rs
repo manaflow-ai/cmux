@@ -14,15 +14,6 @@
 //! login there, which is not a failure. On Linux a unit someone else wrote or edited is left as
 //! it is (only one an earlier acpmux wrote is replaced, as `host update` does); the unit is
 //! enabled and started, after a daemon that runs outside it is shut down keeping its agents.
-//!
-//! On Windows it is a per-user logon task in Task Scheduler, `\acpmux` ([`TASK_NAME`]), that runs
-//! `acpmux daemon start` at this user's logon (the start detaches the daemon with a hidden
-//! console, `daemon/windows.rs`). It needs no administrator: the task runs as this user with
-//! their interactive token at least privilege, never longer than the start itself. Its XML
-//! ([`task_xml`]) stays beside the home as the record of what was registered. Where Task
-//! Scheduler refuses the registration (a policy that keeps standard users from making tasks),
-//! the same command goes in this user's `HKCU\...\Run` key ([`RUN_KEY`]), which also starts it at
-//! logon. `install` does not start the daemon; the join line starts it right after.
 
 use crate::cli::hosts;
 use anyhow::{Result, anyhow};
@@ -33,17 +24,11 @@ use std::time::Duration;
 /// The launchd label and systemd unit `host setup` uses too.
 pub(crate) const LAUNCHD_LABEL: &str = "com.acpmux.daemon";
 pub(crate) const SYSTEMD_SERVICE: &str = "acpmux.service";
-/// The Windows logon task's name in Task Scheduler's root folder.
-pub(crate) const TASK_NAME: &str = "acpmux";
-/// Where the fallback logon entry goes when Task Scheduler refuses the task: this user's Run key,
-/// value [`TASK_NAME`].
-pub(crate) const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 
 /// What `daemon service` does.
 #[derive(clap::Subcommand, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceAction {
-    /// Install (or refresh) the LaunchAgent, user systemd unit or Windows logon task, and start the
-    /// daemon under it (on Windows it starts at the next logon; `daemon start` starts it now).
+    /// Install (or refresh) the LaunchAgent or user systemd unit and start the daemon under it.
     Install,
     /// Stop the service's daemon (hosted agents keep running) and remove the service.
     Uninstall,
@@ -60,14 +45,6 @@ const RELOAD_WAIT: Duration = Duration::from_secs(90);
 pub(crate) trait Machine {
     fn home(&self) -> PathBuf;
     fn linux(&self) -> bool;
-    /// Windows: the logon task (or the Run key) instead of launchd or systemd.
-    fn windows(&self) -> bool {
-        false
-    }
-    /// The acpmux binary the service starts.
-    fn exe(&self) -> PathBuf {
-        std::env::current_exe().unwrap_or_else(|_| PathBuf::from("acpmux"))
-    }
     /// `program args…` with no stdin: its exit code, stdout and stderr; None when it could not
     /// run or did not finish within `wait`.
     fn run(&self, program: &str, args: &[&str], wait: Duration) -> Option<(i32, String, String)>;
@@ -128,17 +105,13 @@ impl Report {
     }
 
     fn line(&self) -> String {
-        let what = match self.manager {
-            "launchd" => format!("the {LAUNCHD_LABEL} LaunchAgent"),
-            "task" => format!("the {TASK_NAME} logon task"),
-            "run-key" => format!("the {TASK_NAME} logon entry in {RUN_KEY}"),
-            _ => SYSTEMD_SERVICE.to_owned(),
+        let what = if self.manager == "launchd" {
+            format!("the {LAUNCHD_LABEL} LaunchAgent")
+        } else {
+            SYSTEMD_SERVICE.to_owned()
         };
         let state = match self.state {
             State::Running => format!("{what} runs"),
-            State::AtNextLogin if self.manager == "task" || self.manager == "run-key" => format!(
-                "{what} is installed and starts the daemon at each logon; `acpmux daemon start` starts it now"
-            ),
             State::AtNextLogin => format!(
                 "{what} is installed and loads at the next login at this Mac's screen (no one is logged in there now); the daemon runs in this session until then"
             ),
@@ -172,217 +145,6 @@ pub(crate) fn plist_text(home: &Path) -> String {
     hosts::PLIST.replace("__HOME__", &home)
 }
 
-/// The acpmux `home`'s LaunchAgent runs when it is not an app's: `~/.local/bin/acpmux`, the
-/// binary the one-line join and `host setup`/`update` install.
-pub(crate) fn local_bin(home: &Path) -> PathBuf {
-    home.join(".local/bin/acpmux")
-}
-
-/// The `bin` folder of the cmux app whose bundled binary `exe` is (`X.app/Contents/Resources/bin/`),
-/// when that app may run this user's LaunchAgent: not a DEV app (it runs a home of its own), not
-/// one in a temporary or build folder (App Translocation, a test's copy), which goes away.
-pub(crate) fn app_bin_dir(exe: &Path) -> Option<&Path> {
-    let dir = exe.parent()?;
-    let resources = dir.parent()?;
-    let contents = resources.parent()?;
-    let app = contents.parent()?;
-    let named = |p: &Path, n: &str| p.file_name().is_some_and(|f| f == n);
-    let is_app = app.extension().is_some_and(|e| e == "app")
-        && named(contents, "Contents")
-        && named(resources, "Resources")
-        && named(dir, "bin");
-    let stem = app.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let dev = stem == "cmux DEV" || stem.starts_with("cmux DEV ");
-    let unstable = crate::daemon::exe_path::classify(exe, &std::env::temp_dir()).is_some()
-        || exe.components().any(|c| c.as_os_str() == "AppTranslocation");
-    (is_app && !dev && !unstable).then_some(dir)
-}
-
-/// The strings of a plist's `ProgramArguments` array, XML-unescaped.
-fn plist_arguments(text: &str) -> Option<Vec<String>> {
-    let (_, rest) = text.split_once("<key>ProgramArguments</key>")?;
-    let (_, rest) = rest.split_once("<array>")?;
-    let (array, _) = rest.split_once("</array>")?;
-    let unescape = |s: &str| s.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
-    Some(
-        array
-            .split("<string>")
-            .skip(1)
-            .filter_map(|s| s.split_once("</string>").map(|(v, _)| unescape(v)))
-            .collect(),
-    )
-}
-
-/// The acpmux a `com.acpmux.daemon` plist's text runs: its program, or, for the
-/// [`FALLBACK_SCRIPT`] form, the app's acpmux it tries first.
-pub(crate) fn plist_program(text: &str) -> Option<PathBuf> {
-    let args = plist_arguments(text)?;
-    let first = args.first()?;
-    if first == "/bin/sh" && args.get(2).map(String::as_str) == Some(FALLBACK_SCRIPT) {
-        return args.get(3).map(PathBuf::from);
-    }
-    Some(PathBuf::from(first))
-}
-
-/// What an app-held LaunchAgent runs under `/bin/sh -c`: the app's acpmux (`$0`) while it is
-/// there, else `~/.local/bin/acpmux` (`$1`), so a deleted app never leaves launchd retrying a
-/// missing binary. The paths are arguments, never part of the script. `exec` replaces the shell,
-/// so the daemon's own executable is still the app's (the app's `isStray` reads it).
-pub(crate) const FALLBACK_SCRIPT: &str =
-    r#"[ -x "$0" ] && exec "$0" daemon run; exec "$1" daemon run"#;
-
-/// The program launchd reports for the job that runs `program` (`launchctl print`'s
-/// `program`): the fallback shell for an app's acpmux.
-pub(crate) fn launchd_argv0(home: &Path, program: &Path) -> PathBuf {
-    if program == local_bin(home) { program.to_path_buf() } else { PathBuf::from("/bin/sh") }
-}
-
-/// Which acpmux this user's LaunchAgent runs, so launchd keeps it alive with no app running
-/// (cmuxterm-hq docs/design/remote-screen-share-zero-touch.md Z1). `exe` is the acpmux that
-/// installs it, `existing` the plist there now, `exists` whether a file is there.
-///
-/// - Installed from a cmux app's bundle (the app taking over a stray daemon, `cmux device
-///   setup`): that bundle's `bin/acpmux`. The app then finds its own binary on the socket and
-///   leaves it running.
-/// - Installed from anywhere else (`~/.local/bin/acpmux` in the join) while the plist runs an
-///   app's acpmux that is still there: that one stays. One daemon per machine runs the
-///   NIGHTLY's build (plans/cmux-next/acpmux-one-daemon.md), and a rewrite back to
-///   `~/.local/bin` would only make the app take it over again: the two installers agree.
-/// - Else `~/.local/bin/acpmux`, as `host setup` writes it.
-pub(crate) fn launchd_program(
-    home: &Path,
-    exe: &Path,
-    existing: Option<&str>,
-    exists: &dyn Fn(&Path) -> bool,
-) -> PathBuf {
-    if let Some(dir) = app_bin_dir(exe) {
-        return dir.join("acpmux");
-    }
-    existing
-        .and_then(plist_program)
-        .filter(|program| {
-            program.file_name().is_some_and(|n| n == "acpmux")
-                && app_bin_dir(program).is_some()
-                && exists(program)
-        })
-        .unwrap_or_else(|| local_bin(home))
-}
-
-/// The program of a loaded job, from `launchctl print gui/<uid>/<label>` (`program = PATH`).
-pub(crate) fn loaded_program(printed: &str) -> Option<PathBuf> {
-    printed.lines().find_map(|line| {
-        let value = line.trim().strip_prefix("program")?.trim_start().strip_prefix('=')?;
-        Some(PathBuf::from(value.trim()))
-    })
-}
-
-/// The LaunchAgent for `home` that runs `program`. For `~/.local/bin/acpmux` it is
-/// [`plist_text`] byte for byte, what `host setup` writes. For an app's bundled acpmux it runs
-/// [`FALLBACK_SCRIPT`] (that acpmux, else `~/.local/bin/acpmux` once the app is gone), and the
-/// daemon also gets what the app gives the daemon it starts on this home
-/// (`AcpmuxEnvironment+Resolve.swift`): the local router, the secret tools and the bundled cmux
-/// CLI, so it serves the app the same way when the app finds it running.
-pub(crate) fn plist_for(home: &Path, program: &Path) -> String {
-    let text = plist_text(home);
-    if program == local_bin(home) {
-        return text;
-    }
-    let escape = |p: &Path| {
-        p.display().to_string().replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-    };
-    let home_text = escape(home);
-    let cli = program.with_file_name("cmux");
-    let extra = format!(
-        "<key>ACPMUX_LOCAL_ROUTER</key><string>1</string><key>ACPMUX_SECRET_TOOLS</key><string>1</string><key>CMUX_BUNDLED_CLI_PATH</key><string>{}</string>",
-        escape(&cli)
-    );
-    let script = FALLBACK_SCRIPT.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
-    text.replacen(
-        &format!(
-            "<array><string>{home_text}/.local/bin/acpmux</string><string>daemon</string><string>run</string></array>"
-        ),
-        &format!(
-            "<array><string>/bin/sh</string><string>-c</string><string>{script}</string><string>{}</string><string>{home_text}/.local/bin/acpmux</string></array>",
-            escape(program)
-        ),
-        1,
-    )
-    .replacen(
-        &format!("<key>HOME</key><string>{home_text}</string></dict>"),
-        &format!("<key>HOME</key><string>{home_text}</string>{extra}</dict>"),
-        1,
-    )
-}
-
-/// The logon task's XML record under `home` (the OS account home, as the plist's).
-pub(crate) fn task_path(home: &Path) -> PathBuf {
-    crate::config::default_home_in(home).join("logon-task.xml")
-}
-
-/// XML-escaped text: a user or a path is data, not markup.
-fn xml_text(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-}
-
-/// The logon task for `user` (`DOMAIN\name`, as `whoami` prints it) that runs `exe daemon start`:
-/// at that user's logon only, as that user with their interactive token at least privilege, one
-/// instance, on battery too, with no time limit (the start itself ends at once; the daemon it
-/// starts is not the task's).
-pub(crate) fn task_xml(user: &str, exe: &Path) -> String {
-    let user = xml_text(user);
-    let exe = xml_text(&exe.display().to_string());
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo>
-    <Description>Starts this machine's acpmux daemon at logon, so cmux can reach it.</Description>
-  </RegistrationInfo>
-  <Triggers>
-    <LogonTrigger>
-      <Enabled>true</Enabled>
-      <UserId>{user}</UserId>
-    </LogonTrigger>
-  </Triggers>
-  <Principals>
-    <Principal id="Author">
-      <UserId>{user}</UserId>
-      <LogonType>InteractiveToken</LogonType>
-      <RunLevel>LeastPrivilege</RunLevel>
-    </Principal>
-  </Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <StartWhenAvailable>true</StartWhenAvailable>
-    <AllowStartOnDemand>true</AllowStartOnDemand>
-    <Enabled>true</Enabled>
-    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-  </Settings>
-  <Actions Context="Author">
-    <Exec>
-      <Command>{exe}</Command>
-      <Arguments>daemon start</Arguments>
-    </Exec>
-  </Actions>
-</Task>
-"#
-    )
-}
-
-/// `text` as Task Scheduler reads an XML file: UTF-16LE with its byte order mark.
-pub(crate) fn utf16_file(text: &str) -> Vec<u8> {
-    let mut bytes = vec![0xFF, 0xFE];
-    for unit in text.encode_utf16() {
-        bytes.extend_from_slice(&unit.to_le_bytes());
-    }
-    bytes
-}
-
 /// What `install` does with the unit file it finds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum UnitFile {
@@ -406,11 +168,7 @@ pub(crate) fn unit_plan(existing: Option<&str>) -> UnitFile {
 /// Write `text` to `path` unless it already holds it: beside it, then renamed over it, so a
 /// full disk never leaves a cut file. True when it wrote.
 fn write_if_changed(path: &Path, text: &str) -> Result<bool> {
-    write_bytes_if_changed(path, text.as_bytes())
-}
-
-fn write_bytes_if_changed(path: &Path, text: &[u8]) -> Result<bool> {
-    if std::fs::read(path).is_ok_and(|old| old == text) {
+    if std::fs::read_to_string(path).is_ok_and(|old| old == text) {
         return Ok(false);
     }
     let dir = path.parent().ok_or_else(|| anyhow!("{} has no folder", path.display()))?;
@@ -444,126 +202,13 @@ fn uid() -> u32 {
 }
 
 pub(crate) fn install(m: &dyn Machine) -> Result<Report> {
-    if m.windows() {
-        install_task(m)
-    } else if m.linux() {
-        install_systemd(m)
-    } else {
-        install_launchd(m, uid())
-    }
-}
-
-/// This user as Task Scheduler names them: `whoami`'s `DOMAIN\name`, else the environment's.
-fn task_user(m: &dyn Machine) -> Option<String> {
-    let from_whoami = m.run("whoami", &[], CALL_WAIT).and_then(|(code, out, _)| {
-        let user = out.trim().to_owned();
-        (code == 0 && !user.is_empty() && !user.contains(['\r', '\n'])).then_some(user)
-    });
-    from_whoami.or_else(|| {
-        let name = std::env::var("USERNAME").ok().filter(|n| !n.is_empty())?;
-        Some(match std::env::var("USERDOMAIN").ok().filter(|d| !d.is_empty()) {
-            Some(domain) => format!("{domain}\\{name}"),
-            None => name,
-        })
-    })
-}
-
-fn run_key_command(exe: &Path) -> String {
-    format!("\"{}\" daemon start", exe.display())
-}
-
-fn install_task(m: &dyn Machine) -> Result<Report> {
-    let home = m.home();
-    let path = task_path(&home);
-    let exe = m.exe();
-    let user = task_user(m).ok_or_else(|| anyhow!("cannot tell which Windows user this is"))?;
-    let changed = write_bytes_if_changed(&path, &utf16_file(&task_xml(&user, &exe)))?;
-    let state = if m.daemon_running() { State::Running } else { State::AtNextLogin };
-    let report = |manager, changed, note| Report {
-        manager,
-        path: path.clone(),
-        installed: true,
-        changed,
-        state: state.clone(),
-        note,
-    };
-    if !changed && ok(m.run("schtasks", &["/Query", "/TN", TASK_NAME], CALL_WAIT)) {
-        return Ok(report("task", false, None));
-    }
-    let xml = path.display().to_string();
-    let created = m.run("schtasks", &["/Create", "/TN", TASK_NAME, "/XML", &xml, "/F"], CALL_WAIT);
-    if ok(created.clone()) {
-        // A logon entry an earlier fallback wrote is the task's now.
-        let _ = m.run("reg", &["delete", RUN_KEY, "/v", TASK_NAME, "/f"], CALL_WAIT);
-        return Ok(report("task", true, None));
-    }
-    let why =
-        created.map(|(_, out, err)| format!("{} {}", out.trim(), err.trim()).trim().to_owned());
-    let command = run_key_command(&exe);
-    let set = m.run(
-        "reg",
-        &["add", RUN_KEY, "/v", TASK_NAME, "/t", "REG_SZ", "/d", &command, "/f"],
-        CALL_WAIT,
-    );
-    if ok(set) {
-        let note = format!(
-            "Task Scheduler did not take the task{}; the Run key starts the daemon at logon instead",
-            why.filter(|w| !w.is_empty()).map(|w| format!(" ({w})")).unwrap_or_default()
-        );
-        return Ok(report("run-key", true, Some(note)));
-    }
-    Err(anyhow!(
-        "neither Task Scheduler nor the Run key took the {TASK_NAME} logon start{}",
-        why.filter(|w| !w.is_empty()).map(|w| format!(": {w}")).unwrap_or_default()
-    ))
-}
-
-fn uninstall_task(m: &dyn Machine) -> Result<Report> {
-    let path = task_path(&m.home());
-    let task = ok(m.run("schtasks", &["/Delete", "/TN", TASK_NAME, "/F"], CALL_WAIT));
-    let key = ok(m.run("reg", &["delete", RUN_KEY, "/v", TASK_NAME, "/f"], CALL_WAIT));
-    let record = path.is_file();
-    if record {
-        crate::home_fs::remove_file(&path)
-            .map_err(|e| anyhow!("cannot remove {}: {e}", path.display()))?;
-    }
-    if m.daemon_running() {
-        // As systemd's `disable --now`: the daemon stops; its hosted agents keep running.
-        let exe = m.exe().display().to_string();
-        let _ = m.run(&exe, &["daemon", "shutdown"], RELOAD_WAIT);
-    }
-    Ok(Report {
-        manager: "task",
-        path,
-        installed: false,
-        changed: task || key || record,
-        state: State::Absent,
-        note: None,
-    })
-}
-
-fn status_task(m: &dyn Machine) -> Report {
-    let path = task_path(&m.home());
-    let task = ok(m.run("schtasks", &["/Query", "/TN", TASK_NAME], CALL_WAIT));
-    let key = !task && ok(m.run("reg", &["query", RUN_KEY, "/v", TASK_NAME], CALL_WAIT));
-    let installed = task || key;
-    let state = if m.daemon_running() {
-        State::Running
-    } else if installed {
-        State::AtNextLogin
-    } else {
-        State::Absent
-    };
-    let manager = if key { "run-key" } else { "task" };
-    Report { manager, path, installed, changed: false, state, note: None }
+    if m.linux() { install_systemd(m) } else { install_launchd(m, uid()) }
 }
 
 fn install_launchd(m: &dyn Machine, uid: u32) -> Result<Report> {
     let home = m.home();
     let path = plist_path(&home);
-    let existing = std::fs::read_to_string(&path).ok();
-    let program = launchd_program(&home, &m.exe(), existing.as_deref(), &|p| p.exists());
-    let changed = write_if_changed(&path, &plist_for(&home, &program))?;
+    let changed = write_if_changed(&path, &plist_text(&home))?;
     let report = |state, note| Report {
         manager: "launchd",
         path: path.clone(),
@@ -577,20 +222,12 @@ fn install_launchd(m: &dyn Machine, uid: u32) -> Result<Report> {
         return Ok(report(State::AtNextLogin, None));
     }
     let job = format!("{domain}/{LAUNCHD_LABEL}");
-    // Loaded from this very text: left running. A job launchd still runs from an earlier text
-    // (the file was rewritten, its reload failed) is reloaded, or the app's takeover would
-    // stop a daemon launchd starts again from the old program.
-    if !changed
-        && let Some((0, printed, _)) = m.run("launchctl", &["print", &job], CALL_WAIT)
-        && loaded_program(&printed).is_none_or(|loaded| loaded == launchd_argv0(&home, &program))
-    {
+    if !changed && ok(m.run("launchctl", &["print", &job], CALL_WAIT)) {
         return Ok(report(State::Running, None));
     }
     // `host setup`'s own reload: refuses (and leaves the daemon) when launchd would not take
     // the job, shuts a daemon that runs outside it down keeping its agents, then bootstraps.
-    // The script asks and stops the daemon through the binary the job runs, which is the only
-    // acpmux there on a Mac that has just the app.
-    let script = hosts::launchd_reload_with(false, &program);
+    let script = hosts::launchd_reload(false);
     match m.run("sh", &["-c", &script], RELOAD_WAIT) {
         Some((0, out, _)) if out.contains("ACPMUX_IN_PLACE=") => Err(anyhow!(
             "launchd did not take {LAUNCHD_LABEL}; the daemon runs in this session instead (launchctl bootstrap {domain} {} says why)",
@@ -664,9 +301,6 @@ fn install_systemd(m: &dyn Machine) -> Result<Report> {
 }
 
 pub(crate) fn uninstall(m: &dyn Machine) -> Result<Report> {
-    if m.windows() {
-        return uninstall_task(m);
-    }
     let home = m.home();
     if m.linux() {
         let path = unit_path(&home);
@@ -709,9 +343,6 @@ pub(crate) fn uninstall(m: &dyn Machine) -> Result<Report> {
 }
 
 pub(crate) fn status(m: &dyn Machine) -> Report {
-    if m.windows() {
-        return status_task(m);
-    }
     let home = m.home();
     if m.linux() {
         let path = unit_path(&home);
@@ -750,10 +381,6 @@ impl Machine for Here {
 
     fn linux(&self) -> bool {
         cfg!(target_os = "linux")
-    }
-
-    fn windows(&self) -> bool {
-        cfg!(windows)
     }
 
     fn run(&self, program: &str, args: &[&str], wait: Duration) -> Option<(i32, String, String)> {
@@ -801,11 +428,7 @@ impl Machine for Here {
         {
             std::os::unix::net::UnixStream::connect(crate::config::socket_path()).is_ok()
         }
-        #[cfg(windows)]
-        {
-            cmux::local_socket::connect_same_user(&crate::config::socket_path()).is_ok()
-        }
-        #[cfg(not(any(unix, windows)))]
+        #[cfg(not(unix))]
         {
             false
         }
@@ -814,8 +437,8 @@ impl Machine for Here {
 
 /// `acpmux daemon service ACTION`.
 pub(crate) fn run(action: ServiceAction, json_out: bool) -> Result<()> {
-    if !cfg!(any(unix, windows)) {
-        return Err(anyhow!("the daemon service is macOS, Linux and Windows only"));
+    if !cfg!(unix) {
+        return Err(anyhow!("the daemon service is macOS and Linux only"));
     }
     let report = match action {
         ServiceAction::Install => install(&Here)?,

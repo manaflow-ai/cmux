@@ -12,7 +12,7 @@ import Testing
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let url = home.appending(path: "cmux-next.json")
         try Data(json.utf8).write(to: url)
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
         return (settings, home)
@@ -44,21 +44,5 @@ import Testing
         var diagnostics: [SettingsDiagnostic] = []
         #expect(!BrowserVerificationAutofillSetting.parse(root, diagnostics: &diagnostics).enabled)
         #expect(diagnostics.map(\.path) == ["browser.verificationAutofill.enabled"])
-    }
-
-    /// Per-account opt-in: none by default, addresses read once each, lowercased; agents cannot add one.
-    @Test func accountsAreOptedInOneByOneAndAgentsCannot() async throws {
-        let (settings, home) = try Self.settings()
-        defer { try? FileManager.default.removeItem(at: home) }
-        await settings.reload()
-        #expect(BrowserVerificationAutofillSetting.current(settings).accounts.isEmpty)
-
-        let path = BrowserVerificationAutofillSetting.accountsPath
-        await #expect(throws: SettingUserOnly.self) {
-            try await settings.setSetting(at: path, to: .array([.string("agent@example.com")]), by: .caller("mcp"))
-        }
-        #expect(BrowserVerificationAutofillSetting.current(settings).accounts.isEmpty)
-        try await settings.setSetting(at: path, to: .array([.string(" Lawrence@cmux.com "), .string("lawrence@cmux.com"), .string("not an address")]), by: .user)
-        #expect(BrowserVerificationAutofillSetting.current(settings).accounts == ["lawrence@cmux.com"])
     }
 }

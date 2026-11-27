@@ -143,14 +143,8 @@ pub(crate) const AGENT_CALLER_ENV: [&str; 7] = [
 const ACPMUX_SESSION_PREFIX: &str = "ACPMUX_SESSION_";
 /// `ACPMUX_CALLER_SUBAGENT` is the subagent mark acpmux puts in a background
 /// task's env, so `acpmux` calls in it are named as that subagent.
-/// `CMUX_AGENT_TOOLS_ANSWER` is a terminal agent's answer to cmux's tools (the
-/// `claude` shim): an owner it started must not give it to every terminal.
-const ACPMUX_SESSION_ENV: [&str; 4] = [
-    "ACPMUX_HOST_NONCE",
-    "CMUX_AGENT_SESSION",
-    "ACPMUX_CALLER_SUBAGENT",
-    "CMUX_AGENT_TOOLS_ANSWER",
-];
+const ACPMUX_SESSION_ENV: [&str; 3] =
+    ["ACPMUX_HOST_NONCE", "CMUX_AGENT_SESSION", "ACPMUX_CALLER_SUBAGENT"];
 
 /// Codex's marks of its own process: its sandbox (`CODEX_SANDBOX`,
 /// `CODEX_SANDBOX_NETWORK_DISABLED`, any `CODEX_SANDBOX_*`) and its session

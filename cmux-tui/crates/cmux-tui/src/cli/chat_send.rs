@@ -14,12 +14,10 @@
 //! `--on here|vm:ID|NAME|MACHINE|joined:ID` names the place instead, without the lookup.
 //! `cmux chat send --to …` stays the message to a Chief, a person or a group (chief/chat_scope.rs).
 //!
-//! `--wait` waits for the turn and prints its reply here, on a Cloud VM and on a `HOST/NAME`
-//! machine (agents/turn.rs here, `acpmux wait` there: joined.rs's `wait_turn`).
+//! `--wait` waits for the turn and prints its reply here as on a Cloud VM (agents/turn.rs here).
 //! `cmux chat read SESSION` and `cmux chat wait SESSION`, with a chat's session id (a UUID, or
 //! `acp:…`) as the first word, read that chat's transcript and wait for its turn; `cmux chat
-//! wait HOST/NAME` waits for a chat on another machine; `cmux chat read|wait --to …` stays the
-//! Chief's.
+//! read|wait --to …` stays the Chief's.
 
 #[cfg(test)]
 mod tests;
@@ -48,10 +46,9 @@ Without SESSION (or with `last`) it goes to the last chat this terminal started 
   cmux chat send -w 'Now fix the failing one'
 
   --on TARGET        Where the chat runs, when the app does not show it: here, vm:ID|NAME,
-                     a joined machine by its name or joined:ID, or a machine acpmux reaches
-                     (`cmux acp machine ls`) by its name
-  -w, --wait         Wait for the turn to end and print the reply (here, on a Cloud VM or
-                     on another machine)
+                     or a joined machine by its name or joined:ID
+  -w, --wait         Wait for the turn to end and print the reply (here or on a Cloud VM;
+                     a joined machine's reply is `cmux acp last HOST/NAME`)
   --timeout DURATION How long --wait waits: 30s, 5m, 1h (a bare number is seconds;
                      default 15m, at most 4h)
 
@@ -60,10 +57,9 @@ answers workspace_id and tab_id from `cmux chat`. Exit codes: 0 ok, 1 refused or
 failed, 2 bad arguments or the agent waits on a permission, 3 --timeout passed
 (chat.wait_timeout, details.answer.timed_out true).
 
-A chat here or on a Cloud VM, by its session id (a UUID or acp:…), or `last`:
+A chat here, by its session id (a UUID or acp:…), or `last`:
   cmux chat read SESSION|last [--after ID] [--limit N]   Its transcript (`cmux agents chat read`)
   cmux chat wait SESSION|last [--timeout DURATION]        Wait for its turn to end, print the reply
-  (`cmux chat wait HOST/NAME` waits for a chat on another machine too.)
 
   cmux chat send --to chief|PERSON|GROUP --text TEXT messages a Chief or a person instead
   (`cmux chat send --help` without a SESSION).
@@ -71,11 +67,10 @@ A chat here or on a Cloud VM, by its session id (a UUID or acp:…), or `last`:
 
 /// `cmux chat wait SESSION`'s usage.
 const WAIT_USAGE: &str = "\
-usage: cmux chat wait SESSION|HOST/NAME|last [--timeout DURATION] [--json]
+usage: cmux chat wait SESSION|last [--timeout DURATION] [--json]
 
-Waits until the chat SESSION here or on a Cloud VM (a UUID or acp:…), HOST/NAME on another machine
-(what `cmux chat --on MACHINE` answered), or `last` (the last chat this terminal started or sent to)
-stops working and prints the reply of its
+Waits until the chat SESSION here (a UUID or acp:…; `last`: the last chat this terminal started
+or sent to) stops working and prints the reply of its
 last turn, as `cmux chat send SESSION TEXT --wait` does. --timeout defaults to 900 seconds.
 Exit codes: 0 ok, 1 refused or the turn failed, 2 bad arguments or the agent waits on a
 permission, 3 --timeout passed (chat.wait_timeout).
@@ -193,19 +188,8 @@ pub(super) fn session_verb(command: &[String]) -> Option<(&str, &[String])> {
     let first = rest.first()?;
     let ours = scope == "chat"
         && matches!(verb.as_str(), "read" | "wait")
-        && (is_session_id(first)
-            || first == super::last_chat::LAST
-            || (verb == "wait" && is_machine_chat(first)));
+        && (is_session_id(first) || first == super::last_chat::LAST);
     ours.then_some((verb.as_str(), rest))
-}
-
-/// Whether `word` names a chat on another machine as `cmux chat --on MACHINE` answers it:
-/// `HOST/NAME`. A Chief's message refs (`#SEQ`, `msg_…`) and flags never have that shape.
-pub(super) fn is_machine_chat(word: &str) -> bool {
-    !word.starts_with('-')
-        && word.split_once('/').is_some_and(|(host, name)| {
-            !host.is_empty() && !name.is_empty() && !name.contains('/') && !host.contains(':')
-        })
 }
 
 /// `chat wait SESSION [--timeout S]`: the session and the timeout.
@@ -249,17 +233,20 @@ fn read_or_wait(global: &mut GlobalArgs, verb: &str, words: &[String]) -> i32 {
         let Some(last) = super::last_chat::recall() else {
             return super::wire::print_local_error(&super::last_chat::none_yet(), global.output, 1);
         };
+        if let Some(vm) = last.vm {
+            let error = refusal(
+                "chat_target.vm_chat",
+                format!(
+                    "the last chat ({}) runs on vm:{vm}; chat {verb} reads a chat here",
+                    last.session
+                ),
+                "cmux chat send -w 'TEXT' sends to it and prints the reply",
+                json!({"session_id": last.session, "vm": vm}),
+            );
+            return super::wire::print_local_error(&error, global.output, 1);
+        }
         if let Some(first) = words.first_mut() {
             *first = last.session;
-        }
-        // Its VM, as recorded: no lookup in the app's topology.
-        if let Some(vm) = last.vm {
-            let words = cloud_start_chat::lift_output_of(
-                &words,
-                &mut global.output,
-                &["--timeout", "--after", "--limit"],
-            );
-            return on_vm(global, verb, &vm, &words);
         }
     }
     let words = cloud_start_chat::lift_output_of(
@@ -267,13 +254,6 @@ fn read_or_wait(global: &mut GlobalArgs, verb: &str, words: &[String]) -> i32 {
         &mut global.output,
         &["--timeout", "--after", "--limit"],
     );
-    // A chat a Cloud VM's workspace shows is read and waited on there, as `chat send` sends there.
-    if let Some(session) = words.first().filter(|word| is_session_id(word))
-        && let Ok(Place::Vm(vm)) =
-            locate(session, None, || topology(global), || cloud_start_chat::app_machines(global))
-    {
-        return on_vm(global, verb, &vm, &words);
-    }
     if verb == "read" {
         let mut agents = chat_start::global_words(global);
         agents.extend(["agents", "chat", "read"].map(str::to_owned));
@@ -281,47 +261,7 @@ fn read_or_wait(global: &mut GlobalArgs, verb: &str, words: &[String]) -> i32 {
         return super::agents::run_if_requested(&agents).unwrap_or(2);
     }
     match parse_wait(&words) {
-        // A chat on another machine: acpmux waits for it (joined.rs).
-        Ok(Some((session, timeout))) if is_machine_chat(&session) => {
-            turn::report(&joined::wait(&session, None, timeout), global.output)
-        }
         Ok(Some((session, timeout))) => turn::run(global, &Begin::Wait { session }, timeout),
-        Ok(None) => {
-            print!("{WAIT_USAGE}");
-            0
-        }
-        Err(error) => super::app::failure(
-            "usage.invalid",
-            &format!("cmux: {}\n{WAIT_USAGE}", error.0),
-            global.output,
-            2,
-        ),
-    }
-}
-
-/// `chat read|wait SESSION …` for a chat on Cloud VM `vm`: the same flags as here, read on the VM
-/// (cloud_start_chat.rs `read_existing`, `wait_existing`).
-fn on_vm(global: &GlobalArgs, verb: &str, vm: &str, words: &[String]) -> i32 {
-    if verb == "read" {
-        let mut read = vec!["read"];
-        read.extend(words.iter().map(String::as_str));
-        return match super::agents::chat::parse(&read) {
-            Ok(super::agents::chat::ChatCommand::Read { target, after, limit }) => {
-                cloud_start_chat::read_existing(global, vm, &target, after, limit)
-            }
-            Ok(_) => 2,
-            Err(error) => super::app::failure(
-                "usage.invalid",
-                &format!("cmux: {}\n{USAGE}", error.0),
-                global.output,
-                2,
-            ),
-        };
-    }
-    match parse_wait(words) {
-        Ok(Some((session, timeout))) => {
-            cloud_start_chat::wait_existing(global, vm, &session, timeout)
-        }
         Ok(None) => {
             print!("{WAIT_USAGE}");
             0
@@ -584,7 +524,7 @@ where
 }
 
 /// The `machine` of the workspace whose tab shows chat `session`.
-pub(super) fn machine_of(session: &str, topology: &Value) -> Option<String> {
+fn machine_of(session: &str, topology: &Value) -> Option<String> {
     fn shows(value: &Value, session: &str) -> bool {
         match value {
             Value::Object(object) => {
@@ -610,7 +550,7 @@ pub(super) fn machine_of(session: &str, topology: &Value) -> Option<String> {
 }
 
 /// Whether `machine` is a Cloud VM: its session's transport says `cloud`.
-pub(super) fn is_cloud(machine: &str, topology: &Value) -> bool {
+fn is_cloud(machine: &str, topology: &Value) -> bool {
     sessions(topology).iter().any(|row| {
         row.get("machine").and_then(Value::as_str) == Some(machine)
             && row.get("transport").and_then(Value::as_str) == Some("cloud")
@@ -648,30 +588,20 @@ fn here(global: &GlobalArgs, send: &Send) -> i32 {
 }
 
 /// `acpmux send HOST/NAME` with the prompt: through the hub for a joined machine, whose answer
-/// is the hub's receipt, or acpmux's peer link. With `--wait`, the turn it starts and its reply
-/// (joined.rs's `wait_turn`), as a chat here prints it.
+/// is the hub's receipt; the reply is `cmux acp last HOST/NAME`.
 fn on_joined(global: &GlobalArgs, send: &Send, target: &str) -> i32 {
-    let timeout = match (send.wait, send.timeout) {
-        (true, timeout) => Some(timeout.unwrap_or(turn::DEFAULT_TIMEOUT).min(turn::MAX_TIMEOUT)),
-        (false, Some(_)) => {
-            return usage_failure(
-                &UsageError::new("--timeout says how long --wait waits; add --wait"),
-                global.output,
-            );
-        }
-        (false, None) => None,
-    };
-    // The turns it ran before this prompt: the wait is for the turn after them.
-    let baseline = timeout.and_then(|_| joined::turn_count(target));
+    if send.wait || send.timeout.is_some() {
+        return usage_failure(
+            &UsageError::new(format!(
+                "--wait and --timeout wait for a chat here or on a Cloud VM; read this chat's reply with `cmux acp last {target}`"
+            )),
+            global.output,
+        );
+    }
     match joined::send(target, &send.text) {
         Ok(receipt) => {
             let answer = json!({"session_id": target, "prompt": receipt,
-                                "next": {"wait": format!("cmux chat wait {target}"),
-                                         "read": format!("cmux acp last {target}")}});
-            if let Some(timeout) = timeout {
-                let outcome = joined::wait(target, baseline, timeout);
-                return turn::report(&joined::with_answer(outcome, answer), global.output);
-            }
+                                "next": {"read": format!("cmux acp last {target}")}});
             match global.output {
                 OutputMode::Human => {
                     println!("sent to {target}; read the reply: cmux acp last {target}");

@@ -11,7 +11,7 @@ import Testing
 @Suite(.paletteRanker, .closesItsWindows)
 struct SidebarMenuPaletteReachabilityTests {
     private static let trimmedActions: [ActionID] = [
-        "sidebar.customize", "workspace.setTheme", "workspace.setTint", "workspace.removeAllColors",
+        "workspace.setTheme", "workspace.setTint", "workspace.removeAllColors",
         // Sidebar Density: Compact and Comfortable were never palette rows (Density: Compact is
         // the palette's one "compact" row); the sidebar background menu keeps all three.
         "sidebar.density.expanded", "workspace.copyPath", "palette.copyWorkspaceID",

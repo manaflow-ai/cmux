@@ -49,12 +49,6 @@ pub(super) struct LiveTreeInput<'a> {
     /// A scoped walk that also states each terminal of the catalog that has no view (the full
     /// walk states them always): the last step of the restatement after a start.
     pub(super) unplaced_terminals: bool,
-    /// The caller knows the live workspace list is the stored list, in the stored order (a created
-    /// view: its store holds a live row for each live workspace and none after). The walk then states
-    /// no `SetWorkspaceOrder`: it names every workspace, and the commit would read, compare and
-    /// validate every stored workspace row to find that nothing moved, so a split at 4,000 workspaces
-    /// cost more than at 8. Only a scoped walk may set it.
-    pub(super) order_unchanged: bool,
 }
 
 /// The workspace rows (the row and the public value of a workspace, with its position) that a
@@ -133,7 +127,7 @@ pub(crate) fn without_crosscheck<R>(body: impl FnOnce() -> R) -> R {
 
 /// Debug builds always compare; release builds when the daemon runs with
 /// `CMUX_TUI_PROJECTION_CROSSCHECK=1`.
-pub(crate) fn crosscheck_enabled() -> bool {
+pub(super) fn crosscheck_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     #[cfg(test)]
     if CROSSCHECK_OFF.with(std::cell::Cell::get) {
@@ -316,7 +310,7 @@ impl Mux {
     ) -> anyhow::Result<Option<ResourceEffectProjection>> {
         let rows = WorkspaceRows::Added(state.workspaces.len());
         let result = Value::Object(Default::default());
-        match self.scoped_rows_walk(registry, state, workspaces, rows, result, false, false) {
+        match self.scoped_rows_walk(registry, state, workspaces, rows, result, false) {
             Ok(projection) => Ok(Some(projection)),
             Err(error) if error.is::<ScopeEscaped>() => Ok(None),
             Err(error) => Err(error),
@@ -346,7 +340,7 @@ impl Mux {
         let rows = WorkspaceRows::Added(state.workspaces.len());
         let result = Value::Object(Default::default());
         let scope = std::slice::from_ref(workspace);
-        match self.scoped_rows_walk(registry, state, scope, rows, result, true, false) {
+        match self.scoped_rows_walk(registry, state, scope, rows, result, true) {
             Ok(projection) => Ok(Some(projection)),
             Err(error) if error.is::<ScopeEscaped>() => Ok(None),
             Err(error) => Err(error),
@@ -371,7 +365,7 @@ impl Mux {
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
         let walked =
-            self.scoped_rows_walk(registry, state, workspaces, rows, result.clone(), false, true);
+            self.scoped_rows_walk(registry, state, workspaces, rows, result.clone(), false);
         let projection = match walked {
             Ok(projection) => projection,
             Err(error) if error.is::<ScopeEscaped>() => {
@@ -407,7 +401,6 @@ impl Mux {
     /// The scoped read and walk of [`Self::resource_effect_projection_scoped_rows_locked`], with
     /// no fall back and no cross-check: a walk that met a resource that crossed its scope is
     /// the error [`ScopeEscaped`].
-    #[allow(clippy::too_many_arguments)]
     fn scoped_rows_walk(
         &self,
         registry: &WorkspaceRegistry,
@@ -416,7 +409,6 @@ impl Mux {
         rows: WorkspaceRows,
         result: Value,
         unplaced_terminals: bool,
-        may_keep_order: bool,
     ) -> anyhow::Result<ResourceEffectProjection> {
         let started = Instant::now();
         let mut scope = workspaces.iter().cloned().collect::<HashSet<_>>();
@@ -471,11 +463,6 @@ impl Mux {
             active_terminal_hosts: active_terminal_hosts.as_ref(),
             rows,
             unplaced_terminals,
-            // `Added(first)` with `first` at the live count is a created view's list that added no workspace
-            // (`created_view_rows` checked the store holds exactly the live list). A walk of a close batch
-            // (`From`) moved workspaces, so it states the order.
-            order_unchanged: may_keep_order
-                && matches!(rows, WorkspaceRows::Added(first) if first >= state.workspaces.len()),
         };
         let mut projection = self.project_live_tree(&input, state, result)?;
         projection.restated = restated;

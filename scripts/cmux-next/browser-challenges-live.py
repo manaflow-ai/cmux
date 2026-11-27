@@ -13,10 +13,7 @@ that the remembered password signs in again without a sheet.
 
 Run it only on a fleet GUI host (it opens a window). Exit 1 on any failure.
 """
-import argparse, base64, glob, hashlib, http.server, json, os, plistlib, secrets, socket, ssl, subprocess, sys, tempfile, threading, time
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from state_wait import wait_stable, wait_until, StateWaitTimeout  # noqa: E402
+import argparse, base64, glob, http.server, json, os, plistlib, secrets, socket, ssl, subprocess, sys, tempfile, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -131,27 +128,6 @@ def snap(name, window=None):
     return path
 
 
-def window_hash():
-    """A hash of the main window's pixels (debug.window_snapshot), or None where it cannot snapshot."""
-    path = os.path.join(WORK, "settle.png")
-    if os.path.exists(path):
-        os.unlink(path)
-    rpc("debug.window_snapshot", {"path": path})
-    return hashlib.sha1(open(path, "rb").read()).hexdigest() if os.path.exists(path) else None
-
-
-def drawn(what):
-    """Until the window's pixels stop changing; a timeout is a note (the snapshot after it is the evidence)."""
-    try:
-        wait_stable(window_hash, what, timeout=20, interval=0.2, reads=3)
-    except StateWaitTimeout:
-        notes.append({"settle": f"{what} did not settle in 20 s"})
-
-
-def topology():
-    return (rpc("snapshot.get") or {}).get("topology") or {}
-
-
 def action(name, args=None):
     # focus: true, so user-origin view changes are allowed (a fresh tag shows Home).
     return rpc("action.run", {"action": name, "args": args or {}, "focus": True})
@@ -190,16 +166,9 @@ def run(theme, basic_port, remembered_port=None):
             return
         # A workspace of its own (`newTab` is New Workspace): Home has no pane for a tab.
         notes.append({"theme": theme, "workspace": action("newTab")})
-        # Until the new workspace has a focused pane for the tab.
-        if not wait_until(lambda: (topology().get("focus") or {}).get("pane"), "the new workspace's pane", timeout=20,
-                          interval=0.25, raise_on_timeout=False):
-            notes.append({"theme": theme, "settle": "no focused pane 20 s after newTab"})
-        before = json.dumps(topology(), sort_keys=True)
+        time.sleep(3)
         notes.append({"theme": theme, "open": open_webkit(f"https://localhost:{SECURE_PORT}/")})
-        # Until the tab opened and the interstitial drew: the topology changed, then the window's pixels settle.
-        wait_until(lambda: json.dumps(topology(), sort_keys=True) != before, "the self-signed page's tab", timeout=20,
-                   interval=0.25, raise_on_timeout=False)
-        drawn(f"{theme}: the certificate interstitial")
+        time.sleep(6)
         snap(f"interstitial-{tag}")
         if remembered_port:
             # The previous run checked "Remember password" for this server and its
@@ -231,12 +200,8 @@ def run(theme, basic_port, remembered_port=None):
             snap(f"signin-sheet-window-{tag}-{index}", window=window.get("id"))
         if not children:
             failures.append(f"{theme}: no visible child window for the sign-in sheet")
-        pressed = time.time()
         rpc("debug.dialog", {"id": dialog["id"], "press": "sign-in"})
-        # Until the page asked again with credentials, then the window (and a returning sheet, if any) settles.
-        if not wait(lambda: any(r["port"] == basic_port and r["auth"] != "none" and r["t"] >= pressed - 1 for r in REQUESTS), 20, 0.1):
-            notes.append({"theme": theme, "settle": "no request with credentials 20 s after sign-in"})
-        drawn(f"{theme}: the page after sign-in")
+        time.sleep(4)
         again = auth_dialog()
         notes.append({"theme": theme, "after_sign_in": rpc("debug.dialog"), "requests": list(REQUESTS)})
         if again:

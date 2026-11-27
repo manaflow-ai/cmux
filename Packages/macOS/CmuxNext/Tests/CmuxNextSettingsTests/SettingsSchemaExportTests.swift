@@ -11,15 +11,9 @@ import Testing
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
-    /// The Localizable table's keys: one `<key>.xcstrings` file per key in Localizable.xcstrings.d
-    /// (scripts/cmux-next/string_catalogs.py), each a catalog of that one key.
     static func catalog() throws -> Set<String> {
-        let folder = repoRoot.appending(path: "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d")
-        var keys = Set<String>()
-        for name in try FileManager.default.contentsOfDirectory(atPath: folder.path) where name.hasSuffix(".xcstrings") {
-            keys.formUnion(try SettingsSchemaExport().catalogKeys(xcstrings: Data(contentsOf: folder.appending(path: name))))
-        }
-        return keys
+        let url = repoRoot.appending(path: "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings")
+        return try SettingsSchemaExport().catalogKeys(xcstrings: Data(contentsOf: url))
     }
 
     /// `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter SettingsSchemaExportTests` rewrites it.

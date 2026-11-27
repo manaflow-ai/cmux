@@ -4,11 +4,7 @@ use super::*;
 use std::collections::VecDeque;
 
 /// The most origins the index admits: a window carries every origin record.
-/// Measured: about 300 bytes a record (an id of at most 256 bytes, its seq, state and time) in
-/// every list window: 77 KB a window at 256.
 pub const MAX_ORIGINS: usize = 256;
-/// The most rows one origin holds while its writer is away.
-/// Measured: a row summary is at most MAX_SUMMARY_BYTES (2 KiB): 32 MiB an origin.
 const MAX_HELD_ROWS: usize = 16_384;
 static REFUSED_HELD_ROWS: AtomicU64 = AtomicU64::new(0);
 
@@ -313,7 +309,6 @@ impl HubWriter {
         self.admit_origin(id)?;
         self.persist_origin(&record)?;
         let wire = Origin { id: id.into(), state, since, extra: None };
-        self.hold_history(current.seq(), record.seq);
         self.publish_folder_origin(current.apply_origin(record.seq, record.clone()), wire.clone());
         self.record_history(ListItem::Origin { seq: record.seq, origin: wire.clone() });
         self.publish_origin(record.seq, wire);
@@ -350,24 +345,20 @@ impl HubWriter {
     /// All cleanup and released arrivals share the writer's 256-item budget.
     pub(super) fn advance_origins(&mut self, limit: usize) -> usize {
         let mut used = 0;
-        // Leaving origins share the budget: 256 one-row machines leave in one turn and one
-        // group sync, not one turn (and one sync) each.
-        while used < limit {
-            let Some(id) = self.origins.leaving.front().cloned() else { break };
+        if let Some(id) = self.origins.leaving.front().cloned() {
             let current = self.published.load_full();
-            let (next, removed) = current.remove_origin_batch(current.seq(), &id, limit - used);
+            let (next, removed) = current.remove_origin_batch(current.seq(), &id, limit);
             let finished = !next.is_origin_leaving(&id);
             self.published.store(Arc::new(next));
             used += removed.max(1);
-            if !finished {
-                break;
-            }
-            self.origins.leaving.pop_front();
-            if self.origins.held.get(&id).is_some_and(Held::allows_release) {
-                self.origins.ready.push_back(id);
-            } else {
-                self.origins.held.remove(&id);
-                self.retire_finished_source(&id);
+            if finished {
+                self.origins.leaving.pop_front();
+                if self.origins.held.get(&id).is_some_and(Held::allows_release) {
+                    self.origins.ready.push_back(id);
+                } else {
+                    self.origins.held.remove(&id);
+                    self.retire_finished_source(&id);
+                }
             }
         }
         while used < limit {

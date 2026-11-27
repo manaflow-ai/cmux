@@ -57,11 +57,9 @@ extension SidebarContainerView {
 
     /// The panel's leading x in window coordinates, from this view's frame and the pins that place
     /// the panel: inside this view's `layout()` the panel's own frame is not set yet (its clip lays it out
-    /// after), so reading it would carry the last frame's position. The width is the constraint's, as
-    /// unrounded as the panel width it is offset by: the pixel-rounded bounds less a drag's fractional
-    /// panel width put the origin up to half a pixel off, and a tie moved the + a pixel (#48495).
+    /// after), so reading it would carry the last frame's position.
     var panelOriginInWindow: CGFloat {
-        let x = side == .left ? widthConstraint.constant + clipTrailing.constant - panelWidth.constant : clipLeading.constant
+        let x = side == .left ? bounds.width + clipTrailing.constant - panelWidth.constant : clipLeading.constant
         return convert(CGPoint(x: x, y: 0), to: nil).x
     }
 

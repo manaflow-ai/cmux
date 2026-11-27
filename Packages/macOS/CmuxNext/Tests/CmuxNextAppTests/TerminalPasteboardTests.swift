@@ -13,20 +13,4 @@ struct TerminalPasteboardTests {
 
         #expect(TerminalPasteboard.pasteText(from: contents) == "first\nsecond\nthird")
     }
-
-    /// An empty OSC 52 write (`ESC ] 52 ; c ; BEL`, as a remote shell can send over SSH during a
-    /// device-code login) must not replace the Mac's clipboard with nothing.
-    @Test func anEmptyWriteIsBlankAndNeverReachesThePasteboard() {
-        #expect(TerminalPasteboard.isBlank([]))
-        #expect(TerminalPasteboard.isBlank([TerminalClipboardItem(mime: "text/plain", text: "")]))
-        #expect(TerminalPasteboard.isBlank([
-            TerminalClipboardItem(mime: "text/plain", text: ""),
-            TerminalClipboardItem(mime: "text/html", text: ""),
-        ]))
-        #expect(!TerminalPasteboard.isBlank([TerminalClipboardItem(mime: "text/plain", text: "ABCD-1234")]))
-        #expect(!TerminalPasteboard.isBlank([
-            TerminalClipboardItem(mime: "text/plain", text: ""),
-            TerminalClipboardItem(mime: "text/html", text: "<b>x</b>"),
-        ]))
-    }
 }

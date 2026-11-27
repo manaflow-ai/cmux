@@ -106,36 +106,6 @@ import Testing
         #expect(restore.olderLoads == 0)
     }
 
-    /// The reader went up the newest 10,000 rows of a 30,000-row history to
-    /// row 30 of them (the Mac's row 20,030). The next fetch is a 4,000-row
-    /// window from the Mac's row 18,500 (`attach-replay-history-window-v1`):
-    /// fewer rows than the reader was above the old end, but it holds their
-    /// rows, 1,500 rows further down. They are found there, with no fetch.
-    /// Before, the shorter replay read as missing rows: older rows were asked
-    /// for, and each fetch moved the window up again.
-    @Test func aWindowReplayFindsTheReaderWithoutAFetch() throws {
-        let mac = history(30_040)
-        let tail = Array(mac[20_000...])
-        var restore = TerminalScrollRestore(mark: try mark(in: tail, at: 30), fromEnd: false)
-        let window = Array(mac[18_500..<22_500]) + Array(mac[30_000...])
-        #expect(window.count < restore.mark.rowsFromEnd)
-        let anchor = replay(&restore, window, loadOlder: { Issue.record("no fetch: the window holds the reader"); return true })
-        #expect(anchor == .init(row: 20_030 - 18_500, delta: 3))
-        #expect(restore.olderLoads == 0)
-    }
-
-    /// A short replay with copies of the reader's rows (a program printing
-    /// the same block over and over) does not pick one: older rows are asked
-    /// for, as before.
-    @Test func aShortReplayWithCopiesOfTheReadersRowsAsksForOlderRows() throws {
-        let block = (0..<50).map { "loop \($0)" }
-        let mac = (0..<120).flatMap { _ in block }
-        var restore = TerminalScrollRestore(mark: try mark(in: mac, at: 1_010), fromEnd: false)
-        var asked = 0
-        #expect(replay(&restore, Array(mac[3_000...]), loadOlder: { asked += 1; return true }) == nil)
-        #expect(asked == 1)
-    }
-
     /// A link drop whose replay holds the reader keeps today's search: the
     /// reader's own row first (rows that arrive during a drop only append).
     @Test func aLinkDropThatHoldsTheReaderKeepsItsOwnRow() throws {

@@ -32,7 +32,7 @@ struct ClassicMigrationTests {
         var pinned: Set<String> = []
         /// Group names with whether each is collapsed.
         var groupNames: [String: Bool] = [:]
-        /// Workspace names per window that owns any of them (its guests, another window's, not counted).
+        /// Workspace names per window that holds any of them.
         var windows: [[String]] = []
         var notice: String?
     }
@@ -43,7 +43,6 @@ struct ClassicMigrationTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-migrate-\(UUID().uuidString.prefix(8))")
         var home: ClassicTestHome { ClassicTestHome(root: root) }
         var session: URL { home.session() }
-        var settingsImportCalls = 0
         /// The app's bundle id, which names the migration's folder (set at launch).
         var bundleID = "com.cmuxterm.app.next"
         var migration: URL { home.migration(bundleID) }
@@ -91,11 +90,7 @@ struct ClassicMigrationTests {
         services.windows.ordersWindowsIn = false
         mac.bundleID = AppOnboardingServices(owner: services.onboarding).classicBundleID
         services.onboarding.classicMigrationAtLaunch = true
-        services.onboarding.classicMigrationConfirmation = { preview in
-            #expect(preview.counts == nil)
-            return answer
-        }
-        services.onboarding.importClassicSettings = { mac.settingsImportCalls += 1 }
+        services.onboarding.classicMigrationConfirmation = { _ in answer }
         services.onboarding.classicChatPlan = { _, _ in nil }
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, clientHello: .init(installKey: key)),
@@ -156,9 +151,7 @@ struct ClassicMigrationTests {
             if workspace.pinned { tree.pinned.insert(workspace.name) }
         }
         let byID = Dictionary(mine.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
-        // Each window's own workspaces: since #44275 two windows on one space list each other's as guests, so every
-        // classic window, all on the default space, lists them all; which window owns each is what the import made.
-        tree.windows = services.windows.registry.value.windows.map { $0.ownedIDs.compactMap { byID[$0] } }.filter { !$0.isEmpty }
+        tree.windows = services.windows.registry.value.windows.map { $0.workspaceIDs.compactMap { byID[$0] } }.filter { !$0.isEmpty }
         return tree
     }
 
@@ -170,13 +163,12 @@ struct ClassicMigrationTests {
         let mac = try Mac()
         let tree = try await launch(mac, answer: .declined) { services in
             #expect(Self.read(services).names.allSatisfy { !Self.classicNames.contains($0) })
-            #expect(mac.settingsImportCalls == 0)
             let declined = try mac.readLedger()
             #expect(declined.declinedAt != nil && declined.state == "completed" && declined.runs == 0, "\(declined)")
-            // Declining records no session metadata derived from its contents.
-            #expect(declined.source == nil && declined.workspaces.isEmpty, "\(declined.workspaces)")
+            // Nothing that came over is recorded (at most the Cloud VM workspace, which never comes over).
+            #expect(declined.workspaces.values.allSatisfy { $0.stage == "skipped" }, "\(declined.workspaces)")
             #expect(!FileManager.default.fileExists(atPath: mac.migration.appendingPathComponent("backups").path))
-            #expect(services.onboarding.classicImportNotice == ClassicImportPreviewStrings.notImported)
+            #expect(services.onboarding.classicImportNotice == ClassicImportStrings.declined)
             try mac.write { root in root["createdAt"] = 1_891_728_605.0 }
             let again = try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic) { _ in
                 Issue.record("a declined preview was asked again")
@@ -184,7 +176,6 @@ struct ClassicMigrationTests {
             }
             #expect(again.decision == .skip("declined") && again.opened.isEmpty, "\(again)")
             let manual = try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.manual) { _ in .accepted }
-            #expect(mac.settingsImportCalls == 1)
             #expect(manual.opened.count >= Self.classicNames.count, "\(manual)")
         }
         for name in Self.classicNames { #expect(tree.names.contains(name), "\(tree.names)") }
@@ -199,48 +190,12 @@ struct ClassicMigrationTests {
         let mac = try Mac()
         let tree = try await launch(mac, answer: .unanswered) { services in
             #expect(Self.read(services).names.allSatisfy { !Self.classicNames.contains($0) })
-            #expect(mac.settingsImportCalls == 0)
             let first = try mac.readLedger()
             #expect(first.declinedAt == nil && first.source == nil && first.runs == 0 && first.workspaces.isEmpty, "\(first)")
             let next = try await Self.relaunch(services)
-            #expect(mac.settingsImportCalls == 1)
             #expect(next.decision == .merge && next.opened.count >= Self.classicNames.count, "\(next)")
         }
         for name in Self.classicNames { #expect(tree.names.contains(name), "\(tree.names)") }
-    }
-
-    @Test func failedSettingsCanRetryWithoutDuplicatingRestoredWorkspaces() async throws {
-        let mac = try Mac()
-        _ = try await launch(mac, answer: .unanswered) { services in
-            services.onboarding.importClassicSettings = { throw CocoaError(.fileReadNoPermission) }
-            await #expect(throws: CocoaError.self) { try await Self.relaunch(services) }
-            let names = Self.read(services).names
-            for name in Self.classicNames { #expect(names.filter { $0 == name }.count == 1) }
-
-            services.onboarding.importClassicSettings = { mac.settingsImportCalls += 1 }
-            let retried = try await Self.relaunch(services)
-            #expect(mac.settingsImportCalls == 1 && retried.opened.isEmpty)
-            #expect(Self.read(services).names.sorted() == names.sorted())
-        }
-    }
-
-    @Test func settingsAloneAreOfferedUntilAccepted() async throws {
-        let mac = try Mac()
-        try FileManager.default.removeItem(at: mac.session)
-        let config = mac.root.appendingPathComponent(".config/cmux/cmux.json")
-        try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data("{}".utf8).write(to: config)
-        _ = try await launch(mac, answer: .unanswered) { services in
-            #expect(mac.settingsImportCalls == 0)
-            let accepted = try await Self.relaunch(services)
-            #expect(accepted.summary.settingsOnly && accepted.opened.isEmpty)
-            #expect(mac.settingsImportCalls == 1)
-            _ = try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic) { _ in
-                Issue.record("settings-only import asked again after completion")
-                return .declined
-            }
-            #expect(mac.settingsImportCalls == 1)
-        }
     }
 
     /// First launch after the upgrade: every classic window comes back with its

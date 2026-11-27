@@ -83,7 +83,6 @@ fn registry_with_workspaces(count: u64) -> WorkspaceRegistry {
             zoomed_pane: None,
             auto_layout: None,
             viewport: RegistryViewport::default(),
-            floating: Vec::new(),
         }));
         changes.push(ResourceChange::UpsertPane(RegistryPane {
             public_id: pane_id(index),

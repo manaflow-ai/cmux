@@ -52,25 +52,6 @@ grep -q -- "--- retry, alone ---" "$WORK/out" || fail "broken's log must carry i
 [ "$(grep -c 'steady' "$WORK/state/calls")" -eq 1 ] || fail "a passing file must run once"
 grep -q -- "--timeout 30000 ./test/steady.test.ts" "$WORK/state/calls" || fail "bun must get a 30 s test default"
 
-# CMUX_WEB_TEST_RETRY_WALL bounds the whole retry phase however late the job deadline is: with a wall of 0 no file
-# is retried, each red keeps its first run, and the lane fails at once instead of filling its job.
-rm -f "$WORK/state/flaky-ran" "$WORK/state/calls"
-status=0
-run env CMUX_WEB_TEST_RETRY_WALL=0 CMUX_WEB_TEST_RETRY_DEADLINE=999999 > "$WORK/out" 2>&1 || status=$?
-[ "$status" -ne 0 ] || fail "a wall of 0 keeps every first-run red"
-grep -q "retry budget exhausted: keeping FAIL test/broken.test.ts" "$WORK/out" || fail "the wall must stop broken's retry: $(grep -E 'RETRY|retry' "$WORK/out")"
-[ "$(grep -c 'broken' "$WORK/state/calls")" -eq 1 ] || fail "past the wall broken must run once: $(cat "$WORK/state/calls")"
-[ "$(grep -c 'flaky' "$WORK/state/calls")" -eq 1 ] || fail "past the wall flaky must run once: $(cat "$WORK/state/calls")"
-# A positive wall allows retries. A zero-padded decimal setting still means seconds.
-rm -f "$WORK/state/flaky-ran" "$WORK/state/calls"
-run env CMUX_WEB_TEST_RETRY_WALL=0099 > "$WORK/out" 2>&1 || true
-[ "$(grep -c 'flaky' "$WORK/state/calls")" -eq 2 ] || fail "inside the wall flaky must run twice: $(cat "$WORK/state/calls")"
-
-# An earlier job deadline still wins over the retry wall.
-rm -f "$WORK/state/flaky-ran" "$WORK/state/calls"
-run env CMUX_WEB_TEST_RETRY_WALL=600 CMUX_WEB_TEST_RETRY_DEADLINE=0 > "$WORK/out" 2>&1 || true
-[ "$(grep -c 'flaky' "$WORK/state/calls")" -eq 1 ] || fail "a wall must not extend the job deadline"
-
 # With broken gone, the flaky file alone decides nothing: the lane passes.
 git -C "$repo" rm -qf webviews/test/broken.test.ts # staged, never committed: rm needs -f
 rm -f "$WORK/state/flaky-ran" "$WORK/state/calls"
@@ -81,54 +62,6 @@ rm -f "$WORK/state/flaky-ran" "$WORK/state/calls"
 status=0
 run env CMUX_WEB_TEST_RETRIES=0 > "$WORK/out" 2>&1 || status=$?
 [ "$status" -ne 0 ] || fail "with retries off a first failure must fail the lane"
-
-# The retry cost bound (CMUX_WEB_TEST_RETRY_SLOW_SECONDS, CMUX_WEB_TEST_ALONE_RETRY_BUDGET): job 137151085368 retried 15
-# files alone for 26 min, the 362-481 s ones failing again as on the base. A fresh checkout per case, run one at a time.
-bound_repo() {
-  rm -rf "$repo" "$WORK/state" && mkdir -p "$repo/webviews/test" "$WORK/state"
-  for name in "$@"; do echo "// $name" > "$repo/webviews/test/$name.test.ts"; done
-  git -C "$repo" init -q && git -C "$repo" add -A
-}
-cat > "$WORK/bin/bun" <<'EOF2'
-#!/usr/bin/env bash
-echo "$*" >> "$STATE/calls"
-file="${*: -1}"
-case "$file" in
-  *flaky*)
-    if [ -f "$STATE/flaky-ran" ]; then echo "(pass) flaky alone"; exit 0; fi
-    touch "$STATE/flaky-ran"; [ -z "${FLAKY_SLEEP:-}" ] || sleep "$FLAKY_SLEEP"; echo "(fail) flaky beside others"; exit 1 ;;
-  *slow*) sleep 3; echo "(fail) slow"; exit 1 ;;
-  *eater*) sleep 2; echo "(fail) eater"; exit 1 ;;
-esac
-EOF2
-
-# A file whose first run took over CMUX_WEB_TEST_RETRY_SLOW_SECONDS keeps it, unretried; a fast flaky file is still
-# retried and passes alone.
-bound_repo flaky slow
-status=0
-run env CMUX_WEB_TEST_RETRY_SLOW_SECONDS=2 > "$WORK/out" 2>&1 || status=$?
-[ "$status" -ne 0 ] || fail "the slow file stays red"
-[ "$(grep -c 'slow' "$WORK/state/calls")" -eq 1 ] || fail "a slow first run gets no alone retry: $(cat "$WORK/state/calls")"
-grep -q "^NO RETRY FAIL test/slow.test.ts: its first run took [3-9]s, over 2s" "$WORK/out" || fail "the slow skip is named"
-grep -qE "^  test/flaky.test.ts \(first run: FAIL\)$" "$WORK/out" || fail "a fast flaky file still passes alone"
-grep -q "1 failed or timed out" "$WORK/out" || fail "only the slow file is red: $(grep '###' "$WORK/out")"
-grep -q "alone retries skipped by the retry cost bound: 1 whose first run took over 2s" "$WORK/out" || fail "the bound is summarized"
-
-# Unset, the slow file is retried as before.
-bound_repo slow
-run env > "$WORK/out" 2>&1 || :
-[ "$(grep -c 'slow' "$WORK/state/calls")" -eq 2 ] || fail "with no bound a slow file keeps its retry: $(cat "$WORK/state/calls")"
-
-# Past CMUX_WEB_TEST_ALONE_RETRY_BUDGET the rest keep their first run: a-eater's 2 s retry fits 3 s, then b-flaky's
-# 2 s first run does not fit what is left, so it is not retried (and stays red).
-bound_repo a-eater b-flaky
-status=0
-run env CMUX_WEB_TEST_JOBS=1 FLAKY_SLEEP=2 CMUX_WEB_TEST_ALONE_RETRY_BUDGET=3 > "$WORK/out" 2>&1 || status=$?
-[ "$status" -ne 0 ] || fail "the budget leaves reds red"
-[ "$(grep -c 'eater' "$WORK/state/calls")" -eq 2 ] || fail "the first red is retried inside the budget: $(cat "$WORK/state/calls")"
-[ "$(grep -c 'flaky' "$WORK/state/calls")" -eq 1 ] || fail "past the budget no retry starts: $(cat "$WORK/state/calls")"
-grep -q "^NO RETRY FAIL test/b-flaky.test.ts: the alone retry budget" "$WORK/out" || fail "the budget skip is named"
-grep -q "2 failed or timed out" "$WORK/out" || fail "both stay red: $(grep '###' "$WORK/out")"
 
 if [ "$fails" -ne 0 ]; then
   cat "$WORK/out" >&2

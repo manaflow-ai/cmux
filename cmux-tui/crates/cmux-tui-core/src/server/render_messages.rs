@@ -17,7 +17,6 @@ use super::{
     BudgetedJsonWriter, MessageWriter, OutboundStream, RenderService, write_base64_json_string,
 };
 use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
-use crate::surface::resume_ring::StreamStamp;
 use crate::{BrowserAttachState, Rgb, SurfaceId, SurfaceRenderFrame};
 
 pub(super) struct VtStateMessage {
@@ -35,10 +34,6 @@ pub(super) struct VtStateMessage {
     /// A window replay's count of history rows between its window and the
     /// screen, left out (`attach-replay-history-window-v1`); `None`: omitted.
     pub(super) history_rows_skipped: Option<u64>,
-    /// `terminal-resume-v1`: the stream position this replay stands at, and
-    /// how a resume attach was answered (`"gap"`); `None`: omitted.
-    pub(super) stamp: Option<StreamStamp>,
-    pub(super) resume: Option<&'static str>,
 }
 
 /// Additive attach-event fields captured from the client's advertised
@@ -47,20 +42,6 @@ pub(super) struct VtStateMessage {
 pub(super) struct AttachWireShape {
     pub(super) color_overrides: bool,
     pub(super) pending_sequence: bool,
-    /// `terminal-resume-v1`: the position the frame leaves the stream at.
-    pub(super) stamp: Option<StreamStamp>,
-}
-
-/// The `offset` and `generation` fields of a `terminal-resume-v1` event, and
-/// the closing brace.
-pub(super) fn close_with_stamp(
-    writer: &mut BudgetedJsonWriter,
-    stamp: Option<StreamStamp>,
-) -> std::io::Result<()> {
-    if let Some(stamp) = stamp {
-        write!(writer, ",\"offset\":{},\"generation\":\"{}\"", stamp.offset, stamp.generation())?;
-    }
-    writer.write_all(b"}")
 }
 
 /// Appends the optional `pending` field: the incomplete sequence a replay's

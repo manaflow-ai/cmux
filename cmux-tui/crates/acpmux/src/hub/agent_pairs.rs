@@ -31,8 +31,7 @@
 //! session in between. `0` for either turns the cap off.
 //!
 //! The message that trips the pair, and every later one between the two, is held, not delivered
-//! (any number; each costs its prompt and an id, and adding or settling one is constant
-//! time): the sender's `session/prompt` is refused
+//! (at most [`MAX_HELD`] a pair; more are refused): the sender's `session/prompt` is refused
 //! with `agent_pair.paused` (data `held: true`), whose text tells the agent the user resumes the
 //! pair, so it stops retrying. Both transcripts record `agent_pair_paused`; the receiver's
 //! records each `agent_pair_held`, with all the prompt needs to run and its pair-wide `order`, so
@@ -81,8 +80,12 @@ pub const WINDOW_ENV: &str = "ACPMUX_AGENT_PAIR_WINDOW_SECS";
 
 /// The refusal reason of a held message.
 pub const PAUSED_REASON: &str = "agent_pair.paused";
+/// The refusal reason of a message a paused pair has no room to hold.
+pub const FULL_REASON: &str = "agent_pair.held_full";
 /// The refusal reason of a resume that is not the person's.
 pub const RESUME_REFUSED: &str = "agent_pair.resume_refused";
+/// Messages one paused pair holds.
+pub const MAX_HELD: usize = 50;
 
 /// The person's own sender address on the cmux daemon (`agent_message_store.rs` `CLI_SENDER`).
 const PERSON_SENDER: &str = "cli";
@@ -202,37 +205,8 @@ struct Exchange {
 
 struct Paused {
     held: VecDeque<Held>,
-    /// The prompt ids in `held`, so a resend is found without a scan.
-    ids: HashSet<String>,
     /// A resume is delivering `held`: new messages queue behind it.
     draining: bool,
-}
-
-impl Paused {
-    fn new() -> Self {
-        Self { held: VecDeque::new(), ids: HashSet::new(), draining: false }
-    }
-
-    /// Holds `h` last, unless its prompt id is held already; whether it was added.
-    fn push(&mut self, h: Held) -> bool {
-        let added = self.ids.insert(h.prompt_id.clone());
-        if added {
-            self.held.push_back(h);
-        }
-        added
-    }
-
-    /// Takes `prompt_id` off: the front in a drain, so constant time there.
-    fn settle(&mut self, prompt_id: &str) {
-        if !self.ids.remove(prompt_id) {
-            return;
-        }
-        if self.held.front().is_some_and(|h| h.prompt_id == prompt_id) {
-            self.held.pop_front();
-        } else {
-            self.held.retain(|h| h.prompt_id != prompt_id);
-        }
-    }
 }
 
 /// A message a paused pair holds, with what `prompt_with` needs to deliver it later. Its
@@ -394,10 +368,8 @@ struct Owed {
 /// keeps its first place.
 fn still_held(session: &str, records: Vec<EventRecord>, recorded: &HashSet<String>) -> Owed {
     let mut owed = Owed::default();
-    // By first-held place, and each id's place: a hold or a release is O(log n), not a scan.
-    let mut held: std::collections::BTreeMap<usize, Held> = Default::default();
-    let mut places: HashMap<String, usize> = HashMap::new();
-    for (place, rec) in records.into_iter().enumerate() {
+    let held = &mut owed.held;
+    for rec in records {
         let peer = rec.msg.get("peer").and_then(Value::as_str).map(str::to_owned);
         match rec.kind.as_str() {
             "agent_pair_paused" => {
@@ -409,23 +381,19 @@ fn still_held(session: &str, records: Vec<EventRecord>, recorded: &HashSet<Strin
             "agent_pair_held" => {
                 if let Some(h) = Held::from_record(session, &rec.msg)
                     && !recorded.contains(&h.prompt_id)
-                    && !places.contains_key(&h.prompt_id)
+                    && !held.iter().any(|x| x.prompt_id == h.prompt_id)
                 {
-                    places.insert(h.prompt_id.clone(), place);
-                    held.insert(place, h);
+                    held.push(h);
                 }
             }
             "agent_pair_released" | "agent_pair_dropped" => {
-                if let Some(place) =
-                    rec.msg.get("promptId").and_then(Value::as_str).and_then(|id| places.remove(id))
-                {
-                    held.remove(&place);
+                if let Some(id) = rec.msg.get("promptId").and_then(Value::as_str) {
+                    held.retain(|h| h.prompt_id != id);
                 }
             }
             _ => {}
         }
     }
-    owed.held = held.into_values().collect();
     owed
 }
 
@@ -584,7 +552,24 @@ impl Hub {
             held.order = self.next_held_order();
             let pair = state.pairs.entry(key.clone()).or_default();
             if let Some(paused) = pair.paused.as_mut() {
-                resent = !paused.push(held.clone());
+                if paused.held.iter().any(|h| h.prompt_id == prompt_id) {
+                    resent = true;
+                } else if paused.held.len() >= MAX_HELD {
+                    return Err(RpcError::new(
+                        -32000,
+                        format!(
+                            "{FULL_REASON}: this message to session {to} was NOT delivered and is \
+                             not held: the paused pair already holds {MAX_HELD} messages. Stop \
+                             messaging {to}; tell the user what you need."
+                        ),
+                    )
+                    .with_data(
+                        json!({"reason": FULL_REASON, "held": false, "promptId": prompt_id,
+                                      "sessions": [from, to], "limit": MAX_HELD}),
+                    ));
+                } else {
+                    paused.held.push_back(held.clone());
+                }
                 if paused.draining { Hold::Draining } else { Hold::Paused }
             } else {
                 let alternating = if progressed { 0 } else { pair.alternating };
@@ -637,9 +622,8 @@ impl Hub {
                     }));
                     return Ok(());
                 };
-                let mut paused = Paused::new();
-                paused.push(held.clone());
-                pair.paused = Some(paused);
+                pair.paused =
+                    Some(Paused { held: VecDeque::from([held.clone()]), draining: false });
                 Hold::Tripped(trip)
             }
         };
@@ -804,23 +788,20 @@ impl Hub {
         }
         let mut state = self.pairs_state();
         let mut drains = Vec::new();
-        let mut touched = HashSet::new();
         for h in held {
             let key = pair_key(&h.from, session);
             let drain = resumed.contains(&h.from);
             let pair = state.pairs.entry(key.clone()).or_default();
-            let paused = pair.paused.get_or_insert_with(Paused::new);
-            paused.push(h);
+            let paused = pair
+                .paused
+                .get_or_insert_with(|| Paused { held: VecDeque::new(), draining: false });
+            if !paused.held.iter().any(|x| x.prompt_id == h.prompt_id) {
+                paused.held.push_back(h);
+            }
+            paused.held.make_contiguous().sort_by_key(|h| h.order);
             if drain && !paused.draining {
                 paused.draining = true;
-                drains.push(key.clone());
-            }
-            touched.insert(key);
-        }
-        // Sorted once a pair, after all its holds are in, not once a hold.
-        for key in touched {
-            if let Some(paused) = state.pairs.get_mut(&key).and_then(|p| p.paused.as_mut()) {
-                paused.held.make_contiguous().sort_by_key(|h| h.order);
+                drains.push(key);
             }
         }
         state.restored_drains.extend(drains);
@@ -841,9 +822,6 @@ impl Hub {
                 let before = paused.held.len();
                 let (gone, kept): (Vec<Held>, Vec<Held>) =
                     std::mem::take(&mut paused.held).into_iter().partition(|h| h.to == session.id);
-                for h in &gone {
-                    paused.ids.remove(&h.prompt_id);
-                }
                 paused.held = kept.into();
                 if before > 0 && paused.held.is_empty() {
                     emptied.insert(key.clone());
@@ -893,7 +871,7 @@ impl Hub {
 
     /// After a restart, before the guard checks an agent's message: the sender's log too. A
     /// pause the restart keeps may be only there (what the pair held for the sender), and the
-    /// receiver's log is read already (`turns/prompt_entry.rs` `prompt_with`, `log_load.rs`).
+    /// receiver's log is read already (`turns.rs` `prompt_with`, `log_load.rs`).
     pub(super) async fn pair_logs(self: &Arc<Self>, provenance: Option<&Value>) {
         if self.logs_loaded() {
             return;
@@ -1159,7 +1137,7 @@ impl Hub {
     fn settle_held(&self, key: &PairKey, prompt_id: &str) {
         let mut state = self.pairs_state();
         if let Some(paused) = state.pairs.get_mut(key).and_then(|p| p.paused.as_mut()) {
-            paused.settle(prompt_id);
+            paused.held.retain(|h| h.prompt_id != prompt_id);
         }
     }
 }

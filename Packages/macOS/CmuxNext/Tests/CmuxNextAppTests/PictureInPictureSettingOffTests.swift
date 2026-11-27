@@ -23,7 +23,7 @@ struct PictureInPictureSettingOffTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         #expect(settings.snapshot.nowPlaying.pictureInPicture, "on by default")
@@ -98,7 +98,7 @@ struct PictureInPictureSettingOffTests {
         // change before either task runs, because nothing awaits in between.
         let offURL = directory.appending(path: "cmux-off.json")
         try Data(#"{"media": {"pictureInPicture": {"enabled": false}}}"#.utf8).write(to: offURL)
-        let off = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: offURL,
+        let off = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: offURL,
                                      managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await off.reload()
         #expect(off.snapshot.nowPlaying.pictureInPicture == false)

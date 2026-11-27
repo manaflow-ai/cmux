@@ -12,8 +12,7 @@
 //! `cmux link seed push --since-last` build on it.
 //!
 //! `--or-copy` is Bring Back Local's pull ([`bring_back`], which `cmux link
-//! agent move --sync pull` runs too): a projected folder comes back from its
-//! upper layer (`sync_cli::project_back`, `"mode":"projection"`); a folder with no seed to merge against
+//! agent move --sync pull` runs too): a folder with no seed to merge against
 //! (no record, a record of a copy or of another machine) is pulled as `cmux
 //! link sync pull` pulls a copy, a three-way merge against that copy's own
 //! record. Nothing else falls back: a seed pull that fails or conflicts is
@@ -23,9 +22,7 @@
 //!
 //! Output: one JSON line on stdout, the engine's `{"ok":true,"unchanged",
 //! "written","deleted","bytes","bundle_bytes","fast_forwarded","staged",
-//! "head","base":{"head","index","work"},"left_out","merged","conflict_files",
-//! "kept_edits"}` (the working-tree paths both sides changed, as the three-tree module settled
-//! them) with `"mode":"seed"`
+//! "head","base":{"head","index","work"},"left_out"}` with `"mode":"seed"`
 //! (or the copy's own summary with `"mode":"copy"`), exit 0. A conflict is
 //! `{"ok":false,"error","error_code":"sync_conflict","conflicts":[paths]}`
 //! with nothing changed here; any other failure `{"ok":false,"error",
@@ -83,13 +80,6 @@ pub(in crate::link) fn bring_back(socket: &Path, local: &Path, remote: &str) -> 
 }
 
 fn pull(socket: &Path, local: &Path, remote: &str, base: Base) -> Back {
-    // A projected folder (RFD 0007) comes back from its upper layer: the edits only, applied
-    // against the manifest the chat started from (`sync_cli::project_back`).
-    if matches!(base, Base::RecordOrCopy)
-        && let Some(found) = sync_cli::project_back::recorded(local, remote)
-    {
-        return sync_cli::project_back::bring_back(socket, &found, false);
-    }
     let failed = |error: SeedError| Back::Failed { code: error.code, error: error.message };
     let identity = match machine_gate::reach(socket) {
         Ok(identity) => identity,
@@ -218,13 +208,7 @@ fn base_of(kept: Option<&Record>, machine: Option<&str>) -> Result<SeedBase, See
 }
 
 /// Keeps the machine's state, the answer's `base`, as this folder's record.
-pub(super) fn keep(
-    local: &Path,
-    remote: &str,
-    machine: Option<String>,
-    url: Option<String>,
-    summary: &Value,
-) {
+fn keep(local: &Path, remote: &str, machine: Option<String>, url: Option<String>, summary: &Value) {
     let base = summary.get("base");
     let sha =
         |key: &str| base.and_then(|base| base.get(key)).and_then(Value::as_str).map(str::to_owned);
@@ -243,7 +227,6 @@ pub(super) fn keep(
         // The export answered, so the machine's checkout is whole.
         filling: None,
         hop: None,
-        snapshot: None,
     };
     // A record that could not be kept only makes the next pull merge from
     // the older base, where what came back already matches both sides.
@@ -251,5 +234,66 @@ pub(super) fn keep(
 }
 
 #[cfg(test)]
-#[path = "pull_tests.rs"]
-mod tests;
+mod tests {
+    use super::{Kept, Record, Route, SeedBase, SeedError, base_of, route};
+
+    #[test]
+    fn only_a_folder_with_no_seed_falls_back_to_the_copy() {
+        let base = || {
+            Ok(SeedBase {
+                head: "h".into(),
+                index: "i".into(),
+                work: "w".into(),
+                stash: None,
+                stash_known: false,
+            })
+        };
+        let none = || Err(SeedError::new("seed.no_previous", "no record"));
+        assert!(matches!(route(base(), true, true), Route::Seed(_)));
+        assert!(matches!(route(base(), true, false), Route::Seed(_)));
+        // A seeded folder on a machine without the export: update it, never the copy.
+        assert!(matches!(route(base(), false, true), Route::Outdated));
+        assert!(matches!(route(base(), false, false), Route::Outdated));
+        // No seed: the copy with --or-copy, whatever the machine serves.
+        assert!(matches!(route(none(), false, true), Route::Copy));
+        assert!(matches!(route(none(), true, true), Route::Copy));
+        assert!(
+            matches!(route(none(), true, false), Route::Fail(error) if error.code == "seed.no_previous")
+        );
+        let other = Err(SeedError::new("sync_failed", "x"));
+        assert!(
+            matches!(route(other, true, true), Route::Fail(error) if error.code == "sync_failed")
+        );
+    }
+
+    fn seed(machine: Option<&str>) -> Record {
+        Record {
+            mode: Kept::Seed,
+            machine: machine.map(str::to_owned),
+            url: None,
+            head: Some("h".into()),
+            index: Some("i".into()),
+            work: Some("w".into()),
+            stash: None,
+            stash_known: true,
+            filling: None,
+            hop: None,
+        }
+    }
+
+    #[test]
+    fn the_record_is_the_base_only_for_a_seed_to_the_same_machine() {
+        let base = base_of(Some(&seed(Some("m"))), Some("m")).unwrap();
+        assert_eq!((base.head.as_str(), base.index.as_str(), base.work.as_str()), ("h", "i", "w"));
+        assert!(base_of(Some(&seed(None)), Some("m")).is_ok(), "an unknown machine");
+        for (kept, why) in [
+            (None, "no record"),
+            (Some(seed(Some("other"))), "another machine"),
+            (Some(Record { mode: Kept::Copy, ..seed(Some("m")) }), "a copy"),
+            (Some(Record { work: None, ..seed(Some("m")) }), "incomplete"),
+        ] {
+            let error = base_of(kept.as_ref(), Some("m")).unwrap_err();
+            assert_eq!(error.code, "seed.no_previous", "{why}");
+        }
+    }
+}

@@ -264,7 +264,7 @@ fn requested_default_workspace_name_is_auto() {
     use crate::resource_name::NameSource as S;
     assert_eq!(S::for_requested_workspace_name(None), S::Auto);
     assert_eq!(S::for_requested_workspace_name(Some("workspace-12")), S::Auto);
-    assert_eq!(S::for_requested_workspace_name(Some("workspace-")), S::Auto);
-    assert_eq!(S::for_requested_workspace_name(Some("workspace-1x")), S::Auto);
-    assert_eq!(S::for_requested_workspace_name(Some("vim notes")), S::Auto);
+    assert_eq!(S::for_requested_workspace_name(Some("workspace-")), S::User);
+    assert_eq!(S::for_requested_workspace_name(Some("workspace-1x")), S::User);
+    assert_eq!(S::for_requested_workspace_name(Some("vim notes")), S::User);
 }

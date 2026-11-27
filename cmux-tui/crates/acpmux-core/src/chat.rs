@@ -22,26 +22,12 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-pub mod act;
-pub mod act_ids;
-pub mod prompt_lifecycle;
 pub mod queue;
 pub mod source;
 pub mod stream;
 
 use crate::conn::Reply;
 use crate::wire::{Blob, Page};
-
-pub mod draft;
-pub mod presence;
-
-pub use draft::{
-    ActError, DraftCommit, MAX_DRAFT_BYTES, TOO_LARGE, validate_draft, write_draft_atomic,
-};
-pub use presence::{
-    MAX_PRESENCE_BYTES, MAX_PRESENCE_PEOPLE, PresencePerson, PresenceStateOp, TYPING_EXPIRY,
-    TYPING_RATE_LIMIT, TypingRateLimited, TypingTracker,
-};
 
 pub type SourceFactory = Arc<dyn Fn() -> std::io::Result<Box<dyn source::RawSource>> + Send + Sync>;
 
@@ -77,10 +63,6 @@ impl source::RawSource for EmptySource {
 /// bound protects the actor before that connection-level budget exists.
 pub const MAILBOX_BYTES: usize = 4 * 1024 * 1024;
 pub const IDLE_AFTER: Duration = Duration::from_secs(5 * 60);
-/// How long the source stays quiet after a turn's end before its checkpoint runs. The checkpoint
-/// syncs the book's files on the actor's thread; at once, it held back the next turn's lines,
-/// sent as soon as the turn's reply came (a queued prompt, a script).
-pub const CHECKPOINT_QUIET: Duration = Duration::from_millis(50);
 /// How often a caught-up actor with an empty mailbox looks at its source's hint: a backstop. A
 /// notice that the source grew wakes it at once (v1's tee sends one for each line it appends);
 /// the hint finds the lines a dropped notice told of.
@@ -268,38 +250,6 @@ pub enum ChatError {
     SourceChanged,
 }
 
-/// Errors returned by the v2 daemon-line writer seam.
-#[derive(Debug, thiserror::Error)]
-pub enum ActWriteError {
-    #[error("daemon line writer I/O error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("daemon line writer is unavailable")]
-    Unavailable,
-    #[error("daemon line is {bytes} bytes; maximum is 262144")]
-    LineTooLong { bytes: usize },
-}
-
-pub const MAX_DAEMON_LINE_BYTES: usize = 256 * 1024;
-
-pub fn validate_daemon_line(line: &[u8]) -> Result<(), ActWriteError> {
-    if line.len() > MAX_DAEMON_LINE_BYTES {
-        return Err(ActWriteError::LineTooLong { bytes: line.len() });
-    }
-    Ok(())
-}
-
-/// The narrow seam used by the action path to append a daemon line.
-///
-/// Implementations must validate every line as at most 256 KiB, append the
-/// complete batch atomically, sync once, and roll back the file on any error.
-/// They must not return a place until every line and its terminating newline
-/// have been synced. The shared reference keeps the seam object-safe; hosted
-/// implementations can put their append-only file behind a mutex while test
-/// writers can provide a small in-memory implementation.
-pub trait DaemonLineWriter: Send + Sync {
-    fn append_daemon_lines(&self, lines: &[&[u8]]) -> Result<u64, ActWriteError>;
-}
-
 impl std::fmt::Display for ChatError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -358,7 +308,6 @@ enum Request {
         conn: u64,
         sid: String,
     },
-    Presence(PresenceStateOp),
     Page {
         page: Box<Page>,
         person: stream::PersonId,
@@ -379,7 +328,6 @@ impl Request {
             Self::Wake | Self::Close { .. } => 0,
             Self::Sub { sub, .. } => size_of::<stream::ChatSub>() + sub.sid.len(),
             Self::Resume { sid, .. } | Self::End { sid, .. } => sid.len(),
-            Self::Presence(op) => encoded_len(op),
             // Every member a page may carry (positions, keys, a filter), as its JSON counts them.
             Self::Page { page, .. } => size_of::<Page>() + encoded_len(page) + size_of::<Reply>(),
             Self::Blob { blob, .. } => {
@@ -549,12 +497,6 @@ impl ChatHandle {
         self.send(Request::End { conn, sid: sid.to_owned() }).map_err(|refused| refused.0)
     }
 
-    /// Replaces the followed chat's latest presence set. The caller supplies an op returned by
-    /// [`PresenceStateOp::replace`]; the actor owns delivery and coalescing on the chat stream.
-    pub fn presence(&self, op: PresenceStateOp) -> Result<(), ChatError> {
-        self.send(Request::Presence(op)).map_err(|refused| refused.0)
-    }
-
     /// A `page`, answered through `reply`; refused, it is answered at once.
     pub fn page(&self, page: Page, person: stream::PersonId, reply: Reply) {
         let request = Request::Page { page: Box::new(page), person, reply };
@@ -700,9 +642,6 @@ struct ActorState {
     source: Box<dyn source::RawSource>,
     last_used: Instant,
     last_checkpoint: Instant,
-    /// A turn ended since the last checkpoint: it runs once the source was quiet until then
-    /// ([`CHECKPOINT_QUIET`]).
-    checkpoint_due: Option<Instant>,
     settled_since_checkpoint: u32,
     replay_remaining: u64,
     /// The hint the last read that said `at_end` saw. The actor reads again when its mailbox is
@@ -1159,7 +1098,6 @@ fn open_state_from_log(
         source,
         last_used: Instant::now(),
         last_checkpoint: Instant::now(),
-        checkpoint_due: None,
         settled_since_checkpoint: 0,
         replay_remaining: recovered.replayed,
         seen_hint: None,
@@ -1237,19 +1175,13 @@ fn run_once(
         if *health.borrow() != crate::life::Health::Running {
             health.send_replace(crate::life::Health::Running);
         }
-        let mut wait = wait_for_work(state, rx, stop);
-        // A quiet turn's end: its checkpoint, then the same wait, with nothing new to read.
-        while matches!(wait, Wait::Checkpoint) {
-            checkpoint(state)?;
-            wait = wait_for_work(state, rx, stop);
-        }
-        match wait {
+        match wait_for_work(state, rx, stop) {
             Wait::Request(request) => {
                 if !handle_request(state, request, queued)? {
                     return Ok(true);
                 }
             }
-            Wait::Read | Wait::Checkpoint => {}
+            Wait::Read => {}
             Wait::Idle => {
                 stream::prune(state);
                 if state.translate.open_rows().next().is_none()
@@ -1269,8 +1201,6 @@ enum Wait {
     Request(Request),
     /// The source's hint is not the one the last read that said `at_end` saw, or a stop.
     Read,
-    /// A turn's end waited out [`CHECKPOINT_QUIET`] with nothing to read.
-    Checkpoint,
     Idle,
     Closed,
 }
@@ -1303,13 +1233,6 @@ fn wait_for_work(state: &ActorState, rx: &Receiver<Request>, stop: &AtomicBool) 
             return Wait::Idle;
         }
         let mut wait = left.min(state.config.hint_poll.max(Duration::from_millis(1)));
-        if let Some(at) = state.checkpoint_due {
-            let now = Instant::now();
-            if at <= now {
-                return Wait::Checkpoint;
-            }
-            wait = wait.min(at - now);
-        }
         // Held text is due.
         if let Some(at) = state.subs.flush_at() {
             let now = Instant::now();
@@ -1359,21 +1282,6 @@ fn handle_request(
         }
         Request::End { conn, sid } => {
             stream::end(state, conn, &sid);
-            Ok(true)
-        }
-        Request::Presence(op) => {
-            let participants = op
-                .participants
-                .into_iter()
-                .map(|person| crate::wire::PresencePerson {
-                    id: person.id,
-                    name: person.name,
-                    devices: person.devices,
-                    viewing: person.viewing,
-                    typing: person.typing,
-                })
-                .collect();
-            stream::presence(state, participants, op.trimmed);
             Ok(true)
         }
         Request::Page { page, person, reply } => {
@@ -1470,17 +1378,14 @@ fn apply_ops(
     state.config.unknown_kinds.store(state.translate.unknown_records(), Ordering::Relaxed);
     let changed = apply_changes(state, ops, bytes, file, base_offset, span)?;
     stream::publish(state);
-    if !checkpoint_now || !changed || state.replay_remaining != 0 {
-        return Ok(());
-    }
-    if state.settled_since_checkpoint >= 256
-        || state.last_checkpoint.elapsed() >= Duration::from_secs(1)
+    if checkpoint_now
+        && changed
+        && state.replay_remaining == 0
+        && (!state.translate.in_turn()
+            || state.settled_since_checkpoint >= 256
+            || state.last_checkpoint.elapsed() >= Duration::from_secs(1))
     {
         checkpoint(state)?;
-    } else if !state.translate.in_turn() {
-        // A turn's end: once the source is quiet ([`CHECKPOINT_QUIET`]), not before the lines
-        // that may follow at once.
-        state.checkpoint_due = Some(Instant::now() + CHECKPOINT_QUIET);
     }
     Ok(())
 }
@@ -1500,10 +1405,8 @@ fn apply_changes(
     let mut lacks = BTreeMap::<u64, u64>::new();
     for op in ops {
         changed |= matches!(&op.change, Change::Row(row) if !row.open)
-            || matches!(&op.change, Change::Patch(_) | Change::Leave(_));
-        if matches!(&op.change, Change::Row(row) if !row.open)
-            || matches!(&op.change, Change::Leave(row) if row.rev <= 1)
-        {
+            || matches!(&op.change, Change::Patch(_));
+        if matches!(&op.change, Change::Row(row) if !row.open) {
             state.settled_since_checkpoint = state.settled_since_checkpoint.saturating_add(1);
         }
         let raw = RawRange {
@@ -1525,15 +1428,6 @@ fn apply_changes(
             Change::Patch(row) => {
                 lacks.remove(&row.id);
                 patch(state, row, raw)?;
-            }
-            // A row taken back: an open one settles hidden, a settled one is patched hidden.
-            Change::Leave(row) => {
-                lacks.remove(&row.id);
-                if row.rev <= 1 {
-                    settle_or_open(state, row, raw)?;
-                } else {
-                    patch(state, row, raw)?;
-                }
             }
             Change::Body { id, field, append, source } => {
                 let mut missed = 0u64;
@@ -1758,8 +1652,7 @@ fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Resul
     row.as_row(body_text).encode(None, &mut encoded).map_err(|_| ChatError::Closed)?;
     let final_bytes = state.blobs.settle(body)?;
     if final_bytes.is_none() {
-        let head = row.head();
-        let outline = Outline { head: &head, preview: "" };
+        let outline = Outline { head: "{}", preview: "" };
         encoded.clear();
         row.as_row("{}")
             .encode_blob(body.len(), outline, &mut encoded)
@@ -1826,6 +1719,7 @@ fn body_key(field: BodyField) -> &'static str {
         BodyField::Text => "text",
         BodyField::Content => "content",
         BodyField::Input => "input",
+        BodyField::Entries => "entries",
         BodyField::Source => "source",
         BodyField::Images => "images",
         BodyField::Title => "title",
@@ -1882,14 +1776,9 @@ fn checkpoint(state: &mut ActorState) -> Result<(), ChatError> {
     checkpoint.write(&mut state.log, &open)?;
     state.blobs.recover(&bodies, checkpoint.last_row)?;
     state.last_checkpoint = Instant::now();
-    state.checkpoint_due = None;
     state.settled_since_checkpoint = 0;
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "chat/act_tests.rs"]
-mod act_tests;
 
 #[cfg(test)]
 mod tests;

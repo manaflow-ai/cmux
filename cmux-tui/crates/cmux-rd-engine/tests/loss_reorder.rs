@@ -32,12 +32,7 @@ fn sent_burst() -> (MediaEngine, Vec<Arrival>) {
     let sent = engine
         .encoded(
             &request,
-            Some(Encoded {
-                access_unit: vec![7; 360_000],
-                idr: true,
-                t_capture_us: 0,
-                ltr_token: None,
-            }),
+            Some(Encoded { access_unit: vec![7; 360_000], idr: true, t_capture_us: 0 }),
             0,
         )
         .expect("packetize burst")

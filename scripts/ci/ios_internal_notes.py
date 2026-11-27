@@ -239,27 +239,9 @@ def ui_len(text: str) -> int:
     return len(text.encode("utf-16-le")) // 2
 
 
-def lead_line(version: str | None, sha: str, yolo: list[int] | None = None, base: str | None = None) -> str:
+def lead_line(version: str | None, sha: str) -> str:
     v = f" {version}" if version else ""
-    if yolo and base:
-        # An iPhone YOLO build (scripts/ci/ios_internal_yolo.py): the PRs it adds to feat-cmux-next. The commit
-        # recorded is the feat-cmux-next base, a real head the next build can diff from.
-        prs = " ".join(f"#{n}" for n in yolo)
-        return f"cmux-next iPhone{v} YOLO, feat-cmux-next {base[:12]} + {prs} ({sha[:12]}). Internal testers only."
     return f"cmux-next iPhone{v}, feat-cmux-next {sha[:12]}. Internal testers only."
-
-
-YOLO_MERGE = re.compile(r"^ios-yolo: merge #(\d+)$")
-
-
-def yolo_prs(subjects: list[str]) -> list[int]:
-    """The PR numbers an iPhone YOLO stack merged, oldest first, from its first-parent merge subjects."""
-    out = []
-    for s in subjects:
-        m = YOLO_MERGE.match(s.strip())
-        if m and int(m.group(1)) not in out:
-            out.append(int(m.group(1)))
-    return out
 
 
 def format_note(lead: str, intro: str | None, groups: dict[str, list[str]], limit: int = LIMIT) -> str:
@@ -291,7 +273,7 @@ def format_note(lead: str, intro: str | None, groups: dict[str, list[str]], limi
 
 
 def build_note(*, sha: str, version: str | None, base: str | None, base_source: str,
-               commits: list[dict], prs: dict[str, dict | None], yolo: list[int] | None = None) -> str:
+               commits: list[dict], prs: dict[str, dict | None]) -> str:
     """commits: newest first {oid, subject, files}; prs: oid -> {number, body, title} or None (no PR)."""
     entries: list[Entry] = []
     seen_prs: set[int] = set()
@@ -314,11 +296,8 @@ def build_note(*, sha: str, version: str | None, base: str | None, base_source: 
         if e:
             entries.append(e)
     groups = group(entries)
-    lead = lead_line(version, sha, yolo, base)
-    if yolo and base:
-        intro = "YOLO build: feat-cmux-next plus open pull requests; the next nightly replaces it." + (
-            " Their changes:" if groups else "")
-    elif base is None:
+    lead = lead_line(version, sha)
+    if base is None:
         groups = _first_n(groups, UNKNOWN_BASE_LINES)
         intro = "First continuous build. Recent changes:" if groups else "First continuous build."
     elif groups:
@@ -436,20 +415,8 @@ def app_commits(repo: str, rev_range: list[str], prefixes: tuple[str, ...], limi
 
 # ---- GitHub ----
 
-# One GitHub read is bounded: a hung `gh` turns into a CalledProcessError, which every caller already falls back
-# from (commit subjects for PR lines), so the note step never runs into its job's timeout (a cancelled run).
-GH_TIMEOUT_S = 60
-
-
-def _run_gh(argv: list[str], stdin: str | None, check: bool) -> subprocess.CompletedProcess:
-    try:
-        return subprocess.run(argv, input=stdin, capture_output=True, text=True, check=check, timeout=GH_TIMEOUT_S)
-    except subprocess.TimeoutExpired as error:
-        raise subprocess.CalledProcessError(124, " ".join(argv[:3]), "", f"timed out after {GH_TIMEOUT_S} s") from error
-
-
 def _gh(args: list[str], stdin: str | None = None) -> dict:
-    out = _run_gh(["gh", "api", *args], stdin, check=True).stdout
+    out = subprocess.run(["gh", "api", *args], input=stdin, capture_output=True, text=True, check=True).stdout
     return json.loads(out)
 
 
@@ -462,7 +429,8 @@ def _graphql(fields: list[str]) -> dict:
     query = f'query {{ repository(owner: "{owner}", name: "{name}") {{ {" ".join(fields)} }} }}'
     # `gh api graphql` exits 1 when any field errors (a "(#N)" that names an issue, not a PR),
     # but the other fields' data still comes back: keep it, and fail only with no data.
-    proc = _run_gh(["gh", "api", "graphql", "--input", "-"], json.dumps({"query": query}), check=False)
+    proc = subprocess.run(["gh", "api", "graphql", "--input", "-"], input=json.dumps({"query": query}),
+                          capture_output=True, text=True)
     try:
         data = json.loads(proc.stdout) if proc.stdout.strip() else {}
     except json.JSONDecodeError:
@@ -638,15 +606,7 @@ def cmd_notes(sha: str, base: str | None, asc_ref: str | None, repo: str, out: P
         # The note still ships: commit subjects stand in for every PR.
         print(f"notes: PR lookup failed ({type(error).__name__}); using commit subjects", file=sys.stderr)
         prs = {}
-    yolo = None
-    if base:
-        try:
-            yolo = yolo_prs(_git(repo, "log", "--first-parent", "--merges", "--reverse", "--format=%s",
-                                 f"{base}..{sha}").splitlines())
-        except subprocess.CalledProcessError:
-            yolo = None
-    text = build_note(sha=sha, version=app_version(repo, sha), base=base, base_source=source, commits=commits, prs=prs,
-                      yolo=yolo)
+    text = build_note(sha=sha, version=app_version(repo, sha), base=base, base_source=source, commits=commits, prs=prs)
     if out:
         out.write_text(text)
     print(text)

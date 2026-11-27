@@ -183,46 +183,6 @@ async fn a_peers_missing_folder_inside_a_root_is_made_and_one_outside_is_refused
     let _ = std::fs::remove_dir_all(&outside);
 }
 
-// A host added over ssh has no webRoots until someone writes them, so a chat started there
-// could use only a scratch folder, never the person's own project on it (remote e2e walk,
-// 2026-11-10).
-#[tokio::test]
-async fn the_owners_daemon_starts_a_chat_in_a_checkout_outside_the_roots_and_no_one_else_does() {
-    let root = scratch("checkout-root");
-    let elsewhere = scratch("checkout-elsewhere");
-    let hub = hub(&root);
-    let repo = elsewhere.join("app");
-    std::fs::create_dir_all(repo.join(".git")).unwrap();
-    std::fs::create_dir_all(repo.join("lib")).unwrap();
-    std::fs::create_dir_all(elsewhere.join("plain")).unwrap();
-
-    // Every refusal first: a running chat's folder becomes a root for every caller.
-    let mut peer = C::open(&hub, Origin::Peer);
-    // A missing folder in a checkout is not made (only one inside a root is).
-    let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&repo.join("new")))).await;
-    assert!(r["error"].is_object() && !repo.join("new").exists(), "{r}");
-    // A Web client, and a peer forwarding for one or for a paired device, are held to the roots.
-    let mut web = C::open(&hub, Origin::Web);
-    let r = web.call(method::SESSION_NEW, new(json!({}), Some(&repo))).await;
-    assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
-    for via in ["web", "device"] {
-        let r = peer.call(method::SESSION_NEW, new(json!({"via": via}), Some(&repo))).await;
-        assert!(r["error"].is_object(), "via {via}: {r}");
-    }
-
-    // The owner's own daemon starts in the checkout and in a folder inside it.
-    for want in [repo.clone(), repo.join("lib")] {
-        let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&want))).await;
-        assert_eq!(cwd_of(&hub, &r), want, "{r}");
-    }
-    // A folder that is no checkout stays outside, and the refusal says a checkout works.
-    let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&elsewhere.join("plain")))).await;
-    assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
-    assert!(r["error"]["message"].as_str().unwrap().contains("a git checkout"), "{r}");
-    let _ = std::fs::remove_dir_all(&root);
-    let _ = std::fs::remove_dir_all(&elsewhere);
-}
-
 #[tokio::test]
 async fn a_peers_missing_folder_that_was_removed_with_an_archive_record_is_not_made_again() {
     // A cleaned-up worktree leaves `~/archive/<time>-<name>/manifest.json` naming its path; a
@@ -313,7 +273,7 @@ async fn retry_metadata_stays_local_when_new_is_forwarded() {
     let (received_tx, mut received_rx) = mpsc::channel(1);
     let server = tokio::spawn(async move {
         let (tcp, _) = listener.accept().await.unwrap();
-        let mut ws = acpmux::server::accept_ws(tcp).await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
         // Non-text frames (the client's pings, #38015) are not requests: skip them.
         while let Some(Ok(frame)) = ws.next().await {
             let Ws::Text(text) = frame else { continue };
@@ -468,117 +428,4 @@ async fn approve_all_at_a_remote_start_passes_exactly_when_host_ls_shows_served_
         }
         let _ = std::fs::remove_dir_all(&root);
     }
-}
-
-/// Reporting is registered on the caller before its CLI exits, independent of
-/// whether the child can open a socket or execute `acpmux send`.
-#[tokio::test]
-async fn a_remote_start_keeps_its_report_to_watch_on_the_starters_daemon() {
-    let root = scratch("report-to");
-    let (a, b) = pair("report-to", true, &root).await;
-    let mut ca = C::open(&a, Origin::Local);
-    let parent = ca
-        .call(method::SESSION_NEW, new(json!({"harness": "fake", "name": "starter"}), Some(&root)))
-        .await;
-    let parent = parent["result"]["sessionId"].as_str().unwrap().to_owned();
-    let before = b.sessions().len();
-    let refused = ca.call(method::SESSION_NEW, new(json!({"peer": "b", "harness": "fake", "name": "orphan", "reportTo": "missing-recipient"}), Some(&root))).await;
-    assert!(refused["error"].is_object(), "{refused}");
-    assert_eq!(b.sessions().len(), before, "an invalid recipient must not create an orphan");
-    let child = ca
-        .call(
-            method::SESSION_NEW,
-            new(
-                json!({
-                    "peer": "b", "harness": "fake", "name": "child", "reportTo": "starter"
-                }),
-                Some(&root),
-            ),
-        )
-        .await;
-    let child =
-        child["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{child}")).to_owned();
-    let watches = ca.call(method::MUX_WATCH_LS, json!({})).await;
-    let watches = watches["result"]["watches"].as_array().unwrap();
-    assert_eq!(watches.len(), 1);
-    assert_eq!(watches[0]["to"], parent);
-    assert_eq!(watches[0]["until"], json!(["closed", "blocked"]));
-    assert_eq!(watches[0]["sessions"], json!([format!("b/{child}")]));
-    assert_eq!(watches[0]["active"], true, "a newborn idle chat has not reported a turn");
-    let mut app = C::open(&a, Origin::LocalApp);
-    let app_child = app
-        .call(
-            method::SESSION_NEW,
-            new(
-                json!({"peer": "b", "harness": "fake", "name": "app-child", "reportTo": "starter"}),
-                Some(&root),
-            ),
-        )
-        .await;
-    assert!(app_child["result"]["sessionId"].is_string(), "{app_child}");
-    let watches = ca.call(method::MUX_WATCH_LS, json!({})).await;
-    assert_eq!(watches["result"]["watches"].as_array().unwrap().len(), 2);
-
-    // The child emits its refusal in its journal. The starter's daemon reads it over
-    // the peer link and delivers the report without running any tool in the child.
-    let mut events = a.subscribe();
-    let remote = b.resolve(&child).unwrap();
-    // Force the inventory to lag the start reply without deleting the actual child.
-    // A missing cached row must not consume the failure watch as a closed session.
-    let peer = a.peer_by_name("b").unwrap();
-    a.forget_remote(("b", peer.generation), &child, Some(remote.meta().created_at));
-    assert!(a.resolve_remote(&format!("b/{child}")).is_none());
-    let mut receiver = C::open(&b, Origin::Peer);
-    let refused = receiver.call(method::SESSION_PROMPT, json!({
-        "sessionId": child, "prompt": [{"type": "text", "text": "remote-repository-refused"}]
-    })).await;
-    assert!(refused["error"].is_null(), "{refused}");
-    a.start_watches();
-    let report = tokio::time::timeout(Duration::from_secs(15), async {
-        loop {
-            let event = events.recv().await.unwrap();
-            if event.session_id == parent
-                && event.record.kind == "user_message"
-                && let Some(text) = event.record.msg["text"].as_str()
-                && text.contains("index.lock")
-            {
-                break text.to_owned();
-            }
-        }
-    })
-    .await
-    .expect("the remote refusal never reached the starter");
-    assert!(report.contains("blocked") && report.contains("Full access"), "{report}");
-    b.shutdown_all().await;
-    a.shutdown_all().await;
-}
-
-#[cfg(target_os = "linux")]
-#[tokio::test]
-async fn an_owner_approve_all_start_without_cwd_uses_a_durable_host_folder() {
-    let root = scratch("full-access-folder");
-    let (a, b) = pair("full-access-folder", true, &root).await;
-    let name = format!("full-access-folder-{}", uuid::Uuid::now_v7());
-    let mut caller = C::open(&a, Origin::Local);
-    let created = caller
-        .call(
-            method::SESSION_NEW,
-            new(
-                json!({
-                    "peer": "b", "harness": "fake", "name": name, "policy": "approve-all"
-                }),
-                None,
-            ),
-        )
-        .await;
-    let cwd = cwd_of(&b, &created);
-    let home = std::fs::canonicalize(dirs::home_dir().unwrap()).unwrap();
-    assert_eq!(cwd, home.join("chats").join(&name));
-    assert!(
-        b.resolve(created["result"]["sessionId"].as_str().unwrap()).unwrap().meta().vm_boundary
-    );
-    b.shutdown_all().await;
-    a.shutdown_all().await;
-    std::fs::remove_dir_all(&cwd).unwrap();
-    std::fs::remove_dir_all(&root).unwrap();
 }

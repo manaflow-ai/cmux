@@ -7,7 +7,7 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// A web top page (Stats) fills the main pane with no tab
+/// A web top page (Import history's "Bring your history", Stats) fills the main pane with no tab
 /// strip above it, so its top row is the window's title bar, like the sidebar header beside it.
 /// The window moved only from the sidebar's top strip (https://github.com/manaflow-ai/cmux/issues/36897).
 /// The page's controls there must keep their clicks, and AppKit cannot see them, so the page
@@ -16,9 +16,8 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
         .closesItsWindows)
 struct TopPageTitlebarDragTests {
-    // CmuxNextPages' type by its module: the app's typealias of the same name made @Test's expansion ambiguous.
-    @Test(arguments: [CmuxNextPages.InternalPageID.stats])
-    func aTopPagesTitleRowMovesTheWindowAndItsControlsKeepTheirPress(_ id: CmuxNextPages.InternalPageID) async throws {
+    @Test(arguments: [InternalPageID.importHistory, .stats])
+    func aTopPagesTitleRowMovesTheWindowAndItsControlsKeepTheirPress(_ id: InternalPageID) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             let controller = try #require(services.windows.active)
             let window = try #require(controller.window)

@@ -49,7 +49,7 @@ cmux (app)                          <App> Chromium Host.app (new)              C
 - Signing: hardened runtime, no JIT entitlement (the browser process does not JIT; Renderer and GPU keep `allow-jit`,
   `scripts/cmux-next/sign-cef.sh`). Sandbox: none for the browser process, as Chrome and today. Release signing
   (`scripts/sign-cmux-bundle.sh`) signs the host with `sign-cef.sh`.
-- Keychain: cmux's own "cmux Safe Storage" item (account: the bundle identifier, `CEFKeychainItem`) encrypts cookies and passwords; never the shared "Chromium Safe Storage". Its ACL names the cmux app today.
+- Keychain: Chromium's "Chromium Safe Storage" item encrypts cookies and passwords. Its ACL names the cmux app today.
   The host is another code identity, so release builds must give the host the same keychain access group or migrate
   the item once (open item). Dev builds use the mock keychain (`CEFSwitches.useMockKeychain`).
 

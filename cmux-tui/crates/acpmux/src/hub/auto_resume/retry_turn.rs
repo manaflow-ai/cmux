@@ -6,15 +6,11 @@
 //! - When the last turn failed, it is sent again now as the next attempt of its prompt
 //!   (`P~resume-n` after the failed `P` or `P~resume-(n-1)`, the id an automatic retry uses): the
 //!   same prompt (its text and the images acpmux kept) when the turn produced nothing, and the
-//!   continuation an automatic retry sends (`continue_text_for`) when the model had started on it, a
+//!   continuation an automatic retry sends (`continue_text`) when the model had started on it, a
 //!   message was steered into it, it was a turn of agent messages, it carried hidden context, or
 //!   it cannot be rebuilt (a document, an image not kept). A retry that waits (the session row's
 //!   `retry`, `auto_resume.rs`) is taken over: it is this attempt, sent now, and its timer records
 //!   the skip `superseded`. A second click while the first is under way is `retry.busy`.
-//! - On a chat the account's rate limit holds or parked (`rate_hold.rs`), [`Hub::retry_rate_gate`]
-//!   decides first: a held chat refuses every retry until its reset (`retry.rate_limited`); a
-//!   parked one goes on at the person's own retry, and at another's only once the park's backoff
-//!   ran out.
 //! - Refused with `retry.busy` while a turn runs, a prompt waits to run or a continuation is
 //!   about to start, and with `retry.nothing_failed` when the last turn did not fail.
 //! - A retry that names a subagent (`subagentId`) asks for that subagent, never the chat's own
@@ -30,7 +26,7 @@
 //! - A sub-session whose last turn was stopped (`cancelled`) is continued instead, in the same
 //!   chat: `hub/subsession_resume.rs`.
 
-use super::{Mark, SUFFIX, continue_text_for, split_attempt, still_cut};
+use super::{Mark, SUFFIX, continue_text, split_attempt, still_cut};
 use crate::hub::digest::DIGEST_KIND;
 use crate::hub::{Control, Hub, PromptOptions, Session};
 use crate::protocol::session::{RetryKind, RetryResult};
@@ -47,11 +43,6 @@ pub struct RetryBy {
     pub trust_gate: bool,
     pub full_access_device: Option<String>,
     pub from: Option<String>,
-    /// The person's own retry (`server/agent_messages.rs`: neither an agent's connection nor a
-    /// trigger's, the rule a send's `owner_terminal` and the activity report use): it may take a
-    /// parked chat back at once. Any other one, an agent's, a sub-session's `retry_session`, a
-    /// script's, waits out the park's backoff first (`rate_hold.rs` [`RateHold::retry_at`]).
-    pub person: bool,
 }
 
 fn refused(reason: &str, why: &str) -> RpcError {
@@ -62,34 +53,15 @@ pub(crate) fn busy() -> RpcError {
     refused("retry.busy", "a turn runs or is about to start in this chat; retry once it ends")
 }
 
-/// The account's rate limit holds the chat (`rate_hold.rs`): a retry now would be refused the same
-/// way and send the whole context again. Its turn runs by itself at the reset. A one-minute
-/// watchdog that retried every 429'd chat kept the spiral going (2026-11-17).
-fn rate_limited(until: u64) -> RpcError {
-    let at = crate::hub::rate_hold::until_line(until);
-    let why =
-        format!("retry.rate_limited: {at}: the chat goes on by itself at the reset; Stop parks it");
-    RpcError::invalid_params(why).with_data(json!({"reason": "retry.rate_limited", "until": until}))
-}
-
-/// A parked chat an agent's or a tool's retry may not take back before `at` (`rate_hold.rs`):
-/// the person's own retry or prompt may at once.
-fn parked_refused(at: u64) -> RpcError {
-    let at_line = crate::hub::rate_hold::until_line(at).replace("rate-limited until", "from");
-    let why = format!(
-        "retry.rate_limited: parked after its turns failed on the rate limit; an agent's or a \
-         tool's retry may send it on {at_line}, the person's own retry or prompt at once"
-    );
-    RpcError::invalid_params(why)
-        .with_data(json!({"reason": "retry.rate_limited", "until": at, "parked": true}))
-}
-
 fn stopped() -> RpcError {
     refused("retry.stopped", "Stop or close came before the retry's turn started")
 }
 
 fn nothing_failed() -> RpcError {
-    refused("retry.nothing_failed", "the chat's last turn did not fail, so nothing was sent again")
+    refused(
+        "retry.nothing_failed",
+        "the chat's last turn did not fail, so there is nothing to retry",
+    )
 }
 
 fn not_resendable() -> RpcError {
@@ -135,10 +107,7 @@ fn prompt_blocks(msg: &Value, image: impl Fn(&str) -> Option<Value>) -> Option<V
             text.into_iter().map(Some).chain(images).collect()
         }
     };
-    // The tools note its words make, which the log leaves out (`tool_mentions.rs`).
-    let mut blocks = blocks.filter(|b| !b.is_empty())?;
-    crate::tool_mentions::add_note(&mut blocks);
-    Some(blocks)
+    blocks.filter(|b| !b.is_empty())
 }
 
 impl Hub {
@@ -210,13 +179,7 @@ impl Hub {
         record_manual: bool,
     ) -> Result<Value, RpcError> {
         self.retry_allowed(session, &by).await?;
-        if auto.is_none()
-            && let Some(answered) = self.retry_rate_gate(session, by.person)?
-        {
-            return Ok(answered);
-        }
-        let (cut_turn, failed, error, fired_gen) =
-            self.claim_failed_turn(session, auto, allow_stopped)?;
+        let (cut_turn, failed, error) = self.claim_failed_turn(session, auto, allow_stopped)?;
         let (root, done) = split_attempt(&failed);
         let (root, attempt) = (root.to_owned(), done + 1);
         let prompt_id = format!("{root}{SUFFIX}{attempt}");
@@ -234,7 +197,6 @@ impl Hub {
                     "trustGate": by.trust_gate,
                     "fullAccessDevice": by.full_access_device.clone(),
                     "from": by.from.clone(),
-                    "person": by.person,
                     "why": "manual",
                 }),
             );
@@ -243,7 +205,7 @@ impl Hub {
             Some(blocks) => blocks,
             // The agent never saw a first send it refused: a continuation would make no sense.
             None if auto.is_some() => {
-                self.clear_fired(session, &cut_turn, fired_gen);
+                self.clear_fired(session, &cut_turn);
                 return Err(not_resendable());
             }
             None => {
@@ -251,7 +213,7 @@ impl Hub {
                 let reason = crate::hub::turn_errors::resume_cause(&error, &error)
                     .filter(|r| *r != "context")
                     .unwrap_or("error");
-                vec![json!({"type": "text", "text": continue_text_for(session, &error, reason)})]
+                vec![json!({"type": "text", "text": continue_text(&error, reason)})]
             }
         };
         let held = self.held_by(session, &root, &cut_turn);
@@ -278,7 +240,6 @@ impl Hub {
             full_access_device: by.full_access_device,
             provenance: Some(provenance),
             after_turn: Some(cut_turn.clone()),
-            fired: Some(fired_gen),
             ..PromptOptions::default()
         };
         let (hub, s) = (self.clone(), session.clone());
@@ -289,7 +250,7 @@ impl Hub {
             let result = hub.prompt_with(&s, blocks, "acpmux", false, opts).await;
             // What is left of the claim when the prompt never started its turn, once the
             // prompt is out of the ledger: a retry after this one is never joined to it.
-            hub.clear_fired(&s, &cut_turn, fired_gen);
+            hub.clear_fired(&s, &cut_turn);
             if matches!(&result, Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
             {
                 hub.resume_held(&s, &held);
@@ -343,47 +304,8 @@ impl Hub {
         let web = Self::web_turn(caller) || Self::web_turn(target);
         let control = if web { Control::Web } else { Control::Local };
         let from = Some(caller.id.clone());
-        let by =
-            RetryBy { control, trust_gate: false, full_access_device: None, from, person: false };
+        let by = RetryBy { control, trust_gate: false, full_access_device: None, from };
         self.retry(target, subagent, by).await
-    }
-
-    /// What the account's limit (`rate_hold.rs`) says to a retry the caller asks for, before it
-    /// claims the chat: `Some(answer)` when it took a parked chat back and that answered it, None
-    /// when the retry goes on.
-    ///
-    /// - Parked: the person's own retry (`person`) takes it back at once. Another's (an agent's,
-    ///   a script's, a sub-session's `retry_session`) is refused (`retry.rate_limited`, with the
-    ///   time) until the park's backoff ran out ([`RateHold::retry_at`]), and then takes it back.
-    ///   Before, any `acpmux retry` took it back at once, so a watchdog that retried every minute
-    ///   sent the whole context once a minute (2026-11-18).
-    /// - Taken back: its waiting continuation runs now, compacted first past the line, with what
-    ///   queued. With none waiting the hold ends: what queued goes on as the next turn, carrying
-    ///   the continuation's words, else this retry runs as on any chat.
-    /// - Held: refused until the reset, whoever asks.
-    pub(in crate::hub) fn retry_rate_gate(
-        &self,
-        session: &Arc<Session>,
-        person: bool,
-    ) -> Result<Option<Value>, RpcError> {
-        use crate::hub::rate_hold::Unparked;
-        let now = crate::hub::now_ms();
-        if let Some(at) = session.rate_hold.retry_at().filter(|at| !person && *at > now) {
-            return Err(parked_refused(at));
-        }
-        match self.unpark_rate_hold(session, "retry") {
-            Some(Unparked::Continues(cut_turn)) => {
-                return Ok(Some(answer(format!("{cut_turn} (rate-limit continuation)"), None)));
-            }
-            Some(Unparked::Queue) => {
-                return Ok(Some(answer("the queue (rate-limit continuation)".into(), None)));
-            }
-            Some(Unparked::Released) | None => {}
-        }
-        if let Some(until) = session.rate_hold.until().filter(|u| *u > now) {
-            return Err(rate_limited(until));
-        }
-        Ok(None)
     }
 
     /// The caller's rules, checked before the retry claims the chat, so a refused caller leaves
@@ -410,12 +332,12 @@ impl Hub {
     /// `auto`: an automatic retry's cut turn, claimed only from that retry's own wait (`Waiting`
     /// for it), so a Stop, a close or a turn that took the chat since refuses it.
     /// `allow_stopped`: a Stop that came while the failed turn ran does not refuse it.
-    pub(super) fn claim_failed_turn(
+    fn claim_failed_turn(
         &self,
         session: &Session,
         auto: Option<&str>,
         allow_stopped: bool,
-    ) -> Result<(String, String, String, u64), RpcError> {
+    ) -> Result<(String, String, String), RpcError> {
         let mut pending = session.auto_resume.lock();
         if let Some(cut) = auto {
             let waits = matches!(pending.as_ref(), Some(Mark::Waiting { turn, .. }) if turn == cut);
@@ -442,9 +364,7 @@ impl Hub {
             // A retry of this turn that waits gives way to this one.
             Some(Mark::Waiting { turn, .. }) if *turn == cut_turn => {}
             // One under way, or one Stop overtook whose task has not ended: never two at once.
-            Some(
-                Mark::Waiting { .. } | Mark::Firing(..) | Mark::Ending(_) | Mark::Stopping { .. },
-            ) => {
+            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_) | Mark::Stopping(_)) => {
                 return Err(busy());
             }
             // Stop came while the failed turn ran: the caller asks for a retry anyway.
@@ -457,9 +377,8 @@ impl Hub {
         if !still_cut(session, &cut_turn) {
             return Err(busy());
         }
-        let fired_gen = session.auto_resume.next_generation();
-        pending.replace(Mark::Firing(cut_turn.clone(), fired_gen));
-        Ok((cut_turn, failed, field("errorText").unwrap_or_default(), fired_gen))
+        pending.replace(Mark::Firing(cut_turn.clone()));
+        Ok((cut_turn, failed, field("errorText").unwrap_or_default()))
     }
 
     /// The failed turn `cut_turn`'s prompt `prompt_id`, to send again as it was: when the model
@@ -522,5 +441,50 @@ impl Hub {
 }
 
 #[cfg(test)]
-#[path = "retry_turn_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn kept(id: &str) -> Option<Value> {
+        (id == "img1").then(|| json!({"type": "image", "mimeType": "image/png", "data": "AQID"}))
+    }
+
+    #[test]
+    fn a_prompt_is_rebuilt_from_its_record_in_order() {
+        let msg = json!({"text": "look\nhere", "inlineParts": [
+            {"kind": "text", "text": "look", "pasted": true},
+            {"kind": "image", "id": "img1", "mimeType": "image/png"},
+            {"kind": "pasted", "name": "Pasted text", "text": "here"},
+        ]});
+        assert_eq!(
+            prompt_blocks(&msg, kept),
+            Some(vec![
+                json!({"type": "text", "text": "look", "_meta": {"cmux": {"pasted": true}}}),
+                json!({"type": "image", "mimeType": "image/png", "data": "AQID"}),
+                json!({"type": "text", "text": "here", "_meta": {"cmux": {"pasted": true}}}),
+            ])
+        );
+        // Without its parts: its text, then its images.
+        let msg = json!({"text": "hi", "images": [{"id": "img1"}]});
+        assert_eq!(prompt_blocks(&msg, kept).map(|b| b.len()), Some(2));
+    }
+
+    #[test]
+    fn a_prompt_that_cannot_be_rebuilt_is_not_resent() {
+        for parts in [
+            json!([{"kind": "text", "text": "a"}, {"kind": "image", "id": "gone"}]),
+            json!([{"kind": "document", "name": "brief.pdf"}]),
+            json!([{"kind": "file", "name": "notes.txt", "uri": "attachment://notes.txt"}]),
+            json!([]),
+        ] {
+            let msg = json!({"text": "a", "inlineParts": parts});
+            assert_eq!(prompt_blocks(&msg, kept), None, "{parts}");
+        }
+        assert_eq!(prompt_blocks(&json!({"text": ""}), kept), None);
+    }
+
+    #[test]
+    fn a_continuation_names_the_error_it_continues_after() {
+        assert!(continue_text("x", "transport").contains("a connection error (x)"));
+        assert!(continue_text("simulated internal error", "error").contains("cut off by an error"));
+    }
+}

@@ -157,6 +157,6 @@ import Testing
         }
         // ... in chips that overlap like avatars.
         #expect(stack.view.preferredWidth < 4 * stack.view.cellSide)
-        #expect(stack.view.accessibilityHelp()?.contains(Strings.unreadCount(3)) == true)
+        #expect(stack.view.themedToolTip?.contains(Strings.unreadCount(3)) == true)
     }
 }

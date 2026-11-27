@@ -191,22 +191,10 @@ struct Budget {
     one_read: bool,
 }
 
-/// The open turn's fold, which `folds.idx` does not list until the turn ends: its group row and
-/// the ranges its fold shows now (what the group row will carry as `out`). A read folds the
-/// turn's settled rows by it as it folds a closed turn's, so a chat opened mid-turn draws the
-/// work already folded instead of drawing it and folding it away when the turn ends.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct LiveFold {
-    pub group: u64,
-    pub out: Vec<(u64, u64)>,
-}
-
 /// Per-request fold state shared by all directions of a window walk.
 struct FoldRead<'a> {
     index: Option<&'a Folds>,
     open: &'a [u64],
-    /// The open turn's fold, from its group to the book's last row.
-    live: Option<FoldEntry>,
     ranges: BTreeMap<u64, Vec<(u64, u64)>>,
     /// Exact group records already checked while reading their visible ranges, with their
     /// text. The sole writer cannot change them during this request, so neither validation
@@ -230,42 +218,13 @@ struct FoldCursor {
 
 impl<'a> FoldRead<'a> {
     fn new(index: Option<&'a Folds>, open: &'a [u64]) -> Self {
-        Self {
-            index,
-            open,
-            live: None,
-            ranges: BTreeMap::new(),
-            validated: BTreeMap::new(),
-            cursor: None,
-        }
-    }
-
-    /// Folds the open turn too, up to `max_row`. Its ranges come from the translator, not
-    /// from its group row, which is not settled.
-    fn with_live(mut self, live: Option<&LiveFold>, max_row: u64) -> Self {
-        if let Some(live) = live
-            && live.group != 0
-        {
-            self.live = Some(FoldEntry { group: live.group, last: max_row.max(live.group) });
-            self.ranges.insert(live.group, live.out.clone());
-        }
-        self
-    }
-
-    /// The closed fold or the open turn holding `row_id`, if any.
-    fn locate(&mut self, row_id: u64) -> Result<Option<FoldEntry>, Error> {
-        if let Some(live) = self.live
-            && row_id >= live.group
-        {
-            return Ok(Some(live));
-        }
-        self.locate_closed(row_id)
+        Self { index, open, ranges: BTreeMap::new(), validated: BTreeMap::new(), cursor: None }
     }
 
     /// The closed fold holding `row_id`, if any. The first call searches the index; later
     /// calls step from the cursor to neighbouring entries, one 16-byte read each, and a row
     /// in the gap the cursor spans reads nothing.
-    fn locate_closed(&mut self, row_id: u64) -> Result<Option<FoldEntry>, Error> {
+    fn locate(&mut self, row_id: u64) -> Result<Option<FoldEntry>, Error> {
         let Some(index) = self.index else { return Ok(None) };
         let mut cursor = match self.cursor {
             Some(cursor) => cursor,
@@ -570,19 +529,6 @@ impl Log {
         folds: Option<&Folds>,
         open_folds: &[u64],
     ) -> Result<Window, Error> {
-        self.read_window_live(anchor, rows, max_bytes, folds, open_folds, None)
-    }
-
-    /// [`Log::read_window`] with the open turn's fold, `live`, stepped over as a closed one is.
-    pub fn read_window_live(
-        &mut self,
-        anchor: Anchor,
-        rows: usize,
-        max_bytes: usize,
-        folds: Option<&Folds>,
-        open_folds: &[u64],
-        live: Option<&LiveFold>,
-    ) -> Result<Window, Error> {
         if self.broken {
             return Err(Error::Stopped);
         }
@@ -593,7 +539,7 @@ impl Log {
             one_read: false,
         };
         let mut out = Vec::with_capacity(budget.rows.min(512));
-        let mut fold_read = FoldRead::new(folds, open_folds).with_live(live, self.max_row);
+        let mut fold_read = FoldRead::new(folds, open_folds);
         let mut result = match anchor {
             Anchor::End => {
                 let lo =
@@ -681,25 +627,11 @@ impl Log {
         folds: Option<&Folds>,
         open_folds: &[u64],
     ) -> Result<Window, Error> {
-        self.read_page_live(edge, max_bytes, fold, folds, open_folds, None)
-    }
-
-    /// [`Log::read_page`] with the open turn's fold, `live`: folded as a closed one is, and a
-    /// page of it may be asked for by its group.
-    pub fn read_page_live(
-        &mut self,
-        edge: Edge,
-        max_bytes: usize,
-        fold: Option<u64>,
-        folds: Option<&Folds>,
-        open_folds: &[u64],
-        live: Option<&LiveFold>,
-    ) -> Result<Window, Error> {
         if self.broken {
             return Err(Error::Stopped);
         }
         if let Some(group) = fold {
-            return self.read_fold_page(edge, max_bytes, group, folds, open_folds, live);
+            return self.read_fold_page(edge, max_bytes, group, folds, open_folds);
         }
         let mut budget = Budget {
             rows: MAX_ROWS,
@@ -708,7 +640,7 @@ impl Log {
             one_read: folds.is_none(),
         };
         let mut out = Vec::new();
-        let mut fold_read = FoldRead::new(folds, open_folds).with_live(live, self.max_row);
+        let mut fold_read = FoldRead::new(folds, open_folds);
         let mut result = match edge {
             Edge::Before(id) => {
                 let id = self.normalize_anchor(id, &mut fold_read)?;
@@ -735,11 +667,10 @@ impl Log {
         group: u64,
         folds: Option<&Folds>,
         open_folds: &[u64],
-        live: Option<&LiveFold>,
     ) -> Result<Window, Error> {
         let mut opened = open_folds.to_vec();
         opened.push(group);
-        let mut fold_read = FoldRead::new(folds, &opened).with_live(live, self.max_row);
+        let mut fold_read = FoldRead::new(folds, &opened);
         // The request's one search; the walk inside the fold reads no other entry.
         let Some(fold) = fold_read.locate(group)?.filter(|entry| entry.group == group) else {
             return Err(Error::InvalidInput("fold is not in folds.idx"));

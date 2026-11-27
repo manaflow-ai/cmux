@@ -92,7 +92,7 @@ impl Client {
     }
 
     /// A connection with the proof its transport checked (`serve_connection_authed`).
-    pub(super) fn open_authed(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth) -> Self {
+    fn open_authed(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));
@@ -751,11 +751,7 @@ async fn a_prompt_sent_from_inside_another_session_records_that_session_as_its_s
     lane.call("session/prompt", prompt(&receiver, "p-given", "hi", Some(&given))).await;
 
     let from_lane = person.user_message(&receiver, "p-lane").await;
-    assert_eq!(
-        from_lane["text"],
-        crate::signed(&hub, &sender, "report from the lane"),
-        "{from_lane}"
-    );
+    assert_eq!(from_lane["text"], "report from the lane", "{from_lane}");
     // With the sending session's id and harness family, bound from its caller token.
     let stamped = json!({"kind": "session_message", "from": sender, "fromName": name, "to": receiver,
                          "fromSessionId": sender, "fromHarness": "codex", "verified": true});
@@ -807,7 +803,6 @@ async fn a_queued_agent_message_reads_whole_and_names_its_senders_session_and_ha
     let read = person
         .call("_acpmux/queue_text", json!({"sessionId": receiver, "promptId": "p-long"}))
         .await;
-    let whole = crate::signed(&hub, &sender, &whole);
     assert_eq!(read["text"], json!(whole), "{read}");
     assert_eq!(read["prompt"][0]["text"], json!(whole), "{read}");
     assert_eq!(read["turnId"], row["turnId"], "{read}");

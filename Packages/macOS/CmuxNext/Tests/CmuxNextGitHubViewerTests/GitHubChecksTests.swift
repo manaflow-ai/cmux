@@ -178,8 +178,8 @@ struct GitHubChecksTests {
         let job = #"{"steps": [{"name": "Set up", "conclusion": "success"}, {"name": "Run tests", "conclusion": "failure"}]}"#
         #expect(GitHubJobFailure.failingStep(Data(job.utf8)) == "Run tests")
         // The log is read from its end only, not downloaded whole.
-        #expect(GitHubJobFailure.logPath(job: 3) == "actions/jobs/3/logs")
-        #expect(GitHubJobFailure.maximumLog == 512 * 1024)
+        #expect(GitHubJobFailure.logArguments(repository: "o/r", job: 3, tail: true)
+            == ["api", "-H", "Range: bytes=-\(GitHubJobFailure.maximumLog)", "repos/o/r/actions/jobs/3/logs"])
     }
 
     private func provider(_ calls: Calls, checks: GitHubChecksCache) -> GitHubPageProvider {

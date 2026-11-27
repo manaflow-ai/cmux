@@ -10,7 +10,7 @@
 //! know it must re-attach.
 #![cfg(target_os = "linux")]
 
-use crate::carrier_support;
+mod carrier_support;
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};

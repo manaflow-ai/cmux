@@ -290,7 +290,7 @@ extension TabStripView {
     /// Where `id`'s cell shows now, its center in window coordinates; nil when it shows nowhere.
     public func tabCenterInWindow(_ id: TabID) -> CGPoint? {
         guard let cell = cells[id] else { return nil }
-        let frame = TabStripMove.shownFrame(cell.layer)
+        let frame = (cell.layer.presentation() ?? cell.layer).frame
         return tabsClip.convert(CGPoint(x: frame.midX, y: tabsClip.bounds.midY), to: nil)
     }
 }

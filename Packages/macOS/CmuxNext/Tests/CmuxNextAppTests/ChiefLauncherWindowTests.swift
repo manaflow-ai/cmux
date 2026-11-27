@@ -126,8 +126,7 @@ struct ChiefLauncherWindowTests {
 
     /// The first open sits centered, its top a sixth of the way down the screen under the pointer; a drag from any
     /// empty space moves it (the window, past the cmux window's edge too), and it reopens where it was left.
-    @Test(.enabled("needs a display: it opens on the screen under the pointer") { await MainActor.run { !NSScreen.screens.isEmpty } })
-    func itOpensHighAndCenteredThenDragsAnywhereAndComesBackThere() async throws {
+    @Test func itOpensHighAndCenteredThenDragsAnywhereAndComesBackThere() async throws {
         let (f, chief) = try await Self.open()
         defer { f.close() }
         #expect(Self.perform("home.openChiefDock", f))
@@ -181,8 +180,7 @@ struct ChiefLauncherWindowTests {
 
     /// The Chief's own popups (its settings card, a menu or picker: a child panel that takes the keys) and sheets are
     /// not a click outside: the window stays, and gets the keys back when the popup closes.
-    @Test(.enabled("needs a display: a popup and a sheet show and take the keys only on a screen") { await MainActor.run { !NSScreen.screens.isEmpty } })
-    func itsOwnPopupsAndSheetsDoNotHideIt() async throws {
+    @Test func itsOwnPopupsAndSheetsDoNotHideIt() async throws {
         let (f, chief) = try await Self.open()
         defer { f.close() }
         #expect(Self.perform("home.openChiefDock", f))
@@ -231,8 +229,7 @@ struct ChiefLauncherWindowTests {
     }
 
     /// Esc hides it, and so does a click outside (it gives up the keys), each giving the Chief back to Home.
-    @Test(.enabled("needs a display: a click outside is the keys leaving a key window on a screen") { await MainActor.run { !NSScreen.screens.isEmpty } })
-    func escAndAClickOutsideHideIt() async throws {
+    @Test func escAndAClickOutsideHideIt() async throws {
         let (f, chief) = try await Self.open()
         defer { f.close() }
         #expect(Self.perform("home.openChiefDock", f))
@@ -252,8 +249,7 @@ struct ChiefLauncherWindowTests {
         #expect(!launcher.isVisible && !f.controller.frameChiefPanelShown && chief.window !== launcher, "a click outside did not hide it")
     }
 
-    /// A link clicked in the Chief on Home (with `home.chiefDock.openBeside` on) opens its workspace with the Chief
-    /// floating in its window, without the
+    /// A link clicked in the Chief on Home opens its workspace with the Chief floating in its window, without the
     /// keys (the workspace has them), so it does not hide until it had them.
     @Test func aLinkOpensItFloatingWithoutTheKeys() async throws {
         let chief = Chief()

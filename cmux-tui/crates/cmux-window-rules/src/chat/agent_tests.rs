@@ -249,15 +249,3 @@ fn an_agent_opened_workspace_placement() {
         }
     );
 }
-
-#[test]
-fn an_editor_scheme_needs_a_line_in_range_and_a_known_editor() {
-    assert_eq!(editor_scheme(Some(42), Some("dev.zed.Zed")), Some("zed"));
-    assert_eq!(editor_scheme(Some(1), Some("com.microsoft.VSCode")), Some("vscode"));
-    assert_eq!(editor_scheme(Some(10_000_000), Some("dev.zed.zed")), Some("zed"));
-    assert_eq!(editor_scheme(Some(0), Some("dev.zed.zed")), None);
-    assert_eq!(editor_scheme(Some(10_000_001), Some("dev.zed.zed")), None);
-    assert_eq!(editor_scheme(None, Some("dev.zed.zed")), None);
-    assert_eq!(editor_scheme(Some(42), Some("com.apple.TextEdit")), None);
-    assert_eq!(editor_scheme(Some(42), None), None);
-}

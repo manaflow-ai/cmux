@@ -2,8 +2,8 @@
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\", \"author\": \"<who wrote it>\", \"owner\": \"<who removes it>\", \"receipt\": \"Review (<reviewer, not the author>): SHIP at <40-hex sha>\", \"expiry\": \"YYYY-MM-DD\"} as a new file plans/cmux-next/arch-exceptions/<id>.json (one entry per file, <id> a short unique slug such as the PR number, so two pushes that add one never conflict; never append to the exceptions list below, whose old entries are read with the files as one list; an entry with no independent receipt, owner or expiry allows nothing); the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Every blocking_allow_escapes site also needs an escape_reviews entry (path, text, owner, author, receipt, expiry, state): a push that adds a site with no reviewed entry is refused, and --audit lists unreviewed and expired ones. Never CI.",
   "method": "arch_counts",
   "method_version": 6,
-  "measured_sha": "542d7b9af81b685c4e8d1a8d9dd4e9dfa26dbc20",
-  "measured_date": "2026-11-26",
+  "measured_sha": "8612894af4b10885260e320e9b3526f57ed0fb3b",
+  "measured_date": "2026-11-15",
   "rows": {
     "layer_hard": {
       "title": "hard layer edges (core/service/domain -> ui/app)",
@@ -55,34 +55,36 @@
     }
   },
   "totals": {
-    "layer_hard": 31,
-    "layer_soft": 11,
+    "layer_hard": 33,
+    "layer_soft": 12,
     "layer_upward": 3,
-    "layer_unplaced": 1,
-    "stateful_singletons": 196,
-    "global_mutable_statics": 466,
-    "assume_isolated_outside_adapters": 135,
-    "assume_isolated_total": 219,
+    "layer_unplaced": 0,
+    "stateful_singletons": 200,
+    "global_mutable_statics": 470,
+    "assume_isolated_outside_adapters": 142,
+    "assume_isolated_total": 215,
     "app_broadcast_names": 13,
-    "observer_sites": 348,
+    "observer_sites": 351,
     "blocking_allow_escapes": 1,
-    "app_lines": 152097
+    "app_lines": 152923
   },
   "packages": {
     "CmuxAuthRuntime": {
       "stateful_singletons": 1
-    },
-    "CmuxChiefList": {
-      "layer_unplaced": 1
-    },
-    "CmuxEgress": {
-      "global_mutable_statics": 1
     },
     "CmuxHomeRender": {
       "global_mutable_statics": 2,
       "assume_isolated_outside_adapters": 3,
       "assume_isolated_total": 3,
       "observer_sites": 2
+    },
+    "CmuxMobileRPC": {
+      "layer_hard": 1
+    },
+    "CmuxMobileSupport": {
+      "assume_isolated_outside_adapters": 3,
+      "assume_isolated_total": 3,
+      "observer_sites": 4
     },
     "CmuxNextActions": {
       "global_mutable_statics": 2,
@@ -105,42 +107,37 @@
       "layer_soft": 1
     },
     "CmuxNextAgentLanes": {
-      "stateful_singletons": 6,
+      "stateful_singletons": 5,
       "global_mutable_statics": 3,
       "assume_isolated_outside_adapters": 2,
       "assume_isolated_total": 2
     },
     "CmuxNextAgentPane": {
       "stateful_singletons": 24,
-      "global_mutable_statics": 25,
-      "assume_isolated_outside_adapters": 4,
-      "assume_isolated_total": 6,
+      "global_mutable_statics": 26,
+      "assume_isolated_outside_adapters": 3,
+      "assume_isolated_total": 5,
       "app_broadcast_names": 1,
-      "observer_sites": 8
-    },
-    "CmuxNextAgentPanePlacement": {
-      "global_mutable_statics": 1
+      "observer_sites": 7
     },
     "CmuxNextAgentUpdates": {
       "layer_hard": 1,
       "layer_soft": 1
     },
     "CmuxNextApp": {
-      "stateful_singletons": 26,
-      "global_mutable_statics": 66,
-      "assume_isolated_outside_adapters": 17,
-      "assume_isolated_total": 25,
-      "observer_sites": 95,
-      "app_lines": 152097
+      "stateful_singletons": 30,
+      "global_mutable_statics": 65,
+      "assume_isolated_outside_adapters": 20,
+      "assume_isolated_total": 27,
+      "observer_sites": 100,
+      "app_lines": 152923
     },
     "CmuxNextAppCore": {
       "global_mutable_statics": 1
     },
     "CmuxNextApps": {
       "stateful_singletons": 1,
-      "global_mutable_statics": 1,
-      "assume_isolated_total": 1,
-      "observer_sites": 1
+      "global_mutable_statics": 1
     },
     "CmuxNextBookmarks": {
       "stateful_singletons": 1
@@ -151,10 +148,10 @@
       "global_mutable_statics": 1
     },
     "CmuxNextBrowser": {
-      "stateful_singletons": 11,
+      "stateful_singletons": 12,
       "global_mutable_statics": 21,
       "assume_isolated_outside_adapters": 19,
-      "assume_isolated_total": 26,
+      "assume_isolated_total": 24,
       "app_broadcast_names": 1,
       "observer_sites": 15
     },
@@ -192,8 +189,14 @@
     "CmuxNextCompat": {
       "stateful_singletons": 3,
       "global_mutable_statics": 5,
-      "assume_isolated_total": 10,
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 7,
       "observer_sites": 2
+    },
+    "CmuxNextComputerUse": {
+      "layer_hard": 1,
+      "layer_soft": 1,
+      "stateful_singletons": 2
     },
     "CmuxNextControl": {
       "layer_soft": 1,
@@ -218,12 +221,12 @@
       "observer_sites": 2
     },
     "CmuxNextDesign": {
-      "stateful_singletons": 27,
-      "global_mutable_statics": 66,
-      "assume_isolated_outside_adapters": 24,
+      "stateful_singletons": 26,
+      "global_mutable_statics": 65,
+      "assume_isolated_outside_adapters": 25,
       "assume_isolated_total": 37,
       "app_broadcast_names": 4,
-      "observer_sites": 91
+      "observer_sites": 90
     },
     "CmuxNextDesignTokens": {
       "stateful_singletons": 2,
@@ -253,9 +256,7 @@
     },
     "CmuxNextFocusUI": {
       "stateful_singletons": 2,
-      "global_mutable_statics": 1,
-      "assume_isolated_total": 1,
-      "observer_sites": 1
+      "assume_isolated_total": 1
     },
     "CmuxNextHome": {
       "stateful_singletons": 1,
@@ -355,7 +356,7 @@
     },
     "CmuxNextSettings": {
       "layer_hard": 1,
-      "global_mutable_statics": 1,
+      "global_mutable_statics": 3,
       "observer_sites": 5
     },
     "CmuxNextSettingsWindow": {
@@ -392,8 +393,7 @@
       "observer_sites": 11
     },
     "CmuxNextUpdater": {
-      "stateful_singletons": 1,
-      "observer_sites": 5,
+      "observer_sites": 3,
       "blocking_allow_escapes": 1
     },
     "CmuxNextWakeups": {
@@ -427,16 +427,16 @@
     },
     "MessagesLabHome": {
       "stateful_singletons": 21,
-      "global_mutable_statics": 173,
+      "global_mutable_statics": 179,
       "assume_isolated_outside_adapters": 2,
-      "assume_isolated_total": 5,
+      "assume_isolated_total": 4,
       "app_broadcast_names": 1,
       "observer_sites": 29
     },
     "MessagesLabSidebar": {
       "global_mutable_statics": 13,
       "assume_isolated_outside_adapters": 2,
-      "assume_isolated_total": 3,
+      "assume_isolated_total": 2,
       "app_broadcast_names": 1,
       "observer_sites": 6
     },
@@ -451,6 +451,7 @@
   },
   "layer_edges": {
     "hard": [
+      "CmuxMobileRPC (domain) -> CmuxMobileSupport (ui)",
       "CmuxNextAgentCursor (domain) -> CmuxNextDesign (ui)",
       "CmuxNextAgentIntegrations (service) -> CmuxNextPages (ui)",
       "CmuxNextAgentUpdates (service) -> CmuxNextPages (ui)",
@@ -463,6 +464,7 @@
       "CmuxNextBrowserHistory (service) -> CmuxNextBrowser (ui)",
       "CmuxNextBrowserHost (service) -> CmuxNextBrowser (ui)",
       "CmuxNextChromiumWarmup (service) -> CmuxNextBrowser (ui)",
+      "CmuxNextComputerUse (service) -> CmuxNextAgentActivity (ui)",
       "CmuxNextDaemonService (service) -> CmuxNextAgentPane (ui)",
       "CmuxNextDaemonService (service) -> CmuxNextApps (ui)",
       "CmuxNextDaemonService (service) -> CmuxNextLayout (ui)",
@@ -486,6 +488,7 @@
     "soft": [
       "CmuxNextAgentIntegrations (service) -> CmuxNextSettings (domain)",
       "CmuxNextAgentUpdates (service) -> CmuxNextSettings (domain)",
+      "CmuxNextComputerUse (service) -> CmuxNextSettings (domain)",
       "CmuxNextControl (service) -> CmuxNextSettings (domain)",
       "CmuxNextDaemonService (service) -> CmuxNextBridge (domain)",
       "CmuxNextDiff (service) -> CmuxNextSettings (domain)",
@@ -501,9 +504,7 @@
       "CmuxNextWorkspaceNaming (core) -> CmuxNextBridge (domain)",
       "CmuxNextWorkspaceNaming (core) -> CmuxNextDaemon (service)"
     ],
-    "unplaced": [
-      "CmuxChiefList"
-    ]
+    "unplaced": []
   },
   "exceptions": [
     {
@@ -1591,16 +1592,6 @@
         "286a94755b8851a99976468596184bc19eef6fe5"
       ],
       "applied_sha": "2bb3ce00e99e3c1bd9e33c5b71941ff38825db9f"
-    },
-    {
-      "date": "2026-11-26",
-      "row": "layer_unplaced",
-      "allow": 1,
-      "why": "generated by --update: the rise landed on origin/feat-cmux-next past the hook",
-      "raised_by": [
-        "2244eea88b0200f4d75cb7bd8f03cd9aa7f9f38c"
-      ],
-      "applied_sha": "542d7b9af81b685c4e8d1a8d9dd4e9dfa26dbc20"
     }
   ],
   "escape_reviews": [
@@ -1622,15 +1613,10 @@
     "LowPowerMode",
     "MainActorObservation",
     "PageHostPool",
-    "SubagentUserInputWatch",
     "VideoPlayback",
     "start",
     "toggle",
     "toggleVideo",
     "watchUser"
-  ],
-  "reanchor": {
-    "measured_sha": "92aeb2987f12fc87762cd724d9f805cc2fa2d221",
-    "at": "dbda3f2624efeb7967c9cdbf8ea5361c82ab2568"
-  }
+  ]
 }

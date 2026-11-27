@@ -12,7 +12,6 @@ thread_local! {
     static FRAME_ROWS: Cell<u64> = const { Cell::new(0) };
     static PATCH_CHANGES: Cell<u64> = const { Cell::new(0) };
     static PUBLIC_DELTAS: Cell<u64> = const { Cell::new(0) };
-    static WORKSPACE_LIST_WALK: Cell<u64> = const { Cell::new(0) };
 }
 
 /// The walks this thread ran so far.
@@ -34,9 +33,6 @@ pub(crate) struct WalkCounts {
     pub(crate) patch_changes: u64,
     /// Public deltas (JSON values) in the projections that a projection commit prepared.
     pub(crate) public_deltas: u64,
-    /// Workspaces visited (cloned, hashed, validated, read as a row or serialized) by a walk of the whole
-    /// workspace list of a create or a focus: each such walk makes the request cost follow the session.
-    pub(crate) workspace_list_walk: u64,
 }
 
 fn add(counter: &'static std::thread::LocalKey<Cell<u64>>, items: usize) {
@@ -68,10 +64,6 @@ pub(crate) fn projection_prepared(patch_changes: usize, public_deltas: usize) {
     add(&PUBLIC_DELTAS, public_deltas);
 }
 
-pub(crate) fn workspace_list_walked(workspaces: usize) {
-    add(&WORKSPACE_LIST_WALK, workspaces);
-}
-
 #[cfg(unix)]
 pub(crate) fn walk_counts_for_test() -> WalkCounts {
     WalkCounts {
@@ -82,6 +74,5 @@ pub(crate) fn walk_counts_for_test() -> WalkCounts {
         frame_rows: FRAME_ROWS.with(Cell::get),
         patch_changes: PATCH_CHANGES.with(Cell::get),
         public_deltas: PUBLIC_DELTAS.with(Cell::get),
-        workspace_list_walk: WORKSPACE_LIST_WALK.with(Cell::get),
     }
 }

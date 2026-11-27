@@ -48,7 +48,10 @@ The rule is enforced in three places:
 - `MainThreadWatchdog` samples stalls and reports hangs (Chrome's `HangWatcher`).
 - The lints refuse new blocking calls in main-actor code.
 
-Each thread's owner, QoS and bound, and what it may block on, are listed in
+The contributor guide holds the full rule: where each kind of work goes, how WebKit and Chromium views fit,
+and every check. See
+[skills/cmux-architecture/references/main-thread-model.md](../../skills/cmux-architecture/references/main-thread-model.md).
+Each thread's owner, QoS and bound are listed in
 [plans/cmux-next/threading-model.md](../../plans/cmux-next/threading-model.md).
 
 [tt]: https://chromium.googlesource.com/chromium/src/+/main/docs/threading_and_tasks.md

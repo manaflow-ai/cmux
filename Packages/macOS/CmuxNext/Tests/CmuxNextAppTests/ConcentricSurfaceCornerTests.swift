@@ -75,6 +75,7 @@ import Testing
             ("PopupStyle.rowCornerRadius", popup.rowCornerRadius, max(0, popup.cornerRadius - popup.padding)),
             ("ServerMetrics.cardRadius", ServerMetrics.cardRadius, corners.inner),
             ("Metrics.itemCornerRadius", Metrics.itemCornerRadius, corners.radius(depth: 2)),
+            ("TooltipPanel.radius", TooltipPanel.radius, corners.radius(depth: 2)),
             ("ServerMetrics.fieldRadius", ServerMetrics.fieldRadius, corners.radius(depth: 2)),
         ]
         for (name, value, expected) in nested {
@@ -82,12 +83,13 @@ import Testing
         }
     }
 
-    /// Compact scales Default's corners and spacing by 0.9, on the half-point grid.
+    /// Unset, the corners start from the omnibar's 8 pt (Lawrence 2026-11-05): 8 pt panels and
+    /// cards, 4 pt items, and a popover row 4 pt inside its card.
     @Test func theDefaultsKeepTheCompactScale() {
         reset()
-        #expect(Metrics.panelCornerRadius == 7)
-        #expect(Metrics.itemCornerRadius == 2)
-        #expect(FloatingGlassStyle.card.cornerRadius == 7)
+        #expect(Metrics.panelCornerRadius == 8)
+        #expect(Metrics.itemCornerRadius == 4)
+        #expect(FloatingGlassStyle.card.cornerRadius == 8)
         #expect(PopupStyle.standard.rowCornerRadius == PopupStyle.standard.cornerRadius - PopupStyle.standard.padding)
     }
 }

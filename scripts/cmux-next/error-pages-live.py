@@ -29,7 +29,6 @@ import argparse, ssl, functools, glob, http.server, json, os, plistlib, socket, 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
-from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -124,15 +123,9 @@ def open_tab(engine, url, agent=False):
 
 def close_tab():
     global TAB
-    closed = TAB
     rpc("action.run", {"action": "closeTab", "origin": "script"})
     TAB = None
-    if closed:
-        # Until the closed tab stops answering debug.browser.page_status.
-        if not quiet_wait(lambda: "certificate" not in rpc("debug.browser.page_status", {"tab": closed}), 10):
-            print(f"note: tab {closed} still answers 10 s after closeTab", flush=True)
-    else:
-        wait_stable(windows, "the window list after closing the tab", timeout=10, raise_on_timeout=False)
+    time.sleep(1)
 
 
 def https_server():

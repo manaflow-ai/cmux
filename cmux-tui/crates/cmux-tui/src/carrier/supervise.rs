@@ -14,10 +14,8 @@
 //!   resume `closed`); `{"token":R,"env":{…}}` answers `read_token` `R` with
 //!   the child's environment (the access token under
 //!   `CMUX_CLOUD_ACCESS_TOKEN`), `{"token":R,"error":E}` with why it has
-//!   none, `{"token":R,"fenced":true}` with the account having ended;
-//!   `{"ahead":D,"keep_ms":K}` dials the machine ahead of its session (ask
-//!   `D`, unique per process; see below). Any other line is skipped. The end
-//!   of stdin is a stop.
+//!   none, `{"token":R,"fenced":true}` with the account having ended. Any
+//!   other line is skipped. The end of stdin is a stop.
 //! - stderr, one JSON object per line, to the app: `{"read_token":R}`;
 //!   `{"resume":[W…],"socket":PATH}` or `{"resume":[W…],"error":E}`;
 //!   `{"publish":"owner"|"team"|"unknown"}` for each connection's grant
@@ -29,19 +27,6 @@
 //!   unanswered token read) in one bounded line with no credential
 //!   ([`supervise_wire::log_line`]); the app writes it to its unified log,
 //!   category `cloud.carrier`, at a level release builds keep.
-//! - Dial ahead: while a child serves, `ahead` makes this process open one
-//!   connection on the serving socket, which the serve answers by dialing
-//!   the machine (its first accepted connection), so the session's own first
-//!   connection only opens a stream on the session held. The connection
-//!   carries nothing (what the serve sends on it is read and dropped) and is
-//!   held, so the serve keeps that session, until the first of: the next
-//!   `connect` line, a park, a stop or the account's end, its child's exit,
-//!   the serve closing its end (a refused dial), or `K` ms (at most an hour).
-//!   At most one is held. Its dial's outcome comes as every connection's
-//!   does (a `publish` line, or a refusal in `state`). An ask that holds no
-//!   connection (no child serves yet, one is held already, or the socket took
-//!   none), or whose child exits under its connection, is answered
-//!   `{"ahead":D,"held":false}`.
 //! - The serve child is this executable's `carrier serve --machine --socket`,
 //!   spawned with this process's environment plus the app's `env`. Its stdin
 //!   gets the token lines; its stderr lines become the machine's events; its
@@ -66,8 +51,7 @@ use std::time::Duration;
 
 use cmux_file_lock::{FileLock, Kind};
 use cmux_scope::Scope;
-use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _};
-use tokio::net::UnixStream;
+use tokio::io::AsyncBufReadExt as _;
 use tokio::net::unix::pipe;
 use tokio::sync::{mpsc, oneshot};
 
@@ -258,13 +242,6 @@ enum Msg {
     /// A `read_token` line's deadline: the read fails when it is still unanswered.
     TokenReadDeadline(ReadId),
     Signal(ChildId, i32),
-    /// The connection of `ahead` ask `dial` is gone (its keep ended or the
-    /// serve closed its end), or was never made (`connected` false).
-    AheadEnded {
-        generation: u64,
-        dial: u64,
-        connected: bool,
-    },
 }
 
 /// A child's pid, signalled only while it is unreaped: its waiter marks it
@@ -309,10 +286,6 @@ struct Supervisor {
     /// The refusal and answer the app last got.
     shown: (Option<LinkError>, Option<Caller>),
     queue: VecDeque<Event>,
-    /// The connection that dialed the machine ahead of its session, held by
-    /// its task for the ask it names: dropping the sender closes it. The
-    /// generation tells a current task's end from an older one's.
-    ahead: (u64, Option<(u64, oneshot::Sender<()>)>),
 }
 
 impl Supervisor {
@@ -332,7 +305,6 @@ impl Supervisor {
             refresh: (0, None),
             shown,
             queue: VecDeque::new(),
-            ahead: (0, None),
         }
     }
 
@@ -345,26 +317,18 @@ impl Supervisor {
         match msg {
             Msg::App(text) => match wire::app_line(&text) {
                 Some(AppLine::Connect { waiter, keep_refusal }) => {
-                    // A client connects: the connection that dialed ahead
-                    // goes. A dial still running for it goes on in the serve
-                    // (which reads no connection before its stream is open),
-                    // and the client's connection joins it.
-                    self.drop_ahead();
                     self.note(&format!("connect {waiter}"));
                     self.dispatch(Event::Connect { waiter, keep_refusal });
                 }
                 Some(AppLine::Park) => {
-                    self.drop_ahead();
                     self.note("park");
                     self.dispatch(Event::Park);
                 }
                 Some(AppLine::Stop) => {
-                    self.drop_ahead();
                     self.note("stop");
                     self.dispatch(Event::Stop);
                 }
                 Some(AppLine::AccountEnded) => {
-                    self.drop_ahead();
                     self.note("account ended: stop");
                     self.dispatch(Event::AccountEnded);
                 }
@@ -373,11 +337,9 @@ impl Supervisor {
                         self.dispatch(Event::TokenRead { epoch, read, result });
                     }
                 }
-                Some(AppLine::Ahead { dial, keep }) => self.dial_ahead(dial, keep),
                 None => {}
             },
             Msg::AppEnded => {
-                self.drop_ahead();
                 self.note("the app's input ended: stop");
                 self.dispatch(Event::Stop);
             }
@@ -419,45 +381,7 @@ impl Supervisor {
                     slot.reap.signal(signal);
                 }
             }
-            Msg::AheadEnded { generation, dial, connected } => {
-                // An older ask's task, or one already dropped, says nothing.
-                if generation == self.ahead.0 && self.ahead.1.take().is_some() {
-                    if connected {
-                        self.note(&format!("ahead {dial}: its connection ended"));
-                    } else {
-                        self.note(&format!("ahead {dial}: the serving socket took no connection"));
-                        (self.out)(wire::ahead_not_held_line(dial));
-                    }
-                }
-            }
         }
-    }
-
-    /// One connection on the serving socket, held for at most `keep`: the
-    /// serve dials the machine for it (the contract's "Dial ahead").
-    fn dial_ahead(&mut self, dial: u64, keep: Duration) {
-        if !matches!(self.machine.state(), State::Ready(..)) || self.ahead.1.is_some() {
-            self.note(&format!("ahead {dial}: not held (no serve is ready, or one is held)"));
-            (self.out)(wire::ahead_not_held_line(dial));
-            return;
-        }
-        let generation = self.ahead.0.wrapping_add(1);
-        let (cancel, cancelled) = oneshot::channel::<()>();
-        let (socket, tx) = (self.config.socket.clone(), self.tx.clone());
-        self.scope.spawn_until_cancelled("carrier supervise ahead", async move {
-            let connected = hold_ahead(&socket, keep, cancelled).await;
-            let _ = tx.send(Msg::AheadEnded { generation, dial, connected });
-        });
-        self.ahead = (generation, Some((dial, cancel)));
-        self.note(&format!("ahead {dial}: dialing"));
-    }
-
-    /// Closes the connection held ahead, if one is; its ask.
-    fn drop_ahead(&mut self) -> Option<u64> {
-        let (dial, _cancel) = self.ahead.1.take()?;
-        self.ahead.0 = self.ahead.0.wrapping_add(1);
-        self.note(&format!("ahead {dial}: its connection is dropped"));
-        Some(dial)
     }
 
     /// Reduces `event`, and every event its effects queue, in order.
@@ -482,11 +406,6 @@ impl Supervisor {
                 self.lease = None;
             }
             if let Some(child) = exited {
-                // Its socket is gone with it: an ask still waiting for the
-                // serve's answer is told now, not left to its limit.
-                if let Some(dial) = self.drop_ahead() {
-                    (self.out)(wire::ahead_not_held_line(dial));
-                }
                 self.children.remove(&child);
                 if matches!(self.lease, Some((_, Some(owner))) if owner == child) {
                     self.lease = None;
@@ -681,34 +600,6 @@ impl Supervisor {
         self.note(&format!("serve child {child} started"));
         self.queue.push_back(Event::Spawned { child, failure: None });
     }
-}
-
-/// One connection on the serving socket at `socket`, held until `keep`
-/// passed (counted from the ask), the serve closed its end, or `cancelled`
-/// (its sender dropped), which also ends a connect still under way. What
-/// the serve sends on it is read and dropped. False when no connection was
-/// made: the socket took none, or `keep` passed first.
-async fn hold_ahead(socket: &str, keep: Duration, mut cancelled: oneshot::Receiver<()>) -> bool {
-    let kept = tokio::time::sleep(keep);
-    tokio::pin!(kept);
-    let mut stream = tokio::select! {
-        stream = UnixStream::connect(socket) => match stream {
-            Ok(stream) => stream,
-            Err(_) => return false,
-        },
-        () = &mut kept => return false,
-        _ = &mut cancelled => return true,
-    };
-    let ended = async {
-        let mut dropped = [0_u8; 1024];
-        while matches!(stream.read(&mut dropped).await, Ok(read) if read > 0) {}
-    };
-    tokio::select! {
-        () = ended => {}
-        () = &mut kept => {}
-        _ = &mut cancelled => {}
-    }
-    true
 }
 
 /// Takes the lease at `path` within `wait`; None when another holder kept

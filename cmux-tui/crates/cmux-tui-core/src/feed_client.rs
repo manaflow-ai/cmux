@@ -60,10 +60,6 @@ pub enum FeedEvent {
     View { revision: u64, changed: Vec<String> },
     /// `feed-reports-changed`.
     Reports { revision: u64 },
-    /// The `github.changed` app stream: GitHub data changed (`live: None`, a pushed webhook), or
-    /// whether the Cloud can push GitHub changes now moved (`live: Some(_)`: the feed socket is up
-    /// and the person has a usable GitHub connection there).
-    GitHubChanged { live: Option<bool> },
 }
 
 /// Sends a report reply to an acpmux session (`acpmux send --no-wait
@@ -148,9 +144,6 @@ pub(crate) struct Inner {
     pub(crate) wake: Condvar,
     pub(crate) deps: FeedDeps,
     pub(crate) shutdown: AtomicBool,
-    /// The Cloud pushes GitHub changes on the live feed socket (`integration.watching {live}`,
-    /// or a change it pushed); false while signed out, offline or with no GitHub connection.
-    pub(crate) github_push_live: AtomicBool,
     reply: Mutex<Option<ReplySender>>,
 }
 
@@ -299,7 +292,6 @@ impl FeedClient {
                 wake: Condvar::new(),
                 deps,
                 shutdown: AtomicBool::new(false),
-                github_push_live: AtomicBool::new(false),
                 reply: Mutex::new(None),
             }),
         }
@@ -319,13 +311,6 @@ impl FeedClient {
             driver::start(&self.inner);
         }
         reports::start(&self.inner);
-    }
-
-    /// Whether the Cloud pushes GitHub changes now (the `github.changed` stream is live). Starts the
-    /// cloud driver, so a reader that waits on pushes gets them without opening the Feed page.
-    pub fn github_push_live(&self) -> bool {
-        self.ensure_started();
-        self.inner.github_push_live.load(Ordering::SeqCst)
     }
 
     /// Stops every thread of the client: each ends at its next wakeup,

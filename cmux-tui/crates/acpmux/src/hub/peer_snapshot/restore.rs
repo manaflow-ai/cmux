@@ -62,151 +62,6 @@ const READ_WAITS: [Duration; 5] = [
 /// The longest a prompt to a peer waits for that peer's restores, after which it fails.
 const GATE_WITHIN: Duration = Duration::from_secs(30);
 
-/// One page of a restore to a machine that takes pages (`journal_restore.rs` `PAGES_FEATURE`):
-/// at most this many records, and about this many bytes of them (one record past it when a
-/// single record is larger). A link cut midway costs the page in flight, never those before it.
-const PAGE_RECORDS: usize = 256;
-const PAGE_BYTES: usize = 64 << 10;
-
-/// The longest a restore of one copy really holds its session: the machine's own hold between
-/// two tries (`journal_restore.rs` `RESTORE_HOLD`), past which the machine lets its prompts go
-/// anyway. A holder past twice this is stale, and the next link's restore goes around it
-/// ([`Holds::take`]).
-const LONGEST_HOLD: Duration = Duration::from_secs(60);
-
-/// A restore's own deadline, from when it took its copy (H14: never a request's): its pages and
-/// their retries go on until it, then the session stays held until a later link.
-const RESTORE_DEADLINE: Duration = Duration::from_secs(10 * 60);
-
-/// Each restore of a copy under way, by peer, session and generation (cmuxterm-hq
-/// `docs/design/remote-cloud-durability.md` 4.5, H14 and H15): which link holds it, the step it
-/// reached (where the machine's journal ends after its last page) and when it began; its guard
-/// carries its own deadline. One restore of a copy runs at a time; a later one waits for the holder, and goes
-/// around it once the holder is stale (its link is gone, or it began more than twice
-/// [`LONGEST_HOLD`] ago), resuming from where the machine's journal ends, which its row says.
-#[derive(Default)]
-pub(crate) struct Holds {
-    held: StdMutex<HashMap<(String, String, u64), Hold>>,
-    released: Notify,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct Hold {
-    link: Link,
-    /// Where the machine's journal ends after the last page it took.
-    step: u64,
-    began: tokio::time::Instant,
-    /// Tells a holder from the one that went around it.
-    token: u64,
-}
-
-/// A held restore; dropped, it lets the next one go. A holder that was gone around releases
-/// nothing (its token is not the entry's).
-pub(crate) struct HoldGuard<'a> {
-    holds: &'a Holds,
-    key: (String, String, u64),
-    token: u64,
-    pub(crate) deadline: tokio::time::Instant,
-}
-
-impl Holds {
-    /// Takes the restore of `peer`'s `session` (generation `generation`) for link `link`: at
-    /// once when nobody holds it; after the holder lets go; or around a holder that is stale
-    /// (`current` says its link is gone, or it began more than twice [`LONGEST_HOLD`] ago).
-    /// None when a live holder kept it past twice [`LONGEST_HOLD`] of waiting (it never does:
-    /// it is stale by then).
-    pub(crate) async fn take(
-        &self,
-        (peer, session, generation): (&str, &str, u64),
-        link: Link,
-        current: impl Fn(Link) -> bool,
-    ) -> Option<HoldGuard<'_>> {
-        static TOKENS: AtomicU64 = AtomicU64::new(1);
-        let key = (peer.to_owned(), session.to_owned(), generation);
-        let stale_after = LONGEST_HOLD * 2;
-        let give_up = tokio::time::Instant::now() + stale_after + LONGEST_HOLD;
-        loop {
-            let released = self.released.notified();
-            tokio::pin!(released);
-            released.as_mut().enable();
-            let now = tokio::time::Instant::now();
-            {
-                let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
-                let free = match held.get(&key) {
-                    None => true,
-                    Some(h) if !current(h.link) || now >= h.began + stale_after => {
-                        tracing::warn!(
-                            peer,
-                            session,
-                            step = h.step,
-                            held_for = ?now - h.began,
-                            "a restore's holder is stale (its link is gone, or it held past twice the longest real hold); this one goes around it"
-                        );
-                        true
-                    }
-                    Some(_) => false,
-                };
-                if free {
-                    let token = TOKENS.fetch_add(1, Ordering::Relaxed);
-                    let deadline = now + RESTORE_DEADLINE;
-                    held.insert(key.clone(), Hold { link, step: 0, began: now, token });
-                    return Some(HoldGuard { holds: self, key, token, deadline });
-                }
-            }
-            if now >= give_up {
-                return None;
-            }
-            // Woken by a release; read again at the latest when the holder turns stale.
-            let _ = tokio::time::timeout_at(give_up.min(now + stale_after), released).await;
-        }
-    }
-}
-
-impl HoldGuard<'_> {
-    /// The machine's journal ends at `step` now.
-    fn step(&self, step: u64) {
-        let mut held = self.holds.held.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(h) = held.get_mut(&self.key).filter(|h| h.token == self.token) {
-            h.step = h.step.max(step);
-        }
-    }
-}
-
-impl Drop for HoldGuard<'_> {
-    fn drop(&mut self) {
-        let mut held = self.holds.held.lock().unwrap_or_else(|e| e.into_inner());
-        if held.get(&self.key).is_some_and(|h| h.token == self.token) {
-            held.remove(&self.key);
-        }
-        drop(held);
-        self.holds.released.notify_waiters();
-    }
-}
-
-/// The records of `records` past `after`, at most one page ([`PAGE_RECORDS`], [`PAGE_BYTES`]).
-fn page_past(records: &[Value], after: u64) -> Vec<Value> {
-    let mut bytes = 0;
-    let mut page = Vec::new();
-    for r in records.iter().filter(|r| seq_of(r).is_some_and(|s| s > after)) {
-        let size = r.to_string().len();
-        if !page.is_empty() && (page.len() >= PAGE_RECORDS || bytes + size > PAGE_BYTES) {
-            break;
-        }
-        bytes += size;
-        page.push(r.clone());
-    }
-    page
-}
-
-/// A page the machine took whole (`journal_restore.rs` `page_taken`): where its journal ends.
-fn page_taken(e: &RpcError) -> Option<u64> {
-    let data = e.data.as_ref()?;
-    if data.get("page").and_then(Value::as_bool) != Some(true) {
-        return None;
-    }
-    data.get("lastSeq")?.as_u64()
-}
-
 /// What a peer's link decided of its copies.
 #[derive(Clone)]
 struct Decision {
@@ -226,8 +81,6 @@ struct Decision {
 pub(crate) struct Gate {
     decided: StdMutex<HashMap<String, Decision>>,
     done: Notify,
-    /// Each restore of a copy under way: its holder, step and deadline ([`Holds`]).
-    holds: Holds,
 }
 
 impl Gate {
@@ -466,43 +319,20 @@ impl Hub {
             // `lastSeq`, not where its recovery began, so a proof the restore did not give back
             // is read against what the journal holds there, as before.
             let mut ends = lasts;
-            for (mux, created_at, mut after, mut records) in ahead {
+            for (mux, created_at, mut after, records) in ahead {
                 let Some(mut through) = records.iter().filter_map(seq_of).max() else { continue };
                 let files = restore_files(&hub.outbox, (&peer, &mux, created_at));
-                // One restore of this copy at a time, with its own deadline (`Holds`); a holder
-                // whose link is gone is gone around.
-                let current = |l: Link| {
-                    hub.peer(&peer).is_some_and(|p| (p.generation, p.link_epoch()) == l)
-                };
-                let key = (peer.as_str(), mux.as_str(), created_at);
-                let Some(hold) = hub.peer_snapshots.restoring.holds.take(key, link, current).await else {
-                    held.insert(mux);
-                    continue;
-                };
+                let mut params = json!({"sessionId": mux, "createdAt": created_at,
+                                    "afterSeq": after, "records": records, "files": files});
                 let mut done = false;
                 let mut waits: std::collections::VecDeque<Duration> = RETRY_WAITS.into();
                 while let Some(wait) = waits.pop_front() {
-                    if tokio::time::Instant::now() >= hold.deadline {
-                        tracing::warn!(peer, session = %mux, after, "a restore ran past its own deadline; its session stays held");
-                        break;
-                    }
                     let Some(to) = on_link() else { return };
-                    // In pages to a machine that listed them on this link (`journal_restore.rs`
-                    // `PAGES_FEATURE`): a cut costs the page in flight, and the next link goes on
-                    // from where the journal ends. Whole, as before, to one that did not.
-                    let paged = to.lists_on(crate::hub::journal_restore::PAGES_FEATURE)
-                        == Some(link.1);
-                    let page = if paged { page_past(&records, after) } else { records.clone() };
-                    let page_end = page.iter().filter_map(seq_of).max().unwrap_or(after);
-                    let mut params = json!({"sessionId": mux, "createdAt": created_at,
-                                        "afterSeq": after, "records": page, "files": files});
-                    if let (true, Some(p)) = (paged, params.as_object_mut()) {
-                        p.insert("throughSeq".into(), json!(through));
-                    }
                     // On this link's epoch only (review of #37284 at 98b4575a, F1): a link
                     // replaced since the check never carries it to the next machine.
-                    let answer =
-                        to.request_on("_acpmux/journal_restore", params, Some(link.1)).await;
+                    let answer = to
+                        .request_on("_acpmux/journal_restore", params.clone(), Some(link.1))
+                        .await;
                     if on_link().is_none() {
                         return;
                     }
@@ -523,14 +353,6 @@ impl Hub {
                             done = true;
                             break;
                         }
-                        // A page went in whole: the next goes on from where the journal ends,
-                        // with every retry again (progress is no failed try).
-                        Err(e) if paged && page_taken(&e).is_some_and(|last| last >= page_end) => {
-                            after = page_taken(&e).unwrap_or(page_end);
-                            hold.step(after);
-                            waits = RETRY_WAITS.into();
-                            continue;
-                        }
                         // Its journal ends with its own recovery, from `afterSeq` on (review of
                         // #37284 at 4dcbe192, F1): the copy goes back from there, once.
                         Err(e) if recovered(&e).is_some_and(|a| a < after) => {
@@ -542,16 +364,15 @@ impl Hub {
                             let Some((ahead, since)) = read.await.ok().flatten() else { break };
                             let proofs = od::proofs_past(&hub.outbox, &peer, &row, &since);
                             let (ahead, over) = with_proofs(ahead, proofs, &row);
-                            let Some((.., from_records)) = ahead.into_iter().find(|a| a.0 == mux)
-                            else {
+                            let Some((.., records)) = ahead.into_iter().find(|a| a.0 == mux) else {
                                 held.extend(over);
                                 break;
                             };
                             tracing::info!(peer, session = %mux, from, "the peer's journal ends with its own recovery; the copy goes back from where it began");
-                            through =
-                                from_records.iter().filter_map(seq_of).max().unwrap_or(through);
-                            records = from_records;
+                            through = records.iter().filter_map(seq_of).max().unwrap_or(through);
                             after = from;
+                            params = json!({"sessionId": mux, "createdAt": created_at,
+                                            "afterSeq": after, "records": records, "files": files});
                             // Sent again at once, as the same try.
                             waits.push_front(wait);
                             continue;
@@ -573,7 +394,6 @@ impl Hub {
                     }
                     tokio::time::sleep(wait).await;
                 }
-                drop(hold);
                 if !done {
                     held.insert(mux);
                 }

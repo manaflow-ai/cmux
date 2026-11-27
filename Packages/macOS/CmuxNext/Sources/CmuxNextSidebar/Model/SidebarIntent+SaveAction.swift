@@ -20,7 +20,6 @@ extension SidebarIntent {
         case .close: ("closeWorkspace", nil)
         case .setIcon: ("workspace.setIcon", nil)
         case .reorderProfile: ("space.move", nil)
-        case let .openPort(_, _, label): ("workspace.openPort", label)
         default: ("moveWorkspaceToGroup", SidebarDocStore.moveTitle)
         }
     }

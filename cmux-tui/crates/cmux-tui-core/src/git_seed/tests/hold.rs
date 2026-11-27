@@ -68,10 +68,8 @@ fn a_held_copy_opens_at_its_head_and_reads_ready_only_once_it_ends() {
 }
 
 #[test]
-fn a_head_that_would_start_hooks_is_never_marked() {
-    for settings in
-        [".claude/settings.local.json", ".claude/settings.json", "app/.claude/settings.json"]
-    {
+fn a_head_that_would_start_mcp_servers_or_hooks_is_never_marked() {
+    for settings in [".mcp.json", ".claude/settings.json", "app/.mcp.json"] {
         let home = Home::new("hold-settings");
         let service = service(&home);
         let folder = home.join("work/notes");

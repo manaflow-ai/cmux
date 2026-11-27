@@ -225,27 +225,6 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
         try await perform(client, "move-tab", ["surface": surface, "pane": pane, "index": destination.tabCount])
     }
 
-    /// A drag on the Panes page: `move-tab {surface, pane, index}`, `index` the anchor's place in
-    /// the pane on the Mac (an insertion point: the daemon takes one off past the tab's own place
-    /// in its own pane), or past every tab the pane holds when there is no anchor.
-    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, before anchor: WorkspaceTab?, in workspace: Workspace) async throws {
-        let (client, surface) = try target(tab, in: workspace)
-        guard let destination = layout(of: workspace)?.pane(pane) else {
-            throw WorkspaceCreationError("That pane is no longer on the Mac.", isForPerson: true)
-        }
-        let places = sync.tree?.tabPlaces ?? [:]
-        guard let from = places[tab.id] else { throw WorkspaceCreationError("The Mac doesn't list this tab") }
-        var index = destination.tabCount
-        if let anchor {
-            guard let place = places[anchor.id], place.pane == pane else {
-                throw WorkspaceCreationError("That place in the pane is no longer on the Mac.", isForPerson: true)
-            }
-            index = place.index
-        }
-        if from.pane == pane, index == from.index || index == from.index + 1 { return }
-        try await perform(client, "move-tab", ["surface": surface, "pane": pane, "index": index])
-    }
-
     /// Resize Pane: `set-split-ratio {split, ratio, transaction}` for a divider of the workspace's
     /// screens, inside the range the stepper offers.
     public func setSplitRatio(_ split: Int, to ratio: Double, in workspace: Workspace) async throws {

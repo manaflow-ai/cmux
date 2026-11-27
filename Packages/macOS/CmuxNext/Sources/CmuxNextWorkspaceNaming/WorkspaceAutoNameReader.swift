@@ -30,11 +30,6 @@ public struct WorkspaceAutoNameReader {
     /// The title an unnamed workspace whose shell idles at its home reads (a Cloud machine's "Terminal",
     /// `SidebarMapping.homeShellName`); nil for a machine whose home folder names its rows.
     let homeShellTitle: @MainActor (WorkspaceModel) -> String?
-    /// The title a Cloud chat start lends the New Tab page that sent it, and the chat it opened (`AgentCloudStartTitles`).
-    let cloudStarts: AgentCloudStartTitles
-    /// The Cloud tab a Mac tab shows in place (the app's `CloudFrontedChats`), nil for any other tab: the row of a
-    /// Mac tab that turned into a Cloud chat reads as that chat (cmux#55540), never as its own New Tab page.
-    let shown: @MainActor (TabModel) -> TabModel?
 
     /// - Parameters:
     ///   - enabled: `workspaces.autoName`.
@@ -46,15 +41,11 @@ public struct WorkspaceAutoNameReader {
     ///   - hold: the names rows keep while their front tab's is unknown; the
     ///     app's one (`AppServices.autoNameHold`), since it builds a reader per row it maps.
     ///   - homeShellTitle: what an unnamed workspace whose shell idles at its home reads, by its machine.
-    ///   - cloudStarts: the titles of Cloud chat starts (the app's `AppServices.cloudStartTitles`).
-    ///   - shown: the Cloud tab a Mac tab shows in place, if it shows one.
     public init(enabled: @escaping @MainActor () -> Bool, isNewTabPage: @escaping @MainActor (TabModel) -> Bool,
                 livePage: @escaping @MainActor (TabModel) -> LivePage?, incognitoTitle: @escaping @MainActor (TabModel) -> String??,
                 terminal: @escaping @MainActor (TabModel) -> NewWorkspaceName.Tab, turns: AgentTurnStateStore = .shared,
                 hold: WorkspaceAutoNameHold, allowsLegacyDefaults: @escaping @MainActor (WorkspaceModel) -> Bool = { _ in true },
-                homeShellTitle: @escaping @MainActor (WorkspaceModel) -> String? = { _ in nil },
-                cloudStarts: AgentCloudStartTitles = AgentCloudStartTitles(),
-                shown: @escaping @MainActor (TabModel) -> TabModel? = { _ in nil }) {
+                homeShellTitle: @escaping @MainActor (WorkspaceModel) -> String? = { _ in nil }) {
         self.enabled = enabled
         self.isNewTabPage = isNewTabPage
         self.livePage = livePage
@@ -64,8 +55,6 @@ public struct WorkspaceAutoNameReader {
         self.hold = hold
         self.allowsLegacyDefaults = allowsLegacyDefaults
         self.homeShellTitle = homeShellTitle
-        self.cloudStarts = cloudStarts
-        self.shown = shown
     }
 
     /// The rule as `workspaces.autoName` and `workspaces.autoName.variant` set it now.
@@ -85,10 +74,7 @@ public struct WorkspaceAutoNameReader {
         let rule = self.rule
         // The sidebar page face, titlebar and palette all read this label. Only the face
         // chat supplies naming facts; never promote a background chat or a raw prompt.
-        let sent = tab.kind == .browser ? (work ?? tab) : tab
-        // A Mac tab showing a Cloud chat in place names the row as that chat; until the chat has a title of its
-        // own, as the start's prompt, which stays with the Mac tab (cmux#55540).
-        let face = shown(sent) ?? sent
+        let face = tab.kind == .browser ? (work ?? tab) : tab
         if let session = face.agentSession, !isNewTabPage(face) {
             let allowsLegacyDefaults = self.allowsLegacyDefaults(workspace)
             let protectedName = WorkspaceAutoName.isUserNamed(name: workspace.name, title: workspace.title,
@@ -96,18 +82,8 @@ public struct WorkspaceAutoNameReader {
                                                                nameRevision: workspace.nameRevision,
                                                                allowsLegacyDefaults: allowsLegacyDefaults)
             let sessionName = turns.sessionName(for: session)
-            let givenName = NewWorkspaceName.clean(turns.displayName(for: session))
-            // A rename moves the session's old name into `formerNames`: a workspace its launcher named after the
-            // agent still reads as the agent's name now, never frozen on the name it had at launch.
-            // acpmux keeps only a few former names, so the hold remembers a match once seen (`WorkspaceAutoNameHold`).
-            var formerNames = turns.formerNames(for: session)
-            // Another machine's names never unlock a name the person gave the workspace (cmux#55668).
-            let launcherNamed = workspace.nameRevision == 0 && sessionName != nil && !turns.namesAreRemote(session)
-                && hold.launcherNamed(workspace: workspace.id, name: workspace.name, session: session.session ?? "",
-                                      matches: SidebarMapping.isSessionNamed(workspace.name, sessionName: sessionName,
-                                                                             displayName: givenName,
-                                                                             formerSessionNames: formerNames))
-            if launcherNamed, !formerNames.contains(workspace.name) { formerNames.append(workspace.name) }
+            let launcherNamed = workspace.nameRevision == 0 && sessionName != nil
+                && (workspace.name == sessionName || workspace.name == SidebarMapping.shortSessionName(sessionName))
             let mayName = (workspace.title ?? "").isEmpty && (!protectedName || launcherNamed)
             guard rule.enabled, mayName else { hold.forget(workspace: workspace.id); return nil }
             let task = (turns.detail(for: session)?.prompt ?? face.agent?.lastPrompt)
@@ -118,8 +94,6 @@ public struct WorkspaceAutoNameReader {
                 workspaceTitle: "", workspaceName: workspace.name,
                 workspaceNameSource: workspace.nameSource, workspaceNameRevision: workspace.nameRevision,
                 explicitWorkspaceTitle: workspace.title, sessionName: sessionName,
-                displayName: NewWorkspaceName.clean(turns.displayName(for: session)),
-                formerSessionNames: formerNames,
                 chatTitle: NewWorkspaceName.clean(turns.generatedTitle(for: session)),
                 explicitChatTitle: NewWorkspaceName.clean(face.name), taskSummary: task)
             // A chat with none of those (an unnamed session whose title was never generated) reads
@@ -129,8 +103,6 @@ public struct WorkspaceAutoNameReader {
                                label: candidate.isEmpty ? nil : candidate)
                 ?? NewWorkspaceName.clean(SidebarMapping.shortSessionName(sessionName))
                 ?? turns.title(for: session).flatMap { AgentTurnStates.promptGist($0) }.flatMap(NewWorkspaceName.clean)
-                // A Cloud chat this Mac started reads as its first prompt until its chat has a title here (`AgentCloudStartTitles`).
-                ?? (cloudStarts.title(of: face) ?? cloudStarts.inPlaceTitle(of: sent)).flatMap(NewWorkspaceName.clean)
         }
         let legacyDefaults = self.allowsLegacyDefaults(workspace)
         let label = rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) },
@@ -142,9 +114,7 @@ public struct WorkspaceAutoNameReader {
             hold.forget(workspace: workspace.id)
             return label
         }
-        // A Cloud start's title is held apart from the page's own (none): a failed start's page never keeps it.
-        let namer = Self.namer(tab, work: work) + (cloudStarts.startsInCloud(face) ? "|cloud-start" : "")
-        return hold.settle(workspace: workspace.id, namer: namer, label: label)
+        return hold.settle(workspace: workspace.id, namer: Self.namer(tab, work: work), label: label)
     }
 
     /// What names a row: the tab (with the chat it shows, so a new chat in the same tab starts
@@ -158,11 +128,8 @@ public struct WorkspaceAutoNameReader {
     /// what a workspace made from it would take. A page, app or Home
     /// conversation tab gives nothing (nil): its record is titled `about:blank`.
     public func front(_ tab: TabModel) -> WorkspaceAutoName.Front? {
-        // The persisted name (`WorkspaceAutoNamer`) reads a Mac tab showing a Cloud chat as that chat too (cmux#55668).
-        if let chat = shown(tab) { return front(chat) }
         if let session = tab.agentSession {
-            // A page whose Send starts a Cloud chat reads as that chat from the Send (`AgentCloudStartTitles`).
-            if isNewTabPage(tab) { return .chat(userName: nil, title: cloudStarts.title(of: tab)) }
+            if isNewTabPage(tab) { return .chat(userName: nil, title: nil) }
             return .chat(userName: tab.name, title: turns.title(for: session), generatedTitle: turns.generatedTitle(for: session))
         }
         if tab.kind == .conversation || tab.page != nil || tab.appTab != nil { return nil }

@@ -1,0 +1,24 @@
+{
+  "checkedAtUTC": "2026-09-11T05:15:00.103192+00:00",
+  "baseRevision": "72ce5e9b41a83d3f8f3a21288856449f3580686e",
+  "dirtyWorktree": true,
+  "leaseID": "20260910211351-8258-9168",
+  "slot": "cmux11s-v.4",
+  "host": "cmux@cmux11s-mac-mini",
+  "remotePath": "~/cmux-runners/iroh-v2-integration-20260910211351-8258-9168",
+  "compiler": "Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)\nTarget: arm64-apple-macosx26.0",
+  "command": "swift test --package-path Packages/Shared/CmuxIrxTransport -j 4 --filter \"V2|IrxDirectOnlyEndpointTests\"",
+  "passedTests": 30,
+  "suites": 6,
+  "inboundAuthorityTests": 12,
+  "sourceHashesMatchLocal": true,
+  "sourceAndFixtureFileCount": 72,
+  "includesParentCancellationGuard": true,
+  "diffCheck": "passed",
+  "notVerified": [
+    "Full Mac application integration (parent-owned build in progress)",
+    "Live Mac/iOS admission against deployed v2 backend",
+    "Physical iPhone and relay-rollover acceptance"
+  ],
+  "leaseDisposition": "Retained for parent follow-up integration. No local app launch, local Swift build, deployment, or Simulator created in this round."
+}

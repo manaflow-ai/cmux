@@ -212,10 +212,6 @@ fn invalid_arguments_and_null_handles_are_refused() {
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "fills the 4 MB queue, over 10 minutes under Miri; the same send runs in every other test here"
-)]
 fn a_full_queue_drops_new_frames() {
     let u = upstream(CMUX_RD_CARRIER_DATAGRAM);
     let frame = vec![4u8; 200];
@@ -229,9 +225,9 @@ fn a_full_queue_drops_new_frames() {
         }
         sent += 1;
     }
-    // Each frame is one unpadded 240-byte datagram (the LTR token adds 8 bytes).
+    // Each frame is one unpadded 232-byte datagram.
     assert!(
-        sent * 240 >= CMUX_RD_UPSTREAM_MAX_QUEUED,
+        sent * 232 >= CMUX_RD_UPSTREAM_MAX_QUEUED,
         "frames went out until the queue filled: {sent}"
     );
     assert_eq!(send(&u, &frame, true, now + 2_000), 0, "the queue is full");

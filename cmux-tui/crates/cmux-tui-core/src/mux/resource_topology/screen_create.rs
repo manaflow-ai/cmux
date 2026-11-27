@@ -77,7 +77,20 @@ impl Mux {
                 stamp_pane_focus(self, &mut state, pane_id);
             }
             let workspace = &mut state.workspaces[workspace_index];
-            workspace.screens.push(Screen::with_one_pane(screen_id, public_id, name, pane_id));
+            workspace.screens.push(Screen {
+                id: screen_id,
+                public_id,
+                name,
+                root: Node::Leaf(pane_id),
+                active_pane: pane_id,
+                zoomed_pane: None,
+                creation_order_auto_layout: Some(vec![pane_id]),
+                viewport_splits: Default::default(),
+                viewport_base_width: None,
+                layout_columns: Vec::new(),
+                layout_revision: 0,
+                layout_undo: Default::default(),
+            });
             // A workspace whose only screen this is shows it either way.
             if focus || workspace.screens.len() == 1 {
                 workspace.active_screen = workspace.screens.len() - 1;

@@ -15,11 +15,7 @@ public final class LivePane implements WireValue {
     private final Field<UInt64> focusedAt;
     private final UInt64 id;
     private final String name;
-    /** The pane's public id. */
-    private final Field<String> resourceId;
     private final Field<String> shortId;
-    /** The pane's tab group runs. */
-    private final Field<List<TabGroupRun>> tabGroups;
     private final List<Tab> tabs;
 
     private LivePane(Builder builder) {
@@ -30,9 +26,7 @@ public final class LivePane implements WireValue {
         this.id = Wire.nonNull(builder.id, "id");
         if (!builder.nameSet) throw new IllegalArgumentException("name is required");
         this.name = builder.name;
-        this.resourceId = builder.resourceId;
         this.shortId = builder.shortId;
-        this.tabGroups = builder.tabGroups.map(value -> List.copyOf(value));
         if (!builder.tabsSet) throw new IllegalArgumentException("tabs is required");
         this.tabs = List.copyOf(Wire.nonNull(builder.tabs, "tabs"));
     }
@@ -43,9 +37,7 @@ public final class LivePane implements WireValue {
     public Field<UInt64> focusedAt() { return focusedAt; }
     public UInt64 id() { return id; }
     public String name() { return name; }
-    public Field<String> resourceId() { return resourceId; }
     public Field<String> shortId() { return shortId; }
-    public Field<List<TabGroupRun>> tabGroups() { return tabGroups; }
     public List<Tab> tabs() { return tabs; }
 
     public static LivePane fromWire(Object value) {
@@ -61,17 +53,9 @@ public final class LivePane implements WireValue {
         builder.id(Wire.uint64(rawId, "LivePane.id"));
         Object rawName = Wire.required(object, "name");
         builder.name(rawName == null ? null : Wire.string(rawName, "LivePane.name"));
-        Object rawResourceId = Wire.optional(object, "resource_id");
-        if (!Wire.isMissing(rawResourceId)) {
-            builder.resourceId(rawResourceId == null ? null : Wire.string(rawResourceId, "LivePane.resource_id"));
-        }
         Object rawShortId = Wire.optional(object, "short_id");
         if (!Wire.isMissing(rawShortId)) {
             builder.shortId(Wire.string(rawShortId, "LivePane.short_id"));
-        }
-        Object rawTabGroups = Wire.optional(object, "tab_groups");
-        if (!Wire.isMissing(rawTabGroups)) {
-            builder.tabGroups(Wire.array(rawTabGroups, "LivePane.tab_groups", item -> TabGroupRun.fromWire(item)));
         }
         Object rawTabs = Wire.required(object, "tabs");
         builder.tabs(Wire.array(rawTabs, "LivePane.tabs", item -> Tab.fromWire(item)));
@@ -85,9 +69,7 @@ public final class LivePane implements WireValue {
         Wire.put(object, "focused_at", focusedAt);
         Wire.put(object, "id", id);
         Wire.put(object, "name", name);
-        Wire.put(object, "resource_id", resourceId);
         Wire.put(object, "short_id", shortId);
-        Wire.put(object, "tab_groups", tabGroups);
         Wire.put(object, "tabs", tabs);
         return Collections.unmodifiableMap(object);
     }
@@ -95,11 +77,11 @@ public final class LivePane implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof LivePane that)) return false;
-        return Objects.equals(activeTab, that.activeTab) && Objects.equals(focusedAt, that.focusedAt) && Objects.equals(id, that.id) && Objects.equals(name, that.name) && Objects.equals(resourceId, that.resourceId) && Objects.equals(shortId, that.shortId) && Objects.equals(tabGroups, that.tabGroups) && Objects.equals(tabs, that.tabs);
+        return Objects.equals(activeTab, that.activeTab) && Objects.equals(focusedAt, that.focusedAt) && Objects.equals(id, that.id) && Objects.equals(name, that.name) && Objects.equals(shortId, that.shortId) && Objects.equals(tabs, that.tabs);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(activeTab, focusedAt, id, name, resourceId, shortId, tabGroups, tabs); }
+    public int hashCode() { return Objects.hash(activeTab, focusedAt, id, name, shortId, tabs); }
 
     @Override
     public String toString() { return "LivePane" + toWire(); }
@@ -112,9 +94,7 @@ public final class LivePane implements WireValue {
         private boolean idSet;
         private String name;
         private boolean nameSet;
-        private Field<String> resourceId = Field.omitted();
         private Field<String> shortId = Field.omitted();
-        private Field<List<TabGroupRun>> tabGroups = Field.omitted();
         private List<Tab> tabs;
         private boolean tabsSet;
 
@@ -137,16 +117,8 @@ public final class LivePane implements WireValue {
             this.nameSet = true;
             return this;
         }
-        public Builder resourceId(String value) {
-            this.resourceId = Field.ofNullable(value);
-            return this;
-        }
         public Builder shortId(String value) {
             this.shortId = Field.of(value);
-            return this;
-        }
-        public Builder tabGroups(List<TabGroupRun> value) {
-            this.tabGroups = Field.of(value);
             return this;
         }
         public Builder tabs(List<Tab> value) {

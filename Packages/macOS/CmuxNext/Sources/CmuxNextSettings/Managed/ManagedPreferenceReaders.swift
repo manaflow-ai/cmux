@@ -21,8 +21,7 @@ public nonisolated struct CFManagedPreferenceReader: ManagedPreferenceReader {
     /// profile that still sets an old name keeps its value and its lock.
     public static var readKeys: [String] {
         let published = publishedKeys
-        return published + (EffectiveSettings.legacyKeys.keys.sorted() + EffectiveSettings.replacedOldKeys)
-            .filter { !published.contains($0) }
+        return published + EffectiveSettings.legacyKeys.keys.sorted().filter { !published.contains($0) }
     }
 
     public func read() -> ManagedPreferences {

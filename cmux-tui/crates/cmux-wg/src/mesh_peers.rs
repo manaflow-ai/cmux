@@ -187,24 +187,6 @@ impl PeerTable {
         self.peers.get(key).is_some_and(|peer| !retired || peer.on_retired)
     }
 
-    /// Trace only (`CMUX_WG_STALL_TRACE`): each peer's session and paths.
-    pub(crate) fn trace_state(&self) -> String {
-        use std::fmt::Write as _;
-        let mut out = String::new();
-        for peer in self.peers.values() {
-            let _ = write!(
-                out,
-                "[index={} last_handshake={:?} has_target={} latest={:?} views={:?}]",
-                peer.index,
-                peer.tunn.time_since_last_handshake(),
-                peer.paths.has_target(),
-                peer.paths.latest(),
-                peer.paths.views()
-            );
-        }
-        out
-    }
-
     pub(crate) fn get_mut(&mut self, key: &PeerKey) -> Option<&mut Peer> {
         self.peers.get_mut(key)
     }

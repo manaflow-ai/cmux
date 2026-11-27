@@ -3,30 +3,6 @@
 use super::*;
 use cmux_json::JsonSet as _;
 
-/// The key of the answer the UI watchdog sends a request it cancels.
-const UI_WAIT_CANCELLED: &str = "__ui_wait_cancelled";
-/// How long a UI-thread request may hold the loop before the UI watchdog cancels it: half the
-/// standard timeout, as a stalled frame costs more than a retried request.
-const UI_WAIT_BOUND: Duration = Duration::from_secs(5);
-
-/// Registers a request's wait with the UI watchdog when the UI thread makes it. Attach waits are
-/// left alone: their deadline already moves with the daemon's progress.
-fn ui_wait_for(
-    command: &str,
-    deadline: RequestDeadline,
-    response: Sender<Value>,
-) -> Option<crate::ui_watchdog::UiWaitGuard> {
-    let bound = match deadline {
-        RequestDeadline::Standard => UI_WAIT_BOUND,
-        RequestDeadline::Fixed(timeout) => timeout.min(UI_WAIT_BOUND),
-        RequestDeadline::Attach => return None,
-    };
-    let cancel = Box::new(move || {
-        let _ = response.send(json!({ UI_WAIT_CANCELLED: true }));
-    });
-    Some(crate::ui_watchdog::ui_wait(&format!("daemon request {command}"), bound, cancel))
-}
-
 impl RemoteSession {
     pub fn request(&self, cmd: Value) -> anyhow::Result<Value> {
         self.request_with_deadline(cmd, RequestDeadline::Standard)
@@ -66,9 +42,6 @@ impl RemoteSession {
         let message = translated?;
 
         let (tx, rx) = channel();
-        // A UI-thread wait the UI watchdog may end past its bound (ui_watchdog::waits): its cancel
-        // answers this request with a marker that reads as the request's own timeout.
-        let _ui_wait = ui_wait_for(&command, deadline, tx.clone());
         self.pending.lock().unwrap().insert(
             id,
             PendingRemoteRequest { response: tx, progress: progress.clone(), attach_surface },
@@ -93,12 +66,7 @@ impl RemoteSession {
             return Err(self.shutdown_error().into());
         }
 
-        let response = match self
-            .wait_for_response(rx, deadline, progress, attach_progress)
-            .and_then(|response| match response.get(UI_WAIT_CANCELLED) {
-                Some(_) => Err(RemoteRequestError::Timeout),
-                None => Ok(response),
-            }) {
+        let response = match self.wait_for_response(rx, deadline, progress, attach_progress) {
             Ok(response) => response,
             Err(error) => {
                 // Drop the pending entry so a half-open session does not
@@ -409,11 +377,6 @@ impl RemoteSession {
     /// What the daemon's shutdown notice said, or `None` when none came.
     pub(crate) fn daemon_shutdown_notice(&self) -> Option<crate::session::DaemonShutdownNotice> {
         self.disconnect_state.shutdown_notice()
-    }
-
-    /// Whether the daemon detached this client on someone's request (a kick).
-    pub(crate) fn disconnected_by_peer(&self) -> bool {
-        self.disconnect_state.disconnected_by_peer()
     }
 
     /// Returns the first reason recorded when the remote reader stopped.

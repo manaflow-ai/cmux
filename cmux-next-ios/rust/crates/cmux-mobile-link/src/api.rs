@@ -2,8 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::build_space::BuildSpace;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IceServer {
     pub urls: Vec<String>,
@@ -13,63 +11,10 @@ pub struct IceServer {
     pub credential: Option<String>,
 }
 
-impl IceServer {
-    /// A PoP hop/1 server. It lives outside the backend's `iceServers` array
-    /// until this client normalizes the additive `hopServers` response field.
-    pub fn hop(url: impl Into<String>, ticket: impl Into<String>) -> Self {
-        Self { urls: vec![url.into()], username: None, credential: Some(ticket.into()) }
-    }
-
-    /// Returns the hop endpoint and its scoped BIND ticket.
-    pub fn hop_config(&self) -> Option<(&str, &str)> {
-        let url = self.urls.first().filter(|url| url.starts_with("hop://"))?;
-        let ticket = self.credential.as_deref().filter(|ticket| !ticket.is_empty())?;
-        Some((url.as_str(), ticket))
-    }
-}
-
-fn normalize_hop_servers(config: &mut IceConfig) {
-    config.ice_servers.extend(
-        config
-            .hop_servers
-            .iter()
-            .filter(|hop| hop.kind.as_deref().is_none_or(|kind| kind == "hop"))
-            .filter_map(|hop| {
-                let url = hop.url.as_deref().filter(|url| url.starts_with("hop://"))?;
-                let ticket = hop.ticket.as_deref().filter(|ticket| !ticket.is_empty())?;
-                Some(IceServer::hop(url, ticket))
-            }),
-    );
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct HopServer {
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub url: Option<String>,
-    #[serde(default)]
-    pub ticket: Option<String>,
-}
-
-// A future carrier may use structured credentials. One unfamiliar or
-// malformed extension row must leave the standard ICE response usable.
-fn decode_hop_entries<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Vec<HopServer>, D::Error> {
-    let value = serde_json::Value::deserialize(de)?;
-    Ok(match value {
-        serde_json::Value::Array(rows) => {
-            rows.into_iter().filter_map(|row| serde_json::from_value(row).ok()).collect()
-        }
-        _ => Vec::new(),
-    })
-}
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IceConfig {
     pub ice_servers: Vec<IceServer>,
-    #[serde(default, deserialize_with = "decode_hop_entries")]
-    pub hop_servers: Vec<HopServer>,
     #[serde(default)]
     pub ttl: Option<u64>,
 }
@@ -192,8 +137,6 @@ pub struct ApiClient {
     base: String,
     token: String,
     http: reqwest::Client,
-    /// Sent as `x-cmux-build-space` on every request when set (a dev build).
-    build_space: Option<BuildSpace>,
 }
 
 impl ApiClient {
@@ -205,56 +148,20 @@ impl ApiClient {
     /// warm TLS connection instead of a new handshake. Keep one pool per
     /// Tokio runtime (pooled connections belong to the runtime that made them).
     pub fn with_http(base_url: &str, token: &str, http: reqwest::Client) -> Self {
-        Self {
-            base: base_url.trim_end_matches('/').to_owned(),
-            token: token.to_owned(),
-            http,
-            build_space: None,
-        }
+        Self { base: base_url.trim_end_matches('/').to_owned(), token: token.to_owned(), http }
     }
 
-    /// This client sending `build_space` (a dev build's `dev:<slug>`) on
-    /// every request; `None` sends no header.
-    #[must_use]
-    pub fn with_build_space(mut self, build_space: Option<BuildSpace>) -> Self {
-        self.build_space = build_space;
-        self
-    }
-
-    /// The build space this client sends, if any.
-    pub fn build_space(&self) -> Option<&BuildSpace> {
-        self.build_space.as_ref()
-    }
-
-    /// `method` on `path` with the bearer token and, for a dev build, the
-    /// build space header.
-    pub(crate) fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
-        let request = self.http.request(method, format!("{}{path}", self.base)).bearer_auth(&self.token);
-        match &self.build_space {
-            Some(space) => request.header(crate::build_space::HEADER, space.as_str()),
-            None => request,
-        }
-    }
-
-    /// Ask the system for the service's proxy now, off the runtime's threads
-    /// (a PAC file may be fetched and run), so the client's proxy callback
-    /// finds the answer cached instead of asking on a worker thread.
-    async fn find_proxy(&self) {
-        crate::egress::proxy::warm(&self.base).await;
-    }
-
-    /// A new HTTP client with the API's timeouts, through the system's proxy
-    /// and verifying against the OS trust store ([`crate::egress`]).
+    /// A new HTTP client with the API's timeouts.
     pub fn http_client() -> reqwest::Client {
         crate::install_crypto_provider();
-        crate::egress::http_client_builder_with("cmux_mobile_link::api", RouteResolve)
+        reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(20))
             .pool_idle_timeout(std::time::Duration::from_secs(90))
             .build()
             .expect("HTTP client builds")
     }
 
-    pub(crate) async fn check(response: reqwest::Response) -> Result<reqwest::Response, ApiError> {
+    async fn check(response: reqwest::Response) -> Result<reqwest::Response, ApiError> {
         let status = response.status();
         if status.is_success() {
             return Ok(response);
@@ -265,31 +172,14 @@ impl ApiClient {
 
     /// `GET /v1/ice`.
     pub async fn ice(&self) -> Result<IceConfig, ApiError> {
-        self.find_proxy().await;
         let response = self
-            .request(reqwest::Method::GET, "/v1/ice")
+            .http
+            .get(format!("{}/v1/ice", self.base))
+            .bearer_auth(&self.token)
             .send()
             .await
             .map_err(|e| ApiError::Http(e.to_string()))?;
-        let mut config: IceConfig =
-            Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))?;
-        // `hopServers` is additive so an old client ignores it. New clients
-        // normalize it into the common list after legacy ICE has parsed.
-        normalize_hop_servers(&mut config);
-        Ok(config)
-    }
-
-    /// Prepare a previously used ICE list for another WireGuard session.
-    /// Only the PoP ticket is single-use across sessions. Keep usable TURN
-    /// credentials even if the authenticated refresh cannot complete.
-    pub async fn renew_hop_tickets(&self, servers: &mut Vec<IceServer>, budget: std::time::Duration) {
-        if !servers.iter().any(|server| server.hop_config().is_some()) {
-            return;
-        }
-        servers.retain(|server| server.hop_config().is_none());
-        if let Ok(Ok(config)) = tokio::time::timeout(budget, self.ice()).await {
-            servers.extend(config.ice_servers.into_iter().filter(|server| server.hop_config().is_some()));
-        }
+        Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))
     }
 
     /// `POST /v1/devices` (upsert). Returns the backend's `device` object.
@@ -297,9 +187,10 @@ impl ApiClient {
         &self,
         registration: &DeviceRegistration,
     ) -> Result<serde_json::Value, ApiError> {
-        self.find_proxy().await;
         let response = self
-            .request(reqwest::Method::POST, "/v1/devices")
+            .http
+            .post(format!("{}/v1/devices", self.base))
+            .bearer_auth(&self.token)
             .json(registration)
             .send()
             .await
@@ -317,9 +208,10 @@ impl ApiClient {
         mac_device_id: &str,
         event: &NotifyEvent,
     ) -> Result<serde_json::Value, ApiError> {
-        self.find_proxy().await;
         let response = self
-            .request(reqwest::Method::POST, &format!("/v1/devices/{mac_device_id}/notify"))
+            .http
+            .post(format!("{}/v1/devices/{mac_device_id}/notify", self.base))
+            .bearer_auth(&self.token)
             .json(event)
             .send()
             .await
@@ -333,9 +225,10 @@ impl ApiClient {
         mac_device_id: &str,
         body: &serde_json::Value,
     ) -> Result<serde_json::Value, ApiError> {
-        self.find_proxy().await;
         let response = self
-            .request(reqwest::Method::POST, &format!("/v1/devices/{mac_device_id}/notify"))
+            .http
+            .post(format!("{}/v1/devices/{mac_device_id}/notify", self.base))
+            .bearer_auth(&self.token)
             .json(body)
             .send()
             .await
@@ -349,9 +242,10 @@ impl ApiClient {
         struct Devices {
             devices: Vec<MyDevice>,
         }
-        self.find_proxy().await;
         let response = self
-            .request(reqwest::Method::GET, "/v1/me/devices")
+            .http
+            .get(format!("{}/v1/me/devices", self.base))
+            .bearer_auth(&self.token)
             .send()
             .await
             .map_err(|e| ApiError::Http(e.to_string()))?;
@@ -366,9 +260,10 @@ impl ApiClient {
         struct Macs {
             macs: Vec<crate::signaling::MacPresence>,
         }
-        self.find_proxy().await;
         let response = self
-            .request(reqwest::Method::GET, &format!("/v1/teams/{team_id}/macs"))
+            .http
+            .get(format!("{}/v1/teams/{team_id}/macs", self.base))
+            .bearer_auth(&self.token)
             .send()
             .await
             .map_err(|e| ApiError::Http(e.to_string()))?;
@@ -399,32 +294,12 @@ pub struct MyDevice {
     pub created_at: Option<String>,
 }
 
-/// The API's names resolve as a dial's do: DNS, or the literals they last resolved to when DNS
-/// is down ([`crate::route_literals`]). TLS still names and verifies the host.
-struct RouteResolve;
-
-impl reqwest::dns::Resolve for RouteResolve {
-    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
-        let host = name.as_str().to_owned();
-        Box::pin(async move {
-            let found = crate::route_literals::RouteLiterals::shared().resolve_host(&host).await?;
-            let addrs: reqwest::dns::Addrs =
-                Box::new(found.into_iter().map(|ip| std::net::SocketAddr::new(ip, 0)));
-            Ok(addrs)
-        })
-    }
-}
-
 /// `GET /v1/ice` results kept while their credentials have plenty of life
 /// left, so a dial does not wait on an HTTP round trip (PROTOCOL.md: the
 /// response carries `ttl`, the TURN credentials' lifetime in seconds).
 #[derive(Debug, Default)]
 pub struct IceCache {
     entry: std::sync::Mutex<Option<(Vec<IceServer>, std::time::Instant)>>,
-    /// The last servers fetched, kept past their expiry and through
-    /// [`IceCache::mark_stale`] (a wake or a network change), so an answer
-    /// can use them while a refresh runs in the background.
-    last: std::sync::Mutex<Option<Vec<IceServer>>>,
 }
 
 impl IceCache {
@@ -458,30 +333,13 @@ impl IceCache {
     }
 
     pub fn store(&self, config: &IceConfig) {
-        let hop_uncached = config.ice_servers.iter().any(|server| server.hop_config().is_some());
-        let reusable: Vec<IceServer> =
-            config.ice_servers.iter().filter(|server| server.hop_config().is_none()).cloned().collect();
         let expires = std::time::Instant::now() + Self::lifetime(config);
         *self.entry.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            (!hop_uncached).then_some((reusable.clone(), expires));
-        *self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(reusable);
+            Some((config.ice_servers.clone(), expires));
     }
 
-    /// Forget everything, the last servers too.
     pub fn clear(&self) {
         *self.entry.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-        *self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-    }
-
-    /// No longer fresh (a wake can outlast the credentials), but kept as
-    /// [`IceCache::last`]: the next caller answers with them and refreshes.
-    pub fn mark_stale(&self) {
-        *self.entry.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-    }
-
-    /// The last servers fetched, fresh or not.
-    pub fn last(&self) -> Option<Vec<IceServer>> {
-        self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// The cached servers when fresh (`true`), else `GET /v1/ice` within
@@ -536,7 +394,6 @@ mod tests {
                 username: None,
                 credential: None,
             }],
-            hop_servers: Vec::new(),
             ttl,
         }
     }
@@ -556,12 +413,8 @@ mod tests {
         cache.store(&config(&["turn:t"], Some(1)));
         assert!(cache.fresh().is_none());
         cache.store(&turn);
-        cache.mark_stale();
-        assert!(cache.fresh().is_none());
-        assert_eq!(cache.last().unwrap(), turn.ice_servers, "stale servers stay as the last ones");
         cache.clear();
         assert!(cache.fresh().is_none());
-        assert!(cache.last().is_none());
     }
 
     #[test]
@@ -576,43 +429,5 @@ mod tests {
             credential: None,
         }];
         assert_eq!(stun_servers(&servers), vec!["stun.cloudflare.com:3478", "a.b:3478"]);
-    }
-
-    #[test]
-    fn hop_servers_are_additive_and_are_not_stun_servers() {
-        let hop = IceServer::hop("hop://127.0.0.1:7422", "hop1.session.999.sig");
-        assert_eq!(hop.hop_config(), Some(("hop://127.0.0.1:7422", "hop1.session.999.sig")));
-        assert!(stun_servers(std::slice::from_ref(&hop)).is_empty());
-        let old: IceConfig = serde_json::from_str(r#"{"iceServers":[{"urls":["stun:s:3478"]}],"hopServers":[{"kind":"hop","url":"hop://h:1","ticket":"t"}],"ttl":60}"#).unwrap();
-        assert_eq!(old.ice_servers.len(), 1, "raw decode preserves old ICE list");
-        assert_eq!(old.hop_servers[0].url.as_deref(), Some("hop://h:1"));
-    }
-
-    #[test]
-    fn hop_tickets_are_never_reused_from_the_mobile_cache() {
-        let cache = IceCache::new();
-        let hop = IceServer::hop("hop://h:1", "hop1.a.1.sig");
-        let config = IceConfig { ice_servers: vec![hop], hop_servers: Vec::new(), ttl: Some(600) };
-        cache.store(&config);
-        assert!(cache.fresh().is_none());
-        assert!(cache.last().unwrap().is_empty());
-    }
-
-    #[test]
-    fn old_clients_ignore_additive_hop_servers_and_new_clients_ignore_unknown_kinds() {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct OldIceConfig {
-            ice_servers: Vec<IceServer>,
-        }
-        let json = r#"{"iceServers":[{"urls":["stun:s:3478"]}],"hopServers":[{"kind":"hop","url":"hop://h:1","ticket":"t"},{"kind":"future","ticket":{"scheme":"other"}},{"kind":"future","endpoint":"future://x:1"},{"kind":"hop","url":"http://x:1","ticket":"bad"},{"kind":"hop","url":"hop://x:1","ticket":""}]}"#;
-        let old: OldIceConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(old.ice_servers.len(), 1);
-        let mut new: IceConfig = serde_json::from_str(json).unwrap();
-        normalize_hop_servers(&mut new);
-        assert_eq!(new.ice_servers.iter().filter_map(IceServer::hop_config).count(), 1);
-        let old_response: IceConfig =
-            serde_json::from_str(r#"{"iceServers":[{"urls":["stun:s:3478"]}]}"#).unwrap();
-        assert!(old_response.hop_servers.is_empty());
     }
 }

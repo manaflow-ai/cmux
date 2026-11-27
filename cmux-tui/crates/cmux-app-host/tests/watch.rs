@@ -75,30 +75,6 @@ mod apps {
     }
 
     #[test]
-    fn a_daemon_served_source_is_one_watch_per_mount_and_no_read_in_the_vm() {
-        let mut h = Harness::new(&app(TWO_SECTIONS));
-        h.daemon_watch = true;
-        assert_eq!(h.mount("a", "workspaces", json!({})), None);
-        assert_eq!(h.mount("b", "workspaces", json!({})), None);
-        assert_eq!(reads(&h, "workspace.list"), 0);
-        assert!(h.subscriptions.is_empty() && h.vm.next_timer_due().is_none());
-        let mounts: Vec<_> = h.watches.values().map(|w| w.2.clone()).collect();
-        assert_eq!(mounts, vec![Some("a".to_string()), Some("b".to_string())]);
-        let state =
-            json!({ "value": [{ "id": "w1", "title": "one" }], "status": "fresh", "updatedAt": 1 });
-        for id in h.watches.keys().copied().collect::<Vec<_>>() {
-            h.vm.watch_state(id, &state).expect("watch state");
-        }
-        h.pump().expect("pump");
-        assert!(h.texts("b").iter().any(|t| t == "one"), "{:?}", h.texts("b"));
-        assert!(h.texts("a").iter().any(|t| t == "status=fresh"), "{:?}", h.texts("a"));
-        h.vm.unmount("a").expect("unmount");
-        h.vm.unmount("b").expect("unmount");
-        h.pump().expect("pump");
-        assert!(h.watches.is_empty(), "{:?}", h.watches);
-    }
-
-    #[test]
     fn an_unknown_source_fails_the_mount_with_signal_unknown() {
         let mut h = Harness::new(&app(
             r#"return { render: () => { cmux.watch("nope.none"); return Text("x") } }"#,

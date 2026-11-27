@@ -23,8 +23,7 @@ pub(crate) enum StartGrant {
     Inherit,
     /// The full-access mode a start that names no mode gets here anyway: the
     /// person's start level (`agents.defaultPermissionMode`) is full access
-    /// (`Hub::names_start_level`, cmux#37392), or Claude Code's own Auto under
-    /// a start level that covers it (`Hub::plain_own_start_is`).
+    /// (`Hub::names_start_level`, cmux#37392).
     StartLevel,
 }
 

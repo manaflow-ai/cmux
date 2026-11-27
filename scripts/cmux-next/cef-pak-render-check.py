@@ -14,10 +14,7 @@ Fleet: scripts/measure/cef-pak-render.sh builds the app and runs this.
 The report is DIR/report.json; it always exits 0 once the app came up, so the
 artifact comes back; read the report and the screenshots.
 """
-import argparse, hashlib, http.server, json, os, socketserver, subprocess, sys, tempfile, threading, time, zlib
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from state_wait import wait_stable, wait_until  # noqa: E402
+import argparse, http.server, json, os, socketserver, subprocess, sys, tempfile, threading, time, zlib
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -154,32 +151,11 @@ def screen(name):
     return path if os.path.exists(path) else None
 
 
-def screen_hash():
-    """A hash of the whole screen now, to see a window open, close or finish drawing."""
-    path = os.path.join(OUT, ".probe-screen.png")
-    subprocess.run(["screencapture", "-x", path], capture_output=True, timeout=30)
-    with open(path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
-
-
-def screen_changed_and_settled(before, what, timeout=20.0):
-    """Wait until the screen differs from `before`, then until it stops changing (best effort: log and go on)."""
-    if not wait_until(lambda: screen_hash() != before, f"the screen to change for {what}", timeout=timeout,
-                      interval=0.3, raise_on_timeout=False):
-        print(f"note: the screen never changed for {what}", flush=True)
-    wait_stable(screen_hash, f"the screen with {what}", timeout=timeout, interval=0.3, raise_on_timeout=False)
-
-
 def visit(name, url, settle=4.0):
     row = {"name": name, "url": url}
     row["navigate"] = cli("browser", "page", "navigate", url)
     cli("browser", "page", "wait", "--load-state", "complete", "--timeout-ms", "15000", timeout=30)
-    # WebUI pages render after load: wait until the page read has text and stops changing (best effort, the
-    # report records whatever the page shows by then).
-    wait_until(lambda: cli("browser", "page", "eval", READ_PAGE)[0] == 0, f"{name} to answer a page read",
-               timeout=max(10.0, settle * 3), interval=0.2, raise_on_timeout=False)
-    wait_stable(lambda: cli("browser", "page", "eval", READ_PAGE), f"{name}'s rendered text",
-                timeout=max(10.0, settle * 3), interval=0.3, raise_on_timeout=False)
+    time.sleep(settle)  # test harness: WebUI pages render after load
     code, out = cli("browser", "page", "eval", READ_PAGE)
     try:
         row["page"] = json.loads(json.loads(out)) if out.startswith('"') else json.loads(out)
@@ -210,14 +186,9 @@ def main():
         if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
             print("the tagged app did not come up", flush=True)
             return False
-        # The first workspace: a pane exists, then the surfaces stop changing.
-        wait_until(lambda: any(w.get("panes") for w in (rpc("debug.surfaces") or {}).get("windows") or []),
-                   "the first workspace's pane", timeout=30, interval=0.2, raise_on_timeout=False)
-        wait_stable(lambda: rpc("debug.surfaces"), "the first workspace's surfaces", timeout=15, interval=0.2,
-                    raise_on_timeout=False)
+        time.sleep(3)  # test harness: first workspace
         report["open"] = cli("browser", "open", BASE + "/page.html")
-        # CEF starts and the first page loads.
-        cli("browser", "page", "wait", "--load-state", "complete", "--timeout-ms", "30000", timeout=45)
+        time.sleep(5)  # test harness: CEF starts and the first page loads
         report["ua"] = cli("browser", "page", "eval", "navigator.userAgent")
         rows = report["rows"]
         for name, url in (("plain", BASE + "/page.html"), ("pdf", BASE + "/doc.pdf"),
@@ -235,16 +206,13 @@ def main():
         rows.append(visit("downloads-after", "chrome://downloads/"))
         # Print preview (Cmd-P) over a plain page, and DevTools (Cmd-Opt-I).
         visit("plain-again", BASE + "/page.html", settle=1.0)
-        before = screen_hash()
         report["print_key"] = key("p", ["command"])
-        screen_changed_and_settled(before, "print preview's first page")
+        time.sleep(6)  # test harness: print preview renders its first page
         report["print_screen"] = screen("print-preview")
-        before = screen_hash()
         key("Escape", [])
-        screen_changed_and_settled(before, "print preview closed", timeout=10)
-        before = screen_hash()
+        time.sleep(1)
         report["devtools_key"] = key("i", ["command", "option"])
-        screen_changed_and_settled(before, "DevTools' frontend")
+        time.sleep(6)  # test harness: DevTools loads its frontend
         report["devtools_screen"] = screen("devtools")
         report["cef"] = rpc("debug.cef")
         return True

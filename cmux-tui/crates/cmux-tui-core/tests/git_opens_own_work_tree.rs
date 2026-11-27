@@ -349,49 +349,6 @@ fn own_tree_each_git_operation_of_the_catalog_refuses_a_refused_folder_and_chang
     assert!(!files_of_the_store().is_empty(), "the checkpoint store has no file after {reply}");
 }
 
-/// The daemon makes the folders of its checkpoint store for a folder that it opens. A
-/// checkpoint operation of a folder that the open refuses makes none of them.
-#[test]
-fn own_tree_a_checkpoint_operation_of_a_refused_folder_makes_no_folder_of_the_store() {
-    let pin = json!({"checkpoint_id": "none", "pin_id": "a-pin", "reason": "a test"});
-    let operations = [
-        ("list", "git.checkpoint.list", json!({})),
-        ("get", "git.checkpoint.get", json!({"checkpoint_id": "none"})),
-        ("diff", "git.checkpoint.diff", json!({"from": "none"})),
-        ("create", "git.checkpoint.create", json!({})),
-        ("pin", "git.checkpoint.pin", pin),
-        ("unpin", "git.checkpoint.unpin", json!({"checkpoint_id": "none", "pin_id": "a-pin"})),
-    ];
-    let (mut made, mut tops) = (Vec::new(), Vec::new());
-    for (name, operation, params) in operations {
-        // A daemon for each operation, so its state folder is new.
-        let top = scratch(&format!("st-{name}"));
-        let mut client = Client::of_a_new_daemon_with_a_state_folder(&top);
-        // A repository whose `core.worktree` setting names another folder.
-        let (outside, other) = (top.join("outside"), top.join("other"));
-        new_repository(&outside);
-        std::fs::create_dir_all(&other).unwrap();
-        git(&outside, &["config", "core.worktree", other.to_str().unwrap()]);
-        let stores = || folders_with_the_name(&top.join("state"), "git-checkpoints");
-
-        let reply = client.reply(operation, &outside, params);
-
-        assert!(problem_of_git_failed(&reply).starts_with(REFUSED), "{operation}: {reply}");
-        if !stores().is_empty() {
-            made.push(operation);
-        }
-        // The control: the same daemon makes the store for a folder that is opened. So the
-        // search above reads the place where the store is.
-        let opened = top.join("opened");
-        new_repository(&opened);
-        let reply = client.reply("git.checkpoint.list", &opened, json!({}));
-        assert!(!stores().is_empty(), "{operation}: the store has no folder after {reply}");
-        // Each daemon lives as long as the test process, so its folder stays to the end.
-        tops.push(top);
-    }
-    assert!(made.is_empty(), "the store got a folder from {made:?}");
-}
-
 #[test]
 fn own_tree_a_test_folder_is_removed_when_its_test_ends() {
     let top = scratch("removed");

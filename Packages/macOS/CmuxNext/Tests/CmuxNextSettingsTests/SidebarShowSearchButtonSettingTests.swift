@@ -2,8 +2,8 @@ import CmuxNextSettings
 import Testing
 
 /// `sidebar.showSearchButton` (plans/cmux-next/sidebar-search.md): the sidebar footer's Search button
-/// is on by default again (Lawrence 2026-11-23: "bring it back"; it teaches Cmd+Shift+P); the user shows it in Settings, cmux.json, `cmux settings set` or Cmd+Shift+P, and a
-/// bad value keeps the default with a diagnostic.
+/// shows by default; the user hides it in Settings, cmux.json, `cmux settings set` or Cmd+Shift+P, and
+/// a bad value keeps the default with a diagnostic.
 struct SidebarShowSearchButtonSettingTests {
     static func parse(_ value: JSONValue?) -> CmuxConfigSnapshot {
         let root: JSONValue = value.map { .object(["sidebar": .object(["showSearchButton": $0])]) } ?? .object([:])
@@ -16,7 +16,7 @@ struct SidebarShowSearchButtonSettingTests {
         #expect(snapshot.diagnostics.isEmpty, "no key, no diagnostic: \(snapshot.diagnostics)")
     }
 
-    @Test func theUserCanTurnItOnAndOff() {
+    @Test func theUserCanTurnItOff() {
         #expect(Self.parse(.bool(false)).sidebarSections.showSearchButton == false)
         #expect(Self.parse(.bool(true)).sidebarSections.showSearchButton)
     }

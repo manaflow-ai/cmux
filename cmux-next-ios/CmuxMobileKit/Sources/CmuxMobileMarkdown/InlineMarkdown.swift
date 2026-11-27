@@ -1,7 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
 import SwiftUI
-import UIKit
 
 /// Inline markdown (bold, italic, code, links, strikethrough) to a styled
 /// `AttributedString`, following SPEC 2.2: inline code mono on `fill`, links
@@ -24,44 +23,6 @@ public final class InlineMarkdownCache {
             cache[order.removeFirst()] = nil
         }
         return value
-    }
-
-    /// Preserve the parsed runs (including scheme-less file links) when drawing them with UIKit.
-    func labelText(_ source: String, font: UIFont, color: UIColor) -> NSAttributedString {
-        let parsed = attributed(source)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 5
-        let output = NSMutableAttributedString()
-        for run in parsed.runs {
-            let intent = run.inlinePresentationIntent ?? []
-            // Code starts from the system monospaced font at the row's size and weight: a text
-            // style's descriptor (`preferredFont`) ignores `withDesign(.monospaced)` once its traits
-            // are set, so a code span in a table cell drew in the proportional face (#52600's test).
-            let descriptor = intent.contains(.code) ? Self.monospaced(like: font).fontDescriptor : font.fontDescriptor
-            var traits = descriptor.symbolicTraits
-            if intent.contains(.stronglyEmphasized) { traits.insert(.traitBold) }
-            if intent.contains(.emphasized) { traits.insert(.traitItalic) }
-            let runFont = UIFont(descriptor: descriptor.withSymbolicTraits(traits) ?? descriptor, size: font.pointSize)
-            var attributes: [NSAttributedString.Key: Any] = [
-                .font: runFont, .foregroundColor: color, .paragraphStyle: paragraph,
-            ]
-            if intent.contains(.code) { attributes[.backgroundColor] = UIColor.cmuxMobileFill }
-            if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            if let url = run.link {
-                attributes[NativeMarkdownLayout.linkKey] = url
-                attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
-                attributes[.foregroundColor] = UIColor.label
-            }
-            output.append(NSAttributedString(string: String(parsed[run.range].characters), attributes: attributes))
-        }
-        return output
-    }
-
-    /// The system monospaced font at `font`'s size and weight.
-    private static func monospaced(like font: UIFont) -> UIFont {
-        let traits = font.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any]
-        let weight = (traits?[.weight] as? CGFloat).map { UIFont.Weight(rawValue: $0) } ?? .regular
-        return UIFont.monospacedSystemFont(ofSize: font.pointSize, weight: weight)
     }
 
     static func render(_ source: String) -> AttributedString {
@@ -136,15 +97,12 @@ public struct MarkdownFilePath: Equatable, Sendable {
 /// Inline text view used by every block.
 struct InlineText: View {
     let source: String
-    var style: UIFont.TextStyle = .body
-    var weight: UIFont.Weight?
-    var color: UIColor = .label
-    @Environment(\.dynamicTypeSize) var typeSize
+    var font: Font = .body
 
     var body: some View {
-        let styles = NativeTextStyles(category: UIContentSizeCategory(typeSize))
-        let font = weight.map { styles.font(style, weight: $0) } ?? styles.font(style)
-        SelectableText(InlineMarkdownCache.shared.labelText(source, font: font, color: color))
+        Text(InlineMarkdownCache.shared.attributed(source))
+            .font(font)
+            .lineSpacing(5)
             .fixedSize(horizontal: false, vertical: true)
     }
 }

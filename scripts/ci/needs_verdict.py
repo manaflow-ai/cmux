@@ -18,7 +18,7 @@ entry whose first word is `failure` or `invalid` (a trailing colon is no part of
 entry is no verdict.
 
 Why: on 2026-11-09 the cmux-next/fast-gates poster (#39743) and the `rust workspaces` summary (#39791) each turned an
-`abandoned` dependency into a red that land-judge read as the pull request's own, because every summary gate wrote
+`abandoned` dependency into a red that merge_hold read as the pull request's own, because every summary gate wrote
 its own `== success` test. Status posters apply the same rule in their own terms: cmux-next-fast-gates.yml posts
 pending.
 

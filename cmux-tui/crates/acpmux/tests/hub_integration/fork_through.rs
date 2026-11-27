@@ -26,9 +26,9 @@ mod usage_limits;
 // What a Claude chat spent and holds, read from its transcript, which shares these helpers too.
 #[path = "usage_stats.rs"]
 mod usage_stats;
-// Claude's todo list, dropped, which shares these helpers too.
-#[path = "todo_dropped.rs"]
-mod todo_dropped;
+// Claude's todo list as an ACP plan, which shares these helpers too.
+#[path = "todo_plan.rs"]
+mod todo_plan;
 // Claude's background shells ending, which share these helpers too.
 #[path = "background_task.rs"]
 mod background_task;
@@ -73,9 +73,6 @@ mod fork_running;
 
 #[path = "fork_before.rs"]
 mod fork_before;
-// A subagent forked into a chat of its own, which shares the Claude and Codex setups.
-#[path = "fork_subagent.rs"]
-mod fork_subagent;
 
 const FORK_OP: &str = "acp.session.fork";
 

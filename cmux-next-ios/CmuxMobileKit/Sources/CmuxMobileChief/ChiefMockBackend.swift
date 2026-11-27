@@ -1,6 +1,5 @@
 import CmuxAgentQuestion
 import CmuxConversationCore
-import CmuxMobileModel
 import Foundation
 import ImageIO
 
@@ -16,11 +15,10 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
     let engine: Engine
     public let liveFeed = ChiefLiveFeed()
 
-    /// `sleep` paces Chief (pass a no-op in tests); `now` stamps the seeded transcript, and
-    /// ``MockClock`` the messages after it (a fixed instant for the App Review gate's stills).
+    /// `sleep` paces Chief (pass a no-op in tests); `now` stamps messages.
     /// `quiet`: a new conversation with people (New Message's demo) — no seeded transcript,
     /// no question and no replies; a sent message is delivered and read.
-    public init(identity: ChiefIdentity = .standard, now: Date = MockClock.now(),
+    public init(identity: ChiefIdentity = .standard, now: Date = Date(),
                 sleep: @escaping Sleep = { try? await Task.sleep(for: $0) }, quiet: Bool = false) {
         let showsLiveDemo = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-chief-live")
         engine = Engine(identity: identity, now: now, sleep: sleep, showsLiveDemo: showsLiveDemo, quiet: quiet)
@@ -65,11 +63,11 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
     }
 
     public func edit(messageID: String, text: String) async throws -> ConversationMessage {
-        try await engine.update(messageID) { $0.text = text; $0.editedAt = MockClock.now(); $0.editCount += 1 }
+        try await engine.update(messageID) { $0.text = text; $0.editedAt = Date(); $0.editCount += 1 }
     }
 
     public func unsend(messageID: String) async throws -> ConversationMessage {
-        try await engine.update(messageID) { $0.text = ""; $0.unsentAt = MockClock.now(); $0.reactions = [] }
+        try await engine.update(messageID) { $0.text = ""; $0.unsentAt = Date(); $0.reactions = [] }
     }
 
     public func setTyping(_ isTyping: Bool) async {}
@@ -182,7 +180,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             let seq = headSeq + 1
             let message = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: draft.clientMessageID, senderID: identity.meID,
-                sentAt: MockClock.now(), text: draft.text, replyToID: draft.replyToID,
+                sentAt: Date(), text: draft.text, replyToID: draft.replyToID,
                 attachments: draft.attachmentIDs.compactMap { uploads[$0] }, delivery: .delivered,
                 mentions: draft.mentions, textRuns: draft.textRuns, effect: draft.effect
             )
@@ -196,7 +194,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
         func respond(to message: ConversationMessage) async {
             await sleep(.milliseconds(700))
             guard var read = messages.first(where: { $0.id == message.id }) else { return }
-            read.delivery = .read(MockClock.now())
+            read.delivery = .read(Date())
             store(read)
             emit(read)
             guard !quiet else { return }
@@ -223,7 +221,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             let tabled = ConversationMarkdownTables.extract(linked.text, links: linked.links)
             let answer = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID,
-                sentAt: MockClock.now(), text: tabled.text, textRuns: tabled.runs, links: tabled.links, tables: tabled.tables
+                sentAt: Date(), text: tabled.text, textRuns: tabled.runs, links: tabled.links, tables: tabled.tables
             )
             store(answer)
             emit(answer)
@@ -254,7 +252,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             let seq = headSeq + 1
             let message = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID,
-                sentAt: MockClock.now(), text: text
+                sentAt: Date(), text: text
             )
             store(message)
             emit(message)
@@ -349,43 +347,7 @@ struct ChiefMockScript {
             }
             messages.append(message)
         }
-        // `-cmux-mobile-chief-markdown-quote`: Chief's before/after table with its shots, a later line, and my reply to
-        // the table, through the real wire (ChiefWire.message), so a capture shows the reply's quote of a Markdown
-        // message (Lawrence, 2026-11-20: "this preview thing is not very good").
-        if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-chief-markdown-quote") {
-            messages += markdownQuote(identity: identity, now: now, after: messages.count)
-        }
         return messages
-    }
-
-    /// The `-cmux-mobile-chief-markdown-quote` scene: three messages after the seeded `count`, the last my reply.
-    static func markdownQuote(identity: ChiefIdentity, now: Date, after count: Int) -> [ConversationMessage] {
-        let wire = ChiefWire(identity: identity)
-        let table = """
-            Both themes are fixed.
-
-            | | Before | After |
-            |---|---|---|
-            | Light | ![before, light](/Users/me/shots/before-light.png) | ![after, light](/Users/me/shots/after-light.png) |
-            | Dark | ![before, dark](/Users/me/shots/before-dark.png) | ![after, dark](/Users/me/shots/after-dark.png) |
-            """
-        let lines: [(me: Bool, secondsAgo: Double, text: String)] = [
-            (false, 120, table),
-            (false, 90, "See [PR 12](https://github.com/manaflow-ai/cmux/pull/12) ![the shot](/Users/me/shots/after-light.png) for the diff."),
-            (true, 60, "this preview thing is not very good"),
-        ]
-        let formatter = ISO8601DateFormatter()
-        return lines.enumerated().compactMap { offset, line in
-            let seq = count + offset + 1
-            var object: [String: Any] = [
-                "id": "msg_local_\(seq)", "seq": seq, "client_msg_id": "seed-\(seq)",
-                "author": line.me ? identity.meID : identity.chiefID,
-                "created_at": formatter.string(from: now.addingTimeInterval(-line.secondsAgo)),
-                "parts": [["type": "text", "text": line.text]], "reactions": [],
-            ]
-            if line.me { object["reply_to"] = ["message_id": "msg_local_\(count + 1)"] }
-            return wire.message(object, peerReadSeq: line.me ? seq : 0)
-        }
     }
 
     static func tapback(for text: String) -> ConversationReaction? {

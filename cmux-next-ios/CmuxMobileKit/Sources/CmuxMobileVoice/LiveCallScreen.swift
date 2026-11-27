@@ -193,7 +193,11 @@ public struct LiveCallScreen: View {
                 .font(.headline)
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
-            InPlaceSelectionLabel(failure.detail, textStyle: .callout, color: .secondaryLabel, alignment: .center)
+            Text(failure.detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
                 .accessibilityIdentifier("chief.call.failure")
             Spacer()
         }
@@ -217,7 +221,7 @@ public struct LiveCallScreen: View {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title)
                     .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, draft.isEmpty ? Color.gray.opacity(0.5) : CmuxMobileTheme.standard.colors.success.color)
+                    .foregroundStyle(.white, draft.isEmpty ? Color.gray.opacity(0.5) : Color.green)
             }
             .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityLabel(LiveCallText.send)
@@ -439,10 +443,10 @@ public struct LiveCallPill: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
-            .cmuxMobilePressBackground(CmuxMobileTheme.standard.colors.success.color, in: .capsule)
-            .shadow(color: CmuxMobileTheme.standard.colors.scrim.color, radius: 8, y: 2)
+            .background(Color.green, in: .capsule)
+            .shadow(color: .black.opacity(0.2), radius: 8, y: 2)
         }
-        .buttonStyle(.cmuxPressFillInLabel)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(LiveCallText.pillAccessibility)
         .accessibilityIdentifier("chief.call.pill")
     }

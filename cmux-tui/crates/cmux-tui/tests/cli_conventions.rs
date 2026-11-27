@@ -53,6 +53,7 @@ const EXEMPT: &[(&str, Check, &str)] = &[
     ("chat", Check::BogusWord, "every word after `chat` is the prompt"),
     ("run", Check::BogusWord, "the word after `run` is the script file to run"),
     ("open", Check::BogusWord, "the word after `open` is the file or URL to open"),
+    ("coderouter", Check::BogusWord, "every word goes to the bundled CodeRouter CLI"),
     ("notify", Check::BogusWord, "notify takes flags only; covered by the flag probe"),
     ("agents", Check::HumanNotJson, "agent-facing: prints JSON without --json by design"),
     ("setup", Check::HumanNotJson, "agent-facing: prints JSON without --json by design"),

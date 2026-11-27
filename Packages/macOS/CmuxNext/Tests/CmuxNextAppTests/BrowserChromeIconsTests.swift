@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextIcons
 @testable import CmuxNextBrowser
-import CmuxNextDesign
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -15,8 +14,10 @@ import Testing
     /// The pack families generated from Chromium's icons.
     private static let chromiumFamilies = ["browser.toolbar.", "browser.omnibox.", "browser.find.", "browser.extensions.", "browser.tab.", "browser.menu."]
 
-    /// Chrome has no Design mode or Theme toolbar button; those keep cmux's icons.
-    private static let cmuxOnlyButtons: Set<String> = ["button:designMode", "button:theme"]
+    /// Chrome has no Design mode or Theme toolbar button; those keep cmux's icons. More draws the
+    /// app's one ⋮, as the tab bar above it does (9d31a6eb78b, Lawrence msg 19627: "the three
+    /// vertical dots, there are 2 of them, and they are different sizes").
+    private static let cmuxOnlyButtons: Set<String> = ["button:designMode", "button:theme", "button:overflow"]
 
     private func isChromiumIcon(_ name: IconName) -> Bool {
         Self.chromiumFamilies.contains { name.rawValue.hasPrefix($0) }
@@ -34,13 +35,10 @@ import Testing
         #expect(isChromiumIcon(icon), "\(button) draws \(icon.rawValue)")
     }
 
-    /// More draws Chrome's ⋮, the pane's one (`OverflowButton.paneGlyph`), as the tab bar above it does (Lawrence msg
-    /// 19627: "the three vertical dots, there are 2 of them, and they are different sizes"; Lucas 2026-11-18: Helium's
-    /// and Chrome's 12 pt dots).
-    @Test func moreDrawsThePanesChromeEllipsis() {
+    /// More draws the app's one ⋮ (`action.more.vertical`), not Chrome's own.
+    @Test func moreDrawsTheAppsOneVerticalEllipsis() {
         let facts = BrowserToolbarFacts(engine: .cef, hostsDevTools: true, zoom: 1)
-        let icon = BrowserToolbarPolicy.state(.overflow, facts).icon
-        #expect(icon == OverflowButton.paneGlyph && isChromiumIcon(icon))
+        #expect(BrowserToolbarPolicy.state(.overflow, facts).icon == .actionMoreVertical)
     }
 
     /// Zoom shows Chrome's plus magnifier when zoomed in and its minus one when zoomed out.

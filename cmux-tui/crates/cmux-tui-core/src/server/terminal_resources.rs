@@ -55,8 +55,6 @@ fn resolve_targets(mux: &Mux, surfaces: Option<Vec<SurfaceId>>) -> (Vec<Target>,
         if !seen.insert(id) {
             continue;
         }
-        // A named parked tab starts: its process is asked for (lazy.rs).
-        mux.wake_lazy_tab(id);
         match mux.surface(id).and_then(|surface| target(&surface, id)) {
             Some(target) => targets.push(target),
             None => missing.push(id),

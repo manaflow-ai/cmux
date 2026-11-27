@@ -34,8 +34,8 @@ import Testing
              body: ["type": "workspace", "ref": ["session_id": session, "workspace_id": "ws-\(number)"]])
     }
 
-    /// Pinned: links of Default and Work, a tab of Play, an app of Work, and Work's group `itm_bp` holding Work's link
-    /// `itm_bw` and Work's group `itm_bc` with a link. The band: Play's group `itm_cp` holding an unscoped `itm_cc` and Play's `itm_ck`, Default's
+    /// Pinned: links of Default and Work, a tab of Play, an app of Work, and Work's group `itm_bp` holding Work's group
+    /// `itm_bc` with a link. The band: Play's group `itm_cp` holding an unscoped `itm_cc` and Play's `itm_ck`, Default's
     /// empty `itm_ch`, a loose link. This Mac: Work's group `itm_mw` with `ws-1` and Work's empty `itm_mn` (a link in
     /// it), the unscoped empty `itm_mh`, and `ws-2` loose.
     static func items() -> [[String: Any]] {
@@ -48,7 +48,6 @@ import Testing
             group("itm_bp", pinned, profile: work),
             group("itm_bc", pinned, parent: "itm_bp", profile: work),
             item("itm_bl", pinned, parent: "itm_bc", body: ["type": "url", "url": "https://kept.example"]),
-            item("itm_bw", pinned, parent: "itm_bp", body: ["type": "url", "url": "https://member.example"], room: work),
             group("itm_cp", custom, profile: play),
             group("itm_cc", custom, parent: "itm_cp", profile: nil),
             group("itm_ck", custom, parent: "itm_cp", profile: play),
@@ -150,7 +149,6 @@ import Testing
             for node in projection.arrange(window, drag: drag).flatMap(\.nodes) {
                 if case let .group(group) = node { listed.insert(group.id.rawValue) }
                 if case let .item(item) = node { listed.insert(item.id) }
-                listed.formUnion(node.listedItems.map(\.id)) // a band group's members as drawn (#31378)
             }
             let daemon = DaemonStore()
             daemon.apply(snapshot: DaemonTree(workspaces: numbers.map {
@@ -163,13 +161,12 @@ import Testing
             let layout = projection.layout.scopedToWindow(ownedElsewhere: { _ in false }, room: space, spaces: state.spaces)
             for section in layout.sections where section.content == .items { listed.formUnion(section.items.map(\.id.rawValue)) }
         }
-        // A band group's member link, tab or app counts where it is drawn (above); a machine section's lists with its
-        // group, and a top-level one in a machine section lists in every window.
+        // A member link, tab or app lists with its group; a top-level one in a machine section lists in every window.
         let records = try SidebarDocRecords(document: document(state.items))
         return records.items.values.filter { item in
             if item.body.workspace != nil || listed.contains(item.id) { return false }
             if case .group = item.body { return true }
-            if let parent = item.parent, records.sections[item.section]?.session != nil { return !listed.contains(parent) }
+            if let parent = item.parent { return !listed.contains(parent) }
             return records.sections[item.section]?.session == nil
         }.map(\.id).sorted()
     }

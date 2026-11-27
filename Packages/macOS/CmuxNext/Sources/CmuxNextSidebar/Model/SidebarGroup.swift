@@ -75,7 +75,7 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     /// onto-drop, "group selected"): the home daemon refuses an empty name.
     public static func named(_ name: String) -> String {
         guard name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return name }
-        return String(localized: "sidebar.group.newName", defaultValue: "New Group", bundle: .localizedModule)
+        return String(localized: "sidebar.group.newName", defaultValue: "New Group", bundle: .module)
     }
 
     public init(
@@ -251,16 +251,13 @@ public nonisolated struct SidebarListItem: Hashable, Sendable {
     public var title: String
     /// The page icon address of a link (stored on the item, else the site's own).
     public var iconAddress: String?
-    /// The explicit Space of a link, tab or app. An unstamped group member follows its visible group.
-    public var room: String?
     /// Archived in the sidebar document: the row draws dimmed. Set by `arrange`.
     public var isArchived = false
 
-    public init(id: String, ref: LayoutItemRef, title: String, iconAddress: String? = nil, room: String? = nil) {
+    public init(id: String, ref: LayoutItemRef, title: String, iconAddress: String? = nil) {
         self.id = id
         self.ref = ref
         self.title = title
         self.iconAddress = iconAddress
-        self.room = room
     }
 }

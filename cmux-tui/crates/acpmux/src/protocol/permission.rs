@@ -91,9 +91,6 @@ pub struct PermissionRespondParams {
     /// Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<Value>,
-    /// Fork first (fork_risky.rs): the copy the app made before allowing, `{machine, fork, forkMs}`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fork_checkpoint: Option<Value>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<RequestMeta>,
 }
@@ -146,14 +143,6 @@ pub struct PermissionGroupItem {
     pub request: Value,
     #[schemars(with = "PermissionItemState")]
     pub state: &'static str,
-    /// What the call does, in the agent's plain words (a shell call's `description`), for the
-    /// row in place of the command (Leo 2026-11-23: "i also dont know why you asked me this").
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-    /// A shell call's command as the agent wrote it, without the line acpmux put before a
-    /// subagent's command to name its caller (`bg_hook::without_subagent_mark`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub command: Option<String>,
 }
 
 /// A batch of permission requests from one turn, decided together.

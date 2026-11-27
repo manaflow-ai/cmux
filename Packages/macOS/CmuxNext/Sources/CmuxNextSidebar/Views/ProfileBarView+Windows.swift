@@ -54,11 +54,9 @@ extension ProfileBarView {
         }
     }
 
-    /// A mark's tooltip and VoiceOver label: says so when another window shows the space. The space this window shows
-    /// is here, also when a second window shows it too, so its mark never says "in another window" (the space menu's
-    /// rows already read so). Leo 2026-11-11: "why does it say default in another window?"
+    /// A mark's tooltip and VoiceOver label: says so when another window shows the space.
     func windowMarkLabel(_ label: String, for profile: SidebarProfile) -> String {
-        elsewhere(profile) == nil || profile.id == model.activeProfileID ? label : Strings.spaceInAnotherWindow(label)
+        elsewhere(profile) == nil ? label : Strings.spaceInAnotherWindow(label)
     }
 
     // MARK: Click

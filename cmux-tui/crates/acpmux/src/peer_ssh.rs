@@ -10,20 +10,6 @@ const LIMIT: usize = 8 * 1024;
 /// wakes it), not gone, and the next attempts give it the long connect deadline (`Peer::ssh_connect_secs`).
 pub(super) const BANNER_TIMEOUT: &str = "SSH connection timed out during the banner exchange";
 
-/// The ssh config's ProxyCommand (a relay that tries each of the machine's routes, with
-/// `ProxyUseFdpass`) answered on none of them: ssh says only "proxy dialer did not pass back a
-/// connection". Nothing reached the machine; most often it is paused (a parked cloud VM, whose
-/// internal name stops resolving), off or gone, and a message for it wakes it where a wake is set.
-pub(super) const NO_ROUTE: &str =
-    "SSH found no route to the machine (its proxy answered on none: paused, off or gone)";
-
-/// ssh logged in, but nothing listens at the port `ssh -W` forwards to on the machine: its
-/// daemon is down, or it serves on another port (it found its port taken at start and moved to a
-/// free one, which its `listener.json` records). The peer reads that record and dials it
-/// (`Peer::reread_listener`).
-pub(super) const FORWARD_REFUSED: &str =
-    "SSH logged in, but no acpmux daemon listens at the forwarded port";
-
 pub(super) fn reason(bytes: &[u8]) -> Option<&'static str> {
     let text = String::from_utf8_lossy(bytes.get(..LIMIT).unwrap_or(bytes)).to_ascii_lowercase();
     [
@@ -35,42 +21,17 @@ pub(super) fn reason(bytes: &[u8]) -> Option<&'static str> {
         ),
         ("permission denied", "Permission denied (SSH authentication failed)"),
         ("no supported authentication methods", "SSH authentication failed (no supported methods)"),
-        // `ssh -W`: "channel 0: open failed: connect failed: Connection refused". Before the
-        // plain "connection refused", which is ssh's own TCP connect to the machine.
-        ("open failed: connect failed", FORWARD_REFUSED),
-        ("stdio forwarding failed", FORWARD_REFUSED),
         ("timed out during banner exchange", BANNER_TIMEOUT),
         ("connection timed out", "SSH connection timed out"),
         ("operation timed out", "SSH connection timed out"),
         ("connection refused", "SSH connection refused"),
         ("no route to host", "SSH connection failed (no route to host)"),
         ("network is unreachable", "SSH connection failed (network is unreachable)"),
-        ("proxy dialer did not pass back a connection", NO_ROUTE),
-        ("no route answered", NO_ROUTE),
         ("connection reset", "SSH connection reset"),
         ("connection closed", "SSH connection closed"),
     ]
     .into_iter()
     .find_map(|(needle, label)| text.contains(needle).then_some(label))
-}
-
-/// The route kind of an ssh failure class (`reason`'s label): a refused login or host key is
-/// `auth`; None for a class that says nothing about the route (a reset, a close).
-pub(super) fn dial_fail(reason: Option<&str>) -> Option<crate::protocol::peer_state::DialFail> {
-    use crate::protocol::peer_state::DialFail;
-    let reason = reason?;
-    if login_refused(Some(reason)) {
-        return Some(DialFail::Auth);
-    }
-    match reason {
-        BANNER_TIMEOUT | "SSH connection timed out" => Some(DialFail::Timeout),
-        "SSH connection refused" | FORWARD_REFUSED => Some(DialFail::Refused),
-        NO_ROUTE
-        | "Could not resolve hostname (DNS lookup failed)"
-        | "SSH connection failed (no route to host)"
-        | "SSH connection failed (network is unreachable)" => Some(DialFail::Unreachable),
-        _ => None,
-    }
 }
 
 /// Whether `reason` is the remote refusing this computer's login: a key or password it does not
@@ -85,17 +46,6 @@ pub(super) fn login_refused(reason: Option<&str>) -> bool {
                 | "Host key verification failed"
                 | "Host key verification failed (host key changed)"
         )
-    )
-}
-
-/// Whether `reason` is ssh refusing the machine's host key. ssh stops before it authenticates,
-/// so no attempt counts against a ban tool's limit, and the cause is often brief (a relay that
-/// reached another machine, a `known_hosts` being rewritten): its attempts wait a short bounded
-/// backoff (`Backoff::host_key_refused`), not a refused login's hour.
-pub(super) fn host_key_refused(reason: Option<&str>) -> bool {
-    matches!(
-        reason,
-        Some("Host key verification failed" | "Host key verification failed (host key changed)")
     )
 }
 
@@ -143,5 +93,39 @@ impl Drop for Capture {
 }
 
 #[cfg(test)]
-#[path = "peer_ssh_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_known_failure_classes_leave_the_stderr_capture() {
+        assert_eq!(reason(b"banner: secret-token"), None);
+        assert_eq!(
+            reason(b"secret-token: Permission denied (publickey)."),
+            Some("Permission denied (SSH authentication failed)")
+        );
+        let mut huge = vec![b'x'; LIMIT];
+        huge.extend_from_slice(b"Permission denied");
+        assert_eq!(reason(&huge), None, "diagnostics are bounded");
+    }
+
+    #[test]
+    fn a_refused_login_is_told_apart_from_an_unreachable_host() {
+        for refused in [
+            &b"leo@box: Permission denied (publickey,password)."[..],
+            b"Received disconnect: No supported authentication methods available",
+            b"Host key verification failed.",
+            b"WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!",
+        ] {
+            assert!(login_refused(reason(refused)), "{}", String::from_utf8_lossy(refused));
+        }
+        for down in [
+            &b"ssh: connect to host box port 22: Connection refused"[..],
+            b"ssh: connect to host box port 22: Operation timed out",
+            b"Connection timed out during banner exchange",
+            b"ssh: Could not resolve hostname box",
+            b"",
+        ] {
+            assert!(!login_refused(reason(down)), "{}", String::from_utf8_lossy(down));
+        }
+    }
+}

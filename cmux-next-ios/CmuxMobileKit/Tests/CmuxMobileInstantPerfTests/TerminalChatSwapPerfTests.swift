@@ -36,7 +36,10 @@ extension InstantPerfTests {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(Color.black)
             } chat: {
-                AgentChatTranscript(store: store, surface: surface, topInset: 16)
+                AgentChatTranscript(store: store, surface: surface, topInset: 60)
+            }
+            .overlay(alignment: .topTrailing) {
+                TerminalChatToggleControl(showsChat: showsChat) { _ in }
             }
         }
     }
@@ -61,7 +64,7 @@ extension InstantPerfTests {
             hosting.view.layoutIfNeeded()
         }
         let turns = store.turns.map(\.id)
-        let facts = TerminalChatFacts(toggleOn: true, terminal: true, chat: false, agent: "claude", session: "h-1", running: false, chatRefused: false)
+        let facts = TerminalChatFacts(terminal: true, chat: false, agent: "claude", session: "h-1", running: false, chatRefused: false)
         var shown = TabFace.chat
         func swap(to face: TabFace) -> Duration {
             ContinuousClock().measure {

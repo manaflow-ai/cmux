@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@testable import CmuxMobileModel
 @testable import CmuxMobileChief
 
 /// The new Mac rows the account's own Cloud calls carry (cmux#25834, Mac features after
@@ -72,51 +71,6 @@ import Testing
 
     static let list = #"{"value":{"owner":"team_1","revision":"r","automations":[{"id":"auto_a","name":"Morning summary","enabled":true,"version":3,"next_run_at":4102444800000,"triggers":[{"spec":{"type":"cron","expr":"0 9 * * 1-5","tz":"UTC"}}],"body":{"prompt":"summarize my PRs"}},{"id":"auto_b","name":"Nightly","enabled":false,"version":1,"next_run_at":null,"triggers":[{"spec":{"type":"manual"}}],"body":{"prompt":"x"}},{"id":"auto_c","name":"Broken","enabled":true,"version":2,"next_run_at":null,"triggers":[{"spec":{"type":"every","seconds":1800}}],"body":{"command":"make"}}]}}"#
     static let runs = #"{"value":{"revision":"r","runs":[{"id":"run_1","automation":"auto_c","state":"failed","created_at":1000,"started_at":1000,"finished_at":2000,"error":{"code":"exit_7","message":"exit 7"},"trigger":{"id":null,"type":"every"}},{"id":"run_2","automation":"auto_a","state":"succeeded","created_at":500,"started_at":500,"finished_at":900,"error":null,"trigger":{"id":null,"type":"cron"}}]}}"#
-
-    @Test func personalCloudListsRestoreBeforeRefreshAndKeepKnownEmptyOffline() async {
-        let store = LastKnownListStore(directory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
-        defer { store.removeAll() }
-        let machines = store.list(accountID: "a", screen: "machines")
-        let automations = store.list(accountID: "a", screen: "automations")
-        let account = Self.account()
-        var answers = Machines.reads
-        answers["automation.list"] = (200, Self.list)
-        answers["automation.runs.list"] = (200, Self.runs)
-        Service.reset(answers)
-        await CloudMachinesModel(cache: machines) { account }.load()
-        await CloudAutomationsModel(cache: automations) { account }.load()
-
-        let machinePage = CloudMachinesModel(cache: machines) { account }
-        let automationPage = CloudAutomationsModel(cache: automations) { account }
-        #expect(machinePage.phase == .loaded && machinePage.machines.count == 2)
-        #expect(machinePage.snapshots.count == 2 && machinePage.plan?.planID == "pro")
-        #expect(automationPage.phase == .loaded && automationPage.automations.count == 3)
-        #expect(automationPage.automation("auto_c")?.last == .failed)
-        #expect(automationPage.automation("auto_c")?.task == "")
-
-        // An unreadable machine list and a missing run history both preserve the known display.
-        Service.reset(["cloud.machine.list": (200, #"{"value":{}}"#), "automation.list": (200, Self.list)])
-        await machinePage.load()
-        await automationPage.load()
-        #expect(machinePage.machines.count == 2)
-        #expect(automationPage.automation("auto_c")?.last == .failed)
-
-        Service.reset(["cloud.machine.list": (200, #"{"value":{"machines":[]}}"#),
-                       "automation.list": (200, #"{"value":{"automations":[]}}"#)])
-        await machinePage.load()
-        await automationPage.load()
-        let emptyMachines = CloudMachinesModel(cache: machines) { account }
-        let emptyAutomations = CloudAutomationsModel(cache: automations) { account }
-        Service.reset([:])
-        await emptyMachines.load()
-        await emptyAutomations.load()
-        #expect(emptyMachines.phase == .loaded && emptyMachines.machines.isEmpty)
-        #expect(emptyAutomations.phase == .loaded && emptyAutomations.automations.isEmpty)
-        #expect(emptyMachines.failure == nil && emptyAutomations.failure == nil)
-        let otherAccount = store.list(accountID: "b", screen: "machines")
-        let unseen = CloudMachinesModel(cache: otherAccount) { account }
-        #expect(unseen.phase == .loading)
-    }
 
     @Test func automationsLoadInTheMacsSections() async {
         Service.reset(["automation.list": (200, Self.list), "automation.runs.list": (200, Self.runs)])
@@ -202,19 +156,9 @@ import Testing
         #expect(!model.canAct)
     }
 
-    @Test func anErroredGitHubConnectionSaysSoAndCanConnectAgain() {
+    @Test func anErroredGitHubConnectionCanConnectAgain() {
         let value = Data(#"{"connections":[{"provider":"github","status":"error"}],"providers":[{"provider":"github","configured":true}]}"#.utf8)
-        #expect(GitHubConnect.state(value) == .error)
-    }
-
-    @Test func aSuspendedOrUninstalledGitHubConnectionNeedsReconnecting() {
-        let value = Data(#"{"connections":[{"provider":"github","status":"needs_reauth"}],"providers":[{"provider":"github","configured":true}]}"#.utf8)
-        #expect(GitHubConnect.state(value) == .needsReauth)
-        // An active connection beside it still reads connected, and a pending link reads pending.
-        let both = Data(#"{"connections":[{"provider":"github","status":"needs_reauth"},{"provider":"github","status":"active","account_login":"acme"}],"providers":[{"provider":"github","configured":true}]}"#.utf8)
-        #expect(GitHubConnect.state(both) == .connected(["acme"]))
-        let linking = Data(#"{"connections":[{"provider":"github","status":"needs_reauth"},{"provider":"github","status":"pending"}],"providers":[{"provider":"github","configured":true}]}"#.utf8)
-        #expect(GitHubConnect.state(linking) == .pending)
+        #expect(GitHubConnect.state(value) == .notConnected)
     }
 
     @Test func signedOutSaysSo() async {
@@ -254,36 +198,7 @@ import Testing
         #expect(Service.params("integration.connect")?["provider"] as? String == "github")
         #expect(model.state == .pending)
         #expect(GitHubConnect.installationURL("https://evil.example/apps/x/installations/new") == nil)
-        #expect(GitHubConnect.installationURL("https://github.com/login/oauth/access_token") == nil)
-    }
-
-    /// The three pages integration.connect answers open; nothing else does (the Mac's check).
-    @Test func connectGitHubOpensTheThreeConnectPagesOnly() {
-        for good in ["https://github.com/apps/cmux/installations/new?state=s",
-                     "https://github.com/apps/cmux/installations/new/permissions?target_id=4242&state=s",
-                     "https://github.com/login/oauth/authorize?client_id=Iv1.abc&state=s"] {
-            #expect(GitHubConnect.installationURL(good)?.absoluteString == good)
-        }
-        for bad in ["http://github.com/login/oauth/authorize", "https://github.com.evil.test/login/oauth/authorize",
-                    "https://user@github.com/login/oauth/authorize", "https://github.com:8443/login/oauth/authorize",
-                    "https://github.com/apps/cmux/installations/new/permissions/more", "https://github.com/settings/installations/42"] {
-            #expect(GitHubConnect.installationURL(bad) == nil, "\(bad)")
-        }
-    }
-
-    /// A chat's Connect names its repository and link; an answer of `connected: true` opens nothing.
-    @Test func connectGitHubForARepositoryAsksTheAPIAndConnectedOpensNothing() async {
-        Service.reset(["integration.list": (200, #"{"value":{"connections":[{"provider":"github","status":"active","account_login":"octo"}],"providers":[{"provider":"github","configured":true}]}}"#),
-                       "integration.connect": (200, #"{"value":{"connected":true,"connection":{"id":"conn_1"}}}"#)])
-        let account = Self.account()
-        var opened: [URL] = []
-        let model = GitHubConnect(account: { account }, open: { opened.append($0) })
-        await model.connect(repo: "acme/web", returnTo: "cmux://session/ses-01")
-        #expect(opened.isEmpty)
-        #expect(model.failure == nil)
-        #expect(Service.params("integration.connect")?["repo"] as? String == "acme/web")
-        #expect(Service.params("integration.connect")?["return_to"] as? String == "cmux://session/ses-01")
-        #expect(model.state == .connected(["octo"]))
+        #expect(GitHubConnect.installationURL("https://github.com/login/oauth/authorize") == nil)
     }
 
     @Test func connectGitHubDoesNothingWhenConnected() async {

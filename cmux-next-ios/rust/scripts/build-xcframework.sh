@@ -9,11 +9,9 @@
 # Package.swift wiring:
 #   .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
 #   .target(name: "CmuxMobileLinkFFI", dependencies: ["CmuxMobileLinkFFIFFI"], path: "Sources/CmuxMobileLinkFFI",
-#           linkerSettings: [.linkedFramework("Security"), .linkedFramework("SystemConfiguration"),
-#                            .linkedFramework("CFNetwork")]),
+#           linkerSettings: [.linkedFramework("Security"), .linkedFramework("SystemConfiguration")]),
 #
-# Environment: JOBS (default 6), IPHONEOS_DEPLOYMENT_TARGET (default 17.0), CARGO_TARGET_DIR
-# (default rust/target; the CI step passes a warm per-worker dir, scripts/ci/ios_ffi_cache.py build),
+# Environment: JOBS (default 6), IPHONEOS_DEPLOYMENT_TARGET (default 17.0),
 # DEVELOPER_DIR (default /Applications/Xcode.app/Contents/Developer; the
 # selected command line tools have no iOS SDK). SKIP_VERIFY=1 skips the
 # Swift typecheck and simulator link check.
@@ -26,7 +24,6 @@ export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
 # Thin LTO would leave LLVM bitcode that Apple's ld may not read.
 export CARGO_PROFILE_RELEASE_LTO=off
 jobs="${JOBS:-6}"
-target_dir="${CARGO_TARGET_DIR:-$rust_dir/target}"
 name=CmuxMobileLinkFFIFFI
 lib=libcmux_mobile_link_ffi.a
 targets=(aarch64-apple-ios aarch64-apple-ios-sim)
@@ -41,30 +38,24 @@ done
 # names libc items (sockaddr_ctl, AF_SYS_CONTROL, SYSPROTO_*) that current libc
 # no longer exports for iOS. For the iOS builds only, patch nix with a copy
 # that defines them itself (the Darwin values). The checked-in Cargo.lock is
-# restored afterwards; host builds and tests use stock nix. A run killed before
-# that restore (a CI step timeout) leaves the patched lock: put it back first.
-bash "$rust_dir/scripts/restore-ios-patch-lock.sh"
+# restored afterwards; host builds and tests use stock nix.
 cargo fetch --locked
 cargo_home="${CARGO_HOME:-$HOME/.cargo}"
 nix_src="$(ls -d "$cargo_home"/registry/src/*/nix-0.26.4 2>/dev/null | head -1)"
 [[ -d "$nix_src" ]] || { echo "error: nix-0.26.4 source not found under $cargo_home/registry/src" >&2; exit 1; }
-# The patched copy lives in the target dir at a fixed path, and an identical copy is kept as it is:
-# a path dependency is fingerprinted by its files' mtimes, so rewriting it would rebuild nix and
-# every crate above it (webrtc-*) in a warm target dir.
-patched="$target_dir/ios-patches/nix-0.26.4"
-staged="$patched.new"
-rm -rf "$staged"
+patched="$rust_dir/target/ios-patches/nix-0.26.4"
+rm -rf "$patched"
 mkdir -p "$(dirname "$patched")"
-cp -R "$nix_src" "$staged"
-chmod -R u+w "$staged"
+cp -R "$nix_src" "$patched"
+chmod -R u+w "$patched"
 sed -i '' -e 's/libc::sockaddr_ctl/crate::darwin_ctl::sockaddr_ctl/g' \
-  -e 's/libc::AF_SYS_CONTROL/crate::darwin_ctl::AF_SYS_CONTROL/g' "$staged/src/sys/socket/addr.rs"
+  -e 's/libc::AF_SYS_CONTROL/crate::darwin_ctl::AF_SYS_CONTROL/g' "$patched/src/sys/socket/addr.rs"
 sed -i '' -e 's/libc::SYSPROTO_EVENT/crate::darwin_ctl::SYSPROTO_EVENT/g' \
-  -e 's/libc::SYSPROTO_CONTROL/crate::darwin_ctl::SYSPROTO_CONTROL/g' "$staged/src/sys/socket/mod.rs"
+  -e 's/libc::SYSPROTO_CONTROL/crate::darwin_ctl::SYSPROTO_CONTROL/g' "$patched/src/sys/socket/mod.rs"
 # A path dependency is linted like workspace code; nix denies `unused`, which
 # newer rustc reports on code nix never meant to keep.
-sed -i '' -e 's/^#!\[deny(unused)\]/#![allow(warnings)]/' "$staged/src/lib.rs"
-cat >> "$staged/src/lib.rs" <<'RUST'
+sed -i '' -e 's/^#!\[deny(unused)\]/#![allow(warnings)]/' "$patched/src/lib.rs"
+cat >> "$patched/src/lib.rs" <<'RUST'
 
 /// cmux-next-ios patch: Darwin's system-control socket items, which libc no
 /// longer exports for iOS (`<sys/kern_control.h>`, `<sys/sys_domain.h>`).
@@ -86,42 +77,27 @@ pub mod darwin_ctl {
     }
 }
 RUST
-if [[ -d "$patched" ]] && diff -rq "$staged" "$patched" >/dev/null 2>&1; then
-  rm -rf "$staged"
-else
-  rm -rf "$patched"
-  mv "$staged" "$patched"
-fi
-# The saved lock lives in this checkout's own target/ (not the shared CARGO_TARGET_DIR) and
-# exists only while the lock is patched; restore-ios-patch-lock.sh reads a leftover one as a
-# killed run's.
-lock_orig="$rust_dir/target/ios-patches/Cargo.lock.orig"
-mkdir -p "$(dirname "$lock_orig")"
-cp Cargo.lock "$lock_orig"
-restore_lock() { cp "$lock_orig" "$rust_dir/Cargo.lock"; rm -f "$lock_orig"; }
+cp Cargo.lock "$rust_dir/target/ios-patches/Cargo.lock.orig"
+restore_lock() { cp "$rust_dir/target/ios-patches/Cargo.lock.orig" "$rust_dir/Cargo.lock"; }
 trap restore_lock EXIT
-# An untrapped signal ends bash without its EXIT trap: exit through it instead.
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
 ios_patch=(--config "patch.crates-io.nix.path=\"$patched\"")
 
 for target in "${targets[@]}"; do
   cargo build --release -j "$jobs" -p cmux-mobile-link-ffi --lib --target "$target" "${ios_patch[@]}"
-  exported="$(nm -g "$target_dir/$target/release/$lib" 2>/dev/null | grep -c ' T _uniffi_cmux_mobile_link_ffi_' || true)"
+  exported="$(nm -g "target/$target/release/$lib" 2>/dev/null | grep -c ' T _uniffi_cmux_mobile_link_ffi_' || true)"
   echo "$target: $exported exported uniffi symbols"
   [[ "$exported" -gt 0 ]] || { echo "error: $lib for $target exports no uniffi symbols" >&2; exit 1; }
 done
 
 restore_lock
-trap - EXIT HUP INT TERM
+trap - EXIT
 
 # Bindings come from the host library (uniffi library mode).
 cargo build --release -j "$jobs" -p cmux-mobile-link-ffi --lib
 gen="$(mktemp -d)"
 trap 'rm -rf "$gen"' EXIT
 cargo run --release -j "$jobs" -p cmux-mobile-link-ffi --features bindgen --bin uniffi-bindgen -- \
-  generate --library "$target_dir/release/libcmux_mobile_link_ffi.dylib" --language swift --out-dir "$gen"
+  generate --library target/release/libcmux_mobile_link_ffi.dylib --language swift --out-dir "$gen"
 
 sources="$cmux_mobile_dir/CmuxMobileKit/Sources/CmuxMobileLinkFFI"
 mkdir -p "$sources"
@@ -137,7 +113,7 @@ add_slice() {
   local slice="$1" supported="$2" variant="$3" target="$4"
   local fw="$xcf/$slice/$name.framework"
   mkdir -p "$fw/Headers" "$fw/Modules"
-  cp "$target_dir/$target/release/$lib" "$fw/$name"
+  cp "target/$target/release/$lib" "$fw/$name"
   cp "$gen/$name.h" "$fw/Headers/"
   printf 'framework module %s {\n    umbrella header "%s.h"\n    export *\n    module * { export * }\n}\n' \
     "$name" "$name" > "$fw/Modules/module.modulemap"
@@ -184,7 +160,7 @@ if [[ "${SKIP_VERIFY:-0}" != 1 ]]; then
 print("cmux-mobile-link-ffi \(cmuxMobileVersion())")
 SWIFT
   xcrun --sdk iphonesimulator swiftc -target "arm64-apple-ios${IPHONEOS_DEPLOYMENT_TARGET}-simulator" \
-    -F "$xcf/ios-arm64-simulator" -framework "$name" -framework Security -framework SystemConfiguration -framework CFNetwork \
+    -F "$xcf/ios-arm64-simulator" -framework "$name" -framework Security -framework SystemConfiguration \
     -module-name CmuxMobileLinkFFICheck "$sources/CmuxMobileLinkFFI.swift" "$check/main.swift" -o "$check/cmux-mobile-link-ffi-check"
   echo "verified: bindings typecheck and link for the iOS simulator"
 fi

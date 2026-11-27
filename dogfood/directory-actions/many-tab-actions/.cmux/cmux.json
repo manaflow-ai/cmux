@@ -1,0 +1,254 @@
+{
+  "actions": {
+    "many.action01": {
+      "type": "command",
+      "title": "Action 01",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 01\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "terminal" }
+    },
+    "many.action02": {
+      "type": "command",
+      "title": "Action 02",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 02\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "globe" }
+    },
+    "many.action03": {
+      "type": "command",
+      "title": "Action 03",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 03\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "square.split.2x1" }
+    },
+    "many.action04": {
+      "type": "command",
+      "title": "Action 04",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 04\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "square.split.1x2" }
+    },
+    "many.action05": {
+      "type": "command",
+      "title": "Action 05",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 05\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "doc" }
+    },
+    "many.action06": {
+      "type": "command",
+      "title": "Action 06",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 06\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "folder" }
+    },
+    "many.action07": {
+      "type": "command",
+      "title": "Action 07",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 07\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "magnifyingglass" }
+    },
+    "many.action08": {
+      "type": "command",
+      "title": "Action 08",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 08\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "gearshape" }
+    },
+    "many.action09": {
+      "type": "command",
+      "title": "Action 09",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 09\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "hammer" }
+    },
+    "many.action10": {
+      "type": "command",
+      "title": "Action 10",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 10\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "wrench.and.screwdriver" }
+    },
+    "many.action11": {
+      "type": "command",
+      "title": "Action 11",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 11\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "bolt" }
+    },
+    "many.action12": {
+      "type": "command",
+      "title": "Action 12",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 12\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "flag" }
+    },
+    "many.action13": {
+      "type": "command",
+      "title": "Action 13",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 13\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "star" }
+    },
+    "many.action14": {
+      "type": "command",
+      "title": "Action 14",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 14\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "bookmark" }
+    },
+    "many.action15": {
+      "type": "command",
+      "title": "Action 15",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 15\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "bell" }
+    },
+    "many.action16": {
+      "type": "command",
+      "title": "Action 16",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 16\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "tray" }
+    },
+    "many.action17": {
+      "type": "command",
+      "title": "Action 17",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 17\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "arrow.clockwise" }
+    },
+    "many.action18": {
+      "type": "command",
+      "title": "Action 18",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 18\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "play" }
+    },
+    "many.action19": {
+      "type": "command",
+      "title": "Action 19",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 19\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "stop" }
+    },
+    "many.action20": {
+      "type": "command",
+      "title": "Action 20",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 20\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "pause" }
+    },
+    "many.action21": {
+      "type": "command",
+      "title": "Action 21",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 21\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "record.circle" }
+    },
+    "many.action22": {
+      "type": "command",
+      "title": "Action 22",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 22\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "shippingbox" }
+    },
+    "many.action23": {
+      "type": "command",
+      "title": "Action 23",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 23\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "network" }
+    },
+    "many.action24": {
+      "type": "command",
+      "title": "Action 24",
+      "subtitle": "Many tab actions dogfood",
+      "command": "printf 'MANY TAB ACTION 24\\n'; pwd",
+      "target": "newTabInCurrentPane",
+      "palette": false,
+      "icon": { "type": "symbol", "name": "externaldrive" }
+    }
+  },
+  "ui": {
+    "surfaceTabBar": {
+      "buttons": [
+        "cmux.newTerminal",
+        "cmux.newBrowser",
+        "cmux.splitRight",
+        "cmux.splitDown",
+        "many.action01",
+        "many.action02",
+        "many.action03",
+        "many.action04",
+        "many.action05",
+        "many.action06",
+        "many.action07",
+        "many.action08",
+        "many.action09",
+        "many.action10",
+        "many.action11",
+        "many.action12",
+        "many.action13",
+        "many.action14",
+        "many.action15",
+        "many.action16",
+        "many.action17",
+        "many.action18",
+        "many.action19",
+        "many.action20",
+        "many.action21",
+        "many.action22",
+        "many.action23",
+        "many.action24"
+      ]
+    }
+  }
+}

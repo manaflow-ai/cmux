@@ -375,7 +375,7 @@ async fn fake_peer(answer: Answer) -> (u16, mpsc::UnboundedReceiver<Value>) {
     let (cancels, received) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = listener.accept().await {
-            let Ok(mut ws) = acpmux::server::accept_ws(tcp).await else { continue };
+            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let cancels = cancels.clone();
             tokio::spawn(async move {
                 // The link pings every 2 s and drops after 6 s with no byte back (#38015); the

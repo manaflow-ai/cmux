@@ -14,7 +14,7 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
           a review verdict on the head: a review's `Review (<reviewer>): SHIP at <full
           head sha>` line in the description or leading a comment, an approving review on the head
           commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head, or no verdict yet,
-          is a warning: the lander refuses a BLOCK, and risk-tier.yml stays red on an unowned takeback or an ungraded quota refusal.
+          is a warning: the lander refuses a BLOCK, and risk-tier.yml turns red only on a takeback.
 
 Size is not a rule: in the audit, the changes that broke things were as often small as large.
 Separately from the tier, a pull request that takes back what another pull request merged in the
@@ -30,12 +30,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import email.utils
 import fnmatch
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 import time
@@ -54,7 +52,7 @@ HUMAN_OK_LABEL = "risk:human-ok"
 WAIVED_LABEL = "risk:waived"
 # A review's verdict on the exact head, on a comment's first line: "Review (subagent, correctness first): SHIP at
 # <full head sha>", the form next_autoland.py and merge_audit.py read. This is the one copy of the grammar and of
-# when a receipt counts. It stays in this file because risk-tier.yml runs
+# when a receipt counts; defaults_guard.py imports it from here. It stays in this file because risk-tier.yml runs
 # from main and checks out only scripts/ci/risk_tier.py from the base (#36941 split it into a module and every
 # `risk evidence` run failed on the import). A SHIP from any reviewer counts, whatever its model family and
 # whoever started it, the pull request's own agent included (Leo, 2026-11-14, on "need a review from a model
@@ -71,7 +69,7 @@ AUTHOR_AGENT = re.compile(r"^[\s>*_`-]*author-agent[*_`]*\s*:[\s*_`]*(?P<id>[^\s
 # The aid in the `Agent session:` footer `agent-identity footer` writes at the end of every lane PR body
 # (`[...](https://cmux.com/deeplink/agent?id=aid-<20 hex>)`) names the author agent too. leo-workspace
 # tools/review_model.py reads both forms; reading only Author-agent here refused #42066's review-service SHIP
-# (the body carried the footer alone) after land-judge and router-review had both read it as independent.
+# (the body carried the footer alone) after merge_hold and router-review had both read it as independent.
 FOOTER_AGENT = re.compile(r"^[\s>*_`-]*agent session[*_`]*\s*:[^\n]*?[?&]id=(?P<id>aid-[0-9a-f]{20})(?![0-9a-f])",
                           re.I | re.M)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
@@ -122,7 +120,8 @@ def same_account(login: str | None, author: str | None) -> bool:
 
 def refusal(receipt: Receipt, same: bool, agents: set[str]) -> str | None:
     """Why `receipt` does not count, or None when it does. Always None now: a SHIP counts from any family and from
-    the pull request's own agent (Leo, 2026-11-14: "this is no longer a requirement"), and a BLOCK always counted."""
+    the pull request's own agent (Leo, 2026-11-14: "this is no longer a requirement"), and a BLOCK always counted.
+    Kept with this signature because main's defaults guard calls it on the base's copy of this file."""
     return None
 
 
@@ -139,7 +138,7 @@ TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 # The cmux-bot App, which posts next-review's receipts (the review service any lane can ask for: `router-review
 # OWNER/REPO N --request`). A receipt line it posts counts as one from another account: no lane holds the App's key,
 # so a lane can neither write its verdict nor forge one. Its login alone never counts, only with this immutable node
-# id, and its APPROVED reviews never do (they mirror another account's receipt).
+# id, and its APPROVED reviews never do (they mirror another account's receipt). defaults_guard.py reads the same.
 CMUX_BOT_LOGINS = frozenset(("cmux-bot", "cmux-bot[bot]"))
 CMUX_BOT_NODE_ID = "BOT_kgDOFMYsLQ"
 # A login whose author_association is not TRUSTED still counts with one of these roles on the repository.
@@ -160,8 +159,6 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # strings). CODEOWNERS is not among them.
     ("low", "docs or copy", (
         "*.md", "*.mdx", "LICENSE*", "*/LICENSE*", "*.xcstrings", "*.strings", "docs/*", "release-notes/*", "*.log",
-        # A plan stays low when its file name has an auth word (arch-exceptions/*-sign-in-*.json).
-        "plans/*",
     )),
     # Lockfiles are the package graph: never high (an auth service's package-lock), never low (a
     # swapped dependency still gets agent review).
@@ -178,46 +175,21 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("normal", "app code, UI or CI", (
         "scripts/cmux-next/media/*", NEXT + "CmuxNextUpdater/*View.swift", NEXT + "CmuxNextUpdater/Share/*",
     )),
-    # Named like a high path, but not one (the 2026-11-25 audit of open risk:high pull requests).
-    ("normal", "app code, UI or CI", (
-        # "nightly" as a schedule: measurement and test runs that sign, publish and feed nothing.
-        # Named one by one: a *-nightly.yml suffix would also catch ios-internal-nightly.yml, a release.
-        ".github/workflows/nightly-speed.yml", ".github/workflows/nightly-interaction-latency.yml",
-        ".github/workflows/billing-nightly.yml", ".github/workflows/cmux-next-ios-energy-nightly.yml",
-        ".github/workflows/webviews-sampled-nightly.yml",
-        # A measure script named for the nightly it measures; any other release word there stays high.
-        r"re:^scripts/measure/(?![^/]*(sign|notari|appcast|sparkle|release|publish|deploy|promote|rollback))[^/]*nightly[^/]*$",
-        # Publishes the docs site or the fleet's repo mirror, not the app. Named one by one.
-        ".github/workflows/docs-deploy-reusable.yml", "scripts/repo-archive/publish.sh",
-        "scripts/repo-archive/cmux-repo-archive-publish.service", "scripts/repo-archive/cmux-repo-archive-publish.timer",
-        # A star prompt and copy that live in the updater module.
-        NEXT + "CmuxNextUpdater/GitHubStar/*", NEXT + "CmuxNextUpdater/UpdaterStrings.swift",
-        # An auth test run and a health probe, a login(1) shell, and CLI message strings.
-        ".github/workflows/auth-refresh-tests.yml", ".github/workflows/vercel-auth-health.yml",
-        "*/login_shell.rs", "*/localization/*",
-        # The package graph, even inside a relay or auth crate (Cargo.lock already is).
-        "cmux-tui/crates/*/Cargo.toml", "cmux-tui/relays/*/Cargo.toml",
-        "cmux-tui/crates/*/.gitignore", "cmux-tui/relays/*/.gitignore",
-        # Moving a Chief or a setup between hosts: no stored schema is rewritten.
-        "Native/OptChat/optchat-chief/src/migrate*.rs", "cmux-tui/crates/cmux-migrate/*",
-        "cmux-tui/crates/cmux-tui/src/cli/migrate.rs",
-    )),
     # Who may sign in, and where tokens live. A bug here leaks or loses credentials, and a revert
     # doesn't un-leak a token.
     ("high", "auth or credentials", (
         "Packages/Shared/CmuxAuthRuntime/*", "Packages/Shared/CMUXAuthCore/*", "*/WebAuth/*",
-        "*/Keychain/*", "*Keychain*Store*", "*TokenStore*", "*SecureStore*", "web/services/auth/*", "workers/*/src/auth/*",
+        "*/Keychain/*", "*Keychain*Store*", "*TokenStore*", "web/services/auth/*", "workers/*/src/auth/*",
         "ios/CmuxiOS/Sources/CmuxiOSAuth/*", "*.entitlements", "web/proxy.ts", "web/middleware.ts",
         # A path segment or file-name word: dashboard-auth.ts, auth/, oauth_callback.rs, sign-in/.
-        # Not an image: a 06-sign-in.png screenshot holds no credential.
-        r"re:^(?!.*\.(png|jpe?g|gif|webp)$)(.*[/_.-])?(auth|oauth|sign[-_]?in|login)([-_./]|$)",
+        r"re:(^|/|[-_.])(auth|oauth|sign[-_]?in|login)([-_./]|$)",
     )),
     # Who may drive the app over its socket, and what a relay may forward. The app has no relay
     # policy yet (skills/cmux-socket-policy), so every relay path must stay default-deny.
     ("high", "socket or relay access policy", (
         NEXT + "CmuxNextControl/ControlAuthorizer.swift", NEXT + "CmuxNextControl/ControlPeer*.swift",
         NEXT + "CmuxNextControl/CheckedAccess.swift", NEXT + "CmuxNextControl/ControlSocketPath.swift",
-        NEXT + "CmuxNextWakeups/UnixSocketPeer.swift",
+        NEXT + "CmuxNextWakeups/UnixSocketPeer.swift", "*/CmuxCuaHelperCore/PeerInspector.swift",
         "cmux-tui/crates/*relay*/*", "cmux-tui/relays/*", "cmux-tui/crates/cmux-tui-core/src/server/remote_relay/*",
         "services/iroh-relay-minter/*", "web/services/relay/*", "daemon/remote/cmd/cmuxd-remote/*peer*",
         r"re:(?i)relay[-_]?(command[-_]?)?polic", r"re:(?i)(socket|control)[-_]?(access|auth)",
@@ -225,21 +197,30 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # Who answers or connects on a local socket or XPC service, and which code may run, decided by
     # the peer's uid, executable or code signature: the Chief's acpmux peer check and its
     # kernel-signature rule for a moved acpmux (code_signature.rs), the app's acpmux server peer
-    # check, cmux-link's caller and containing-app checks, which acpmux executable the app runs and trusts (its team-signature
-    # refusal, and the DEBUG override), who the Computer Use worker's agent socket admits
-    # (cmux-computer-use server.rs: same uid, then the per-launch secret), the root server
+    # check, cmux-link's caller and containing-app checks, the Computer Use helper's admission rule,
+    # state and control pipe (where the app's admission values arrive), host check and the two
+    # socket servers that call them, the app's check of the helper on that socket, the requirement
+    # or cdhash, the acpmux daemon and executable and the per-launch secret the app gives the helper
+    # for acpmux bridges, which acpmux executable the app runs and trusts (its team-signature
+    # refusal, and the DEBUG override), the requirement of the helper the app or acpmux may
+    # launch (Swift, Rust and shell copies) and the check of its staged copy, the root server
     # helper's XPC requirements (its clients', and the app's of it), and the signature checks of a
     # downloaded browser runtime. A wrong time or anchor here lets another process take the socket
     # (#29072 changed which time a signing chain is valid at and graded normal).
     ("high", "peer identity or code-signature trust", (
         "Native/OptChat/optchat-chief/src/acpmux_peer.rs", NEXT + "CmuxNextAgentPane/AcpmuxServerPeer.swift",
         "cmux-tui/crates/cmux-link/src/caller.rs", "cmux-tui/crates/cmux-link/src/caller_macos.rs",
-        "cmux-tui/crates/cmux-link/src/app_caller.rs",
-        NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
+        "cmux-tui/crates/cmux-link/src/app_caller.rs", "*/CmuxCuaHelperCore/HostVerifier.swift",
+        NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift", "*/CmuxCuaHelperCore/Admission.swift",
+        "*/CmuxCuaHelperCore/AdmissionState.swift", "*/CmuxCuaHelperCore/HelperController.swift",
+        "*/CmuxCuaHelperCore/HelperSocketServer.swift", "*/CmuxCuaHelperCore/HostConsentServer.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift", NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
         NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
         NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
-        # The Computer Use worker socket's admission (same uid, then the per-launch secret).
-        "cmux-tui/crates/cmux-computer-use/src/server.rs",
+        "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs", "scripts/cmux-cua-helper-trust.sh",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Admission.swift",
         NEXT + "CmuxNextServerHelper/ServerHelperListener.swift", NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
         NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
         # A file named for a code-signature check: code_signature.rs, *CodeSignatureChecker.swift.
@@ -278,7 +259,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # normal (Leo, 2026-10-21, after #22781). UpdateTrack is not here: it decides whether Sparkle runs
     # at all. Parsing, probing, installing and verifying an update stay high below.
     ("normal", "update channel or preference setting", (
-        "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
+        "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
         NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
     )),
     # Shipping. A broken updater also breaks the safety net every other tier relies on: nightly
@@ -297,8 +278,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # (scripts/cmux-next/check-*.py, guardrails.py, the package check scripts, run-check-pieces.py) stay normal.
     ("high", "the pre-push hook's trust boundary", (
         "scripts/web_lint_prepush.py", "scripts/cmux-next/prepush-gate.py", "scripts/cmux-next/push_range.py",
-        "scripts/git-hooks/pre-push", "scripts/git-hooks/hook_python.sh",
-        "scripts/git-hooks/merge_python.sh",
+        "scripts/git-hooks/pre-push",
         "scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py", "scripts/install-git-hooks.sh",
     )),
     # The gate grades every other pull request, so a change to it gets a person.
@@ -335,23 +315,9 @@ GENERATED = (
 DELETES = re.compile(
     r"(\bremoveItem\s*\(\s*at|\bremove_dir_all\s*\(|\bfs::remove_(file|dir)\s*\(|\bshutil\.rmtree\b"
     r"|\brmSync\s*\(|\bfs\.(promises\.)?rm\s*\(|\brimraf\b|\bDROP\s+(TABLE|COLUMN)\b|\bTRUNCATE\s+TABLE\b"
-    r"|\bDELETE\s+FROM\b|\.trashItem\s*\(|\bdeleteAll\w*\s*\(|\b(db|tx)\.delete\s*\("
-    # A bare remove_file( after `use std::fs::remove_file` (not a method or its definition),
-    # unlink(2) and rmdir(2) through libc, Node's and Python's unlink, and a keychain item delete.
-    r"|(?<![\w.:])(?<!fn )remove_(file|dir)\s*\(|\blibc::(unlink|unlinkat|rmdir)\s*\("
-    r"|\.unlink(Sync)?\s*\(|\bSecItemDelete\b)")
-# Removing the file the same code just made: an atomic write's temp or part file on its failure
-# path, or a Swift `defer` that drops a scratch copy. It trusts the variable's name, from a closed
-# list, and the argument must be that bare name (`&temp`, `self.staged`), so `&path` still counts.
-_TEMP_NAME = r"(temp|tmp|temporary|part|partial|staged|staging|scratch)"
-OWN_TEMP = re.compile(
-    r"\b(remove_file|remove_dir_all|remove_dir|rmSync)\s*\(\s*&?(self\.)?" + _TEMP_NAME + r"\s*[,)]"
-    r"|^defer\s*\{\s*(try\?\s*)?FileManager\.\w+\.removeItem\(at:\s*(" + _TEMP_NAME[1:-1] + r"|copy)\s*\)\s*\}$")
+    r"|\bDELETE\s+FROM\b|\.trashItem\s*\(|\bdeleteAll\w*\s*\(|\b(db|tx)\.delete\s*\()")
 DELETE_SCOPE_EXCLUDED = ("scripts/*", "*/scripts/*", ".github/*", "tools/*", "dogfood/*", "Prototypes/*",
-                         "samples/*", "examples/*", ".claude/*", ".codex/*", ".agents/*", "cmux-tui/bindings/*",
-                         # Benchmarks, end-to-end runs, examples, evals and simulators: harness code.
-                         "*/bench/*", "*/benches/*", "*/e2e/*", "*.bench.*", "*.e2e.*", "*/examples/*",
-                         "evals/*", "design/*", "*/coord-sim/*")
+                         "samples/*", "examples/*", ".claude/*", ".codex/*", ".agents/*", "cmux-tui/bindings/*")
 
 # A change kind, read from the lines a workflow adds: a trigger that runs with the base's secrets
 # and a write token on a fork's pull request. A cache or checkout of the fork's code under one is
@@ -625,7 +591,7 @@ def delete_lines(patch: str, sign: str, path: str = "", source: str | None = Non
             code = " ".join(text.split())
             if code.startswith(("//", "#", "--", "*", "/*")):
                 continue
-            if DELETES.search(OWN_TEMP.sub(" ", code)):
+            if DELETES.search(code):
                 found.append(code)
     return found
 
@@ -729,7 +695,7 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
 
 def takeback_fix(numbers: list[int]) -> str:
     """What clears an unowned takeback of NUMBERS, the lines to paste with their numbers filled in. The summary and
-    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: land-judge and the lander
+    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: merge_hold and the lander
     quote the annotation, so a refused revert names the line without anyone opening the job summary (a revert is
     the fast route; on cmux#41154 the refusal said only "the job summary says how")."""
     lines = " and ".join(f"`Takes back #{n}: <why>`" for n in numbers)
@@ -759,130 +725,16 @@ def gh_json(*args: str):
     return json.loads(out) if out.strip() else None
 
 
-# A quota refusal stays red and ungraded. Its structured marker lets land-judge request a
-# rerun after the provider's boundary without calling it this PR's own red.
-RATE_LIMIT_WAIT_SECONDS = 90
-SECONDARY_WAIT_SECONDS = 60
-_rate_waited = 0.0
-
-
-class RateLimited(subprocess.CalledProcessError):
-    """A gh API call refused for budget, with the provider's structured retry boundary."""
-
-    def __init__(self, *args, endpoint: str, status: int, reset: int, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.marker = dict(endpoint=endpoint, status=status, reset=reset, graded=False)
-        self.takeback_numbers: list[int] | None = None
-
-
-def api_response(output: str) -> tuple[int | None, dict[str, str], str]:
-    """Split gh api --include's HTTP envelope from its JSON, jq output or raw file body."""
-    match = re.match(r"HTTP/\S+ (\d{3})[^\r\n]*\r?\n", output)
-    if not match:
-        return None, {}, output
-    boundary = re.search(r"\r?\n\r?\n", output)
-    if boundary is None:
-        return None, {}, output
-    headers = {}
-    for line in output[match.end():boundary.start()].splitlines():
-        key, sep, value = line.partition(":")
-        if sep:
-            headers[key.lower()] = value.strip()
-    return int(match[1]), headers, output[boundary.end():]
-
-
-def api_quota_reset(status: int | None, headers: dict[str, str]) -> int | None:
-    """Only provider status/headers establish quota; stderr and response bodies never do."""
-    if status not in (403, 429) or not (headers.get("x-ratelimit-remaining") == "0"
-                                       or "retry-after" in headers):
-        return None
-    # Retry-After takes precedence over the primary quota reset for a secondary limit.
-    retry = headers.get("retry-after", "")
-    reset = headers.get("x-ratelimit-reset", "")
-    if retry.isdigit():
-        return int(time.time()) + int(retry)
-    if retry:
-        try:
-            return max(int(time.time()), int(email.utils.parsedate_to_datetime(retry).timestamp()))
-        except (AttributeError, TypeError, ValueError, OverflowError):
-            pass
-    if reset.isdigit():
-        return int(reset)
-    return int(time.time()) + SECONDARY_WAIT_SECONDS
-
-
-def api_endpoint(args: list[str]) -> str:
-    values = iter(args[2:])
-    for value in values:
-        if value in ("-H", "--header", "--jq", "-q", "--method", "-X", "-f", "-F", "--field", "--raw-field"):
-            next(values, None)
-        elif not value.startswith("-"):
-            return value
-    raise ValueError("gh api requires an endpoint")
-
-
 def gh_run(args: list[str], attempts: int = 3) -> str:
-    """stdout of a gh call, retried so one transient API error doesn't turn the check red. A rate limit waits for
-    the budget once when it returns inside what is left of RATE_LIMIT_WAIT_SECONDS, then raises RateLimited. A
-    failure that ends the retries names itself on stderr: the exception alone says only "exit status 1"."""
-    global _rate_waited
-    limited_once = False
-    command = [*args[:2], "--include", *args[2:]]
-    endpoint = api_endpoint(args)
+    """stdout of a gh call, retried so one transient API error doesn't turn the check red."""
     for attempt in range(attempts):
-        done = subprocess.run(command, capture_output=True, text=True)
-        status, headers, body = api_response(done.stdout)
-        if done.returncode == 0:
-            return body
-        why = (done.stderr or done.stdout or "").strip()
-        reset = api_quota_reset(status, headers)
-        limited = reset is not None
-        if limited and not limited_once and attempt < attempts - 1:
-            limited_once = True
-            wait = max(0.0, reset - time.time()) + 1
-            if _rate_waited + wait <= RATE_LIMIT_WAIT_SECONDS:
-                print(f"{shlex.join(args)}: GitHub rate limit; waiting {wait:.0f}s for the budget",
-                      file=sys.stderr, flush=True)
-                _rate_waited += wait
-                time.sleep(wait)
-                continue
-        if limited or attempt == attempts - 1:
-            if limited:
-                print(f"{shlex.join(args)} exited {done.returncode} (GitHub API quota: structured refusal; "
-                      f"endpoint {endpoint}, HTTP {status})", file=sys.stderr, flush=True)
-            else:
-                print(f"{shlex.join(args)} exited {done.returncode}"
-                      f"{chr(10) + why if why else ''}", file=sys.stderr, flush=True)
-            if limited:
-                raise RateLimited(done.returncode, args, output=body, stderr=done.stderr,
-                                  endpoint=endpoint, status=status, reset=reset)
-            raise subprocess.CalledProcessError(done.returncode, args, output=body, stderr=done.stderr)
-        time.sleep(2 * (attempt + 1))
+        try:
+            return subprocess.run(args, check=True, capture_output=True, text=True).stdout
+        except subprocess.CalledProcessError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(2 * (attempt + 1))
     return ""
-
-
-def ungraded(args: argparse.Namespace, error: RateLimited) -> int:
-    """No grade is a retryable failure, never a passing takeback check."""
-    report = "\n".join([
-        "## Risk tier: ungraded", "",
-        f"GitHub's API budget refused `{printable(error.marker['endpoint'])}` with HTTP {error.marker['status']}; "
-        "the reset boundary is in the machine-readable marker below.",
-        "That is not a verdict on this pull request. The next push, edit or label regrades it, or rerun this job.",
-        "", "Policy: docs/ci/risk-tiers.md"])
-    takebacks = error.takeback_numbers or []
-    if takebacks:
-        report += "\n\n" + "\n".join(f"Takes back #{number}: unowned takeback found before the API refusal"
-                                             for number in takebacks)
-    print("risk-evidence.rate-limited " + json.dumps(error.marker, sort_keys=True))
-    print(report)
-    print("::warning::risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)")
-    if args.summary:
-        with Path(args.summary).open("a") as summary:
-            summary.write(report + "\n")
-    if args.github_output:
-        with Path(args.github_output).open("a") as out:
-            out.write("tier=ungraded\nlabel=\nready=false\nsignoff_unread=true\n")
-    return 1
 
 
 PER_PAGE = 100
@@ -987,66 +839,14 @@ def reflowed(pr_patch: str, keep_out: set[str]) -> set[str]:
     return kept
 
 
-def lower_words(line: str) -> list[str]:
-    return [word.lower() for word in WORD.findall(line)]
-
-
-def close_in_length(words: list[str], other: list[str]) -> bool:
-    """Whether `other` is about as long as `words`: longer or shorter by at most
-    `max(2, len(words) // 2)` words (half its word count, but never less than two). A short
-    removed line (`let x = 1;`) is not "still said" by a long unrelated line that happens to hold its words."""
-    slack = max(2, len(words) // 2)
-    return abs(len(other) - len(words)) <= slack
-
-
-def reworded(pr_patch: str, keep_out: set[str]) -> set[str]:
-    """The removed lines of three or more words the same edit replaces with a reworded line: one sharing its
-    first three words, or at least half of the longer line's distinct words, at a close length. A skills index row rewritten in place (PR #54943 rewording #53846's
-    row) is an edit of the line, not a takeback of it. Added lines in `keep_out` (lines the commit replaced,
-    now restored) do not count, so putting back the old wording is still a revert."""
-    kept = set()
-    for removed, added in change_blocks(pr_patch):
-        candidates = [lower_words(line) for line in added if line not in keep_out]
-        for line in removed:
-            words = lower_words(line)
-            if len(words) < 3:
-                continue
-            for other in candidates:
-                if not close_in_length(words, other):
-                    continue
-                shared = len(set(words) & set(other))
-                if words[:3] == other[:3] or shared * 2 >= max(len(set(words)), len(set(other))):
-                    kept.add(line)
-                    break
-    return kept
-
-
-def still_said(pr_patch: str, keep_out: set[str]) -> set[str]:
-    """The removed lines of three or more words whose words all still appear, in order, in a line of close
-    length the file keeps or gains anywhere in the patch: a duplicate dropped beside the entry that stays, or a comment
-    folded into another one (PR #50003 dropping `cmux-deadline.workspace = true` under
-    `cmux-deadline = { workspace = true, features = ["tokio"] }`). Added lines in `keep_out` do not count."""
-    lines = [l[1:] for l in pr_patch.splitlines()
-             if (l.startswith(" ") or (l.startswith("+") and not l.startswith("+++"))) and l[1:].strip() not in keep_out]
-    streams = [lower_words(line) for line in lines]
-    kept = set()
-    for line in diff_lines(pr_patch)[0]:
-        words = lower_words(line)
-        if len(words) >= 3 and any(close_in_length(words, stream) and in_order(words, stream) for stream in streams):
-            kept.add(line)
-    return kept
-
-
 def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = frozenset()) -> bool:
     """Whether a pull request's change to a file takes back a commit's change to it: it deletes
     most of what the commit added, and, when the commit replaced lines, puts most of them back."""
     pr_removed, pr_added = map(set, diff_lines(pr_patch))
     commit_removed, commit_added = map(set, diff_lines(commit_patch))
     # A line the pull request removes and adds back, here or in another file, moved; a line whose words
-    # come back in order in the same edit was rewrapped; a line the same edit rewords was edited; a line
-    # whose words the file still says elsewhere was a duplicate or was folded in. None was taken back.
-    gone = (pr_removed - pr_added - added_elsewhere - reflowed(pr_patch, commit_removed)
-            - reworded(pr_patch, commit_removed) - still_said(pr_patch, commit_removed))
+    # come back in order in the same edit was rewrapped. Neither was taken back.
+    gone = pr_removed - pr_added - added_elsewhere - reflowed(pr_patch, commit_removed)
     back = pr_added - pr_removed
     if not commit_added:
         return False
@@ -1055,48 +855,6 @@ def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = f
     if not commit_removed:
         return True
     return len(commit_removed & back) / len(commit_removed) >= 0.5
-
-
-def prefetch_blobs(repo_dir: str, base_sha: str, paths: list[str], timeout: float) -> None:
-    """In a blobless history (risk-tier.yml fetches the base with --filter=blob:none: 16 MB in 5 s instead of
-    681 MB in 115 s, 11-21), fetch every version of `paths` the blame and `git show` below read, in one round
-    trip. Without it each version is its own lazy fetch: 52 s to blame 40 lines of cmux-next.yml, against 2 s
-    with it. Best effort: in a full history, or when the fetch fails, the blame falls back to lazy fetches."""
-    try:
-        promisors = subprocess.run(["git", "-C", repo_dir, "config", "--get-regexp", r"^remote\..*\.promisor$"],
-                                   capture_output=True, text=True, timeout=10).stdout.split()
-        remote = next((key[len("remote."):-len(".promisor")] for key in promisors[::2]), None)
-        if not remote or not paths:
-            return
-        env = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
-        raw = subprocess.run(["git", "-C", repo_dir, "log", "--format=", "--raw", "--no-abbrev", "--no-renames",
-                              base_sha, "--", *paths], capture_output=True, text=True, env=env, timeout=timeout).stdout
-        oids = {field for line in raw.splitlines() if line.startswith(":") for field in line.split()[2:4]}
-        oids.discard("0" * 40)
-        if oids:
-            subprocess.run(["git", "-C", repo_dir, "-c", "fetch.negotiationAlgorithm=noop", "fetch", "-q", "--no-tags",
-                            "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin", remote],
-                           input="\n".join(sorted(oids)) + "\n", capture_output=True, text=True, timeout=timeout)
-    except (OSError, subprocess.SubprocessError):
-        pass
-
-
-def relaid_out(entries: list[dict]) -> frozenset[str]:
-    """Files this pull request deletes whole while it adds files in the directory that replaces them: a registry
-    split into one file per entry, `schemas/settings/source/agent-policy.json` into `.../agent-policy/<key>.json`
-    (scripts/ci/entry_logs.py ENTRY_DIRS) or `Localizable.xcstrings` into `Localizable.xcstrings.d/<key>.xcstrings`
-    (scripts/cmux-next/string_catalogs.py). Its lines move instead of going away, so deleting them takes nothing back
-    (cmux#56291 read as taking back 56 pull requests, 2026-11-25)."""
-    added = [e["filename"] for e in entries if e.get("status") == "added"]
-    moved = set()
-    for entry in entries:
-        if entry.get("status") != "removed":
-            continue
-        path = entry["filename"]
-        stem = path.rsplit(".", 1)[0] if "." in path.rsplit("/", 1)[-1] else path
-        if any(a.startswith(stem + "/") or a.startswith(path + ".d/") for a in added):
-            moved.add(path)
-    return frozenset(moved)
 
 
 def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
@@ -1111,14 +869,7 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
     cutoff = (now or time.time()) - RECENT_DAYS * 86400
     found: dict[int, list[str]] = {}
     added_anywhere = frozenset(line for e in entries for line in diff_lines(e.get("patch") or "")[1])
-    moved = relaid_out(entries)
-    entries = [e for e in entries if e["filename"] not in moved]
     deadline = time.monotonic() + budget
-    blamed = [entry.get("previous_filename") or entry["filename"] for entry in entries[:MAX_BLAME_FILES]
-              if deleted_ranges(entry.get("patch") or "") and entry.get("status") != "added"
-              and not any(matches(entry.get("previous_filename") or entry["filename"], g) for g in GENERATED)]
-    if budget > 0:
-        prefetch_blobs(repo_dir, base_sha, blamed, timeout=max(1, budget / 3))
     for entry in entries[:MAX_BLAME_FILES]:
         path = entry.get("previous_filename") or entry["filename"]
         remaining = deadline - time.monotonic()
@@ -1190,8 +941,6 @@ def rust_sources(repo: str, ref: str, paths: dict[str, str]) -> dict[str, str]:
         try:
             sources[key] = gh_run(["gh", "api", "-H", "Accept: application/vnd.github.raw+json",
                                    f"repos/{repo}/contents/{quote(path)}?ref={ref}"])
-        except RateLimited:
-            raise
         except (subprocess.CalledProcessError, UnicodeDecodeError):
             print(f"::warning::couldn't read {printable(path)} at {ref[:12]}; its hunks alone grade it")
     return sources
@@ -1211,8 +960,6 @@ def merge_base_of(repo: str, pr: dict, repo_dir: str | None = None) -> str:
     try:
         return gh_json("api", f"repos/{repo}/compare/{pr['base']['sha']}...{pr['head']['sha']}",
                        "--jq", "{sha: .merge_base_commit.sha}")["sha"] or pr["base"]["sha"]
-    except RateLimited:
-        raise
     except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
         return pr["base"]["sha"]
 
@@ -1277,9 +1024,6 @@ def pr_mode(args: argparse.Namespace) -> int:
     if grade.tier == "high":
         try:
             signed, blocked = human_ok_by(args.repo, args.number, pr)
-        except RateLimited as error:
-            error.takeback_numbers = unowned_takebacks(pr.get("body") or "", list(undone))
-            raise
         except (subprocess.CalledProcessError, ValueError, TypeError):
             # An unreadable comment, review or label read (or one past the page cap) could hide a
             # BLOCK: list it as held (risk-tier.yml then warns; the lander reads the verdict itself).
@@ -1293,16 +1037,10 @@ def pr_mode(args: argparse.Namespace) -> int:
         print(f"::warning::risk:high: {pending}")
     if args.summary:
         Path(args.summary).open("a").write(report + "\n")
-    if args.files_out:
-        # The changed files, for the next step's UI try line (ui_review_advisory.py --add-try): no second read.
-        Path(args.files_out).write_text(json.dumps([{"filename": f} for f in files]))
     if args.github_output:
         with Path(args.github_output).open("a") as out:
             out.write(f"tier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
             out.write(f"ready={'false' if missing else 'true'}\n")
-            # risk-tier.yml grades again on GITHUB_TOKEN only when this is true: a refused sign-off read is the one
-            # held verdict another token can change (tests/test_risk_tier.py).
-            out.write(f"signoff_unread={'true' if unread else 'false'}\n")
             # Only an unowned takeback keeps the check red (risk-tier.yml): it is a stale-base squash
             # quietly reverting a merged change. A BLOCK on the head is the lander's to refuse.
             unowned = unowned_takebacks(pr.get("body") or "", list(undone))
@@ -1506,7 +1244,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--repo-dir", help="a clone holding the base commit and RECENT_DAYS of its history, "
                    "for the takeback check (skipped without it)")
     p.add_argument("--github-output")
-    p.add_argument("--files-out", help="write the changed files here as JSON [{filename}]")
     p.add_argument("--summary")
     p.add_argument("--event", help="the event payload ($GITHUB_EVENT_PATH); its pull_request saves the "
                    "GET pulls/N call")
@@ -1522,10 +1259,7 @@ def main(argv: list[str] | None = None) -> int:
         for item in missing:
             print(f"missing: {item}")
         return 1 if missing else 0
-    try:
-        return pr_mode(args)
-    except RateLimited as error:
-        return ungraded(args, error)
+    return pr_mode(args)
 
 
 if __name__ == "__main__":

@@ -75,20 +75,6 @@ def _symbols(path: str, *flags: str) -> list[str]:
     return sorted({n for n in names if n and not n.endswith(":")})
 
 
-def is_fat(path: str) -> bool:
-    with open(path, "rb") as handle:
-        return handle.read(4) in (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf")
-
-
-def _archs(path: str, headers: str) -> list[str]:
-    """llvm-lipo reads a fat file. A thin static archive (the arm64-only app FFI
-    build, libtool -static of one object) crashes LLVM 18/19 llvm-lipo in
-    Slice::create, so its architectures come from the members' Mach headers."""
-    if is_fat(path):
-        return sorted(_run("llvm-lipo", "-archs", path).split())
-    return sorted({m.lower() for m in re.findall(r"^\s*MH_MAGIC(?:_64)?\s+(\S+)", headers, re.M)})
-
-
 def inspect(path: str) -> dict:
     headers = _run("llvm-objdump", "--macho", "--private-headers", path)
     dylibs = []
@@ -96,7 +82,10 @@ def inspect(path: str) -> dict:
         line = line.strip()
         if line and not line.endswith(":"):
             dylibs.append(re.sub(r"\s*\(compatibility version.*$", "", line))
-    archs = _archs(path, headers)
+    try:
+        archs = sorted(_run("llvm-lipo", "-archs", path).split())
+    except subprocess.CalledProcessError:
+        archs = []
     text = sum(int(m) for m in re.findall(r"Section __text: (\d+)", _run("llvm-size", "-m", path)))
     return {
         "bytes": os.path.getsize(path),

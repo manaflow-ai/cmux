@@ -3,12 +3,7 @@
 Lawrence (2026-11-09): Home is Swift. Toasts, dialogs, toolbars, the sidebar and everything in
 Cmd+Shift+P are Swift. Only the agent chat UI is React. Core logic is Rust.
 
-This file is the rule for new work and for review. Why it was decided, and every later fork between
-two ways to build a surface or two defaults, is one entry in the team's junction log (cmuxterm-hq
-`decisions/junctions.md`); a change that reverses one updates its entry and deletes the losing side's plan
-and unreachable code the same day.
-
-This file replaces the MOVE verdicts of
+This file is the rule for new work and for review. It replaces the MOVE verdicts of
 `react-screens.md` for native chrome; that file's KEEP rows already said the same.
 
 ## The rule

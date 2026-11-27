@@ -193,7 +193,6 @@ impl TrackBridge {
                 need_recovery: need_recovery && first,
                 arrivals: self.arrivals.drain(..take).collect(),
                 nacks: Vec::new(),
-                acked_ltr_tokens: Vec::new(),
             };
             let mut datagram = Vec::with_capacity(HEADER_LEN + 1024);
             DatagramHeader {
@@ -278,12 +277,7 @@ mod tests {
                 let out = engine
                     .encoded(
                         &req,
-                        Some(Encoded {
-                            access_unit: au,
-                            idr: req.force_idr,
-                            t_capture_us: now,
-                            ltr_token: None,
-                        }),
+                        Some(Encoded { access_unit: au, idr: req.force_idr, t_capture_us: now }),
                         now,
                     )
                     .unwrap();
@@ -331,23 +325,14 @@ mod tests {
         let out = engine
             .encoded(
                 &req,
-                Some(Encoded {
-                    access_unit: vec![0, 0, 0, 1, 0x65, 1, 2, 3],
-                    idr: true,
-                    t_capture_us: 0,
-                    ltr_token: None,
-                }),
+                Some(Encoded { access_unit: vec![0, 0, 0, 1, 0x65, 1, 2, 3], idr: true, t_capture_us: 0 }),
                 now,
             )
             .unwrap();
-        // On an idle link a one-datagram frame goes out with a parity copy:
-        // the first datagram completes the frame and the copy adds nothing.
-        let mut delivered = 0;
         for d in &out.datagrams {
             let (header, payload) = DatagramHeader::decode(d).unwrap();
-            delivered += bridge.on_datagram(&header, payload, d.len(), 2_000_000, now).len();
+            assert_eq!(bridge.on_datagram(&header, payload, d.len(), 2_000_000, now).len(), 1);
         }
-        assert_eq!(delivered, 1);
         let deliver = |engine: &mut MediaEngine, bytes: Vec<u8>, now: u64| {
             let mut deframer = cmux_rd_proto::StreamDeframer::default();
             deframer.extend(&bytes);
@@ -389,7 +374,7 @@ mod tests {
         let mut engine = MediaEngine::new(EngineConfig::default(), 0);
         let encode = |engine: &mut MediaEngine, req: &cmux_rd_engine::EncodeRequest, now: u64| {
             let au = vec![0, 0, 0, 1, if req.force_idr { 0x65 } else { 0x41 }, 1, 2, 3];
-            let encoded = Encoded { access_unit: au, idr: req.force_idr, t_capture_us: now, ltr_token: None };
+            let encoded = Encoded { access_unit: au, idr: req.force_idr, t_capture_us: now };
             engine.encoded(req, Some(encoded), now).unwrap()
         };
         let phone_feedback = |acked_frame: u32, need_recovery: bool| {

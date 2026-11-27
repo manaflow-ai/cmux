@@ -6,8 +6,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, Weak};
 
-// Watches are not capped by count: a client holds at most one, and each holds one acpmux link
-// (a unix socket) and, while it starts, one inventory read slot (`agent_inventory::reserve`).
+const MAX_WATCHES: usize = 8;
 
 #[derive(Default)]
 pub(in crate::server) struct Watches(Mutex<HashMap<u64, Arc<Watch>>>);
@@ -44,7 +43,7 @@ impl Watches {
     }
     pub(super) fn insert(&self, watch: Arc<Watch>) -> Result<(), Failure> {
         let mut live = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if live.contains_key(&watch.client) {
+        if live.len() >= MAX_WATCHES || live.contains_key(&watch.client) {
             return Err(Failure::Busy);
         }
         live.insert(watch.client, watch);
@@ -282,7 +281,3 @@ impl Drop for Watch {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "state_tests.rs"]
-mod tests;

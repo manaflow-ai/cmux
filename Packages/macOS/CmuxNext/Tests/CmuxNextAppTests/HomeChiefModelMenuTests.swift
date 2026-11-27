@@ -41,6 +41,73 @@ import Testing
         return snapshot
     }
 
+    /// The menu's rows: a section header as `# title`, a model as its title.
+    static func rows(_ menu: HomeChiefModelMenu) -> [String] {
+        menu.entries.map { entry in
+            switch entry {
+            case .header(let title): "# " + title
+            case .model(let item): item.title
+            }
+        }
+    }
+
+    @Test func modelsGroupByFamilyWithOneRowPerModel() {
+        let menu = HomeChiefModelMenu(models: Self.claudeModels, chosen: nil, recents: [])
+        #expect(Self.rows(menu) == [
+            "# Opus", "Opus 5.5", "Opus 5.5 · 1M context",
+            "# Sonnet", "Sonnet 5.5",
+            "# Haiku", "Haiku 4.5",
+            "# " + HomeEngineStrings.planAndExecuteSection, HomeEngineStrings.opusPlanTitle,
+            "# " + HomeEngineStrings.olderModelsSection, "Opus 4.5",
+        ])
+        // The alias takes its release's row, so a pick follows the harness's newest Opus.
+        #expect(menu.items.first { $0.title == "Opus 5.5" }?.value == "opus")
+        #expect(menu.items.first { $0.title == "Opus 5.5 · 1M context" }?.value == "opus[1m]")
+    }
+
+    /// A Chief set on the release id keeps it: its row is the release's own, not the alias.
+    @Test func aChosenReleaseIdKeepsItsRow() {
+        let menu = HomeChiefModelMenu(models: Self.claudeModels, chosen: "claude-opus-5-5", recents: [])
+        #expect(menu.items.first { $0.title == "Opus 5.5" }?.value == "claude-opus-5-5")
+        #expect(!menu.items.contains { $0.value == "opus" })
+    }
+
+    /// A model the harness does not offer (set from the CLI) still shows, so the popup never
+    /// reads as a model the Chief does not run.
+    @Test func aChosenModelTheHarnessDoesNotOfferStillShows() {
+        let menu = HomeChiefModelMenu(models: Self.claudeModels, chosen: "claude-opus-3", recents: [])
+        #expect(menu.items.contains { $0.value == "claude-opus-3" })
+    }
+
+    @Test func recentPicksComeFirstWithoutTheCurrentOne() {
+        let menu = HomeChiefModelMenu(models: Self.claudeModels, chosen: "sonnet",
+                                      recents: ["sonnet", "claude-haiku-4-5", "gone-model"])
+        #expect(Array(Self.rows(menu).prefix(3)) == ["# " + HomeEngineStrings.recentSection, "Haiku 4.5", "# Opus"])
+    }
+
+    /// Hosted Chiefs offer three plain models: no family headers for a flat list.
+    @Test func aListWithNoFamiliesHasNoHeaders() {
+        let menu = HomeChiefModelMenu(models: [.init(id: "a", name: "A"), .init(id: "b", name: "B")], chosen: nil, recents: [])
+        #expect(Self.rows(menu) == ["A", "B"])
+    }
+
+    @Test func defaultNamesTheModelAndEffortItRuns() {
+        var snapshot = Self.snapshot()
+        snapshot.effective = ChiefEngineReport.Engine(harness: "claude", model: nil, effort: nil)
+        let titles = HomeChiefEngineTitles(snapshot)
+        // acpmux's own "default" row says what it resolves to; that model's default effort follows.
+        #expect(titles.defaultModel == String(format: HomeEngineStrings.defaultNamedFormat, "Opus 5.5"))
+        #expect(titles.defaultEffort == String(format: HomeEngineStrings.defaultNamedFormat, HomeEngineStrings.effortTitle("medium")))
+    }
+
+    @Test func effortOffersOnlyTheLevelsTheModelTakes() {
+        #expect(HomeChiefEngineTitles(Self.snapshot(model: "claude-opus-4-5")).efforts.map(\.value) == ["low", "medium", "high"])
+        #expect(HomeChiefEngineTitles(Self.snapshot(model: "opus")).efforts.map(\.value) == ["low", "medium", "high", "xhigh", "max"])
+        // A model with no effort metadata keeps the brain's own list.
+        #expect(HomeChiefEngineTitles(Self.snapshot(model: "opusplan")).efforts.map(\.value)
+            == ["minimal", "low", "medium", "high", "xhigh", "max"])
+    }
+
     @Test func theModelPopupShowsSectionsAndSelectsTheChosenModel() async throws {
         let (writes, continuation) = AsyncStream.makeStream(of: [String: String?].self)
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory,

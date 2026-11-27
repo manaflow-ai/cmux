@@ -11,9 +11,9 @@ import Testing
 /// FRAME OWNER REFACTOR S1B: the key-resize hold paths that Codex's review of #33874 at b75090d0b38 (PR comment
 /// 6612204462) named as untested. The hold (`PaneHostView`, RESIZE KEYS K3, FRAME OWNER S1) holds only each pane's content
 /// area (`PaneContentAreaView`); these tests pin how it ends on the paths other than a landing: a host taken out of the
-/// screen, Reduce Motion turned on mid-spring, a split or a zoom taking the screen over (each is one commit, which lands
-/// the key spring with it; with content that resizes live and with content the provider holds), and content shown
-/// during the hold. In the hold the content has its area's size in every frame.
+/// screen, Reduce Motion turned on mid-spring, a split or a zoom taking the spring over (with the default live resize and
+/// with content the provider holds), and content shown during the hold. In the hold the content has its area's size in
+/// every frame (Lawrence 2026-11-11: "all must have smooth transition").
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct FrameOwnerS1HoldPathsTests {
@@ -36,7 +36,7 @@ struct FrameOwnerS1HoldPathsTests {
         }()
         var views: [PaneID: PaneContentView] = [:]
         var contents: [PaneID: Content] = [:]
-        /// Whether the provider holds every pane's content at one size on a layout spring (an agent chat does, S3).
+        /// whether the provider holds every pane's content through a split, close or zoom spring (an agent chat does, S3).
         var holdsContent = false
 
         func makeContentView(for pane: PaneID) -> NSView {
@@ -165,23 +165,19 @@ struct FrameOwnerS1HoldPathsTests {
     // MARK: A split or a zoom taking a key spring over
 
     enum Takeover: String, CaseIterable, Sendable {
-        /// Cmd-D on p2: p3 opens beside it.
+        /// Cmd-D on p2: p3 grows in beside it.
         case split
-        /// p2 zooms: p1 leaves the screen and is kept, hidden, for the unzoom.
+        /// p2 zooms: it covers p1, which stays where it is under it.
         case zoom
     }
 
     /// Three frames into a key spring a split or a zoom takes the screen over (`ScreenContentView.update` ->
-    /// `PaneHostView.endKeyResizeHold`). The change is one commit: the areas let go at once and the key spring lands with
-    /// it, so nothing is on a spring after the change's turn. The one frame tick that shows the change puts every pane at
-    /// its rest rect and every strip on its pane; no frame after it moves, nothing holds and each content is at its
-    /// area's size. A split shows at the first frame tick. A zoom shows as any change does, with no dim before it: a
-    /// tick before the one that shows it asks for the next one and puts no pane on a spring.
+    /// `PaneHostView.endKeyResizeHold`): the areas let go at once, every strip stays on its pane in every frame of the new
+    /// spring, and after its landing nothing holds and each content is at its area's size.
     @Test(arguments: Takeover.allCases)
     func aSplitOrZoomTakingOverAKeySpringLetsTheAreasGo(_ takeover: Takeover) throws {
         let rig = Rig(Self.pair)
         defer { rig.window.closeAfterTest() }
-        let screen = try #require(rig.root.screenViews["s"])
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         try #require(rig.frames(3) == 3 && rig.provider.views["p2"]?.contentHost.isHolding == true, "p2's area does not hold")
         switch takeover {
@@ -194,26 +190,11 @@ struct FrameOwnerS1HoldPathsTests {
         rig.root.syncWithModel()
         let held = rig.provider.views.filter { $0.value.contentHost.isHolding }.keys.map(\.rawValue).sorted()
         #expect(held.isEmpty, "the \(takeover.rawValue) did not end the key hold of \(held)")
-        #expect(!screen.hasMotion && !screen.holdsContentForKeyResize, "the \(takeover.rawValue) left the key spring running")
-        // The frame ticks up to the one that shows the change, which asks for no more: none before it for a split.
-        var waited = 0
-        while waited < 40, rig.root.advanceFrame(1.0 / 120) {
-            waited += 1
-            #expect(!screen.hasMotion, "tick \(waited) of the \(takeover.rawValue), before it shows, put a pane on a spring")
-        }
-        switch takeover {
-        case .split: #expect(waited == 0, "the frame that shows the split left something moving")
-        case .zoom: #expect(waited < 40, "the zoom did not show in the 40 frame ticks after its key")
-        }
-        rig.root.layoutSubtreeIfNeeded()
-        var strays = rig.strayStrips("the frame that shows the \(takeover.rawValue)")
-        for pane in screen.paneFrames.keys {
-            let host = try #require(rig.root.context.hosts[pane])
-            #expect(host.frame == screen.displayedFrame(of: pane), "\(pane.rawValue) is at \(host.frame), not at its rest rect")
-        }
-        #expect(rig.frames() == 0, "a frame after the one that shows the \(takeover.rawValue) still moved")
+        var strays: [String] = []
+        let frames = rig.frames { strays += rig.strayStrips("frame \($0)") }
+        #expect(frames > 3, "the \(takeover.rawValue) did not spring (\(frames) frames)")
         rig.release()
-        strays += rig.strayStrips("after its commit")
+        strays += rig.strayStrips("after the landing")
         #expect(strays.isEmpty, "\(strays.count) strip frames off their pane: \(strays.prefix(4))")
         for (pane, view) in rig.provider.views where !view.isHiddenOrHasHiddenAncestor {
             let content = try #require(rig.provider.contents[pane])
@@ -222,10 +203,10 @@ struct FrameOwnerS1HoldPathsTests {
         }
     }
 
-    /// With content the provider holds (an agent chat), the key spring resizes it in each frame as any content. The
-    /// split that takes the screen over is one commit: its own turn resizes nothing, the one frame tick that shows it
-    /// lays p2's content out one time, at the split's rest, and nothing resizes it after that.
-    @Test func aSplitTakingOverWithHoldContentLaysTheContentOutOnceInTheFrameThatShowsIt() throws {
+    /// With content the provider holds (an agent chat), the key spring resizes it in each frame as any content, and the
+    /// split taking that spring over lays p2's content out at the split's rest on its first frame (Leo 2026-11-05: "the main pane waits for the right pane to shift before it shifts. Like, why are you
+    /// waiting?"); no later frame of that spring and not its landing resizes it.
+    @Test func aSplitTakingOverWithHoldContentLaysTheContentOutOncePerSpringAtItsStart() throws {
         let rig = Rig(Self.pair, holdsContent: true)
         defer { rig.window.closeAfterTest() }
         let content = try #require(rig.provider.contents["p2"]), view = try #require(rig.provider.views["p2"])
@@ -236,17 +217,15 @@ struct FrameOwnerS1HoldPathsTests {
         rig.model.apply(screens: [Rig.screen(.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"),
                                                      b: .split("y", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3"))))])
         rig.root.syncWithModel()
-        #expect(content.sizes == duringKey, "the split's own turn resized p2's content: \(content.sizes.dropFirst(duringKey.count))")
-        // The one frame tick that shows the split.
-        #expect(!rig.root.advanceFrame(1.0 / 120), "the frame that shows the split left something moving")
-        rig.root.layoutSubtreeIfNeeded()
-        let atSplit = content.sizes
-        #expect(rig.frames() == 0, "a frame after the one that shows the split still moved")
+        try #require(rig.frames(1) == 1, "the split did not spring")
+        let atSplitStart = content.sizes
+        let frames = rig.frames()
+        try #require(frames > 2, "the split did not spring (\(frames) more frames)")
         rig.release()
         #expect(!duringKey.isEmpty, "p2's content did not follow its pane during the key spring")
-        #expect(atSplit.count == duringKey.count + 1, "p2's content did not take one size, the split's rest, in the frame that shows the split: \(atSplit.dropFirst(duringKey.count))")
-        #expect(content.frame == view.contentHost.bounds && content.sizes == atSplit,
-                "p2's content did not keep the split's rest: \(content.sizes) (\(content.frame) in \(view.contentHost.bounds))")
+        #expect(atSplitStart.count == duringKey.count + 1, "p2's content did not take one size, the split's rest, on the split's first frame: \(atSplitStart.dropFirst(duringKey.count))")
+        #expect(content.frame == view.contentHost.bounds && content.sizes == atSplitStart,
+                "p2's content did not hold the split's rest to the landing: \(content.sizes) (\(content.frame) in \(view.contentHost.bounds))")
     }
 
     // MARK: Content shown during the hold

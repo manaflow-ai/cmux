@@ -34,34 +34,14 @@ import Testing
     /// The toolbar glyph whose ink box is `side` (the pack's ink is 0.6 of the glyph).
     private static func glyph(inking side: CGFloat) -> CGFloat { side / DensityTokens.toolbarGlyphInkRatio }
 
-    @Test(arguments: DensityPreset.allCases)
-    func builtInsScaleDefaultsOmnibar(preset: DensityPreset) {
-        // Default's reference: Helium's 28 pt bar and buttons over Compact's 0.9, the 14 pt chip glyph, Helium's glyphs and 18 pt trailing icons.
-        // Each density scales it by its omnibar factor, Compact's at Default.
-        let metrics = OmnibarMetrics(tokens: preset.tokens)
-        let t = CGFloat(preset.omnibarScaleFactor)
-        for (size, base) in [(metrics.iconPointSize, 14),
-                             (metrics.toolbarIconSize, CGFloat(14 / 0.9 / 0.617)), (metrics.trailingIconSize, 18)] as [(CGFloat, CGFloat)] {
-            #expect(size == (base * t * 2).rounded() / 2, "\(preset)")
-        }
-        // The bar and buttons: Helium's 28 pt at Compact, Chrome's 34 bar at Default (Lucas 2026-11-17) with Compact's
-        // 28 pt buttons (Lucas 2026-11-18: Compact's padding).
-        let bar: CGFloat = preset == .cozy ? 34 : (28 / 0.9 * t * 2).rounded() / 2
-        #expect(metrics.barHeight == bar && metrics.buttonSize == (preset == .cozy ? 28 : bar), "\(preset)")
-        let font = preset == .cozy ? CGFloat((11 - 0.31) / 0.70459) : CGFloat((10 - 0.31) / 0.70459 / 0.9) * t
-        #expect(abs(metrics.fontSize - font) < 0.000_001, "\(preset): the omnibar font is \(metrics.fontSize), want \(font)")
-    }
-
-    /// Lucas 2026-11-17: Default's omnibar is Compact's, every size the bar draws, on Chrome's 34 pt bar with 11 pt
-    /// capitals; its toolbar buttons are Compact's 28 pt (Lucas 2026-11-18: Compact's padding).
-    @Test func defaultsOmnibarIsCompacts() {
-        var compact = OmnibarMetrics(tokens: DensityPreset.compact.tokens)
-        compact.barHeight = 34
-        compact.fontSize = CGFloat((11 - 0.31) / 0.70459)
-        // Its star is 16 pt of ink on a 28 pt side, on a 28 pt plate: Compact's padding (Lucas 2026-11-18).
-        compact.starIconSize = 28
-        compact.starPlateSize = 28
-        #expect(OmnibarMetrics(tokens: DensityPreset.cozy.tokens) == compact)
+    @Test func standardIsOneChromeRow() {
+        let standard = OmnibarMetrics(tokens: DensityPreset.compact.tokens)
+        #expect(standard == OmnibarMetrics(tokens: .compact))
+        // Compact is 20 pt tall (Lawrence 2026-11-13): its 12 pt body fits the bar at 11, the glyphs ink a point under
+        // the 12 pt small icon, and the trailing icon is what the bar leaves.
+        #expect(standard.barHeight == 20 && standard.buttonSize == 20)
+        #expect(standard.fontSize == 11)
+        #expect(standard.iconPointSize == 10 && standard.toolbarIconSize == Self.glyph(inking: 11) && standard.trailingIconSize == 14)
     }
 
     @Test func levelOneIsTheComfortableRow() {
@@ -76,16 +56,16 @@ import Testing
     /// height) sizes the bar and the buttons, and the text fits a short one.
     @Test func theBarTakesTheChromeRow() {
         let roomy = OmnibarMetrics(tokens: .compact, rowHeight: 28)
-        #expect(roomy.barHeight == 28 && roomy.buttonSize == 28 && roomy.fontSize == OmnibarMetrics(tokens: .compact).fontSize)
+        #expect(roomy.barHeight == 28 && roomy.buttonSize == 28 && roomy.fontSize == DensityTokens.compact.bodySize)
         let short = OmnibarMetrics(tokens: .compact, rowHeight: 20)
-        #expect(short.barHeight == OmnibarMetrics.minimumBarHeight(fontSize: short.fontSize) && short.buttonSize == 20)
+        #expect(short.barHeight == 20 && short.buttonSize == 20)
         #expect(short.barHeight >= OmnibarMetrics.minimumBarHeight(fontSize: short.fontSize), "\(short)")
     }
 
-    /// Ultra-compact is tighter than Compact's 28 pt, Spacious roomier, and every size grows with the density.
+    /// Ultra-compact is tighter than today, Spacious roomier, and every size grows with the density.
     @Test func everyDensitySitsOnOneLine() {
         let all = DensityPreset.allCases.map { OmnibarMetrics(tokens: $0.tokens) }
-        #expect(all.first!.barHeight < 28, "Ultra-compact is \(all.first!.barHeight) pt")
+        #expect(all.first!.barHeight < 24, "Ultra-compact is \(all.first!.barHeight) pt")
         for (denser, roomier) in zip(all, all.dropFirst()) {
             #expect(denser.barHeight <= roomier.barHeight && denser.fontSize <= roomier.fontSize && denser.buttonSize <= roomier.buttonSize)
         }
@@ -96,7 +76,7 @@ import Testing
 
     /// A custom density's `fontSize` scales the bar's text with the rest of the chrome.
     @Test func aCustomDensityFontSizeScalesTheBarText() {
-        let large = DensityTokens(id: "large", name: "Large", fontSize: 16)
+        let large = DensityTokens(id: "large", name: "Large", fontSize: 14)
         #expect(OmnibarMetrics(tokens: large).fontSize > OmnibarMetrics(tokens: .compact).fontSize)
     }
 
@@ -209,12 +189,10 @@ import Testing
             let label = "\(preset) height \(String(describing: height)) font \(String(describing: fontSize))"
 
             let barRect = view.rect(bar), toolbar = view.rect(view.chrome.toolbar), page = view.rect(view.chrome.contentContainer)
-            // On the window's pixels: a 1x display draws whole points (Spacious's 37.5 pt bar drew 37 there before).
-            let scale = view.window.backingScaleFactor
-            #expect(barRect.height == ((expected.barHeight) * scale).rounded() / scale, "\(label): the bar is \(barRect.height) pt at \(scale)x")
+            #expect(barRect.height == expected.barHeight, "\(label): the bar is \(barRect.height) pt")
             #expect(Self.inside(barRect, toolbar), "\(label): the bar \(barRect) runs out of the toolbar \(toolbar)")
             #expect(page.maxY <= toolbar.minY + 0.5, "\(label): the page overlaps the toolbar")
-            #expect(abs((bar.field.font?.pointSize ?? 0) - expected.fontSize) < 0.01, "\(label)")
+            #expect(bar.field.font?.pointSize == expected.fontSize, "\(label)")
 
             let field = view.rect(bar.field), chip = view.rect(bar.chip), star = view.rect(bar.starButton)
             #expect(Self.inside(field, barRect), "\(label): the field \(field) leaves the bar \(barRect)")
@@ -231,8 +209,7 @@ import Testing
             #expect(field.maxX <= star.minX + 0.5, "\(label): the URL runs under the star")
             for button in [view.chrome.backButton, view.chrome.reloadButton] {
                 let frame = view.rect(button)
-                let side = ((expected.buttonSize) * scale).rounded() / scale
-                #expect(frame.width == side && frame.height == side, "\(label): a button is \(frame.size), want \(side)")
+                #expect(frame.width == expected.buttonSize && frame.height == expected.buttonSize, "\(label): a button is \(frame.size)")
                 #expect(Self.inside(frame, toolbar), "\(label): a toolbar button \(frame) leaves the toolbar \(toolbar)")
                 #expect(frame.maxX <= barRect.minX + 0.5, "\(label): a button overlaps the bar")
             }
@@ -242,8 +219,7 @@ import Testing
             view.chrome.layoutSubtreeIfNeeded()
             #expect(view.rect(bar) == barRect, "\(label): editing moves the bar")
 
-            // The suggestion card: each row is the density's row (the bar's height, Chrome's 40 pt under its 34 pt bar at
-            // Comfortable), its text and glyph inside it.
+            // The suggestion card: each row is the bar's height, its text and glyph inside it.
             let suggestion = BrowserSuggestion(kind: .history, title: "A suggestion title " + String(repeating: "long ", count: 30),
                                                detail: "detail", url: URL(string: "https://example.com/")!, score: 1)
             bar.showRows([suggestion, suggestion], highlighted: 0)
@@ -251,8 +227,7 @@ import Testing
             #expect(card.isFlushUnderBar, "\(label)")
             for row in bar.panel.rowViews {
                 row.layoutSubtreeIfNeeded()
-                #expect(row.bounds.height == OmnibarStyle.rowHeight && OmnibarStyle.rowHeight >= expected.barHeight,
-                        "\(label): a row is \(row.bounds.height) pt")
+                #expect(row.bounds.height == expected.barHeight, "\(label): a row is \(row.bounds.height) pt")
                 #expect(Self.inside(row.label.frame, row.bounds), "\(label): a row's text \(row.label.frame) leaves \(row.bounds)")
                 #expect(Self.inside(row.icon.frame, row.bounds), "\(label): a row's glyph leaves the row")
             }
@@ -290,7 +265,7 @@ import Testing
         await Self.settle()
         view.chrome.layoutSubtreeIfNeeded()
         #expect(view.rect(bar).height == OmnibarMetrics.current.barHeight)
-        #expect(abs((bar.field.font?.pointSize ?? 0) - OmnibarMetrics.current.fontSize) < 0.01)
+        #expect(bar.field.font?.pointSize == OmnibarMetrics.current.fontSize)
     }
 
     /// Lets the binding's observation re-apply (it re-arms on the next main-actor turn).

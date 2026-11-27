@@ -17,13 +17,9 @@ public final class NewTabRequest implements WireValue {
     private final Field<Map<String, String>> env;
     private final Field<Boolean> keep;
     private final Field<UInt64> pane;
-    /** Where the tab goes in the strip of pane. Needs pane. */
-    private final Field<TabPlace> place;
     private final Field<Integer> rows;
     private final Field<List<String>> shellArgs;
     private final Field<String> terminalId;
-    /** Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation. */
-    private final Field<String> transaction;
 
     private NewTabRequest(Builder builder) {
         this.cols = builder.cols;
@@ -31,11 +27,9 @@ public final class NewTabRequest implements WireValue {
         this.env = builder.env.map(value -> Collections.unmodifiableMap(new LinkedHashMap<>(value)));
         this.keep = builder.keep;
         this.pane = builder.pane;
-        this.place = builder.place;
         this.rows = builder.rows;
         this.shellArgs = builder.shellArgs.map(value -> List.copyOf(value));
         this.terminalId = builder.terminalId;
-        this.transaction = builder.transaction;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -45,11 +39,9 @@ public final class NewTabRequest implements WireValue {
     public Field<Map<String, String>> env() { return env; }
     public Field<Boolean> keep() { return keep; }
     public Field<UInt64> pane() { return pane; }
-    public Field<TabPlace> place() { return place; }
     public Field<Integer> rows() { return rows; }
     public Field<List<String>> shellArgs() { return shellArgs; }
     public Field<String> terminalId() { return terminalId; }
-    public Field<String> transaction() { return transaction; }
 
     public static NewTabRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "NewTabRequest");
@@ -74,10 +66,6 @@ public final class NewTabRequest implements WireValue {
         if (!Wire.isMissing(rawPane)) {
             builder.pane(rawPane == null ? null : Wire.uint64(rawPane, "NewTabRequest.pane"));
         }
-        Object rawPlace = Wire.optional(object, "place");
-        if (!Wire.isMissing(rawPlace)) {
-            builder.place(rawPlace == null ? null : TabPlace.fromWire(rawPlace));
-        }
         Object rawRows = Wire.optional(object, "rows");
         if (!Wire.isMissing(rawRows)) {
             builder.rows(rawRows == null ? null : Wire.uint16(rawRows, "NewTabRequest.rows"));
@@ -90,10 +78,6 @@ public final class NewTabRequest implements WireValue {
         if (!Wire.isMissing(rawTerminalId)) {
             builder.terminalId(rawTerminalId == null ? null : Wire.string(rawTerminalId, "NewTabRequest.terminal_id"));
         }
-        Object rawTransaction = Wire.optional(object, "transaction");
-        if (!Wire.isMissing(rawTransaction)) {
-            builder.transaction(rawTransaction == null ? null : Wire.string(rawTransaction, "NewTabRequest.transaction"));
-        }
         return builder.build();
     }
 
@@ -105,22 +89,20 @@ public final class NewTabRequest implements WireValue {
         Wire.put(object, "env", env);
         Wire.put(object, "keep", keep);
         Wire.put(object, "pane", pane);
-        Wire.put(object, "place", place);
         Wire.put(object, "rows", rows);
         Wire.put(object, "shell_args", shellArgs);
         Wire.put(object, "terminal_id", terminalId);
-        Wire.put(object, "transaction", transaction);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewTabRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(pane, that.pane) && Objects.equals(place, that.place) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId) && Objects.equals(transaction, that.transaction);
+        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, cwd, env, keep, pane, place, rows, shellArgs, terminalId, transaction); }
+    public int hashCode() { return Objects.hash(cols, cwd, env, keep, pane, rows, shellArgs, terminalId); }
 
     @Override
     public String toString() { return "NewTabRequest" + toWire(); }
@@ -131,11 +113,9 @@ public final class NewTabRequest implements WireValue {
         private Field<Map<String, String>> env = Field.omitted();
         private Field<Boolean> keep = Field.omitted();
         private Field<UInt64> pane = Field.omitted();
-        private Field<TabPlace> place = Field.omitted();
         private Field<Integer> rows = Field.omitted();
         private Field<List<String>> shellArgs = Field.omitted();
         private Field<String> terminalId = Field.omitted();
-        private Field<String> transaction = Field.omitted();
 
         public Builder cols(Integer value) {
             this.cols = Field.ofNullable(value);
@@ -157,10 +137,6 @@ public final class NewTabRequest implements WireValue {
             this.pane = Field.ofNullable(value);
             return this;
         }
-        public Builder place(TabPlace value) {
-            this.place = Field.ofNullable(value);
-            return this;
-        }
         public Builder rows(Integer value) {
             this.rows = Field.ofNullable(value);
             return this;
@@ -171,10 +147,6 @@ public final class NewTabRequest implements WireValue {
         }
         public Builder terminalId(String value) {
             this.terminalId = Field.ofNullable(value);
-            return this;
-        }
-        public Builder transaction(String value) {
-            this.transaction = Field.ofNullable(value);
             return this;
         }
         public NewTabRequest build() { return new NewTabRequest(this); }

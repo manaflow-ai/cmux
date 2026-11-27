@@ -1,7 +1,6 @@
-//! The client-session cache: one entry per (cmux API, team, machine, person), so
-//! per-call `cloud machine-io` runs mint about once per session lifetime instead
-//! of once per call. The entry is a file when the caller names a folder, else it
-//! lives in this process's memory (the daemon, which keeps no session on disk).
+//! The client-session cache: one file per (cmux API, team, machine, person), so
+//! the app's per-call `cloud machine-io` runs mint about once per session
+//! lifetime instead of once per call.
 //!
 //! A file holds either the session (the provider token, the VM, the user, the
 //! provider API and when to stop using it) or a "proxy until" time after a mint
@@ -10,10 +9,8 @@
 //! are 0600 in a 0700 folder, written whole then renamed. A token lives at most
 //! [`TTL_SECONDS`]; it is never printed, logged or put in an argument list.
 
-use std::collections::HashMap;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -96,34 +93,11 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 pub(super) struct Cache {
-    place: Place,
-}
-
-/// Where an entry lives: a file in the folder the caller named, else this process's memory. The
-/// daemon names no folder (it keeps no session on disk), but it lives long, so its memory still
-/// turns a mint per exec into a mint per session lifetime.
-enum Place {
-    File(PathBuf),
-    Memory(String),
-}
-
-/// The in-memory entries, by the digest a file would be named by. At most [`MEMORY_ENTRIES`]: a
-/// store first drops every entry past its end, then, when still full, the one nearest its end.
-static MEMORY: LazyLock<Mutex<HashMap<String, Entry>>> = LazyLock::new(Default::default);
-const MEMORY_ENTRIES: usize = 256;
-
-impl Entry {
-    fn ends_at_ms(&self) -> u64 {
-        match self {
-            Entry::Session { use_until_ms, .. } => *use_until_ms,
-            Entry::ProxyUntil { until_ms } => *until_ms,
-        }
-    }
+    file: Option<PathBuf>,
 }
 
 impl Cache {
-    /// The cache entry for this API, team, machine and person: a file in `dir`, or with no dir
-    /// an entry in this process's memory.
+    /// The cache file for this API, team, machine and person in `dir` (no dir: no cache).
     pub(super) fn new(
         dir: Option<&Path>,
         api: &str,
@@ -132,60 +106,27 @@ impl Cache {
         credential: &str,
     ) -> Self {
         let key = [api, team.unwrap_or_default(), machine, &subject(credential)].join("\0");
-        let name = hex(&Sha256::digest(key.as_bytes()));
-        let place = match dir {
-            Some(d) => Place::File(d.join(format!("{name}.json"))),
-            None => Place::Memory(name),
-        };
-        Cache { place }
+        let file = dir.map(|d| d.join(format!("{}.json", hex(&Sha256::digest(key.as_bytes())))));
+        Cache { file }
     }
 
     pub(super) fn load(&self) -> Option<Entry> {
-        match &self.place {
-            Place::File(file) => {
-                let bytes = std::fs::read(file).ok()?;
-                serde_json::from_slice(&bytes).ok()
-            }
-            Place::Memory(name) => memory().get(name).cloned(),
-        }
+        let file = self.file.as_ref()?;
+        let bytes = std::fs::read(file).ok()?;
+        serde_json::from_slice(&bytes).ok()
     }
 
     /// Best effort: a cache that cannot be written only costs a mint on the next call.
-    pub(super) fn store(&self, entry: &Entry, now_ms: u64) {
-        match &self.place {
-            Place::File(file) => {
-                let _ = write_private(file, &serde_json::to_vec(entry).unwrap_or_default());
-            }
-            Place::Memory(name) => {
-                let mut map = memory();
-                map.retain(|_, e| e.ends_at_ms() > now_ms);
-                if map.len() >= MEMORY_ENTRIES && !map.contains_key(name) {
-                    let nearest =
-                        map.iter().min_by_key(|(_, e)| e.ends_at_ms()).map(|(k, _)| k.clone());
-                    if let Some(nearest) = nearest {
-                        map.remove(&nearest);
-                    }
-                }
-                map.insert(name.clone(), entry.clone());
-            }
-        }
+    pub(super) fn store(&self, entry: &Entry) {
+        let Some(file) = &self.file else { return };
+        let _ = write_private(file, &serde_json::to_vec(entry).unwrap_or_default());
     }
 
     pub(super) fn clear(&self) {
-        match &self.place {
-            Place::File(file) => {
-                let _ = std::fs::remove_file(file);
-            }
-            Place::Memory(name) => {
-                memory().remove(name);
-            }
+        if let Some(file) = &self.file {
+            let _ = std::fs::remove_file(file);
         }
     }
-}
-
-/// A poisoned lock means only that a store panicked; every entry left is still a whole one.
-fn memory() -> MutexGuard<'static, HashMap<String, Entry>> {
-    MEMORY.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn write_private(file: &Path, bytes: &[u8]) -> std::io::Result<()> {

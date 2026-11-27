@@ -2,10 +2,7 @@
 //! step 3): every ACP chat acpmux knows, for App Store apps, the CLI and the SDKs.
 //!
 //! `chat.list` reads the daemon's chat index (`mux/chat_index.rs`), which the
-//! acpmux watch keeps; it calls nothing. Its rows come newest first; `limit`,
-//! `state` and the `before_ms`/`before_id` cursor read only the rows they name
-//! from the index's order, so a New Tab page's three recent chats cost three
-//! rows, not a sort of every chat. The two mutations ask acpmux
+//! acpmux watch keeps; it calls nothing. The two mutations ask acpmux
 //! (`server/chat_marks.rs`), which keeps the mark, then apply it to the index
 //! so the answer and the next read agree; acpmux's push of the same change
 //! finds the row already so and changes nothing more, so `chat.changed` fires
@@ -18,7 +15,6 @@ use serde_json::{Value, json};
 
 use super::{ParsedResourceRequest, ensure_session_route, mutation_result, required_string};
 use crate::Mux;
-use crate::mux::chat_index::ChatQuery;
 use crate::resource::{ResourceError, ResourceOperation};
 
 pub(super) fn dispatch(
@@ -27,12 +23,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, ResourceError> {
     ensure_session_route(mux, &request.selectors)?;
     match request.envelope.operation {
-        ResourceOperation::ChatList => {
-            let query = ChatQuery::from_fields(&request.fields).map_err(|(field, reason)| {
-                ResourceError::validation_invalid(Some(field), reason)
-            })?;
-            Ok(Value::Array(mux.chat_rows_matching(&query)))
-        }
+        ResourceOperation::ChatList => Ok(Value::Array(mux.chat_rows())),
         ResourceOperation::ChatMarkRead => {
             let chat = required_string(&request.fields, "chat")?.to_owned();
             mark(

@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextPalette
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -40,21 +39,6 @@ struct NewTabPlacesPayloadTests {
         #expect(script.hasPrefix(prefix))
         let json = script.dropFirst(prefix.count).dropLast("}))".count)
         return try #require(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
-    }
-
-    @Test func commandRowsKeepPaletteSymbolsAndShortcuts() throws {
-        let entry = PaletteCommandEntry(id: "toggleSidebar", title: "Toggle Sidebar", section: "View",
-                                        keycaps: ["⌃", "`"], symbol: "sidebar.left")
-        let action = AgentPaneOmnibar.Action(paletteEntry: entry)
-        #expect(action.symbol == entry.symbol)
-        #expect(action.keycaps == entry.keycaps)
-        let reply = AgentPaneOmnibar(actions: [action]).reply
-        let rows = try #require(reply["actions"] as? [[String: Any]])
-        #expect(rows.first?["symbol"] as? String == entry.symbol)
-        #expect(rows.first?["keycaps"] as? [String] == entry.keycaps)
-        let encoded = try JSONEncoder().encode([action])
-        let decoded = try JSONDecoder().decode([AgentPaneOmnibar.Action].self, from: encoded)
-        #expect(decoded == [action])
     }
 
     @Test func aPlacesRefreshSendsOnlyTheTabsAndWorkspaces() throws {

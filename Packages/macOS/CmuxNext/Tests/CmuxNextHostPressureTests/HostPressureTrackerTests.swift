@@ -161,7 +161,7 @@ struct HostBudgetFormulaTests {
     @Test func theEnvironmentPathComesFirst() {
         let home = URL(fileURLWithPath: "/Users/someone")
         #expect(HostBudgetFile.path(environment: ["ACPMUX_HOST_BUDGET": "/etc/budget.json"], home: home).path == "/etc/budget.json")
-        #expect(HostBudgetFile.path(environment: [:], home: home).path == "/Users/someone/.config/cmux-next/host-budget.json")
+        #expect(HostBudgetFile.path(environment: [:], home: home).path == "/Users/someone/.config/cmux/host-budget.json")
     }
 
     @Test func aMissingFileKeepsTheDefaults() {

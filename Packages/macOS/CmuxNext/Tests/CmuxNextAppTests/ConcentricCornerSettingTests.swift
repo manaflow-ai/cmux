@@ -79,9 +79,7 @@ import Testing
         let close = try #require(cell.closeBackgroundLayer, "the selected, hovered tab shows its x")
         let pill = cell.backgroundLayer.frame
         let inset = min(close.frame.minY - pill.minY, pill.maxY - close.frame.maxY)
-        // The x takes Helium's own corner, 4 on its 14 pt square, at its own size, whatever corner the pill has
-        // (Lawrence 2026-11-13; the same 0.29 share as the chrome's buttons, Lucas 2026-11-15).
-        let expected = ((close.frame.height * 4 / 14) * 2).rounded() / 2
+        let expected = min(max(0, cell.backgroundLayer.cornerRadius - inset), close.frame.height / 2)
         #expect(abs(close.cornerRadius - expected) <= 0.01, "the x's fill is \(close.cornerRadius) pt \(inset) pt inside a \(cell.backgroundLayer.cornerRadius) pt tab")
     }
 }

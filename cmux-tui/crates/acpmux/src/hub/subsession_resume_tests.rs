@@ -42,13 +42,7 @@ async fn child_of(hub: &Arc<Hub>, parent: &Session) -> Arc<Session> {
 }
 
 fn by_person() -> RetryBy {
-    RetryBy {
-        control: Control::Local,
-        trust_gate: false,
-        full_access_device: None,
-        from: None,
-        person: true,
-    }
+    RetryBy { control: Control::Local, trust_gate: false, full_access_device: None, from: None }
 }
 
 fn text(t: &str) -> Vec<Value> {

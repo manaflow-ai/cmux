@@ -67,16 +67,11 @@ struct TabStripMove {
     /// only on the snapshot's root (a collapsing group's fade); a sublayer that shows or hides at
     /// another width does so at once. `scroll`: the part of the root's position change that the
     /// strip's scroll made; it moves under its own key, so a wheel ends it alone (`cancelScroll`).
-    /// A layer this change moves while an earlier move still runs restarts from what it shows
-    /// (`takeOver`): one curve from there to the new target, never a second curve stacked on the first.
     /// True when anything moved.
     @discardableResult
     /// `pinsEnd` (a root anchored at its leading edge): only the leading edge moves; the trailing edge
     /// is at its model at once (a group band whose end the dragged tab sets).
-    /// `restarts`: the root restarts its moves in flight on this change's curve even when its target is the same
-    /// (`TabStripView.applyFrames`: every tab still moving joins the change, so neighbours stay edge to edge).
-    func animate(from snapshot: Snapshot, closing isClosing: Bool = false, scroll: CGFloat = 0, pinsEnd: Bool = false,
-                 restarts: Bool = false) -> Bool {
+    func animate(from snapshot: Snapshot, closing isClosing: Bool = false, scroll: CGFloat = 0, pinsEnd: Bool = false) -> Bool {
         let move = isClosing ? closing ?? motion : motion
         var moved = false
         for (index, old) in snapshot.layers.enumerated() {
@@ -84,19 +79,7 @@ struct TabStripMove {
             // A sublayer the change removed draws nothing.
             guard index == 0 || old.isMask || layer.superlayer != nil else { continue }
             let scrolled = index == 0 ? scroll : 0
-            var dp = CGPoint(x: old.position.x - layer.position.x - scrolled, y: old.position.y - layer.position.y)
-            let size = layer.bounds.size
-            var ds = CGSize(width: old.size.width - size.width, height: old.size.height - size.height)
-            // A new target: the position and size moves in flight end here, and the new move starts from what
-            // they still owed (both together, so the layer's edges share one curve).
-            if (index == 0 && restarts) || abs(dp.x) > 0.01 || abs(dp.y) > 0.01 || (!pinsEnd && (abs(ds.width) > 0.01 || abs(ds.height) > 0.01)) {
-                let owed = takeOver(layer, "position", as: "position")
-                dp.x += owed.x
-                dp.y += owed.y
-                let owedSize = takeOver(layer, "bounds.size", as: "size")
-                ds.width += owedSize.x
-                ds.height += owedSize.y
-            }
+            let dp = CGPoint(x: old.position.x - layer.position.x - scrolled, y: old.position.y - layer.position.y)
             if abs(dp.x) > 0.01 || abs(dp.y) > 0.01 {
                 add(move.additive("position", from: NSValue(point: dp), to: NSValue(point: .zero)), to: layer, as: "position")
                 moved = true
@@ -105,6 +88,8 @@ struct TabStripMove {
                 addScroll(scrolled, to: layer)
                 moved = true
             }
+            let size = layer.bounds.size
+            var ds = CGSize(width: old.size.width - size.width, height: old.size.height - size.height)
             // The start's move is taken off the width, its scroll part under the scroll key, so a wheel
             // that ends the scroll part ends both and the end stays put.
             if index == 0, pinsEnd {
@@ -118,39 +103,11 @@ struct TabStripMove {
                 moved = true
             }
             if index == 0, abs(old.opacity - layer.opacity) > 0.001 {
-                let owed = takeOver(layer, "opacity", as: "opacity").x
-                add(move.additive("opacity", from: NSNumber(value: Double(old.opacity - layer.opacity) + Double(owed)), to: NSNumber(value: 0)),
-                    to: layer, as: "opacity")
+                add(move.additive("opacity", from: NSNumber(value: old.opacity - layer.opacity), to: NSNumber(value: 0)), to: layer, as: "opacity")
                 moved = true
             }
         }
         return moved
-    }
-
-    /// Moves `layer`'s position from `offset` (where it was minus where it is now) to its model under `name`,
-    /// restarting from what an earlier move of `name` still shows (`takeOver`). True when it moves.
-    @discardableResult
-    func move(_ layer: CALayer, position offset: CGPoint, as name: String) -> Bool {
-        let owed = takeOver(layer, "position", as: name)
-        let delta = CGPoint(x: offset.x + owed.x, y: offset.y + owed.y)
-        guard abs(delta.x) > 0.01 || abs(delta.y) > 0.01 else { return false }
-        add(motion.additive("position", from: NSValue(point: delta), to: NSValue(point: .zero)), to: layer, as: name)
-        return true
-    }
-
-    /// Ends the earlier strip moves of `name` on `layer` (not their scroll parts, which a wheel owns) and returns
-    /// what they still added to `keyPath` at this move's begin. A new target starts from the value on screen with
-    /// no velocity (motion-first-principles-DESIGN.md principle 5; Chrome's `BoundsAnimator::AnimateViewTo`): two
-    /// ease-outs stacked with opposite travel pass the new target and come back, one from the value on screen never
-    /// does. A scroll move takes nothing over: it only adds its own part.
-    func takeOver(_ layer: CALayer, _ keyPath: String, as name: String) -> CGPoint {
-        guard !isScroll else { return .zero }
-        let suffix = "." + name
-        let earlier = Set((layer.animationKeys() ?? []).filter { $0.hasPrefix(Self.keyPrefix) && $0.hasSuffix(suffix) && !$0.hasPrefix(key) })
-        guard !earlier.isEmpty else { return .zero }
-        let owed = MotionPath.offset(of: layer, keyPath, at: begin) { earlier.contains($0) }
-        for earlierKey in earlier { layer.removeAnimation(forKey: earlierKey) }
-        return owed
     }
 
     /// Adds `animation` under this move's key `name`, starting at `begin`.
@@ -163,22 +120,6 @@ struct TabStripMove {
     func addScroll(_ offset: CGFloat, to layer: CALayer) {
         guard abs(offset) > 0.01 else { return }
         add(motion.additive("position.x", from: NSNumber(value: Double(offset)), to: NSNumber(value: 0)), to: layer, as: "scroll")
-    }
-
-    /// The frame `layer` shows at media time `time`: its model plus every animation on it, evaluated as the render
-    /// server does (`MotionPath`). Not `presentation()`: that is the state of the last commit, so it leaves out every
-    /// move added since (two opens in one main-thread turn, a script's burst, a busy main thread) and is nil for a
-    /// layer made in this turn, where it fell back to the model, the move's end instead of where the layer shows.
-    static func shownFrame(_ layer: CALayer, at time: CFTimeInterval = CACurrentMediaTime()) -> CGRect {
-        let size = MotionPath(layer, "bounds.size", now: time).value(at: time)
-        let position = MotionPath(layer, "position", now: time).value(at: time)
-        let width = max(0, size.x), height = max(0, size.y)
-        return CGRect(x: position.x - layer.anchorPoint.x * width, y: position.y - layer.anchorPoint.y * height, width: width, height: height)
-    }
-
-    /// Whether a strip move other than a scroll part still runs on `layer` (a scroll part ends with its wheel).
-    static func isMoving(_ layer: CALayer) -> Bool {
-        (layer.animationKeys() ?? []).contains { $0.hasPrefix(keyPrefix) && !$0.hasSuffix(scrollSuffix) }
     }
 
     /// Ends every strip move on `root`'s tree at once (a tab dropped back starts where the drop gap is).

@@ -16,6 +16,66 @@ struct ChiefNameSyncTests {
     let mario = ConversationID("conv_mux")
     let scout = ConversationID("conv_scout")
 
+    static func rows(_ json: String) throws -> [HomeInboxRequest.Row] {
+        try JSONDecoder().decode([HomeInboxRequest.Row].self, from: Data(json.utf8))
+    }
+
+    /// This Mac's Chiefs are named by their registry record, the name `home-inbox` gives each Chief
+    /// row; a DM or a group is no Chief's, and a raw id is no name.
+    @Test func thisMacsChiefsAreNamedByTheirRecord() throws {
+        let rows = try Self.rows("""
+        [{"id":"conv_mux","kind":"chief","name":"Mario","unread":0,"activity_at":"","chief":"agent_mux","pinned":true,"marked_unread":false},
+         {"id":"conv_scout","kind":"chief","name":"  ","unread":0,"activity_at":"","chief":"agent_scout","pinned":false,"marked_unread":false},
+         {"id":"conv_dm","kind":"direct","name":"Austin","unread":0,"activity_at":"","pinned":false,"marked_unread":false},
+         {"id":"conv_raw","kind":"chief","name":"agent_01BX5ZZKBKACTAV9WEVGEMMVRZ","unread":0,"activity_at":"","pinned":false,"marked_unread":false}]
+        """)
+        #expect(HomeChiefNames.localRecords(rows) == [mario: "Mario"])
+        #expect(HomeChiefNames.localRecords(nil).isEmpty)
+    }
+
+    /// A rename shows at once, stays while its record still has the old name, and the record decides
+    /// for good once it moves (to the new name, or another device's later one).
+    @Test func aRenameShowsAtOnceUntilTheRecordMoves() {
+        var names = HomeChiefNames()
+        #expect(names.name(of: mario, record: "Chief") == "Chief")
+        names.rename(mario, to: " Mario ", record: "Chief")
+        #expect(names.name(of: mario, record: "Chief") == "Mario")
+        #expect(names.all([mario: "Chief", scout: "Scout"]) == [mario: "Mario", scout: "Scout"], "the other Chief keeps its own")
+        names.settle(mario, record: "Chief")
+        #expect(names.name(of: mario, record: "Chief") == "Mario", "a read before the save lands keeps the new name")
+        names.settle(mario, record: "Mario")
+        #expect(!names.isPending(mario))
+        #expect(names.name(of: mario, record: "Luigi") == "Luigi", "a later rename elsewhere wins")
+        #expect(names.name(of: mario, record: "Chief") == "Chief", "an undo back to the old name shows it, not the settled rename")
+    }
+
+    /// Two renames in a row: the second shows through the first one's echo, then its own.
+    @Test func aSecondRenameShowsThroughTheFirstsEcho() {
+        var names = HomeChiefNames()
+        names.rename(mario, to: "Mario", record: "Chief")
+        names.rename(mario, to: "Luigi", record: "Chief")
+        names.settle(mario, record: "Mario")
+        #expect(names.name(of: mario, record: "Mario") == "Luigi")
+        names.settle(mario, record: "Luigi")
+        #expect(!names.isPending(mario))
+        #expect(names.name(of: mario, record: "Luigi") == "Luigi")
+    }
+
+    /// A refused save shows the record's name again; a newer rename is not undone by an older refusal.
+    @Test func aRefusedSaveRollsBack() {
+        var names = HomeChiefNames()
+        names.rename(mario, to: "Mario", record: "Chief")
+        names.rollBack(mario, name: "Mario")
+        #expect(names.name(of: mario, record: "Chief") == "Chief")
+        names.rename(mario, to: "Mario", record: "Chief")
+        names.rename(mario, to: "Luigi", record: "Chief")
+        names.rollBack(mario, name: "Mario")
+        #expect(names.name(of: mario, record: "Chief") == "Luigi")
+        names.rename(mario, to: "   ", record: "Chief")
+        #expect(names.name(of: mario, record: "Chief") == "Luigi", "a blank name renames nothing")
+        #expect(HomeChiefNames().name(of: scout, record: nil) == nil, "no record: the conversation's own title")
+    }
+
     /// A header rename of a Chief of this Mac renames its registry record (whose owner retitles its
     /// conversation), not only the conversation title the list never read.
     @Test func aLocalRenameWritesTheChiefsRecord() {
@@ -24,6 +84,16 @@ struct ChiefNameSyncTests {
         #expect(rename.params["chief"] == .string("agent_mux"))
         #expect(rename.params["display_name"] == .string("Mario"))
         #expect(rename.idempotencyKey("k") == "home-chief-rename-agent_mux-k")
+        let invalid = DaemonError.command(cmd: "chief.profile.update", message: "display_name too long", code: "validation.invalid",
+                                          details: .object(["reason": .string("too long")]))
+        #expect(HomeLocalChiefRename.failure(invalid) == .invalidName)
+        let gone = DaemonError.command(cmd: "chief.profile.update", message: "", code: "operation.failed",
+                                       details: .object(["reason": .string("chief_not_found")]))
+        #expect(HomeLocalChiefRename.failure(gone) == .notFound)
+        let moved = DaemonError.command(cmd: "chief.profile.update", message: "", code: "operation.failed",
+                                        details: .object(["reason": .string("rev_mismatch")]))
+        #expect(HomeLocalChiefRename.failure(moved) == .changedElsewhere)
+        #expect(HomeLocalChiefRename.failure(CancellationError()) == .noConnection)
     }
 
     /// The app's one rename path: a conversation no Chief record names (a group with a Chief, or

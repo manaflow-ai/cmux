@@ -19,14 +19,6 @@
 //! line being written again, or held for one, takes nothing back (`withdrawn: false`) until that
 //! drop is answered, as for one read first. One read now (`steerNow`) is never batched. A turn
 //! that ends before a held message was written answers it `STEER_NO_TURN`, and the hub queues it.
-//!
-//! The person's own steers batch the same way (Leo, 2026-11-25: "ugh our queuing of batching user
-//! messages is awkward as s***. we need to improve them"; one message of his had gone in as
-//! several). A person's steer (`_meta.batch.person`, its author, `hub/steer_end.rs`) joins the
-//! newest waiting line when that line holds the same person's steers: one line, their words a
-//! blank line apart with no headers, so Claude Code reads them together, and a line unread at the
-//! turn's end carries as one turn (`carry.rs`), not one turn per steer. The two kinds never share a
-//! line, and two people of a shared chat never share one.
 
 use super::*;
 
@@ -37,11 +29,8 @@ pub(super) struct Part {
     pub(super) id: String,
     /// The hub's promptId (`_meta.promptId`), which a withdraw names.
     pub(super) prompt_id: Option<String>,
-    /// Its sender (`_meta.batch.from`); empty for the person's steer.
+    /// Its sender (`_meta.batch.from`).
     pub(super) from: String,
-    /// The person's steer: its author (`_meta.batch.person`, empty for the owner). `None` for
-    /// another session's message.
-    pub(super) person: Option<String>,
     /// Its content blocks, as Claude Code takes them.
     pub(super) content: Vec<Value>,
     /// Their size as written (`part_bytes`), counted against [`BATCH_MAX_BYTES`].
@@ -59,14 +48,14 @@ fn part_bytes(content: &[Value]) -> usize {
     content.iter().map(|b| serde_json::to_string(b).map_or(0, |s| s.len())).sum()
 }
 
-/// `parts` in order, as lines that each hold whole messages of one kind (`same_kind`) and at most
-/// [`BATCH_MAX_BYTES`] (a larger message alone).
+/// `parts` in order, as lines that each hold whole messages and at most [`BATCH_MAX_BYTES`]
+/// (a larger message alone).
 pub(super) fn lines_of(parts: Vec<Part>) -> Vec<Vec<Part>> {
     let mut lines: Vec<Vec<Part>> = Vec::new();
     let mut size = 0;
     for part in parts {
         match lines.last_mut() {
-            Some(line) if size + part.bytes <= BATCH_MAX_BYTES && same_kind(line, &part) => {
+            Some(line) if size + part.bytes <= BATCH_MAX_BYTES => {
                 size += part.bytes;
                 line.push(part);
             }
@@ -94,9 +83,6 @@ pub(super) struct Batches {
 /// The content of one line of `parts` (two or more): how many messages from how many sessions,
 /// then each under its sender, its blocks as sent, oldest first.
 pub(super) fn batch_content(parts: &[Part]) -> Vec<Value> {
-    if parts.first().is_some_and(|p| p.person.is_some()) {
-        return person_content(parts);
-    }
     let total = parts.len();
     let mut senders: Vec<&str> = Vec::new();
     for part in parts {
@@ -125,39 +111,6 @@ pub(super) fn batch_content(parts: &[Part]) -> Vec<Value> {
     content
 }
 
-/// The content of one line of the person's steers: each as sent, oldest first, a blank line
-/// between two. The shared-chat label each carries (`author::agent_label`) is said once, at the
-/// start: every steer of a line has the same author.
-pub(super) fn person_content(parts: &[Part]) -> Vec<Value> {
-    let label = parts.first().and_then(|p| p.content.first()).filter(|b| is_label(b)).cloned();
-    let mut content = Vec::new();
-    for (i, part) in parts.iter().enumerate() {
-        let mut blocks = part.content.as_slice();
-        if i > 0 {
-            if label.is_some() && blocks.first() == label.as_ref() {
-                blocks = blocks.get(1..).unwrap_or_default();
-            }
-            content.push(json!({"type": "text", "text": "\n\n"}));
-        }
-        content.extend(blocks.iter().cloned());
-    }
-    content
-}
-
-/// Whether `block` is the shared-chat label a person's steer opens with (`author::agent_label`).
-fn is_label(block: &Value) -> bool {
-    block.get("type").and_then(Value::as_str) == Some("text")
-        && block
-            .get("text")
-            .and_then(Value::as_str)
-            .is_some_and(|t| t.starts_with("[Message from "))
-}
-
-/// Whether `part` may join line `line`: both other sessions' messages, or both the same person's.
-fn same_kind(line: &[Part], part: &Part) -> bool {
-    line.first().is_some_and(|first| first.person == part.person)
-}
-
 /// The request that asks Claude Code to drop line `uuid` to write it again.
 fn drop_request(uuid: &str) -> Value {
     json!({
@@ -176,12 +129,9 @@ impl Translator {
         let now = p.pointer("/_meta/steerNow").and_then(Value::as_bool) == Some(true);
         let from = p.pointer("/_meta/batch/from").and_then(Value::as_str);
         let from = from.filter(|f| !now && !f.trim().is_empty());
-        let person = p.pointer("/_meta/batch/person").and_then(Value::as_str);
-        let person = person.filter(|_| !now && from.is_none()).map(str::to_owned);
-        let batched = from.is_some() || person.is_some();
         let bytes = part_bytes(&content);
         let from_name = from.unwrap_or("").to_owned();
-        let part = Part { id: id.to_string(), prompt_id, from: from_name, person, content, bytes };
+        let part = Part { id: id.to_string(), prompt_id, from: from_name, content, bytes };
         let mut batches = self.batches.lock().await;
         let mut steers = self.steers.lock().await;
         // The turn ended since `outbound` looked (its result clears `in_turn` before it fails what
@@ -190,19 +140,17 @@ impl Translator {
             let no_turn = RpcError::invalid_params(STEER_NO_TURN);
             return Outbound::Reply(Message::err(id.clone(), no_turn));
         }
-        if batched {
-            // One line is written again at a time: while one is, every batched message waits
-            // with it, so the lines go to Claude Code in the order their messages came.
+        if from.is_some() {
+            // One line is written again at a time: while one is, every other session's message
+            // waits with it, so the lines go to Claude Code in the order their messages came.
             if let Some((_, held)) = batches.rewrite.as_mut() {
                 held.push(part);
                 return Outbound::Lines(Vec::new());
             }
             let last = steers.back().map(|(uuid, _)| uuid.clone());
             // Joined only while the line stays under the cap; past it, a new line starts.
-            // Only a line of the same kind (`same_kind`).
             let fits = |l: &String| {
-                let line = batches.lines.get(l).filter(|line| same_kind(line, &part));
-                let held = line.map(|p| p.iter().map(|p| p.bytes).sum::<usize>());
+                let held = batches.lines.get(l).map(|p| p.iter().map(|p| p.bytes).sum::<usize>());
                 held.is_some_and(|held| held + part.bytes <= BATCH_MAX_BYTES)
             };
             if let Some(last) = last.filter(|l| !batches.no_drop && fits(l)) {
@@ -212,13 +160,13 @@ impl Translator {
         }
         let parts = vec![part];
         let (uuid, line) = self.steer_line(&mut steers, &parts).await;
-        if batched {
+        if from.is_some() {
             batches.lines.insert(uuid, parts);
         }
         drop(steers);
         drop(batches);
         // Sent now (`_meta.steerNow`): the current step stops, so it reads the line at once; the
-        // turn runs on. Not while a foreground subagent runs (`interrupt_ends_work`).
+        // turn runs on. Not while a subagent or a background shell runs (`interrupt_ends_work`).
         if now && !self.interrupt_ends_work().await {
             return Outbound::Lines(vec![line, self.step_interrupt(None)]);
         }

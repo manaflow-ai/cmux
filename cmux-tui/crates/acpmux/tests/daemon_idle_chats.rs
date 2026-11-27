@@ -179,14 +179,6 @@ fn usage(pid: u32) -> Option<Usage> {
     Some(Usage { cpu: Duration::from_millis(ticks * 1000 / hz), switches })
 }
 
-#[cfg(target_os = "linux")]
-fn write_bytes(pid: u32) -> Option<u64> {
-    fs::read_to_string(format!("/proc/{pid}/io"))
-        .ok()?
-        .lines()
-        .find_map(|line| line.strip_prefix("write_bytes:")?.trim().parse().ok())
-}
-
 /// Each thread of `pid` as (thread handle, name, CPU time): macOS `PROC_PIDLISTTHREADS` and
 /// `PROC_PIDTHREADINFO`. A thread whose time grew in a window ran in it; a handle that is new in
 /// every window is a thread made and ended per wake (a blocking pool thread past its keep-alive).
@@ -424,10 +416,7 @@ impl Drop for Daemon {
 }
 
 fn start(scratch: &Path, home: &Path) -> (Daemon, PathBuf) {
-    // Linux limits AF_UNIX paths to 108 bytes, while the test worktree's temporary path can be
-    // long enough to exceed that limit. Keep the unique socket outside the scratch tree.
-    let socket = PathBuf::from(format!("/tmp/amx-idle-{}.sock", std::process::id()));
-    let _ = fs::remove_file(&socket);
+    let socket = scratch.join("s.sock");
     let mut child = daemon_env::command(scratch, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", home)
@@ -498,8 +487,6 @@ fn acpmux_daemon_with_finished_chats_has_no_periodic_wakeups() {
     std::thread::sleep(SETTLE);
 
     let procs = processes(pid, &home);
-    #[cfg(target_os = "linux")]
-    let writes_before = write_bytes(pid).expect("daemon write_bytes");
     let mut marks = vec![procs.iter().map(|(p, _)| usage(*p)).collect::<Vec<_>>()];
     let mut daemon_threads = vec![threads(pid)];
     for _ in 0..WINDOWS {
@@ -542,15 +529,8 @@ fn acpmux_daemon_with_finished_chats_has_no_periodic_wakeups() {
         report.push(format!("daemon: {}", periodic.join("; ")));
     }
     println!("daemon threads that ran, per {WINDOW:?} window:\n{ran}");
-    #[cfg(target_os = "linux")]
-    {
-        let writes_after = write_bytes(pid).expect("daemon write_bytes after idle window");
-        let delta = writes_after.saturating_sub(writes_before);
-        assert!(delta <= 64 * 1024, "idle daemon wrote {delta} bytes during {WINDOWS} windows");
-    }
     drop(streams);
     drop(daemon);
-    let _ = fs::remove_file(&socket);
     let _ = fs::remove_dir_all(&scratch);
     assert!(
         report.is_empty(),

@@ -12,14 +12,10 @@ struct NewTabWarmSnapshotTests {
     private static let warm = #"{"sessions":[{"sessionId":"s1","displayTitle":"Fix the build","updatedAt":1}]}"#
 
     @Test func thePageRequestDecodesAndAnOversizedOneIsRefused() throws {
-        // The page's own JSON text is kept byte for byte: nothing parses it or writes it again (sorted) on the main thread.
-        let text = #"{"sessions":[{"updatedAt":1,"sessionId":"s1"}],"device":[]}"#
-        #expect(AgentPaneRequest(body: ["method": "newTab.warm", "params": ["warm": text]]) == .newTabWarm(text))
-        let big = String(repeating: "x", count: AgentPaneNewTab.maximumWarmBytes + 1)
-        #expect(AgentPaneRequest(body: ["method": "newTab.warm", "params": ["warm": big]]) == .unsupported("newTab.warm"))
-        #expect(AgentPaneRequest(body: ["method": "newTab.warm", "params": ["warm": ""]]) == .unsupported("newTab.warm"))
-        // An object (a page from before the page posted its text) is refused, not encoded here.
-        #expect(AgentPaneRequest(body: ["method": "newTab.warm", "params": ["warm": ["sessions": []]]])
+        let request = AgentPaneRequest(body: ["method": "newTab.warm", "params": ["warm": ["sessions": []]]])
+        #expect(request == .newTabWarm(#"{"sessions":[]}"#))
+        let big = String(repeating: "x", count: AgentPaneNewTab.maximumWarmBytes)
+        #expect(AgentPaneRequest(body: ["method": "newTab.warm", "params": ["warm": ["sessions": [big]]]])
             == .unsupported("newTab.warm"))
         #expect(AgentPaneRequest(body: ["method": "newTab.warm"]) == .unsupported("newTab.warm"))
         #expect(AgentPageOps.all.contains(AgentPageOps.namespace + "newTab.warm"))

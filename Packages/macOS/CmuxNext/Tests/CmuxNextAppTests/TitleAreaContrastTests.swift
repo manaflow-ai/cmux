@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextActions
-import CmuxTheme
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
@@ -29,24 +28,9 @@ import Testing
         return try body()
     }
 
-    /// The tab row's divider on for `body` (``ChromeTunables/tabRowDivider``, off by default since Lawrence's
-    /// 2026-11-15 "the line below tabs which is very bad"), so the tests of how it draws when on still assert.
-    func withTabRowDivider<T>(_ body: () throws -> T) rethrows -> T {
-        let store = TunableStore.shared
-        store.register([ChromeTunables.tabRowDivider.descriptor])
-        if !store.isActive { store.activate(file: nil) }
-        let saved = store.overrides[ChromeTunables.tabRowDivider.key] // `set` returns the new value, not the old
-        store.set(ChromeTunables.tabRowDivider.key, .bool(true))
-        defer { store.set(ChromeTunables.tabRowDivider.key, saved) }
-        #expect(ChromeTunables.tabRowDivider.value)
-        return try body()
-    }
-
-    /// The flush corner on for `body` (a Debug Settings pick, at Default density), so the tests of its frame always
-    /// assert instead of returning early when the run's chrome left it off. Plain `flush` by default: `flush-goo`
-    /// tones the frame under One Color too (#46780, `Metrics.titleAreaShadeScale`), which
-    /// ``oneColorStillTonesTheGooFrame()`` pins on its own.
-    func withFlushCorner<T>(_ corner: CornerFlush = .flush, _ body: () throws -> T) rethrows -> T {
+    /// The flush corner on for `body` (a Debug Settings pick of the default, goo, at Default density), so the
+    /// tests of its frame always assert instead of returning early when the run's chrome left it off.
+    func withFlushCorner<T>(_ body: () throws -> T) rethrows -> T {
         // Compact density keeps the pill before any override is read (`CornerFlush.current`): pin Default's.
         let density = DesignSettings.shared.densityTokens
         DesignSettings.shared.densityTokens = DensityPreset.cozy.tokens
@@ -54,24 +38,10 @@ import Testing
         let store = TunableStore.shared
         store.register([CornerFlush.tunable.descriptor])
         if !store.isActive { store.activate(file: nil) }
-        let saved = store.set(CornerFlush.tunable.key, .choice(corner.rawValue))
+        let saved = store.set(CornerFlush.tunable.key, .choice(CornerFlush.goo.rawValue))
         defer { _ = store.set(CornerFlush.tunable.key, saved) }
         #expect(CornerFlush.current.isOn, "the pinned flush corner is off (compact density?)")
         return try body()
-    }
-
-    /// `flush-goo` is two tones (Leo, 2026-11-18: "the two tone thing"): the goo needs the frame's shade to show, so
-    /// One Color still tones its frame at Subtle Tone's share of the contrast.
-    @Test(arguments: [true, false]) func oneColorStillTonesTheGooFrame(isDark: Bool) {
-        withFlushCorner(.goo) {
-            let saved = DesignSettings.shared.titleAreaTone
-            defer { DesignSettings.shared.titleAreaTone = saved }
-            withContrast(0.5) {
-                DesignSettings.shared.titleAreaTone = .oneColor
-                let base = Metrics.mainPaneChromeShadeBase(isDark: isDark), scale = TitleAreaTone.subtleShare * 0.5
-                #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - base * scale) < 1e-9)
-            }
-        }
     }
 
     @Test func aMissingKeyIsTheDefaultAndTheDefaultIsOne() {
@@ -100,25 +70,17 @@ import Testing
         #expect(DesignSettings.shared.titleAreaContrast == 1)
     }
 
-    /// Subtle Tone's frame share on the flush corner (``FrameTone``): the active theme's least separating share of
-    /// its ink, or the frame rung for the other appearance.
-    func inkFrameShare(isDark: Bool) -> CGFloat {
-        let theme = ThemeContext.active ?? ThemeScope.app.tokens
-        return CGFloat(theme.isDark == isDark ? FrameTone.share(theme) : FrameTone.frameRung)
-    }
-
-    /// The contrast scales the shade linearly, never past opaque: on the flush corner's frame Subtle Tone's
-    /// theme-derived share of the ink (Leo, 2026-11-23: "only as contrasty as necessary"), on any other chrome the
-    /// style's own shade.
+    /// The contrast scales the shade linearly, never past opaque black: on the flush corner's frame Subtle Tone's
+    /// share of it (contrast 2 is the older two tones), on any other chrome the style's own shade.
     @Test(arguments: [true, false]) func theContrastScalesTheChromeShade(isDark: Bool) {
         withFlushCorner {
-            let share = inkFrameShare(isDark: isDark)
-            #expect(share >= CGFloat(FrameTone.frameRung) && share <= CGFloat(FrameTone.selectedRung))
+            let base = Metrics.mainPaneChromeShadeBase(isDark: isDark)
             for contrast in [0, 0.5, 1, 1.5, 2] as [CGFloat] {
                 withContrast(contrast) {
-                    #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - min(1, share * contrast)) < 1e-9)
+                    #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - min(1, base * TitleAreaTone.subtleShare * contrast)) < 1e-9)
                 }
             }
+            withContrast(2) { #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - base) < 1e-9) }
         }
     }
 
@@ -132,8 +94,8 @@ import Testing
             #expect((Palette.folderTabFill != nil) == reads)
             if reads { #expect(Palette.folderTabFill == Palette.paneFill) }
         }
-        // Subtle Tone's least frame (the frame rung of ink) still opens a folder tab at half contrast: never a gray pill.
-        #expect(CGFloat(FrameTone.frameRung) * 0.5 >= Metrics.folderTabMinimumShade)
+        // Subtle Tone's light frame (0.045 of black) still opens a folder tab at half contrast: never a gray pill.
+        #expect(0.045 * TitleAreaTone.subtleShare * 0.5 >= Metrics.folderTabMinimumShade)
     }
 
     /// The chrome's shade leaves the selected folder tabs out, as it leaves out the card: the tab shows the
@@ -156,9 +118,7 @@ import Testing
 
     /// The tab row's divider takes over from the tone as the shade drops (Leo, 2026-11-12: "THERE IS THE
     /// DIVIDER"): none at the full older shade, the rest of the shade scale between, full at one colour.
-    @Test func theDividerStrengthGrowsAsTheContrastDrops() { withTabRowDivider { dividerStrengthGrows() } }
-
-    func dividerStrengthGrows() {
+    @Test func theDividerStrengthGrowsAsTheContrastDrops() {
         for contrast in [0, 0.5, 1, 1.5, 2] as [CGFloat] {
             withContrast(contrast) {
                 #expect(abs(Metrics.tabRowDividerStrength - min(1, max(0, 1 - Metrics.titleAreaShadeScale))) < 1e-9)
@@ -182,9 +142,7 @@ import Testing
 
     /// The divider's hairline sits on the card's top under the unselected tabs and leaves the selected folder
     /// tab out, so the folder still opens into the content; at the shipped contrast there is no line at all.
-    @Test func theDividerLeavesTheFolderTabOut() throws { try withTabRowDivider { try dividerLeavesFolderOut() } }
-
-    func dividerLeavesFolderOut() throws {
+    @Test func theDividerLeavesTheFolderTabOut() throws {
         let view = MainPaneChromeShadeView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         let card = CGRect(x: 10, y: 10, width: 380, height: 240)
         let folder = CGPath(rect: CGRect(x: 60, y: 240, width: 120, height: 40), transform: nil)
@@ -225,7 +183,7 @@ import Testing
     /// One Color moves every piece the contrast moves, together: no shade, the divider at full strength, and the
     /// selected tab back on its pill. Toggling back restores the contrast the slider holds, untouched.
     @Test(arguments: [true, false]) func oneColorMovesTheShadeDividerAndTabTogether(isDark: Bool) {
-        withFlushCorner { withTabRowDivider { oneColorMovesTogether(isDark: isDark) } } // the tone is the flush corner frame's
+        withFlushCorner { oneColorMovesTogether(isDark: isDark) } // the tone is the flush corner frame's
     }
 
     func oneColorMovesTogether(isDark: Bool) {
@@ -238,8 +196,8 @@ import Testing
             #expect(Palette.folderTabFill == nil)
             #expect(DesignSettings.shared.titleAreaContrast == 0.5)
             DesignSettings.shared.titleAreaTone = .subtleTone
-            let scale = TitleAreaTone.subtleShare * 0.5
-            #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - inkFrameShare(isDark: isDark) * 0.5) < 1e-9)
+            let base = Metrics.mainPaneChromeShadeBase(isDark: isDark), scale = TitleAreaTone.subtleShare * 0.5
+            #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - base * scale) < 1e-9)
             #expect(abs(Metrics.tabRowDividerStrength - (1 - scale)) < 1e-9)
         }
     }
@@ -258,8 +216,7 @@ import Testing
             let saved = DesignSettings.shared.titleAreaTone
             defer { DesignSettings.shared.titleAreaTone = saved }
             DesignSettings.shared.titleAreaTone = .oneColor
-            withTabRowDivider { #expect(Metrics.tabRowDividerStrength == 1) }
-            #expect(Metrics.tabRowDividerStrength == 0, "no line under the tabs by default")
+            #expect(Metrics.tabRowDividerStrength == 1)
             #expect(Metrics.mainPaneChromeShade(isDark: true) == 0 && Metrics.mainPaneChromeShade(isDark: false) == 0)
         }
     }
@@ -285,27 +242,10 @@ import Testing
     /// titlebar band and its hover and drag glow went dark. Leo, 2026-11-12: "slightly regressed the border thing,
     /// the border divider. And then there's, like, no more drag divider highlight". The default flush corner (not
     /// picked in Debug Settings) on a style that draws no curved card keeps the full-height line and the glow.
-    ///
-    /// It pins the stock chrome (`flat`, what cmux.json's missing `appearance.chromeStyle` gives) and clears the
-    /// overrides instead of skipping when the run's state differs: `chromeStyle`, the flush corner and the curved pane
-    /// are process-wide, and suites in parallel hold other values across their awaits (`.default` reads the curved
-    /// pane's default, a card). Synchronous, so the pin holds for the whole test.
     @Test func theDefaultFlushCornerKeepsTheSidebarEdgeLineAndItsGlow() {
         let design = DesignSettings.shared
-        let (style, density) = (design.chromeStyle, design.densityTokens)
-        design.chromeStyle = .flat
-        design.densityTokens = DensityPreset.cozy.tokens
-        let store = TunableStore.shared
-        store.register([CornerFlush.tunable.descriptor, ChromeTunables.mainPaneCurved.descriptor])
-        if !store.isActive { store.activate(file: nil) }
-        let flush = store.set(CornerFlush.tunable.key, nil)
-        let curved = store.set(ChromeTunables.mainPaneCurved.key, nil)
-        defer {
-            _ = store.set(CornerFlush.tunable.key, flush)
-            _ = store.set(ChromeTunables.mainPaneCurved.key, curved)
-            (design.chromeStyle, design.densityTokens) = (style, density)
-        }
-        #expect(!CornerFlush.isChosen && ChromeTunables.mainPaneCurved.override == nil, "the pins did not take")
+        guard ChromeTunables.mainPaneCurved.override == nil, !CornerFlush.isChosen,
+              design.chromeStyle.curvedMainPane != true else { return }
         #expect(!Metrics.cardEdgeIsSidebarSeam)
         if CornerFlush.current.isOn { #expect(Metrics.mainPaneCurved, "the flush corner still draws the card") }
     }

@@ -42,7 +42,7 @@ REPO = "manaflow-ai/cmux"
 REMOTE_URL = f"git@github.com:{REPO}.git"
 WORKFLOW = "test-ios.yml"
 WORKFLOW_PATH = ".github/workflows/test-ios.yml"
-PACKAGE_JOB = "mobile-core-linux"
+PACKAGE_JOB = "mobile-core-package"
 BRANCH_PREFIX = "bisect/"
 # Everything the package job runs from its checkout, taken from the CI base.
 OVERLAY_PATHS = (WORKFLOW_PATH, "scripts/ci", "scripts/select-ci-xcode.sh")
@@ -190,19 +190,13 @@ class State:
 
 
 def drop_lint_gate(workflow: str) -> str:
-    """Open the package job's lint gate, if it has one, so a lint red cannot hide a test verdict.
-
-    The Linux package job needs only detect-ios-changes, so it has no gate and the workflow is unchanged.
-    """
     start = workflow.find(f"\n  {PACKAGE_JOB}:")
     if start < 0:
         raise SystemExit(f"{WORKFLOW_PATH}: no {PACKAGE_JOB} job")
-    end = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 1 :])
-    stop = len(workflow) if end is None else start + 1 + end.start()
-    job = workflow[start:stop]
-    if LINT_GATE not in job:
-        return workflow
-    return workflow[:start] + job.replace(LINT_GATE, "&& (true", 1) + workflow[stop:]
+    body = workflow[start:]
+    if LINT_GATE not in body:
+        raise SystemExit(f"{WORKFLOW_PATH}: {PACKAGE_JOB} lint gate not found")
+    return workflow[:start] + body.replace(LINT_GATE, "&& (true", 1)
 
 
 def probe_commit(sha: str, ci_base: str, patches: list[str] = ()) -> str:

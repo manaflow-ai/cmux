@@ -29,8 +29,8 @@ import Testing
 
     /// The card's top as `WindowTitlebar.topRowCardTop` places it in a titled window.
     static func card(_ metrics: PaneChromeMetrics, line: CGFloat, scale: CGFloat) -> CGFloat {
-        let card = max(min(gutter, metrics.cardTop(centeringPillOn: line, rim: rim, scale: scale)), rim)
-        return metrics.evenSplitCardTop(card, within: rim...gutter, rim: rim, scale: scale)
+        let card = max(min(gutter, metrics.cardTop(centeringPillOn: line, scale: scale)), rim)
+        return metrics.evenSplitCardTop(card, within: rim...gutter, scale: scale)
     }
 
     @Test(arguments: modes) func theTopRowPillKeepsEqualGapsAboveAndBelow(_ mode: Mode) {
@@ -38,9 +38,8 @@ import Testing
             for line in Self.lights {
                 let metrics = PaneChromeMetrics(stripHeight: mode.strip, tabHeight: mode.tab, panePadding: 0)
                 let card = Self.card(metrics, line: line, scale: scale)
-                let pill = metrics.pillTop(stripTop: card, rim: Self.rim, scale: scale)
-                // From under the window's lit rim, the line the eye reads as its top edge (Lucas 2026-11-17).
-                let above = card - Self.rim + pill, below = mode.strip - mode.tab - pill
+                let pill = metrics.pillTop(stripTop: card, scale: scale)
+                let above = card + pill, below = mode.strip - mode.tab - pill
                 #expect(above == below, "\(mode.name) line \(line) @\(scale)x: card \(card), \(above) above, \(below) below")
                 #expect(pill >= 0 && pill + mode.tab <= mode.strip, "\(mode.name) @\(scale)x: inside its strip")
             }
@@ -53,8 +52,8 @@ import Testing
         for scale in [1, 2] as [CGFloat] {
             let metrics = PaneChromeMetrics(stripHeight: mode.strip, tabHeight: mode.tab, panePadding: 0)
             let card = Self.card(metrics, line: 16, scale: scale)
-            let center = metrics.topRowPillCenter(cardTop: card, rim: Self.rim, scale: scale)
-            let reached = TopRowLine(centerY: 16).reached(by: metrics, cardTop: card, rim: Self.rim, scale: scale)
+            let center = metrics.topRowPillCenter(cardTop: card, scale: scale)
+            let reached = TopRowLine(centerY: 16).reached(by: metrics, cardTop: card, scale: scale)
             #expect(reached.centerY == center, "the line the controls read is the pill's")
             switch mode.name {
             case "compact", "cozy": #expect(abs(center - 16) <= 1 / scale, "\(mode.name) @\(scale)x: \(center)")

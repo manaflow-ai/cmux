@@ -54,7 +54,6 @@ fn seed_live_terminal(
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
-                        floating: Vec::new(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: pane.clone(),

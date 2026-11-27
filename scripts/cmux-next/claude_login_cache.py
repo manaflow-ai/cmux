@@ -8,12 +8,6 @@ build once the one-time consent says yes). The app keeps that login in the login
 `store`, `load`). CI has no person to run `claude setup-token`, so the run stores the agent test account's
 `CLAUDE_CODE_OAUTH_TOKEN` (a repository secret) there itself, the way the app would, and removes it when
 it ends. The token is read from the environment only, goes to the CLI on stdin only, and is never printed.
-
-A Cloud start's gate (CloudSetup.refusal) runs a Claude chat only when a connection serves Cloud (Settings >
-Cloud: a `claude-token` connection, an API key, the organization's key) or the team's gateway does; a cached
-login is not a connection. So the run also adds the token as the person's Claude connection, the way Settings
-> Cloud's Set up Claude does (`cmux cloud connect claude --token-stdin`, the token on stdin), and takes it out
-again when it ends (`cmux cloud connections --remove ID --keychain-account ACCOUNT`).
 """
 from __future__ import annotations
 
@@ -73,42 +67,6 @@ def remove(cli: str, env: dict, entry: str, timeout: int = 30) -> tuple[int, str
     try:
         done = subprocess.run([cli, "cloud", "secret", "rm", entry], env=env, capture_output=True, text=True,
                               timeout=timeout)
-        return done.returncode, done.stderr
-    except subprocess.TimeoutExpired:
-        return 124, f"timed out after {timeout}s"
-
-
-def connect(cli: str, env: dict, token: str, label: str, timeout: int = 60) -> tuple[int, str, dict | None]:
-    """`cmux cloud connect claude --token-stdin --json`: (exit code, stderr, {"id", "account"} to remove later
-    or None). The answer names only the Keychain reference, never the token."""
-    try:
-        done = subprocess.run([cli, "cloud", "connect", "claude", "--token-stdin", "--label", label, "--json"],
-                              env=env, input=token, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return 124, f"timed out after {timeout}s", None
-    added = None
-    if done.returncode == 0:
-        try:
-            answer = json.loads(done.stdout)
-        except ValueError:
-            answer = {}
-        if isinstance(answer, dict) and isinstance(answer.get("result"), dict):
-            answer = answer["result"]  # the CLI's `{"result": ...}` envelope, where one wraps it
-        connection = answer.get("connection") if isinstance(answer, dict) else None
-        account = ((answer.get("keychain") or {}).get("account") if isinstance(answer, dict) else None)
-        if isinstance(connection, dict) and isinstance(connection.get("id"), str):
-            added = {"id": connection["id"], "account": account if isinstance(account, str) else None,
-                     "serves_cloud": connection.get("serves_cloud") is True}
-    return done.returncode, done.stderr, added
-
-
-def disconnect(cli: str, env: dict, added: dict, timeout: int = 30) -> tuple[int, str]:
-    """`cmux cloud connections --remove ID [--keychain-account ACCOUNT]`. (exit code, stderr)."""
-    words = [cli, "cloud", "connections", "--remove", added["id"]]
-    if added.get("account"):
-        words += ["--keychain-account", added["account"]]
-    try:
-        done = subprocess.run(words, env=env, capture_output=True, text=True, timeout=timeout)
         return done.returncode, done.stderr
     except subprocess.TimeoutExpired:
         return 124, f"timed out after {timeout}s"

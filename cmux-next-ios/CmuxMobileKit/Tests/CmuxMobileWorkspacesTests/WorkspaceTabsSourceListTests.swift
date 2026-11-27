@@ -15,28 +15,8 @@ import SwiftUI
 /// tabs whose inputs changed, so a busy Mac or a streaming chat does not
 /// re-run the tabs screen and every card.
 @MainActor @Suite(.serialized) struct WorkspaceTabsSourceListTests {
-    @MainActor final class DeferredQueue {
-        private var pending: [@MainActor () -> Void] = []
-
-        var count: Int { pending.count }
-        var scheduler: WorkspaceTabsSource.MainActorEnqueuer {
-            { [weak self] work in self?.pending.append(work) }
-        }
-
-        func drain() {
-            let work = pending
-            pending = []
-            for operation in work { operation() }
-        }
-    }
-
     static func source(_ store: AppStore) -> WorkspaceTabsSource {
         WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory())
-    }
-
-    static func source(_ store: AppStore, enqueueMainActor: @escaping WorkspaceTabsSource.MainActorEnqueuer) -> WorkspaceTabsSource {
-        WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory(),
-                            enqueueMainActor: enqueueMainActor)
     }
 
     /// A publish that changes another workspace (or nothing the kit shows)
@@ -153,43 +133,22 @@ import SwiftUI
         #expect(abs(source.cardScale - 268.0 / 402) < 0.001)
     }
 
-    /// An agent card's picture was drawn at a fixed two-column card's size: on an unfolded
-    /// screen's three-column grid it was drawn about 50% too large, and a lone card on a wide
-    /// page ignored TabsKit's 300 pt cap. Now it is TabsKit's own card width.
-    @Test func cardScaleFollowsTheGridsColumnsAndTheLoneCardsCap() throws {
-        let store = AppStore.mock(tabMemory: .inMemory())
-        let source = Self.source(store)
-        source.pageWidth = 669
-        source.overviewColumns = 3
-        let three = TabsKitOverviewGeometry.cardWidth(pageWidth: 669, columns: 3, cards: source.tabs.count)
-        #expect(abs(source.cardScale - three / 669) < 0.0001)
-        #expect(three < (669 - 48) / 2)
-        for tab in source.tabs.dropFirst() { _ = store.removeTab(tab.id, from: "ws-cmux") }
-        source.refreshTabs()
-        // TabsKit's lone card: two thirds of the page, at most 300 pt.
-        #expect(abs(source.cardScale - 300.0 / 669) < 0.0001)
-    }
-
     /// Review finding 1: an agent tab's title comes from its chat store; a
     /// store made after the tab was built (in a page or card body) rebuilds
     /// that tab once, after the update, so its title is not frozen.
-    @Test func chatStoreAppearingRebuildsItsTab() throws {
+    @Test func chatStoreAppearingRebuildsItsTab() async throws {
         let store = AppStore.mock(tabMemory: .inMemory())
-        let queue = DeferredQueue()
-        let source = Self.source(store, enqueueMainActor: queue.scheduler)
+        let source = Self.source(store)
         let workspace = try #require(source.listedWorkspace)
         let agent = try #require(workspace.tabs.first { $0.kind == .agent })
         let before = source.kitTabBuilds
         _ = source.chatStore(agent, workspace)
         #expect(source.kitTabBuilds == before)
-        #expect(queue.count == 1)
-        _ = source.chatStore(agent, workspace)
-        #expect(queue.count == 1)
-        queue.drain()
+        for _ in 0..<5 { await Task.yield() }
         #expect(source.kitTabBuilds == before + 1)
         // The second read finds the store: nothing more.
         _ = source.chatStore(agent, workspace)
-        #expect(queue.count == 0)
+        for _ in 0..<5 { await Task.yield() }
         #expect(source.kitTabBuilds == before + 1)
     }
 
@@ -218,20 +177,18 @@ import SwiftUI
 
     /// A chat made while the grid scrolls holds its tab's title change until
     /// the grid rests (one list publish then, not one grid body per card).
-    @Test func titleChangesWaitForTheGridToRest() throws {
+    @Test func titleChangesWaitForTheGridToRest() async throws {
         let store = AppStore.mock(tabMemory: .inMemory())
-        let queue = DeferredQueue()
-        let source = Self.source(store, enqueueMainActor: queue.scheduler)
+        let source = Self.source(store)
         let workspace = try #require(source.listedWorkspace)
         let agent = try #require(workspace.tabs.first { $0.kind == .agent })
         source.overviewVisibilityChanged(true)
         source.overviewIdleChanged(false)
         let before = source.kitTabBuilds
         _ = source.chatStore(agent, workspace)
+        for _ in 0..<5 { await Task.yield() }
         #expect(source.kitTabBuilds == before)
-        #expect(queue.count == 0)
         source.overviewIdleChanged(true)
-        #expect(queue.count == 0)
         #expect(source.kitTabBuilds == before + 1)
         source.overviewVisibilityChanged(false)
     }
@@ -269,25 +226,19 @@ import SwiftUI
     @Test func cardFeedCopiesOnlyOnCatchUp() async throws {
         let mock = MockAgentSession(
             summary: AgentSessionSummary(id: "s", name: "S", harness: "claude", agentName: "Claude", cwd: "~", workspaceTitle: "w", macName: "m"),
-            richFirstTurn: false,
             sleep: { _ in await Task.yield() }
         )
         mock.chunkSize = 8
         let chat = AgentChatStore(source: mock)
-        try #require(await yieldUntil("initial chat turns") { !chat.turns.isEmpty })
+        while chat.turns.isEmpty { await Task.yield() }
         let feed = AgentCardFeed(store: chat)
         let start = feed.pulls
         let before = chat.turns
         chat.send(prompt: "go")
-        // The short mock turn completes after many streamed changes. The card
-        // becomes stale on the first change, but copies none of the stream.
-        try #require(await yieldUntil("streamed chat turn completion") {
-            chat.turns.last(where: { $0.prompt == "go" })?.status == .completed
-        })
-        let completedGoTurn = try #require(chat.turns.last { $0.prompt == "go" })
-        #expect(completedGoTurn.prompt == "go")
-        #expect(completedGoTurn.status == .completed)
-        #expect(chat.turns != before)
+        // Many streamed changes arrive; the card copies none of them.
+        for _ in 0..<2000 where chat.turns == before { await Task.yield() }
+        for _ in 0..<200 { await Task.yield() }
+        try #require(chat.turns != before)
         #expect(feed.pulls == start)
         #expect(feed.stale)
         feed.catchUp()

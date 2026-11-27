@@ -58,19 +58,15 @@ import Testing
         #expect(policy.decide(record: record, source: .remoteTree, paneAvailable: true) == .unavailable(.remoteRecord))
     }
 
-    /// A connecting card names the machine and says nothing more, on every path: the phase-1
-    /// development note (loopback or a single-tenant overlay) stays on the consent card.
-    @Test @MainActor func aConnectingCardSaysNothingButItsTitle() {
+    /// A Cloud desktop's connecting card names the machine and its Cloud tunnel; the phase-1
+    /// development note (loopback or a single-tenant overlay) is for the other paths only.
+    @Test @MainActor func aCloudDesktopsConnectingCardHasNoDevelopmentNote() {
         let cloud = RemoteStateCard.spec(for: .connecting, host: "graceful-amber-owl", viaCloudTunnel: true)
-        #expect(cloud.info == nil)
+        #expect(cloud.note == nil)
         #expect(cloud.title.contains("graceful-amber-owl"))
-        #expect(cloud.detail == nil)
+        #expect(cloud.detail == RemoteViewStrings.connectingCloudDetail)
         let other = RemoteStateCard.spec(for: .connecting, host: "local")
-        #expect(other.info == nil && other.detail == nil)
-        // The consent card's caveats show on hover over its info circle, never as lines under its title.
-        let consent = RemoteStateCard.spec(for: .waitingForConsent, host: "local")
-        #expect(consent.detail == nil)
-        #expect(consent.info?.contains(RemoteViewStrings.developmentOnly) == true)
+        #expect(other.note == RemoteViewStrings.developmentOnly)
     }
 
     /// A Cloud desktop that streamed and lost its path says "Reconnecting" while it connects
@@ -102,37 +98,22 @@ import Testing
         #expect(decision == .confirm(expected))
     }
 
-    /// Leo, 2026-11-16, on "Open chat-800dd580cab0487c" over two centered paragraphs: "is is a weirdly
-    /// styled thing :(". The title is the name a person reads and the status is its own chip. Leo, 2026-11-16, on
-    /// "Another action opened this tab. Nothing connects until you choose Connect.": "why even say all
-    /// that? esp the second line." No sentence under them.
-    @Test func connectionGateTitlesTheNameWithStatusApartAndOneLine() {
-        let target = RemoteConnectionTarget(name: "Nightly desktop", status: "Running", region: "us-west", kind: .desktop, isLive: true)
+    @Test func connectionGateUsesHumanMetadataAndPlainSafetyCopy() {
+        let target = RemoteConnectionTarget(name: "Nightly desktop", status: "Running", region: "us-west", kind: .desktop)
         let text = RemoteViewUnavailableView.text(for: .confirmTarget(target))
-        #expect(text.title == "Nightly desktop")
-        #expect(text.status == "Running · us-west")
-        #expect(text.live)
-        #expect(text.detail == nil)
-    }
-
-    @Test func aMachineWithNoHumanNameIsACloudMachine() {
-        for name in ["", "  "] {
-            let text = RemoteViewUnavailableView.text(for: .confirmTarget(.desktop(name: name, status: nil, region: nil)))
-            #expect(text.title == "Cloud machine")
-            #expect(text.status == nil)
-        }
+        #expect(text.title == "Open Nightly desktop")
+        #expect(text.metadata == "Running  •  us-west")
+        #expect(text.detail.contains("desktop"))
+        #expect(text.detail.contains("approval"))
+        #expect(!text.detail.contains("script"))
+        #expect(!text.detail.contains("machine:"))
     }
 
     @Test(arguments: RemoteConnectionTarget.Kind.allCases)
-    func connectionGateHasNoSentenceForAnyTarget(_ kind: RemoteConnectionTarget.Kind) {
-        for confirm in [true, false] {
-            let target = RemoteConnectionTarget(name: "Studio", kind: kind, requiresConfirmation: confirm)
-            let text = RemoteViewUnavailableView.text(for: .confirmTarget(target))
-            #expect(text.title == "Studio")
-            #expect(text.detail == nil, "how the tab opened is not the person's to act on")
-            let connecting = RemoteViewUnavailableView.text(for: .connecting(target, reconnecting: false))
-            #expect(connecting.title == "Studio" && connecting.detail == nil && connecting.spinner)
-            #expect(connecting.spoken == RemoteViewStrings.connectingTitle("Studio"))
-        }
+    func connectionGateCopyNamesEveryTarget(_ kind: RemoteConnectionTarget.Kind) {
+        let target = RemoteConnectionTarget(name: "Studio", kind: kind)
+        let text = RemoteViewUnavailableView.text(for: .confirmTarget(target))
+        #expect(text.title == "Open Studio")
+        #expect(text.detail.contains(kind == .ports ? "port preview" : kind.rawValue))
     }
 }

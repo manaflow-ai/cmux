@@ -175,7 +175,7 @@ final class SidebarNeedsYouTrayLine: NSView {
             guard answers != (oldValue != nil) else { return }
             self.answers.isHidden = !answers
             reason.isHidden = answers
-            if !answers, window?.firstResponder === self { FocusRoute(.system, "the Needs You tray was answered").moveKeyboard(in: window, to: nil) }
+            if !answers, window?.firstResponder === self { window?.makeFirstResponder(nil) }
             needsLayout = true
         }
     }

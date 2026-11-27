@@ -56,17 +56,12 @@ pub(super) fn classify_read_error(error: io::Error) -> io::Error {
 
 #[cfg(test)]
 mod damage_tests;
-mod kin_table;
-pub(super) use kin_table::write_failure as record_kin_write_failure;
 mod read;
 #[cfg(test)]
 mod scale_tests;
 mod seek;
 mod write;
-#[cfg(test)]
-pub(super) use write::KinWriteStats;
 pub use write::SortedSnapshot;
-pub(super) use write::StreamGeneration;
 
 pub(super) const HEADER_BYTES: usize = 4096;
 const MAGIC: &[u8; 8] = b"ACIDX003";
@@ -182,7 +177,6 @@ pub struct DiskSnapshot {
     pub(super) head: Head,
     origins: Vec<OriginRecord>,
     marks: Vec<MarkRecord>,
-    kin_table: Option<kin_table::Table>,
 }
 
 /// Origins and the mirror's marks share the snapshot's origins section; a
@@ -418,20 +412,7 @@ impl DiskSnapshot {
         if origins.len() > 256 {
             return Err(codec::invalid("snapshot origin limit"));
         }
-        let binding = kin_table::Binding {
-            head_crc: crc,
-            seq: head.seq,
-            count: head.count,
-            data_end: head.data_end,
-        };
-        let kin_table = match kin_table::Table::open(&sidecar_path(path), binding) {
-            Ok(table) => table,
-            Err(error) => {
-                kin_table::table_failure(&error);
-                None
-            }
-        };
-        Ok(Some(Arc::new(Self { file, head, origins, marks, kin_table })))
+        Ok(Some(Arc::new(Self { file, head, origins, marks })))
     }
 
     pub fn log_offset(&self) -> u64 {
@@ -451,18 +432,6 @@ impl DiskSnapshot {
     }
     pub fn bytes(&self) -> u64 {
         self.head.data_end + self.head.origins_bytes + self.head.directory_bytes as u64
-    }
-
-    /// Whether the optional cold kin sidecar was bound to this snapshot.
-    /// The reader is intentionally added in the follow-up PR.
-    pub fn has_kin_table(&self) -> bool {
-        self.kin_table.as_ref().is_some_and(kin_table::Table::is_usable)
-    }
-
-    pub(super) fn disable_kin_table(&self, error: &io::Error) {
-        if let Some(table) = &self.kin_table {
-            table.disable(error);
-        }
     }
 
     /// Validate every sparse seek checkpoint before a hub publishes this
@@ -503,12 +472,6 @@ impl DiskSnapshot {
     pub(super) fn directory_offset(&self) -> u64 {
         self.head.data_end + self.head.origins_bytes
     }
-}
-
-fn sidecar_path(snapshot: &Path) -> std::path::PathBuf {
-    let mut name = snapshot.as_os_str().to_os_string();
-    name.push(".kin");
-    std::path::PathBuf::from(name)
 }
 
 #[cfg(unix)]

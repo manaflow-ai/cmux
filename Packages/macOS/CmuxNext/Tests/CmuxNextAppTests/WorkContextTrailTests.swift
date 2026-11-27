@@ -1,5 +1,4 @@
 @testable import CmuxNextApp
-import CmuxNextFocus
 import Testing
 
 /// NEW-WORK-INHERITS-CONTEXT: a new terminal or agent chat copies the terminal or chat the person

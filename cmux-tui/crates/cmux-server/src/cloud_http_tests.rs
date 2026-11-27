@@ -385,63 +385,6 @@ fn a_refused_connect_fails_at_once() {
     assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
 }
 
-/// A raw request sends its bytes as they are and reads an answer past the JSON routes' 1 MiB,
-/// up to its own limit and no further.
-#[test]
-fn a_raw_request_carries_bytes_both_ways_within_its_own_limit() {
-    use super::{Payload, RawRequest};
-    let sent: Vec<u8> = (0..=255u8).cycle().take(3000).collect();
-    let answer = vec![0xA5u8; 1024 * 1024 + 7];
-    for limit in [answer.len(), answer.len() - 1] {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}/chunk", listener.local_addr().unwrap());
-        let (body, expect) = (answer.clone(), sent.len());
-        let task = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-            let mut request = Vec::new();
-            let mut byte = [0u8; 1];
-            while !request.ends_with(b"\r\n\r\n") {
-                stream.read_exact(&mut byte).unwrap();
-                request.push(byte[0]);
-            }
-            let mut got = vec![0u8; expect];
-            stream.read_exact(&mut got).unwrap();
-            let head = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
-                body.len()
-            );
-            let _ = stream.write_all(head.as_bytes());
-            let _ = stream.write_all(&body);
-            (String::from_utf8_lossy(&request).to_ascii_lowercase(), got)
-        });
-        let http = JsonPoster::allowing_http().unwrap();
-        let reply = http.request_raw(&RawRequest {
-            method: "PUT",
-            url: &url,
-            payload: Some(Payload::Bytes(&sent)),
-            bearer: Some("private-test-bearer"),
-            headers: &[("x-cmux-auto-epoch", "3")],
-            within: Duration::from_secs(5),
-            limit,
-        });
-        if limit == answer.len() {
-            let reply = reply.unwrap();
-            assert_eq!(reply.status, 200);
-            assert!(reply.bytes == answer, "the answer's bytes come back as sent");
-            let (head, got) = task.join().unwrap();
-            assert!(head.starts_with("put /chunk "));
-            assert!(head.contains("content-type: application/octet-stream"));
-            assert!(head.contains("x-cmux-auto-epoch: 3"));
-            assert!(head.contains("authorization: bearer private-test-bearer"));
-            assert!(got == sent, "the request's bytes arrive as sent");
-        } else {
-            assert_eq!(reply.unwrap_err(), "Cloud response too large");
-            let _ = task.join();
-        }
-    }
-}
-
 /// The delayed-attach harness (scripts in the PR that adds it): run inside a
 /// network namespace where `CMUX_ATTACH_URL`'s address is attached some
 /// seconds after this starts. Prints how long the request took.

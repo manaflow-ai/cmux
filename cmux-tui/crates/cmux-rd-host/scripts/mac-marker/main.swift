@@ -9,15 +9,7 @@
 // into its frames, and over a read cell it would change the counter the viewer reads.
 //
 //   swiftc -O -o cmux-rd-marker main.swift
-//   ./cmux-rd-marker [--motion] [--tick]
-//     --motion: animate the rest of the display every refresh: moving bars and a panel of text
-//               that scrolls one line a refresh. It logs `motion-geometry {JSON}` (in points)
-//               before `marker-origin`, so a viewer's frame can be scored against what was drawn.
-//     --tick:   also count every display refresh, an fps probe: a viewer that shows every
-//               frame sees the counter step by one each refresh (screen-share-vs.py). With
-//               --motion the scene is then a function of the counter (bars at 8 pt per count,
-//               the panel's first line is row COUNTER), drawn in the same refresh as the marker,
-//               so one decoded frame says which source frame it should match.
+//   ./cmux-rd-marker [--motion]     --motion: animate the rest of the display every refresh
 //
 // Test hosts only: it covers the menu bar corner and takes key focus on the host Mac.
 
@@ -37,8 +29,6 @@ func log(_ line: String) {
 
 final class MarkerView: NSView {
     var counter: UInt16 = 0
-    /// `--tick --motion`: the scene this marker's refresh redraws.
-    var motion: MotionView?
     /// One cell in points: 32 stream pixels.
     var cell: CGFloat = 16
 
@@ -59,13 +49,8 @@ final class MarkerView: NSView {
     func bump(_ what: String) {
         counter &+= 1
         if verbose { log("\(what) -> \(counter)") }
-        // Draw now, not at the next run-loop pass, and hand the layer tree to the window server
-        // now too, so the change reaches the screen first.
+        // Draw now, not at the next run-loop pass, so the change reaches the screen first.
         display()
-        CATransaction.flush()
-        // When the draw was committed, on the protocol clock (CLOCK_MONOTONIC, µs): the eval's rd
-        // split measures input to commit and commit to the display time from it.
-        if verbose { log("commit \(counter) \(clock_gettime_nsec_np(CLOCK_MONOTONIC) / 1000)") }
     }
 
     override func keyDown(with event: NSEvent) { bump("key") }
@@ -74,72 +59,26 @@ final class MarkerView: NSView {
     override func scrollWheel(with event: NSEvent) { bump("scroll") }
 }
 
-/// The motion scene's layout in points (top-left origin); screen-share-vs.py's frame-score reads
-/// the same numbers from the `motion-geometry` line, so keep the two in step.
-let motionBar: CGFloat = 48
-let motionStep: CGFloat = 8
-let motionBarsTop: CGFloat = 64
-let motionLines = 8
-let motionLineHeight: CGFloat = 36
-let motionFont: CGFloat = 28
-let motionPad: CGFloat = 16
-let motionPanelWidth: CGFloat = 720
-
-/// Line N of the scrolling panel (screen-share-vs.py's motion_line).
-func motionLine(_ n: Int) -> String {
-    String(format: "row %05ld the quick brown fox %03ld", n % 100_000, (n * 7) % 1000)
-}
-
-/// Moving bars over the rest of the display and a panel of text scrolling a line a refresh.
+/// Moving bars over the rest of the display, redrawn every display refresh.
 final class MotionView: NSView {
-    /// Refreshes drawn so far: bars move motionStep points and the panel one line per count.
-    var count = 0
+    var phase: CGFloat = 0
     override var isFlipped: Bool { true }
-
-    var panel: NSRect {
-        let height = motionPad * 2 + CGFloat(motionLines) * motionLineHeight
-        return NSRect(x: (bounds.width - motionPanelWidth) / 2, y: (bounds.height - height) / 2,
-                      width: motionPanelWidth, height: height).integral
-    }
-
     override func draw(_ dirtyRect: NSRect) {
         NSColor(white: 0.12, alpha: 1).setFill()
         bounds.fill()
-        let phase = CGFloat(count) * motionStep
-        var x = -motionBar + phase.truncatingRemainder(dividingBy: motionBar * 2)
+        let bar: CGFloat = 48
+        var x = -bar + phase.truncatingRemainder(dividingBy: bar * 2)
         var hue: CGFloat = 0
         while x < bounds.width {
             NSColor(hue: hue, saturation: 0.6, brightness: 0.9, alpha: 1).setFill()
-            NSRect(x: x, y: motionBarsTop, width: motionBar, height: bounds.height - motionBarsTop).fill()
-            x += motionBar * 2
+            NSRect(x: x, y: 64, width: bar, height: bounds.height - 64).fill()
+            x += bar * 2
             hue = (hue + 0.07).truncatingRemainder(dividingBy: 1)
         }
-        let box = panel
-        NSColor.black.setFill()
-        box.fill()
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: motionFont, weight: .regular),
-            .foregroundColor: NSColor.white,
-        ]
-        for i in 0 ..< motionLines {
-            (motionLine(count + i) as NSString).draw(
-                at: NSPoint(x: box.minX + motionPad, y: box.minY + motionPad + CGFloat(i) * motionLineHeight),
-                withAttributes: attributes)
-        }
-    }
-
-    /// The layout for screen-share-vs.py, one JSON object.
-    func geometry(streamWidth: CGFloat, tickDriven: Bool) -> String {
-        let box = panel
-        let object: [String: Any] = [
-            "display_pt": [bounds.width, bounds.height], "stream_width_px": streamWidth,
-            "bar_pt": motionBar, "step_pt": motionStep, "bars_top_pt": motionBarsTop,
-            "panel_pt": [box.minX, box.minY, box.width, box.height], "lines": motionLines,
-            "line_pt": motionLineHeight, "pad_pt": motionPad, "font_pt": motionFont,
-            "tick_driven": tickDriven,
-        ]
-        let data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
-        return String(decoding: data, as: UTF8.self)
+        let text = String(format: "%.0f", phase) as NSString
+        text.draw(at: NSPoint(x: bounds.midX - 100, y: bounds.midY),
+                  withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 96, weight: .bold),
+                                   .foregroundColor: NSColor.white])
     }
 }
 
@@ -148,16 +87,9 @@ final class KeyWindow: NSWindow {
     override var canBecomeMain: Bool { true }
 }
 
-log("marker: starting pid \(getpid())")
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
-// No `NSScreen.main!`: in an -O build a nil force-unwrap traps without a word, which the rig read
-// as an empty marker.log. A session with no display (display asleep, no monitor, no window-server
-// login) says so and exits 3.
-guard let screen = NSScreen.main ?? NSScreen.screens.first else {
-    log("marker: no display (NSScreen.screens is empty: display asleep, no monitor, or no window-server session)")
-    exit(3)
-}
+let screen = NSScreen.main!
 let frame = screen.frame
 
 var motion: MotionView?
@@ -198,13 +130,8 @@ let window = KeyWindow(
 let pixelsPerPoint = streamed / frame.width
 // The marker's top-left in stream pixels: the bench's --marker-origin.
 let originY = Int(((frame.maxY - top) * pixelsPerPoint).rounded())
-let ticking = CommandLine.arguments.contains("--tick")
-if let motion {
-    log("motion-geometry " + motion.geometry(streamWidth: streamed, tickDriven: ticking))
-}
 log("marker-origin 0,\(originY) click-at \(32 * (cells + padCells / 2)),\(originY + 16)")
 log("marker: stream width \(streamed) px, cell \(marker.cell) pt, display \(frame.size)")
-log("refresh-hz \(screen.maximumFramesPerSecond)")
 marker.frame = NSRect(origin: .zero, size: window.frame.size)
 window.contentView = marker
 // Above every app window, so test clicks land only on the marker.
@@ -213,33 +140,15 @@ window.makeKeyAndOrderFront(nil)
 window.makeFirstResponder(marker)
 app.activate(ignoringOtherApps: true)
 
-// With --tick the marker's refresh drives the scene too, so both change in the same frame.
-if let motion, !ticking {
+if let motion {
     let link = screen.displayLink(target: motion, selector: #selector(MotionView.step))
-    link.add(to: .main, forMode: .common)
-}
-if ticking {
-    marker.motion = motion
-    let link = screen.displayLink(target: marker, selector: #selector(MarkerView.tick))
     link.add(to: .main, forMode: .common)
 }
 
 extension MotionView {
     @objc func step(_ link: CADisplayLink) {
-        count += 1
+        phase += 8
         needsDisplay = true
-    }
-}
-
-extension MarkerView {
-    /// `--tick`: one count per display refresh, drawn at once.
-    @objc func tick(_ link: CADisplayLink) {
-        counter &+= 1
-        if let motion {
-            motion.count = Int(counter)
-            motion.display()
-        }
-        display()
     }
 }
 

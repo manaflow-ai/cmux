@@ -9,7 +9,7 @@ import Testing
 /// An owner that stays alive but never answers restarts without anyone pressing Restart cmux-tui
 /// (`UnresponsiveOwnerWatch` in `DaemonRecovery`): after plain `server ensure` runs kept failing
 /// the way a stuck owner makes them fail for the sustained window, the app runs the same
-/// `server ensure --replace-unresponsive` the button runs.
+/// `server ensure --replace-unresponsive` the button runs after its confirm, with no confirm.
 /// The terminal hosts outlive the replaced owner (durable-sessions.md), so nothing is lost.
 ///
 /// As `DaemonRestartTests`: the app's real startup path on a stand-in `cmux-tui` script (never a
@@ -110,6 +110,8 @@ struct DaemonAutoRestartTests {
         #expect(replace >= 2)
         let plain = try #require(ensures[..<replace].last)
         #expect(ensures[replace] == plain + ["--replace-unresponsive"])
+        #expect(!CmuxDialogCenter.shared.records.contains { $0.spec.identifier == "cmux.dialog.restartDaemon" },
+                "the automatic restart asked the confirm")
 
         // Then the app connects again (a plain ensure), and the owner is not replaced again.
         await Self.wait(within: .seconds(10)) { standIn.ensures().count > replace + 1 }

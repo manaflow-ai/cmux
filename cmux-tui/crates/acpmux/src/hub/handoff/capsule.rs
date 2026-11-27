@@ -1,5 +1,5 @@
-//! The first message a handoff target receives: the source's first prompt and
-//! its recent user and assistant messages, newest kept first within `MAX_CAPSULE_BYTES`,
+//! The first message a handoff target receives: the source's recent user
+//! and assistant messages, newest kept first within `MAX_CAPSULE_BYTES`,
 //! and what that message carries per item (coverage). A source that
 //! compacted leads with its latest compaction summary, followed by the
 //! messages since; the messages before it are what the summary covers.
@@ -37,23 +37,8 @@ fn tail(s: &str, max: usize) -> &str {
     while !s.is_char_boundary(start) {
         start += 1;
     }
-    s.get(start..).unwrap_or(s)
+    &s[start..]
 }
-
-/// The first `max` bytes of `s`, ending on a character boundary.
-fn head(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        return s;
-    }
-    let mut end = max;
-    while !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    s.get(..end).unwrap_or_default()
-}
-
-/// Room for the line that says how many messages a cut capsule left out.
-const CUT_LINE_MAX: usize = 96;
 
 fn kb(bytes: usize) -> String {
     format!("{:.1} KB", bytes as f64 / 1024.0)
@@ -70,11 +55,12 @@ impl Hub {
         let mut entries: Vec<Entry> = Vec::new();
         let mut assistant: Option<Entry> = None;
         let mut tool_calls = 0usize;
+        let mut plan = false;
         // The latest compaction summary, and the record it came from.
         let mut summary: Option<(u64, String)> = None;
         let flush = |assistant: &mut Option<Entry>, entries: &mut Vec<Entry>| {
             if let Some(a) = assistant.take()
-                && !a.text.get(ASSISTANT.len()..).unwrap_or_default().trim().is_empty()
+                && !a.text[ASSISTANT.len()..].trim().is_empty()
             {
                 entries.push(a);
             }
@@ -91,6 +77,7 @@ impl Hub {
                     assistant = None;
                     entries.clear();
                     tool_calls = 0;
+                    plan = false;
                     summary = Some((rec.seq, t.to_owned()));
                     return true;
                 }
@@ -122,6 +109,7 @@ impl Hub {
                         }
                     }
                     "tool_call" => tool_calls += 1,
+                    "plan" => plan = true,
                     _ => {}
                 }
                 true
@@ -142,7 +130,7 @@ impl Hub {
             let (text, context, transcript) =
                 summary_capsule(&lead, *seq, summary, &entries, to_seq, total_bytes);
             let mut coverage = vec![transcript];
-            coverage.extend(other_coverage(source, tool_calls));
+            coverage.extend(other_coverage(source, tool_calls, plan));
             return Ok(Built { text, context, coverage });
         }
         let (mut text, context, kept) = if entries.is_empty() {
@@ -157,26 +145,12 @@ impl Hub {
             let open_cut = format!(
                 "{lead} The most recent part of the conversation is below (older messages were cut to fit); carry on from where it ended.\n\n<transcript>\n"
             );
-            let mut budget = MAX_CAPSULE_BYTES.saturating_sub(open_cut.len() + CLOSING.len());
-            // The first prompt always (it names the task: #50094 lost its codeword), then the
-            // newest until the budget is spent; the ones between are cut, and a line says how many.
-            let first = entries
-                .first()
-                .filter(|e| {
-                    total_bytes > budget && entries.len() > 2 && e.text.starts_with("User: ")
-                })
-                .map(|e| (head(&e.text, budget / 8), e.from_seq));
-            if let Some((f, _)) = first {
-                budget = budget.saturating_sub(f.len() + SEPARATOR.len() + CUT_LINE_MAX);
-            }
-            let rest = match first {
-                Some(_) => entries.get(1..).unwrap_or_default(),
-                None => entries.as_slice(),
-            };
+            let budget = MAX_CAPSULE_BYTES.saturating_sub(open_cut.len() + CLOSING.len());
+            // Newest first until the budget is spent; the oldest are cut.
             let mut kept: Vec<&str> = Vec::new();
             let mut used = 0usize;
             let mut from_seq = to_seq;
-            for e in rest.iter().rev() {
+            for e in entries.iter().rev() {
                 let need = e.text.len() + if kept.is_empty() { 0 } else { SEPARATOR.len() };
                 if used + need > budget {
                     break;
@@ -185,29 +159,16 @@ impl Hub {
                 kept.push(&e.text);
                 from_seq = e.from_seq;
             }
-            if kept.is_empty()
-                && let Some(last) = entries.last()
-            {
+            if kept.is_empty() {
                 // Even the newest message is over budget: keep its end.
+                let last = &entries[entries.len() - 1];
                 let cut = tail(&last.text, budget);
                 used = cut.len();
                 kept.push(cut);
                 from_seq = last.from_seq;
             }
-            kept.reverse();
-            let cut_line;
-            if let Some((f, first_seq)) = first {
-                let cut = rest.len().saturating_sub(kept.len());
-                if cut > 0 {
-                    cut_line =
-                        format!("[… {cut} messages between the first and these were cut to fit …]");
-                    kept.insert(0, &cut_line);
-                }
-                kept.insert(0, f);
-                used += f.len() + SEPARATOR.len();
-                from_seq = first_seq;
-            }
             let truncated = used < total_bytes;
+            kept.reverse();
             let open = if truncated { &open_cut } else { &open_all };
             let text = format!("{open}{}{CLOSING}", kept.join(SEPARATOR));
             let context = Context { from_seq, to_seq, truncated, bytes: used, total_bytes };
@@ -238,7 +199,7 @@ impl Hub {
             )
         };
         let mut coverage = vec![transcript];
-        coverage.extend(other_coverage(source, tool_calls));
+        coverage.extend(other_coverage(source, tool_calls, plan));
         Ok(Built { text, context, coverage })
     }
 }
@@ -307,7 +268,7 @@ fn summary_capsule(
 }
 
 /// Coverage of everything a capsule leaves out besides the transcript.
-fn other_coverage(source: &SessionMeta, tool_calls: usize) -> Vec<Coverage> {
+fn other_coverage(source: &SessionMeta, tool_calls: usize, plan: bool) -> Vec<Coverage> {
     let tool_output = if tool_calls > 0 {
         Coverage::new(
             "tool_output",
@@ -316,6 +277,11 @@ fn other_coverage(source: &SessionMeta, tool_calls: usize) -> Vec<Coverage> {
         )
     } else {
         Coverage::new("tool_output", "omitted", Some("no tool calls".into()))
+    };
+    let plan = if plan {
+        Coverage::new("plan", "omitted", Some("the source's plan updates are not carried".into()))
+    } else {
+        Coverage::new("plan", "unavailable", Some("the source reported no plan".into()))
     };
     let files = Coverage::new(
         "files",
@@ -330,5 +296,5 @@ fn other_coverage(source: &SessionMeta, tool_calls: usize) -> Vec<Coverage> {
         ),
         None => Coverage::new("model", "unavailable", None),
     };
-    vec![tool_output, files, model]
+    vec![tool_output, plan, files, model]
 }

@@ -11,13 +11,11 @@ nonisolated enum VerticalTabTunables {
 
     /// Edge's and Chrome's expanded vertical tabs are about 240 points wide.
     static let expandedWidth = points("expandedWidth", "Vertical tabs width", help: "Width of the vertical tab list showing titles.",
-                                      range: 120...480) { Metrics.densityToken("verticalTabWidth") ?? (Metrics.tabMaxWidth + 2 * Metrics.space5).rounded() }
+                                      range: 120...480) { (Metrics.tabMaxWidth + 2 * Metrics.space5).rounded() }
     /// One icon with the row's padding on both sides.
     static let collapsedWidth = points("collapsedWidth", "Collapsed vertical tabs width", help: "Width of the vertical tab list collapsed to icons.",
                                        range: 28...96) { (Metrics.tabHeight + 2 * Metrics.space2).rounded() }
-    static let rowSpacing = points("rowSpacing", "Vertical tab row gap", help: "Gap between rows of the vertical tab list.") {
-        Metrics.densityToken("verticalTabRowGap") ?? Metrics.space1 / 2
-    }
+    static let rowSpacing = points("rowSpacing", "Vertical tab row gap", help: "Gap between rows of the vertical tab list.") { Metrics.space1 / 2 }
     static let groupLineWidth = points("groupLineWidth", "Vertical group line", help: "Width of the line joining a group's tabs in the vertical tab list.",
                                        range: 1...8) { 2 }
     static let hoverExpandDelay = Tunable<Double>.number(

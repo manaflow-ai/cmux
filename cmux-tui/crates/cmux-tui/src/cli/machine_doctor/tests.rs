@@ -214,14 +214,3 @@ fn fixes_name_the_listed_machine_and_never_echo_a_secret_key() {
         );
     }
 }
-
-/// `cmux machine doctor --help` is this verb's usage, not the machine overview.
-#[test]
-fn doctor_help_is_its_own() {
-    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-    assert!(asks_help(&words("machine doctor --help")));
-    assert!(asks_help(&words("machine doctor box -h")));
-    assert!(!asks_help(&words("machine doctor box --fix")));
-    assert!(!asks_help(&words("machine list --help")));
-    assert!(USAGE.starts_with("usage: cmux machine doctor"));
-}

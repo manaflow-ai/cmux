@@ -32,7 +32,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         let url = home.appending(path: "cmux-next.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
         let (defaults, suite) = Self.defaults()

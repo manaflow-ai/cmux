@@ -6,7 +6,7 @@ import os
 nonisolated enum SidebarDocStrings {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar.doc")
 
-    static var move: String { String(localized: "sidebar.doc.move", defaultValue: "Move", bundle: .localizedModule) }
+    static var move: String { String(localized: "sidebar.doc.move", defaultValue: "Move", bundle: .module) }
 
     /// The document is not served yet (`unavailable`).
     static var unavailable: String { refused("unavailable") }

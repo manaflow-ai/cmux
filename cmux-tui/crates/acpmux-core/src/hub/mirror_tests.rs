@@ -523,59 +523,6 @@ fn a_turn_takes_units_up_to_the_cap_and_the_local_row() {
     assert_eq!(hub.snapshot().len(), origins * MAX_UNIT_CHANGES + 1);
 }
 
-/// Decision 279: a unit the cap passed over is taken before any unit queued after it, so
-/// each turn starts after the origin the last one ended on. Thirty origins queue a full unit
-/// again as soon as theirs is taken; every origin's unit is taken within as many turns as it
-/// takes to write all thirty, and no origin waits longer while earlier ones queue again.
-#[test]
-fn origins_that_queue_again_at_once_are_each_taken_within_a_round_of_turns() {
-    const ORIGINS: usize = 30;
-    let (hub, mut writer) = Hub::new(SummaryIndex::new());
-    let per_turn = MAX_TURN_UNIT_CHANGES / MAX_UNIT_CHANGES;
-    let round = ORIGINS.div_ceil(per_turn);
-    let name = |origin: usize| format!("peer-{origin:02}");
-    let queue = |origin: usize, cursor: u64| {
-        let name = name(origin);
-        let changes = (0..MAX_UNIT_CHANGES)
-            .map(|n| UnitChange::Summary(Box::new(row(&name, &format!("c-{n:04}"), cursor))))
-            .collect();
-        let after = hub.mirror_mark(&name);
-        hub.submit_unit(
-            Source::Mirror,
-            MirrorUnit { origin: name, after, changes, mark: mark(cursor) },
-        )
-        .unwrap();
-    };
-    for origin in 0..ORIGINS {
-        queue(origin, 1);
-    }
-    let mut taken = [0u64; ORIGINS];
-    let mut waited = [0usize; ORIGINS];
-    for _ in 0..4 * round {
-        writer.process_batch();
-        let mut this_turn = 0;
-        for origin in 0..ORIGINS {
-            let cursor = hub.mirror_mark(&name(origin)).map_or(0, |mark| mark.cursor);
-            if cursor > taken[origin] {
-                taken[origin] = cursor;
-                waited[origin] = 0;
-                this_turn += 1;
-                queue(origin, cursor + 1);
-            } else {
-                waited[origin] += 1;
-                assert!(
-                    waited[origin] < round,
-                    "{} waited {} turns behind origins that queued again",
-                    name(origin),
-                    waited[origin]
-                );
-            }
-        }
-        assert_eq!(this_turn, per_turn, "a turn takes the cap's units");
-    }
-    assert!(taken.iter().all(|cursor| *cursor >= 4), "each origin is taken every round: {taken:?}");
-}
-
 /// A takeover of a new origin past the bound on origins is refused, and
 /// counted: a dialer waiting on it sees it end instead of waiting for ever.
 #[test]

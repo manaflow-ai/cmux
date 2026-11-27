@@ -68,8 +68,6 @@ import Testing
         #expect(settings.terminalJumpToBottom)
         #expect(CmuxMobilePreferences.predictiveEcho(defaults) == settings.predictiveEcho)
         #expect(CmuxMobilePreferences.predictiveEcho(defaults))
-        #expect(CmuxMobilePreferences.predictiveEchoFullScreen(defaults) == settings.predictiveEchoFullScreen)
-        #expect(!CmuxMobilePreferences.predictiveEchoFullScreen(defaults))
         #expect(CmuxMobilePreferences.dismissKeyboardAfterSend(defaults) == settings.dismissKeyboardAfterSend)
         #expect(!CmuxMobilePreferences.steersFollowUps(defaults))
         // Queueing on (the default), Send and Return still steer, as the Mac's Return does; only
@@ -82,7 +80,6 @@ import Testing
         settings.keyClicks = false
         settings.terminalJumpToBottom = false
         settings.predictiveEcho = false
-        settings.predictiveEchoFullScreen = true
         settings.dismissKeyboardAfterSend = false
         settings.followUp = .steer
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == 17)
@@ -90,7 +87,6 @@ import Testing
         #expect(!CmuxMobilePreferences.keyClicks(defaults))
         #expect(!CmuxMobilePreferences.terminalJumpToBottom(defaults))
         #expect(!CmuxMobilePreferences.predictiveEcho(defaults))
-        #expect(CmuxMobilePreferences.predictiveEchoFullScreen(defaults))
         #expect(!CmuxMobilePreferences.dismissKeyboardAfterSend(defaults))
         #expect(CmuxMobilePreferences.steersFollowUps(defaults))
         // Queueing off, Queue steers too, as the Mac's ⌘Return does.

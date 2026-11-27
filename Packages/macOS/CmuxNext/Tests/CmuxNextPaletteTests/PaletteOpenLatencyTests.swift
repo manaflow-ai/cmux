@@ -80,7 +80,8 @@ struct PaletteOpenLatencyTests {
         return now() - started
     }
 
-    /// The command page reads no workspace or tab list, at open or when typed: it lists commands only.
+    /// The open itself reads no workspace or tab list: the empty query shows
+    /// none of them. A typed query finds them once they land.
     @Test func firstFrameReadsNoWorkspaceOrTabList() async {
         let store = Store(workspaces: 40, tabsPerWorkspace: 4)
         let palette = Self.palette(store)
@@ -94,9 +95,8 @@ struct PaletteOpenLatencyTests {
         await palette.model.settleDeferredLoads()
         palette.model.send(.setQuery("Workspace 39"))
         await palette.model.settle()
-        // Cmd-Shift-P lists commands only (msg 34162): typing never reads the open workspaces or tabs either.
-        #expect(!palette.model.rows.contains { $0.item.id == "workspace:ws-39" }, "typing lists no workspace")
-        #expect(store.workspaceReads == 0 && store.tabReads == 0, "the command page never reads the open items")
+        #expect(palette.model.rows.contains { $0.item.id == "workspace:ws-39" }, "typing finds a workspace")
+        #expect(store.workspaceReads == 1, "the workspaces are read once per open, after the first frame")
     }
 
     /// Go to Workspace (Cmd-P) lists the workspaces on its empty query, so its

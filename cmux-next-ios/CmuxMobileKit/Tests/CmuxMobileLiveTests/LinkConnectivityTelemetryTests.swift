@@ -19,8 +19,8 @@ import Testing
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://api.example")!, teamID: "team-1", deviceID: "d", macDeviceID: $0) }
         controller.send(.target(LinkMachine.Target(macID: "mac-42", name: "Mac", isOnline: true)))
         // A count of yields is no deadline: on a busy runner 200 reschedules can pass before the dial fails.
-        var deadline = AwakeDeadline(.seconds(10))
-        while deadline.hasTimeLeft() {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if case .waiting = controller.phase { break }
             try? await Task.sleep(for: .milliseconds(5)) // test: polls the phase until a deadline
         }
@@ -38,7 +38,7 @@ import Testing
         #expect(failed.fields["error_code"] == .code("timeout"))
         #expect(failed.detail?.contains("timeout") == true)
         let waiting = try #require(records.last { $0.name == "phase" && $0.fields["phase"] == .code("waiting") })
-        #expect(waiting.fields["reason"] == .text(LinkError.timeoutReason))
+        #expect(waiting.fields["reason"] == .text("the Mac didn't answer in time"))
     }
 
     @Test func everyoneSeesTheFailureWithoutIdentifiers() async throws {

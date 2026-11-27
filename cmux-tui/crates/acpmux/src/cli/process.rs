@@ -31,24 +31,6 @@ use crate::client::Client;
 use crate::rpc::method;
 use cmux_json::JsonSet as _;
 
-/// `acpmux process [SUBCOMMAND]`: with none, the census (`acpmux ps`, `process_census`).
-#[derive(clap::Args, Debug, PartialEq, Eq)]
-pub struct ProcessArgs {
-    #[command(subcommand)]
-    pub cmd: Option<ProcessCmd>,
-}
-
-/// `acpmux ps` / `acpmux process`: the census with no subcommand, else the subcommand.
-pub async fn run_args(args: ProcessArgs, json_out: bool) -> Result<()> {
-    match args.cmd {
-        Some(cmd) => run(cmd, json_out).await,
-        #[cfg(unix)]
-        None => crate::cli::process_census::ps(json_out).await,
-        #[cfg(not(unix))]
-        None => Err(anyhow!("acpmux ps: the process census is not supported on this platform")),
-    }
-}
-
 #[derive(Subcommand, Debug, PartialEq, Eq)]
 pub enum ProcessCmd {
     /// Background processes agents started, with their state.
@@ -57,23 +39,7 @@ pub enum ProcessCmd {
         /// Only this chat's processes (a session name or id).
         #[arg(long)]
         session: Option<String>,
-        /// Only the ones still running.
-        #[arg(long)]
-        running: bool,
     },
-    /// Which agent session owns each process on this machine (by pid), read from the
-    /// process's own environment: yours, a background task's, another live session's, left
-    /// behind by an agent host that ended, or not an agent's; and the next step for each.
-    #[command(alias = "who")]
-    Owner {
-        /// The pids.
-        #[arg(required = true)]
-        pids: Vec<u32>,
-    },
-    /// Every process an ended agent host left running on this machine (nothing will end it),
-    /// with its session; `kill --pid` ends one.
-    #[command(name = "left-behind", alias = "orphans")]
-    LeftBehind,
     /// Everything a background process printed, with its command, folder,
     /// start and end. Also `tail`.
     #[command(alias = "tail")]
@@ -94,43 +60,7 @@ pub enum ProcessCmd {
     #[command(alias = "stop")]
     Kill {
         /// The process id from `process list`.
-        #[arg(required_unless_present = "pid", conflicts_with = "pid")]
-        process: Option<String>,
-        /// Instead: a pid. Ended only when `process owner` says it is yours or left behind by
-        /// an ended agent host, with what runs under it (SIGTERM, then SIGKILL after 5 s), and
-        /// logged in `<acpmux home>/process-kills.jsonl`; any other owner is refused.
-        #[arg(long)]
-        pid: Option<u32>,
-    },
-    /// Inside an agent chat: run COMMAND as a background task the daemon owns
-    /// (`bg_start`), which keeps running while the agent hibernates; prints
-    /// its id at once. acpmux's Bash hook rewrites a background shell or a
-    /// long foreground command into this (`bg_hook.rs`).
-    Start {
-        /// Its folder (default: the current one).
-        #[arg(long)]
-        cwd: Option<String>,
-        /// A few words: what the task is for.
-        #[arg(long)]
-        description: Option<String>,
-        /// No message to the chat when it ends.
-        #[arg(long)]
-        no_notify: bool,
-        /// How the chat reaches acpmux's MCP server (direct, listed, code-mode),
-        /// to name the call that reads the task's output.
-        #[arg(long, hide = true)]
-        route: Option<String>,
-        /// Why the hook moved a foreground command here (`bg_hook::SLOW`).
-        #[arg(long, hide = true)]
-        slow: Option<String>,
-        /// The chat's denied-calls file and the rewritten call's key in it
-        /// (`bg_hook::forget`).
-        #[arg(long = "hook-denied", hide = true)]
-        hook_denied: Option<std::path::PathBuf>,
-        #[arg(long = "hook-key", hide = true)]
-        hook_key: Option<String>,
-        /// The command, run by bash -c.
-        command: String,
+        process: String,
     },
     /// Move a Claude Code chat's running work to the background (Ctrl-B).
     #[command(alias = "bg")]
@@ -150,40 +80,10 @@ const PAUSE_MIN: Duration = Duration::from_millis(200);
 const PAUSE_MAX: Duration = Duration::from_secs(1);
 
 pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
-    if let ProcessCmd::Start {
-        cwd,
-        description,
-        no_notify,
-        route,
-        slow,
-        hook_denied,
-        hook_key,
-        command,
-    } = cmd
-    {
-        let start = Start { cwd, description, notify: !no_notify, route, slow, command };
-        let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
-        let outcome = start_task(&start, &env).await;
-        return finish_start(&start, outcome, hook_denied.zip(hook_key), json_out);
-    }
-    // Read from the processes themselves: no daemon needed, and none started.
-    #[cfg(unix)]
-    match &cmd {
-        ProcessCmd::Owner { pids } => {
-            return crate::cli::process_owner::owner(pids, json_out).await;
-        }
-        ProcessCmd::LeftBehind => {
-            return crate::cli::process_owner::list_left_behind(json_out).await;
-        }
-        ProcessCmd::Kill { pid: Some(pid), .. } => {
-            return crate::cli::process_owner::kill_pid(*pid, json_out).await;
-        }
-        _ => {}
-    }
     // Never starts a daemon: a process lives in the daemon that started it.
     let client = crate::daemon::connect(false).await?;
     match cmd {
-        ProcessCmd::List { session, running } => {
+        ProcessCmd::List { session } => {
             // A chat's list is read whole, page by page. Every chat's at once cannot page: the
             // daemon sends the newest that fit one reply, and how many older it left out.
             let (v, omitted) = match session.as_deref() {
@@ -193,11 +93,6 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
                     let omitted = reply.get("omitted").and_then(Value::as_u64).unwrap_or(0);
                     (rows(&reply), omitted)
                 }
-            };
-            let v: Vec<Value> = if running {
-                v.into_iter().filter(|p| p.get_str("state") == Some("running")).collect()
-            } else {
-                v
             };
             if json_out {
                 let mut out = json!({"processes": v});
@@ -221,9 +116,7 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
             }
             Ok(())
         }
-        ProcessCmd::Kill { process, .. } => {
-            let process =
-                process.ok_or_else(|| anyhow!("name a process id (--pid is unix only)"))?;
+        ProcessCmd::Kill { process } => {
             client.request(method::MUX_PROCESS_KILL, json!({"processId": process})).await?;
             if json_out {
                 print_json(&json!({"ok": true}));
@@ -244,11 +137,6 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
                 println!("nothing was running in the foreground");
             }
             Ok(())
-        }
-        // Answered above, on the chat's own daemon.
-        ProcessCmd::Start { .. } => Err(anyhow!("process start runs before any other connection")),
-        ProcessCmd::Owner { .. } | ProcessCmd::LeftBehind => {
-            Err(anyhow!("process owner and left-behind read processes on unix only"))
         }
         ProcessCmd::Show { process, session, tool_call, follow } => {
             if process.is_none() && tool_call.is_none() {
@@ -818,137 +706,6 @@ pub(crate) fn human(ms: u64) -> String {
         60..3600 => format!("{}m {:02}s", s / 60, s % 60),
         _ => format!("{}h {:02}m", s / 3600, (s % 3600) / 60),
     }
-}
-
-/// `process start`: one background task for the chat this CLI runs in.
-struct Start {
-    cwd: Option<String>,
-    description: Option<String>,
-    notify: bool,
-    route: Option<String>,
-    slow: Option<String>,
-    command: String,
-}
-
-type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
-
-/// The `_acpmux/bg/start` params of `start` in the chat the environment names (its
-/// `ACPMUX_SESSION_ID`; the caller token proves it to the daemon), in folder `here` unless
-/// `--cwd` names one, with the Claude Code subagent the hook's mark names (`bg_hook::subagent_mark`).
-fn start_params(start: &Start, env: Env<'_>, here: Option<std::path::PathBuf>) -> Result<Value> {
-    let session = env("ACPMUX_SESSION_ID").ok_or_else(|| {
-        anyhow!("process start runs only inside an acpmux agent chat (no ACPMUX_SESSION_ID)")
-    })?;
-    let mut params =
-        json!({"sessionId": session, "command": start.command, "notify": start.notify});
-    let cwd = start.cwd.clone().or_else(|| here.map(|p| p.to_string_lossy().into_owned()));
-    if let Some(cwd) = cwd.filter(|c| !c.is_empty()) {
-        params.set("cwd", json!(cwd));
-    }
-    if let Some(d) = start.description.as_deref().filter(|d| !d.trim().is_empty()) {
-        params.set("description", json!(d));
-    }
-    let mark = env(crate::sender_env::SUBAGENT_ENV);
-    let sub = mark.as_deref().and_then(|v| v.split_once(':')).filter(|(kind, id)| {
-        crate::sender_env::subagent_word(kind) && crate::sender_env::subagent_word(id)
-    });
-    if let Some((kind, id)) = sub {
-        params.set("callerSubagent", json!({"id": id, "type": kind}));
-    }
-    Ok(params)
-}
-
-/// Starts the task on the daemon that issued the chat's caller token, which owns the chat's
-/// tasks (else this home's daemon), and answers its view.
-async fn start_task(start: &Start, env: Env<'_>) -> Result<Value, StartFailed> {
-    let unsent = |e: anyhow::Error| StartFailed { sent: false, error: e };
-    let params = start_params(start, env, std::env::current_dir().ok()).map_err(unsent)?;
-    let client = match env(crate::person_tokens::CALLER_SOCKET_ENV) {
-        Some(socket) => Client::connect(std::path::Path::new(&socket)).await.map_err(unsent)?,
-        None => crate::daemon::connect(false).await.map_err(unsent)?,
-    };
-    client
-        .request(method::MUX_BG_START, params)
-        .await
-        .map_err(|e| StartFailed { sent: true, error: e })
-}
-
-/// Why `process start` has no task: `sent` once the request reached the daemon, which may have
-/// started the task although its answer was lost, so the same call again could run it twice.
-struct StartFailed {
-    sent: bool,
-    error: anyhow::Error,
-}
-
-/// Prints what started, or fails with why not. A task that started takes the hook's key out of
-/// the chat's denied calls (`bg_hook::forget`), so the same call later is rewritten again; one
-/// that did not leaves it, so the same call again runs as asked. A start whose request was sent
-/// but not answered says to look in `bg_list` first: the task may be running already (from
-/// #47746's review: a lost reply must never run a command twice).
-fn finish_start(
-    start: &Start,
-    outcome: Result<Value, StartFailed>,
-    hook: Option<(std::path::PathBuf, String)>,
-    json_out: bool,
-) -> Result<()> {
-    let view = match outcome {
-        Ok(view) => view,
-        Err(StartFailed { sent: true, error }) => {
-            return Err(anyhow!(
-                "the background task's start was sent but not answered: {error:#}. It may be \
-running already: look in bg_list (or `acpmux process list`) before sending this call again."
-            ));
-        }
-        Err(StartFailed { sent: false, error }) => {
-            let again = if hook.is_some() {
-                " Send the same Bash call again and it runs as asked."
-            } else {
-                ""
-            };
-            return Err(anyhow!("not started as a background task: {error:#}.{again}"));
-        }
-    };
-    if let Some((denied, key)) = &hook {
-        let _ = crate::bg_hook::forget(denied, key);
-    }
-    if json_out {
-        print_json(&view);
-    } else {
-        println!("{}", started_text(start, &view));
-    }
-    Ok(())
-}
-
-/// What `process start` says once the task runs: its id, that it outlives the agent's
-/// hibernation, and the chat's own call that reads it.
-fn started_text(start: &Start, view: &Value) -> String {
-    let id = view.get_str("id").unwrap_or("");
-    let route = start.route.as_deref().and_then(crate::bg_hook::route_of_word);
-    let (line, _) = crate::bg_run::outcome(view);
-    let mut text = format!(
-        "{line}\nStarted as background task {id}, which the acpmux daemon owns: it keeps running \
-while this chat's agent hibernates."
-    );
-    if let Some(why) = &start.slow {
-        text.push_str(&format!(
-            " This is {why}, so it runs in the background instead of holding the turn; keep \
-working meanwhile."
-        ));
-    }
-    if start.notify {
-        text.push_str(" This chat gets one message when it ends, with its last lines.");
-    }
-    text.push_str(&format!(
-        " Read its output with {}",
-        crate::bg_hook::read_call(route.as_ref(), id)
-    ));
-    if start.slow.is_some() {
-        text.push_str(&format!(
-            " To run such a command in the foreground instead, add `{}` to it.",
-            crate::bg_hook::FOREGROUND_OK
-        ));
-    }
-    text
 }
 
 fn now_ms() -> u64 {

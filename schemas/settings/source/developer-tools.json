@@ -19,7 +19,7 @@
           },
           "help": {
             "key": "settings.developerTools.appPages.help",
-            "text": "Inspect Element and ⌥⌘I in chats, Home, Markdown and Settings."
+            "text": "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them."
           },
           "kind": "toggle",
           "default": true,
@@ -33,32 +33,6 @@
             "debug"
           ],
           "swift_owner": "AppPageDevToolsSetting"
-        },
-        {
-          "key": "developerTools.overloadNotice",
-          "note": "Off (the default, https://github.com/manaflow-ai/cmux/issues/56156: \"i dont like seeing these dialog ... this should not be on default\"): the agent chat never asks acpmux for this Mac's overload verdict (`_acpmux/host_overload`) and never draws the red \"This Mac is overloaded\" banner above the composer. On: it polls every 30 s while shown and draws the dismissible banner when acpmux says the Mac is over its load or swap limit (OverloadNotice.tsx). The title bar's host pressure indicator and its banner are Debug Settings tunables (hostPressure.*), off by default as well.",
-          "title": {
-            "key": "settings.developerTools.overloadNotice",
-            "text": "Overload Warning in Chats"
-          },
-          "help": {
-            "key": "settings.developerTools.overloadNotice.help",
-            "text": "Shows a banner above the composer when this Mac's load or swap is too high."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "overload",
-            "overloaded",
-            "load",
-            "swap",
-            "banner",
-            "warning",
-            "host pressure",
-            "slow",
-            "developer"
-          ],
-          "swift_owner": "HostOverloadNoticeSetting"
         }
       ]
     },
@@ -80,7 +54,7 @@
           },
           "help": {
             "key": "settings.internalDeveloperMode.help",
-            "text": "Shows \"Debug: …\" commands in the Command Palette."
+            "text": "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu."
           },
           "kind": "toggle",
           "default": false,

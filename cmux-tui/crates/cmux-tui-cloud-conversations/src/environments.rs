@@ -1,5 +1,4 @@
-//! Cloud environment settings through the existing Cloud transport, with an install token the app
-//! minted: its own, or the one `cmux env` asked it for (`auth.token`).
+//! Cloud environment settings through the existing Cloud transport, with the native app's install token.
 //! Only these named routes are exposed; the web page cannot supply a URL or headers.
 
 use serde_json::{Value, json};
@@ -7,45 +6,9 @@ use serde_json::{Value, json};
 use super::{CloudConversations, CloudError, HttpReply};
 
 fn invalid() -> CloudError {
-    CloudError::BadRequest("Invalid cloud environment request. Check the fields.".into())
-}
-
-/// The fields a create or an update may carry, the platform's own (cmux-platform
-/// `CreateCloudEnvironment` and `UpdateCloudEnvironment`). `repo`, `ref`, `maintenance_script`,
-/// `files` and `image` are newer than some deployments; an older one refuses them itself.
-const SHARED_FIELDS: &[&str] = &[
-    "name",
-    "setup_script",
-    "env_vars",
-    "network",
-    "repo",
-    "ref",
-    "maintenance_script",
-    "files",
-    "image",
-];
-/// `expected_revision`: the update applies only to the environment as it was read
-/// (cmux-platform#1144; a mismatch is 409 `cloud_environment.revision_conflict`).
-const UPDATE_ONLY: &[&str] = &["set_secrets", "remove_secrets", "expected_revision"];
-const CREATE_ONLY: &[&str] = &["scope", "secrets"];
-
-/// A project's default environment (`cmux env default`, cmux-platform#1144): read with `?repo=`
-/// (a list of `{scope, repo, environment, updated_at, updated_by}`), set with a `PUT` of
-/// `{repo, environment}`.
-const PROJECT_DEFAULT_PATH: &str = "/v1/cloud-environments/project-defaults";
-
-/// `OWNER/NAME` as GitHub spells them: nothing a query or a path could read as more than that.
-fn repository(value: Option<&Value>) -> Result<&str, CloudError> {
-    let part = |p: &str| {
-        (1..=100).contains(&p.len())
-            && p != "."
-            && p != ".."
-            && p.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-    };
-    value
-        .and_then(Value::as_str)
-        .filter(|repo| repo.split_once('/').is_some_and(|(owner, name)| part(owner) && part(name)))
-        .ok_or_else(invalid)
+    CloudError::BadRequest(
+        "Invalid cloud environment request. Check the fields and try again.".into(),
+    )
 }
 
 fn identifier(value: Option<&Value>) -> Result<&str, CloudError> {
@@ -76,14 +39,16 @@ fn refused(reply: &HttpReply) -> Result<(), CloudError> {
     }) {
         return Err(CloudError::Rejected {
             code: code.into(),
-            message: "cmux Cloud could not save or load the cloud environment.".into(),
+            message: "Could not save or load the cloud environment. Try again.".into(),
             retryable: reply.status >= 500 || reply.status == 429,
         });
     }
     super::contract::classify(reply).map_err(|error| match error {
         CloudError::Rejected { retryable, .. } => CloudError::Rejected {
             code: format!("http_{}", reply.status),
-            message: "Could not save or load the cloud environment. Check the fields.".into(),
+            message:
+                "Could not save or load the cloud environment. Check the fields and try again."
+                    .into(),
             retryable,
         },
         other => other,
@@ -130,7 +95,15 @@ impl CloudConversations {
                 let id = identifier(params.get("id"))?;
                 let patch = params.get("patch").and_then(Value::as_object).ok_or_else(invalid)?;
                 if patch.keys().any(|key| {
-                    !SHARED_FIELDS.contains(&key.as_str()) && !UPDATE_ONLY.contains(&key.as_str())
+                    ![
+                        "name",
+                        "setup_script",
+                        "env_vars",
+                        "set_secrets",
+                        "remove_secrets",
+                        "network",
+                    ]
+                    .contains(&key.as_str())
                 }) {
                     return Err(invalid());
                 }
@@ -147,23 +120,13 @@ impl CloudConversations {
                     .and_then(Value::as_str)
                     .is_none_or(|name| name.trim().is_empty())
                     || environment.keys().any(|key| {
-                        !SHARED_FIELDS.contains(&key.as_str())
-                            && !CREATE_ONLY.contains(&key.as_str())
+                        !["name", "scope", "setup_script", "env_vars", "secrets", "network"]
+                            .contains(&key.as_str())
                     })
                 {
                     return Err(invalid());
                 }
                 send("POST", "/v1/cloud-environments", &json!(environment))?
-            }
-            // A project's default environment: read it for one repository, or set it.
-            "default-get" if params.len() == 1 => {
-                let repo = repository(params.get("repo"))?;
-                send("GET", &format!("{PROJECT_DEFAULT_PATH}?repo={repo}"), &Value::Null)?
-            }
-            "default-set" if params.len() == 2 => {
-                let repo = repository(params.get("repo"))?;
-                let id = identifier(params.get("environment"))?;
-                send("PUT", PROJECT_DEFAULT_PATH, &json!({"repo": repo, "environment": id}))?
             }
             "derive" => {
                 if params.keys().any(|key| !["repo", "ref", "environment"].contains(&key.as_str()))
@@ -218,5 +181,99 @@ fn redact(environment: &mut Value) {
 }
 
 #[cfg(test)]
-#[path = "environments_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    /// A save answered with `status` and `body`.
+    fn save_refused(status: u16, body: Value) -> CloudError {
+        refused(&HttpReply { status, body }).expect_err("a refused save fails")
+    }
+
+    #[test]
+    fn a_vault_code_reaches_the_sheet_and_an_upstream_message_never_does() {
+        for status in [400, 503] {
+            let error = save_refused(
+                status,
+                json!({"_tag": "MachineBadRequest", "code": "vault.secret_without_host",
+                       "message": "TOKEN=hunter2 has no host"}),
+            );
+            let CloudError::Rejected { code, message, retryable } = &error else {
+                panic!("{status}: {error:?}");
+            };
+            assert_eq!(code, "vault.secret_without_host");
+            assert_eq!(*retryable, status >= 500);
+            assert!(!message.contains("hunter2"), "{message}");
+        }
+    }
+
+    #[test]
+    fn a_code_outside_the_sheets_prefixes_is_not_forwarded_nor_its_message() {
+        for (status, body) in [
+            (400, json!({"code": "other.thing", "message": "hunter2"})),
+            (400, json!({"error": {"code": "other.thing", "message": "hunter2"}})),
+            (400, json!({"code": "vault.has space", "message": "hunter2"})),
+            (400, json!({"code": format!("vault.{}", "a".repeat(128)), "message": "hunter2"})),
+            (503, json!({"code": "other.thing", "message": "hunter2"})),
+        ] {
+            let error = save_refused(status, body);
+            let text = format!("{error:?}");
+            assert!(!text.contains("other.thing") && !text.contains("vault."), "{text}");
+            assert!(!text.contains("hunter2"), "{text}");
+            match error {
+                CloudError::Rejected { code, .. } => assert_eq!(code, format!("http_{status}")),
+                CloudError::Unavailable(_) => assert_eq!(status, 503),
+                other => panic!("{other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn redact_keeps_only_a_secrets_name_dates_hosts_and_header_name_and_format() {
+        let mut environment = json!({
+            "id": "env_a",
+            "secrets": [{
+                "name": "TOKEN",
+                "updated_at": 3,
+                "value": "hunter2",
+                "sealed": "v2.abc",
+                "hosts": ["api.example.com", {"value": "hunter2"}],
+                "header": {
+                    "name": "authorization",
+                    "format": "Bearer {value}",
+                    "value": "hunter2",
+                    "nested": {"value": "hunter2"},
+                },
+            }, "hunter2"],
+        });
+        redact(&mut environment);
+        assert_eq!(
+            environment,
+            json!({
+                "id": "env_a",
+                "secrets": [{
+                    "name": "TOKEN",
+                    "updated_at": 3,
+                    "hosts": ["api.example.com"],
+                    "header": {"name": "authorization", "format": "Bearer {value}"},
+                }],
+            })
+        );
+        assert!(!environment.to_string().contains("hunter2"));
+    }
+
+    #[test]
+    fn redact_drops_a_partial_header_or_hosts_that_is_not_the_expected_shape() {
+        let mut environment = json!({
+            "secrets": [
+                {"name": "TOKEN", "header": "Bearer hunter2", "hosts": "hunter2"},
+                {"name": "PARTIAL", "header": {"name": "authorization"}},
+                {"name": "NOT_TEXT", "header": {"name": "authorization", "format": 7}},
+            ],
+        });
+        redact(&mut environment);
+        assert_eq!(
+            environment,
+            json!({"secrets": [{"name": "TOKEN"}, {"name": "PARTIAL"}, {"name": "NOT_TEXT"}]})
+        );
+    }
+}

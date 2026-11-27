@@ -125,16 +125,24 @@ import Testing
         return window.convertToScreen(host.convert(host.card.frame, to: nil))
     }
 
-    /// The size the card's resize in flight starts from (the card's surface is drawn at that size on its
-    /// first frame and steps to the next card's on the panel's clock), if one runs.
-    private static func morphStartSizes(of window: NSWindow) -> [CGSize] {
-        guard let morph = (window as? HoverCardPanel)?.activeMorph else { return [] }
-        return [morph.from]
+    /// Every animation in flight under `layer`, by key path.
+    private static func animations(under layer: CALayer?) -> [(key: String, animation: CAAnimation)] {
+        guard let layer else { return [] }
+        let own = (layer.animationKeys() ?? []).compactMap { key in layer.animation(forKey: key).map { (key, $0) } }
+        let masked = layer.mask.map { animations(under: $0) } ?? []
+        return own + masked + (layer.sublayers ?? []).flatMap { animations(under: $0) }
     }
 
-    /// The resize in flight ends at its target now (as the window's clock would after its last frame).
-    private static func settle(_ window: NSWindow) {
-        (window as? HoverCardPanel)?.activeMorph?.motionSettle()
+    /// The size an animated `bounds` (or a rounded rect `path`) starts from, if one runs under `layer`.
+    private static func morphStartSizes(under layer: CALayer?) -> [CGSize] {
+        animations(under: layer).compactMap { entry -> CGSize? in
+            guard let basic = entry.animation as? CABasicAnimation else { return nil }
+            if entry.key == "bounds", let value = basic.fromValue as? NSValue { return value.rectValue.size }
+            if entry.key == "path" || entry.key == "shadowPath", let from = basic.fromValue {
+                return (from as! CGPath).boundingBoxOfPath.size // swiftlint:disable:this force_cast
+            }
+            return nil
+        }
     }
 
     @Test func aWorkspaceCardAndTheUpdateCardAreNeverOnScreenTogether() async throws {
@@ -190,10 +198,9 @@ import Testing
         h.card.showNotes()
         let second = try #require(h.shownCards.first, "the update card did not show")
         #expect(second === first, "the update card is a different card window from the workspace card's")
-        let starts = Self.morphStartSizes(of: second)
+        let starts = Self.morphStartSizes(under: second.contentView?.layer)
         #expect(starts.contains { abs($0.width - workspaceSurface.width) <= 1 && abs($0.height - workspaceSurface.height) <= 1 },
                 "the card did not resize from the workspace card's \(workspaceSurface.size); animated sizes: \(starts)")
-        Self.settle(second)
         let surface = Self.surface(of: second)
         #expect(abs(surface.width - 340) <= 1 && abs(surface.height - 220) <= 1, "the card does not end at the highlights' size: \(surface)")
     }
@@ -216,7 +223,7 @@ import Testing
         h.cards.pin(h.row.target, from: h.row)
         let second = try #require(h.shownCards.first, "the workspace card did not show")
         #expect(second === first, "the workspace card is a different card window from the update card's")
-        let starts = Self.morphStartSizes(of: second)
+        let starts = Self.morphStartSizes(under: second.contentView?.layer)
         #expect(starts.contains { abs($0.width - updateSurface.width) <= 1 && abs($0.height - updateSurface.height) <= 1 },
                 "the card did not resize from the update card's \(updateSurface.size); animated sizes: \(starts)")
         #expect(page.view.superview === h.card.parking, "the highlights page did not go back to wait in the update card")
@@ -235,7 +242,7 @@ import Testing
         h.card.highlights = Highlights()
         h.card.showNotes()
         #expect(h.shownCards.count == 1, "Reduce Motion shows two cards")
-        let animated = Self.morphStartSizes(of: first)
+        let animated = Self.morphStartSizes(under: first.contentView?.layer)
         #expect(animated.isEmpty, "the card resizes with motion under Reduce Motion: \(animated)")
     }
 

@@ -44,10 +44,4 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     /// a switch per choice (`browser.toolbarButtons`). Exported as a
     /// `string_list` with `choices` and `ordered: false`.
     case choiceSet([SettingChoice])
-    /// A nested JSON value (lists of lists, maps of lists) of the row's own
-    /// shape, a JSON Schema (`sidebar.workspaceRow.lines`). The daemon owns
-    /// the check (cmux-config `schema::shape`, plus the row's validation
-    /// domain); the app only checks the top-level type, so a value the daemon
-    /// wrote is never dropped here.
-    case json(shape: JSONValue)
 }

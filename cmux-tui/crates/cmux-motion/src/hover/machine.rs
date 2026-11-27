@@ -277,12 +277,6 @@ pub struct HoverCardMachine<Id> {
     owned_card_shown: bool,
     /// The last deadline found the pointer on the card: when it leaves, the full grace starts then.
     was_on_card: bool,
-    /// The target whose card showed last, kept through its hide: a quick
-    /// return to it is the same card again, which shows with no crossfade of
-    /// its own content (Leo 2026-11-02: "THE HOVER PREVIEW SHOULD NOT MAKE THE
-    /// SIDEBAR FLICKER ... THEN I LEAVE IT THEN I GO BACK AND IT RE-RENDERS THE
-    /// SPINNER VIEW").
-    last_shown_id: Option<Id>,
     /// How long after a card hides a new hover shows at once.
     pub reshow_window: i64,
     /// How long a pinned card stays without a dismissal.
@@ -314,7 +308,6 @@ pub struct HoverCardMachineParts<Id> {
     pub pointer_on_card: bool,
     pub owned_card_shown: bool,
     pub was_on_card: bool,
-    pub last_shown_id: Option<Id>,
     pub reshow_window: i64,
     pub pin_lifetime: i64,
     pub leave_window: i64,
@@ -339,7 +332,6 @@ impl<Id> HoverCardMachine<Id> {
             pointer_on_card: false,
             owned_card_shown: false,
             was_on_card: false,
-            last_shown_id: None,
             reshow_window: HOVER_CARD_RESHOW_WINDOW,
             pin_lifetime: HOVER_CARD_PIN_LIFETIME,
             leave_window: HoverIntentTiming::STANDARD.card_grace,
@@ -359,7 +351,6 @@ impl<Id> HoverCardMachine<Id> {
             pointer_on_card: p.pointer_on_card,
             owned_card_shown: p.owned_card_shown,
             was_on_card: p.was_on_card,
-            last_shown_id: p.last_shown_id,
             reshow_window: p.reshow_window,
             pin_lifetime: p.pin_lifetime,
             leave_window: p.leave_window,
@@ -379,7 +370,6 @@ impl<Id> HoverCardMachine<Id> {
             pointer_on_card: self.pointer_on_card,
             owned_card_shown: self.owned_card_shown,
             was_on_card: self.was_on_card,
-            last_shown_id: self.last_shown_id,
             reshow_window: self.reshow_window,
             pin_lifetime: self.pin_lifetime,
             leave_window: self.leave_window,
@@ -427,12 +417,6 @@ impl<Id> HoverCardMachine<Id> {
     #[must_use]
     pub const fn was_on_card(&self) -> bool {
         self.was_on_card
-    }
-
-    /// The target whose card showed last, kept through its hide.
-    #[must_use]
-    pub const fn last_shown_id(&self) -> Option<&Id> {
-        self.last_shown_id.as_ref()
     }
 
     /// The target whose card is pending or shown.
@@ -486,15 +470,6 @@ impl<Id> HoverCardMachine<Id> {
 impl<Id: Clone + PartialEq> HoverCardMachine<Id> {
     /// Applies one event and returns what the coordinator must do, in order.
     pub fn reduce(&mut self, event: HoverCardEvent<Id>) -> Effects<Id> {
-        let effects = self.apply(event);
-        // Whatever card is on screen now is the one a quick return finds again.
-        if let Some(shown) = self.shown_target() {
-            self.last_shown_id = Some(shown.id.clone());
-        }
-        effects
-    }
-
-    fn apply(&mut self, event: HoverCardEvent<Id>) -> Effects<Id> {
         match event {
             HoverCardEvent::Hit { target, moved, aiming, bridging } => {
                 self.hit(target, moved, aiming, bridging)
@@ -529,21 +504,9 @@ impl<Id: Clone + PartialEq> HoverCardMachine<Id> {
                 ended.extend(self.resume())
             }
             HoverCardEvent::Owned(shown) => {
-                let was_shown = self.owned_card_shown;
                 self.owned_card_shown = shown;
                 if !shown {
-                    // The owner's card went: a hover this soon shows the next
-                    // card at once, as after any card (Chrome's
-                    // `kShowWithoutDelayTimeBuffer`, `reshow_window`).
-                    if !was_shown || !self.is_idle() || !self.suppressions.is_empty() {
-                        return Effects::new();
-                    }
-                    let grace = self.take_token();
-                    self.phase = HoverCardPhase::Grace { token: grace };
-                    return Effects::new().with(HoverCardEffect::Schedule {
-                        token: grace,
-                        after: self.reshow_window,
-                    });
+                    return Effects::new();
                 }
                 // The owner's card takes the window: no card of a target is
                 // pending or shown, and nothing hides (the window morphs).
@@ -575,11 +538,8 @@ impl<Id: Clone + PartialEq> HoverCardMachine<Id> {
     fn deadline(&mut self, token: u64) -> Effects<Id> {
         match self.phase.clone() {
             HoverCardPhase::Pending { target, token: armed } if armed == token => {
-                // A card still fading out for another target fades this one's
-                // content in over it.
-                let other = self.last_shown_id.as_ref().is_some_and(|id| *id != target.id);
                 self.phase = HoverCardPhase::Shown { target: target.clone() };
-                Effects::new().with(HoverCardEffect::Show { target, sliding: other })
+                Effects::new().with(HoverCardEffect::Show { target, sliding: false })
             }
             HoverCardPhase::Grace { token: armed } if armed == token => {
                 self.phase = HoverCardPhase::Idle;
@@ -692,13 +652,10 @@ impl<Id: Clone + PartialEq> HoverCardMachine<Id> {
             }
             HoverCardPhase::Grace { .. } => {
                 let Some(target) = target else { return Effects::new() };
-                // Back on the card that just hid: the same content, no
-                // crossfade; another target's content fades in.
-                let returning = self.last_shown_id.as_ref() == Some(&target.id);
                 self.phase = HoverCardPhase::Shown { target: target.clone() };
                 Effects::new()
                     .with(HoverCardEffect::CancelTimer)
-                    .with(HoverCardEffect::Show { target, sliding: !returning })
+                    .with(HoverCardEffect::Show { target, sliding: false })
             }
             HoverCardPhase::Shown { target: shown } => {
                 self.hit_shown(shown, target, aiming, bridging)

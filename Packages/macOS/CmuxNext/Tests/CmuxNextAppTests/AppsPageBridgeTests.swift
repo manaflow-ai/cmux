@@ -27,9 +27,9 @@ import Testing
     }
 
     @Test func showStoreRoutes() {
-        #expect(AppStoreTab.route(appID: nil, tab: nil) == "#/discover")
-        #expect(AppStoreTab.route(appID: nil, tab: .installed) == "#/installed")
-        #expect(AppStoreTab.route(appID: "cmux/cloud", tab: .installed) == "#/discover?app=cmux/cloud")
+        #expect(AppsService.storeRoute(appID: nil, tab: nil) == "#/discover")
+        #expect(AppsService.storeRoute(appID: nil, tab: .installed) == "#/installed")
+        #expect(AppsService.storeRoute(appID: "cmux/cloud", tab: .installed) == "#/discover?app=cmux/cloud")
         #expect(AppStoreTab(argument: " Installed ") == .installed)
         #expect(AppStoreTab(argument: "features") == nil, "features are Settings now; the store opens as it is")
     }

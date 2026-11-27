@@ -26,7 +26,7 @@ import Testing
         try Data(json.utf8).write(to: url)
         let reader = ChromePolicyManagedPreferenceReader(cmux: FixedManagedPreferenceReader(cmux), chrome: chrome,
                                                          cmuxBrowser: FixedChromePolicyReader(cmuxBrowser))
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: reader, managedWatchFiles: [])
         return (settings, home)
     }

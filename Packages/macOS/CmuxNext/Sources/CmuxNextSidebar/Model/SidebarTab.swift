@@ -25,9 +25,6 @@ public nonisolated enum SidebarTabKind: Hashable, Sendable, Codable {
         case .other: .placeholder
         }
     }
-
-    /// A terminal (local or remote): an agent running in it draws its mark on the rounded square.
-    public var isTerminal: Bool { self == .terminal || self == .remoteTerminal }
 }
 
 /// One of a workspace's tabs, as the sidebar knows it (its row's title, tab count and hover card).

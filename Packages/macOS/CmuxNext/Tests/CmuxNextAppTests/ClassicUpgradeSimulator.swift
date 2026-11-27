@@ -357,9 +357,8 @@ final class ClassicUpgradeSimulator {
         Dictionary(services.daemon.store.personal.groups.map { ($0.name, $0.collapsed) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// Each window's sidebar containers (loose rows, then each group, then the Pinned band's workspaces) of the workspaces
-    /// it owns (#44275: windows on one space also list each other's as guests, so every classic window, all on the default
-    /// space, lists them all), workspace ids in the order shown, with the window's own top projection (`SidebarTopProjection.make`, as `SidebarBridge` draws):
+    /// Each window's sidebar containers (loose rows, then each group, then the Pinned band's workspaces), workspace ids
+    /// in the order shown, with the window's own top projection (`SidebarTopProjection.make`, as `SidebarBridge` draws):
     /// on the sidebar document a pinned workspace lists in the Pinned band or pinned in its group, never in the legacy
     /// Pinned list section.
     func windows() -> [[[String]]] {
@@ -369,8 +368,8 @@ final class ClassicUpgradeSimulator {
         let room = ProfileID.defaultProfile
         let top = SidebarTopProjection.make(services.sidebarLayout, machines: services.machines, room: room.rawValue)
         return services.windows.registry.value.windows.map { window in
-            let members = Set(window.ownedIDs)
-            return SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: window.ownedIDs, profile: room, top: top).flatMap { section in
+            let members = Set(window.workspaceIDs)
+            return SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: window.workspaceIDs, profile: room, top: top).flatMap { section in
                 var loose: [String] = []
                 var groups: [[String]] = []
                 for node in section.nodes {
@@ -515,7 +514,7 @@ final class ClassicUpgradeSimulator {
     /// as already here.
     func classicWindows() async throws -> [ClassicMigrationPlan.Window] {
         let connection = try #require(services.daemon.connection, "the daemon is not connected")
-        let reply = try await ClassicImportClient(connection: connection, bundleID: "com.cmuxterm.test.classic-verify").planAfterConsent(.manual)
+        let reply = try await ClassicImportClient(connection: connection, bundleID: "com.cmuxterm.test.classic-verify").plan(.manual)
         let plan = try #require(reply.plan, "the daemon read no classic save: \(reply.error ?? "none")")
         return plan.windows
     }

@@ -15,8 +15,7 @@ final class FolderHeaderRowView: SidebarRowView {
     func configure(folder: String) {
         name.setString(SidebarFolderTitle.title(folder))
         name.setFont(SidebarStyle.headerFont)
-        // A header row shows its name: no tooltip (a1315's cuts 2 and 3); VoiceOver hears the whole folder.
-        setAccessibilityHelp(folder.isEmpty ? nil : folder)
+        themedToolTip = folder.isEmpty ? nil : folder
         setAccessibilityLabel(name.stringValue)
         needsLayout = true
     }

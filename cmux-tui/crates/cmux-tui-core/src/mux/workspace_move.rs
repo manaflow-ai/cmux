@@ -59,8 +59,7 @@ impl Mux {
             "key": requested_key,
             "index": index,
         });
-        // The delta serializes the moved workspace only.
-        let notifications = self.tree_decorations_of_target(workspace, requested_key);
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
@@ -103,11 +102,7 @@ impl Mux {
             state.active_workspace = active_id
                 .and_then(|id| state.workspace_index(id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
-            Self::reindex_workspace_positions(
-                &mut state,
-                old_idx.min(new_idx),
-                old_idx.max(new_idx),
-            );
+            Self::rebuild_split_screen_index(&mut state);
             state.workspace_revision = commit.revision;
             state.resource_revision = resource_revision;
             let workspace_revision = commit.revision;

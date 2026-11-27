@@ -2,16 +2,12 @@ use std::fmt;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::Mutex;
 
 use crate::link::{FrameLink, LinkError};
 
 const LENGTH_BYTES: usize = 4;
-/// Reads are buffered so frames already on the stream (a burst of echoes or
-/// acks) cost one read, not two each (the length, then the payload). A
-/// payload larger than this is read straight into its frame.
-const READ_BUFFER_BYTES: usize = 64 * 1024;
 
 /// A binary-message link over any byte stream, used by Unix sockets, SSH
 /// stdio, and direct TCP/TLS adapters. The 32-bit length is checked before a
@@ -19,16 +15,16 @@ const READ_BUFFER_BYTES: usize = 64 * 1024;
 pub struct LengthDelimitedLink<R, W> {
     description: String,
     maximum: usize,
-    reader: Mutex<BufReader<R>>,
+    reader: Mutex<R>,
     writer: Mutex<Option<W>>,
 }
 
-impl<R: AsyncRead, W> LengthDelimitedLink<R, W> {
+impl<R, W> LengthDelimitedLink<R, W> {
     pub fn new(description: impl Into<String>, maximum: usize, reader: R, writer: W) -> Self {
         Self {
             description: description.into(),
             maximum,
-            reader: Mutex::new(BufReader::with_capacity(READ_BUFFER_BYTES, reader)),
+            reader: Mutex::new(reader),
             writer: Mutex::new(Some(writer)),
         }
     }
@@ -66,15 +62,10 @@ where
             actual: frame.len(),
             maximum: u32::MAX as usize,
         })?;
-        // The length and the payload in one write: written apart, a no-delay
-        // TCP socket or a QUIC stream sends the 4-byte length as a segment or
-        // packet of its own ahead of every frame (every keystroke and echo).
-        let mut wire = Vec::with_capacity(LENGTH_BYTES + frame.len());
-        wire.extend_from_slice(&length.to_be_bytes());
-        wire.extend_from_slice(&frame);
         let mut writer = self.writer.lock().await;
         let writer = writer.as_mut().ok_or(LinkError::Closed)?;
-        writer.write_all(&wire).await.map_err(map_io)?;
+        writer.write_all(&length.to_be_bytes()).await.map_err(map_io)?;
+        writer.write_all(&frame).await.map_err(map_io)?;
         writer.flush().await.map_err(map_io)
     }
 
@@ -118,7 +109,3 @@ fn map_io(error: std::io::Error) -> LinkError {
         LinkError::Transport(error.to_string())
     }
 }
-
-#[cfg(test)]
-#[path = "stream_tests.rs"]
-mod tests;

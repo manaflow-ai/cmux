@@ -13,18 +13,11 @@ workspace = true
 [features]
 # Test seams (the scoped new-workspace placement, published-value holds and poison), for dev-dependencies only.
 test-support = []
-# `Patience::run_async`, waiting on the tokio timer.
-tokio = ["dep:tokio"]
 
 [dependencies]
 arc-swap.workspace = true
-cmux-config.workspace = true
 cmux-tui-platform.workspace = true
 getrandom.workspace = true
 libc.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, optional = true }
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["test-util"] }

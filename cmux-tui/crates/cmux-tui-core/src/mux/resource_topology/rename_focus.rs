@@ -456,10 +456,7 @@ impl Mux {
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let mux = Arc::clone(self);
-        // `floating-panes-v1`: the screen whose floating pane this select brings to the front.
-        let mut raised = None;
-        let raised_screen = &mut raised;
-        let commit = self.commit_resource_mutation_plan(
+        self.commit_resource_mutation_plan(
             mutation,
             operation,
             fingerprint,
@@ -478,14 +475,6 @@ impl Mux {
                 let tab_id = resolved.path.tab.context("tab selector has no public id")?;
                 let pane = state.pane_of(surface).context("resolved tab has no pane")?;
                 let focus_path = focus_target_pane || state.active_pane() == Some(pane);
-                if focus_path
-                    && let Some((workspace, screen)) = state.screen_of(pane)
-                    && let Some(screen) =
-                        state.workspaces.get(workspace).and_then(|found| found.screens.get(screen))
-                    && screen.focus_changes_floating_panes(pane)
-                {
-                    *raised_screen = Some(screen.id);
-                }
                 let mut plan = if focus_path {
                     focus_pane_plan(&mux, state, registry, pane)?
                 } else {
@@ -552,14 +541,7 @@ impl Mux {
                 .with_metrics(metrics)
                 .keeping_dock_columns())
             },
-        )?;
-        // The change of the list is a change of the layout fields, as it is for a focus request.
-        if let Some(screen) = raised
-            && !commit.replayed
-        {
-            self.emit_layout_changed(screen, None);
-        }
-        Ok(commit)
+        )
     }
 }
 

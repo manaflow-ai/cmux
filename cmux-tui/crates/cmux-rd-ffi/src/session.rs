@@ -9,12 +9,10 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use cmux_rd_core::clock::ClockEstimator;
-use cmux_rd_core::ledger::StageLedger;
 use cmux_rd_core::reassembly::CompleteFrame;
-use cmux_rd_core::session_report::SessionReport;
 use cmux_rd_proto::{
-    ClockEstimate, ClockPong, DatagramHeader, DatagramKind, FrameTimes, STREAM_BULK,
-    STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame,
+    ClockEstimate, ClockPong, DatagramHeader, DatagramKind, STREAM_BULK, STREAM_CONTROL,
+    STREAM_DATAGRAM, StreamDeframer, encode_stream_frame,
 };
 
 use crate::receiver::{
@@ -22,60 +20,7 @@ use crate::receiver::{
 };
 
 /// Most open streams per session (main surface, popups, tiles).
-/// Measured: the host's bound, `cmux_rd_engine::MAX_STREAMS` (16: one encoder each, popups'
-/// 300 kbps floors fill a 24 Mbps target's 20 % share), exported to the app as
-/// `CMUX_RD_SESSION_MAX_STREAMS`.
 pub const MAX_STREAMS: usize = 16;
-
-/// Silence after which a session that hears heartbeats is stalled (the
-/// network dropped; the picture is frozen). A live host sends a heartbeat at
-/// least every 1.1 s even on a still screen: its cursor channel resends the
-/// position every second (cmux-rd-host `cursor.rs` `KEEPALIVE_US`, sampled
-/// every 100 ms when still) and clock pongs answer pings sent every second
-/// (cmux-rd-core `clock.rs`). Frames and stats come faster while the screen
-/// changes. 1.5 s is that worst cadence plus margin for path jitter.
-pub const STALL_AFTER_US: u64 = 1_500_000;
-
-/// Whether the host still talks: when bytes last arrived, and whether the
-/// host sends heartbeats at all. Only a host that does (a cursor position or
-/// a clock pong was heard) can be called stalled: an idle, unchanging screen
-/// sends no frames and no stats, so silence alone means nothing.
-#[derive(Debug, Default)]
-struct Liveness {
-    last_heard_us: Option<u64>,
-    heartbeats: bool,
-    stalled: bool,
-}
-
-impl Liveness {
-    /// Bytes from the host arrived: the session is live again.
-    fn heard(&mut self, now_us: u64) {
-        self.last_heard_us = Some(now_us);
-        self.stalled = false;
-    }
-
-    /// Notes a datagram kind a live host sends at least every second.
-    fn heartbeat(&mut self, kind: DatagramKind) {
-        if matches!(kind, DatagramKind::CursorPos | DatagramKind::ClockPong) {
-            self.heartbeats = true;
-        }
-    }
-
-    /// When the session counts as stalled if nothing more arrives; `None`
-    /// without heartbeats and once the stall is reported (no wake in the past).
-    fn deadline_us(&self) -> Option<u64> {
-        if !self.heartbeats || self.stalled {
-            return None;
-        }
-        self.last_heard_us.map(|t| t.saturating_add(STALL_AFTER_US))
-    }
-
-    fn tick(&mut self, now_us: u64) {
-        if self.deadline_us().is_some_and(|deadline| now_us >= deadline) {
-            self.stalled = true;
-        }
-    }
-}
 
 /// Why a session call was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,15 +53,6 @@ pub struct Session {
     ready: VecDeque<u16>,
     /// The session clock (rd change C8), once the host accepted the `clock` cap.
     clock: Option<ClockEstimator>,
-    /// Whether the host was heard in the last [`STALL_AFTER_US`].
-    liveness: Liveness,
-    /// Every frame's stage times (D8): the host's from its `FrameTimes`
-    /// datagrams (cap `ledger`), this viewer's from reassembly and the
-    /// caller's decode and present notes. Bounded.
-    ledger: StageLedger,
-    /// The whole session's first frame and display-to-glass numbers (the
-    /// ledger keeps only its newest frames), for field telemetry.
-    report: SessionReport,
     failed: bool,
 }
 
@@ -133,9 +69,6 @@ impl Session {
             message_bytes: 0,
             ready: VecDeque::new(),
             clock: None,
-            liveness: Liveness::default(),
-            ledger: StageLedger::new(),
-            report: SessionReport::new(),
             failed: false,
         };
         let _ = s.open_stream(0);
@@ -153,11 +86,6 @@ impl Session {
         self.clock.as_ref().and_then(ClockEstimator::estimate)
     }
 
-    /// The round trip from clock probes, which sizes every stream's repair wait.
-    fn rtt_us(&self) -> Option<u64> {
-        self.clock().map(|c| u64::from(c.rtt_us))
-    }
-
     /// Accepts datagrams of `stream` from now on (idempotent).
     pub fn open_stream(&mut self, stream: u16) -> Result<(), SessionError> {
         if self.streams.contains_key(&stream) {
@@ -166,9 +94,8 @@ impl Session {
         if self.streams.len() >= MAX_STREAMS {
             return Err(SessionError::Stream(stream));
         }
-        let mut r =
+        let r =
             Receiver::for_stream(Carrier::Datagram, stream, self.deadline_us, self.nack_after_us);
-        r.set_path_rtt_us(self.rtt_us());
         self.streams.insert(stream, r);
         Ok(())
     }
@@ -186,7 +113,6 @@ impl Session {
             return Err(ReceiverError::Carrier.into());
         }
         self.check_alive()?;
-        self.liveness.heard(now_us);
         self.on_datagram(datagram, now_us)
     }
 
@@ -197,9 +123,6 @@ impl Session {
             return Err(ReceiverError::Carrier.into());
         }
         self.check_alive()?;
-        if !bytes.is_empty() {
-            self.liveness.heard(now_us);
-        }
         self.deframer.extend(bytes);
         loop {
             match self.deframer.next_frame() {
@@ -219,36 +142,23 @@ impl Session {
         Ok(())
     }
 
-    /// Drops frames past their deadline in every stream and notes a stall.
+    /// Drops frames past their deadline in every stream.
     pub fn tick(&mut self, now_us: u64) {
-        self.liveness.tick(now_us);
         let ids: Vec<u16> = self.streams.keys().copied().collect();
         for id in ids {
             if let Some(r) = self.streams.get_mut(&id) {
-                let before = r.frames_queued();
+                let before = r.ready_frames();
                 r.tick(now_us);
-                let after = r.frames_queued();
+                let after = r.ready_frames();
                 self.track(id, before, after);
             }
         }
-    }
-
-    /// Whether the host went silent for [`STALL_AFTER_US`] (as of the last
-    /// `tick`) while it sends heartbeats; cleared by the next bytes heard.
-    pub fn is_stalled(&self) -> bool {
-        self.liveness.stalled
     }
 
     /// The oldest ready frame of any stream, with its stream.
     pub fn pop_frame(&mut self) -> Option<(u16, CompleteFrame)> {
         while let Some(stream) = self.ready.pop_front() {
             if let Some(frame) = self.streams.get_mut(&stream).and_then(Receiver::pop_frame) {
-                self.ledger.on_released(
-                    stream,
-                    frame.frame,
-                    frame.last_shard_us,
-                    frame.released_us,
-                );
                 return Some((stream, frame));
             }
         }
@@ -267,80 +177,16 @@ impl Session {
         Some(m)
     }
 
-    /// Records one decode time of `stream`; `frame` is the popped frame that
-    /// decoded (its LTR token is acknowledged), `None` for the time only.
-    pub fn note_decode(
-        &mut self,
-        stream: u16,
-        frame: Option<u32>,
-        decode_us: u32,
-    ) -> Result<(), SessionError> {
-        self.receiver(stream)?.note_decode(frame, decode_us);
+    /// Records one decode time of `stream`.
+    pub fn note_decode(&mut self, stream: u16, decode_us: u32) -> Result<(), SessionError> {
+        self.receiver(stream)?.note_decode(decode_us);
         Ok(())
-    }
-
-    /// Frame `frame` of `stream` finished decoding at `decoded_at_us` (the
-    /// session's clock, as passed to `push_*`) after `decode_us`: feeds the
-    /// feedback median and the stage ledger.
-    pub fn note_decoded(
-        &mut self,
-        stream: u16,
-        frame: u32,
-        decode_us: u32,
-        decoded_at_us: u64,
-    ) -> Result<(), SessionError> {
-        self.receiver(stream)?.note_decode(Some(frame), decode_us);
-        self.ledger.on_decoded(stream, frame, decoded_at_us);
-        Ok(())
-    }
-
-    /// Frame `frame` of `stream` reached the glass at `presented_at_us` (the
-    /// session's clock: the drawable's presented time).
-    pub fn note_presented(
-        &mut self,
-        stream: u16,
-        frame: u32,
-        presented_at_us: u64,
-    ) -> Result<(), SessionError> {
-        self.receiver(stream)?;
-        let row = self.ledger.on_presented(stream, frame, presented_at_us);
-        let offset = self.clock().map(|c| c.offset_us);
-        self.report.on_presented(row.as_ref(), offset, presented_at_us);
-        Ok(())
-    }
-
-    /// The viewer began connecting at `at_us` (the session's clock): where
-    /// the report's first frame counts from. The first call counts.
-    pub fn note_connect_started(&mut self, at_us: u64) {
-        self.report.note_connect_started(at_us);
-    }
-
-    /// This session's report so far, as one JSON object
-    /// (`cmux.rd-session-report/1`): connect to first frame on glass, and
-    /// display-to-glass and Present p50/p95 over every presented frame.
-    pub fn session_report_json(&self) -> String {
-        self.report.summary().to_json()
-    }
-
-    /// The stage ledger of the frames kept so far, as one JSON object
-    /// (`cmux.rd-stage-ledger/1`), on the host's clock.
-    pub fn stage_ledger_json(&self) -> String {
-        let offset = self.clock().map(|c| c.offset_us);
-        self.ledger.summary(offset, &[]).to_json()
     }
 
     /// Asks the host for a keyframe on `stream` until one is released there.
     pub fn request_keyframe(&mut self, stream: u16) -> Result<(), SessionError> {
         self.receiver(stream)?.request_keyframe();
         Ok(())
-    }
-
-    /// How long `stream` waits for a NACKed frame before asking for recovery.
-    pub fn repair_window_us(&self, stream: u16) -> Result<u64, SessionError> {
-        self.streams
-            .get(&stream)
-            .map(Receiver::repair_window_us)
-            .ok_or(SessionError::Stream(stream))
     }
 
     /// Counters of `stream`.
@@ -389,9 +235,7 @@ impl Session {
             return u64::MAX;
         }
         let ping = self.clock.as_ref().map_or(u64::MAX, ClockEstimator::next_ping_us);
-        let stall = self.liveness.deadline_us().unwrap_or(u64::MAX);
-        let streams = self.streams.values().map(Receiver::next_deadline_us).min();
-        streams.unwrap_or(u64::MAX).min(ping).min(stall)
+        self.streams.values().map(Receiver::next_deadline_us).min().unwrap_or(u64::MAX).min(ping)
     }
 
     fn receiver(&mut self, stream: u16) -> Result<&mut Receiver, SessionError> {
@@ -407,9 +251,8 @@ impl Session {
         ReceiverError::StreamFailed.into()
     }
 
-    /// One entry in `ready` per frame a receiver newly queued. A frame a newer
-    /// keyframe replaced leaves its entry behind; `pop_frame` skips it.
-    fn track(&mut self, stream: u16, before: u64, after: u64) {
+    /// One entry in `ready` per frame a receiver newly released.
+    fn track(&mut self, stream: u16, before: usize, after: usize) {
         for _ in before..after {
             self.ready.push_back(stream);
         }
@@ -417,43 +260,21 @@ impl Session {
 
     fn on_datagram(&mut self, datagram: &[u8], now_us: u64) -> Result<(), SessionError> {
         let (header, _) = DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
-        // Every stream shares the link: any datagram shows it is not on hold.
-        self.streams.values_mut().for_each(|r| r.note_link_datagram(now_us));
-        self.liveness.heartbeat(header.kind);
         match header.kind {
-            DatagramKind::FrameTimes => {
-                let (_, payload) =
-                    DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
-                let times = FrameTimes::decode(payload).map_err(ReceiverError::Invalid)?;
-                self.ledger.on_host(header.stream, header.frame, times);
-                Ok(())
-            }
             DatagramKind::Video | DatagramKind::Fec => {
-                if self.streams.contains_key(&header.stream) {
-                    self.ledger.on_shard(header.stream, header.frame, datagram.len(), now_us);
-                }
                 let r = self.receiver(header.stream)?;
-                let before = r.frames_queued();
+                let before = r.ready_frames();
                 let pushed = r.push_datagram(datagram, now_us);
-                let after = r.frames_queued();
+                let after = r.ready_frames();
                 self.track(header.stream, before, after);
                 pushed.map_err(SessionError::from)
             }
-            // An ultra capacity probe: its stream's receiver reports the arrival in that
-            // stream's feedback. A probe for a stream that is not open is dropped.
-            DatagramKind::Probe => match self.streams.get_mut(&header.stream) {
-                Some(r) => r.push_datagram(datagram, now_us).map_err(SessionError::from),
-                None => Ok(()),
-            },
             DatagramKind::ClockPong if self.clock.is_some() => {
                 let (_, payload) =
                     DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
                 let pong = ClockPong::decode(payload).map_err(ReceiverError::Invalid)?;
-                if let Some(clock) = self.clock.as_mut()
-                    && clock.on_pong(&pong, now_us)
-                {
-                    let rtt = self.rtt_us();
-                    self.streams.values_mut().for_each(|r| r.set_path_rtt_us(rtt));
+                if let Some(clock) = self.clock.as_mut() {
+                    clock.on_pong(&pong, now_us);
                 }
                 Ok(())
             }

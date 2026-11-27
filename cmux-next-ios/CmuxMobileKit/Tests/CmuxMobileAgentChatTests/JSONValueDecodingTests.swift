@@ -17,6 +17,7 @@ struct JSONValueDecodingTests {
         #"{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"thinking"}}"#,
         #"{"sessionUpdate":"tool_call","toolCallId":"tc1","title":"run tests","kind":"execute","status":"in_progress","rawInput":{"command":"swift test","n":[1,2.5,null,true]}}"#,
         #"{"sessionUpdate":"tool_call_update","toolCallId":"tc1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"ok\nline 2"}},{"type":"diff","path":"a.swift","oldText":"x","newText":"y"},{"type":"content","content":{"type":"image","mimeType":"image/png","data":"iVBORw0KGgo="}}],"rawOutput":{"exit_code":0}}"#,
+        #"{"sessionUpdate":"plan","entries":[{"content":"Read the file","priority":"high","status":"pending"}]}"#,
         #"{"sessionUpdate":"current_mode_update","currentModeId":"plan"}"#,
         #"{"sessionUpdate":"usage_update","used":1200,"size":200000}"#,
         #"{"sessionUpdate":"session_info_update","title":"Fix the relay"}"#,
@@ -30,9 +31,6 @@ struct JSONValueDecodingTests {
     @Test func refusesWhatJSONDecoderRefuses() throws {
         let unknown = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"sessionUpdate":"something_new"}"#.utf8))
         #expect(throws: DecodingError.self) { try unknown.decoded(as: ACPSessionUpdate.self) }
-        // An agent's to-do list (ACP `plan`) is not shown, so it is refused like any unknown update.
-        let plan = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"sessionUpdate":"plan","entries":[{"content":"Read","priority":"high","status":"pending"}]}"#.utf8))
-        #expect(throws: DecodingError.self) { try plan.decoded(as: ACPSessionUpdate.self) }
         // No conversion between JSON types, and integers only from numbers they hold exactly.
         #expect(throws: DecodingError.self) { try JSONValue.number(1).decoded(as: String.self) }
         #expect(throws: DecodingError.self) { try JSONValue.string("1").decoded(as: Int.self) }

@@ -86,99 +86,12 @@ pub fn session_certs(auth_info: &str) -> Result<Vec<SessionCert>, String> {
 }
 
 /// `session_certs` for session open: a session with no certificate is an
-/// error, because the image's sshd allows only certificate logins
-/// (`AuthorizedKeysFile none`), so an empty list means the PAM environment
-/// was altered. The one other login is the platform's own short-lived key
-/// ([`platform_key_session`]), which session open checks first.
+/// error, because sshd allows only certificate logins (`AuthorizedKeysFile
+/// none`), so an empty list means the PAM environment was altered.
 pub fn required_session_certs(auth_info: &str) -> Result<Vec<SessionCert>, String> {
     let certs = session_certs(auth_info)?;
     if certs.is_empty() {
         return Err("no certificate in SSH_AUTH_INFO_0".into());
     }
     Ok(certs)
-}
-
-/// The platform's ssh endpoint (cmux-platform `SshEndpoint.ts`, `SSH_PATHS.keysDir`)
-/// adds its root-owned key file per user to sshd's `AuthorizedKeysFile` list and
-/// writes `restrict,expiry-time=…[,command=…] ssh-ed25519 <blob> cmux-ssh:…` lines
-/// to it: the ssh backup carrier and `cmux ssh` to a Cloud machine log in with them.
-pub const PLATFORM_KEYS_DIR: &str = "/etc/ssh/cmux-authorized-keys";
-
-/// A session that authenticated only with plain public keys, each one a key
-/// in the platform's key file for the user (`keys`, that file's text). Such a
-/// session has no certificate to record or revoke: the key expires on its own
-/// (`expiry-time`, enforced by sshd) and the platform revokes it by removing
-/// its line. Any certificate, other method, or key the file does not list
-/// answers false, so session open still refuses it.
-pub fn platform_key_session(auth_info: &str, keys: &str) -> bool {
-    let listed: Vec<(&str, &str)> = keys
-        .lines()
-        .filter(|line| !line.trim_start().starts_with('#'))
-        .flat_map(|line| {
-            let words: Vec<&str> = line.split_whitespace().collect();
-            (1..words.len()).map(move |i| (words[i - 1], words[i])).collect::<Vec<_>>()
-        })
-        .filter(|(kind, _)| kind.starts_with("ssh-") || kind.starts_with("ecdsa-"))
-        .collect();
-    let mut any = false;
-    for line in auth_info.lines().filter(|line| !line.is_empty()) {
-        let mut parts = line.split(' ');
-        let (Some("publickey"), Some(kind), Some(blob), None) =
-            (parts.next(), parts.next(), parts.next(), parts.next())
-        else {
-            return false;
-        };
-        if kind.ends_with("-cert-v01@openssh.com") || !listed.contains(&(kind, blob)) {
-            return false;
-        }
-        any = true;
-    }
-    any
-}
-
-#[cfg(test)]
-mod tests {
-    use super::platform_key_session;
-
-    const KEYS: &str = "restrict,expiry-time=\"20261125224500\",command=\"/home/cmux/.cmux/bin/cmux-tui remote-link --stdio\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOne cmux-ssh:1764110700:n1\nrestrict,expiry-time=\"20261125224500\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITwo cmux-ssh:1764110701:n2\n";
-
-    #[test]
-    fn a_login_with_the_platforms_carrier_key_is_a_platform_session() {
-        assert!(platform_key_session("publickey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOne\n", KEYS));
-        assert!(platform_key_session("publickey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITwo", KEYS));
-    }
-
-    #[test]
-    fn anything_else_is_not() {
-        assert!(!platform_key_session("", KEYS), "no method at all");
-        assert!(
-            !platform_key_session("publickey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOther\n", KEYS),
-            "unlisted key"
-        );
-        assert!(
-            !platform_key_session("publickey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOne\n", ""),
-            "no key file"
-        );
-        assert!(
-            !platform_key_session(
-                "publickey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOne\npassword\n",
-                KEYS
-            ),
-            "a second method"
-        );
-        assert!(
-            !platform_key_session(
-                "publickey ssh-ed25519-cert-v01@openssh.com AAAAC3NzaC1lZDI1NTE5AAAAIOne\n",
-                KEYS
-            ),
-            "a certificate"
-        );
-        assert!(
-            !platform_key_session(
-                "publickey ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOne\n",
-                &format!("# {KEYS}")
-            ),
-            "a commented-out line"
-        );
-    }
 }

@@ -4,7 +4,7 @@
   "id": "cmux/palette-notes",
   "name": { "en": "Palette Notes", "ja": "パレットノート" },
   "version": "1.0.0",
-  "description": { "en": "Keep notes in the command palette. Search them, preview one, copy its text or write a new one, all from the keyboard.", "ja": "ノートをコマンドパレットに置いておけます。検索、プレビュー、テキストのコピー、新規作成まで、すべてキーボードで行えます。" },
+  "description": { "en": "Notes in the command palette: search, preview, copy and create notes from the keyboard.", "ja": "コマンドパレットでノートを検索、プレビュー、コピー、作成します。" },
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "GPL-3.0-or-later",
@@ -13,7 +13,7 @@
   "engines": { "cmux": "^1.0" },
   "main": "dist/main.js",
   "scopes": {
-    "clipboard:write": "Copy a note's text to your clipboard when you choose Copy Text."
+    "clipboard:write": "Copy a note's text when you choose Copy Text."
   },
   "contributes": {
     "paletteScopes": [

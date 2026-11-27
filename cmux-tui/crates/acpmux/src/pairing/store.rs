@@ -79,11 +79,11 @@ impl TicketRecord {
             "role": self.role.as_str(),
             "label": self.label,
             "state": self.state(now_ms).as_str(),
-            "created_at": crate::clock_text::iso(self.created_ms),
-            "expires_at": crate::clock_text::iso(self.expires_ms),
-            "used_at": self.used_ms.map(crate::clock_text::iso),
+            "created_at": crate::server::iso(self.created_ms),
+            "expires_at": crate::server::iso(self.expires_ms),
+            "used_at": self.used_ms.map(crate::server::iso),
             "used_by": self.used_by,
-            "revoked_at": self.revoked_ms.map(crate::clock_text::iso),
+            "revoked_at": self.revoked_ms.map(crate::server::iso),
         })
     }
 }
@@ -119,9 +119,9 @@ impl Device {
             "id": self.id,
             "name": self.name,
             "role": self.role.as_str(),
-            "created_at": crate::clock_text::iso(self.created_ms),
+            "created_at": crate::server::iso(self.created_ms),
             "ticket_id": self.ticket,
-            "revoked_at": self.revoked_ms.map(crate::clock_text::iso),
+            "revoked_at": self.revoked_ms.map(crate::server::iso),
             "full_access": self.full_access_on(),
         })
     }

@@ -439,7 +439,6 @@ pub(super) fn audit(
         prompt,
         permission = text("permissionId"),
         option = text("optionId"),
-        choice = text("choiceId"),
         refused = reason,
         "carrier request"
     );
@@ -585,7 +584,7 @@ where
     let Some(who) = attested.lock().unwrap_or_else(|e| e.into_inner()).take() else {
         return;
     };
-    let (mut sink, source) = ws.split();
+    let (mut sink, mut source) = ws.split();
     let (in_tx, in_rx) = tokio::sync::mpsc::channel::<String>(256);
     let (out_tx, mut out_rx) = tokio::sync::mpsc::channel::<String>(4096);
     // The owner's link may carry the v2 list stream: its frames wait here, never in `out_tx`.
@@ -594,18 +593,13 @@ where
     let reader_end = crate::link_v2::ReaderEnd::new(slot.clone());
     let reader = tokio::spawn(async move {
         let _reader_end = reader_end;
-        // Pings are answered while a frame waits to be taken (`ws_read_ahead.rs`).
-        super::ws_read_ahead::read_ahead(source, |frame| {
-            let in_tx = in_tx.clone();
-            async move {
-                match frame {
-                    Frame::Text(t) => in_tx.send(t.to_string()).await.is_ok(),
-                    Frame::Close(_) => false,
-                    _ => true,
-                }
+        while let Some(Ok(frame)) = source.next().await {
+            match frame {
+                Frame::Text(t) if in_tx.send(t.to_string()).await.is_err() => break,
+                Frame::Close(_) => break,
+                _ => {}
             }
-        })
-        .await;
+        }
     });
     let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
     let writer = tokio::spawn(async move {
@@ -663,14 +657,13 @@ pub async fn serve_attested_link(
         origin,
         auth,
         None,
-        super::Transport::Messages,
+        false,
         crate::sender_harness::SocketPeer::Unknown,
         None,
         None,
         Some(who),
         None,
         link,
-        None,
     )
     .await
 }

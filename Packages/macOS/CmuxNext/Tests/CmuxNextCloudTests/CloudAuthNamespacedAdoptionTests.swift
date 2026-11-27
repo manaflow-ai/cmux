@@ -27,14 +27,14 @@ import Testing
         let scoped = nightly(legacy: false).credentialsDirectory(homeDirectory: home)
         #expect(previous.credentialsDirectory == scoped)
         #expect(scoped.pathComponents.suffix(2) == ["com.cmuxterm.app.nightly", "origin-0"])
-        #expect(CloudAuth.tokenStore(configuration: nightly(legacy: true)) is ImportingTokenStore)
+        #expect(CloudAuth.tokenStore(configuration: nightly(legacy: true), nightlySession: nil) is ImportingTokenStore)
     }
 
     @Test func anyOtherSelectionHasNoStoreToAdopt() {
         let home = URL(fileURLWithPath: "/Users/fixture")
         #expect(nightly(legacy: false).namespacedLegacyStorage(homeDirectory: home) == nil)
         #expect(nightly(legacy: true, storageNamespace: "project").namespacedLegacyStorage(homeDirectory: home) == nil)
-        #expect(!(CloudAuth.tokenStore(configuration: nightly(legacy: false)) is ImportingTokenStore))
-        #expect(CloudAuth.tokenStore(configuration: nightly(legacy: true), memoryOnly: true) is MemoryStackTokenStore)
+        #expect(!(CloudAuth.tokenStore(configuration: nightly(legacy: false), nightlySession: nil) is ImportingTokenStore))
+        #expect(CloudAuth.tokenStore(configuration: nightly(legacy: true), nightlySession: nil, memoryOnly: true) is MemoryStackTokenStore)
     }
 }

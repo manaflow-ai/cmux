@@ -17,29 +17,17 @@
 //!   `task_notification` turn's `cause` names the task that ended and whether that is worth a
 //!   response (`background_cause.rs`: `{kind, status, weight, origin?, summary?}`);
 //! - `{"state": "ended", "id", "trigger", "quiet", "reason"}`, at its `result` (`reason:
-//!   "result"`; for Codex, which runs its own turns toward an active goal and sends no `result`,
-//!   when its thread goes idle: `_meta.codex.threadStatus.type: "idle"`), when a prompt starts an acpmux turn while it runs (`"prompt"`: the rest is that
+//!   "result"`), when a prompt starts an acpmux turn while it runs (`"prompt"`: the rest is that
 //!   turn's), or when the agent exits (`"exit"`).
 //!
 //! Such a turn never pings: it never marks the chat unread, never ends an acpmux turn (so
 //! `lastTurn` and the notifications cmux-tui-core posts from it do not move), and its words never
 //! become the chat's `preview` / `lastMessage` (the sidebar line and a later notice's body).
 //!
-//! A turn of its own that ends on the account's rate limit (its `result` is the 429's error) is a
-//! strike of the chat and holds it as a prompted turn's 429 does (`rate_hold.rs`
-//! [`Hub::hold_at_failure`]): acpmux cannot stop Claude Code from starting it, but what acpmux
-//! would start next waits for the hold, and the strikes grow toward parking. Before, only a turn
-//! acpmux prompted counted, so a chat that a background task or a `/loop` tick woke on its 429
-//! kept getting the queue's turns at once (Leo, 2026-11-18: "claude-sr2-coord fell into a weird
-//! "rate limited" loop again 429 and whatever").
-//!
 //! `quiet` says how the transcript draws it, and is decided here only: a turn whose reply is at
 //! most one short line ([`SHORT_LINE`] characters), with no question and no link, is quiet and
-//! draws as one muted line that opens on a click. A turn that changed a file (a call of kind
-//! [`CHANGES`]) is never quiet, whatever its reply says: the person must see what it did and why
-//! (claude-97, 2026-11-25: a finished review woke the agent, it edited two files and committed,
-//! and its one-line reply hid under the muted line, so the edits looked as if no prompt started
-//! them). Any other one draws in full, still without a ping. Turns the person started are unchanged.
+//! draws as one muted line that opens on a click. Any other one draws in full, still without a
+//! ping. Turns the person started are unchanged.
 
 use super::*;
 use std::collections::VecDeque;
@@ -52,9 +40,6 @@ pub const SHORT_LINE: usize = 160;
 
 /// The most reply text kept to decide `quiet`: past it the reply is long anyway.
 const TEXT_KEPT: usize = 4 * SHORT_LINE;
-
-/// The ACP tool kinds that change files: a background turn with one of these calls is never quiet.
-const CHANGES: [&str; 3] = ["edit", "delete", "move"];
 
 /// The updates that start a pending background turn: the model at work.
 const WORK: [&str; 4] = ["agent_message_chunk", "agent_thought_chunk", "tool_call", "plan"];
@@ -73,8 +58,6 @@ pub(super) struct Running {
     long: bool,
     /// A permission or structured question needs the person's attention.
     attention: bool,
-    /// It called a tool that changes files ([`CHANGES`]): never quiet.
-    changed: bool,
 }
 
 /// A session's background-turn state, read and written by its tap.
@@ -134,19 +117,9 @@ impl BackgroundTurns {
     }
 
     /// An own update of the chat (not a subagent's), before it is logged. Returns the
-    /// `started` record to log first, when it is the first sign of a pending turn, or the
-    /// `ended` record of the running one when Codex's thread went idle.
+    /// `started` record to log first, when it is the first sign of a pending turn.
     fn on_update(&mut self, update: &Value, acpmux_turn: bool, seq: u64) -> Option<Value> {
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
-        // Codex sends no `result`: its thread going idle ends its own turn (one toward an active
-        // `_session/goal`, `stop_condition.rs`).
-        if !acpmux_turn
-            && kind == "session_info_update"
-            && update.pointer("/_meta/codex/threadStatus/type").and_then(Value::as_str)
-                == Some("idle")
-        {
-            return self.end("result");
-        }
         let mut started = None;
         if acpmux_turn {
             self.pending = None;
@@ -164,21 +137,10 @@ impl BackgroundTurns {
                 fields.insert("cause".into(), cause);
             }
             started = Some(record);
-            self.running = Some(Running {
-                id,
-                trigger,
-                text: String::new(),
-                long: false,
-                attention: false,
-                changed: false,
-            });
+            self.running =
+                Some(Running { id, trigger, text: String::new(), long: false, attention: false });
         }
         let Some(running) = self.running.as_mut() else { return started };
-        if matches!(kind, "tool_call" | "tool_call_update")
-            && update.get("kind").and_then(Value::as_str).is_some_and(|k| CHANGES.contains(&k))
-        {
-            running.changed = true;
-        }
         if kind != "agent_message_chunk" {
             return started;
         }
@@ -206,33 +168,14 @@ impl BackgroundTurns {
         let r = self.running.take()?;
         Some(json!({
             "state": "ended", "id": r.id, "trigger": r.trigger,
-            "quiet": !r.attention && !r.long && !r.changed && is_quiet(&r.text), "reason": reason,
+            "quiet": !r.attention && !r.long && is_quiet(&r.text), "reason": reason,
         }))
-    }
-
-    /// The turn of its own a `result` line ends, while no acpmux turn runs: the running one's id,
-    /// or one only begun (its `system/init` came, no model work yet) named by its init's seq.
-    fn own_turn(&self, acpmux_turn: bool) -> Option<String> {
-        if acpmux_turn {
-            return None;
-        }
-        let running = self.running.as_ref().map(|r| r.id.clone());
-        running.or_else(|| self.pending.map(|(_, seq)| format!("bg-{seq}")))
     }
 
     /// Whether a reply message is a background turn's.
     fn owns_message(&self, id: &str) -> bool {
         self.messages.iter().any(|m| m == id)
     }
-}
-
-/// The error of a Claude `result` line that failed on the account's usage or rate limit.
-fn rate_limit_result(method: &str, line: &Value) -> Option<String> {
-    if !method.starts_with("claude.result") || line.get("is_error") != Some(&Value::Bool(true)) {
-        return None;
-    }
-    let error = line.get("result").and_then(Value::as_str)?;
-    (crate::turn_errors::resume_cause(error, error) == Some("rate_limit")).then(|| error.to_owned())
 }
 
 impl Hub {
@@ -246,7 +189,6 @@ impl Hub {
                 text: String::new(),
                 long: true,
                 attention: false,
-                changed: false,
             });
     }
 
@@ -265,7 +207,6 @@ impl Hub {
             text: String::new(),
             long: false,
             attention: false,
-            changed: false,
         });
         drop(state);
         if let Some(msg) = previous {
@@ -306,27 +247,15 @@ impl Hub {
 
     /// The tap saw a raw Claude line (`claude.*`): logs the background-turn records it starts or
     /// ends, before the line itself.
-    /// A turn of its own that ends on the account's limit is a strike and holds the chat (the
-    /// module doc).
-    pub(super) fn background_turn_line(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        method: &str,
-        line: &Value,
-    ) {
+    pub(super) fn background_turn_line(&self, session: &Session, method: &str, line: &Value) {
         let acpmux_turn = session.turn().is_some();
         let seq = session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_seq + 1;
         let mut state = session.background_turns.lock().unwrap_or_else(|e| e.into_inner());
         let acpmux_turn = acpmux_turn || state.adopted_turn;
-        let limited =
-            rate_limit_result(method, line).and_then(|e| Some((state.own_turn(acpmux_turn)?, e)));
         let records = state.on_line(method, line, acpmux_turn, seq);
         drop(state);
         for msg in records {
             self.append(session, "mux", RECORD_KIND, msg);
-        }
-        if let Some((turn, error)) = limited {
-            let _parked = self.hold_at_failure(session, &turn, &error, None);
         }
     }
 
@@ -336,9 +265,9 @@ impl Hub {
         let seq = session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_seq + 1;
         let mut state = session.background_turns.lock().unwrap_or_else(|e| e.into_inner());
         let acpmux_turn = acpmux_turn || state.adopted_turn;
-        let record = state.on_update(update, acpmux_turn, seq);
+        let started = state.on_update(update, acpmux_turn, seq);
         drop(state);
-        if let Some(msg) = record {
+        if let Some(msg) = started {
             self.append(session, "mux", RECORD_KIND, msg);
         }
     }
@@ -346,15 +275,11 @@ impl Hub {
     /// While an agent host is adopted (`hosts.rs` `adopt_held`): its replay comes before
     /// adoption rebuilds the open turn from the complete log (`recover_work`), so until the
     /// returned hold drops, model work counts as the turn the chat's log has open, when it has
-    /// one (`open`, [`Hub::log_turn_open`]'s read, made off the executor). Before, the replayed
-    /// words of the person's own streaming turn opened a `background_turn` bracket, which the pane
-    /// folds into one muted line: after a restart the reply streamed on hidden until the turn
-    /// ended (manaflow-ai/cmuxterm-hq#6338).
-    pub(super) fn hold_adopted_turn<'a>(
-        &self,
-        session: &'a Session,
-        open: bool,
-    ) -> AdoptedTurn<'a> {
+    /// one ([`Hub::log_turn_open`]). Before, the replayed words of the person's own streaming turn
+    /// opened a `background_turn` bracket, which the pane folds into one muted line: after a
+    /// restart the reply streamed on hidden until the turn ended (manaflow-ai/cmuxterm-hq#6338).
+    pub(super) fn hold_adopted_turn<'a>(&self, session: &'a Session) -> AdoptedTurn<'a> {
+        let open = self.log_turn_open(session);
         session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).adopted_turn = open;
         AdoptedTurn(session)
     }
@@ -362,7 +287,7 @@ impl Hub {
     /// Whether the chat's log ends inside an acpmux turn: its last turn marker is a
     /// `turn_started`, or a `turn_result` that carried into the next turn (`carried_turn.rs`).
     /// Read from the end, as `open_work` finds the last turn.
-    pub(super) fn log_turn_open(&self, session: &Session) -> bool {
+    fn log_turn_open(&self, session: &Session) -> bool {
         let mut open = false;
         let _ = self.store.scan_back(
             &session.id,
@@ -417,5 +342,134 @@ impl Drop for AdoptedTurn<'_> {
 }
 
 #[cfg(test)]
-#[path = "background_turn_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn chunk(id: &str, text: &str) -> Value {
+        json!({"sessionUpdate": "agent_message_chunk", "messageId": id,
+               "content": {"type": "text", "text": text}})
+    }
+
+    #[test]
+    fn quiet_is_one_short_line_with_no_question_or_link() {
+        assert!(is_quiet("Nothing new for you yet."));
+        assert!(is_quiet("  Still waiting on CI.\n"));
+        assert!(is_quiet(""));
+        assert!(!is_quiet("Should I merge #12?"));
+        assert!(!is_quiet("Merged: https://github.com/o/r/pull/1"));
+        assert!(!is_quiet("Line one.\nLine two."));
+        assert!(!is_quiet(&"a".repeat(SHORT_LINE + 1)));
+    }
+
+    #[test]
+    fn a_task_notification_turn_is_bracketed_and_quiet() {
+        let mut b = BackgroundTurns::default();
+        assert!(b.on_line("claude.system.task_notification", &json!({}), false, 1).is_empty());
+        assert!(b.on_line("claude.system.init", &json!({}), false, 2).is_empty());
+        let started = b.on_update(&chunk("m1", "Nothing new "), false, 0);
+        // A notification of a task this daemon never heard start: a result, acpmux cannot say more.
+        assert_eq!(
+            started,
+            Some(json!({"state": "started", "id": "bg-2", "trigger": "task_notification",
+                        "cause": {"kind": "unknown", "status": "completed", "weight": "result"}}))
+        );
+        assert_eq!(b.on_update(&chunk("m1", "for you yet."), false, 0), None);
+        assert!(b.owns_message("m1"));
+        let ended = b.on_line("claude.result.success", &json!({}), false, 5);
+        assert_eq!(
+            ended,
+            [json!({"state": "ended", "id": "bg-2", "trigger": "task_notification",
+                    "quiet": true, "reason": "result"})]
+        );
+        // The next one, with nothing before it, is the system's; a long reply is not quiet.
+        b.on_line("claude.system.init", &json!({}), false, 6);
+        b.on_update(&chunk("m2", "Merged #1.\nThe nightly is green."), false, 0);
+        let ended = b.on_line("claude.result.success", &json!({}), false, 9);
+        assert_eq!(ended[0]["trigger"], "system");
+        assert_eq!(ended[0]["quiet"], false);
+    }
+
+    #[test]
+    fn a_task_notification_turn_names_its_cause() {
+        let mut b = BackgroundTurns::default();
+        let task = json!({"task_id": "t1", "subagent_type": "general-purpose"});
+        // Started during the person's turn: still heard.
+        b.on_line("claude.system.task_started", &task, true, 1);
+        let note = json!({"task_id": "t1", "tool_use_id": "toolu_1", "status": "completed",
+                          "summary": "The agent is waiting on its own background work."});
+        b.on_line("claude.system.task_notification", &note, false, 2);
+        b.on_line("claude.system.init", &json!({}), false, 3);
+        let started = b.on_update(&chunk("m1", "."), false, 0).unwrap();
+        assert_eq!(
+            started["cause"],
+            json!({"kind": "subagent", "status": "interim", "weight": "silent",
+                   "origin": "toolu_1", "summary": "The agent is waiting on its own background work."})
+        );
+        b.on_line("claude.result.success", &json!({}), false, 5);
+        // A notification the person's turn consumed is no later turn's cause.
+        b.on_line("claude.system.task_notification", &note, true, 6);
+        b.on_line("claude.system.init", &json!({}), false, 7);
+        assert!(b.on_update(&chunk("m2", "Hi"), false, 0).unwrap().get("cause").is_none());
+    }
+
+    #[test]
+    fn a_scheduled_wakeup_is_named() {
+        let mut b = BackgroundTurns::default();
+        b.on_line("claude.command_lifecycle", &json!({"state": "started"}), false, 1);
+        b.on_line("claude.system.init", &json!({}), false, 2);
+        let started = b.on_update(&json!({"sessionUpdate": "tool_call"}), false, 0).unwrap();
+        assert_eq!(started["trigger"], "scheduled");
+    }
+
+    #[test]
+    fn a_turn_acpmux_started_is_never_a_background_one() {
+        let mut b = BackgroundTurns::default();
+        b.on_line("claude.system.task_notification", &json!({}), true, 1);
+        assert!(b.on_line("claude.system.init", &json!({}), true, 2).is_empty());
+        assert_eq!(b.on_update(&chunk("m1", "Done."), true, 0), None);
+        assert!(!b.owns_message("m1"));
+        assert!(b.on_line("claude.result.success", &json!({}), true, 4).is_empty());
+    }
+
+    #[test]
+    fn an_init_with_no_work_after_it_is_no_turn() {
+        // Claude Code's system/init at its start, before any prompt.
+        let mut b = BackgroundTurns::default();
+        b.on_line("claude.system.init", &json!({}), false, 1);
+        assert_eq!(b.end("prompt"), None);
+        assert_eq!(b.on_update(&chunk("m1", "Hi"), true, 0), None);
+        assert!(b.on_line("claude.result.success", &json!({}), true, 3).is_empty());
+    }
+
+    #[test]
+    fn work_with_no_turn_after_a_restart_is_a_background_turn() {
+        // The daemon restarted mid-turn: no system/init, but the model works with no acpmux turn.
+        let mut b = BackgroundTurns::default();
+        let started = b.on_update(&chunk("m1", "Still waiting."), false, 7).unwrap();
+        assert_eq!(started["trigger"], "system");
+        assert_eq!(started["id"], "bg-7");
+        assert!(b.owns_message("m1"));
+        let ended = b.on_line("claude.result.success", &json!({}), false, 9);
+        assert_eq!(ended[0]["quiet"], true);
+    }
+
+    #[test]
+    fn a_reply_past_the_kept_text_is_never_quiet() {
+        let mut b = BackgroundTurns::default();
+        b.on_update(&chunk("m1", &"\u{1F600}".repeat(SHORT_LINE)), false, 1).unwrap();
+        b.on_update(&chunk("m1", "Done"), false, 0);
+        let ended = b.on_line("claude.result.success", &json!({}), false, 3);
+        assert_eq!(ended[0]["quiet"], false);
+    }
+
+    #[test]
+    fn a_prompt_ends_the_running_one() {
+        let mut b = BackgroundTurns::default();
+        b.on_line("claude.system.init", &json!({}), false, 1);
+        b.on_update(&chunk("m1", "Looking"), false, 0).unwrap();
+        let ended = b.end("prompt").unwrap();
+        assert_eq!(ended["reason"], "prompt");
+        // Its result, now the prompt's turn's, ends nothing more.
+        assert!(b.on_line("claude.result.success", &json!({}), true, 3).is_empty());
+    }
+}

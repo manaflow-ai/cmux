@@ -59,11 +59,9 @@ pub(super) const SSH_BINARY_ENV: &str = "CMUX_CARRIER_SSH_BINARY";
 /// An authorization is renewed this long before the key's expiry.
 const KEY_MARGIN_SECS: u64 = 60;
 /// The longest one authorization (its turn, the platform's answer and the
-/// pin) may take once the dial that built the route is over. A session with
-/// an ssh route resumes for this and a handshake more
-/// (`client::SSH_FAILOVER_WINDOW`), so a failover that has to authorize
-/// first still fits.
-pub(super) const AUTHORIZE_TIMEOUT: Duration = RESUME_DEADLINE;
+/// pin) may take once the dial that built the route is over: a resume's
+/// whole window.
+const AUTHORIZE_TIMEOUT: Duration = RESUME_DEADLINE;
 /// The remote command the provider names. sshd runs the key's forced
 /// command instead (cmux-platform `SSH_CARRIER_COMMAND`, the same words), so
 /// these only say what runs there.

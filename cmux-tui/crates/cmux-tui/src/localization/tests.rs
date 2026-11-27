@@ -3,25 +3,6 @@ use cmux_tui_machine_protocol::provider_action_id;
 use super::*;
 
 #[test]
-fn app_language_setting_wins_over_the_environment() {
-    let settings = |language: &str| serde_json::json!({ "app": { "language": language } });
-    let japanese = settings("ja");
-    assert!(catalog_for_settings(Some(&japanese), "en_US.UTF-8").is_japanese());
-    let english = settings("en");
-    assert!(!catalog_for_settings(Some(&english), "ja_JP.UTF-8").is_japanese());
-    // A shipped locale without a CLI catalog shows English.
-    let german = settings("de");
-    assert!(!catalog_for_settings(Some(&german), "ja_JP.UTF-8").is_japanese());
-    for keeps_env in [settings("system"), settings("klingon"), serde_json::json!({})] {
-        assert!(catalog_for_settings(Some(&keeps_env), "ja_JP.UTF-8").is_japanese());
-        assert!(!catalog_for_settings(Some(&keeps_env), "en_US.UTF-8").is_japanese());
-    }
-    assert!(catalog_for_settings(None, "ja_JP.UTF-8").is_japanese());
-    assert!(!catalog_for_settings(None, "C").is_japanese());
-    assert!(!catalog_for_settings(None, "").is_japanese());
-}
-
-#[test]
 fn locale_tags_select_complete_catalogs() {
     assert_eq!(catalog_for_locale("en_US.UTF-8"), &ENGLISH);
     assert_eq!(catalog_for_locale("ja_JP.UTF-8"), &JAPANESE);
@@ -148,11 +129,11 @@ fn locale_tags_select_complete_catalogs() {
     );
     assert_eq!(
         catalog_for_locale("en_US.UTF-8").machine_agent.migration_failed,
-        "Could not move the machine to a new connection; it stays on its current one"
+        "Could not reconnect the machine; please try again"
     );
     assert_eq!(
         catalog_for_locale("ja_JP.UTF-8").machine_agent.migration_failed,
-        "マシンを新しい接続に移せませんでした。現在の接続のまま続けます"
+        "マシンを再接続できませんでした。もう一度お試しください"
     );
     assert!(
         catalog_for_locale("en_US.UTF-8")
@@ -194,11 +175,11 @@ fn locale_tags_select_complete_catalogs() {
     );
     assert_eq!(
         catalog_for_locale("en_US.UTF-8").sidebar.provider_notice_identity_unavailable,
-        "Could not prepare the connection: cmux could not read or create its machine provider identity in its state directory."
+        "Could not prepare the connection. Try again; if the problem persists, restart cmux."
     );
     assert_eq!(
         catalog_for_locale("en_US.UTF-8").sidebar.provider_connection_already_running,
-        "Another cmux window is already connected to this machine provider; close it to connect here."
+        "Another connection is already running. Close it and try again."
     );
     assert_eq!(
         catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
@@ -238,11 +219,11 @@ fn locale_tags_select_complete_catalogs() {
     );
     assert_eq!(
         catalog_for_locale("ja_JP.UTF-8").sidebar.provider_notice_identity_unavailable,
-        "接続を準備できませんでした。cmux が状態ディレクトリにマシンプロバイダーの ID を読み込むか作成できませんでした。"
+        "接続を準備できませんでした。もう一度お試しください。問題が解決しない場合は、cmux を再起動してください。"
     );
     assert_eq!(
         catalog_for_locale("ja_JP.UTF-8").sidebar.provider_connection_already_running,
-        "別の cmux ウィンドウがすでにこのマシンプロバイダーに接続しています。ここで接続するには、そのウィンドウを閉じてください。"
+        "別の接続がすでに実行中です。終了してから、もう一度お試しください。"
     );
     assert_eq!(
         catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_external_connect_ambiguous,
@@ -437,18 +418,18 @@ fn browser_recovery_failures_are_localized_at_the_ui_boundary() {
     let cases = [
         (
             "browser resize recovery failed; reload to retry",
-            "browser failed: the page could not be redrawn at its new size",
-            "ブラウザのページを新しいサイズで再描画できませんでした",
+            "browser failed: browser resize recovery failed; reload to retry",
+            "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
         ),
         (
             "could not verify new page pixels: capture timed out; reload to retry",
-            "browser failed: could not verify new page pixels: capture timed out",
-            "新しいページの表示を確認できませんでした: capture timed out",
+            "browser failed: could not verify new page pixels: capture timed out; reload to retry",
+            "新しいページの表示を確認できませんでした: capture timed out。再読み込みして再試行してください",
         ),
         (
             "could not verify updated page pixels: capture timed out; reload to retry",
-            "browser failed: could not verify updated page pixels: capture timed out",
-            "更新後のページ表示を確認できませんでした: capture timed out",
+            "browser failed: could not verify updated page pixels: capture timed out; reload to retry",
+            "更新後のページ表示を確認できませんでした: capture timed out。再読み込みして再試行してください",
         ),
     ];
 

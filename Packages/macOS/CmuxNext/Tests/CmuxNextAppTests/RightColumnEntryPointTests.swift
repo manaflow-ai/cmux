@@ -59,7 +59,7 @@ import Testing
         #expect(answered, "a waiting open answers true")
         #expect(made.isEmpty, "the link decided its place while another open was still moving in")
         underWay?()
-        #expect(made == [right], "in its turn, the link opens as a tab in the pane on the right")
+        #expect(made == [right], "in its turn, the link opens by the pane on the right (a split below it is made there first)")
         #expect(!services.linkOpener.turns.isBusy(beside: chat.layoutPaneID), "a refused open kept its turn")
         withExtendedLifetime(state) {}
     }
@@ -90,8 +90,8 @@ import Testing
         let chat = try #require(content.panes[panes[0]])
         services.linkOpener.placement = { .splitRight }
         var gotPlaced = false
-        // One pane on the right: a tool's open splits below it, so `make` gets `placed`, and shows an existing tab instead.
-        let opened = services.linkOpener.open(from: chat, opening: .tool) { _, placed in
+        // One pane on the right: the open splits below it, so `make` gets `placed`, and shows an existing tab instead.
+        let opened = services.linkOpener.open(from: chat) { _, placed in
             gotPlaced = placed != nil
             services.linkOpener.openedInPlace()
             return true

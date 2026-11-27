@@ -53,14 +53,7 @@ inputs=(cmux-next-ios/rust cmux-tui/crates/cmux-wg cmux-tui/crates/cmux-transpor
 # The app's copy is built for size like cmux-tui's: fat LTO, one codegen unit. Only this
 # build gets it: the workspace profile stays as it is for the iPhone's xcframework. The
 # profile is part of the key, so a host cached before the change is not reused.
-# panic=abort drops the landing pads and unwind cleanup code (CMUX-570, cut 3 of
-# cmuxterm-hq docs/perf/bundle-size.md). Nothing in the host, cmux-mobile-link or the
-# rd crates it links catches a panic (no catch_unwind, JoinError::is_panic or panic
-# hook), so a panic in any task now ends the process instead of one task. The app's
-# MobileHostSupervisor restarts it after a backoff and the phone redials (LinkMachine,
-# about 1.6 s), the same path as a host kill. The iPhone's xcframework (rd-ffi's
-# catch_unwind FFI guards) keeps unwinding: it is built by its own scripts.
-size_profile=(CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_PANIC=abort)
+size_profile=(CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1)
 key_material="${size_profile[*]}"$'\n'
 for input in "${inputs[@]}"; do
   key_material+="$(git -C "$repo_root" rev-parse "HEAD:$input" 2>/dev/null || echo "missing:$input")"$'\n'

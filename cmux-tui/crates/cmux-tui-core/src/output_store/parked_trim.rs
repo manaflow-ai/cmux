@@ -171,66 +171,48 @@ pub(super) fn run(
     max_total_bytes: u64,
     min_free: u64,
 ) -> usize {
-    // The writer's pass reads the headers of the parked snapshots only.
-    let (_, snapshots) =
-        super::snapshot::scan(directory, |terminal_id| parked.contains(terminal_id));
-    let low = low_disk(directory, min_free);
-    run_with(directory, &snapshots, parked, now_ms, max_total_bytes, low).rewrites
-}
-
-/// What a pass did to the snapshot files.
-#[derive(Debug, Default)]
-pub(super) struct Pass {
-    /// The rewrites of a snapshot file that it ran (at most [`MAX_REWRITES_PER_PASS`]).
-    pub(super) rewrites: usize,
-    /// The terminals whose snapshot file it removed.
-    pub(super) removed: Vec<TerminalPublicId>,
-}
-
-/// Whether the disk of `directory` is under the free-disk guard now ([`disk_low`]). A disk that cannot be read
-/// is not low.
-pub(super) fn low_disk(directory: &Path, min_free: u64) -> bool {
-    fs4::available_space(directory)
+    let low = fs4::available_space(directory)
         .ok()
         .zip(fs4::total_space(directory).ok())
-        .is_some_and(|(available, capacity)| disk_low(available, capacity, min_free))
+        .is_some_and(|(available, capacity)| disk_low(available, capacity, min_free));
+    run_with(directory, parked, now_ms, max_total_bytes, low)
 }
 
-/// [`run`] with the snapshot files already scanned (`snapshots`: the plan reads no file again; only a rewrite
-/// reads its own file) and the free-disk guard already read (`disk_low`). A scanned file that is not of
-/// `parked_ids` is left as it is.
+/// [`run`] with the free-disk guard already read (`disk_low`).
 pub(super) fn run_with(
     directory: &Path,
-    snapshots: &[super::snapshot::Scanned],
     parked_ids: &HashSet<TerminalPublicId>,
     now_ms: u64,
     max_total_bytes: u64,
     low: bool,
-) -> Pass {
-    let parked: Vec<Parked> = snapshots
-        .iter()
-        .filter_map(|snapshot| {
+) -> usize {
+    let Ok(entries) = fs::read_dir(directory) else { return 0 };
+    let parked: Vec<Parked> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            (path.extension()? == super::snapshot::SUFFIX).then_some(())?;
+            let terminal_id = TerminalPublicId::parse(path.file_stem()?.to_str()?).ok()?;
             // A tail continues the snapshot's screen; a trim keeps that screen, so the tail still replays over it.
-            if !parked_ids.contains(&snapshot.terminal_id) {
+            if !parked_ids.contains(&terminal_id) {
                 return None;
             }
+            let header = super::snapshot::read_header(&path)?;
             Some(Parked {
-                terminal_id: snapshot.terminal_id.clone(),
-                written_at_ms: snapshot.header.get("written_at_ms")?.as_u64()?,
-                kept_lines: snapshot
-                    .header
+                terminal_id,
+                written_at_ms: header.get("written_at_ms")?.as_u64()?,
+                kept_lines: header
                     .get("kept_lines")
                     .and_then(serde_json::Value::as_u64)
                     .and_then(|lines| usize::try_from(lines).ok()),
-                bytes: snapshot.bytes()?,
+                bytes: entry.metadata().ok()?.len(),
             })
         })
         .collect();
     if parked.is_empty() {
-        return Pass::default();
+        return 0;
     }
-    let (mut trimmed, mut rewrites) = (0_usize, 0_usize);
-    let mut removed = Vec::new();
+    let (mut trimmed, mut removed, mut rewrites) = (0_usize, 0_usize, 0_usize);
     for (terminal_id, keep) in plan(&parked, now_ms, max_total_bytes, low) {
         let ok = match keep {
             Keep::RecordOnly => {
@@ -245,21 +227,20 @@ pub(super) fn run_with(
             Keep::All => false,
         };
         match (ok, keep) {
-            (true, Keep::RecordOnly) => removed.push(terminal_id),
+            (true, Keep::RecordOnly) => removed += 1,
             (true, _) => trimmed += 1,
             // A trim that failed leaves the file as it was; the next pass tries again.
             _ => {}
         }
     }
-    if trimmed + removed.len() > 0 {
+    if trimmed + removed > 0 {
         eprintln!(
-            "cmux-tui: terminal output store: {trimmed} parked snapshot(s) trimmed, {} removed \
+            "cmux-tui: terminal output store: {trimmed} parked snapshot(s) trimmed, {removed} removed \
              (age, budget {max_total_bytes} bytes{})",
-            removed.len(),
             if low { ", low disk" } else { "" }
         );
     }
-    Pass { rewrites, removed }
+    rewrites
 }
 
 /// Rewrites `terminal_id`'s snapshot with its newest `lines` lines, keeping its header (`written_at_ms` included)

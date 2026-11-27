@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
-use super::{Begin, Ended, Outcome, Port, failed_turn_message, last_turn, newest_prompt, run_turn};
+use super::{Begin, Ended, Outcome, Port, last_turn, newest_prompt, run_turn};
 
 const CHAT: &str = "0d4f9a52-8c1e-4b7a-9f3e-2a6b5c7d8e9f";
 
@@ -277,12 +277,7 @@ fn the_reply_is_the_last_answer_of_the_last_turn() {
     ];
     assert_eq!(
         last_turn(&items, 0),
-        Some(Ended {
-            seq: 8,
-            status: "completed".into(),
-            reply: Some("two, steered".into()),
-            failure: Map::new(),
-        })
+        Some(Ended { seq: 8, status: "completed".into(), reply: Some("two, steered".into()) })
     );
     // A turn that ended at or before the baseline is not the one waited on, and neither is one
     // whose prompt came before it (the prompt sent was still held when that turn ended).
@@ -346,134 +341,4 @@ fn a_send_held_for_approval_answers_permission_waiting_at_once() {
     let outcome = run_turn(&mut fake, &begin, Duration::from_secs(60));
     assert_eq!(error(&outcome), ("chat.permission_waiting", 2));
     assert!(fake.slices.is_empty(), "it does not wait");
-}
-
-/// `_acpmux/wait`'s answer, read as `agents wait`'s match was: a timeout waits on, a ready chat
-/// is idle, a permission blocks, a gone chat says so.
-#[test]
-fn an_acpmux_wait_answer_reads_as_the_turns_state() {
-    use super::waited;
-    let row = |row: Value| json!({"sessions": [row], "resolved": [row], "timedOut": false});
-    assert_eq!(waited(CHAT, &json!({"sessions": [], "resolved": [], "timedOut": true})), None);
-    let state = |answer: Value| waited(CHAT, &answer).map(|found| found["state"].clone());
-    assert_eq!(state(row(json!({"status": "ready"}))), Some(json!("idle")));
-    assert_eq!(state(row(json!({"status": "idle"}))), Some(json!("idle")));
-    assert_eq!(
-        state(row(json!({"status": "ready", "pendingPermissions": 1}))),
-        Some(json!("blocked"))
-    );
-    assert_eq!(state(row(json!({"status": "waiting"}))), Some(json!("blocked")));
-    assert_eq!(state(row(json!({"status": "closed", "missing": true}))), Some(json!("closed")));
-    assert_eq!(state(row(json!({"status": "disconnected"}))), Some(json!("disconnected")));
-    assert_eq!(state(row(json!({"status": "running"}))), None, "not an answer: wait again");
-}
-
-/// An event inside the gap after a check is owed, not dropped: the next wake once the gap passed
-/// checks, so a turn's end at the tail of a burst is seen within the gap, not a second later.
-#[test]
-fn an_event_inside_the_check_gap_is_checked_when_the_gap_passes() {
-    use super::super::wait::CheckGate;
-    let start = Instant::now();
-    let at = |ms: u64| start + Duration::from_millis(ms);
-    let mut gate = CheckGate::new(start);
-    assert!(gate.due(true, at(250)), "an event after the gap checks at once");
-    assert!(!gate.due(true, at(300)), "inside the gap: owed");
-    assert!(!gate.due(false, at(400)), "a wake still inside the gap waits");
-    assert!(gate.due(false, at(450)), "the owed check runs once the gap passed");
-    assert!(!gate.due(false, at(700)), "nothing owed: a wake does not check");
-    assert!(gate.due(false, at(1450)), "the recheck still runs every second");
-}
-
-fn ended(status: &str, failure: Value) -> Ended {
-    Ended {
-        seq: 2,
-        status: status.into(),
-        reply: None,
-        failure: failure.as_object().cloned().unwrap_or_default(),
-    }
-}
-
-/// A NIGHTLY, 2026-11-25: a turn that failed after 325 s printed `chat.turn_failed` "the turn ended
-/// failed" with no reason. The reason acpmux recorded now rides the turn end into the error.
-#[test]
-fn a_failed_turn_says_why_it_failed() {
-    let failed = |failure| failed_turn_message(&ended("failed", failure), CHAT);
-    assert_eq!(
-        failed(json!({"error": "agent exited (code 1): Error: auth expired"})),
-        "the turn ended failed: agent exited (code 1): Error: auth expired"
-    );
-    assert_eq!(
-        failed(
-            json!({"error": "the agent died.", "recovery": "acpmux restarts it on the next prompt"})
-        ),
-        "the turn ended failed: the agent died. acpmux restarts it on the next prompt"
-    );
-    assert_eq!(
-        failed(json!({"error": "rate limited", "recovery": "retry later"})),
-        "the turn ended failed: rate limited. retry later"
-    );
-    assert_eq!(
-        failed(json!({"detail": "stalled", "stalled_ms": 325_000})),
-        "the turn ended failed: the agent stalled, with no output for 325 s"
-    );
-    assert_eq!(
-        failed_turn_message(&ended("cancelled", json!({})), CHAT),
-        "the turn ended cancelled"
-    );
-    let bare = failed(json!({"code": -32603}));
-    assert!(
-        bare.starts_with("the turn ended failed (code -32603) and acpmux recorded no reason"),
-        "{bare}"
-    );
-    assert!(bare.contains(CHAT), "it names where to look: {bare}");
-    let bare = failed(json!({"error": "   "}));
-    assert!(bare.contains("recorded no reason"), "blank is no reason: {bare}");
-}
-
-#[test]
-fn chat_turn_failed_carries_the_reason_through_last_turn() {
-    let mut failed_end = end(2, "failed");
-    failed_end["error"] = json!("agent exited (code 137): killed");
-    failed_end["code"] = json!(-32603);
-    let ended = last_turn(&[item(1, "user", "go"), failed_end.clone()], 0).unwrap();
-    assert_eq!(ended.failure["error"], "agent exited (code 137): killed");
-    assert_eq!(ended.failure["code"], -32603);
-
-    let mut fake = Fake::new(new_receipt());
-    fake.waits = VecDeque::from([idle()]);
-    fake.reads = VecDeque::from([vec![item(1, "user", "go"), failed_end]]);
-    let outcome = run_turn(&mut fake, &Begin::New(vec!["go".into()]), Duration::from_secs(60));
-    assert_eq!(error(&outcome), ("chat.turn_failed", 1));
-    let Outcome::Failed { error, .. } = &outcome else { unreachable!() };
-    assert!(
-        error.to_string().contains("agent exited (code 137): killed"),
-        "the reason reaches the error: {error}"
-    );
-}
-
-/// A send queued behind a failed turn (its queue paused) says so at once instead of waiting out
-/// the clock for a turn that never starts.
-#[test]
-fn a_send_queued_behind_a_paused_queue_does_not_wait() {
-    let receipt = json!({"schema_version": 1, "action": "chat.send", "result": {
-        "chat": CHAT, "message_id": "m1", "state": "queued", "waits_for": "resume",
-        "reason": "the chat's last turn failed, so its queue is paused"}});
-    let mut fake = Fake::new(receipt);
-    let begin = Begin::Send { session: CHAT.into(), text: "next".into() };
-    let outcome = run_turn(&mut fake, &begin, Duration::from_secs(60));
-    assert_eq!(error(&outcome), ("chat.queue_paused", 2));
-    assert!(fake.slices.is_empty(), "no wait");
-
-    // Queued behind a starting agent: it goes in by itself, so the wait goes on.
-    let receipt = json!({"schema_version": 1, "action": "chat.send", "result": {
-        "chat": CHAT, "message_id": "m1", "state": "queued", "waits_for": "agent_start"}});
-    let mut fake = Fake::new(receipt);
-    fake.waits = VecDeque::from([idle()]);
-    fake.reads = VecDeque::from([vec![
-        item(1, "user", "next"),
-        item(2, "assistant", "ok"),
-        end(3, "completed"),
-    ]]);
-    let outcome = run_turn(&mut fake, &begin, Duration::from_secs(60));
-    assert_eq!(answer(&outcome)["reply"], "ok");
 }

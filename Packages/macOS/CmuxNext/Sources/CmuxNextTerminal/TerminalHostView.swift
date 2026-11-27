@@ -18,14 +18,12 @@ public final class TerminalHostView: NSView {
     var theme: GhosttyThemeConfig? {
         didSet { paintBackground() }
     }
-    /// The ground this terminal gives to the view that paints its pane's ground (`PaneGroundOwning`); nil where the
-    /// host paints its own.
-    var ownedGround: CGColor?
     /// The label over the last screen while the link is down (click-through), built the first time
     /// a label shows: a new terminal's "connected" or quick "Restoring…" builds and shows nothing.
     lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
         self?.addChrome(banner, .statusLabel)
     }, didReveal: { [weak self] in
+        self?.syncRetryButton()
         self?.needsLayout = true
     })
     private let statusClock: any Clock<Duration>
@@ -36,17 +34,24 @@ public final class TerminalHostView: NSView {
     private var scroller: TerminalScroller?
     /// The surface's last scrollbar state (Ghostty's scrollbar action), kept while no scroller is built.
     private var scrollbar: TerminalScrollbar?
+    /// Builds the scroller when the pointer reaches the trailing edge of a terminal with scrollback
+    /// (``pointerMoved(to:)``); none while there is nothing to scroll back through or once it is built.
+    private var edgeTracker: TerminalScrollerEdgeTracker?
     private var shownStatus: TerminalConnectionStatus = .connected
     private var hostLoss: TerminalHostLoss?
     private var hostLossCause: TerminalHostLossCause?
     private var shellStall: TerminalShellStall?
     /// "Restart Shell Here" above the banner while the shell has ended.
-    /// It and the "Sized for" chip are built the first time they show, not with the
+    /// It, Retry and the "Sized for" chip are built the first time they show, not with the
     /// terminal: each is a rounded NSButton, whose bezel is sized and laid out through SwiftUI,
     /// and a hidden chip's constraints conflict at its zero frame, all in a split's first frame.
     private var restartButton: TerminalRestartButton?
+    /// "Retry" above the banner once the view's attach kept failing.
+    private var retryButton: TerminalRetryButton?
     /// "Sized for <device>" with Take over, bottom-trailing, while another view sets the grid.
     private var sizedForChip: TerminalSizedForChip?
+    /// "Exit 101 · Fix" bottom-trailing after a failed command, while the App gave ``onFixCommand``.
+    private var fixChip: TerminalFixChip?
     /// Classic's hatch over the pane space the grid does not use while the chip shows.
     private var sizeHatch: TerminalSizeHatchView?
     private var restartAction: (@MainActor () -> Void)?
@@ -55,6 +60,11 @@ public final class TerminalHostView: NSView {
     public var onRestart: (@MainActor () -> Void)? {
         get { restartAction }
         set { restartAction = newValue; syncRestartButton(); needsLayout = true }
+    }
+    /// The App's `terminal.fixLastCommand` for this tab; nil offers no Fix chip (a daemon without
+    /// `terminal-command-context-v1`, the chip turned off).
+    public var onFixCommand: (@MainActor () -> Void)? {
+        didSet { if onFixCommand == nil { showFix(exitCode: nil) } }
     }
     /// Called before the terminal session removes this host from its pane.
     /// Transient input owners use it to cancel work pinned to this surface.
@@ -99,21 +109,6 @@ public final class TerminalHostView: NSView {
             if let topOverlay {
                 topOverlay.translatesAutoresizingMaskIntoConstraints = true
                 addChrome(topOverlay, .overlay)
-            }
-            needsLayout = true
-        }
-    }
-
-    /// Computer Use's live preview card (``TerminalComputerUsePreview``) for the agent running in
-    /// this terminal, where the person dragged it (at first the top-trailing corner), under the find
-    /// bar while that shows.
-    public var computerUsePreview: TerminalComputerUsePreview? {
-        didSet {
-            guard oldValue !== computerUsePreview else { return }
-            oldValue?.removeFromSuperview()
-            if let computerUsePreview {
-                computerUsePreview.translatesAutoresizingMaskIntoConstraints = true
-                addChrome(computerUsePreview, .overlay)
             }
             needsLayout = true
         }
@@ -201,8 +196,8 @@ public final class TerminalHostView: NSView {
         if view === scroller { return .scroller }
         if view === bottomAccessory { return .accessory }
         if view === statusLabel.banner { return .statusLabel }
-        if view === topOverlay || view === computerUsePreview || view === restartButton || view === sizedForChip
-            || view is TerminalFindBarView { return .overlay }
+        if view === topOverlay || view === restartButton || view === retryButton || view === sizedForChip
+            || view === fixChip || view is TerminalFindBarView { return .overlay }
         return nil
     }
 
@@ -223,11 +218,27 @@ public final class TerminalHostView: NSView {
         shownStatus = status
         var changed = statusLabel.show(status, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
         changed = syncRestartButton() || changed
-        // No Retry button over a failed attach (Leo, 2026-11-22: "vacuous decisions like that should be just
-        // done"): a visible view already re-attaches by itself at the capped backoff for as long as it shows
-        // (TerminalAttachMachine, cx-wwtam), and a click or a key re-attaches at once anyway.
+        if retryButton == nil, TerminalRetryButton.shows(status) {
+            let button = TerminalRetryButton()
+            // The same re-attach a click in the disconnected terminal starts.
+            button.onRetry = { [weak self] in self?.current?.session?.surfaceClicked() }
+            statusLabel.prepareView()
+            retryButton = button
+            addChrome(button, .overlay)
+        }
+        changed = syncRetryButton() || changed
         // A new terminal's "connected" (or a label still waiting) changes nothing on screen: no layout.
         if changed { needsLayout = true }
+    }
+
+    /// Shows Retry for the shown status with the label it sits over: not while that label still waits
+    /// out its reveal delay (a drop that heals within it shows neither). Returns whether it changed.
+    @discardableResult
+    private func syncRetryButton() -> Bool {
+        guard let retryButton else { return false }
+        let hidden = retryButton.isHidden
+        retryButton.show(shownStatus, waiting: statusLabel.isWaiting)
+        return hidden != retryButton.isHidden
     }
 
     /// Builds the restart button once the shell has ended, or cmux lost its
@@ -308,6 +319,45 @@ public final class TerminalHostView: NSView {
         needsLayout = true
     }
 
+    /// The Fix chip's text, nil while hidden (diagnostics and tests).
+    var fixChipText: String? {
+        guard let fixChip, !fixChip.isHidden else { return nil }
+        return fixChip.shownExitCode.map { TerminalFixChip.text(exitCode: $0) }
+    }
+
+    /// A command the shell finished (OSC 133 `D`): a failure offers Fix, anything else hides it.
+    /// One call per finished command, never per output line; a hidden pane only flips the chip.
+    func commandFinished(_ result: TerminalCommandResult) {
+        showFix(exitCode: TerminalFixChip.offersFix(exitCode: result.exitCode) ? result.exitCode : nil)
+    }
+
+    /// The person pressed Return in the terminal: the next command starts, so the last one's Fix goes.
+    func commandSubmitted() {
+        if fixChip?.isHidden == false { showFix(exitCode: nil) }
+    }
+
+    /// Whether the Fix chip shows now (the surface's Return check reads it).
+    var offersFix: Bool { fixChip?.isHidden == false }
+
+    private func showFix(exitCode: Int?) {
+        let exitCode = onFixCommand == nil ? nil : exitCode
+        // The chip shows exactly while it has a status, so the same status changes nothing.
+        guard exitCode != fixChip?.shownExitCode else { return }
+        if fixChip == nil {
+            let chip = TerminalFixChip()
+            chip.onFix = { [weak self] in
+                guard let self else { return }
+                self.showFix(exitCode: nil)
+                self.onFixCommand?()
+            }
+            chip.onDismiss = { [weak self] in self?.showFix(exitCode: nil) }
+            fixChip = chip
+            addChrome(chip, .overlay)
+        }
+        fixChip?.show(exitCode: exitCode)
+        needsLayout = true
+    }
+
     func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
         hostLoss = loss
         hostLossCause = cause
@@ -376,10 +426,35 @@ public final class TerminalHostView: NSView {
         let previous = scrollbar
         scrollbar = bar
         if let scroller { return scroller.update(bar) }
-        guard TerminalScrollerGeometry.isUserMove(from: previous, to: bar) else { return }
+        guard TerminalScrollerGeometry.isUserMove(from: previous, to: bar) else { return trackEdge(for: bar) }
         let scroller = makeScroller()
         scroller.update(previous)
         scroller.update(bar)
+    }
+
+    /// The pointer moved over the terminal to `point` (this view's coordinates), or left it (nil),
+    /// while no scroller is built (``TerminalScrollerEdgeTracker``). Over the scroller's strip with
+    /// scrollback to show, it builds the scroller and hands it the pointer, which shows it; a built
+    /// scroller follows the pointer itself.
+    func pointerMoved(to point: CGPoint?) {
+        guard scroller == nil, let point, let bar = scrollbar, bar.totalRows > bar.visibleRows else { return }
+        let area = terminalBounds
+        guard area.contains(point), point.x >= TerminalScroller.strip(in: area, style: SystemScrollers.nativeStyle).minX else { return }
+        let scroller = makeScroller()
+        scroller.update(bar)
+        (scroller.verticalScroller as? ThinScroller)?.pointerMoved(to: scroller.convert(point, from: self))
+    }
+
+    /// Tracks the pointer for ``pointerMoved(to:)`` only while there is scrollback and no scroller:
+    /// a terminal with nothing to scroll back through gets no tracking area.
+    private func trackEdge(for bar: TerminalScrollbar?) {
+        let wanted = scroller == nil && (bar.map { $0.totalRows > $0.visibleRows } ?? false)
+        if wanted, edgeTracker == nil {
+            edgeTracker = TerminalScrollerEdgeTracker(host: self)
+        } else if !wanted, let edgeTracker {
+            edgeTracker.detach()
+            self.edgeTracker = nil
+        }
     }
 
     /// Whether the scroller is built (tests).
@@ -391,6 +466,7 @@ public final class TerminalHostView: NSView {
         scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
         scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
         self.scroller = scroller
+        trackEdge(for: nil) // the scroller's own tracking area follows the pointer from here
         // Above the surface and a held frame, below the accessory, the status label and the overlays.
         addChrome(scroller, .scroller)
         scroller.frame = scroller.strip(in: terminalBounds)
@@ -505,20 +581,28 @@ public final class TerminalHostView: NSView {
     }
 
     /// The status banner centered 12 pt above the bottom (at most the width
-    /// less 24), the restart button centered 8 pt above it, and
+    /// less 24), the restart and retry buttons centered 8 pt above it, and
     /// the find bar in the top-trailing corner. Hidden ones are skipped.
     private func layoutOverlays() {
-        let buttons: [NSView] = ([restartButton] as [NSButton?]).compactMap { $0 }.filter { !$0.isHidden }
+        let buttons: [NSView] = ([restartButton, retryButton] as [NSButton?]).compactMap { $0 }.filter { !$0.isHidden }
         if statusLabel.banner?.isHidden == false || !buttons.isEmpty {
             layoutStatus(buttons: buttons)
         }
         let inset = Metrics.panelInset
         layoutSizeHatch()
+        // Bottom-trailing, clear of the scroller: where a padded grid leaves room, and next to the
+        // prompt a finished command leaves at the bottom. Fix stacks above "Sized for" when both show.
+        let trailing = bounds.width - scrollerWidth - inset
+        var bottom = terminalBounds.minY + inset
         if let sizedForChip, !sizedForChip.isHidden {
-            // Bottom-trailing, clear of the scroller: where a padded grid leaves room.
-            let trailing = bounds.width - scrollerWidth - inset
-            _ = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in
-                CGPoint(x: max(inset, trailing - size.width), y: self.terminalBounds.minY + inset)
+            let frame = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in
+                CGPoint(x: max(inset, trailing - size.width), y: bottom)
+            }
+            bottom = frame.maxY + 6
+        }
+        if let fixChip, !fixChip.isHidden {
+            _ = place(fixChip, maxWidth: bounds.width - inset * 2) { size in
+                CGPoint(x: max(inset, trailing - size.width), y: bottom)
             }
         }
         if let topOverlay, !topOverlay.isHidden {
@@ -529,20 +613,10 @@ public final class TerminalHostView: NSView {
         // Framed hidden too: the bar shows itself when find opens.
         // The shared find pill sits where every pane's does (FindPillMetrics.inset from top and trailing).
         let findInset = FindPillMetrics.inset
-        var findBottom = bounds.height
         for case let bar as TerminalFindBarView in subviews {
-            let frame = place(bar, maxWidth: bounds.width - findInset * 2, evenHidden: true) { size in
+            _ = place(bar, maxWidth: bounds.width - findInset * 2, evenHidden: true) { size in
                 CGPoint(x: self.bounds.width - findInset - size.width, y: self.bounds.height - findInset - size.height)
             }
-            if !bar.isHidden { findBottom = min(findBottom, frame.minY) }
-        }
-        if let computerUsePreview, !computerUsePreview.isHidden {
-            computerUsePreview.paneWidth = bounds.width
-            let top = findBottom < bounds.height ? findBottom - inset : bounds.height - inset
-            // Where the person dragged it inside the pane; a new card at the top-trailing corner.
-            computerUsePreview.area = CGRect(x: inset, y: inset, width: max(0, bounds.width - scrollerWidth - inset * 2),
-                                             height: max(0, top - inset))
-            _ = place(computerUsePreview, maxWidth: bounds.width - inset * 2) { size in computerUsePreview.origin(for: size) }
         }
     }
 
@@ -593,10 +667,54 @@ public final class TerminalHostView: NSView {
         paintBackground()
     }
 
-    /// The hatch's ground, then the host's own (``paintGround()``, `TerminalHostView+Ground`).
+    /// An opaque window paints the terminal's theme background, like
+    /// `GhosttyRuntime.backgroundColor`. Where the window is see-through
+    /// (translucent, glass, or over art) the window root paints the one
+    /// sheet and the host stays clear, as the panes around it do, unless the
+    /// terminal's own theme differs from theirs: its background then lies over
+    /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). The user's terminal
+    /// background (`appearance.surfaces.terminal`) replaces all of these;
+    /// the surfaces then draw a transparent default background.
     fileprivate func paintBackground() {
         sizeHatch?.ground = hatchGround
-        paintGround()
+        let (scope, tokens) = (themeScope, themeTokens)
+        // The window root's backdrop (`WindowRootView.backdrop`): the scope's art and its own tint.
+        let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
+                                      selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
+        GhosttyRuntime.setSeeThrough(superview != nil && !backdrop.panesPaintBackground, host: self)
+        // Under an App Theme, a terminal on the terminal theme draws on the App Theme's one veil
+        // (sidebar and panes alike), its colors raised to read on it; on an opaque window or with
+        // its own theme it keeps its own background.
+        let veil = !backdrop.panesPaintBackground && theme == nil && scope.store.appTheme != nil
+        onVeil?(veil ? superview?.themeTokens.windowBackground.withAlpha(1) : nil)
+        let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
+        if let fill {
+            layer?.backgroundColor = fill.cgColor
+            return
+        }
+        guard !backdrop.panesPaintBackground else {
+            // The program set its own background (OSC 11): the host beside the surface (a held frame's grow strip) has
+            // the colour of its empty cells.
+            layer?.backgroundColor = current?.session?.model.backgroundOverride?.cgColor ?? Self.opaqueGround(theme)
+            return
+        }
+        let around = superview?.themeTokens.surfaceBackground.withAlpha(1)
+        let own = tokens.surfaceBackground.withAlpha(1)
+        layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
+    }
+
+    /// The terminal background under the Sized for hatch: the user's terminal surface color, else the program's
+    /// own (OSC 11), else the theme's or the config's.
+    private var hatchGround: CGColor {
+        performWithTheme { Palette.surfaceOverride(.terminal) }?.cgColor
+            ?? current?.session?.model.backgroundOverride?.cgColor
+            ?? Self.opaqueGround(theme)
+    }
+
+    /// The background of `theme`'s empty cells, else the config's (``ground(theme:in:)`` gives a waiting pane the same).
+    static func opaqueGround(_ theme: GhosttyThemeConfig?) -> CGColor {
+        guard let rgb = theme?.colors?.background else { return GhosttyRuntime.shared.backgroundColor.cgColor }
+        return CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
     }
 }
 

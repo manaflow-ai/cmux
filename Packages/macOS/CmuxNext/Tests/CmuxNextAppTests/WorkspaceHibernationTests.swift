@@ -115,9 +115,6 @@ import Testing
         let (hibernation, host, _, _) = Self.make(["shown", "fresh"])
         host.shown = ["shown"]
         hibernation.noteShown(["shown"])
-        // What Hibernate Workspace's row reads: off for the shown workspace, on for any other.
-        #expect(hibernation.isShown("shown"))
-        #expect(!hibernation.isShown("fresh"))
         #expect(throws: WorkspaceHibernationRefusal.shown) { try hibernation.hibernateNow("shown") }
         #expect(throws: Never.self) { try hibernation.hibernateNow("fresh") }
         #expect(host.hibernatedCalls == ["fresh"])

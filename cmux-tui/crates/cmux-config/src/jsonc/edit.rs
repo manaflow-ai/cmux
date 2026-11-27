@@ -1,4 +1,4 @@
-//! In-place set and remove (the app sends `settings.edit`; it has no JSONC editor).
+//! In-place set and remove (Swift `JSONC.setting` and `JSONC.removing`).
 
 use std::ops::Range;
 

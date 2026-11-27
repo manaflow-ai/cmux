@@ -23,10 +23,7 @@ statement on the next line, so a read or key split across lines is still one
 statement (review of #41471, F1). Comments (`//`, nested `/* */`) are dropped,
 and the text of a string literal is masked, so a comment or a string that only
 mentions sessionId is not flagged. A finding names the line its statement
-starts on. A block's body is its own statements, but a peer read in the statement that opens
-the innermost block counts with each statement inside it, so a key built in a closure
-(`row["peer"].map { "\\($0)/\\(id)" }`, even on one line) is still found (review of #41483,
-F1). A statement that must do either (sessionKey's own body) carries
+starts on. A statement that must do either (sessionKey's own body) carries
 `feed-key-allow: <reason>` on one of its lines.
 
 The feed path: every Swift file under CmuxNextApp/Feed/, the dialog desk's
@@ -183,30 +180,24 @@ class _Lexer:
         rest = self.t[p:self.n if end < 0 else end].lstrip()
         return rest.startswith(_CONTINUE_BEFORE) and not rest.startswith(("//", "/*"))
 
-    def statements(self) -> list[tuple[int, int, str, tuple[int, int, str] | None]]:
-        """(first index, last index, code, opener) of each statement.
+    def statements(self) -> list[tuple[int, int, str]]:
+        """(first index, last index, code) of each statement.
 
         A statement ends at `;`, at a `{` or `}`, or at a newline, all outside
-        (), [], strings and comments, unless the line continues it. `opener` is
-        the (first, last, code) of the statement that opened the innermost block
-        the statement is in, or None at the top level or after an empty opener.
+        (), [], strings and comments, unless the line continues it.
         """
         t, n = self.t, self.n
-        out: list[tuple[int, int, str, tuple[int, int, str] | None]] = []
+        out: list[tuple[int, int, str]] = []
         buf: list[str] = []
         first = last = -1
         depth = 0
-        openers: list[tuple[int, int, str] | None] = []
 
-        def flush() -> tuple[int, int, str] | None:
+        def flush() -> None:
             nonlocal buf, first, last, depth
             code = "".join(buf)
-            got = None
             if first >= 0 and code.strip():
-                got = (first, last, code)
-                out.append((first, last, code, openers[-1] if openers else None))
+                out.append((first, last, code))
             buf, first, last, depth = [], -1, -1, 0
-            return got
 
         i = 0
         while i < n:
@@ -234,11 +225,7 @@ class _Lexer:
                 i += 1
                 continue
             if depth == 0 and c in "{};":
-                opened = flush()
-                if c == "{":
-                    openers.append(opened)
-                elif c == "}" and openers:
-                    openers.pop()
+                flush()
                 i += 1
                 continue
             if c in "([":
@@ -262,22 +249,15 @@ def findings(root: Path) -> list[str]:
         text = path.read_text(encoding="utf-8")
         lines = text.split("\n")
         newlines = [i for i, c in enumerate(text) if c == "\n"]
-        for first, last, code, opener in _Lexer(text).statements():
+        for first, last, code in _Lexer(text).statements():
             start = bisect.bisect_left(newlines, first)
             end = bisect.bisect_left(newlines, last)
             if any(ALLOW in line for line in lines[start:end + 1]):
                 continue
-            # A key built inside a block counts its opener's peer read (and its allow).
-            context = ""
-            if opener is not None and PEER_READ.search(opener[2]):
-                o_start = bisect.bisect_left(newlines, opener[0])
-                o_end = bisect.bisect_left(newlines, opener[1])
-                if not any(ALLOW in line for line in lines[o_start:o_end + 1]):
-                    context = opener[2]
             if RAW_READ.search(code):
                 out.append(f"{rel}:{start + 1}: reads the raw sessionId; key the feed on "
                            "AcpmuxPendingReads.sessionKey(_:) (qualifiedSessionId for a peer)")
-            elif (PEER_READ.search(code) or context) and HAND_KEY.search(code):
+            elif PEER_READ.search(code) and HAND_KEY.search(code):
                 out.append(f"{rel}:{start + 1}: builds a peer/id key by hand; use "
                            "AcpmuxPendingReads.sessionKey(_:)")
     return out

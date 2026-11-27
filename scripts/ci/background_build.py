@@ -127,11 +127,9 @@ def join(state: Path, name: str, timeout: int) -> int:
     return 1
 
 
-def stop(state: Path, only: str | None = None) -> int:
+def stop(state: Path) -> int:
     for pid_file in sorted(state.glob("*.pid")) if state.is_dir() else []:
         name = pid_file.name[: -len(".pid")]
-        if only and name != only:
-            continue
         if paths(state, name)["status"].exists():
             continue
         group = int(pid_file.read_text().strip())
@@ -154,9 +152,6 @@ def main(argv: list[str]) -> int:
         sub.add_argument("--state", required=True, type=Path)
         if command != "stop":
             sub.add_argument("name")
-        else:
-            # Optional: stop only this helper; without it every unfinished helper stops.
-            sub.add_argument("name", nargs="?")
         if command == "join":
             sub.add_argument("--timeout", type=int, default=1800)
         if command == "_supervise":
@@ -173,7 +168,7 @@ def main(argv: list[str]) -> int:
         return supervise(args.state, args.name, args.lock_fd, build)
     if args.command == "join":
         return join(args.state, args.name, args.timeout)
-    return stop(args.state, args.name)
+    return stop(args.state)
 
 
 if __name__ == "__main__":

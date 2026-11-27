@@ -212,6 +212,6 @@ public final class SavedGroupsBarView: NSView {
 
     public override func menu(for event: NSEvent) -> NSMenu? {
         guard let id = chip(at: convert(event.locationInWindow, from: nil)) else { return nil }
-        return NSMenu.withoutSystemItems(contextMenuProvider?(.savedGroup(id)))
+        return contextMenuProvider?(.savedGroup(id))
     }
 }

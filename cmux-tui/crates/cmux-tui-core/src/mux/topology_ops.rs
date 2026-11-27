@@ -132,7 +132,6 @@ impl Mux {
         let mut fields = Map::from_iter([("url".into(), Value::String(url))]);
         fields.extend(extra_fields);
         tab_strip::tab_slot::insert_field(&mut fields, pane);
-        tab_strip::tab_place::insert_fields(&mut fields);
         tab_strip::reopen_identity::insert_field(&mut fields);
         if let Some((cols, rows)) = size {
             let (cell_width, cell_height) = self.cell_pixel_size();
@@ -354,7 +353,6 @@ impl Mux {
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
         tab_strip::tab_slot::insert_field(&mut fields, pane);
-        tab_strip::tab_place::insert_fields(&mut fields);
         tab_strip::reopen_identity::insert_field(&mut fields);
         let commit = self.commit_ordinary_topology_operation_by(
             actor,
@@ -505,26 +503,12 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
-        let direction = split_direction_field(dir, before);
-        let fields = Map::from_iter([("direction".into(), Value::String(direction.into()))]);
-        self.split_with_fields_as(actor, target, fields, spawn, size)
-    }
-
-    /// A split of `target` with the `pane.split` fields of the caller, which
-    /// name the direction. The size and the spawn options go into the fields
-    /// here.
-    pub(in crate::mux) fn split_with_fields_as(
-        self: &Arc<Self>,
-        actor: &Actor,
-        target: PaneId,
-        mut fields: Map<String, Value>,
-        spawn: TerminalSpawnOptions,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<PaneSurfaceCreation> {
         let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;
+        let direction = split_direction_field(dir, before);
+        let mut fields = Map::from_iter([("direction".into(), Value::String(direction.into()))]);
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
         self.commit_pane_creation_by(actor, ResourceOperation::PaneSplit, selectors, fields)

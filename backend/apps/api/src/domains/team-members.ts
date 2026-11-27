@@ -12,14 +12,8 @@ export const TABLE_MEMBER = "member"
 export const TABLE_HOST = "host"
 /** install id -> host id (a server or host enrolled by that install). */
 export const TABLE_HOST_BY_INSTALL = "host_by_install"
-/**
- * host id -> the dev build space it was enrolled from (apps/api build-space.ts). TeamDO is one object for every build
- * of a person, but its directory of registered Macs and hosts is per build: a host with no row here is nightly and
- * stable's (space ""), and a build lists and acts on only the hosts of its own space.
- */
-export const TABLE_HOST_SPACE = "host_space"
 /** Rows subscribers never get in event effects: clients page members, hosts and audit records (team-audit-rows.ts) with reads. */
-export const TEAM_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MEMBER, TABLE_HOST, TABLE_HOST_BY_INSTALL, TABLE_HOST_SPACE, "audit", "group", "group_member", "group_item", "group_ws", "member_authority", "cloud_session", "cloud_recent", "cloud_follow", "cloud_follower", "cloud_viewer"]
+export const TEAM_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MEMBER, TABLE_HOST, TABLE_HOST_BY_INSTALL, "audit", "group", "group_member", "group_item", "group_ws", "member_authority"]
 
 export type Member = typeof TeamMember.Type
 export type HostRecord = typeof Host.Type
@@ -63,29 +57,11 @@ export const hostByInstall = (s: LegacyTeamMaps, rows: RowReader | undefined, in
 
 export const memberUpsert = (m: Member): RowWrite => ({ table: TABLE_MEMBER, op: "upsert", key: m.user, n: null, row: m })
 
-/** The build space a host belongs to ("" for nightly and stable). */
-export const hostSpaceOf = (rows: RowReader | undefined, id: string): string => rows?.get<{ space: string }>(TABLE_HOST_SPACE, id)?.row.space ?? ""
-
-/** The space a principal acts in (the Worker sets build_space only for a dev space). */
-export const principalSpace = (p: { readonly build_space?: string }): string => p.build_space ?? ""
-
-/** Whether `p` may see host `id`: only hosts of the principal's own build space. */
-export const hostInSpace = (rows: RowReader | undefined, id: string, p: { readonly build_space?: string }): boolean => hostSpaceOf(rows, id) === principalSpace(p)
-
-/** A host's projection payload: its team and, for a dev build's host, its space (projection rows are keyed by it). */
-export const hostPayload = (h: HostRecord, team: string | undefined, space: string): Record<string, unknown> => ({ ...h, team, ...(space ? { space } : {}) })
-
-/** `space` is set only when a host is first enrolled: a host never moves between spaces, so later upserts leave it. */
-export const hostUpsert = (h: HostRecord, space?: string): Array<RowWrite> => [
+export const hostUpsert = (h: HostRecord): Array<RowWrite> => [
   { table: TABLE_HOST, op: "upsert", key: h.id, n: null, row: h },
-  { table: TABLE_HOST_BY_INSTALL, op: "upsert", key: h.enrolled_by, n: null, row: { host: h.id } },
-  ...(space ? [{ table: TABLE_HOST_SPACE, op: "upsert" as const, key: h.id, n: null, row: { space } }] : [])
+  { table: TABLE_HOST_BY_INSTALL, op: "upsert", key: h.enrolled_by, n: null, row: { host: h.id } }
 ]
 
-/**
- * The host's space row stays: work queued for a removed host (its replica drop in HostDO) still has to reach the
- * removed host's own build space, and a host id is never reused.
- */
 export const hostDelete = (h: HostRecord): Array<RowWrite> => [
   { table: TABLE_HOST, op: "delete", key: h.id },
   { table: TABLE_HOST_BY_INSTALL, op: "delete", key: h.enrolled_by }
@@ -113,27 +89,9 @@ export const firstOwner = (s: LegacyTeamMaps, rows: RowsWithScan | undefined, ma
   return undefined
 }
 
-/** One page of hosts by host id (keyset), every space. */
-export const listAllHosts = (s: LegacyTeamMaps, rows: RowsWithScan | undefined, after: string | undefined, limit: number): { items: Array<HostRecord>; next: string | null } =>
+/** One page of hosts by host id (keyset). */
+export const listHosts = (s: LegacyTeamMaps, rows: RowsWithScan | undefined, after: string | undefined, limit: number): { items: Array<HostRecord>; next: string | null } =>
   page(Object.values(s.hosts ?? {}).map((h) => [h.id, h] as const), rows?.scanFrom?.<HostRecord>(TABLE_HOST, after, limit + 1) ?? [], after, limit)
-
-/** Pages one scan step reads while it filters to a build space: a page is never empty while hosts of the space remain within it. */
-const HOST_SPACE_STEPS = 20
-
-/** One page of the hosts of `p`'s build space by host id (keyset). */
-export const listHosts = (s: LegacyTeamMaps, rows: RowsWithScan | undefined, after: string | undefined, limit: number, p: { readonly build_space?: string }): { items: Array<HostRecord>; next: string | null } => {
-  const out: Array<HostRecord> = []
-  let cursor = after
-  let next: string | null = null
-  for (let steps = 0; steps < HOST_SPACE_STEPS && out.length < limit; steps++) {
-    const pageOf = listAllHosts(s, rows, cursor, limit)
-    for (const h of pageOf.items) if (out.length < limit && hostInSpace(rows, h.id, p)) out.push(h)
-    next = pageOf.next
-    if (next === null) break
-    cursor = next
-  }
-  return { items: out, next: out.length < limit && next === null ? null : (out.at(-1)?.id ?? next) }
-}
 
 const page = <T>(legacy: ReadonlyArray<readonly [string, T]>, fromRows: ReadonlyArray<{ key: string; row: T }>, after: string | undefined, limit: number) => {
   const merged = new Map<string, T>()

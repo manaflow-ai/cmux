@@ -150,7 +150,7 @@ class GitHub:
         except urllib.error.HTTPError as error:
             if error.code not in (404, 410):  # already gone is done
                 raise
-        time.sleep(DELETE_INTERVAL)  # sleep-ok: rate pacing between artifact DELETE calls
+        time.sleep(DELETE_INTERVAL)
 
 
 def created(artifact: dict) -> dt.datetime:

@@ -12,10 +12,6 @@ use std::sync::Mutex;
 type CFTypeRef = *const c_void;
 type CFStringRef = *const c_void;
 type CFDictionaryRef = *const c_void;
-/// CoreFoundation's `CFIndex`, as webrtc_child.rs declares it: the same `isize` keeps these
-/// declarations of `CFNumberCreate` and `CFDictionaryCreate` identical to that file's, which
-/// clippy's `clashing_extern_declarations` requires.
-type CFIndex = isize;
 type OSStatus = i32;
 type CMFormatDescriptionRef = *mut c_void;
 type CMBlockBufferRef = *mut c_void;
@@ -47,7 +43,7 @@ struct DictCallbacks {
 }
 
 const PIXEL_420V: u32 = u32::from_be_bytes(*b"420v");
-const CF_NUMBER_SINT32: CFIndex = 3;
+const CF_NUMBER_SINT32: c_long = 3;
 const BLOCK_ASSURE_MEMORY_NOW: u32 = 1;
 const LOCK_READ_ONLY: u64 = 1;
 
@@ -59,11 +55,11 @@ unsafe extern "C" {
         a: *const c_void,
         keys: *const CFTypeRef,
         values: *const CFTypeRef,
-        n: CFIndex,
+        n: c_long,
         kcb: *const DictCallbacks,
         vcb: *const DictCallbacks,
     ) -> CFDictionaryRef;
-    fn CFNumberCreate(a: *const c_void, t: CFIndex, v: *const c_void) -> CFTypeRef;
+    fn CFNumberCreate(a: *const c_void, t: c_long, v: *const c_void) -> CFTypeRef;
     fn CFRetain(v: CFTypeRef) -> CFTypeRef;
     fn CFRelease(v: CFTypeRef);
 }
@@ -419,33 +415,3 @@ impl Drop for VtDecoder {
         self.close();
     }
 }
-
-/// A built-in 128x128 constrained-baseline SPS and PPS: just enough for a format description.
-const PREWARM_SPS: [u8; 8] = [0x67, 0x42, 0xc0, 0x1e, 0xda, 0x08, 0x11, 0x90];
-const PREWARM_PPS: [u8; 4] = [0x68, 0xce, 0x3c, 0x80];
-
-/// Creates and drops one throwaway decoder session from built-in parameter sets. The first
-/// VTDecompressionSessionCreate in a process costs ~75 ms (later ones ~6 ms), so running this
-/// while the viewer connects takes that cost off the first frame. Returns how long it took.
-pub fn prewarm() -> Res<std::time::Duration> {
-    let t0 = std::time::Instant::now();
-    let mut decoder = VtDecoder::new();
-    decoder.open(&PREWARM_SPS, &PREWARM_PPS)?;
-    drop(decoder);
-    Ok(t0.elapsed())
-}
-
-/// Runs `prewarm` on its own thread; the caller never waits for it.
-pub fn prewarm_in_background() {
-    let spawned = std::thread::Builder::new().name("vt-prewarm".into()).spawn(|| match prewarm() {
-        Ok(took) => eprintln!("vtdecode: prewarm {:.1} ms", took.as_secs_f64() * 1e3),
-        Err(e) => eprintln!("vtdecode: prewarm failed: {e}"),
-    });
-    if let Err(e) = spawned {
-        eprintln!("vtdecode: prewarm thread: {e}");
-    }
-}
-
-#[cfg(test)]
-#[path = "vtdecode_tests.rs"]
-mod tests;

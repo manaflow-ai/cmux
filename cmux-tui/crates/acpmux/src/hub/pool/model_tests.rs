@@ -39,8 +39,6 @@ fn key_for(profile: &HarnessProfile, model: Option<&str>) -> PoolKey {
         account: None,
         machine: None,
         prompt_suggestions: None,
-        tool_servers: String::new(),
-        settings_file: PathBuf::new(),
         model,
         effort,
     }
@@ -99,7 +97,7 @@ fn a_chat_never_takes_an_agent_pooled_on_another_model() {
     match pool.take(&key_for(&p, Some("claude-haiku-5-5"))) {
         Take::Ready(p) => panic!("a Haiku chat took {p}, an agent started on Sonnet"),
         Take::Warming(_) => panic!("a Haiku chat waited on an agent starting on Sonnet"),
-        Take::Discard(..) | Take::Miss => {}
+        Take::Discard(_) | Take::Miss => {}
     }
     // Nor does a chat on the harness's default take a Sonnet agent, or the other way round.
     let mut pool: Pool<&'static str> = Pool::new(Duration::from_secs(600));

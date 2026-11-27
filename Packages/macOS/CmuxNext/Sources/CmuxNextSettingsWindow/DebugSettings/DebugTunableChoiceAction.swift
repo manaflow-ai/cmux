@@ -40,7 +40,7 @@ import Foundation
             guard let raw = invocation[argument]?.stringValue, let choice = Choice(rawValue: raw) else {
                 let known = choices.map(\.value).joined(separator: ", ")
                 return .refused(String(format: String(localized: "debug.tunableChoice.unknown", defaultValue: "Choose one of: %@",
-                                                      bundle: .localizedModule), known))
+                                                      bundle: .module), known))
             }
             select(choice)
             return .done

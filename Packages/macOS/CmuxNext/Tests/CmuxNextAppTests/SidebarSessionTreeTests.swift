@@ -150,15 +150,7 @@ import Testing
 
     @Test func rowsDrawTheLineTheBadgeAndTheKeycaps() throws {
         SidebarSessionTree.shared.state = Self.tree
-        SidebarSessionTree.shared.showsStartedOverride = true // nested, not hidden (`sidebar.showAgentSessions` on)
-        defer { SidebarSessionTree.shared.showsStartedOverride = nil }
-        // The keycaps are `sidebar.sessionTree`'s; lineage nesting alone draws none (SidebarLineageNestingTests).
-        let savedTree = DesignSettings.shared.sidebarSections.sessionTree
-        DesignSettings.shared.sidebarSections.sessionTree = true
-        defer {
-            SidebarSessionTree.shared.state = nil
-            DesignSettings.shared.sidebarSections.sessionTree = savedTree
-        }
+        defer { SidebarSessionTree.shared.state = nil }
         let sidebar = SidebarView(model: SidebarModel(sections: Self.sections), design: SidebarPullRequestBadgeTests.showingPullRequests())
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.layoutSubtreeIfNeeded()

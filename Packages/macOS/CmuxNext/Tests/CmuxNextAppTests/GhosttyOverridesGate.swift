@@ -33,7 +33,7 @@ nonisolated struct GhosttyOverridesGate: SuiteTrait, TestTrait, TestScoping {
 
 extension Trait where Self == GhosttyOverridesGate {
     /// Runs each test of the suite alone among the suites that drive the Ghostty overrides (``GhosttyOverridesGate``).
-    nonisolated static var ghosttyOverrides: Self { GhosttyOverridesGate() }
+    static var ghosttyOverrides: Self { GhosttyOverridesGate() }
 }
 
 /// The gate's one slot: FIFO, no busy waiting.

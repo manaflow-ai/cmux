@@ -3,18 +3,8 @@ import CmuxNextDesign
 
 /// Group by Status's header (`SidebarRowKey.status`): the section's name in the Priority view's words and its row
 /// count, in the group header's quiet style. A click folds or unfolds a section that folds; Needs you draws no
-/// chevron. No menu of its own, no drop target. A header that folds is a keyboard stop (`SidebarGroupKeys`) and draws
-/// the focus ring while the keyboard is on it.
-final class StatusHeaderRowView: SidebarRowView, SidebarFoldRingView {
-    var isKeyboardFocused = false {
-        didSet {
-            performWithTheme {
-                layer?.borderColor = Palette.focusRing.cgColor
-                layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
-            }
-            needsDisplay = true
-        }
-    }
+/// chevron. No menu of its own, no drop target.
+final class StatusHeaderRowView: SidebarRowView {
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let count = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let chevron = NSImageView()
@@ -63,8 +53,6 @@ final class StatusHeaderRowView: SidebarRowView, SidebarFoldRingView {
 
     override func updateLayer() {
         performWithTheme {
-            layer?.borderColor = Palette.focusRing.cgColor
-            layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
             name.setColor(Palette.textSecondary)
             count.setColor(Palette.textTertiary)
             chevron.contentTintColor = Palette.textTertiary

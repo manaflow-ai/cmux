@@ -70,7 +70,7 @@ impl Daemon {
         mut params: Value,
         timeout: Duration,
     ) -> Result<Value, CallError> {
-        let lost = |e: std::io::Error| lost_to(cmd, &e, timeout);
+        let lost = |e: std::io::Error| CallError::Lost(format!("{cmd}: {e}"));
         let id = self.next_id;
         self.next_id += 1;
         params.set("id", json!(id));
@@ -105,16 +105,6 @@ impl Daemon {
     }
 }
 
-/// A call that got no answer: a socket timeout says how long the daemon was silent (2026-11-26
-/// kill-mid-move drills, power-off of the target: "agent-transfer-write: Resource temporarily
-/// unavailable (os error 11)" was the 45 s call bound), any other error as the system words it.
-pub(super) fn lost_to(cmd: &str, error: &std::io::Error, timeout: Duration) -> CallError {
-    if crate::link::socket_timed_out(error) {
-        return CallError::Lost(format!("{cmd}: no answer in {timeout:?}"));
-    }
-    CallError::Lost(format!("{cmd}: {error}"))
-}
-
 /// Calls `cmd` once on a new connection to `socket`.
 pub(super) fn call_once(
     socket: &Path,
@@ -123,36 +113,4 @@ pub(super) fn call_once(
     timeout: Duration,
 ) -> Result<Value, CallError> {
     Daemon::connect(socket)?.call(cmd, params, timeout)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_silent_daemon_reads_as_no_answer_in_its_bound() {
-        let dir = tempfile::tempdir().unwrap();
-        let socket = dir.path().join("d.sock");
-        // Accepts and never answers, as a powered-off target behind a carrier does.
-        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-        let _held = std::thread::spawn(move || {
-            listener.accept().map(|(stream, _)| {
-                std::thread::sleep(Duration::from_secs(5));
-                drop(stream);
-            })
-        });
-        let error =
-            call_once(&socket, "agent-transfer-write", json!({}), Duration::from_millis(200))
-                .unwrap_err();
-        let message = error.message();
-        assert!(!message.contains("os error"), "{message}");
-        assert_eq!(message, "agent-transfer-write: no answer in 200ms");
-    }
-
-    #[test]
-    fn another_socket_error_keeps_its_words() {
-        let error = std::io::Error::from(std::io::ErrorKind::BrokenPipe);
-        let lost = lost_to("agent-transfer-read", &error, Duration::from_secs(45));
-        assert_eq!(lost.message(), format!("agent-transfer-read: {error}"));
-    }
 }

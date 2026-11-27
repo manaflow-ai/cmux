@@ -90,40 +90,6 @@ fn a_pr_goes_live_and_off_puts_back_exactly_what_was_there() {
 }
 
 #[test]
-fn off_puts_back_the_same_bytes() {
-    let home = Home::new();
-    let customize = home.customize();
-    // web-overlay.sh's layout: unsorted keys, two spaces, no final newline,
-    // and a comment the app reads as JSONC.
-    let before = "{\n  \"slot\": \"a\",\n  // mine\n  \"devtools\": true,\n  \"overlay\": \"/old\",\n  \"enabled\": false\n}";
-    fs::create_dir_all(home.dir.path().join("config")).unwrap();
-    fs::write(home.web_dev_path(), before).unwrap();
-    install(&customize, 1);
-    install(&customize, 2);
-    customize.library_use_code(layer(10, 1), vec![], "cli", 1).unwrap();
-    customize.library_use_code(layer(20, 2), vec![], "cli", 2).unwrap();
-    customize.library_set_on("pr-20", false, "cli", 3).unwrap();
-    customize.library_set_on("pr-10", false, "cli", 4).unwrap();
-    assert_eq!(fs::read_to_string(home.web_dev_path()).unwrap(), before);
-}
-
-#[test]
-fn off_keeps_a_key_changed_while_a_layer_was_on() {
-    let home = Home::new();
-    let customize = home.customize();
-    fs::create_dir_all(home.dir.path().join("config")).unwrap();
-    fs::write(home.web_dev_path(), "{\"slot\": \"a\", \"enabled\": false}").unwrap();
-    install(&customize, 1);
-    customize.library_use_code(layer(10, 1), vec![], "cli", 1).unwrap();
-    let mut live = home.web_dev().unwrap();
-    live["slot"] = json!("b");
-    home.write_web_dev(live);
-    customize.library_set_on("pr-10", false, "cli", 2).unwrap();
-    // Not the old bytes: those would undo the edit.
-    assert_eq!(home.web_dev().unwrap(), json!({"slot": "b", "enabled": false}));
-}
-
-#[test]
 fn keys_that_were_absent_are_removed_again() {
     let home = Home::new();
     let customize = home.customize();

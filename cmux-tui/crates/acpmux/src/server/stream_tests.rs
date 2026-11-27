@@ -740,37 +740,3 @@ async fn a_pipe_is_asked_for_on_the_first_line_only() {
     });
     assert!(taken.is_none() && !piped.load(std::sync::atomic::Ordering::SeqCst));
 }
-
-/// A legacy caller may try a pipe on a fresh socket without checking capabilities.
-#[cfg(unix)]
-#[tokio::test]
-async fn remote_pipe_on_a_fresh_socket_reports_carrier_or_param_errors() {
-    use crate::rpc::{Message, method};
-    use tokio::io::AsyncBufReadExt;
-
-    let (mut client, server) = tokio::net::UnixStream::pair().unwrap();
-    let task = tokio::spawn(super::serve_stream(
-        memory_v1(),
-        server,
-        None,
-        false,
-        crate::sender_harness::SocketPeer::Unknown,
-        None,
-    ));
-    let request = Message::request(42, method::MUX_REMOTE_PIPE, json!({}));
-    client.write_all(request.to_line().as_bytes()).await.unwrap();
-    let mut line = String::new();
-    tokio::time::timeout(WAIT, tokio::io::BufReader::new(client).read_line(&mut line))
-        .await
-        .unwrap()
-        .unwrap();
-    let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(reply["id"], 42);
-    if cfg!(feature = "hub-carrier") {
-        assert_eq!(reply["error"]["code"], -32602, "{reply}");
-    } else {
-        assert_eq!(reply["error"]["code"], -32000, "{reply}");
-        assert_eq!(reply["error"]["data"]["reason"], "carrier.off", "{reply}");
-    }
-    task.await.unwrap();
-}

@@ -40,10 +40,7 @@ fn bytes(pid: u32, address: u64, length: usize) -> Result<Vec<u8>> {
 }
 
 // Only integer-only C layouts are copied by these private call sites.
-///
-/// # Safety
-/// Every pattern of `size_of::<T>()` bytes must be a valid `T` (an integer-only C layout).
-unsafe fn value<T: Copy>(pid: u32, address: u64) -> Result<T> {
+fn value<T: Copy>(pid: u32, address: u64) -> Result<T> {
     let data = bytes(pid, address, size_of::<T>())?;
     Ok(unsafe { data.as_ptr().cast::<T>().read_unaligned() })
 }
@@ -54,20 +51,17 @@ fn times(pid: u32, address: u64, format: u8) -> Result<Option<[timespec; 2]>> {
     }
     let result = match format {
         1 => {
-            // SAFETY: utimbuf is two integers, valid for any bytes.
-            let t: utimbuf = unsafe { value(pid, address)? };
+            let t: utimbuf = value(pid, address)?;
             [timespec { tv_sec: t.actime, tv_nsec: 0 }, timespec { tv_sec: t.modtime, tv_nsec: 0 }]
         }
         2 => {
-            // SAFETY: timeval is two integers, valid for any bytes.
-            let t: [timeval; 2] = unsafe { value(pid, address)? };
+            let t: [timeval; 2] = value(pid, address)?;
             if t.iter().any(|t| !(0..1_000_000).contains(&t.tv_usec)) {
                 return Err(EINVAL);
             }
             t.map(|t| timespec { tv_sec: t.tv_sec, tv_nsec: t.tv_usec * 1000 })
         }
-        // SAFETY: timespec is two integers, valid for any bytes.
-        _ => unsafe { value(pid, address)? },
+        _ => value(pid, address)?,
     };
     Ok(Some(result))
 }

@@ -15,25 +15,12 @@ public struct ComposerMention: Hashable, Sendable {
 
     /// The mention being typed at the end of `text`, if any: an `@` at the
     /// start or after whitespace, not inside a code span.
-    ///
-    /// The composer's body asks on every keystroke, so this reads only the
-    /// last word (back from the end to whitespace), not the whole draft: a
-    /// long draft costs the same per key as a short one (ComposerTypingLagUITests).
     public init?(text: String) {
-        var at: String.Index?
-        var index = text.endIndex
-        while index > text.startIndex {
-            let before = text.index(before: index)
-            let character = text[before]
-            if character.isWhitespace { return nil }
-            if character == "@" { at = before; break }
-            index = before
-        }
-        guard let at else { return nil }
+        guard let at = text.lastIndex(of: "@") else { return nil }
         let query = text[text.index(after: at)...]
+        guard !query.contains(where: \.isWhitespace), !query.contains("@") else { return nil }
         if at > text.startIndex, !text[text.index(before: at)].isWhitespace { return nil }
-        // Inside a code span: an odd count of backticks before it (bytes, not Characters).
-        if text.utf8[..<at].reduce(0, { $0 + ($1 == 0x60 ? 1 : 0) }) % 2 == 1 { return nil }
+        if text[..<at].filter({ $0 == "`" }).count % 2 == 1 { return nil }
         self.start = at
         self.query = String(query)
     }

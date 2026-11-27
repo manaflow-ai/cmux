@@ -18,7 +18,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "sidebar.left",
         surfaces: PALETTE | KEYBOARD | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 300)], ..SurfacePlan::DEFAULT },
         cli_name: "sidebar toggle-left",
         main_menu: Some("view"),
         ..Action::DEFAULT
@@ -31,7 +31,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "slider.horizontal.3",
         surfaces: PALETTE | KEYBOARD | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 118).folder("options")], ..SurfacePlan::DEFAULT },
         cli_name: "sidebar customize",
         ..Action::DEFAULT
     },
@@ -270,7 +270,6 @@ pub static ACTIONS: &[Action] = &[
         surfaces: CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar resume-session-in-new-workspace",
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -295,7 +294,6 @@ pub static ACTIONS: &[Action] = &[
         surfaces: CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar open-session-pull-request",
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -400,7 +398,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "rectangle.compress.vertical",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), mcp_exemption: Some("systemChange"), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "view", 130).folder("options")], mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar enable-minimal-mode",
         ..Action::DEFAULT
     },
@@ -412,7 +410,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "rectangle.expand.vertical",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), mcp_exemption: Some("systemChange"), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "view", 131).folder("options")], mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar disable-minimal-mode",
         ..Action::DEFAULT
     },

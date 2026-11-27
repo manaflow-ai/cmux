@@ -43,13 +43,6 @@ import Testing
         #expect(json["token"] == nil)
     }
 
-    /// Settings > Customize "Sharper Text from Linux Machines" (`remoteDesktop.sharpLinuxText`): the hello
-    /// offers `video.sharp_text` only when it is on, so a Linux OpenH264 host codes in screen usage only then.
-    @Test func theHelloOffersSharpTextOnlyWhenAsked() {
-        #expect(!RemoteRdHello.cloudDesktop(install: "test").caps.contains("video.sharp_text"))
-        #expect(RemoteRdHello.cloudDesktop(install: "test", sharpText: true).caps.contains("video.sharp_text"))
-    }
-
     @Test(arguments: [false, true]) func theTransportSendsATokenlessHelloAndTheMode(control: Bool) async throws {
         let carrier = RecordingCarrier()
         let transport = try #require(RemoteRdStreamTransport(carrier: carrier, hello: RemoteRdHello.cloudDesktop(install: "test"),
@@ -148,25 +141,6 @@ import Testing
         #expect(session.nextSessionControls)
         pane.selectMode(.view)
         #expect(made == [false, true, false])
-        session.end()
-    }
-
-    /// The person's input to a Cloud desktop reaches whoever the session was made with (it keeps
-    /// their hold on the Chief's computer).
-    @Test func theSessionReportsThePersonsInput() throws {
-        var reported = 0
-        let record = try #require(RemoteViewTabRecord(host: "vm-1", target: .virtual, mode: .view, cloudDesktop: true, cloudRd: true))
-        let maybeSession = RemoteViewPageSession.make(record: record, closeTab: {}, cloudRd: { _ in
-            { control in
-                RemoteRdStreamTransport(carrier: RecordingCarrier(), hello: RemoteRdHello.cloudDesktop(install: "test"),
-                                        startKey: "k", control: control)
-            }
-        }, personInput: { reported += 1 })
-        let session = try #require(maybeSession)
-        let controller = session.paneForTesting.view.capture.controller
-        controller.isActive = true
-        controller.pointer((x: 1, y: 1))
-        #expect(reported == 1)
         session.end()
     }
 

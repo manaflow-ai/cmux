@@ -85,31 +85,3 @@ public enum SettingsCardID: String, CaseIterable, Sendable {
         }
     }
 }
-
-/// A place on a page-only category, one no schema section draws: Settings > Devices' join consent
-/// switches (`devices.join.control`), which the page draws from the host's lists (`devices_join`)
-/// while this Mac is joined to a team. A deep link (`openSettings setting:devices.join.control`, the
-/// consent sheet's Settings…) opens its route, and the page reveals the row
-/// (`data-devices-join-consent="control"`): scrolled to and its switch focused. Settings search finds
-/// the same rows by their titles and the host's search words (webviews settings `search.ts`).
-public enum SettingsPageAnchor: String, CaseIterable, Sendable {
-    case joinScreen = "devices.join.screen"
-    case joinControl = "devices.join.control"
-    case joinSignedInMachines = "devices.join.signedInMachines"
-
-    /// The page category that draws it (not a ``SettingsSection``: Devices has no schema rows).
-    public var category: String { "devices" }
-
-    /// The page route that opens on it.
-    public var route: String { "#/settings/\(category)?focus=\(rawValue)" }
-
-    /// The anchor of a join consent switch, by its surface (`screen`, `control`, `signedInMachines`).
-    public static func joinConsent(_ surface: String) -> SettingsPageAnchor? {
-        SettingsPageAnchor(rawValue: "devices.join.\(surface)")
-    }
-
-    /// The anchor `key` names (trimmed); nil for any other name.
-    public init?(key: String) {
-        self.init(rawValue: key.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-}

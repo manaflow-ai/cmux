@@ -23,9 +23,8 @@ use serde_json::{Value, json};
 
 use super::GlobalArgs;
 
-/// Each short verb and the app's Cloud verb it runs (`cli_invoked_actions` checks each is a
-/// CLI action of the catalog).
-pub(super) const VERBS: &[(&str, &str)] = &[
+/// Each short verb and the app's Cloud verb it runs.
+const VERBS: &[(&str, &str)] = &[
     ("ls", "list-machines"),
     ("list", "list-machines"),
     ("status", "machine-status"),
@@ -45,14 +44,8 @@ pub(super) const VERBS: &[(&str, &str)] = &[
     ("move", "move"),
 ];
 
-/// The app's Cloud verb a short verb runs (`pause` → `pause-machine`), for its `--help`.
-pub(super) fn long_verb(short: &str) -> Option<&'static str> {
-    VERBS.iter().find(|(name, _)| *name == short).map(|(_, long)| *long)
-}
-
 /// The short verbs the VM API (vm.rs) also has: with no signed-in app to answer, they go there.
-pub(super) const API_VERBS: &[&str] =
-    &["ls", "list", "pause", "shutdown", "resume", "rm", "fork", "exec"];
+const API_VERBS: &[&str] = &["ls", "list", "pause", "shutdown", "resume", "rm", "fork", "exec"];
 
 /// Options only the VM API reads (its issuer, team and page size): a short verb with one goes
 /// there, app or not.
@@ -87,11 +80,9 @@ pub(super) struct Short {
     pub(super) tail: Vec<String>,
     /// The VM API has this verb too ([`API_VERBS`]).
     pub(super) api_verb: bool,
-    /// `exec`'s command: the words after the VM's name (or after `--`), shell-quoted when there
-    /// are several (vm_exec_input.rs).
+    /// `exec`'s command: the words after the VM's name (or after `--`), joined with spaces as the
+    /// VM API's `vm exec VM_ID -- COMMAND...` joins them.
     pub(super) command: Vec<String>,
-    /// `exec`'s `--stdin` or `--no-stdin`: whether what is piped in reaches the command.
-    pub(super) stdin: super::vm_exec_input::StdinMode,
 }
 
 /// `Some` for `vm VERB …` (or `cloud VERB …`) with a short verb, no help flag and at most one
@@ -117,9 +108,6 @@ pub(super) fn parse(command: &[String]) -> Option<Short> {
     let mut command = Vec::new();
     let mut value_next = false;
     let mut passthrough = false;
-    // `--name` given (as a flag or as rename's second word): a third word is no rename.
-    let mut renamed = rest.iter().any(|word| word == "--name" || word.starts_with("--name="));
-    let mut stdin = super::vm_exec_input::StdinMode::Auto;
     for word in rest {
         if passthrough && exec {
             command.push(word.clone());
@@ -137,13 +125,6 @@ pub(super) fn parse(command: &[String]) -> Option<Short> {
             }
         } else if word == "-h" || word == "--help" {
             return None;
-        } else if exec && (word == "--stdin" || word == "--no-stdin") {
-            stdin = if word == "--stdin" {
-                super::vm_exec_input::StdinMode::On
-            } else {
-                super::vm_exec_input::StdinMode::Off
-            };
-            continue;
         } else if word == "--target" || word.starts_with("--target=") {
             targeted = true;
             value_next = word == "--target";
@@ -155,14 +136,6 @@ pub(super) fn parse(command: &[String]) -> Option<Short> {
                 if exec {
                     command.push(word.clone());
                     passthrough = true;
-                    continue;
-                }
-                // `vm rename OLD NEW`: the new name after the VM's, as `--name NEW`. Before, the
-                // second word sent the whole line to the app as an unknown action, which printed
-                // only `usage: cmux cloud <action>`.
-                if cloud_verb == "rename-machine" && !renamed {
-                    tail.extend(["--name".to_owned(), word.clone()]);
-                    renamed = true;
                     continue;
                 }
                 return None;
@@ -179,7 +152,6 @@ pub(super) fn parse(command: &[String]) -> Option<Short> {
         tail,
         api_verb: API_VERBS.contains(&verb.as_str()),
         command,
-        stdin,
     })
 }
 
@@ -194,24 +166,16 @@ pub(super) enum Resolved {
     Refused(Value),
 }
 
-/// The app has not loaded its VM list yet (`loaded: false`): a retryable refusal, so no caller
-/// reads its empty list as "you have none".
-pub(super) fn not_loaded(listed: &Value) -> Option<Value> {
-    (listed.get("loaded") == Some(&Value::Bool(false))).then(|| {
-        retryable(refusal(
+pub(super) fn resolve(named: Option<&str>, listed: &Value) -> Resolved {
+    // Not loaded yet, the app lists no VMs: say to retry, never that you have none or that a
+    // `vm_…` id is the VM API's.
+    if listed.get("loaded") == Some(&Value::Bool(false)) {
+        return Resolved::Refused(retryable(refusal(
             "cloud.not_loaded",
             "the cmux app has not loaded your Cloud VMs yet",
             "run this command again in a moment",
             json!({}),
-        ))
-    })
-}
-
-pub(super) fn resolve(named: Option<&str>, listed: &Value) -> Resolved {
-    // Not loaded yet, the app lists no VMs: say to retry, never that you have none or that a
-    // `vm_…` id is the VM API's.
-    if let Some(error) = not_loaded(listed) {
-        return Resolved::Refused(error);
+        )));
     }
     let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     // A VM the app is still making (`creating`, not failed): you have it, it is not listed yet.
@@ -286,21 +250,6 @@ pub(super) fn misuse(short: &Short) -> Option<&'static str> {
     }
 }
 
-/// `vm pause --all` (or `shutdown --all`): a mass pause, which only the app runs.
-pub(super) fn pause_all_requested(short: &Short) -> bool {
-    short.cloud_verb == "pause-machine" && short.tail.iter().any(|word| word == "--all")
-}
-
-/// `vm pause --all` with any other word (`--all --minutes 15`): refused, so a mass pause never
-/// runs with a flag it quietly drops.
-pub(super) fn pause_all_misuse(short: &Short) -> Option<String> {
-    if short.cloud_verb != "pause-machine" || !short.tail.iter().any(|word| word == "--all") {
-        return None;
-    }
-    let extra = short.tail.iter().find(|word| word.as_str() != "--all")?;
-    Some(format!("`--all` pauses every VM; it takes no `{extra}`"))
-}
-
 /// `error`, marked retryable.
 fn retryable(mut error: Value) -> Value {
     if let Some(map) = error.as_object_mut() {
@@ -346,7 +295,7 @@ pub(super) fn cloud_words(short: &Short, id: Option<&str>) -> Vec<String> {
     }
     words.extend(super::vm::yes_words(short.cloud_verb, &short.tail));
     if !short.command.is_empty() {
-        words.extend(["--command".to_owned(), super::vm_exec_input::join_command(&short.command)]);
+        words.extend(["--command".to_owned(), short.command.join(" ")]);
     }
     words
 }
@@ -384,7 +333,7 @@ pub(super) fn table(listed: &Value) -> String {
             row.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()).unwrap_or("-");
         super::wire::sanitize_remote_text(text)
     };
-    let mut lines: Vec<[String; 5]> = rows
+    let mut lines: Vec<[String; 4]> = rows
         .iter()
         .map(|row| {
             let created = text(row, "created_at");
@@ -393,13 +342,12 @@ pub(super) fn table(listed: &Value) -> String {
                 format!("vm:{}", text(row, "machine_id")),
                 text(row, "status"),
                 created.get(..10).unwrap_or(&created).to_owned(),
-                disk_cell(row.get("disk")),
             ]
         })
         .collect();
     lines.extend(creating.iter().map(|row| {
         // The app names a VM being made `name` (a listed VM's is `title`).
-        [text(row, "name"), "-".to_owned(), text(row, "status"), "-".to_owned(), "-".to_owned()]
+        [text(row, "name"), "-".to_owned(), text(row, "status"), "-".to_owned()]
     }));
     if lines.is_empty() && listed.get("loaded").and_then(Value::as_bool) == Some(false) {
         return "The VM list has not loaded yet; run `cmux vm ls` again in a moment.\n".to_owned();
@@ -408,8 +356,8 @@ pub(super) fn table(listed: &Value) -> String {
         return "No Cloud VMs. Make one: cmux vm new (or cmux chat --on vm:new 'PROMPT')\n"
             .to_owned();
     }
-    lines.insert(0, ["NAME", "ID", "STATUS", "CREATED", "DISK"].map(str::to_owned));
-    let widths: Vec<usize> = (0..5)
+    lines.insert(0, ["NAME", "ID", "STATUS", "CREATED"].map(str::to_owned));
+    let widths: Vec<usize> = (0..4)
         .map(|column| {
             lines
                 .iter()
@@ -426,23 +374,6 @@ pub(super) fn table(listed: &Value) -> String {
         out.push('\n');
     }
     out
-}
-
-/// A row's disk bar (cmux-cloud-disk's view) as the DISK cell: used over allocated, then the
-/// system / project / caches split when the guest reports one ("13.2 / 20 GB system 5.3 project
-/// 6.2 caches 1.7"); "-" when nothing says how big the disk is.
-fn disk_cell(disk: Option<&Value>) -> String {
-    let Some(label) = disk.and_then(|disk| disk.get("label")).and_then(Value::as_str) else {
-        return "-".to_owned();
-    };
-    let segments = disk.and_then(|disk| disk.get("segments")).and_then(Value::as_array);
-    let split = segments.map_or(&[][..], Vec::as_slice).iter().filter_map(|segment| {
-        let kind = segment.get("kind").and_then(Value::as_str)?;
-        let gb = segment.get("gb").and_then(Value::as_f64)?;
-        matches!(kind, "system" | "project" | "caches")
-            .then(|| format!("{kind} {}", cmux_cloud_disk::number(gb)))
-    });
-    std::iter::once(label.to_owned()).chain(split).collect::<Vec<_>>().join(" ")
 }
 
 /// `Some(exit code)` when `args` is a short `vm` verb and the cmux app is here; `None` leaves
@@ -466,31 +397,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if let Some(message) = misuse(&short) {
         return Some(usage(&global, message));
     }
-    if let Some(message) = pause_all_misuse(&short) {
-        return Some(usage(&global, &message));
-    }
     let listed = match app_list(&short, super::cloud_start_chat::app_machines(&global)) {
         Ok(listed) => listed,
-        // The VM API has no `--all`: with no app, `pause --all` is refused, never handed on.
-        Err(None) if pause_all_requested(&short) => {
-            return Some(usage(
-                &global,
-                "`--all` pauses every VM through the cmux app; run `cmux login` and open cmux",
-            ));
-        }
         Err(None) => return None,
         Err(Some(error)) => return Some(super::wire::print_local_error(&error, global.output, 1)),
     };
-    if pause_all_requested(&short) {
-        if short.named.is_some() || short.targeted {
-            return Some(usage(&global, "`--all` pauses every VM; it takes no name or --target"));
-        }
-        // Not loaded yet, the app lists no VMs: "none running" would be a false success.
-        if let Some(error) = not_loaded(&listed) {
-            return Some(super::wire::print_local_error(&error, global.output, 1));
-        }
-        return Some(pause_all(&global, &listed));
-    }
     if short.cloud_verb == "list-machines"
         && short.tail.is_empty()
         && global.output == super::OutputMode::Human
@@ -501,16 +412,10 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     // `vm move` with no name: the app picks (a connected VM, else any, else a new one).
     let unnamed_move = short.cloud_verb == "move" && short.named.is_none();
     if short.cloud_verb == "list-machines" || short.targeted || unnamed_move {
-        if let Err(code) = forward_stdin(&global, &mut short, None) {
-            return Some(code);
-        }
         return Some(run(&global, &action, &cloud_words(&short, None)));
     }
     match resolve(short.named.as_deref(), &listed) {
         Resolved::Id(id) => {
-            if let Err(code) = forward_stdin(&global, &mut short, Some(&id)) {
-                return Some(code);
-            }
             if short.cloud_verb == "kill-machine" {
                 if let Some(code) = ask_delete(&global, &short, &id, &listed) {
                     return Some(code);
@@ -525,97 +430,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             }
             Some(run(&global, &action, &cloud_words(&short, Some(&id))))
         }
-        // Only a verb the VM API has goes there; any other (`status`, `rename`, `resize`) names a
-        // VM the app does not list, so it says that, with the id as typed.
-        Resolved::VmApi if short.api_verb => None,
-        Resolved::VmApi => Some(super::wire::print_local_error(
-            &not_listed(short.named.as_deref().unwrap_or_default()),
-            global.output,
-            1,
-        )),
+        Resolved::VmApi => None,
         Resolved::Refused(error) => Some(super::wire::print_local_error(&error, global.output, 1)),
     }
-}
-
-/// The VMs `vm pause --all` pauses: every listed VM that is running (a paused, failed or
-/// still-creating one is left as it is), as (id, name).
-pub(super) fn pausable(listed: &Value) -> Vec<(String, String)> {
-    let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
-    rows.iter()
-        .filter(|row| row.get("status").and_then(Value::as_str) == Some("running"))
-        .filter_map(|row| {
-            let id = row.get("machine_id").and_then(Value::as_str)?.to_owned();
-            let name = row
-                .get("title")
-                .and_then(Value::as_str)
-                .map_or_else(|| format!("vm:{id}"), super::wire::sanitize_remote_text);
-            Some((id, name))
-        })
-        .collect()
-}
-
-/// `cmux vm pause --all` (and `shutdown --all`): pause every running VM, one app `pause-machine`
-/// each, and say which paused and which did not. Leo, 2026-11-20 (ask-b97d36a28a): a mass pause.
-/// Exit 0 when every one paused (or none was running), 1 when any failed.
-fn pause_all(global: &GlobalArgs, listed: &Value) -> i32 {
-    // Each pause is its own request: one caller key would make the second replay the first.
-    let mut one = global.clone();
-    one.idempotency_key = None;
-    let mut results = Vec::new();
-    for (id, name) in pausable(listed) {
-        let words = [
-            "cloud".to_owned(),
-            "pause-machine".to_owned(),
-            "--target".to_owned(),
-            format!("machine:{id}"),
-        ];
-        let answer = super::cloud_start_chat::app_step(&one, &words);
-        results.push((id, name, answer));
-    }
-    let failed = results.iter().filter(|(_, _, answer)| answer.is_err()).count();
-    if global.output == super::OutputMode::Human {
-        if results.is_empty() {
-            println!("No running Cloud VMs to pause.");
-        }
-        for (_, name, answer) in &results {
-            match answer {
-                Ok(_) => println!("paused {name}"),
-                Err(error) => {
-                    let why = error.get("message").and_then(Value::as_str).unwrap_or("failed");
-                    println!("not paused {name}: {}", super::wire::sanitize_remote_text(why));
-                }
-            }
-        }
-    } else {
-        let rows: Vec<Value> = results
-            .iter()
-            .map(|(id, name, answer)| match answer {
-                Ok(_) => json!({"machine_id": id, "name": name, "paused": true}),
-                Err(error) => {
-                    json!({"machine_id": id, "name": name, "paused": false, "error": error})
-                }
-            })
-            .collect();
-        println!(
-            "{}",
-            json!({"ok": failed == 0, "paused": results.len() - failed, "failed": failed, "machines": rows})
-        );
-    }
-    i32::from(failed > 0)
-}
-
-/// A `vm_…` id the app does not list, for a verb only the app runs: deleted, another team's or
-/// mistyped. The id stays verbatim.
-pub(super) fn not_listed(named: &str) -> Value {
-    refusal(
-        "cloud.unknown_machine",
-        &format!(
-            "no Cloud VM of yours has the id {named} (it may have been deleted, or be another \
-             team's)"
-        ),
-        LIST,
-        json!({"name": named}),
-    )
 }
 
 /// `vm rm NAME` without `--yes`: ask at a terminal (`None` on yes: the delete runs); with no
@@ -657,7 +474,7 @@ fn ask_delete(global: &GlobalArgs, short: &Short, id: &str, listed: &Value) -> O
 /// `vm exec dev -- CMD` for a person: the command's stdout and stderr as it printed them, and its
 /// exit code as this command's, as `ssh HOST CMD` does (`--json` keeps the app's
 /// answer with `exit_code`, `stdout` and `stderr`).
-pub(super) fn exec_here(global: &GlobalArgs, action: &str, words: &[String]) -> i32 {
+fn exec_here(global: &GlobalArgs, action: &str, words: &[String]) -> i32 {
     use std::io::Write as _;
     let mut args: Vec<String> = action.split(' ').map(str::to_owned).collect();
     args.extend(words.iter().cloned());
@@ -674,73 +491,6 @@ pub(super) fn exec_here(global: &GlobalArgs, action: &str, words: &[String]) -> 
         }
         Err(error) => super::wire::print_local_error(&error, global.output, 1),
     }
-}
-
-/// `vm exec NAME -- CMD` with stdin piped in: the stdin reaches CMD (vm_exec_input.rs). Input
-/// too large for one command is staged on the machine first; `short.command` becomes the line
-/// that feeds it to CMD. `Err` is the exit code of a refusal or a failed staging step, said.
-fn forward_stdin(global: &GlobalArgs, short: &mut Short, id: Option<&str>) -> Result<(), i32> {
-    use super::vm_exec_input as input;
-    if short.cloud_verb != "exec" || short.command.is_empty() {
-        return Ok(());
-    }
-    let target = match id {
-        Some(id) => format!("machine:{id}"),
-        None => match given_target(&short.tail) {
-            Some(target) => target,
-            None => return Ok(()),
-        },
-    };
-    let bytes = match input::read_input(short.stdin) {
-        Ok(Some(bytes)) => bytes,
-        Ok(None) => return Ok(()),
-        Err(message) => return Err(usage(global, &message)),
-    };
-    let scratch = input::scratch_path().map_err(|message| usage(global, &message))?;
-    let plan =
-        input::plan(&input::join_command(&short.command), &bytes, &scratch, input::CHUNK_BASE64);
-    // Each staging step is its own run: the caller's idempotency key belongs to the command.
-    let staging = GlobalArgs { idempotency_key: None, ..global.clone() };
-    let step = |line: &str| {
-        let args =
-            ["cloud", "exec", "--target", target.as_str(), "--command", line].map(str::to_owned);
-        super::cloud_start_chat::app_step(&staging, &args)
-    };
-    for line in &plan.stage {
-        let failed = match step(line) {
-            Ok(answer) if answer.get("exit_code").and_then(Value::as_i64) == Some(0) => None,
-            Ok(answer) => Some(json!({
-                "code": "cloud.stdin_stage_failed",
-                "message": format!(
-                    "cmux: could not stage stdin on the machine: {}",
-                    answer.get("stderr").and_then(Value::as_str).unwrap_or("no stderr").trim()
-                ),
-            })),
-            Err(error) => Some(error),
-        };
-        if let Some(error) = failed {
-            if let Some(cleanup) = &plan.cleanup {
-                let _ = step(cleanup);
-            }
-            return Err(super::wire::print_local_error(&error, global.output, 1));
-        }
-    }
-    short.command = vec![plan.command];
-    Ok(())
-}
-
-/// The `--target` value among a short verb's words (`--target X` or `--target=X`).
-fn given_target(tail: &[String]) -> Option<String> {
-    let mut words = tail.iter();
-    while let Some(word) = words.next() {
-        if word == "--target" {
-            return words.next().cloned();
-        }
-        if let Some(value) = word.strip_prefix("--target=") {
-            return Some(value.to_owned());
-        }
-    }
-    None
 }
 
 fn run(global: &GlobalArgs, action: &str, words: &[String]) -> i32 {

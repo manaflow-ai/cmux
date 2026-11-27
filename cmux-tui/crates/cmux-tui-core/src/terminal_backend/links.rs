@@ -11,8 +11,6 @@ use super::{
 /// Longest target (a connector-defined id such as a Cloud machine id).
 const MAX_TARGET_BYTES: usize = 256;
 /// Most links one app holds at once.
-/// Measured: memory; each link's channel buffers up to one DEFAULT_WINDOW_BYTES (256 KiB) of
-/// received bytes, so 64 links hold at most 16 MiB per app.
 pub(crate) const MAX_LINKS_PER_APP: usize = 64;
 
 /// A link that ended, exactly once.

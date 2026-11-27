@@ -22,9 +22,7 @@ const MAX_HARNESSES: usize = 64;
 const MAX_MODELS: usize = 2_000;
 const MAX_TEXT: usize = 200;
 const EFFORTS: &[&str] = &["none", "minimal", "low", "medium", "high", "xhigh", "max"];
-/// `disabled`: the model never shows and never starts a chat; the catalog in use drops it
-/// ([`super::feed::drop_disabled`]) after the feed overlay, so the feed never brings it back.
-const STATUSES: &[&str] = &["preview", "deprecated", "disabled"];
+const STATUSES: &[&str] = &["preview", "deprecated"];
 
 /// Hosts a harness's `docsUrl` may point at. Any other URL is dropped.
 pub const DOCS_URL_HOSTS: &[&str] = &[
@@ -68,53 +66,7 @@ pub struct CatalogHarness {
     pub docs_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
-    /// The harness runs any model id its provider serves (Gemini CLI's `--model`): pickers
-    /// offer this entry's models even when the harness's own menu does not name them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub runs_any_model: Option<bool>,
-    /// The public-feed rules this entry's models come from (`super::feed`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub feed: Option<HarnessFeed>,
     pub models: Vec<HarnessModel>,
-    /// The ids of the models the catalog marked `disabled`, which [`Self::models`] no longer
-    /// holds: a harness that reports one itself still never offers it. Never on the wire.
-    #[serde(skip)]
-    pub disabled: Vec<String>,
-}
-
-/// Which public-feed models a `catalog` harness lists and how they are named, as
-/// `web/services/model-catalog/overrides.ts` has it (`HarnessFeed` in types.ts).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HarnessFeed {
-    pub sources: Vec<FeedSource>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub short_name_prefix: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub family_names: Option<BTreeMap<String, String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub drop_efforts: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_effort: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub group_by_provider: Option<bool>,
-    /// Feed ids this harness never lists.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hidden: Option<Vec<String>>,
-}
-
-/// One feed provider's models a harness lists: `include`/`exclude` are id prefixes or
-/// `*suffix` globs (`[0-9]` digit classes); models released before `minReleaseDate` are left out.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FeedSource {
-    pub provider: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub include: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exclude: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min_release_date: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -234,7 +186,7 @@ pub fn allowed_docs_url(raw: &str) -> bool {
         && url.host_str().is_some_and(|host| DOCS_URL_HOSTS.contains(&host))
 }
 
-pub(super) fn check_model(harness: &str, model: &HarnessModel) -> Result<(), CatalogError> {
+fn check_model(harness: &str, model: &HarnessModel) -> Result<(), CatalogError> {
     let id = &model.id;
     ensure(id_ok(id) && model.reference.as_deref().is_none_or(id_ok), || {
         format!("harness {harness}: model id {id:?} or its ref is malformed")
@@ -283,19 +235,10 @@ fn check_harness(harness: &CatalogHarness) -> Result<(), CatalogError> {
     }
     ensure(harness.default_model.as_ref().is_none_or(|d| seen.contains(d.as_str())), || {
         format!("harness {id} defaultModel is not one of its models")
-    })?;
-    if let Some(feed) = &harness.feed {
-        ensure(!feed.sources.is_empty() && feed.sources.len() <= 16, || {
-            format!("harness {id} feed must have 1 to 16 sources")
-        })?;
-        ensure(feed.sources.iter().all(|s| slug_ok(&s.provider)), || {
-            format!("harness {id} feed has a malformed provider")
-        })?;
-    }
-    Ok(())
+    })
 }
 
-pub(super) fn check_info(reference: &str, info: &ModelInfo) -> Result<(), CatalogError> {
+fn check_info(reference: &str, info: &ModelInfo) -> Result<(), CatalogError> {
     ensure(id_ok(reference) && text_ok(&info.name), || {
         format!("models[{reference:?}] is malformed")
     })?;

@@ -34,13 +34,13 @@ import Testing
             let line = try #require(list.groupLineViews.shown[SidebarGroupLineLayoutTests.group]?.frame, "\(c): no rail")
             let members = try SidebarGroupLineLayoutTests.members.map { try #require(list.rowViews[.workspace($0)]) }
             let bar = list.convert(header.leadingMarkFrame, from: header)
-            // The rail centred in its lane, a slight padding from the bar's left edge (Lawrence 2026-11-17).
-            #expect(bar.minX + SidebarStyle.groupRailInset == line.minX, "\(c): bar at \(bar.minX), rail at \(line.minX)")
+            // One left edge: the bar's and the rail's.
+            #expect(bar.minX == line.minX, "\(c): bar at \(bar.minX), rail at \(line.minX)")
             // One right edge: the bar's and every member's.
             for member in members {
                 #expect(member.frame.maxX == header.frame.maxX, "\(c): member ends at \(member.frame.maxX), header at \(header.frame.maxX)")
-                // The rail never touches a member's fill: the other half of its lane stays.
-                #expect(line.maxX + SidebarStyle.groupRailInset <= member.frame.minX,
+                // The rail never touches a member's fill: its own gap (`Metrics.space1`) stays.
+                #expect(line.maxX + Metrics.space1 <= member.frame.minX,
                         "\(c): rail ends at \(line.maxX), member fill starts at \(member.frame.minX)")
             }
             // The rail spans its members: it starts at the first member's top, never part way down it.
@@ -64,6 +64,26 @@ import Testing
             let name = list.convert(header.titleFrame, from: header).minX
             let title = list.convert(member.titleFrame, from: member).minX
             #expect(abs(name - title) < 0.5, "\(c): header name at \(name), member title at \(title)")
+        }
+    }
+
+    /// A row's warning triangle with no spinner sits on the spinners' column, in the spinner's box: the frame
+    /// `layoutColumnMark` gives a spinner (`statusGlyphFrame` centered on `trailingColumnCenterX`, on the row's middle).
+    @Test(arguments: SidebarDensity.allCases)
+    func theWarningTriangleSharesTheSpinnersCenterAndBox(_ density: SidebarDensity) throws {
+        try SidebarGroupRailAlignmentTests.with(density, .off) {
+            var warned = SidebarWorkspace(id: WorkspaceID("ws-warned"), title: "warned", lastActivity: Date(), kind: .harness)
+            warned.usageWarnings = ["90 subagents started in the last hour, above 40"]
+            let row = try SidebarUsageWarningTests.rowView(warned)
+            row.layoutSubtreeIfNeeded()
+            try #require(!row.usageWarningMark.isHidden, "the warned row shows its triangle")
+            let triangle = row.usageWarningMark.frame
+            let side = SidebarStyle.statusGlyphSize
+            let spinner = row.statusGlyphFrame(trailing: SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width) + side / 2,
+                                               centerY: triangle.midY)
+            #expect(abs(triangle.midX - spinner.midX) < 0.5, "\(density.rawValue): triangle center x \(triangle.midX), spinner column \(spinner.midX)")
+            #expect(triangle.size == spinner.size, "\(density.rawValue): triangle box \(triangle.size), spinner box \(spinner.size)")
+            #expect(abs(triangle.midY - row.bounds.midY) < 0.5, "\(density.rawValue): triangle center y \(triangle.midY), row middle \(row.bounds.midY)")
         }
     }
 }

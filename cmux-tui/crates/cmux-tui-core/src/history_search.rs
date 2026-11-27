@@ -55,19 +55,15 @@ impl HistorySearch {
         Ok(Self { reader: Mutex::new(reader), stop, worker: Mutex::new(Some(worker)) })
     }
 
-    /// Newest first; every word must match, and the search operators
-    /// (`is:`, `since:`, `before:`, `-word`) narrow it. `kinds` empty: every
-    /// kind.
+    /// Newest first; every word must match. `kinds` empty: every kind.
     pub fn search(
         &self,
         query: &str,
         kinds: &[SearchKind],
         limit: usize,
     ) -> anyhow::Result<Vec<SearchHit>> {
-        let now_ms = crate::history_ops::now_ms();
-        let day_start_ms = crate::history_ops::local_day_start_ms(now_ms);
         let reader = self.reader.lock().unwrap_or_else(PoisonError::into_inner);
-        Ok(reader.search_at(query, kinds, limit, now_ms, day_start_ms)?)
+        Ok(reader.search(query, kinds, limit)?)
     }
 }
 

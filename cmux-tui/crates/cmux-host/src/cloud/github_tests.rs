@@ -173,49 +173,6 @@ fn rate_limits_and_transport_errors_become_refusals() {
 }
 
 #[test]
-fn a_refusal_keeps_a_github_configure_page_and_drops_any_other_url() {
-    let a = ask(json!({ "contents": "read" }));
-    let page = "https://github.com/organizations/acme/settings/installations/9";
-    let refused = |url: &str| {
-        let body =
-            json!({ "error": { "code": "policy.denied", "message": "m", "configure_url": url } });
-        reply_for(&a, &Answer::Http { status: 403, body })["error"].clone()
-    };
-    assert_eq!(
-        refused(page),
-        json!({ "code": "policy.denied", "message": "m", "configure_url": page })
-    );
-    for other in [
-        "http://github.com/settings/installations/9",
-        "https://evil.example/settings",
-        "https://github.com.evil.example/x",
-        "https://github.com/settings?token=x",
-        "https://github.com/",
-    ] {
-        assert_eq!(refused(other), json!({ "code": "policy.denied", "message": "m" }), "{other}");
-    }
-}
-
-#[test]
-fn a_refusal_keeps_a_known_deny_reason_and_drops_any_other() {
-    let a = ask(json!({ "contents": "read" }));
-    let refused = |reason: &str| {
-        let body =
-            json!({ "error": { "code": "policy.denied", "message": "m", "reason": reason } });
-        reply_for(&a, &Answer::Http { status: 403, body })["error"].clone()
-    };
-    for reason in super::github::DENY_REASONS {
-        assert_eq!(
-            refused(reason),
-            json!({ "code": "policy.denied", "message": "m", "reason": reason })
-        );
-    }
-    for other in ["", "something_new", "repo_not_granted\nx", "<script>"] {
-        assert_eq!(refused(other), json!({ "code": "policy.denied", "message": "m" }), "{other:?}");
-    }
-}
-
-#[test]
 fn asks_are_checked_before_they_reach_the_api() {
     let bad = |v: Value| TokenAsk::from_json(&v).is_err();
     assert!(bad(json!({ "repo": "manaflow-ai", "permissions": { "contents": "read" } })));
@@ -345,24 +302,25 @@ impl Http for Gated {
 }
 
 #[test]
-fn asks_past_the_old_queue_cap_all_wait_their_turn() {
-    // Past the 8 waiting asks the minter once answered `busy` at once.
-    let past_old_cap = 17;
+fn asks_over_the_limit_are_answered_busy_at_once() {
+    use super::github_minter::MAX_PENDING;
     let fake = Fake::default();
-    fake.0.lock().unwrap().answers.extend((0..past_old_cap).map(|_| minted()));
+    fake.0.lock().unwrap().answers.extend((0..MAX_PENDING).map(|_| minted()));
     let (http, release, _reached) = gated(fake);
     let minter: Minter<Gated> = Minter::spawn(fixed_now, no_log, Arc::default()).unwrap();
     minter.bound(client_with(http));
     let a = ask(json!({ "contents": "write" }));
     let mut held = Vec::new();
-    for _ in 0..past_old_cap {
+    for _ in 0..MAX_PENDING {
         let (ours, theirs) = UnixStream::pair().unwrap();
         // Before the reply: macOS refuses socket options once the peer closed.
         ours.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
         minter.ask(Ok(a.clone()), theirs);
         held.push(ours);
     }
-    for _ in 0..past_old_cap {
+    // The first is minting and the rest wait: one more is busy at once.
+    assert_eq!(ask_minter(&minter, Ok(a))["error"]["code"], "busy");
+    for _ in 0..MAX_PENDING {
         release.send(()).unwrap();
     }
     for ours in held {

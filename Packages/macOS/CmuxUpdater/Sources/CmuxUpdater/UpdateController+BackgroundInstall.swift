@@ -16,14 +16,9 @@ extension UpdateController {
 
     /// Whether a staged background update should install automatically once ready. A host that
     /// preserves daemon sessions across app relaunches bypasses the relaunch gate entirely.
-    /// A change with an update already staged applies to it (``UpdateDriver/idlePolicyChanged()``).
     public var installsUpdatesWhenIdle: Bool {
         get { driver.installsWhenIdle }
-        set {
-            guard driver.installsWhenIdle != newValue else { return }
-            driver.installsWhenIdle = newValue
-            driver.idlePolicyChanged()
-        }
+        set { driver.installsWhenIdle = newValue }
     }
 
     /// The legacy idle-install wait cap for hosts that opt into ``UpdateRelaunchGate``. cmux-next
@@ -64,7 +59,7 @@ extension UpdateController {
     /// (a preference the shipped NIGHTLY app shares with this one), a scheduled check never reaches
     /// this app's driver; it downloads, then hands over Sparkle's immediate-install handler through
     /// `willInstallUpdateOnQuit`. Both look the same ("Update ready"), so both must install. If the
-    /// app is still running ``InstallWatchdog/defaultTimeout`` after the click, or nothing can install,
+    /// app is still running ``installWatchdogTimeout`` after the click, or nothing can install,
     /// the click ends in a visible error that offers a manual download, never a dead button.
     public func installStagedUpdate() {
         if driver.quitInstallCommitted, driver.quitInstall != nil {
@@ -125,7 +120,7 @@ extension UpdateController {
         driver.relaunchHeldInstallThroughSparkle()
     }
 
-    /// The app should quit for the installer within ``InstallWatchdog/defaultTimeout``; a click that
+    /// The app should quit for the installer within ``installWatchdogTimeout``; a click that
     /// leaves it running becomes the "couldn't start the update" error with its retry.
     private func armStagedInstallWatchdog() {
         installWatchdog.arm { [weak self] in

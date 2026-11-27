@@ -81,25 +81,6 @@ fn native_code_is_first_party_only() {
     assert!(codes(&first).is_empty());
 }
 
-/// A setting-backed entry (the App Store's Auto cleanup) writes the person's cmux settings: only a
-/// first-party app may declare one, and the schema takes a dotted key and a boolean default.
-#[test]
-fn setting_backed_entries_are_first_party_only() {
-    let setting = json!({ "key": "worktrees.autoCleanup", "default": true });
-    let first = manifest(
-        json!({ "id": "cmux/x", "repository": "https://github.com/manaflow-ai/cmux", "setting": setting }),
-    );
-    assert!(codes(&first).is_empty());
-    let third = manifest(
-        json!({ "id": "octo/x", "repository": "https://github.com/octo/x", "setting": setting }),
-    );
-    assert_eq!(codes(&third), vec!["setting.firstPartyOnly"]);
-    let bad =
-        manifest(json!({ "id": "cmux/x", "repository": "https://github.com/manaflow-ai/cmux",
-        "setting": { "key": "worktrees", "default": "yes" } }));
-    assert!(codes(&bad).contains(&"schema"), "{:?}", codes(&bad));
-}
-
 #[test]
 fn publisher_rules() {
     assert_eq!(
@@ -157,124 +138,6 @@ fn package_paths_are_checked() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// `contributes.wallpapers` (live-wallpapers.md): each listed folder passes
-/// cmux-wallpaper's manifest and program checks. The program check needs
-/// cmux-wallpaper/compile, which the dev-dependency turns on for tests.
-#[test]
-fn contributed_wallpapers_are_checked_with_the_app_validator() {
-    const {
-        assert!(
-            cmux_wallpaper::CHECKS_PROGRAMS,
-            "the dev-dependency turns on cmux-wallpaper/compile"
-        );
-    };
-    let dir =
-        std::env::temp_dir().join(format!("cmux-app-manifest-wallpapers-{}", std::process::id()));
-    let ok_json = r#"{"id":"glow","name":"Glow","description":"A glow.","shader":"wallpaper.wgsl","fps":30,"scale":0.5,"interactive":true,"still":{"time":1,"pointer":[0.5,0.5]}}"#;
-    let ok_wgsl = "fn wallpaper(px: vec2<f32>) -> vec4<f32> { return frame.paper; }\n";
-    let folders = [
-        ("wallpapers/glow", ok_json.to_string(), ok_wgsl.to_string()),
-        // A program that keeps state: refused by the sandbox, with its line.
-        (
-            "wallpapers/stateful",
-            ok_json.replace("glow", "stateful"),
-            format!("var<private> n: f32;\n{ok_wgsl}"),
-        ),
-        // A manifest out of range.
-        (
-            "wallpapers/fast",
-            ok_json.replace("glow", "fast").replace("30", "120"),
-            ok_wgsl.to_string(),
-        ),
-        // The same id twice.
-        ("wallpapers/glow-again", ok_json.to_string(), ok_wgsl.to_string()),
-    ];
-    for (path, json, wgsl) in &folders {
-        std::fs::create_dir_all(dir.join(path)).expect("mkdir");
-        std::fs::write(dir.join(path).join("wallpaper.json"), json).expect("write");
-        std::fs::write(dir.join(path).join("wallpaper.wgsl"), wgsl).expect("write");
-    }
-    let mut list: Vec<Value> = folders.iter().map(|(p, _, _)| json!({ "path": p })).collect();
-    list.push(json!({ "path": "wallpapers/missing" }));
-    let m = manifest(json!({ "contributes": { "wallpapers": list }, "icon": { "symbol": "app" } }));
-    assert!(is_valid(&validate_manifest(&m)), "{:?}", validate_manifest(&m));
-    std::fs::write(dir.join("cmux-app.json"), m.to_string()).expect("write");
-
-    // The missing folder is a path issue first; nothing else runs until paths are good.
-    let report = validate_package(&dir);
-    let got: Vec<_> = report
-        .issues
-        .iter()
-        .filter(|i| i.code != "icon.noImage")
-        .map(|i| (i.path.as_str(), i.code))
-        .collect();
-    assert_eq!(got, vec![("/contributes/wallpapers/4/path", "path.missing")]);
-
-    list.pop();
-    let m = manifest(json!({ "contributes": { "wallpapers": list }, "icon": { "symbol": "app" } }));
-    std::fs::write(dir.join("cmux-app.json"), m.to_string()).expect("write");
-    let report = validate_package(&dir);
-    let got: Vec<_> = report
-        .issues
-        .iter()
-        .filter(|i| i.code != "icon.noImage")
-        .map(|i| (i.path.as_str(), i.code, i.message.as_str()))
-        .collect();
-    assert_eq!(got.len(), 3, "{got:?}");
-    assert_eq!(got[0].0, "/contributes/wallpapers/1/path");
-    assert_eq!(got[0].1, "wallpaper.program");
-    assert!(got[0].2.starts_with("wallpapers/stateful/wallpaper.wgsl:1:"), "{}", got[0].2);
-    assert_eq!((got[1].0, got[1].1), ("/contributes/wallpapers/2/path", "wallpaper.manifest"));
-    assert!(got[1].2.contains("/fps"), "{}", got[1].2);
-    assert_eq!((got[2].0, got[2].1), ("/contributes/wallpapers/3/path", "wallpaper.duplicate"));
-    std::fs::remove_dir_all(&dir).ok();
-}
-
-/// A wallpaper's files are read only inside the package, as its catalog is: a
-/// program symlinked to a file outside the package is refused unread.
-#[cfg(unix)]
-#[test]
-fn a_wallpaper_program_symlinked_out_of_the_package_is_refused() {
-    let base = std::env::temp_dir()
-        .join(format!("cmux-app-manifest-wallpaper-link-{}", std::process::id()));
-    let dir = base.join("pkg");
-    let folder = dir.join("wallpapers/glow");
-    std::fs::create_dir_all(&folder).expect("mkdir");
-    let outside = base.join("outside.wgsl");
-    std::fs::write(&outside, "fn wallpaper(px: vec2<f32>) -> vec4<f32> { return frame.paper; }\n")
-        .expect("write");
-    std::os::unix::fs::symlink(&outside, folder.join("wallpaper.wgsl")).expect("symlink");
-    let json = r#"{"id":"glow","name":"Glow","description":"A glow.","shader":"wallpaper.wgsl","fps":30,"scale":0.5,"interactive":true,"still":{"time":1,"pointer":[0.5,0.5]}}"#;
-    std::fs::write(folder.join("wallpaper.json"), json).expect("write");
-    let m = manifest(json!({
-        "contributes": { "wallpapers": [{ "path": "wallpapers/glow" }] },
-        "icon": { "symbol": "app" }
-    }));
-    std::fs::write(dir.join("cmux-app.json"), m.to_string()).expect("write");
-    let report = validate_package(&dir);
-    let got: Vec<_> = report
-        .issues
-        .iter()
-        .filter(|i| i.code != "icon.noImage")
-        .map(|i| (i.path.as_str(), i.code, i.message.as_str()))
-        .collect();
-    assert_eq!(got.len(), 1, "{got:?}");
-    assert_eq!((got[0].0, got[0].1), ("/contributes/wallpapers/0/path", "wallpaper.program"));
-    assert!(got[0].2.contains("not a file inside the package"), "{}", got[0].2);
-    std::fs::remove_dir_all(&base).ok();
-}
-
-#[test]
-fn contributed_wallpapers_are_capped_at_16() {
-    let list: Vec<Value> = (0..17).map(|i| json!({ "path": format!("w/{i}") })).collect();
-    let m = manifest(json!({ "contributes": { "wallpapers": list } }));
-    assert!(!is_valid(&validate_manifest(&m)));
-    let m = manifest(json!({ "contributes": { "wallpapers": [{ "path": "../w" }] } }));
-    assert!(!is_valid(&validate_manifest(&m)));
-    let m = manifest(json!({ "contributes": { "wallpapers": [{ "path": "w", "extra": 1 }] } }));
-    assert!(!is_valid(&validate_manifest(&m)));
-}
-
 /// Step 11 (extensibility-DESIGN.md 12.1 item 12): an app whose script or
 /// manifest strings carry a character that hides what it does is refused at
 /// load and install, naming file, line and column, never the text.
@@ -318,38 +181,4 @@ fn sidebar_sections_accept_all_three_regions_including_bottom() {
             }}}));
         assert!(codes(&value).is_empty(), "{region}: {:?}", codes(&value));
     }
-}
-
-/// A text field past the schema's 300-character cap is refused with an issue
-/// that names the field and its length (the schema's own answer is a `oneOf`
-/// miss that repeats the text and never says why; the daemon then drops the
-/// package from the App Store with only that line to show for it).
-#[test]
-fn a_text_field_over_its_cap_names_the_field_and_its_length() {
-    let long = "x".repeat(cmux_app_manifest::TEXT_MAX_CHARS + 112);
-    for (m, path) in [
-        (manifest(json!({ "description": long })), "/description"),
-        (manifest(json!({ "description": { "en": "ok", "de": long } })), "/description/de"),
-    ] {
-        let issues = validate_manifest(&m);
-        let issue = issues.iter().find(|i| i.code == "text.too_long").expect("text.too_long");
-        assert_eq!(issue.path, path, "{issues:?}");
-        assert_eq!(issue.message, "is 412 characters; the limit is 300");
-    }
-    let at_cap = "x".repeat(cmux_app_manifest::TEXT_MAX_CHARS);
-    assert!(!codes(&manifest(json!({ "description": at_cap }))).contains(&"text.too_long"));
-    // Another oneOf with a string past 300 (an icon path, capped lower) keeps its own error.
-    let icon = format!("assets/{}.png", "x".repeat(cmux_app_manifest::TEXT_MAX_CHARS));
-    let icon_codes = codes(&manifest(json!({ "icon": icon })));
-    assert!(!icon_codes.contains(&"text.too_long"), "{icon_codes:?}");
-    assert!(icon_codes.contains(&"schema"), "{icon_codes:?}");
-}
-
-/// The cap above is the schema's (`$defs/text`), not a second copy that can drift.
-#[test]
-fn the_text_cap_is_the_schemas() {
-    let schema: Value = serde_json::from_str(cmux_app_manifest::SCHEMA).expect("schema");
-    let text = &schema["$defs"]["text"]["oneOf"];
-    assert_eq!(text[0]["maxLength"], cmux_app_manifest::TEXT_MAX_CHARS);
-    assert_eq!(text[1]["additionalProperties"]["maxLength"], cmux_app_manifest::TEXT_MAX_CHARS);
 }

@@ -30,7 +30,6 @@ import Testing
       addEventListener: function (type, f) { if (type === 'visibilitychange') visibilityListeners.push(f); },
       removeEventListener: function (type, f) { visibilityListeners = visibilityListeners.filter(function (g) { return g !== f; }); },
       querySelector: function () { return null; },
-      querySelectorAll: function () { return []; },
     };
     Object.defineProperty(document.body, 'innerText', { get: function () { reads += 1; return text; } });
     function setVisibility(state) { document.visibilityState = state; visibilityListeners.forEach(function (f) { f(); }); runTimers(); }

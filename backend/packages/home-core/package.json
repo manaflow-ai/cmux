@@ -10,8 +10,7 @@
     "./mux": "./src/mux/index.ts",
     "./address": "./src/address/index.ts",
     "./invites": "./src/invites/index.ts",
-    "./user": "./src/user/index.ts",
-    "./appkv": "./src/appkv/index.ts"
+    "./user": "./src/user/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",

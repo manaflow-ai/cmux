@@ -37,11 +37,9 @@ extension WindowRules {
         public var user = false
         public var followsSetting = false
         public var canHostAgent = false
-        /// The person works terminal-first (`tabs.newTabTemplate` `terminal`): their Cmd-T opens a terminal.
-        public var terminalFirst = false
 
         public init(selectedKind: String?, engine: String?, localBrowser: Bool, agent: Bool, newTabPage: Bool,
-                    user: Bool = false, followsSetting: Bool = false, canHostAgent: Bool = false, terminalFirst: Bool = false) {
+                    user: Bool = false, followsSetting: Bool = false, canHostAgent: Bool = false) {
             self.selectedKind = selectedKind
             self.engine = engine
             self.localBrowser = localBrowser
@@ -50,18 +48,13 @@ extension WindowRules {
             self.user = user
             self.followsSetting = followsSetting
             self.canHostAgent = canHostAgent
-            self.terminalFirst = terminalFirst
         }
     }
 
     /// What a new tab opens (`kind`), and the selected tab's own kind (`sameKind`); nil when the FFI does not answer.
     public func newTabKind(_ facts: NewTabFacts) -> (kind: NewTabKind, sameKind: NewTabKind)? {
         struct Reply: Decodable { var kind: NewTabKind, sameKind: NewTabKind }
-        guard let reply = call("window_tabs_new_tab_kind", facts, as: Reply.self) else { return nil }
-        // Re-pin bridge (cmux#48416): the pinned app FFI predates `tabs::new_tab_kind`'s `terminal_first`, so a
-        // terminal-first person's Cmd-T is answered here the way that rule does. Delete once the FFI re-pin lands.
-        if facts.terminalFirst, facts.user, facts.followsSetting, reply.kind == .page { return (.terminal, reply.sameKind) }
-        return (reply.kind, reply.sameKind)
+        return call("window_tabs_new_tab_kind", facts, as: Reply.self).map { ($0.kind, $0.sameKind) }
     }
 
     // MARK: Browser
@@ -229,14 +222,9 @@ extension WindowRules {
         public var handOff: HandOff?
         public var handOffOpen: Bool
         public var now: Double
-        /// A chat: this app cannot start a terminal for its session (its acpmux run is another
-        /// machine's, or this app has no acpmux). With no terminal running it, no toggle shows.
-        public var cannotStartTerminal: Bool
 
         public init(terminal: Bool = false, chat: Bool = false, agent: String?, session: String?, running: Bool = false,
-                    busy: Bool = false, handOff: HandOff? = nil, handOffOpen: Bool = false, now: Double = 0,
-                    cannotStartTerminal: Bool = false) {
-            self.cannotStartTerminal = cannotStartTerminal
+                    busy: Bool = false, handOff: HandOff? = nil, handOffOpen: Bool = false, now: Double = 0) {
             self.terminal = terminal
             self.chat = chat
             self.agent = agent
@@ -250,17 +238,14 @@ extension WindowRules {
     }
 
     /// A chat's session handed to a new terminal, until that terminal's hooks report it: `tab` nil
-    /// while the chat's run stops. Over at `deadline` (seconds since 1970), reported or not. `machine`
-    /// is the machine the terminal tab was made on, so it is looked up there only (a fork keeps its ids).
+    /// while the chat's run stops. Over at `deadline` (seconds since 1970), reported or not.
     public nonisolated struct HandOff: Codable, Equatable, Sendable {
         public var deadline: Double
         public var tab: String?
-        public var machine: String?
 
-        public init(deadline: Double, tab: String? = nil, machine: String? = nil) {
+        public init(deadline: Double, tab: String? = nil) {
             self.deadline = deadline
             self.tab = tab
-            self.machine = machine
         }
     }
 
@@ -279,8 +264,6 @@ extension WindowRules {
         case handingOff(tab: String?)
         /// The chat is mid-turn: stopping it would cut the turn off.
         case busy
-        /// A chat no terminal runs, where none can start (`cannotStartTerminal`): only a chat, no toggle.
-        case noTerminal
 
         private enum CodingKeys: String, CodingKey { case route, harness, session, tab }
 
@@ -298,7 +281,6 @@ extension WindowRules {
                                                               session: try container.decode(String.self, forKey: .session))
             case "handingOff": self = .handingOff(tab: try container.decodeIfPresent(String.self, forKey: .tab))
             case "busy": self = .busy
-            case "noTerminal": self = .noTerminal
             case let other: throw DecodingError.dataCorruptedError(forKey: .route, in: container, debugDescription: "route \(other)")
             }
         }

@@ -45,7 +45,6 @@ import argparse, csv, importlib.util, json, os, pathlib, random, statistics, sub
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError, close_all_workspaces, named_terminal, shown_in_window, wait_for_count  # noqa: E402
-from state_wait import wait_stable, wait_until  # noqa: E402
 
 
 def load(name, file):
@@ -332,9 +331,7 @@ def type_keys(count, label):
         rest = opts.interval - (time.perf_counter() - t0)
         if rest > 0:
             time.sleep(rest)  # one key in flight at a time
-    # The last echoes land: the typing probe's row count stops growing.
-    wait_stable(lambda: len(probe_rows()), f"{label}: the typing probe's rows", timeout=10, interval=0.1, reads=4,
-                raise_on_timeout=False)
+    time.sleep(0.5)  # the last echo lands
     return trips, stalls
 
 
@@ -349,9 +346,8 @@ def phase(name, loads, pid, ax=False):
         ax_proc, ax_note = ax_client(pid, opts.samples * opts.interval + 5)
         if ax_note:
             note(ax_note)
-    if loads and wait_until(lambda: all(load.ops >= 1 for load in loads), f"{name}: every load's first op",
-                            timeout=30, interval=0.05, raise_on_timeout=False) is None:
-        note(f"{name}: a load never finished its first op in 30 s: {[(l.name_, l.ops) for l in loads]}")
+    if loads:
+        time.sleep(1.0)  # the load runs before the first key
     t0 = time.monotonic()
     trips, stalls = type_keys(opts.samples, name)
     wall = time.monotonic() - t0
@@ -402,9 +398,7 @@ def chromium_problems(cef):
 def run_layout(layout, tabs, browser_tab, pid):
     """The idle and automation phases of `layout` (--rounds each), typed into the focused terminal."""
     rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})  # the pointer rests over the terminal
-    # The layout just built settles: its topology holds still for about a second.
-    wait_stable(topology, f"{layout}: the layout's topology", timeout=20, interval=0.2, reads=5,
-                raise_on_timeout=False)
+    time.sleep(4)
     type_keys(10, f"{layout}-warmup")
     for r in range(opts.rounds):
         phase(f"{layout}-idle-{r}", [], pid)

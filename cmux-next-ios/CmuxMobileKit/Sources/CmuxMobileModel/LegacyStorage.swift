@@ -1,13 +1,12 @@
 import Foundation
 
 /// The one-time move off the storage names builds up to 1.2.0 used (the app was called
-/// cnx then), so an update keeps the account, team and settings.
+/// cnx then), so an update keeps the account, team, settings and Chief outboxes.
 ///
 /// Runs at launch before anything reads them. Settings: every `cnx.` UserDefaults key
 /// becomes the same key under `cmuxMobile.` unless that key is already set; the old key
-/// is removed. Files in Application Support: the live snapshot folder (and the old Chief
-/// outbox files, which nothing reads since the outbox was removed) are renamed unless the
-/// new name exists. The Keychain device ids move in
+/// is removed. Files in Application Support: the Chief outboxes and the live snapshot
+/// folder are renamed unless the new name exists. The Keychain device ids move in
 /// `DeviceIdentity` (CmuxMobileLive). Idempotent: a second run finds nothing to move.
 public enum LegacyStorage {
     static let legacyPrefix = "cnx."

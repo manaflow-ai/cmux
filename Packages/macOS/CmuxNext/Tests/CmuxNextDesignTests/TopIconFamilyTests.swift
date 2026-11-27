@@ -50,11 +50,13 @@ import Testing
     /// Default, Helium's 13 pt; Lucas 2026-11-13: the arrows were bigger than Helium's), never wider than its button.
     @Test func theGlyphSideFollowsDensity() {
         let ratio = DensityTokens.toolbarGlyphInkRatio
+        #expect(abs(DensityTokens.compact.toolbarGlyphSize * ratio - 11) < 0.001)
         #expect(abs(DensityTokens(id: "level1", name: "Level 1", level: 1).toolbarGlyphSize * ratio - 13) < 0.001)
-        #expect(abs(DensityPreset.cozy.tokens.toolbarGlyphSize - (14 / 0.9 / 0.617 * 2).rounded() / 2) < 0.001) // Helium's 14 px reload at Compact
+        #expect(abs(DensityPreset.cozy.tokens.toolbarGlyphSize * ratio - 13) < 0.001)
         for preset in DensityPreset.allCases {
             let tokens = preset.tokens
-            #expect(abs(tokens.toolbarGlyphSize - (14 / 0.9 / 0.617 * CGFloat(preset.scaleFactor) * 2).rounded() / 2) < 0.001, "\(preset)")
+            let small = tokens.resolveGlyph(compact: 12, comfortable: 14, token: "smallIconSize")
+            #expect(abs(tokens.toolbarGlyphSize * ratio - DensityTokens.toolbarGlyphInk(smallIcon: small)) < 0.001, "\(preset)")
             #expect(tokens.toolbarGlyphSize <= tokens.toolbarButtonSize, "\(preset)")
         }
     }

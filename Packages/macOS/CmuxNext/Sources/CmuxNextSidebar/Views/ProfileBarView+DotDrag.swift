@@ -26,18 +26,13 @@ extension ProfileBarView {
             beginDotDrag(pressed, at: start)
         }
         guard let drag = dotDrag, !drag.landing else { return }
-        let rects = slotRects()
-        let centers = rects.dropLast().map(\.midX)
-        // The dot follows the pointer between the first and last drawn dots: never off the bar, under the "+" or
-        // into the leading inset (#32981).
-        let drawn = drawnDotIndices(in: rects)
-        guard let first = drawn.first.map({ centers[$0] }), let last = drawn.last.map({ centers[$0] }) else { return }
+        let centers = slotRects().prefix(model.profiles.count).map(\.midX)
+        guard let first = centers.first, let last = centers.last else { return }
         let x = min(max(point.x - drag.grab, first), last)
-        guard let dragged = drag.dots[drag.from] else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        dragged.removeAnimation(forKey: "position")
-        dragged.position = CGPoint(x: x, y: bounds.midY)
+        drag.dots[drag.from].removeAnimation(forKey: "position")
+        drag.dots[drag.from].position = CGPoint(x: x, y: bounds.midY)
         CATransaction.commit()
         drag.overBand = footerBand(contains: point)
         drag.outsideWindow = outsideWindow(point)
@@ -51,33 +46,25 @@ extension ProfileBarView {
     func dropDot() -> Bool {
         guard let drag = dotDrag, !drag.landing else { return dotDrag != nil }
         drag.landing = true
-        // A daemon update can remove or reorder Spaces while the pointer is down.
-        // The layer indices still refer to the order at the start of the drag.
-        guard model.profiles.lazy.map(\.id).elementsEqual(drag.profileIDs) else {
-            endDotDrag(drag)
-            return true
-        }
         if drag.outsideWindow {
             // The new window takes the space's workspaces that no window showing the space lists. The press
             // showed the space here, so this window goes back to its own space first: the workspaces move out
             // and this window stays where it was, as a tear-off left it before a press switched. A window that
             // shows another space by now (a key or an agent switched it during the drag) is not on the torn-off
             // space: that later switch is not the press's to take back.
-            let torn = drag.profileIDs[drag.from]
+            let torn = model.profiles[drag.from].id
             if let pressOrigin, model.activeProfileID == torn, model.profiles.contains(where: { $0.id == pressOrigin }) { model.send(.switchProfile(pressOrigin)) }
             model.send(.openProfileInNewWindow(torn))
         }
         if !drag.overBand || drag.outsideWindow { drag.target = drag.from }
         // The insertion index of `move-profile` (an index before removal), as Move Right/Left send it.
         if let insertion = ProfileBarLogic.moveInsertion(from: drag.from, to: drag.target, count: model.profiles.count) {
-            model.send(.reorderProfile(drag.profileIDs[drag.from], index: insertion))
+            model.send(.reorderProfile(model.profiles[drag.from].id, index: insertion))
         }
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in self?.endDotDrag(drag) }
         placeDots(drag, includingDragged: true)
-        if let dragged = drag.dots[drag.from] {
-            Motion.sidebar.set(dragged, "transform.scale", to: NSNumber(value: 1), spring: .selection)
-        }
+        Motion.sidebar.set(drag.dots[drag.from], "transform.scale", to: NSNumber(value: 1), spring: .selection)
         CATransaction.commit()
         return true
     }
@@ -95,14 +82,7 @@ extension ProfileBarView {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         let container = CALayer()
         container.frame = bounds
-        // The dots stay inside the strip's drawn range: a dot sliding past the "+" or the bar's edges is cut there,
-        // never painted over the "+", the search button or the avatar (#32981). The dragged dot's lift stays whole.
-        let range = visibleDotRange(plus: rects[model.profiles.count]), mask = CALayer()
-        mask.backgroundColor = CGColor(gray: 0, alpha: 1) // colour-allow: a mask layer, never drawn: only its alpha clips
-        mask.frame = CGRect(x: range.lowerBound, y: bounds.minY - bounds.height, width: range.upperBound - range.lowerBound, height: bounds.height * 3)
-        container.mask = mask
-        let dots = Dictionary(uniqueKeysWithValues: drawnDotIndices(in: rects).map { offset -> (Int, CALayer) in
-            let profile = model.profiles[offset]
+        let dots = model.profiles.enumerated().map { offset, profile in
             let active = profile.id == model.activeProfileID
             let slot = rects[offset]
             // The current space's dot carries its chip (the bar's own chip hides while the dots move).
@@ -123,32 +103,29 @@ extension ProfileBarView {
             dot.contents = image
             dot.frame = slot
             container.addSublayer(dot)
-            return (offset, dot)
-        })
+            return dot
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         host.addSublayer(container)
         marks.isHidden = true
         indicator.isHidden = true
         CATransaction.commit()
-        let drag = ProfileBarDotDrag(from: index, profileIDs: model.profiles.map(\.id), grab: start.x - rects[index].midX, container: container, dots: dots)
+        let drag = ProfileBarDotDrag(from: index, grab: start.x - rects[index].midX, container: container, dots: dots)
         dotDrag = drag
         setHovered(nil)
         setPressed(nil)
         // The dragged dot lifts.
-        if let dragged = drag.dots[index] {
-            dragged.zPosition = 1
-            Motion.sidebar.set(dragged, "transform.scale", to: NSNumber(value: 1.15), spring: .selection)
-        }
+        dots[index].zPosition = 1
+        Motion.sidebar.set(dots[index], "transform.scale", to: NSNumber(value: 1.15), spring: .selection)
     }
 
     /// Springs every dot but the dragged one (and it too when `includingDragged`) to its slot in the drop's order.
     private func placeDots(_ drag: ProfileBarDotDrag, includingDragged: Bool) {
         let rects = slotRects()
-        let order = ProfileBarDotDrag.order(Array(model.profiles.indices), moving: drag.from, to: drag.target)
-        for (position, index) in order.enumerated() where includingDragged || index != drag.from {
-            guard let dot = drag.dots[index] else { continue }
-            Motion.sidebar.set(dot, "position", to: NSValue(point: CGPoint(x: rects[position].midX, y: bounds.midY)), spring: .selection)
+        let order = ProfileBarDotDrag.order(Array(drag.dots.indices), moving: drag.from, to: drag.target)
+        for (position, index) in order.enumerated() where (includingDragged || index != drag.from) && rects.indices.contains(position) {
+            Motion.sidebar.set(drag.dots[index], "position", to: NSValue(point: CGPoint(x: rects[position].midX, y: bounds.midY)), spring: .selection)
         }
     }
 

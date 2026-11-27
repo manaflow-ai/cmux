@@ -7,7 +7,7 @@ import { aadFor, open, seal } from "../src/integrations/crypto.ts"
 import { github, installationToken, linear, slack, type Http } from "../src/integrations/providers.ts"
 import { GITHUB_CONFIGURE_URL } from "../src/integrations/github-connect.ts"
 import { CONNECT_RETURN_TO } from "@cmux/protocol"
-import { CONFIGURE_URL_PATTERN, integrationAppHandoff, integrationConfigureLink, integrationReturnLink, RETURN_TO_PATTERN } from "../../dashboard/src/lib/integration-callback.ts"
+import { CONFIGURE_URL_PATTERN, integrationConfigureLink, integrationReturnLink, RETURN_TO_PATTERN } from "../../dashboard/src/lib/integration-callback.ts"
 
 const testEnv = env as unknown as Record<string, any>
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -471,52 +471,6 @@ describe("connections end to end (workerd)", () => {
     for (const bad of ["https://evil.example/x", "javascript:alert(1)", "//evil.example", "cmux://evil.example/session/a", "cmux://auth-callback/x", `cmux://session/${"a".repeat(600)}`, 42]) expect(integrationReturnLink({ return_to: bad })).toBeUndefined()
     expect(integrationConfigureLink({ configure_url: "https://github.com/organizations/acme/settings/installations/42" })).toBe("https://github.com/organizations/acme/settings/installations/42")
     for (const bad of ["https://github.com.evil.example/settings/installations/42", "https://evil.example/settings/installations/42", "javascript:alert(1)"]) expect(integrationConfigureLink({ configure_url: bad })).toBeUndefined()
-  })
-
-  // #46018: the app finishes its own connect. The state carries the app's completion link; the dashboard callback hands the
-  // provider's redirect straight to it (no page, no web session); the app completes with its own session, and the
-  // completion answers no return link (the app is already where the person is).
-  it("a connect the app started carries its completion link, and the app's own session completes it", async () => {
-    const { token, team } = await signedIn("conn-gh-app-complete")
-    const fake = fakeHttp({
-      "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
-      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 55, account: { login: "acme", type: "Organization" }, permissions: { contents: "write" } }] }),
-      "https://api.github.com/user/installations/55/repositories": () => ok({ repositories: [{ full_name: "acme/web" }] })
-    })
-    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
-    await inDO(connections, async (instance) => { instance.http = fake.http })
-    const claims = (state: string) => JSON.parse(atob(state.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>
-    const back = "cmux-dev-gh-check://integration/complete"
-    const started = await op(token, "integration.connect", { provider: "github", return_to: back })
-    const url = new URL(started.json.value.authorize_url)
-    const state = url.searchParams.get("state")!
-    expect(claims(state).ret).toBe(back)
-    // cmux NEXT's own scheme is kept too: without it the console had no app to hand back to and asked for a web sign-in.
-    const next = await op(token, "integration.connect", { provider: "github", return_to: "cmux-next://integration/complete" })
-    expect(claims(new URL(next.json.value.authorize_url).searchParams.get("state")!).ret).toBe("cmux-next://integration/complete")
-    // GitHub redirects to the dashboard callback, which sends the browser on to the app with everything it needs.
-    const handoff = integrationAppHandoff({ state, code: "c", installation_id: "55", setup_action: "install" })
-    expect(handoff).toBe(`${back}?${new URLSearchParams({ state, code: "c", installation_id: "55", setup_action: "install" }).toString()}`)
-    // The app completes with the person's own token: active, and no return link to follow.
-    const done = await op(token, "integration.complete", { state, code: "c", installation_id: "55" })
-    expect(done.json).toMatchObject({ ok: true, value: { status: "active" } })
-    expect(done.json.value.return_to).toBeUndefined()
-    // Someone else's session cannot finish it.
-    const other = await signedIn("conn-gh-app-complete-other")
-    const again = await op(token, "integration.connect", { provider: "github", return_to: back })
-    const otherState = new URL(again.json.value.authorize_url).searchParams.get("state")!
-    expect((await op(other.token, "integration.complete", { state: otherState, code: "c", installation_id: "55" })).json).toMatchObject({ ok: false, error: { code: "integration.state_invalid" } })
-  })
-
-  it("the callback hands only the app's completion link a redirect, and only from a state that names it", () => {
-    const state = (claims: Record<string, unknown>) => `e30.${btoa(JSON.stringify(claims)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}.sig`
-    expect(integrationAppHandoff({ state: state({ ret: "cmux://integration/complete" }), code: "c", installation_id: "7" })).toMatch(/^cmux:\/\/integration\/complete\?state=.+&code=c&installation_id=7$/)
-    expect(integrationAppHandoff({ state: state({ ret: "cmux-next://integration/complete" }), code: "c" })).toMatch(/^cmux-next:\/\/integration\/complete\?state=.+&code=c$/)
-    // A chat link, another scheme, a web origin or no return link: the page finishes it as before (no handoff).
-    for (const ret of [undefined, "cmux-nightly://session/ses-01", "https://evil.example/integration/complete", "javascript://integration/complete", "cmux://integration/complete/x", "cmux://integration/complete?next=x"])
-      expect(integrationAppHandoff({ state: state(ret ? { ret } : {}), code: "c" })).toBeUndefined()
-    expect(integrationAppHandoff({ code: "c" })).toBeUndefined()
-    expect(integrationAppHandoff({ state: "not-a-jwt", code: "c" })).toBeUndefined()
   })
 
   it("GitHub Connect refuses a return link that is not a cmux chat link, and repo on another provider", async () => {

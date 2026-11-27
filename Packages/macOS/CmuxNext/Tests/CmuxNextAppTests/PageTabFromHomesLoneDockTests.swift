@@ -11,10 +11,6 @@ import Testing
 /// cmux-lawrence-2, before the tab showed at all. A link or browser tab from the lone dock opens in its
 /// split in one commit since #33548; a page tab now does the same (`conversation-tab-split-v1`): its
 /// column and tab show in the key's turn, and the dock never lists it.
-/// 2026-11-16, still late: Home's dock closed to tabs (`allow_tabs` off, its default) is not
-/// `HomeDockOpens.opensBeside`, so Cmd-, skipped the split: the tab showed in Home's own strip first,
-/// then moved to a new column, and its page showed about 190 ms after the tab (fleet probe). Either way
-/// the lone dock splits.
 @MainActor struct PageTabFromHomesLoneDockTests {
     private final class Page: InternalPageProvider {
         let page = InternalPageID.settings
@@ -23,10 +19,10 @@ import Testing
         func makeView(for key: String, in window: WindowController?) -> NSView { NSView() }
     }
 
-    /// Home's pinned dock (pane 1, taking tabs or not) alone on its screen.
-    private static func homeDockAlone(allowsTabs: Bool) -> DaemonTree {
+    /// Home's pinned dock (pane 1, taking tabs) alone on its screen.
+    private static func homeDockAlone() -> DaemonTree {
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .conversation, title: "Home")])
-        let dock = DockSnapshot(edge: .left, mode: .docked, role: .agentChat, isPinned: true, allowsTabs: allowsTabs)
+        let dock = DockSnapshot(edge: .left, mode: .docked, role: .agentChat, isPinned: true, allowsTabs: true)
         let column = ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(PaneID(rawValue: 1)), dock: dock)
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(PaneID(rawValue: 1)), columns: [column], panes: [pane])
         var workspace = WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil, name: "Home", screens: [screen])
@@ -34,8 +30,7 @@ import Testing
         return DaemonTree(workspaces: [workspace])
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [true, false])
-    func aPageFromHomesLoneDockShowsInItsColumnAtOnce(allowsTabs: Bool) async throws {
+    @Test(.timeLimit(.minutes(1))) func aPageFromHomesLoneDockShowsInItsColumnAtOnce() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -46,7 +41,7 @@ import Testing
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
-        store.apply(snapshot: Self.homeDockAlone(allowsTabs: allowsTabs))
+        store.apply(snapshot: Self.homeDockAlone())
         services.pages.register(Page())
         let (asked, ask) = AsyncStream<ConversationTabSplit?>.makeStream()
         services.pages.createStoreTab = { _, _, _, _, _, split in
@@ -60,7 +55,7 @@ import Testing
         let pane = PaneController(pane: model, daemon: services.daemon, layoutPaneID: LayoutPaneID(model.id), services: services,
                                   state: window.state)
         defer { pane.teardown() }
-        #expect(HomeDockOpens.opensBeside(model, services: services) == allowsTabs)
+        #expect(HomeDockOpens.opensBeside(model, services: services))
         #expect(store.isLonePinnedDock(model.handle))
 
         #expect(services.pages.openStoreTab(.settings, in: model, of: services.daemon, services: services, controller: pane,

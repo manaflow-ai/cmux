@@ -500,24 +500,6 @@ import Testing
         #expect(budget.stats.maxInputCheckNanos == 250_000)
     }
 
-    /// A pending-input check whose own cost is longer than the 250 us window it is cached for is
-    /// still cached: the window was timed from when the check began, so an expensive check left its
-    /// answer already expired and every later call in the frame paid for another one. That is the
-    /// gate switching itself off exactly where it is needed (a loaded window server is when the
-    /// check is slow), the same shape as the agent transcript's live-resize latch.
-    @Test func anExpensiveInputCheckIsStillCachedForItsWindow() {
-        let clock = BudgetClock()
-        // 0.4 ms, longer than the 0.25 ms the answer is kept for.
-        let budget = MainFrameBudget(input: CostlyInputPending(clock: clock, ms: 0.4), uptimeNanos: clock.read)
-        budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
-        #expect(budget.mayRun(.automation))
-        #expect(budget.stats.inputChecks == 1)
-        // A second task of the same frame, 0.05 ms later: inside the window, so it reads the answer.
-        clock.advance(ms: 0.05)
-        #expect(budget.mayRun(.automation))
-        #expect(budget.stats.inputChecks == 1, "the costly check ran again inside its own window")
-    }
-
     /// FIFO within a connection: a client that pipelines a focus change and then a key, without
     /// waiting for the first reply, gets them in that order (the key types into what it focused).
     @Test func anInjectedKeyNeverPassesItsOwnConnectionsEarlierRequest() {

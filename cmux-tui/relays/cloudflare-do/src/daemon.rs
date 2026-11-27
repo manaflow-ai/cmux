@@ -273,7 +273,6 @@ mod tests {
             parked: None,
             last_seen_ms,
             pending_handover: false,
-            inline: Default::default(),
         }
     }
 
@@ -296,7 +295,6 @@ mod tests {
             }),
             last_seen_ms: 0,
             pending_handover: false,
-            inline: Default::default(),
         }
     }
 
@@ -396,7 +394,7 @@ mod tests {
         assert_eq!(live_daemon([("dying", OPEN, dying)], SLOT, connect_ms), Some("dying"));
 
         let mut ledger = CircuitLedger::default();
-        let route = PendingRoute { lane: LaneToken("lane".into()), generation: 1, region: None };
+        let route = PendingRoute { lane: LaneToken("lane".into()), generation: 1 };
         let join_deadline_ms = connect_ms + 30_000;
         assert!(ledger.reserve_for("c1".into(), join_deadline_ms, connect_ms, Some(route.clone())));
 

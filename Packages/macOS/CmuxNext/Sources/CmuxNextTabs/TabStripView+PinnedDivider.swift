@@ -46,8 +46,9 @@ extension TabStripView {
         // A divider that just showed is at its place at once, as a new tab's separator is.
         guard let move, wasShown else { return }
         let delta = CGPoint(x: from.x - pinnedDivider.position.x - scroll, y: from.y - pinnedDivider.position.y)
-        // Still moving: it restarts from where it shows on this change's curve, with the pinned tabs.
-        move.move(pinnedDivider, position: delta, as: "divider")
+        if abs(delta.x) > 0.01 || abs(delta.y) > 0.01 {
+            move.add(move.motion.additive("position", from: NSValue(point: delta), to: NSValue(point: .zero)), to: pinnedDivider, as: "divider")
+        }
         move.addScroll(scroll, to: pinnedDivider)
     }
 

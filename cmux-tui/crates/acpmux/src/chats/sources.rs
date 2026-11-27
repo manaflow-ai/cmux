@@ -70,7 +70,6 @@ pub fn refusal(path: &Path, home: &Path, acpmux_home: &Path) -> Option<String> {
         (acpmux_home.to_path_buf(), "an acpmux daemon home"),
         (home.join(".cmux/chief"), "the Chief home"),
         (home.join("Library/Application Support/cmux"), "cmux's own app data"),
-        (home.join("Library/Application Support/cmux-next"), "cmux's own app data"),
     ];
     for (dir, what) in excluded {
         if path.starts_with(&dir) {

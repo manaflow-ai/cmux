@@ -27,7 +27,6 @@ fn part(prompt_id: &str, name: &str, class: Class, at: u64, text: &str) -> Part 
         prompt_id: prompt_id.into(),
         from: format!("acp:{name}"),
         from_name: name.into(),
-        display_name: None,
         class,
         received_at: at,
         text: text.into(),
@@ -259,26 +258,4 @@ fn a_digest_part_keeps_its_tools_notice() {
     let by_id = |id: &str| parts.iter().find(|p| p["promptId"] == id).unwrap();
     assert_eq!(by_id("p-1")["notice"], notice);
     assert!(by_id("p-2").get("notice").is_none());
-}
-
-/// A sender with a given name reads by it in every digest line, the HOST/NAME beside it; the
-/// part's `fromName` stays the session's name, which clients look a chat up by.
-#[test]
-fn a_digest_names_a_sender_by_its_given_name() {
-    let mango = |id: &str, class: Class, at: u64, text: &str| Part {
-        display_name: Some("Mango".into()),
-        ..part(id, "studio-mac/coord-old", class, at, text)
-    };
-    let parts = [
-        mango("p1", Class::Question, 1, "which base?"),
-        mango("p2", Class::Result, 2, "merged"),
-        mango("p3", Class::Fyi, 3, "heads up"),
-        part("p4", "lane-a", Class::Fyi, 4, "plain"),
-    ];
-    let Rendered { text, provenance } = render("d2", &parts);
-    assert!(text.contains("[question] from Mango · studio-mac/coord-old, promptId p1"), "{text}");
-    assert!(text.contains("### from Mango · studio-mac/coord-old"), "{text}");
-    assert!(text.contains("- Mango · studio-mac/coord-old (promptId p3)"), "{text}");
-    assert!(text.contains("- lane-a (promptId p4)"), "{text}");
-    assert_eq!(provenance["parts"][0]["fromName"], "studio-mac/coord-old");
 }

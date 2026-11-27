@@ -33,16 +33,11 @@ describe("placed chief and a server revoked in TeamDO only", { timeout: 60_000 }
     expect((await send("before")).json.ok).toBe(true)
     expect((await ask("ask-2")).json.ok).toBe(true)
 
-    // TeamDO's push to UserDO fails (delayed): the revoke commits in TeamDO only. The push fails
-    // through TeamDO's `userOwner` seam: RPC serves only prototype methods, so a method patched onto the
-    // UserDO instance is refused as "does not implement the method", which has failed a run as an unhandled error.
-    const teamDO = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
-    await inDO(teamDO, async (instance) => {
-      instance.userOwner = () => ({
-        revokeByTeam: async () => {
-          throw new Error("push delayed")
-        }
-      })
+    // TeamDO's push to UserDO fails (delayed): the revoke commits in TeamDO only.
+    await inDO(userDO, async (instance) => {
+      instance.revokeByTeam = async () => {
+        throw new Error("push delayed")
+      }
     })
     expect((await op(owner, "server.revoke", { host: server.host })).json.ok).toBe(true)
     const installs = (await read(owner, "install.list", {})).json.value.installs as Array<{ id: string; revoked_at: number | null }>

@@ -3,8 +3,8 @@
 and time it (HQ#7149 R4, cmux-tui-core/src/hotpatch.rs).
 
 Builds the daemon with the `hotpatch` feature under `dx serve --hot-patch`,
-opens a shell in it, then edits `identify` (cmux-tui/src/bin/cmux-tui/identify.rs, which the
-hot-patch binary compiles into cmux-tui-core) to add a probe field. It passes when the running
+opens a shell in it, then edits `identify` in cmux-tui-core (a library crate,
+not the binary's own) to add a probe field. It passes when the running
 daemon answers `identify` with the probe, from the same pid, with the shell
 still alive and echoing, within `--budget` seconds (60) of the save. The
 edit is always taken back.
@@ -43,8 +43,7 @@ from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never s
 DX_VERSION = "0.7.10"
 DX_URL = f"https://github.com/DioxusLabs/dioxus/releases/download/v{DX_VERSION}/dx-x86_64-unknown-linux-gnu.tar.gz"
 DX_SHA256 = "4363e4ed2a3f1eb7f4d38d2d59aed59ce43271c44c16b425e92c89a64761fbe7"
-# The hot-patch binary compiles this file into cmux-tui-core (`bundled-identify`).
-EDIT_FILE = "cmux-tui/crates/cmux-tui/src/bin/cmux-tui/identify.rs"
+EDIT_FILE = "cmux-tui/crates/cmux-tui-core/src/server/cmd_server.rs"
 EDIT_ANCHOR = '        "daemon_handoff": 1,\n'
 
 

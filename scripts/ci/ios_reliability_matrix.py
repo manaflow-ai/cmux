@@ -3,7 +3,6 @@
 
 Reads cmux-next-ios/reliability-matrix/cells.json and the logs of the runs that
 hold its cells (cargo test for `rust` cells, xcodebuild/swift test for `ios`
-cells, and the TickHarness xcodebuild run with CMUX_TICK_HARNESS=1 for `tick`
 cells), and prints a Markdown table: one row per cell, pass / fail / crashed / not run,
 with the numbers the cell printed (`MATRIX {json}` lines).
 
@@ -11,7 +10,7 @@ Exit status: 1 when a cell with `gate: true` failed or did not run in a suite
 that was given a log; 0 otherwise (failing `gate: false` cells are reported,
 not gating).
 
-    ios_reliability_matrix.py --rust cargo.log --ios xcodebuild.log [--tick tick.log] [--json out.json]
+    ios_reliability_matrix.py --rust cargo.log --ios xcodebuild.log [--json out.json]
 """
 
 from __future__ import annotations
@@ -40,11 +39,6 @@ SWIFT_RESULT = re.compile(
     r"Test (?:[Cc]ase )?['\"]?(?:-\[[\w.]+ (?P<objc>\w+)\]|(?:[\w.]+[/.])?(?P<name>\w+)\((?:[^)]*)\))['\"]? "
     r"(?P<result>passed|failed)"
 )
-# A pass whose verdict word the test process's own log cut (stdout and stderr share the pipe):
-# `✔ Test name() p2026-11-22 ... [link] link connected(...)`, then `assed after 0.068 seconds.`
-# on the next line. Swift Testing's `✔` prints only for a test that passed; a cut `✘` line
-# leaves the test started, which reads failed (or crashed), so only the pass needs this.
-SWIFT_PASS_MARK = re.compile(r"✔ Test (?P<name>\w+)\((?:[^)]*)\) ")
 SWIFT_STARTED = re.compile(
     r"Test (?:[Cc]ase )?['\"]?(?:-\[[\w.]+ (?P<objc>\w+)\]|(?:[\w.]+[/.])?(?P<name>\w+)\((?:[^)]*)\))['\"]? started"
 )
@@ -205,11 +199,6 @@ def parse_swift(log: str) -> dict[str, str]:
             _record(results, match["name"] or match["objc"], "pass" if match["result"] == "passed" else "fail")
             summary = False
             continue
-        match = SWIFT_PASS_MARK.search(line)
-        if match:
-            _record(results, match["name"], "pass")
-            summary = False
-            continue
         match = SWIFT_RESTARTED.search(line)
         if match:
             crashed = True
@@ -275,9 +264,6 @@ def build(cells: list[dict], logs: dict[str, str]) -> list[dict]:
     results = {
         "rust": parse_rust(logs.get("rust", "")),
         "ios": parse_swift(logs.get("ios", "")),
-        # The TickHarness cells run in an xcodebuild of their own (CMUX_TICK_HARNESS=1), so a
-        # crash in one run never reads as a crash of the other's cells.
-        "tick": parse_swift(logs.get("tick", "")),
     }
     metrics: dict[str, list[dict]] = {}
     for log in logs.values():
@@ -328,13 +314,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--rust", type=Path, help="cargo test log (rust cells)")
     parser.add_argument("--ios", type=Path, help="xcodebuild or swift test log (ios cells)")
-    parser.add_argument("--tick", type=Path, help="xcodebuild log of the TickHarness run (tick cells)")
     parser.add_argument("--cells", type=Path, default=CELLS)
     parser.add_argument("--json", type=Path, help="write the rows as JSON here")
     args = parser.parse_args(argv)
     cells = json.loads(args.cells.read_text())["cells"]
     logs = {}
-    for suite, path in (("rust", args.rust), ("ios", args.ios), ("tick", args.tick)):
+    for suite, path in (("rust", args.rust), ("ios", args.ios)):
         if path is not None:
             logs[suite] = path.read_text(errors="replace") if path.exists() else ""
     rows = build(cells, logs)

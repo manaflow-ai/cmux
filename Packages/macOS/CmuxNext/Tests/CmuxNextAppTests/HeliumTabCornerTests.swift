@@ -40,10 +40,8 @@ import Testing
         defer { scene.window.close() }
         for cell in scene.strip.cells.values {
             #expect(cell.backgroundLayer.cornerRadius == Metrics.tabCornerRadius, "\(density): \(cell.backgroundLayer.cornerRadius) pt")
-            // Lawrence 2026-11-11, "same roundness as chrome": Chromium's 8 on a 30 pt tab, at each height, unless the
-            // density sets the browser's own tab corner (Helium's 8 at Default, Chrome's 10 at Comfortable).
-            let corner = Metrics.tokens.tokens["tabCornerRadius"].map { CGFloat($0) } ?? Metrics.chromeRowCornerRadius(height: Metrics.tabHeight)
-            #expect(cell.backgroundLayer.cornerRadius == corner, "\(density): the density's tab corner")
+            // Lawrence 2026-11-11, "same roundness as chrome": Chromium's 8 on a 30 pt tab, at each height.
+            #expect(cell.backgroundLayer.cornerRadius == Metrics.chromeRowCornerRadius(height: Metrics.tabHeight), "\(density): Chrome's ratio")
             #expect(cell.backgroundLayer.cornerCurve == .circular, "\(density): Helium's tab is a circular-arc SkRRect, not a squircle")
         }
     }

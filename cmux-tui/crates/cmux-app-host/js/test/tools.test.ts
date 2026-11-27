@@ -73,16 +73,6 @@ describe("package validation", () => {
     const r = validatePackage(pkg({ ...base, id: "cmux/x", repository: "https://github.com/mallory/x" }))
     expect(r.errors.map((e) => e.code)).toContain("publisher.reserved")
   })
-  // The daemon refuses a whole package whose v2 manifest has a text field past the schema's cap, so the
-  // store never lists it; `build.ts --check` must fail on it and name the field and its length.
-  test("a v2 manifest field over its length cap is reported with the field and its length", () => {
-    const v2 = { manifestVersion: 2, id: "local/x", name: "X", version: "1.0.0", description: "x".repeat(412) }
-    const r = validatePackage(pkg(base, { "cmux-app.v2.json": JSON.stringify(v2) }))
-    const long = r.errors.find((e) => e.path === "cmux-app.v2.json/description")
-    expect(long?.code).toBe("maxLength")
-    expect(long?.message).toBe("must have at most 300 characters (has 412)")
-    expect(validatePackage(pkg(base, { "cmux-app.v2.json": JSON.stringify({ ...v2, description: "d" }) })).errors).toEqual([])
-  })
   test("files outside `files` are reported", () => {
     const r = validatePackage(pkg({ ...base, main: "src/m.js", files: ["dist/"] }, { "src/m.js": "var __cmuxAppExports = { a() {} }" }))
     expect(r.errors.map((e) => e.code)).toContain("path.notInFiles")

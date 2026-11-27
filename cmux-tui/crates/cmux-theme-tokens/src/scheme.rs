@@ -13,9 +13,6 @@
 //! - **Windows Terminal** scheme JSON (`black` ... `brightWhite`,
 //!   `background`, `foreground`, `cursorColor`, `selectionBackground`), the
 //!   same shape VS Code's `terminal.ansi*` exports reduce to.
-//! - **VS Code** color themes (JSON with comments): the `colors` map's
-//!   terminal and editor colors, with `tokenColors` filling the ANSI colors
-//!   a theme leaves out (see [`vscode`]).
 //! - **Ghostty** theme files, the format cmux's theme files are.
 //!
 //! Every color is read as opaque 8-bit sRGB, so a scheme written and read
@@ -28,8 +25,6 @@ use std::path::PathBuf;
 use crate::config::{THEME_ACCENT_KEY, theme_file_accent, theme_override_value};
 use crate::spec::json;
 use crate::{Env, Rgb, ThemeInput, parse_color};
-
-mod vscode;
 
 /// A 16-color terminal scheme.
 #[derive(Clone, Debug, PartialEq)]
@@ -58,19 +53,16 @@ pub enum SchemeFormat {
     Base16,
     Iterm2,
     WindowsTerminal,
-    /// A VS Code color theme (JSON with comments).
-    VsCode,
     Ghostty,
 }
 
 impl SchemeFormat {
     /// Every format, in the order `cmux theme` lists them.
-    pub const ALL: [SchemeFormat; 5] = [
+    pub const ALL: [SchemeFormat; 4] = [
         SchemeFormat::Ghostty,
         SchemeFormat::Base16,
         SchemeFormat::Iterm2,
         SchemeFormat::WindowsTerminal,
-        SchemeFormat::VsCode,
     ];
 
     /// The format's name on the CLI and the wire.
@@ -79,7 +71,6 @@ impl SchemeFormat {
             SchemeFormat::Base16 => "base16",
             SchemeFormat::Iterm2 => "iterm2",
             SchemeFormat::WindowsTerminal => "windows-terminal",
-            SchemeFormat::VsCode => "vscode",
             SchemeFormat::Ghostty => "ghostty",
         }
     }
@@ -92,7 +83,6 @@ impl SchemeFormat {
             "windows-terminal" | "wt" | "json" | "windowsterminal" => {
                 Some(SchemeFormat::WindowsTerminal)
             }
-            "vscode" | "vs-code" | "code" | "vscode-theme" | "jsonc" => Some(SchemeFormat::VsCode),
             "ghostty" | "conf" => Some(SchemeFormat::Ghostty),
             _ => None,
         }
@@ -103,45 +93,32 @@ impl SchemeFormat {
         match self {
             SchemeFormat::Base16 => "yaml",
             SchemeFormat::Iterm2 => "itermcolors",
-            SchemeFormat::WindowsTerminal | SchemeFormat::VsCode => "json",
+            SchemeFormat::WindowsTerminal => "json",
             SchemeFormat::Ghostty => "",
         }
     }
 
     /// The format of `text`, from `file`'s extension and then the text: an
-    /// XML plist is iTerm2, a JSON object with a `colors` object or
-    /// `tokenColors` a VS Code theme, another JSON object Windows Terminal,
-    /// `baseXX:` lines base16, anything else a Ghostty theme.
+    /// XML plist is iTerm2, a JSON object Windows Terminal, `baseXX:` lines
+    /// base16, anything else a Ghostty theme.
     pub fn detect(file: &str, text: &str) -> SchemeFormat {
         let extension = file.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase());
         match extension.as_deref() {
             Some("yaml" | "yml") => return SchemeFormat::Base16,
             Some("itermcolors") => return SchemeFormat::Iterm2,
-            Some("jsonc") => return SchemeFormat::VsCode,
-            Some("json") => return SchemeFormat::json_kind(text),
+            Some("json") => return SchemeFormat::WindowsTerminal,
             _ => {}
         }
         let body = text.trim_start_matches('\u{FEFF}').trim_start();
         if body.starts_with("<?xml") || body.starts_with("<plist") || body.starts_with("<!DOCTYPE")
         {
             SchemeFormat::Iterm2
-        } else if body.starts_with('{') || body.starts_with("//") || body.starts_with("/*") {
-            SchemeFormat::json_kind(text)
+        } else if body.starts_with('{') {
+            SchemeFormat::WindowsTerminal
         } else if text.lines().any(|line| base16_slot(line.trim()).is_some()) {
             SchemeFormat::Base16
         } else {
             SchemeFormat::Ghostty
-        }
-    }
-}
-
-impl SchemeFormat {
-    /// A JSON scheme: a VS Code theme or a Windows Terminal scheme.
-    fn json_kind(text: &str) -> SchemeFormat {
-        if vscode::looks_like_vscode(text) {
-            SchemeFormat::VsCode
-        } else {
-            SchemeFormat::WindowsTerminal
         }
     }
 }
@@ -257,7 +234,6 @@ impl Scheme {
             SchemeFormat::Base16 => parse_base16(text, file),
             SchemeFormat::Iterm2 => parse_iterm2(text, file),
             SchemeFormat::WindowsTerminal => parse_windows_terminal(text, file),
-            SchemeFormat::VsCode => vscode::parse_vscode(text, file),
             SchemeFormat::Ghostty => parse_ghostty(text, file),
         }
     }
@@ -268,7 +244,6 @@ impl Scheme {
             SchemeFormat::Base16 => self.to_base16(),
             SchemeFormat::Iterm2 => self.to_iterm2(),
             SchemeFormat::WindowsTerminal => self.to_windows_terminal(),
-            SchemeFormat::VsCode => self.to_vscode(),
             SchemeFormat::Ghostty => self.to_ghostty(),
         }
     }
@@ -982,5 +957,20 @@ pub fn install_scheme(
 }
 
 #[cfg(test)]
-#[path = "scheme_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn line_of_counts_newlines_before_the_offset() {
+        assert_eq!(line_of("a\nb\nc", 0), 1);
+        assert_eq!(line_of("a\nb\nc", 2), 2);
+        assert_eq!(line_of("a\nb\nc", 99), 3);
+    }
+
+    #[test]
+    fn base16_slot_reads_one_hex_digit() {
+        assert_eq!(base16_slot("base0A: \"ffffff\""), Some((10, " \"ffffff\"")));
+        assert_eq!(base16_slot("base0AA: x"), None);
+        assert_eq!(base16_slot("base10: x"), None);
+    }
+}

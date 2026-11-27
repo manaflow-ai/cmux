@@ -7,14 +7,13 @@ import Foundation
 import Testing
 
 /// The `cmux` verbs a person can now run from the palette (cmuxterm-hq goals/palette-all-actions.md:
-/// every CLI action has a palette entry): `billing portal`, `setup notifications`
-/// and `browser profile move|proxy set|proxy clear` (`remote-host stop` is Stop Sharing This Mac,
-/// MacScreenStopSharingTests). The Rust CLI owns each verb; the palette row runs
+/// every CLI action has a palette entry): `billing portal`, `setup notifications`, `remote-host stop`
+/// and `browser profile move|proxy set|proxy clear`. The Rust CLI owns each verb; the palette row runs
 /// the same request.
 @MainActor @Suite struct DeviceSetupPaletteActionsTests {
     @Test func eachVerbHasAPaletteRowThatLeavesTheVerbToItsOwner() {
         let registry = ActionRegistry.standard()
-        for id: ActionID in ["billing.openPortal", "notifications.allowDesktop",
+        for id: ActionID in ["billing.openPortal", "notifications.allowDesktop", "remote.stopScreenSession",
                              "browserProfile.move", "browserProfile.setProxy", "browserProfile.clearProxy"] {
             let descriptor = registry.descriptor(for: id)
             #expect(descriptor?.isPaletteVisible == true, "\(id)")

@@ -347,19 +347,4 @@ struct AgentPaneColdChatRevealTests {
         #expect(await Self.revealed(view))
         #expect(view.loadingView.superview == nil, "the fade never ended")
     }
-
-    /// A chat in a workspace the window keeps unseen until its pages painted (`WorkspaceFirstFrame`: the workspace
-    /// view is alpha 0, the old workspace stays on screen) paints there. A fade it started then ran unseen, and the
-    /// workspace showed mid-fade: its loading cover half over the chat (a partial first frame). Held unseen by an
-    /// ancestor, as by its own pane's hold, it shows in one step.
-    @Test func aChatHeldUnseenByItsWorkspaceShowsInOneStep() async throws {
-        let (view, window) = try Self.pane()
-        defer { window.close() }
-        let workspace = NSView(frame: view.frame)
-        window.contentView = workspace
-        workspace.addSubview(view)
-        workspace.alphaValue = 0
-        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted"]))
-        #expect(view.loadingView.leftFading == false, "a chat held unseen faded in, and showed mid-fade when its workspace did")
-    }
 }

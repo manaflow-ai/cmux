@@ -2,7 +2,6 @@
 import CmuxNextAccounts
 import CmuxNextChecklist
 import CmuxNextFilesUI
-@testable import CmuxNextImportCards
 import CmuxNextLayout
 import Foundation
 import Testing
@@ -36,7 +35,7 @@ import Testing
         /// One key of the table and its English text.
         var sample: (key: String, english: String) {
             switch self {
-            case .browserImportOffer: ("browserImportOffer.notNow", "Not now")
+            case .browserImportOffer: ("browserImportOffer.notNow", "Not Now")
             case .billing: ("billing.error.notSignedIn", "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.")
             case .fileExplorer: ("fileExplorer.noFolder", "No folder")
             case .screens: ("screens.bar.accessibility", "Screens")

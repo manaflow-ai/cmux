@@ -19,12 +19,12 @@ struct SkipOnboardingLaunchTests {
     ])
     func theFlagSkipsOnboardingOnly(environment: [String: String], arguments: [String]) {
         let launch = AppEnvironment.current(environment, arguments: arguments)
-        #expect(launch.launchSteps.skipsFirstRun)
+        #expect(launch.skipsOnboarding)
         #expect(!launch.showcase)
     }
 
     @Test func aPlainLaunchShowsNoOnboarding() {
-        #expect(AppEnvironment.current([:], arguments: ["cmux"]).launchSteps.skipsFirstRun)
+        #expect(AppEnvironment.current([:], arguments: ["cmux"]).skipsOnboarding)
     }
 
     @Test(arguments: [
@@ -32,7 +32,7 @@ struct SkipOnboardingLaunchTests {
         ([String: String](), ["cmux", "--onboarding"]),
     ])
     func theOptInBringsOnboardingBack(environment: [String: String], arguments: [String]) {
-        #expect(!AppEnvironment.current(environment, arguments: arguments).launchSteps.skipsFirstRun)
+        #expect(!AppEnvironment.current(environment, arguments: arguments).skipsOnboarding)
     }
 
     /// A fresh profile on a plain launch: the first run starts no Set Up cmux card, and a card left pending by an
@@ -43,53 +43,30 @@ struct SkipOnboardingLaunchTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let plain = AppEnvironment.current([:], arguments: ["cmux"])
 
-        let fresh = FirstRunSetup(defaults: defaults, skipsOnboarding: plain.launchSteps.skipsFirstRun)
+        let fresh = FirstRunSetup(defaults: defaults, skipsOnboarding: plain.skipsOnboarding)
         #expect(!fresh.begin(isFirstRun: true, replacedKeys: ["cli.install.offeredAtLaunch"]))
         #expect(!fresh.shows)
 
         defaults.set("pending", forKey: FirstRunSetup.stateKey)
-        #expect(!FirstRunSetup(defaults: defaults, skipsOnboarding: plain.launchSteps.skipsFirstRun).shows)
+        #expect(!FirstRunSetup(defaults: defaults, skipsOnboarding: plain.skipsOnboarding).shows)
     }
 
-    /// A new person's first launch opens a new agent chat once (cmux#48416): a plain launch and the onboarding
-    /// opt-in do, a capture build or the showcase never does, a relaunch (no first run) never does, and an
-    /// install that already opened it never opens it again.
-    @Test func theFirstRunChatOpensOncePerInstallButNeverForCaptureBuilds() async throws {
+    @Test func theFirstRunHistoryPageNeverRunsUnderTheFlag() throws {
         _ = NSApplication.shared
-        let suite = "SkipOnboardingLaunchTests.firstChat.\(UUID().uuidString)"
+        let key = "home.firstRun.historyImportShown"
+        let suite = "SkipOnboardingLaunchTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let plain = AppEnvironment.current([:], arguments: ["cmux"]).launchSteps
-        let optedIn = AppEnvironment.current(["CMUX_NEXT_ONBOARDING": "1"], arguments: ["cmux"]).launchSteps
-        let capture = AppEnvironment.current(["CMUX_NEXT_SKIP_ONBOARDING": "1"], arguments: ["cmux"]).launchSteps
-        let showcase = AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"], arguments: ["cmux"]).launchSteps
 
-        let key = OnboardingWindowPresenter.firstChatOpenedKey
-        func claim(_ firstRun: Bool, _ steps: OnboardingWindowPresenter.LaunchSteps, terminalFirst: Bool = false) -> Bool {
-            OnboardingWindowPresenter.claimFirstChat(isFirstRun: firstRun, steps: steps, terminalFirst: terminalFirst, defaults: defaults)
-        }
-        // Capture builds and the showcase never decide it: the install's first chat stays for later.
-        #expect(!claim(true, capture))
-        #expect(!claim(true, showcase))
-        #expect(!defaults.bool(forKey: key))
-        // A terminal-first person gets none, and it is decided.
-        #expect(!claim(true, plain, terminalFirst: true))
+        let optedIn = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_ONBOARDING": "1"], arguments: ["cmux"]))
+        optedIn.onboarding.showHistoryAtFirstRun(isFirstRun: false, defaults: defaults)
         #expect(defaults.bool(forKey: key))
-        defaults.removeObject(forKey: key)
-        // The first run opens it once.
-        #expect(claim(true, plain))
-        #expect(!claim(true, plain))
-        defaults.removeObject(forKey: key)
-        #expect(claim(true, optedIn))
-        // An upgrade gets none and never later, even if a launch then looks like a first run.
-        defaults.removeObject(forKey: key)
-        #expect(!claim(false, plain))
-        #expect(!claim(true, plain))
 
-        // Under the capture flag the launch asks for nothing and leaves the install's first chat for later.
-        defaults.removeObject(forKey: key)
-        let skipping = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SKIP_ONBOARDING": "1"], arguments: ["cmux"]))
-        #expect(await skipping.onboarding.openFirstChat(isFirstRun: true, defaults: defaults) == nil)
-        #expect(!defaults.bool(forKey: key))
+        for environment in [["CMUX_NEXT_SKIP_ONBOARDING": "1"], [:]] {
+            defaults.removeObject(forKey: key)
+            let skipping = AppServices(environment: AppEnvironment.current(environment, arguments: ["cmux"]))
+            skipping.onboarding.showHistoryAtFirstRun(isFirstRun: true, defaults: defaults)
+            #expect(!defaults.bool(forKey: key))
+        }
     }
 }

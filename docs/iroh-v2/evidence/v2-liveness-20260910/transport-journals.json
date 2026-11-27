@@ -1,0 +1,549 @@
+{
+  "iroh-v2-liveness-test-3E3635B0-6EDD-46C2-A4B6-15544BB0DD78.jsonl": [
+    {
+      "a_binding": "b-test",
+      "a_device": "d-test",
+      "a_path": "direct:127.0.0.1:65268",
+      "a_session": "4557d2ac-90a3-4c2a-b178-315a2f54a594",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 6,
+      "ts": "2026-09-11T05:25:58.916Z"
+    },
+    {
+      "a_elapsed_ms": "2",
+      "a_path": "direct:127.0.0.1:58788",
+      "a_session": "4557d2ac-90a3-4c2a-b178-315a2f54a594",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 6,
+      "ts": "2026-09-11T05:25:58.917Z"
+    },
+    {
+      "a_path": "direct:127.0.0.1:58788",
+      "a_strike": "1",
+      "component": "keepalive",
+      "event": "miss",
+      "mono_ms": 171,
+      "ts": "2026-09-11T05:25:59.081Z"
+    },
+    {
+      "a_path": "direct:127.0.0.1:58788",
+      "a_rtt_ms": "0",
+      "a_seq": "2",
+      "component": "keepalive",
+      "event": "pong",
+      "mono_ms": 173,
+      "ts": "2026-09-11T05:25:59.083Z"
+    },
+    {
+      "a_code": "user-requested",
+      "a_remote": "06aa67d87567",
+      "component": "connection",
+      "event": "closed-locally",
+      "mono_ms": 179,
+      "ts": "2026-09-11T05:25:59.089Z"
+    }
+  ],
+  "iroh-v2-liveness-test-7911875A-E141-45DE-BDEF-280C360ECB01.jsonl": [
+    {
+      "a_binding": "b-test",
+      "a_device": "d-test",
+      "a_path": "direct:127.0.0.1:51609",
+      "a_session": "567db6da-ffb8-4224-a071-490711208e05",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 5,
+      "ts": "2026-09-11T05:25:59.113Z"
+    },
+    {
+      "a_elapsed_ms": "1",
+      "a_path": "direct:127.0.0.1:57268",
+      "a_session": "567db6da-ffb8-4224-a071-490711208e05",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 5,
+      "ts": "2026-09-11T05:25:59.113Z"
+    },
+    {
+      "component": "keepalive",
+      "event": "suspended",
+      "mono_ms": 20,
+      "ts": "2026-09-11T05:25:59.128Z"
+    },
+    {
+      "component": "keepalive",
+      "event": "resumed",
+      "mono_ms": 281,
+      "ts": "2026-09-11T05:25:59.388Z"
+    },
+    {
+      "a_path": "direct:127.0.0.1:57268",
+      "a_rtt_ms": "0",
+      "a_seq": "2",
+      "component": "keepalive",
+      "event": "pong",
+      "mono_ms": 293,
+      "ts": "2026-09-11T05:25:59.401Z"
+    },
+    {
+      "a_code": "user-requested",
+      "a_remote": "4450ce03868a",
+      "component": "connection",
+      "event": "closed-locally",
+      "mono_ms": 294,
+      "ts": "2026-09-11T05:25:59.402Z"
+    }
+  ],
+  "iroh-v2-liveness-test-55BECBD9-0204-4201-99F8-1DCC833836CC.jsonl": [
+    {
+      "a_from": "idle",
+      "a_to": "connecting",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 0,
+      "ts": "2026-09-11T05:25:59.419Z"
+    },
+    {
+      "a_trigger": "test",
+      "component": "engine",
+      "event": "dial-started",
+      "mono_ms": 1,
+      "ts": "2026-09-11T05:25:59.420Z"
+    },
+    {
+      "a_binding": "b-test",
+      "a_device": "d-test",
+      "a_path": "direct:127.0.0.1:51788",
+      "a_session": "d00d0b31-60f6-4960-ac22-19ca11a73e2f",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 4,
+      "ts": "2026-09-11T05:25:59.423Z"
+    },
+    {
+      "a_elapsed_ms": "1",
+      "a_path": "direct:127.0.0.1:50225",
+      "a_session": "d00d0b31-60f6-4960-ac22-19ca11a73e2f",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 4,
+      "ts": "2026-09-11T05:25:59.423Z"
+    },
+    {
+      "a_from": "connecting",
+      "a_to": "ready(d00d0b31-60f6-4960-ac22-19ca11a73e2f)",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 5,
+      "ts": "2026-09-11T05:25:59.424Z"
+    },
+    {
+      "component": "keepalive",
+      "event": "suspended",
+      "mono_ms": 5,
+      "ts": "2026-09-11T05:25:59.424Z"
+    },
+    {
+      "component": "keepalive",
+      "event": "resumed",
+      "mono_ms": 6,
+      "ts": "2026-09-11T05:25:59.425Z"
+    },
+    {
+      "a_path": "direct:127.0.0.1:50225",
+      "a_rtt_ms": "6",
+      "a_seq": "1",
+      "component": "keepalive",
+      "event": "pong",
+      "mono_ms": 13,
+      "ts": "2026-09-11T05:25:59.432Z"
+    },
+    {
+      "a_elapsed": "0.007259417 seconds",
+      "a_session": "d00d0b31-60f6-4960-ac22-19ca11a73e2f",
+      "component": "engine",
+      "event": "foreground-session-retained",
+      "mono_ms": 13,
+      "ts": "2026-09-11T05:25:59.432Z"
+    },
+    {
+      "a_code": "user-requested",
+      "a_remote": "6a8c9aead8b5",
+      "component": "connection",
+      "event": "closed-locally",
+      "mono_ms": 20,
+      "ts": "2026-09-11T05:25:59.439Z"
+    },
+    {
+      "a_from": "ready(d00d0b31-60f6-4960-ac22-19ca11a73e2f)",
+      "a_to": "closed(user-requested)",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 21,
+      "ts": "2026-09-11T05:25:59.440Z"
+    }
+  ],
+  "iroh-v2-liveness-test-2311A562-15F4-49D9-9DA5-161DB1359957.jsonl": [
+    {
+      "a_from": "idle",
+      "a_to": "connecting",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 0,
+      "ts": "2026-09-11T05:25:59.467Z"
+    },
+    {
+      "a_trigger": "test",
+      "component": "engine",
+      "event": "dial-started",
+      "mono_ms": 1,
+      "ts": "2026-09-11T05:25:59.468Z"
+    },
+    {
+      "a_binding": "b-test",
+      "a_device": "d-test",
+      "a_path": "direct:127.0.0.1:49872",
+      "a_session": "cc41b5c3-7535-4dff-be9b-8176a8cba955",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 4,
+      "ts": "2026-09-11T05:25:59.471Z"
+    },
+    {
+      "a_elapsed_ms": "0",
+      "a_path": "direct:127.0.0.1:64680",
+      "a_session": "cc41b5c3-7535-4dff-be9b-8176a8cba955",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 4,
+      "ts": "2026-09-11T05:25:59.472Z"
+    },
+    {
+      "a_from": "connecting",
+      "a_to": "ready(cc41b5c3-7535-4dff-be9b-8176a8cba955)",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 5,
+      "ts": "2026-09-11T05:25:59.472Z"
+    },
+    {
+      "component": "keepalive",
+      "event": "suspended",
+      "mono_ms": 5,
+      "ts": "2026-09-11T05:25:59.473Z"
+    },
+    {
+      "a_code": "host-shutdown",
+      "a_remote": "ea28c8ed1e6b",
+      "component": "connection",
+      "event": "closed-locally",
+      "mono_ms": 6,
+      "ts": "2026-09-11T05:25:59.473Z"
+    },
+    {
+      "a_code": "host-shutdown",
+      "a_lifetime_s": "0",
+      "a_origin": "remote",
+      "a_session": "cc41b5c3-7535-4dff-be9b-8176a8cba955",
+      "a_via": "termination-watch",
+      "component": "engine",
+      "event": "session-ended",
+      "mono_ms": 6,
+      "ts": "2026-09-11T05:25:59.474Z"
+    },
+    {
+      "a_from": "ready(cc41b5c3-7535-4dff-be9b-8176a8cba955)",
+      "a_to": "closed(host-shutdown)",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 7,
+      "ts": "2026-09-11T05:25:59.474Z"
+    },
+    {
+      "a_reason": "background",
+      "component": "engine",
+      "event": "auto-redial-deferred",
+      "mono_ms": 7,
+      "ts": "2026-09-11T05:25:59.475Z"
+    },
+    {
+      "a_from": "closed(host-shutdown)",
+      "a_to": "connecting",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 14,
+      "ts": "2026-09-11T05:25:59.481Z"
+    },
+    {
+      "a_trigger": "foreground",
+      "component": "engine",
+      "event": "dial-started",
+      "mono_ms": 15,
+      "ts": "2026-09-11T05:25:59.482Z"
+    },
+    {
+      "a_elapsed_ms": "0",
+      "a_path": "direct:127.0.0.1:64680",
+      "a_session": "65e0d3c5-4701-4605-8f2f-7bbf3531f9e4",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 18,
+      "ts": "2026-09-11T05:25:59.485Z"
+    },
+    {
+      "a_binding": "b-test",
+      "a_device": "d-test",
+      "a_path": "direct:127.0.0.1:49872",
+      "a_session": "65e0d3c5-4701-4605-8f2f-7bbf3531f9e4",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 17,
+      "ts": "2026-09-11T05:25:59.485Z"
+    },
+    {
+      "a_from": "connecting",
+      "a_to": "ready(65e0d3c5-4701-4605-8f2f-7bbf3531f9e4)",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 18,
+      "ts": "2026-09-11T05:25:59.485Z"
+    },
+    {
+      "a_elapsed": "0.004341292 seconds",
+      "a_state": "ready(65e0d3c5-4701-4605-8f2f-7bbf3531f9e4)",
+      "component": "engine",
+      "event": "foreground-recovery-finished",
+      "mono_ms": 18,
+      "ts": "2026-09-11T05:25:59.486Z"
+    },
+    {
+      "a_elapsed": "0.008267958 seconds",
+      "component": "acceptance",
+      "event": "known-closed-resume",
+      "mono_ms": 22,
+      "ts": "2026-09-11T05:25:59.490Z"
+    },
+    {
+      "a_code": "user-requested",
+      "a_remote": "3c5042ae3c52",
+      "component": "connection",
+      "event": "closed-locally",
+      "mono_ms": 23,
+      "ts": "2026-09-11T05:25:59.490Z"
+    },
+    {
+      "a_from": "ready(65e0d3c5-4701-4605-8f2f-7bbf3531f9e4)",
+      "a_to": "closed(user-requested)",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 24,
+      "ts": "2026-09-11T05:25:59.491Z"
+    }
+  ],
+  "iroh-v2-liveness-test-ED9D26B8-6BFA-4D0A-BD5E-23E4C4A3047F.jsonl": [
+    {
+      "a_from": "idle",
+      "a_to": "connecting",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 0,
+      "ts": "2026-09-11T05:25:59.512Z"
+    },
+    {
+      "a_trigger": "test",
+      "component": "engine",
+      "event": "dial-started",
+      "mono_ms": 1,
+      "ts": "2026-09-11T05:25:59.513Z"
+    },
+    {
+      "a_binding": "b-test",
+      "a_device": "d-test",
+      "a_path": "direct:127.0.0.1:52868",
+      "a_session": "797cdc0d-1231-4193-85b1-f689d46f01dd",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 4,
+      "ts": "2026-09-11T05:25:59.516Z"
+    },
+    {
+      "a_elapsed_ms": "1",
+      "a_path": "direct:127.0.0.1:64055",
+      "a_session": "797cdc0d-1231-4193-85b1-f689d46f01dd",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 5,
+      "ts": "2026-09-11T05:25:59.517Z"
+    },
+    {
+      "a_from": "connecting",
+      "a_to": "ready(797cdc0d-1231-4193-85b1-f689d46f01dd)",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 5,
+      "ts": "2026-09-11T05:25:59.517Z"
+    },
+    {
+      "component": "keepalive",
+      "event": "suspended",
+      "mono_ms": 6,
+      "ts": "2026-09-11T05:25:59.518Z"
+    },
+    {
+      "component": "keepalive",
+      "event": "resumed",
+      "mono_ms": 6,
+      "ts": "2026-09-11T05:25:59.518Z"
+    },
+    {
+      "a_from": "ready(797cdc0d-1231-4193-85b1-f689d46f01dd)",
+      "a_to": "connecting",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 812,
+      "ts": "2026-09-11T05:26:00.324Z"
+    },
+    {
+      "a_code": "explicit-redial",
+      "a_remote": "c0dc0044fa7e",
+      "component": "connection",
+      "event": "closed-locally",
+      "mono_ms": 812,
+      "ts": "2026-09-11T05:26:00.324Z"
+    },
+    {
+      "a_trigger": "foreground-probe-failed",
+      "component": "engine",
+      "event": "dial-started",
+      "mono_ms": 813,
+      "ts": "2026-09-11T05:26:00.325Z"
+    },
+    {
+      "a_elapsed_ms": "1",
+      "a_path": "direct:127.0.0.1:64055",
+      "a_session": "ba5aad0e-88b9-428c-9ae2-af7796170836",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 816,
+      "ts": "2026-09-11T05:26:00.328Z"
+    },
+    {
+      "a_binding": "b-test",
+      "a_device": "d-test",
+      "a_path": "direct:127.0.0.1:52868",
+      "a_session": "ba5aad0e-88b9-428c-9ae2-af7796170836",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 816,
+      "ts": "2026-09-11T05:26:00.328Z"
+    },
+    {
+      "a_from": "connecting",
+      "a_to": "ready(ba5aad0e-88b9-428c-9ae2-af7796170836)",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 816,
+      "ts": "2026-09-11T05:26:00.328Z"
+    },
+    {
+      "a_elapsed": "0.810024333 seconds",
+      "a_state": "ready(ba5aad0e-88b9-428c-9ae2-af7796170836)",
+      "component": "engine",
+      "event": "foreground-recovery-finished",
+      "mono_ms": 817,
+      "ts": "2026-09-11T05:26:00.329Z"
+    },
+    {
+      "a_elapsed": "0.81110375 seconds",
+      "component": "acceptance",
+      "event": "silent-peer-resume",
+      "mono_ms": 817,
+      "ts": "2026-09-11T05:26:00.329Z"
+    },
+    {
+      "a_code": "user-requested",
+      "a_remote": "c0dc0044fa7e",
+      "component": "connection",
+      "event": "closed-locally",
+      "mono_ms": 818,
+      "ts": "2026-09-11T05:26:00.330Z"
+    },
+    {
+      "a_from": "ready(ba5aad0e-88b9-428c-9ae2-af7796170836)",
+      "a_to": "closed(user-requested)",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 818,
+      "ts": "2026-09-11T05:26:00.330Z"
+    }
+  ],
+  "iroh-v2-liveness-test-4559F9EC-ACFB-4CC5-9F19-7466BF30CEEB.jsonl": [
+    {
+      "a_from": "idle",
+      "a_to": "connecting",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 0,
+      "ts": "2026-09-11T05:26:00.354Z"
+    },
+    {
+      "a_trigger": "foreground",
+      "component": "engine",
+      "event": "dial-started",
+      "mono_ms": 1,
+      "ts": "2026-09-11T05:26:00.355Z"
+    },
+    {
+      "a_binding": "b-test",
+      "a_device": "d-test",
+      "a_path": "direct:127.0.0.1:52443",
+      "a_session": "b74d2570-b5a5-4e24-95fc-a5a052a6cd57",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 5,
+      "ts": "2026-09-11T05:26:00.359Z"
+    },
+    {
+      "a_elapsed_ms": "1",
+      "a_path": "direct:127.0.0.1:51795",
+      "a_session": "b74d2570-b5a5-4e24-95fc-a5a052a6cd57",
+      "component": "admission",
+      "event": "admitted",
+      "mono_ms": 5,
+      "ts": "2026-09-11T05:26:00.359Z"
+    },
+    {
+      "a_from": "connecting",
+      "a_to": "ready(b74d2570-b5a5-4e24-95fc-a5a052a6cd57)",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 6,
+      "ts": "2026-09-11T05:26:00.360Z"
+    },
+    {
+      "a_elapsed": "0.006106959 seconds",
+      "a_state": "ready(b74d2570-b5a5-4e24-95fc-a5a052a6cd57)",
+      "component": "engine",
+      "event": "foreground-recovery-finished",
+      "mono_ms": 6,
+      "ts": "2026-09-11T05:26:00.360Z"
+    },
+    {
+      "a_code": "user-requested",
+      "a_remote": "c80cd6a31023",
+      "component": "connection",
+      "event": "closed-locally",
+      "mono_ms": 7,
+      "ts": "2026-09-11T05:26:00.361Z"
+    },
+    {
+      "a_from": "ready(b74d2570-b5a5-4e24-95fc-a5a052a6cd57)",
+      "a_to": "closed(user-requested)",
+      "component": "engine",
+      "event": "state",
+      "mono_ms": 7,
+      "ts": "2026-09-11T05:26:00.361Z"
+    }
+  ]
+}

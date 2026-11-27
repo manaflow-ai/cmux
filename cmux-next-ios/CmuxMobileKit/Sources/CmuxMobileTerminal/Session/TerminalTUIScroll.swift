@@ -3,17 +3,20 @@ import Foundation
 
 /// T-SCROLL-12: a vertical drag over a full-screen app (the alternate
 /// screen) scrolls the app, like a Mac trackpad in Ghostty, and never the
-/// page. The drag is an ordinary UIScrollView scroll (Leo, 2026-11-25: "for
-/// scrolling on iphone ... we can just treat the scroll like any pedestrian
-/// scroll"): each change of the scroll view's offset, the finger's and then
-/// UIKit's deceleration, is one precise wheel delta in points, 1:1, in the
-/// natural direction (a finger moving down lowers the offset and scrolls
-/// toward older content, a wheel up); the deceleration's are momentum. The
-/// surface scales them to pixels and Ghostty's own scroll path decides what
-/// the app gets: SGR wheel reports (buttons 64/65) at the finger when it
-/// asked for the mouse (DECSET 1000/1002/1003 + 1006), cursor up/down on the
-/// alternate screen with alternate scroll (DECSET 1007, Ghostty's default),
-/// and nothing otherwise.
+/// page. The phone turns the finger into precise wheel deltas in points, in
+/// the natural direction (a finger moving down scrolls toward older content,
+/// a wheel up), and a release with speed into momentum deltas that decay.
+/// The surface scales them to pixels and Ghostty's own scroll path decides
+/// what the app gets: SGR wheel reports (buttons 64/65) at the finger when
+/// it asked for the mouse (DECSET 1000/1002/1003 + 1006), cursor up/down on
+/// the alternate screen with alternate scroll (DECSET 1007, Ghostty's
+/// default), and nothing otherwise.
+///
+/// Like a Mac trackpad's accelerated deltas, a fast finger moves the wheel
+/// further than the finger (``gain(speed:)``): 1:1 up to ``preciseSpeed``,
+/// so a slow drag still scrolls line by line, rising to ``maximumGain`` at
+/// ``fullSpeed``. Without it a flick through a long Claude Code transcript
+/// moved about a quarter of what the same flick moves on the Mac.
 public struct TerminalTUIScroll: Equatable, Sendable {
     /// Ghostty's momentum phases (`ghostty_input_mouse_momentum_e`).
     public enum Momentum: Int32, Sendable {
@@ -34,35 +37,39 @@ public struct TerminalTUIScroll: Equatable, Sendable {
         }
     }
 
-    private var lastOffset: CGFloat = 0
-    private var momentumBegan = false
+    /// Finger speeds (points per second) up to this scroll 1:1.
+    public static let preciseSpeed: CGFloat = 300
+    /// From this speed on the wheel moves ``maximumGain`` times the finger.
+    public static let fullSpeed: CGFloat = 3000
+    public static let maximumGain: CGFloat = 3
+
+    private var lastTranslation: CGFloat = 0
 
     public init() {}
 
-    /// The scroll view's offset is `offset` and no scroll is under way (a
-    /// new drag, or the offset moved back to the middle of its range).
-    public mutating func reset(offset: CGFloat) {
-        lastOffset = offset
+    /// How far the wheel moves per point of finger at `speed` (points per
+    /// second, either sign): 1 up to ``preciseSpeed``, then linear up to
+    /// ``maximumGain`` at ``fullSpeed``.
+    public static func gain(speed: CGFloat) -> CGFloat {
+        let speed = abs(speed)
+        guard speed > preciseSpeed else { return 1 }
+        let fraction = min(1, (speed - preciseSpeed) / (fullSpeed - preciseSpeed))
+        return 1 + (maximumGain - 1) * fraction
     }
 
-    /// The scroll view's offset moved to `offset`, under the finger when
-    /// `tracking`, else in its deceleration: the wheel for the movement
-    /// since the last report (nil when it did not move).
-    public mutating func scrolled(to offset: CGFloat, tracking: Bool) -> Wheel? {
-        let delta = lastOffset - offset
-        lastOffset = offset
+    /// A drag began: its translation counts from here.
+    public mutating func began() {
+        lastTranslation = 0
+    }
+
+    /// The drag's running vertical translation and the finger's vertical
+    /// speed: the wheel for the movement since the last report, scaled by
+    /// ``gain(speed:)`` (nil when the finger did not move vertically).
+    public mutating func moved(translationY: CGFloat, velocityY: CGFloat = 0) -> Wheel? {
+        let delta = translationY - lastTranslation
+        lastTranslation = translationY
         guard delta != 0 else { return nil }
-        guard !tracking else { return Wheel(dy: delta, momentum: .none) }
-        defer { momentumBegan = true }
-        return Wheel(dy: delta, momentum: momentumBegan ? .changed : .began)
-    }
-
-    /// The scroll ended (the finger lifted with no fling, the fling stopped
-    /// or was stopped): the end of the momentum phase, once, if one began.
-    public mutating func ended() -> Wheel? {
-        guard momentumBegan else { return nil }
-        momentumBegan = false
-        return Wheel(dy: 0, momentum: .ended)
+        return Wheel(dy: delta * Self.gain(speed: velocityY), momentum: .none)
     }
 
     /// Ghostty's packed scroll mods (src/input/mouse.zig ScrollMods): bit 0
@@ -77,6 +84,47 @@ public struct TerminalTUIScroll: Equatable, Sendable {
     public static func takesDrag(motion: CGPoint) -> Bool {
         let vertical = abs(motion.y), horizontal = abs(motion.x)
         return vertical > 0 && vertical > horizontal
+    }
+}
+
+/// The fling after a TUI drag: wheel deltas from the release speed times the
+/// drag's gain (``TerminalTUIScroll/gain(speed:)``), decaying like the
+/// browser stream's momentum (0.95 per 1/60 s), as macOS momentum events
+/// (began, changed..., ended).
+public struct TerminalTUIMomentum: Equatable, Sendable {
+    /// Releases slower than this (points per second) stop where they are.
+    public static let minimumVelocity: CGFloat = 200
+    /// The fling ends once it is this slow.
+    public static let stopVelocity: CGFloat = 20
+
+    private var velocity: CGFloat
+    private var began = false
+    public private(set) var isFinished = false
+
+    public init?(velocityY: CGFloat) {
+        guard abs(velocityY) >= Self.minimumVelocity else { return nil }
+        velocity = velocityY * TerminalTUIScroll.gain(speed: velocityY)
+    }
+
+    /// One display frame of `dt` seconds: its wheel, the end once the fling
+    /// is slow enough, then nil.
+    public mutating func step(dt: CFTimeInterval) -> TerminalTUIScroll.Wheel? {
+        guard !isFinished else { return nil }
+        let dt = max(0, min(0.05, dt))
+        velocity *= CGFloat(pow(0.95, dt * 60))
+        if abs(velocity) < Self.stopVelocity {
+            isFinished = true
+            return began ? TerminalTUIScroll.Wheel(dy: 0, momentum: .ended) : nil
+        }
+        defer { began = true }
+        return TerminalTUIScroll.Wheel(dy: velocity * CGFloat(dt), momentum: began ? .changed : .began)
+    }
+
+    /// A touch or leaving the app stops the fling: its end, once.
+    public mutating func stop() -> TerminalTUIScroll.Wheel? {
+        guard !isFinished else { return nil }
+        isFinished = true
+        return began ? TerminalTUIScroll.Wheel(dy: 0, momentum: .ended) : nil
     }
 }
 

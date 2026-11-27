@@ -123,7 +123,7 @@ async fn lane_asking(
     let (tx, rx) = oneshot::channel();
     tokio::spawn(async move {
         let (tcp, _) = l.accept().await.unwrap();
-        let mut ws = acpmux::server::accept_ws(tcp).await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
         let mut tx = Some(tx);
         // Non-text frames (the client's pings, #38015) are not requests: skip them.
         while let Some(Ok(frame)) = ws.next().await {

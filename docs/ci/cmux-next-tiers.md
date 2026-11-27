@@ -265,52 +265,6 @@ No runner waits for the tree. `cmux-next path routing` probes it once
   scheme compile. A new linked library changes `Package.swift`, which runs
   every tier, so a source-only CmuxNext change cannot add one.
 
-## Docs-only pull requests start almost nothing
-
-A pull request that changes only prose nothing reads (a plan, a design note,
-`docs/`, a root guide, docs images) starts only the required checks and a few
-one-job policy and merge-contract checks. Before 2026-11-19 each one started
-22-23 workflows and 180-275 check runs (#44917, #40040).
-
-- **The block.** `scripts/ci/docs_only_paths.py` holds one `paths:` list
-  (`DOCS_ONLY_PATHS`): every path, then `!**/*.md` and docs images, then the
-  prose that code reads put back (`AGENTS.md`, `CLAUDE.md`, `SKILL.md`,
-  `.github/`, skills and references, templates, resources, fixtures, tests,
-  release notes, and each file an `include_str!` compiles in). The workflows in
-  its `WORKFLOWS` carry it on `pull_request` only; push, schedule and dispatch
-  are unchanged. Edit the list there, then run
-  `python3 scripts/ci/docs_only_paths.py --sync`.
-- **What still starts.** Required checks never get a path filter (a required
-  check that never starts stays Expected). The fast gates and the risk tier
-  start because next-autoland lands only on them; the rest are one-job policy
-  checks. `cmux-next.yml` leaves `plans/cmux-next/**/*.md` out of its pull
-  request list and puts back by name the plan docs a Swift target reads; the
-  detector routes every doc it leaves out and fails on one that reaches a tier.
-- **Over 300 files, and labels.** GitHub matches `paths:` against only a
-  pull request's first 300 changed files, so 300 prose files and one code
-  file would start none of the filtered workflows; and the filter applies to
-  label events too, so `full-ci` or `dev-build` on a docs-only pull request
-  started nothing. `.github/workflows/docs-only-fallback.yml` (written by
-  `docs_only_paths.py --sync`) covers both. It has no filter, and its gate job
-  skips with no runner unless the pull request has more than 300 changed files
-  or gets one of those labels. When the gate runs, it lists the changed files
-  and the head's runs through the API. It then calls each filtered workflow
-  that should have started and shows no run, as a reusable workflow (each has
-  `workflow_call:`) in the pull request's own context. Anything it cannot
-  read, it calls. A call passes no secrets, so the called workflow runs as it
-  does for a fork's pull request. The fallback does not listen for
-  description edits.
-- **The detector.** `tests/test_ci_docs_only_prs.py` (ci-guards `ci` group)
-  fails when a docs-only pull request would start a workflow outside its
-  `ALLOWED` table (each with its reason), when a required check gets a filter,
-  when a copy of the block drifts, when an `include_str!` reads a file the block
-  leaves out, or when a guard group test reads one. Path-filtered workflows
-  whose own list takes a package whole (a README inside `cmux-tui/**`) are
-  listed in `SCOPED` until their lists drop Markdown.
-  `tests/test_ci_workflow_paths_cover_inputs.py` checks the inputs of each
-  filtered workflow's tests, and no longer lets the guards workflow excuse an
-  input its own filter leaves out.
-
 ## Changes that need only a blaze build
 
 `scripts/ci/build_class.py [--base REF | --changed-files FILE]` says, from the
@@ -365,10 +319,14 @@ The defaults snapshot (`schemas/defaults/cmux-next.json`) is bot-only (#21946):
 no pull request commits it, and the PR autofix leaves it out. It is stale
 between a merge and the base autofix's commit, so CI never runs `check-fresh` on
 an event. The base autofix
-rewrites it after each merge. No check judges a pull request's default changes: the
-defaults guard that did was deleted (Leo, 2026-11-25: "the fuck is a defaults guard for.
-if it's not useful, get rid of it"). Flipping a default still needs Leo's say-so, quoted in
-the pull request.
+rewrites it after each merge. The defaults guard judges a pull request by the defaults its
+exports and sources produce, never by a committed snapshot. A changed default passes
+with an independent review receipt on the head (a comment or review whose first line is
+`Review (<reviewer>): SHIP at <full head sha>`, from a member, not a self-review; the
+newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP) or an
+approving review from a call owner in `.github/defaults-call-owners.json` other than the
+author. A new setting whose default is off (false, null, `off`, `never`, `none`,
+`disabled` or empty) keeps what everyone had before it existed and passes on its own.
 
 ## Warm sources
 

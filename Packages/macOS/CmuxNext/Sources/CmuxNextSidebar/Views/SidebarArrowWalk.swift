@@ -21,8 +21,6 @@ import AppKit
     /// nearest item that way. False when there is none.
     static func leave(_ list: SidebarListView, up: Bool) -> Bool {
         guard let sidebar = sidebar(of: list) else { return false }
-        // A band draws only the items it shows: the one the step lands on gets its view first.
-        (up ? sidebar.aboveRegion : sidebar.belowRegion).realizeEdgeItem(last: up)
         let (above, below) = items(in: sidebar)
         guard let item = up ? above.last : below.first, focus(item) else { return false }
         return true
@@ -44,9 +42,6 @@ import AppKit
         guard flags.isEmpty, event.specialKey == .upArrow || event.specialKey == .downArrow,
               let sidebar = sidebar(of: item) else { return false }
         let up = event.specialKey == .upArrow
-        // A focused item the band scrolled away from comes back first, so the items beside it have views.
-        item.scrollToVisible(item.bounds)
-        (item.superview as? SidebarRegionView)?.realizeItems()
         let (above, below) = items(in: sidebar)
         let list = sidebar.list
         let stops = above.map(Stop.item) + (SidebarGroupKeys(list: list).stops.isEmpty ? [] : [Stop.list]) + below.map(Stop.item)

@@ -81,24 +81,24 @@ struct DividerDragTerminalSteadyTests {
         #expect(left.bounds.width < before.width - 100, "the surface took the narrower pane's size")
     }
 
-    /// A drag that catches a pane's layout spring (the press lands on the divider while the panes still move to another
-    /// ratio): the spring's hold at its final size ends at the drag's first frame, and the surface follows the drag from
-    /// there. A split, a close and a zoom have no spring to catch: each shows in one frame (`PaneLayoutCommitTests`).
-    @Test func aDragThatCatchesARatioSpringFollowsThePaneFromItsFirstFrame() async throws {
+    /// A drag that catches a split's spring (the press lands on the divider while the panes still move): the spring's
+    /// hold at its final size ends at the drag's first frame, and the surface follows the drag from there.
+    @Test func aDragThatCatchesASplitsSpringFollowsThePaneFromItsFirstFrame() async throws {
         _ = NSApplication.shared
         let screen = Harness.Screen(Harness.pair)
         defer { screen.close() }
         try screen.attachTerminal("p1")
         try screen.attachTerminal("p2")
         await screen.drain()
-        // The same two panes at another ratio (p2 goes from a half to three tenths of the screen): the panes spring, and
-        // each terminal holds the size it will rest at.
-        screen.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(Harness.pair.settingRatio(0.7, for: "r")))])
+        // The split's spring starts: each terminal holds the size it will rest at (a split's rule, unchanged).
+        let changes = screen.model.splitSizingChanges(splitting: "p2", axis: .horizontal)
+        _ = screen.model.showSplitSizing(changes)
+        screen.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(Harness.pairSplit))])
         screen.root.syncWithModel()
         for _ in 1...4 { await Self.frame(screen) }
         let p2 = try #require(screen.terminals["p2"]?.session)
         try #require(p2.surfaceView.frame.width < p2.view.bounds.width - 20,
-                     "the spring holds p2 at its final size (\(p2.surfaceView.frame.width) pt in a \(p2.view.bounds.width) pt host)")
+                     "the split's spring holds p2 at its final size (\(p2.surfaceView.frame.width) pt in a \(p2.view.bounds.width) pt host)")
         let view = try #require(screen.root.screenViews["s"])
         let handle = try #require(view.dividerViews[.split("r")])
         let start = handle.convert(CGPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)

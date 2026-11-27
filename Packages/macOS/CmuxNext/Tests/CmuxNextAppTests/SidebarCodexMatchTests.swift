@@ -35,15 +35,14 @@ struct SidebarCodexMatchTests {
     @Test func defaultDensityRowsAreCodexRows() throws {
         try Self.at(.cozy) {
             let m = SidebarLayoutMetrics.standard
-            // Helium's tab row, at the 29 pt Lucas measured on Helium for Default (2026-11-15).
-            #expect(m.rowHeight == 30, "Default's row")
+            #expect(m.rowHeight == 30, "Codex's --height-token-nav-row")
             #expect(m.rowSpacing == 2, "2 pt between rows, so two lit fills do not touch")
-            #expect(SidebarStyle.contentInset == 7, "Helium's favicon 7 pt into its row")
+            #expect(SidebarStyle.contentInset == 8, "Codex's --padding-row-x")
             #expect(SidebarStyle.horizontalInset < SidebarStyle.contentInset, "the fill sits inside the sidebar edge, the title further in")
             // Chrome's tab corner (Lawrence 2026-11-11, "same roundness as chrome"): kVerticalTabCornerRadius 8 on 30.
-            #expect(SidebarStyle.rowCornerRadius == 9, "Chrome's kVerticalTabCornerRadius")
+            #expect(SidebarStyle.rowCornerRadius == 8, "Chrome's kVerticalTabCornerRadius")
             #expect(SidebarStyle.rowCornerRadius == Metrics.tabCornerRadius, "the tab's radius")
-            // The 29 pt row; 2 pt between rows.
+            // The row keeps Codex's 30 pt; 2 pt between rows.
             let layout = SidebarLayout.make(sections: [Self.machine(["a", "b"])], metrics: m)
             let a = try #require(layout.row(for: .workspace(WorkspaceID("a"))))
             let b = try #require(layout.row(for: .workspace(WorkspaceID("b"))))
@@ -56,13 +55,12 @@ struct SidebarCodexMatchTests {
         Self.at(density) {
             let m = SidebarLayoutMetrics.standard
             #expect(m.rowSpacing == Metrics.space1, "\(density) keeps its gap")
-            #expect(m.rowHeight == SidebarRowTokens.current.listRowHeight, "\(density) keeps its row")
+            #expect(m.rowHeight == SidebarRowTokens.current.rowHeight, "\(density) keeps its row")
             // Outside Default a row's content sits as far inside its fill as its title has room above and below
             // (Lawrence 2026-11-09, "padding on left/bottom/top/right should be even"), not at the outer inset.
-            // A browser density sets its browser's own inset (Chrome's favicon 8 pt into its row at Comfortable).
             let row = Metrics.sidebarRowHeight + SidebarDensityTokens.textSize.rowStep
             let even = ((row - SidebarStyle.titleFont.capHeight) / 2 * 2).rounded() / 2
-            #expect(SidebarStyle.contentInset == (Metrics.densityToken("sidebarContentInset") ?? even), "\(density) keeps its content inset")
+            #expect(SidebarStyle.contentInset == even, "\(density) keeps the even content inset")
             #expect(SidebarStyle.rowCornerRadius == Metrics.tabCornerRadius, "\(density) keeps the tab radius")
         }
     }

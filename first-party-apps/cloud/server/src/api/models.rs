@@ -17,7 +17,6 @@
 //! backend, not an older one; an older backend omits only optional fields.
 
 use super::{CloudError, decode_answer};
-use cmux_cloud_disk::{self as disk, DiskReport};
 use cmux_cloud_wire::{CloudConnectInfo, CloudMachine, CloudMachineConnectInfoOp, Op};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -53,11 +52,6 @@ pub struct MachineExtra {
     /// app. Older backends omit this field.
     #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "providerCapabilities")]
     pub provider_operations: Vec<String>,
-    /// Optional latest guest disk report. Keep the object opaque so this relay
-    /// preserves new health fields without coupling the app server to the
-    /// machine telemetry schema.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub disk_health: Option<Value>,
     /// Optional idle-pause diagnostics from the cmux REST VM projection.
     /// Keep the object opaque here so this relay preserves new diagnostic
     /// fields without coupling the app server to the cron implementation.
@@ -68,79 +62,6 @@ pub struct MachineExtra {
         skip_serializing_if = "Option::is_none"
     )]
     pub idle_pause: Option<Value>,
-}
-
-/// Classify a guest disk report before it reaches a web client. Capacity
-/// validation and the floor threshold belong to the API that serves the
-/// report, while the client only handles time-based staleness.
-fn disk_health_state(value: &Value) -> &'static str {
-    let Some(object) = value.as_object() else {
-        return "unknown";
-    };
-    let number = |key: &str| object.get(key).and_then(Value::as_f64);
-    let (Some(free), Some(used), Some(total), Some(floor), Some(observed_at)) = (
-        number("free_mb"),
-        number("used_mb"),
-        number("total_mb"),
-        number("floor_mb"),
-        number("observed_at"),
-    ) else {
-        return "unknown";
-    };
-    if [free, used, total, floor, observed_at]
-        .iter()
-        .any(|value| !value.is_finite() || *value < 0.0)
-        || free > total
-        || used > total
-        || free + used > total
-    {
-        return "unknown";
-    }
-    let Some(top_users) = object.get("top_users").and_then(Value::as_array) else {
-        return "unknown";
-    };
-    if top_users.iter().any(|user| {
-        let Some(user) = user.as_object() else {
-            return true;
-        };
-        let path = user.get("path").and_then(Value::as_str);
-        let used = user.get("used_mb").and_then(Value::as_f64);
-        path.is_none_or(str::is_empty) || used.is_none_or(|value| !value.is_finite() || value < 0.0)
-    }) {
-        return "unknown";
-    }
-    if free <= floor { "warning" } else { "healthy" }
-}
-
-/// The report with its `state` and its `bar` (cmux-cloud-disk [`disk::view`]:
-/// used over allocated split system / project / caches, the Cloud page draws
-/// it as it is). A report the state calls `unknown` gives a bar of the
-/// allocation alone, as a guest that reports nothing would.
-///
-/// cmux-platform writes the report from the guest's `acpmux machine load` (`total_mb`,
-/// `used_mb`, `free_mb`, `system_mb`, `project_mb`, `caches_mb`); [`DiskReport::from_health`]
-/// reads those and the guest's own names.
-fn annotate_disk_health(mut value: Value, allocated_mb: Option<i64>) -> Value {
-    let state = disk_health_state(&value);
-    // The bar needs only the sizes: a report without the health fields (`floor_mb`,
-    // `top_users`) still draws, its health `unknown`; sizes that contradict (used and free over
-    // the total) draw the allocation alone.
-    let report = DiskReport::from_health(&value)
-        .filter(|r| match (r.total_bytes, r.used_bytes, r.free_bytes) {
-            (Some(total), Some(used), free) => used.saturating_add(free.unwrap_or(0)) <= total,
-            _ => true,
-        })
-        .unwrap_or_default();
-    if let Value::Object(object) = &mut value {
-        let allocated = allocated_mb.and_then(|mb| disk::mib(Some(mb as f64)));
-        if let Some(bar) =
-            disk::view(allocated, &report).and_then(|bar| serde_json::to_value(bar).ok())
-        {
-            object.insert("bar".into(), bar);
-        }
-        object.insert("state".into(), Value::String(state.into()));
-    }
-    value
 }
 
 /// Non-secret host metadata that an owner may attach to a machine record.
@@ -165,11 +86,8 @@ impl TryFrom<MachineWire> for Machine {
     type Error = String;
 
     fn try_from(wire: MachineWire) -> Result<Self, String> {
-        let MachineWire { mut record, mut extra } = wire;
+        let MachineWire { mut record, extra } = wire;
         record.revision = Revision::try_from(std::mem::take(&mut record.revision))?.into();
-        if let Some(value) = extra.disk_health.take() {
-            extra.disk_health = Some(annotate_disk_health(value, record.size.disk_mb));
-        }
         Ok(Self { record, extra })
     }
 }

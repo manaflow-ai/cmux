@@ -6,6 +6,5 @@
   "author": "lane/screenshot-attach-route (claude opus)",
   "owner": "lane/screenshot-attach-route",
   "receipt": "Review (subagent claude opus 5.5, correctness first): SHIP at 02ea24ba98c442e0d1b855946a5fab7e184f42e9",
-  "expiry": "2026-12-14",
-  "applied_sha": "92aeb2987f12fc87762cd724d9f805cc2fa2d221"
+  "expiry": "2026-12-14"
 }

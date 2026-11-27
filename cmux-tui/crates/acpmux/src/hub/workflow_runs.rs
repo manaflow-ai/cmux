@@ -6,15 +6,6 @@ use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::process::Stdio;
 
-/// The current trusted launch inputs for one workflow host request.  Resolve
-/// the owner's profile once, then derive every value from that same snapshot.
-#[derive(Clone, Debug)]
-pub(crate) struct WorkflowToolSnapshot {
-    pub allowed_tools: Option<Vec<String>>,
-    pub upstreams: String,
-    pub upstream_names: Vec<String>,
-}
-
 impl Hub {
     /// Starts workflow `name` of chat `owner`. `caller_subagent` is the Claude Code subagent
     /// (`{id, type}`) whose MCP call starts it, when one does (`subagent_call.rs`): the run's
@@ -57,51 +48,49 @@ impl Hub {
 
     /// Current preset restrictions can narrow a pinned run, never grant it new tools.
     pub async fn workflow_allowed_tools(&self, run: &RunRecord) -> Result<Option<Vec<String>>> {
-        Ok(self.workflow_tool_snapshot(run).await?.allowed_tools)
-    }
-
-    /// Resolve the owner's current profile once for a host request.  The
-    /// pinned run ceiling intersects with that one profile, and the same
-    /// profile supplies the folded upstream configuration.
-    pub(crate) async fn workflow_tool_snapshot(
-        &self,
-        run: &RunRecord,
-    ) -> Result<WorkflowToolSnapshot> {
         let owner = self.resolve(&run.owner_session_id).map_err(|e| anyhow::anyhow!(e.message))?;
         let meta = owner.meta();
         let profile = self.workflow_tool_profile(&meta).await?;
         let current = workflow_profile_tools(&profile, &meta);
-        let allowed_tools = match (&run.allowed_tools, current) {
+        Ok(match (&run.allowed_tools, current) {
             (None, current) => current,
             (Some(pinned), None) => Some(pinned.clone()),
             (Some(pinned), Some(current)) => {
                 Some(pinned.iter().filter(|tool| current.contains(tool)).cloned().collect())
             }
-        };
+        })
+    }
 
+    /// Fold only the same trusted tool-server specs this owner's next agent launch gets.
+    /// These launch credentials never enter the durable run record or status response.
+    async fn workflow_upstreams(&self, run: &RunRecord) -> Result<String> {
+        let owner = self.resolve(&run.owner_session_id).map_err(|e| anyhow::anyhow!(e.message))?;
+        let meta = owner.meta();
+        let profile = self.workflow_tool_profile(&meta).await?;
         let env = &profile.env;
-        let upstreams = if crate::agent_tools::left_out(meta.remote_origin, env, &profile.argv) {
-            "[]".into()
-        } else {
-            let config = crate::agent_tools::current()
-                .scoped(env)
-                .without_off(env)
-                .for_session(&run.owner_session_id)
-                .folded()
-                .mcp_config();
-            config
-                .as_ref()
-                .and_then(|config| config.pointer("/mcpServers/cmux/env/CMUX_MCP_UPSTREAMS"))
-                .and_then(Value::as_str)
-                .unwrap_or("[]")
-                .to_owned()
-        };
-        let specs: Vec<Value> = serde_json::from_str(&upstreams)?;
-        let upstream_names = specs
+        if crate::agent_tools::left_out(meta.remote_origin, env, &profile.argv) {
+            return Ok("[]".into());
+        }
+        let config = crate::agent_tools::current()
+            .scoped(env)
+            .without_off(env)
+            .for_session(&run.owner_session_id)
+            .folded()
+            .mcp_config();
+        Ok(config
+            .as_ref()
+            .and_then(|config| config.pointer("/mcpServers/cmux/env/CMUX_MCP_UPSTREAMS"))
+            .and_then(Value::as_str)
+            .unwrap_or("[]")
+            .to_owned())
+    }
+
+    pub(crate) async fn workflow_upstream_names(&self, run: &RunRecord) -> Result<Vec<String>> {
+        let specs: Vec<Value> = serde_json::from_str(&self.workflow_upstreams(run).await?)?;
+        Ok(specs
             .iter()
             .filter_map(|spec| spec.get("name").and_then(Value::as_str).map(str::to_owned))
-            .collect();
-        Ok(WorkflowToolSnapshot { allowed_tools, upstreams, upstream_names })
+            .collect())
     }
 
     async fn workflow_tool_profile(
@@ -288,7 +277,6 @@ impl Hub {
 
     async fn workflow_spawn(self: &Arc<Self>, run: &RunRecord) -> Result<()> {
         let mut command = workflow_runner_command()?;
-        let tools = self.workflow_tool_snapshot(run).await?;
         let Some(token) = self.workflow_runs.issue_runner(run)? else {
             return Ok(());
         };
@@ -301,7 +289,7 @@ impl Hub {
             &run.generation.to_string(),
         ]);
         command.env_clear();
-        for key in RUNNER_ENV {
+        for key in ["PATH", "HOME", "USER", "TMPDIR", "XDG_RUNTIME_DIR", "ACPMUX_HOME"] {
             if let Some(value) = std::env::var_os(key) {
                 command.env(key, value);
             }
@@ -317,9 +305,9 @@ impl Hub {
         if let Some(mark) = workflow_subagent_mark(run) {
             command.env(crate::cli::sender::SUBAGENT_ENV, mark);
         }
-        command.env(crate::agent_tools::UPSTREAMS_ENV, tools.upstreams);
-        if let Some(allowed) = tools.allowed_tools {
-            command.env(crate::agent_tools::MCP_TOOLS_ENV, allowed.join(","));
+        command.env(crate::agent_tools::UPSTREAMS_ENV, self.workflow_upstreams(run).await?);
+        if let Some(tools) = self.workflow_allowed_tools(run).await? {
+            command.env(crate::agent_tools::MCP_TOOLS_ENV, tools.join(","));
         }
         command
             .current_dir(&run.cwd)
@@ -394,11 +382,6 @@ fn workflow_subagent_mark(run: &RunRecord) -> Option<String> {
     Some(format!("{}:{}", word("type")?, word("id")?))
 }
 
-/// What a workflow runner keeps of the daemon's environment; `CMUX_BUILD_SPACE` keeps its
-/// Cloud calls in the daemon's build space.
-const RUNNER_ENV: [&str; 7] =
-    ["PATH", "HOME", "USER", "TMPDIR", "XDG_RUNTIME_DIR", "ACPMUX_HOME", "CMUX_BUILD_SPACE"];
-
 fn workflow_runner_command() -> Result<tokio::process::Command> {
     let own = crate::self_command::SelfCommand::current()?;
     if !own.prefix.is_empty() {
@@ -420,9 +403,215 @@ fn workflow_runner_command() -> Result<tokio::process::Command> {
 }
 
 #[cfg(test)]
-#[path = "workflow_runs_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
 
-#[cfg(test)]
-#[path = "workflow_runs_build_space_tests.rs"]
-mod build_space_tests;
+    #[test]
+    fn workflow_disabled_tool_injection_is_never_an_unrestricted_ceiling() {
+        let mut profile: crate::config::HarnessProfile = serde_json::from_value(json!({
+            "argv":["/bin/true"],"env":{crate::agent_tools::SWITCH_ENV:"0"}
+        }))
+        .unwrap();
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema":crate::store::META_SCHEMA,"id":"workflow-off","name":"Workflow off",
+            "harness":"fake","cwd":std::env::temp_dir(),"status":"idle","createdAt":1,"updatedAt":1
+        }))
+        .unwrap();
+        assert_eq!(workflow_profile_tools(&profile, &meta), Some(Vec::new()));
+        profile.env.clear();
+        profile.argv.push("--strict-mcp-config".into());
+        assert_eq!(workflow_profile_tools(&profile, &meta), Some(Vec::new()));
+        profile.argv.pop();
+        meta.tools.off.push("mcp:cmux".into());
+        assert_eq!(workflow_profile_tools(&profile, &meta), Some(Vec::new()));
+    }
+
+    #[tokio::test]
+    async fn workflow_tool_fold_keeps_disabled_servers_and_workspace_scope() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        cfg.harnesses.insert(
+            "workflow-fold-test".into(),
+            serde_json::from_value(json!({
+                "argv":["/bin/true"], "kind":"claude-stdio"
+            }))
+            .unwrap(),
+        );
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema":crate::store::META_SCHEMA,"id":"workflow-fold-test","name":"Workflow fold",
+            "harness":"workflow-fold-test","cwd":std::env::temp_dir(),"status":"idle",
+            "createdAt":1,"updatedAt":1,"workspaceId":"workflow-workspace",
+            "tools":{"off":["mcp:disabled-server"]}
+        }))
+        .unwrap();
+        let profile = hub.workflow_tool_profile(&meta).await.unwrap();
+        let env = &profile.env;
+        assert_eq!(
+            env.get(crate::agent_tools::OFF_ENV).map(String::as_str),
+            Some("disabled-server")
+        );
+        assert_eq!(
+            env.get(crate::agent_displays::WORKSPACE_KEY).map(String::as_str),
+            crate::agent_displays::per_workspace().then_some("workflow-workspace")
+        );
+    }
+
+    fn recovery_fixture() -> (tempfile::TempDir, Arc<Hub>, RunRecord) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        // Construct before entering a runtime, so no background hub task holds a clone.
+        let mut hub = Hub::new(cfg, store);
+        Arc::get_mut(&mut hub).unwrap().workflow_runs =
+            crate::workflow_runs::Service::with_root(dir.path().into());
+        let run = hub
+            .workflow_runs
+            .store()
+            .start(RunRecord {
+                version: 1,
+                id: "wf-live-recovery".into(),
+                name: "Recovery".into(),
+                owner_session_id: "owner".into(),
+                local_principal: false,
+                source: "return 1;".into(),
+                source_hash: String::new(),
+                args: Value::Null,
+                allowed_tools: None,
+                cwd: dir.path().into(),
+                generation: 0,
+                state: State::Running,
+                activities: BTreeMap::new(),
+                outcome: None,
+                caller_subagent: None,
+            })
+            .unwrap();
+        (dir, hub, run)
+    }
+
+    #[test]
+    fn workflow_runs_recovery_preserves_a_runner_launched_by_this_daemon() {
+        let (_dir, hub, run) = recovery_fixture();
+        // A local resume can finish before startup recovery takes its snapshot.
+        let proof = hub.workflow_runs.issue_runner(&run).unwrap().unwrap();
+        let (mut stop, finished) = hub.workflow_runs.track_runner(&run.id, run.generation);
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(hub.recover_workflows());
+        assert_eq!(
+            hub.workflow_runs.store().get(&run.id).unwrap(),
+            run,
+            "recovery replaced a runner that this daemon already owns"
+        );
+        assert!(hub.workflow_runs.authorize_runner(&run.id, run.generation, &proof).is_ok());
+        assert!(matches!(stop.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)));
+        finished.send(()).unwrap();
+        hub.workflow_runs.retire_runner(&run.id, run.generation);
+    }
+
+    #[test]
+    fn workflow_runs_recovery_finishes_pause_even_if_a_launch_proof_remains() {
+        let (_dir, hub, run) = recovery_fixture();
+        let pausing = hub.workflow_runs.store().pause(&run.id, &run.owner_session_id).unwrap();
+        // Even an outstanding current-generation launch proof cannot skip cleanup.
+        hub.workflow_runs.issue_runner(&pausing).unwrap().unwrap();
+        assert!(hub.workflow_runs.owns_runner(&run.id, pausing.generation));
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(hub.recover_workflows());
+        let recovered = hub.workflow_runs.store().get(&run.id).unwrap();
+        assert_eq!(recovered.state, State::Paused);
+        assert_eq!(recovered.generation, pausing.generation);
+        assert!(!hub.workflow_runs.owns_runner(&run.id, pausing.generation));
+    }
+
+    #[tokio::test]
+    async fn workflow_cancellation_accepts_machine_handles_that_never_launched() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let owner = format!("workflow-unlaunched-{}", uuid::Uuid::now_v7().simple());
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema":crate::store::META_SCHEMA,"id":owner,"name":"Workflow machine owner",
+            "harness":"fake","cwd":std::env::temp_dir(),"status":"idle","createdAt":1,"updatedAt":1
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+        let hub = Hub::new(cfg, store);
+        let run = RunRecord {
+            version: 1,
+            id: format!("wf-{}", uuid::Uuid::now_v7().simple()),
+            name: "Unlaunched machine".into(),
+            owner_session_id: owner.clone(),
+            local_principal: false,
+            source: "source".into(),
+            source_hash: String::new(),
+            args: json!([]),
+            allowed_tools: None,
+            cwd: std::env::temp_dir(),
+            generation: 1,
+            state: State::Pausing,
+            activities: BTreeMap::from([(
+                "machine".into(),
+                crate::workflow_runs::ActivityRecord {
+                    id: "machine".into(),
+                    kind: "machine".into(),
+                    fingerprint: "pinned".into(),
+                    child: Child::Machine {
+                        session_id: owner,
+                        task_id: "never-launched".into(),
+                        host: None,
+                    },
+                    policy: Value::Null,
+                    outcome: None,
+                },
+            )]),
+            outcome: None,
+            caller_subagent: None,
+        };
+        hub.workflow_cancel_children(&run).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_stale_activity_never_fences_another_prompt() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema":crate::store::META_SCHEMA,"id":"workflow-child","name":"Workflow child",
+            "harness":"fake","cwd":std::env::temp_dir(),"status":"idle","createdAt":1,"updatedAt":1
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+        let hub = Hub::new(cfg, store);
+        let session = hub.resolve("workflow-child").unwrap();
+        *session.turn.lock().unwrap() = Some(TurnInfo {
+            trigger: false,
+            started_at: 1,
+            client: "person".into(),
+            prompt_preview: String::new(),
+            masked_preview: String::new(),
+            turn_id: "person-turn".into(),
+            prompt_id: "person-prompt".into(),
+            turn_seq: 1,
+            control: Control::Local,
+            doing: Default::default(),
+            notice: false,
+            persons: true,
+            accepted: true,
+            device: None,
+        });
+        let before = session.cancels.load(Ordering::SeqCst);
+        // The activity ended before pause arrived; it must not change even the
+        // session-wide cancellation generation that a later prompt will observe.
+        hub.cancel_prompt(&session, "already-ended-workflow-prompt").await.unwrap();
+        assert_eq!(session.cancels.load(Ordering::SeqCst), before);
+        assert_eq!(session.turn().unwrap().prompt_id, "person-prompt");
+    }
+}

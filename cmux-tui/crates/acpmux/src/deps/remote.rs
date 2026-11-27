@@ -130,15 +130,6 @@ pub struct Remote {
 impl Remote {
     /// The joined machine's hub and credential, or None when this machine is not joined.
     pub fn joined() -> Result<Option<Remote>> {
-        let Some((origin, credential)) = Remote::joined_bearer()? else {
-            return Ok(None);
-        };
-        Ok(Some(Remote::new(origin, credential)?))
-    }
-
-    /// The joined machine's hub origin and credential (`install_share.rs` calls
-    /// the same hub with it), or None when this machine is not joined.
-    pub fn joined_bearer() -> Result<Option<(String, String)>> {
         let Some(record) = crate::cli::cloud_join::machine_credential()? else {
             return Ok(None);
         };
@@ -146,13 +137,12 @@ impl Remote {
             return Ok(None);
         }
         let origin = crate::cli::cloud_join::hub_origin(&record.hub_origin)?;
-        Ok(Some((origin, record.credential)))
+        Ok(Some(Remote::new(origin, record.credential)?))
     }
 
     pub fn new(origin: String, bearer: String) -> Result<Remote> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = crate::happy_dial::http_client()
-            .default_headers(cmux_build_space::headers()?)
+        let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
             // A part or a whole download; a stalled one is given up, never waited on.
@@ -320,5 +310,45 @@ fn code(body: &Value) -> &str {
 }
 
 #[cfg(test)]
-#[path = "remote_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn sha(data: &[u8]) -> [u8; 32] {
+        Sha256::digest(data).into()
+    }
+
+    #[test]
+    fn a_timing_record_has_a_key_of_its_own() {
+        let key = format!("bun-{}", "a".repeat(64));
+        let meta = meta_key(&key).unwrap();
+        assert!(meta.starts_with("bun-"));
+        assert_eq!(meta.len(), key.len());
+        assert_ne!(meta, key);
+        assert!(meta[4..].bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(meta_key(&key), Some(meta));
+        assert_eq!(meta_key("nodash"), None);
+    }
+
+    #[test]
+    fn tree_digest_is_the_hash_of_part_hashes_however_it_is_fed() {
+        let data: Vec<u8> = (0..2500u32).map(|i| (i % 251) as u8).collect();
+        let mut expected = Sha256::new();
+        for part in data.chunks(1000) {
+            expected.update(sha(part));
+        }
+        let expected = hex(&expected.finalize());
+        for step in [1, 7, 1000, 2500] {
+            let mut h = TreeHasher::new(1000);
+            for piece in data.chunks(step) {
+                h.update(piece);
+            }
+            assert_eq!(h.finish(), (expected.clone(), 3), "step {step}");
+        }
+        // Exactly one full part: no empty trailing part.
+        let mut h = TreeHasher::new(1000);
+        h.update(&data[..1000]);
+        let mut one = Sha256::new();
+        one.update(sha(&data[..1000]));
+        assert_eq!(h.finish(), (hex(&one.finalize()), 1));
+    }
+}

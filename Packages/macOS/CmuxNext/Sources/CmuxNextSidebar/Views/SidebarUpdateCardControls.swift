@@ -138,7 +138,7 @@ final class SidebarUpdateButton: NSView {
     static var height: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
     static var font: NSFont { font(bordered: false) }
     static func font(bordered: Bool) -> NSFont {
-        Typography.system(size: Typography.cardButton.pointSize, weight: bordered ? TypeScale.regular : TypeScale.emphasis)
+        Typography.system(size: Typography.caption.pointSize, weight: bordered ? TypeScale.regular : TypeScale.emphasis)
     }
 
     /// The width that fits the label on one line with the button's inset (the compact layout).

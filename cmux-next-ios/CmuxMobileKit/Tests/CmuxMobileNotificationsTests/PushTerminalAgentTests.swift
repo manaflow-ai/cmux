@@ -1,8 +1,6 @@
 import Foundation
 import Testing
-#if canImport(UserNotifications)
 import UserNotifications
-#endif
 @testable import CmuxMobileNotifications
 
 /// A terminal agent's events (Claude Code or Codex in a terminal tab, reported by its hook)
@@ -55,7 +53,6 @@ import UserNotifications
         #expect(!payload(.chief, session: "turn-1", notification: nil).fromTerminalAgent)
     }
 
-    #if canImport(UserNotifications)
     @Test func theServiceExtensionGivesAnOlderWorkersCategoryThePhones() throws {
         let content = UNMutableNotificationContent()
         content.categoryIdentifier = PushCategory.completed.rawValue
@@ -69,5 +66,4 @@ import UserNotifications
         content.userInfo = payload(.completed, session: "sess-1", notification: nil).userInfo
         #expect(ServicePush().categorized(content) == nil)
     }
-    #endif
 }

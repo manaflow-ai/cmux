@@ -37,11 +37,8 @@ use crate::carrier::fault::Route;
 const ATTACH: &str = "agent-session-attach-v1";
 /// Records asked per page.
 const PAGE: u64 = 500;
-/// A resume's open waits for the session to come back on the next carrier this long at most, a try every
-/// [`RESUME_PAUSE`], and never past the drill's deadline (`run_drill`): the session's whole resume window
-/// (`carrier::resume_window`, 25 s with an ssh route) and a margin. A fixed 40 tries (10 s) gave up while the
-/// session was still failing over onto a slow ssh route.
-const RESUME_WAIT: Duration = Duration::from_secs(30);
+/// A resume's open waits for the session to come back on the next carrier this long at most, a try at a time.
+const RESUME_TRIES: u32 = 40;
 const RESUME_PAUSE: Duration = Duration::from_millis(250);
 
 /// Dials the session, once.
@@ -130,9 +127,9 @@ impl EventRoutes for SessionRoutes {
                 route.name()
             ));
         }
-        // A connect tries once; a resume until the session's resume window is over.
-        let until = Instant::now() + if index == 0 { Duration::ZERO } else { RESUME_WAIT };
-        loop {
+        let tries = if index == 0 { 1 } else { RESUME_TRIES };
+        let mut last = String::new();
+        for _ in 0..tries {
             match attach(session.clone(), route, self.surface, after_seq.unwrap_or(0)).await {
                 Ok(opened) => {
                     if let Some(send) = self.send.take() {
@@ -140,10 +137,11 @@ impl EventRoutes for SessionRoutes {
                     }
                     return Ok(opened);
                 }
-                Err(why) if Instant::now() >= until => return Err(why),
-                Err(_) => tokio::time::sleep(RESUME_PAUSE).await,
+                Err(why) => last = why,
             }
+            tokio::time::sleep(RESUME_PAUSE).await;
         }
+        Err(last)
     }
 }
 

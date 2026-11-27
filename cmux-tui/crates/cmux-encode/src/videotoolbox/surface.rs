@@ -4,13 +4,11 @@
 //! synchronous, so the caller releases its capture lease when it returns.
 
 use std::ffi::c_void;
-use std::ptr::{null, null_mut};
+use std::ptr::null_mut;
 
 use super::{
-    CFRelease, CFTypeRef, CVPixelBufferCreateWithIOSurface, CVPixelBufferPoolRef, CVPixelBufferRef,
-    IOSurfaceGetHeight, IOSurfaceGetPixelFormat, IOSurfaceGetWidth, PIXEL_420V,
-    VTPixelTransferSessionRef, VideoToolbox, cv_pool_sys, dict,
-    kCVPixelBufferIOSurfacePropertiesKey, number_i32, vt_transfer_sys,
+    CFRelease, CFTypeRef, CVPixelBufferCreateWithIOSurface, CVPixelBufferRef, IOSurfaceGetHeight,
+    IOSurfaceGetPixelFormat, IOSurfaceGetWidth, PIXEL_420V, VideoToolbox,
 };
 use crate::Res;
 
@@ -26,9 +24,8 @@ pub enum SurfaceFormat {
 }
 
 /// The color space the surface's pixels are in. The session tags its output
-/// with sRGB transfer (H.264 13; both spaces use the sRGB curve), the BT.709 YCbCr
-/// matrix and these primaries (sRGB: BT.709; Display P3: P3 D65), so the viewer's
-/// decoder presents it correctly.
+/// with BT.709 transfer and YCbCr matrix and these primaries (sRGB: BT.709;
+/// Display P3: P3 D65), so the viewer's decoder presents it correctly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorTag {
     Srgb,
@@ -82,26 +79,9 @@ pub trait SurfaceEncoder: Send {
     ) -> Res<bool>;
     fn set_bitrate(&mut self, kbps: u32);
     fn kbps(&self) -> u32;
-    fn set_acknowledged_ltr_tokens(&mut self, _tokens: &[u64]) {}
-    fn set_force_ltr_refresh(&mut self, _refresh: bool) {}
-    fn ltr_token(&self) -> Option<u64> {
-        None
-    }
 }
 
 impl SurfaceEncoder for VideoToolbox {
-    fn set_acknowledged_ltr_tokens(&mut self, tokens: &[u64]) {
-        self.acknowledged_ltr_tokens.clear();
-        self.acknowledged_ltr_tokens.extend_from_slice(tokens);
-    }
-
-    fn set_force_ltr_refresh(&mut self, refresh: bool) {
-        self.force_ltr_refresh = refresh;
-    }
-
-    fn ltr_token(&self) -> Option<u64> {
-        self.ltr_token
-    }
     /// Wraps the surface (no copy) and encodes it. A frame whose format or
     /// size does not match its surface is refused; a new size recreates the
     /// session and the frame becomes an IDR. Returns true for an IDR.
@@ -114,7 +94,6 @@ impl SurfaceEncoder for VideoToolbox {
         out: &mut Vec<u8>,
     ) -> Res<bool> {
         out.clear();
-        self.idr_cause = None;
         if frame.io_surface.is_null() {
             return Err("encode_surface: NULL IOSurface".into());
         }
@@ -144,12 +123,7 @@ impl SurfaceEncoder for VideoToolbox {
             )
             .into());
         }
-        // The resolution ladder's picture, when it is smaller than the surface: the session
-        // encodes that size from a GPU-scaled copy. Equal (or larger): the surface as it is.
-        let scaled_to =
-            self.picture.filter(|&(w, h)| (w, h) != (width, height) && w <= width && h <= height);
-        let (enc_width, enc_height) = scaled_to.unwrap_or((width, height));
-        let resized = self.ensure_session(enc_width, enc_height)?;
+        let resized = self.ensure_session(width, height)?;
         self.apply_color(frame.color);
         let mut pixel_buffer: CVPixelBufferRef = null_mut();
         // SAFETY: wraps the live surface in a new pixel buffer (no copy); released below.
@@ -164,20 +138,7 @@ impl SurfaceEncoder for VideoToolbox {
         if status != 0 || pixel_buffer.is_null() {
             return Err(format!("CVPixelBufferCreateWithIOSurface failed: {status}").into());
         }
-        self.idr_cause = (resized && !force_idr).then_some("resize");
-        let source = match scaled_to {
-            None => Ok(pixel_buffer),
-            Some((w, h)) => self.scale(pixel_buffer, w, h),
-        };
-        let result = source.and_then(|buffer| {
-            let r = self.encode_buffer(buffer, force_idr || resized, pts_us, out);
-            if buffer != pixel_buffer {
-                // SAFETY: releasing the scaled buffer `scale` returned (back to its pool);
-                // the encode has completed.
-                unsafe { CFRelease(buffer as CFTypeRef) };
-            }
-            r
-        });
+        let result = self.encode_buffer(pixel_buffer, force_idr || resized, pts_us, out);
         // SAFETY: releasing the wrapper we created; the encode has completed.
         unsafe { CFRelease(pixel_buffer as CFTypeRef) };
         result
@@ -192,129 +153,87 @@ impl SurfaceEncoder for VideoToolbox {
     }
 }
 
-impl VideoToolbox {
-    /// A `width` x `height` copy of `source` scaled on the GPU, in a pooled buffer the caller
-    /// releases. The scaler is made at the first scaled frame and kept.
-    fn scale(
-        &mut self,
-        source: CVPixelBufferRef,
-        width: usize,
-        height: usize,
-    ) -> Res<CVPixelBufferRef> {
-        if self.scaler.is_none() {
-            self.scaler = Some(Scaler::new()?);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::videotoolbox::{
+        CFRelease, CFTypeRef, CVPixelBufferRef, dict, kCVPixelBufferIOSurfacePropertiesKey,
+    };
+    use std::ptr::{null, null_mut};
+
+    crate::framework! {
+        mod cv_sys = "/System/Library/Frameworks/CoreVideo.framework/CoreVideo" {
+            fn CVPixelBufferCreate(a: *const c_void, w: usize, h: usize, fmt: u32, attrs: *const c_void, out: *mut CVPixelBufferRef) -> i32;
+            fn CVPixelBufferGetIOSurface(pb: CVPixelBufferRef) -> *mut c_void;
         }
-        let scaler = self.scaler.as_mut().ok_or("no pixel transfer session")?;
-        scaler.scale(source, width, height)
     }
-}
+    use cv_sys::*;
 
-/// Scales captured surfaces down to the resolution ladder's picture (design D5) with a
-/// VTPixelTransferSession: on the GPU, no CPU copy, into IOSurface-backed NV12 (420v)
-/// buffers from a pool of the picture's size (a new size makes a new pool).
-pub(super) struct Scaler {
-    transfer: VTPixelTransferSessionRef,
-    /// The pool of the last picture size; NULL before the first scaled frame.
-    pool: CVPixelBufferPoolRef,
-    pool_size: (usize, usize),
-}
+    /// An IOSurface-backed pixel buffer; the surface lives as long as the buffer.
+    struct TestSurface(CVPixelBufferRef);
 
-impl Scaler {
-    fn new() -> Res<Self> {
-        vt_transfer_sys::available()?;
-        cv_pool_sys::available()?;
-        let mut transfer: VTPixelTransferSessionRef = null_mut();
-        // SAFETY: creates a transfer session into our local; released in Drop.
-        let status =
-            unsafe { vt_transfer_sys::VTPixelTransferSessionCreate(null(), &mut transfer) };
-        if status != 0 || transfer.is_null() {
-            return Err(format!("VTPixelTransferSessionCreate failed: {status}").into());
+    impl TestSurface {
+        fn new(width: u32, height: u32, format: u32) -> Self {
+            let mut pb: CVPixelBufferRef = null_mut();
+            // SAFETY: creating an IOSurface-backed buffer; attrs released after use.
+            let status = unsafe {
+                let empty = dict(&[]);
+                let attrs = dict(&[(kCVPixelBufferIOSurfacePropertiesKey(), empty)]);
+                let s = CVPixelBufferCreate(
+                    null(),
+                    width as usize,
+                    height as usize,
+                    format,
+                    attrs,
+                    &mut pb,
+                );
+                CFRelease(attrs);
+                CFRelease(empty);
+                s
+            };
+            assert_eq!(status, 0, "CVPixelBufferCreate");
+            Self(pb)
         }
-        Ok(Self { transfer, pool: null_mut(), pool_size: (0, 0) })
-    }
 
-    /// Makes the pool hand out `width` x `height` buffers, replacing it on a size change.
-    fn ensure_pool(&mut self, width: usize, height: usize) -> Res<()> {
-        if !self.pool.is_null() && self.pool_size == (width, height) {
-            return Ok(());
-        }
-        let mut pool: CVPixelBufferPoolRef = null_mut();
-        // SAFETY: CF statics and numbers in dictionaries released after use (the pool
-        // copies its attributes); the new pool lands in our local.
-        let status = unsafe {
-            let format = number_i32(PIXEL_420V as i32);
-            let w = number_i32(i32::try_from(width).unwrap_or(i32::MAX));
-            let h = number_i32(i32::try_from(height).unwrap_or(i32::MAX));
-            let empty = dict(&[]);
-            let attrs = dict(&[
-                (cv_pool_sys::kCVPixelBufferPixelFormatTypeKey(), format),
-                (cv_pool_sys::kCVPixelBufferWidthKey(), w),
-                (cv_pool_sys::kCVPixelBufferHeightKey(), h),
-                (kCVPixelBufferIOSurfacePropertiesKey(), empty),
-            ]);
-            let s = cv_pool_sys::CVPixelBufferPoolCreate(null(), null(), attrs, &mut pool);
-            CFRelease(attrs);
-            CFRelease(empty);
-            CFRelease(h);
-            CFRelease(w);
-            CFRelease(format);
-            s
-        };
-        if status != 0 || pool.is_null() {
-            return Err(format!("CVPixelBufferPoolCreate {width}x{height} failed: {status}").into());
-        }
-        if !self.pool.is_null() {
-            // SAFETY: releasing our previous pool once; buffers still out keep their own
-            // reference to it.
-            unsafe { CFRelease(self.pool as CFTypeRef) };
-        }
-        self.pool = pool;
-        self.pool_size = (width, height);
-        Ok(())
-    }
-
-    /// `source` scaled into a new pooled buffer, which the caller releases.
-    fn scale(
-        &mut self,
-        source: CVPixelBufferRef,
-        width: usize,
-        height: usize,
-    ) -> Res<CVPixelBufferRef> {
-        self.ensure_pool(width, height)?;
-        let mut target: CVPixelBufferRef = null_mut();
-        // SAFETY: a buffer from our live pool into our local.
-        let status = unsafe {
-            cv_pool_sys::CVPixelBufferPoolCreatePixelBuffer(null(), self.pool, &mut target)
-        };
-        if status != 0 || target.is_null() {
-            return Err(format!("CVPixelBufferPoolCreatePixelBuffer failed: {status}").into());
-        }
-        // SAFETY: both buffers are live; the transfer has completed when it returns.
-        let status = unsafe {
-            vt_transfer_sys::VTPixelTransferSessionTransferImage(self.transfer, source, target)
-        };
-        if status != 0 {
-            // SAFETY: releasing the buffer we took from the pool, unused.
-            unsafe { CFRelease(target as CFTypeRef) };
-            return Err(format!("VTPixelTransferSessionTransferImage failed: {status}").into());
-        }
-        Ok(target)
-    }
-}
-
-impl Drop for Scaler {
-    fn drop(&mut self) {
-        // SAFETY: invalidating and releasing our own transfer session and pool once.
-        unsafe {
-            vt_transfer_sys::VTPixelTransferSessionInvalidate(self.transfer);
-            CFRelease(self.transfer as CFTypeRef);
-            if !self.pool.is_null() {
-                CFRelease(self.pool as CFTypeRef);
+        fn frame(
+            &self,
+            format: SurfaceFormat,
+            width: u32,
+            height: u32,
+            color: ColorTag,
+        ) -> SurfaceFrame {
+            // SAFETY: the buffer (and so its surface) outlives every encode in the tests.
+            unsafe {
+                SurfaceFrame::new(CVPixelBufferGetIOSurface(self.0), format, width, height, color)
             }
         }
     }
-}
 
-#[cfg(test)]
-#[path = "surface_tests.rs"]
-mod tests;
+    impl Drop for TestSurface {
+        fn drop(&mut self) {
+            // SAFETY: releasing the buffer we created.
+            unsafe { CFRelease(self.0 as CFTypeRef) };
+        }
+    }
+
+    #[test]
+    fn a_frame_that_does_not_match_its_surface_is_refused() {
+        let mut enc = VideoToolbox::new(256, 128, 30, 2_000, false).expect("hardware encoder");
+        let surface = TestSurface::new(256, 128, PIXEL_BGRA);
+        let mut out = Vec::new();
+        let wrong_format = surface.frame(SurfaceFormat::Nv12, 256, 128, ColorTag::Srgb);
+        assert!(
+            enc.encode_surface(&wrong_format, SurfaceRect::default(), true, 0, &mut out).is_err()
+        );
+        let wrong_size = surface.frame(SurfaceFormat::Bgra, 300, 128, ColorTag::Srgb);
+        assert!(
+            enc.encode_surface(&wrong_size, SurfaceRect::default(), true, 0, &mut out).is_err()
+        );
+        // SAFETY: a NULL surface is refused before any use.
+        let null_surface =
+            unsafe { SurfaceFrame::new(null_mut(), SurfaceFormat::Bgra, 256, 128, ColorTag::Srgb) };
+        assert!(
+            enc.encode_surface(&null_surface, SurfaceRect::default(), true, 0, &mut out).is_err()
+        );
+    }
+}

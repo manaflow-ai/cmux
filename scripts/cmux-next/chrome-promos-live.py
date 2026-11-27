@@ -20,10 +20,7 @@ Usage (from an nx-remote --app-from-fleet job):
   chrome-promos-live.py TAG APP_PATH --expect bubble|none
 Exit 0 when what the app shows matches --expect.
 """
-import argparse, hashlib, json, os, plistlib, socket, subprocess, sys, tempfile, time
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from state_wait import wait_stable  # noqa: E402
+import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("tag")
@@ -106,21 +103,6 @@ def snapshot(name):
     print("snapshot", name, rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(out, name)}), flush=True)
 
 
-def loaded(tab):
-    """The tab's document finished loading (browser.page.eval in that tab)."""
-    return rpc("browser.page.eval", {"tab": tab, "script": "document.readyState === 'complete'"}).get("value") is True
-
-
-def main_hash():
-    """A hash of the main window's picture (debug.window_snapshot to a scratch file)."""
-    path = os.path.join(scratch, "settle.png")
-    reply = rpc("debug.window_snapshot", {"kind": "main", "path": path})
-    if reply.get("error"):
-        raise RuntimeError(reply["error"])
-    with open(path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
-
-
 def app_windows(pid):
     """On-screen windows of the app from WindowServer (all layers)."""
     if not CAPTURE:
@@ -175,12 +157,7 @@ try:
     check(bool(wait(lambda: page_status(a), 45)), "tab A (https://example.com) answers")
     b = open_tab("https://example.org/")
     check(bool(wait(lambda: page_status(b), 45)), "tab B (https://example.org) answers")
-    # Both pages paint before the first capture: each document loaded, then the window's picture holds still.
-    for tab, name in ((a, "A"), (b, "B")):
-        if not wait(lambda: loaded(tab), 30):
-            print(f"tab {name} never reported document.readyState complete", flush=True)
-    wait_stable(main_hash, "the main window with both pages", timeout=10, interval=0.1, reads=2,
-                raise_on_timeout=False)
+    time.sleep(3)  # test script: let both pages paint before the first capture
     print("tab B page status:", json.dumps(page_status(b))[:600], flush=True)
     before = app_windows(app.pid)
     snapshot("0-two-tabs.png")
@@ -194,16 +171,7 @@ try:
     print("selected tab after each switch:", selected, flush=True)
     alternated = len(set(selected)) == 2 and all(x != y for x, y in zip(selected, selected[1:]))
     check(alternated, "the tab switches alternate between the two Chromium tabs")
-    if args.expect == "bubble" and before is not None:
-        # The promo queue shows a bubble within about a second: a window that was not there before the switches,
-        # taller than Chromium's status bubble (at most 30 pt, judged below).
-        known = {w.get("window_id") for w in before}
-        if not wait(lambda: [w for w in app_windows(app.pid) or [] if w.get("window_id") not in known
-                             and (w.get("bounds") or {}).get("height", 0) > 30], 15):
-            print("no new app window within 15 s of the switches", flush=True)
-    else:
-        # sleep-ok: --expect none: the window in which a bubble would show (about a second), watched for 3 s
-        time.sleep(3)
+    time.sleep(3)  # test script: the promo queue shows a bubble within about a second
     after = app_windows(app.pid)
     shot(app.pid, "1-after-tab-switches-capture.png")
     snapshot("1-after-tab-switches.png")

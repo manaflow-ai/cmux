@@ -14,18 +14,6 @@ import Testing
         [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: workspaces.map(SidebarNode.workspace))]
     }
 
-    /// Lineage nesting alone (on by default, #28103) sets the tree but draws no tray: a blocked session lists only
-    /// while `sidebar.sessionTree` is on.
-    @Test func nestingAloneDrawsNoTray() {
-        var blocked = SidebarWorkspace(id: WorkspaceID("child"), title: "child")
-        blocked.unread = .dot
-        let parent = SidebarWorkspace(id: WorkspaceID("parent"), title: "parent")
-        let state = SidebarSessionTreeState(parents: [blocked.id: parent.id], states: [blocked.id: .blocked])
-        let sections = Self.section([parent, blocked])
-        #expect(SidebarNeedsYou.make(sections, tree: SidebarNeedsYou.trayTree(state, sessionTree: false)).isEmpty)
-        #expect(SidebarNeedsYou.make(sections, tree: SidebarNeedsYou.trayTree(state, sessionTree: true)).items.map(\.id) == [blocked.id])
-    }
-
     /// Fifty sessions, four levels deep, every state there is: the tray lists exactly the blocked
     /// and failed ones, in the tree's drawn order, and counts the finished unread ones.
     @Test func theTrayListsOnlyWhatIsBlockedOnYou() {
@@ -164,7 +152,7 @@ import Testing
 
     @Test func revealingAnItemOpensEveryFoldAboveIt() {
         let defaults = UserDefaults(testSuiteName: "SidebarNeedsYouTests.\(UUID().uuidString)") ?? .standard
-        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
+        let tree = SidebarSessionTree(defaults: defaults)
         let root = WorkspaceID("root"), mid = WorkspaceID("mid"), leaf = WorkspaceID("leaf")
         let other = WorkspaceID("other"), otherChild = WorkspaceID("other-child")
         // `other` is a parent too: the tree keeps only folds of live parents.
@@ -172,7 +160,7 @@ import Testing
         tree.toggle(root)
         tree.toggle(mid)
         tree.toggle(other)
-        tree.reveal(leaf, lists: [{ _ in true }])
+        tree.reveal(leaf)
         #expect(tree.collapsed == [other])
     }
 }

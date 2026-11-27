@@ -77,39 +77,6 @@ import Testing
         #expect(decide(Self.email(), Self.signal(page)) == .failure(.differentSite))
     }
 
-    /// The reviewed sender map: a brand whose codes come from its own other domain still matches,
-    /// and the code shows the sender's site.
-    @Test(arguments: [
-        ("account-security-noreply@accountprotection.microsoft.com", "https://login.live.com/ppsecure/post.srf", "microsoft.com"),
-        ("account-security-noreply@accountprotection.microsoft.com", "https://login.microsoftonline.com/common/login", "microsoft.com"),
-        ("noreply@tm.openai.com", "https://chatgpt.com/auth/login", "openai.com"),
-        ("security@facebookmail.com", "https://www.facebook.com/login/", "facebookmail.com"),
-        ("no-reply@accounts.google.com", "https://www.youtube.com/signin", "google.com"),
-        ("noreply@steampowered.com", "https://steamcommunity.com/login/home/", "steampowered.com"),
-    ])
-    func aKnownSenderOfTheSameBrandIsOffered(sender: String, page: String, senderSite: String) throws {
-        let offer = try decide(Self.email(from: sender), Self.signal(page)).get()
-        #expect(offer.code == "482913")
-        #expect(offer.senderSite == senderSite)
-    }
-
-    /// The map is exact registrable domains only: a lookalike of a mapped domain is another site.
-    @Test(arguments: [
-        ("noreply@microsoft.com.evil.io", "https://login.live.com/login"),
-        ("noreply@openai-login.com", "https://chatgpt.com/auth/login"),
-        ("noreply@microsoft.com", "https://login.live.com.evil.io/login"),
-        ("noreply@github.com", "https://chatgpt.com/auth/login"),
-    ])
-    func theSenderMapAdmitsNoLookalike(sender: String, page: String) {
-        #expect(decide(Self.email(from: sender), Self.signal(page)) == .failure(.differentSite))
-    }
-
-    /// A link from a mapped sender is not offered: a link needs the page's own site.
-    @Test func aMappedSenderGetsNoLinkOffer() {
-        let email = Self.email(from: "noreply@tm.openai.com", body: "Confirm your email.", links: ["https://openai.com/verify?t=1"])
-        #expect(decide(email, Self.signal("https://chatgpt.com/auth/login")) == .failure(.nothingToOffer))
-    }
-
     @Test func nothingFromASenderWithoutASite() {
         #expect(decide(Self.email(from: "root@localhost"), Self.signal("https://github.com/login")) == .failure(.senderHasNoSite))
         #expect(decide(Self.email(from: "not an address"), Self.signal("https://github.com/login")) == .failure(.senderHasNoSite))

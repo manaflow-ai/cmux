@@ -32,18 +32,10 @@ export const handleProviderHook = async (request: Request, env: Env, provider: P
   const d = v.delivery
   const links = await env.ACCOUNT_INDEX_DO.get(env.ACCOUNT_INDEX_DO.idFromName(d.account)).list()
   let runs = 0
-  let failed = 0
   for (const { team, connection } of links) {
-    try {
-      const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team))
-      const r = (await stub.ingest(team, connection, { provider, account: d.account, delivery_id: d.delivery_id, event: d.event, payload: d.payload }, d.digest)) as { runs: number }
-      runs += r.runs
-    } catch (error) {
-      failed++
-      console.error("provider hook ingest failed", { provider, delivery: d.delivery_id, team, connection, error: error instanceof Error ? error.message : String(error) })
-    }
+    const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team))
+    const r = (await stub.ingest(team, connection, { provider, account: d.account, delivery_id: d.delivery_id, event: d.event, payload: d.payload })) as { runs: number }
+    runs += r.runs
   }
-  // A non-2xx makes the provider redeliver; ingest is idempotent by delivery id (GitHub: its GUID), so teams that already took it are unaffected.
-  if (failed > 0) return json(502, { ok: false, code: "ingest.partial_failure", delivery: d.delivery_id, connections: links.length, failed, runs })
   return json(200, { ok: true, delivery: d.delivery_id, connections: links.length, runs })
 }

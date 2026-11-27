@@ -15,12 +15,6 @@
 //! `cmux repo wait DIR SECONDS` waits until the barrier on DIR is open: 0 once it is (or DIR has
 //! none), 1 when its sync failed, 124 after SECONDS. The machine-config applier waits on it for a
 //! checkout still filling, before its setup runs in it.
-//!
-//! `cmux repo mcp-lazy DIR -- CMD…` runs a project MCP server once that barrier is open, and
-//! answers for it until then (`repo_mcp_lazy.rs`).
-//!
-//! `cmux repo from-archive --url URL --at DIR` takes a new checkout from the repo archive store
-//! (`repo_archive.rs`, hq RFD 0065 piece 2), else a shallow blobless sparse clone.
 
 use std::io::{BufRead as _, BufReader};
 use std::path::{Path, PathBuf};
@@ -28,10 +22,7 @@ use std::path::{Path, PathBuf};
 use cmux_git::sync_barrier::Sync;
 use cmux_process::{Command, Stdio};
 
-const USAGE: &str = "usage: cmux repo hold DIR -- CMD [ARG...] | cmux repo wait DIR SECONDS \
-                     | cmux repo mcp-lazy DIR -- CMD [ARG...] \
-                     | cmux repo from-archive --url URL --at DIR [--branch B] [--archive-only] \
-                     | cmux repo read|ls|run|commit|tier (no checkout: `cmux repo tier --help`)";
+const USAGE: &str = "usage: cmux repo hold DIR -- CMD [ARG...] | cmux repo wait DIR SECONDS";
 /// The child's one stdout line once it holds the barrier.
 const HELD: &str = "held";
 
@@ -46,19 +37,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
             Ok(seconds) => wait(Path::new(dir), std::time::Duration::from_secs(seconds)),
             Err(_) => usage(),
         },
-        Some((verb, rest)) if verb == "mcp-lazy" => match parse(rest) {
-            Some(_) if rest.first().is_some_and(|a| a == "--help") => help(),
-            Some((dir, cmd)) => super::repo_mcp_lazy::run(&dir, cmd),
-            None => usage(),
-        },
-        Some((verb, rest)) if verb == "from-archive" => super::repo_archive::run(rest),
         Some((verb, rest)) if verb == "hold-run" => match parse(rest) {
             Some((dir, cmd)) => hold_run(&dir, cmd, || println!("{HELD}")),
             None => usage(),
         },
-        Some((verb, rest)) if super::repo_remote::handles(verb) => {
-            super::repo_remote::run(verb, rest)
-        }
         Some((verb, _)) if verb == "--help" || verb == "help" => help(),
         _ => usage(),
     }

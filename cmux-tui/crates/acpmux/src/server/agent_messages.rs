@@ -112,8 +112,6 @@ async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value
         trust_gate: super::trust_gate::gated(conn.origin, params),
         full_access_device: super::remote_guard::sending_device(conn, params),
         from: None,
-        // As for a prompt (`counts_as_person_prompt`): no agent's connection, no trigger's.
-        person: !conn.agent_side() && !conn.is_trigger(),
     };
     hub.retry(&s, str_param(params, "subagentId"), by).await
 }
@@ -133,15 +131,8 @@ pub(super) async fn person_prompt(
 ) {
     // An old acpmux CLI or a shell that declared no terminal is no person's presence either.
     let in_session = conn.agent_side();
-    // A Chief's own session (its turn or compactor, `route_switch::is_chief`): the prompt is the Chief
-    // host relaying a message it took from its queue, not a person at this machine. On a Chief's Cloud
-    // machine it must not open the platform's 10-minute post-chat window: the machine pauses on its
-    // short idle window after the Chief acts (cmuxterm-hq RFD 0037, wake on message).
-    let chief = crate::hub::is_chief(&s.meta());
-    if !chief && counts_as_person_prompt(agent_message, conn.is_trigger(), in_session) {
+    if counts_as_person_prompt(agent_message, conn.is_trigger(), in_session) {
         hub.person_prompted(crate::store::now_ms());
-        // Only the person's own message brings a settled chat back (`hub/auto_settle.rs`).
-        hub.unsettle_on_person_prompt(s);
     }
     if !agent_message && local_person(conn) {
         // After its log and its peers' load, which restore the pairs this resumes.
@@ -163,5 +154,14 @@ pub(super) fn counts_as_person_prompt(
 }
 
 #[cfg(test)]
-#[path = "agent_messages_person_prompt_tests.rs"]
-mod person_prompt_tests;
+mod person_prompt_tests {
+    use super::counts_as_person_prompt;
+
+    #[test]
+    fn only_a_persons_prompt_counts() {
+        assert!(counts_as_person_prompt(false, false, false), "the person's own prompt");
+        assert!(!counts_as_person_prompt(true, false, false), "another agent's message");
+        assert!(!counts_as_person_prompt(false, true, false), "a trigger's delivery");
+        assert!(!counts_as_person_prompt(false, false, true), "a send from inside a session");
+    }
+}

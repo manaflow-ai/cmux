@@ -8,7 +8,7 @@ import Testing
 
 /// Before/after shots for the group row alignment fix (Lawrence 2026-10-30, "alignment here is bad"; "triangle not
 /// aligned"): the real sidebar list drawn offscreen, light and dark, with an open group like the NIGHTLY "Sleep alarm"
-/// one and rows whose spinners stack. Written as PNGs under `row-alignment-gallery/` in
+/// one and rows whose spinners stack over a usage-warning triangle. Written as PNGs under `row-alignment-gallery/` in
 /// the package and bundled to `row-alignment-gallery.tar` for `cmux-ci run --artifact`. Runs only with
 /// `CMUX_TEST_REQUIRE_GUI=1`.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarRowAlignmentGalleryTests {
@@ -17,15 +17,16 @@ import Testing
         func working(_ id: String) -> SidebarWorkspace {
             SidebarWorkspace(id: WorkspaceID(id), title: id, lastActivity: Date(), agentWorking: true, kind: .harness, activity: .working)
         }
-        let calm = SidebarWorkspace(id: WorkspaceID("Acpmux session timeout"), title: "Acpmux session timeout",
-                                    lastActivity: Date(), kind: .harness)
+        var warned = SidebarWorkspace(id: WorkspaceID("Acpmux session timeout"), title: "Acpmux session timeout",
+                                      lastActivity: Date(), kind: .harness)
+        warned.usageWarnings = ["90 subagents started in the last hour, above 40"]
         let alarm = SidebarGroup(id: GroupID("g-alarm"), name: "Sleep alarm", color: .purple,
                                  workspaces: [SidebarWorkspace(id: WorkspaceID("New Workspace"), title: "New Workspace")])
         let fleet = SidebarGroup(id: GroupID("g-settings"), name: "Settings", color: .blue,
                                  workspaces: ["Settings sections refactor", "Theme highlight"].map { SidebarWorkspace(id: WorkspaceID($0), title: $0) })
         return [SidebarSection(kind: .machine(machine), nodes: [
             .workspace(working("Sidebar group row alignment")), .workspace(working("NIGHTLY crash log")),
-            .workspace(working("Latest Chromium CEF")), .workspace(calm),
+            .workspace(working("Latest Chromium CEF")), .workspace(warned),
             .group(alarm), .group(fleet),
         ])]
     }

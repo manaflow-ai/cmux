@@ -20,7 +20,7 @@
           },
           "help": {
             "key": "settings.agents.subsessions.enabled.help",
-            "text": "Agents can start sessions that work in parallel, shown under theirs."
+            "text": "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar."
           },
           "kind": "toggle",
           "default": true,
@@ -66,7 +66,7 @@
           },
           "help": {
             "key": "settings.agents.subsessions.maxChildren.help",
-            "text": "Finished and closed sub-sessions don't count."
+            "text": "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot."
           },
           "kind": "number",
           "range": {
@@ -95,7 +95,7 @@
           },
           "help": {
             "key": "settings.agents.subsessions.maxRunning.help",
-            "text": "More wait their turn. Lowering it never stops running ones."
+            "text": "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it."
           },
           "kind": "number",
           "range": {
@@ -125,7 +125,7 @@
           },
           "help": {
             "key": "settings.agents.subsessions.maxDepth.help",
-            "text": "1 means sub-sessions cannot start their own."
+            "text": "How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own."
           },
           "kind": "number",
           "range": {

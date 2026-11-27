@@ -115,12 +115,6 @@ final class SpaceSwitchBench {
     func close() {
         controller.teardown()
         controller.window?.close()
-        // The services' group editor keeps its panel warm once a press made it (GroupEditorService); the bench's
-        // services end here, so their panel closes with the window instead of staying open for later suites.
-        if let panel = services.groupEditor.panel {
-            panel.isReleasedWhenClosed = false
-            panel.close()
-        }
     }
 
     var list: SidebarListView { controller.sidebar.container.sidebarView.list }

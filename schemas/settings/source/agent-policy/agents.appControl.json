@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "Whether agents may change the app or only read it: the person's switch over every agent, so an agent must not widen (or even change) it."
-}

@@ -47,7 +47,7 @@ struct HomeLoneChiefRailTests {
         return HomeSidebarModel(rows: rows, pins: HomePins(), me: PerChiefAvatarTests.me.id)
     }
 
-    /// A Home page `width` wide whose list holds `chiefs` Chiefs (400 pt leaves the list the 100 pt strip:
+    /// A Home page `width` wide whose list holds `chiefs` Chiefs (400 pt leaves the list 119 pt:
     /// avatars only, `HomeSidebarWidth.clamp`).
     static func page(chiefs: Int, width: CGFloat, tunables: TunableStore? = nil) throws -> Page {
         _ = NSApplication.shared
@@ -56,7 +56,6 @@ struct HomeLoneChiefRailTests {
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         home.update(model(chiefs: chiefs))
         let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
-        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         split.windowKey = { "w" }
         if let tunables { split.tunables = tunables }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 600), styleMask: [.borderless],
@@ -79,8 +78,8 @@ struct HomeLoneChiefRailTests {
         let p = try Self.page(chiefs: 3, width: 400)
         defer { p.close() }
         #expect(!p.home.isHidden)
-        #expect(abs(p.split.sidebarWidth - HomeSidebarWidth.minimum) < 1, "the avatar list is \(p.split.sidebarWidth) pt")
-        #expect(abs(p.split.transcriptWidth - (400 - HomeSidebarWidth.minimum - p.split.dividerThickness)) < 1)
+        #expect(abs(p.split.sidebarWidth - 119) < 1, "the avatar list is \(p.split.sidebarWidth) pt")
+        #expect(abs(p.split.transcriptWidth - (400 - 119 - p.split.dividerThickness)) < 1)
     }
 
     @Test func aLoneChiefInAWideColumnKeepsTheListWithNames() throws {
@@ -106,7 +105,7 @@ struct HomeLoneChiefRailTests {
         #expect(p.listFolded)
         p.show(chiefs: 2)
         #expect(!p.listFolded && !p.home.isHidden, "a second conversation leaves the list folded")
-        #expect(abs(p.split.sidebarWidth - HomeSidebarWidth.minimum) < 1, "the avatar list came back \(p.split.sidebarWidth) pt wide")
+        #expect(abs(p.split.sidebarWidth - 119) < 1, "the avatar list came back \(p.split.sidebarWidth) pt wide")
         p.show(chiefs: 1)
         #expect(p.listFolded, "the list stays after the second conversation went")
         p.resize(width: 1000)
@@ -124,7 +123,7 @@ struct HomeLoneChiefRailTests {
         let p = try Self.page(chiefs: 1, width: 400, tunables: store)
         defer { p.close() }
         #expect(!p.home.isHidden, "the toggle is on and the list folded")
-        #expect(abs(p.split.sidebarWidth - HomeSidebarWidth.minimum) < 1, "the avatar list is \(p.split.sidebarWidth) pt")
+        #expect(abs(p.split.sidebarWidth - 119) < 1, "the avatar list is \(p.split.sidebarWidth) pt")
         // Turned off in Debug Settings: the open page folds the list without a resize.
         store.set(HomeTunables.loneConversationRail.key, .bool(false))
         for _ in 0..<100 where !p.listFolded {

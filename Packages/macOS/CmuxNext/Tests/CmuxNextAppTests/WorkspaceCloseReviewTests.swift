@@ -2,11 +2,8 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextAppCore
-import CmuxNextBridge
 @testable import CmuxNextDaemon
-import CmuxNextDesign
 import CmuxNextLayout
-@testable import CmuxNextSettings
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -38,23 +35,12 @@ struct WorkspaceCloseReviewTests {
         for _ in 0..<200 where !done() { try await Task.sleep(for: .milliseconds(10)) }
     }
 
-    /// The app with one window that lists a, b, c, d and shows b, with `workspaces.newPlacement` After Current.
-    /// These are the review's cases of a person's New Workspace put after the current row: a task relation, which
-    /// lasts until the person selects an unrelated workspace. The default is top since ccd4ae18ff19 (Lawrence
-    /// 2026-11-12: "by default all new workspaces should go to the top"), and a create at the top is the quick
-    /// look-up, whose relation ends on any selection change; so the setting is named here, not read from the default.
+    /// The app with one window that lists a, b, c, d and shows b.
     private static func launch() async throws -> (services: AppServices, controller: WindowController) {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
-        let config = FileManager.default.temporaryDirectory.appendingPathComponent("workspace-close-review-\(UUID().uuidString).json")
-        try Data(#"{"workspaces":{"newPlacement":"afterCurrent"}}"#.utf8).write(to: config)
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: config,
-                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
-        await settings.reload()
-        services.settings = settings
-        try #require(services.settings?.snapshot.newWorkspacePlacement == .afterCurrent)
         let store = services.machines.local.store
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
         store.noteHandshake(identity)

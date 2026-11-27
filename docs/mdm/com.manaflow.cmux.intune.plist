@@ -1,10 +1,8 @@
 <key>DisabledFeatures</key>
 <array/>
-<key>app.language</key>
-<string>system</string>
 <key>history.terminalCommands</key>
 <false/>
-<key>labs.appStore</key>
-<false/>
+<key>navigation.history.scope</key>
+<string>workspaces</string>
 <key>navigation.historyScope</key>
 <string>workspace</string>

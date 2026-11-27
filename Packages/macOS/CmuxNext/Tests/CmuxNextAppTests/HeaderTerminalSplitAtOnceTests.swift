@@ -56,7 +56,7 @@ import Testing
         }
 
         func close() { window.closeAfterTest() }
-        var target: String { String(describing: services.linkOpener.target(from: chat, besideChat: true, kind: .terminal, opening: .tool)) }
+        var target: String { String(describing: services.linkOpener.target(from: chat, besideChat: true, kind: .terminal)) }
     }
 
     @Test(.enabled("needs a display for pane geometry") { await Self.hasDisplay() })
@@ -73,7 +73,7 @@ import Testing
     func withAPaneOnTheChatsRightTheRightColumnRuleStays() throws {
         let shown = try Shown(right: true, capabilities: [.splitClientKeys, .dockColumnRole])
         defer { shown.close() }
-        #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true, kind: .terminal, opening: .tool) != .splitRight(of: shown.chat.layoutPaneID))
+        #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true, kind: .terminal) != .splitRight(of: shown.chat.layoutPaneID))
         #expect(!shown.services.linkOpener.terminalSplitsAtOnce(from: shown.chat), "the rule's target: \(shown.target)")
     }
 

@@ -23,7 +23,7 @@ fn summary(token: &str) -> Value {
         "preview": format!("used {token}"),
         "lastMessage": {"role": "agent", "text": format!("used {token}")},
         "turn": {"prompt": format!("push with {token}"), "startedAt": 5, "client": "c", "turnId": "t", "promptId": "p", "turnSeq": 1,
-                 "activity": format!("curl -H {token}")},
+                 "activity": format!("curl -H {token}"), "planStep": format!("log in with {token}")},
         "waitingOn": "question",
         "waitingPrompt": format!("Use {token}?"),
         "queue": [{"prompt": format!("then {token}"), "promptId": "q", "turnId": "t2", "client": "c", "queuedAt": 6, "held": false}],
@@ -46,6 +46,7 @@ fn assert_masked(s: &Value) {
     assert_eq!(s["lastMessage"]["role"], "agent");
     assert_eq!(s["turn"]["prompt"], format!("push with {MASK}"));
     assert_eq!(s["turn"]["activity"], format!("curl -H {MASK}"));
+    assert_eq!(s["turn"]["planStep"], format!("log in with {MASK}"));
     assert_eq!(s["waitingPrompt"], format!("Use {MASK}?"));
     assert_eq!(s["queue"][0]["prompt"], format!("then {MASK}"));
     assert_eq!(s["lastTurn"]["errorText"], format!("bad credentials {MASK}"));

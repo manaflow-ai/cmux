@@ -10,15 +10,9 @@
 //! bytes through ghostty-vt and compares each scripted screen, cell by cell, with what
 //! [`claude::render`] draws from the acpmux records of the same moment. The measured gap (see
 //! that test) is why nothing on the phone uses this yet: a lookalike that differs is worse than
-//! the stream. [`hybrid`] adds what the records lack: the Mac sends only the cells that differ
-//! from the drawn screen, and `tests/parity.rs` measures its parity and bytes against the PTY.
+//! the stream.
 
-pub mod adapter;
 pub mod claude;
-pub mod hybrid;
-pub mod lean;
-pub mod stream;
-pub mod vt;
 
 /// A cell color as the CLI authored it, before a theme resolves it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -38,19 +32,6 @@ pub const ITALIC: u16 = 0x0002;
 pub const STRIKETHROUGH: u16 = 0x0004;
 pub const INVERSE: u16 = 0x0008;
 pub const FAINT: u16 = 0x0010;
-pub const INVISIBLE: u16 = 0x0020;
-pub const BLINK: u16 = 0x0040;
-/// Not a protocol-v7 bit (render mode sends underline as its own field): the hybrid stream's
-/// own bit for an underlined cell, from the reserved range.
-pub const UNDERLINE: u16 = 0x0100;
-/// With [`UNDERLINE`]: which underline, also from the reserved range (0 is a single line, so a
-/// viewer that reads only [`UNDERLINE`] draws what it drew before): [`UNDERLINE_DOUBLE`],
-/// [`UNDERLINE_CURLY`], [`UNDERLINE_DOTTED`] or [`UNDERLINE_DASHED`] (SGR `4:2` to `4:5`).
-pub const UNDERLINE_STYLE: u16 = 0x0e00;
-pub const UNDERLINE_DOUBLE: u16 = 0x0200;
-pub const UNDERLINE_CURLY: u16 = 0x0400;
-pub const UNDERLINE_DOTTED: u16 = 0x0600;
-pub const UNDERLINE_DASHED: u16 = 0x0800;
 
 /// One cell's style.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -384,5 +365,34 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
 }
 
 #[cfg(test)]
-#[path = "tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrap_keeps_the_space_before_the_break_on_the_line() {
+        assert_eq!(wrap("aa bb cc", 6), vec!["aa bb ".to_owned(), "cc".to_owned()]);
+        assert_eq!(wrap("abcdefgh", 3), vec!["abc".to_owned(), "def".to_owned(), "gh".to_owned()]);
+        assert_eq!(wrap("a\n\nb", 5), vec!["a".to_owned(), String::new(), "b".to_owned()]);
+    }
+
+    #[test]
+    fn a_blank_cell_looks_the_same_whatever_its_foreground() {
+        let a = Cell { text: " ".into(), style: Style::fg(246) };
+        let b = Cell { text: "\u{a0}".into(), style: Style::PLAIN };
+        assert!(a.looks_same(&b));
+        let c = Cell { text: "x".into(), style: Style::fg(246) };
+        let d = Cell { text: "x".into(), style: Style::PLAIN };
+        assert!(!c.looks_same(&d));
+    }
+
+    #[test]
+    fn runs_merge_cells_of_one_style() {
+        let mut line = Line::new();
+        line.push("ab", Style::fg(1)).push("c", Style::PLAIN);
+        let grid = Grid { cols: 4, rows: 1, cells: vec![line.into_row(4)] };
+        let runs = grid.runs(&xterm_palette());
+        let texts: Vec<&str> = runs.iter().flatten().map(|r| r.text.as_str()).collect();
+        assert_eq!(texts, vec!["ab", "c "]);
+        assert_eq!(runs.first().and_then(|r| r.first()).and_then(|r| r.fg), Some((205, 0, 0)));
+    }
+}

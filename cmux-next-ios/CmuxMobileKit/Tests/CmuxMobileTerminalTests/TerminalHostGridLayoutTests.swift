@@ -27,45 +27,6 @@ import Testing
         #expect(own.note(owner: "Mac") == nil)
     }
 
-    /// Wide (Leo, 2026-11-23: "an extra wide table... just doesnt even work
-    /// right now"): the phone's own grid is wider than the page, so the
-    /// mirror takes it and pans; the phone claims it as its own.
-    @Test func wideMakesThePhonesOwnGridWiderAndPans() {
-        let wide = TerminalHostGridLayout(viewportWidth: 390, cell: cell, scale: 3, hostColumns: nil, hostRows: nil,
-                                          visibleRows: 40, wideColumns: TerminalHostGridLayout.defaultWideColumns)
-        #expect(wide.phoneColumns == 50)
-        #expect(wide.ownColumns == 200)
-        #expect(wide.isWide)
-        #expect(wide.columns == 200)
-        #expect(wide.followsHost)
-        #expect(abs(wide.surfaceWidth - 200.5 * 7.8) < 0.001)
-        #expect(abs(wide.maxPanX - (200 * 7.8 - 390)) < 0.001)
-        // The pan shows column 199 (the last) at the right edge.
-        #expect(abs(wide.pan(toShowColumn: 199, from: 0) - wide.maxPanX) < 0.001)
-        // The Mac answers the phone's claim: no note, the same mirror.
-        let answered = TerminalHostGridLayout(viewportWidth: 390, cell: cell, scale: 3, hostColumns: 200, hostRows: 40,
-                                              visibleRows: 40, wideColumns: 200)
-        #expect(answered.columns == 200)
-        #expect(!answered.differsFromPhone)
-        #expect(answered.note(owner: "Mac") == nil)
-    }
-
-    @Test func wideNeverNarrowsAPageAndStopsAtTheWidestSurface() {
-        // A page that already fits more than Wide's columns keeps its own.
-        let roomy = TerminalHostGridLayout(viewportWidth: 2000, cell: cell, scale: 2, hostColumns: nil, hostRows: nil,
-                                           visibleRows: 40, wideColumns: 200)
-        #expect(roomy.ownColumns == roomy.phoneColumns)
-        #expect(!roomy.isWide)
-        // Tiny cells: no wider than 8192 px.
-        let tiny = TerminalHostGridLayout(viewportWidth: 390, cell: CGSize(width: 4, height: 8), scale: 3, hostColumns: nil,
-                                          hostRows: nil, visibleRows: 40, wideColumns: 5000)
-        #expect(tiny.ownColumns == Int(floor(8192 / 12.0)))
-        // Off: the page's own width, nothing to pan.
-        let off = layout(host: nil)
-        #expect(off.ownColumns == off.phoneColumns)
-        #expect(off.maxPanX == 0)
-    }
-
     @Test func theMacsOwnGridAtThePhonesWidthChangesNothing() {
         let same = layout(host: (50, 40))
         #expect(!same.followsHost)
@@ -122,8 +83,7 @@ import Testing
         #expect(box.top == twentyRows)
         #expect(box.height == twentyRows)
         #expect(short.note(owner: "Aziz's Mac") == "50×20 · set by Aziz's Mac")
-        // No named owner: the size alone, never a device it cannot name.
-        #expect(short.note(owner: nil) == "50×20")
+        #expect(short.note(owner: nil) == "50×20 · set by another device")
     }
 
     /// A shorter grid on the primary screen pins to the top: the bottom
@@ -175,35 +135,5 @@ import Testing
         let fits = TerminalHostGridLayout(viewportWidth: 390, cell: CGSize(width: 7, height: 15), scale: 3,
                                           hostColumns: 120, hostRows: 20, visibleRows: 40)
         #expect(!fits.isCapped)
-    }
-
-    /// Leo, 2026-11-22: "zoming in and out eith the magnifying glass layout
-    /// shifts unnecessarily when resizing". A zoom in takes the page from 50
-    /// to 43 columns while the Mac still holds the phone's old 50 (its claim
-    /// is a settle and a round trip away): the primary screen's mirror is the
-    /// phone's new width at once, not 50 columns of the bigger cells panning
-    /// sideways until the Mac answers.
-    @Test func aZoomOnThePrimaryScreenNeverShowsThePhonesOldClaim() {
-        let zoomed = CGSize(width: 9, height: 18)
-        let columns = TerminalHostGridLayout.followedHostColumns(remoteColumns: 50, gridIsPhonesOwn: true, alternateScreen: false)
-        #expect(columns == nil)
-        let page = TerminalHostGridLayout(viewportWidth: 390, cell: zoomed, scale: 3,
-                                          hostColumns: columns, hostRows: nil, visibleRows: 40)
-        #expect(page.columns == 43)
-        #expect(page.surfaceWidth == 390)
-        #expect(page.maxPanX == 0)
-        #expect(!page.differsFromPhone)
-        // Before the fix: the old claim followed, wider than the page.
-        let followed = TerminalHostGridLayout(viewportWidth: 390, cell: zoomed, scale: 3,
-                                              hostColumns: 50, hostRows: 40, visibleRows: 40)
-        #expect(followed.maxPanX > 0)
-    }
-
-    /// Another device's grid, and any grid under a full-screen app, is
-    /// followed as before (the alternate screen does not rewrap).
-    @Test func anotherDevicesGridAndAFullScreenAppStillFollowTheMac() {
-        #expect(TerminalHostGridLayout.followedHostColumns(remoteColumns: 120, gridIsPhonesOwn: false, alternateScreen: false) == 120)
-        #expect(TerminalHostGridLayout.followedHostColumns(remoteColumns: 50, gridIsPhonesOwn: true, alternateScreen: true) == 50)
-        #expect(TerminalHostGridLayout.followedHostColumns(remoteColumns: nil, gridIsPhonesOwn: false, alternateScreen: false) == nil)
     }
 }

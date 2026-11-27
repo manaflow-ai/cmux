@@ -19,7 +19,7 @@
           },
           "help": {
             "key": "settings.picker.pinned.help",
-            "text": "Listed under Locations. Use full or ~/ paths."
+            "text": "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths."
           },
           "kind": "folder_list",
           "default": [],

@@ -75,10 +75,10 @@ import Testing
         let counts = ActionMainMenu.allCases.reduce(into: [ActionMainMenu: Int]()) { result, menu in
             result[menu] = Self.topMenu(menu, in: bar)?.items.filter { !$0.isSeparatorItem && !$0.isAlternate }.count ?? 0
         }
-        // Install an Earlier Nightly… (Leo 2026-11-02); Customize… beside Settings… (#43304, Leo 2026-11-15); one Quit
-        // (CMUX-630, Leo 2026-11-15); Set Up cmux… (#46793, Leo 2026-11-18).
+        // Install an Earlier Nightly… (Leo 2026-11-02); Quit and End Sessions and Quit and End
+        // Everything under Quit, which no longer asks (Leo 2026-11-05).
         #expect(counts[.app] == 11)
-        #expect(counts[.file] == 16) // Screen Sharing, beside Connect to Machine… and Add Device…
+        #expect(counts[.file] == 15)
         #expect(counts[.edit] == 7)
         #expect(counts[.view] == 10) // the right sidebar and Feed rows left with #41025
         #expect(counts[.server] == 2)
@@ -97,22 +97,6 @@ import Testing
             let row = try #require(window.items.first { $0.representedObject as? String == id }, "\(id) not in Window")
             #expect(row.keyEquivalent == key, "\(id): \(row.keyEquivalent)")
             #expect(row.keyEquivalentModifierMask.intersection([.control, .option, .shift, .command]) == [.control, .option, .command], "\(id)")
-        }
-    }
-
-    /// One Quit (CMUX-630, Leo 2026-11-15: "we should just have the one quit and it's the same quit when i right
-    /// click the icon in the dock"): the cmux menu ends with Quit cmux (Cmd-Q) and no other quit; the quits that end
-    /// the sessions stay command palette rows.
-    @Test func appMenuHasOneQuit() throws {
-        _ = NSApplication.shared
-        let registry = ActionRegistry.standard()
-        let app = try #require(MainMenu.make(registry: registry).items.first?.submenu)
-        let quits = app.items.filter { ($0.representedObject as? String)?.hasPrefix("quit") == true }
-        #expect(quits.map { $0.representedObject as? String } == ["quit"], "quit rows: \(app.items.map(\.title))")
-        #expect(app.items.last?.representedObject as? String == "quit")
-        #expect(quits.first?.keyEquivalent == "q")
-        for id: ActionID in ["quitEndSessions", "quitEndEverything"] {
-            #expect(MainMenu.removedMainMenuActionIDs.contains(id), "\(id) is not a palette-only row")
         }
     }
 

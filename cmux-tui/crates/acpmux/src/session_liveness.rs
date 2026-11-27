@@ -30,8 +30,6 @@ pub struct HarnessFailures {
 pub struct HarnessSandbox {
     pub first_at: Option<u64>,
     pub failing: bool,
-    pub error: Option<String>,
-    pub remote: bool,
 }
 
 impl HarnessSandbox {
@@ -49,90 +47,13 @@ impl HarnessSandbox {
             Self::FAILED => {
                 self.first_at = self.first_at.or(first).or(Some(at));
                 self.failing = true;
-                self.error = msg.get("error").and_then(Value::as_str).map(redact);
-                self.remote = msg.get("remote").and_then(Value::as_bool).unwrap_or(false);
             }
             Self::RECOVERED => {
                 self.first_at = self.first_at.or(first);
                 self.failing = false;
-                self.error = None;
-                self.remote = false;
             }
             _ => {}
         }
-    }
-}
-
-/// An agent's explicit blocked result, not an incidental mention of a blocker.
-/// Keep this separate from process/turn failure: the harness may have ended normally.
-pub fn blocked_reply(reply: &str) -> Option<&str> {
-    let mut lines = reply.lines().map(str::trim).filter(|line| !line.is_empty());
-    let line = lines.next()?.trim_matches(['#', '*', ' ']);
-    if matches!(line, "BLOCKED" | "Blocked") {
-        return Some(lines.next().unwrap_or(line));
-    }
-    let tail = line.strip_prefix("BLOCKED:").or_else(|| line.strip_prefix("Blocked:"))?;
-    Some(tail.trim_start_matches(['*', ' ']))
-}
-
-pub fn sandbox_failed(summary: &Value) -> bool {
-    summary["harnessSandboxFailing"] == true
-}
-
-pub fn blocked(summary: &Value) -> bool {
-    summary["preview"].as_str().and_then(blocked_reply).is_some()
-}
-
-pub fn failure_error(summary: &Value) -> Value {
-    if sandbox_failed(summary) {
-        summary["harnessSandboxError"].clone()
-    } else {
-        summary["lastTurn"]["errorText"]
-            .as_str()
-            .or_else(|| summary["preview"].as_str().and_then(blocked_reply))
-            .map_or(Value::Null, |error| Value::String(error.to_owned()))
-    }
-}
-
-#[cfg(test)]
-mod blocked_reply_tests {
-    use super::{blocked_reply, failure_error, sandbox_failed};
-    use serde_json::json;
-
-    #[test]
-    fn only_an_explicit_blocked_result_changes_the_row() {
-        assert_eq!(blocked_reply("**BLOCKED:** cannot create .git"), Some("cannot create .git"));
-        assert_eq!(blocked_reply("## BLOCKED\n\ncannot create .git"), Some("cannot create .git"));
-        assert_eq!(blocked_reply("**BLOCKED**"), Some("BLOCKED"));
-        assert_eq!(
-            blocked_reply("Blocked: broker unavailable\nNext step: retry"),
-            Some("broker unavailable")
-        );
-        let mut row = serde_json::json!({"status": "idle", "preview": "BLOCKED: cannot write .git", "lastTurn": {"status": "completed"}});
-        assert_eq!(crate::hub::views::status_indicator(&row), Some("failed"));
-        assert_eq!(crate::hub::views::lane(&row)["error"], "cannot write .git");
-        row["status"] = serde_json::json!("running");
-        assert_eq!(crate::hub::views::status_indicator(&row), Some("working"));
-        for reply in [
-            "Fixed the blocked request",
-            "Not blocked: ready",
-            "> BLOCKED: quoted log",
-            "Tests pass\nBLOCKED: quoted fixture",
-        ] {
-            assert_eq!(blocked_reply(reply), None, "{reply}");
-        }
-    }
-
-    #[test]
-    fn failure_projection_preserves_sandbox_reason_and_blocked_reply() {
-        let sandbox =
-            json!({"harnessSandboxFailing": true, "harnessSandboxError": "bwrap unavailable"});
-        assert!(sandbox_failed(&sandbox));
-        assert_eq!(failure_error(&sandbox), json!("bwrap unavailable"));
-
-        let blocked = json!({"preview": "BLOCKED: cannot create .git", "lastTurn": {}});
-        assert!(!sandbox_failed(&blocked));
-        assert_eq!(failure_error(&blocked), json!("cannot create .git"));
     }
 }
 
@@ -234,5 +155,65 @@ fn classify(result: &Value, error: &str) -> Option<StuckReason> {
 }
 
 #[cfg(test)]
-#[path = "session_liveness_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn stuck_classifies_harness_failures_and_clears_only_after_success() {
+        for (error, kind, reason) in [
+            ("API Error: 503 authentication_failed", "", StuckReason::HarnessUnavailable),
+            ("HTTP 500 Internal Server Error", "", StuckReason::HarnessUnavailable),
+            ("Selected model is at capacity", "", StuckReason::Capacity),
+            ("HTTP 403 Forbidden", "", StuckReason::Auth),
+            ("OAuth token expired", "", StuckReason::Auth),
+            ("could not launch", "spawn.failed", StuckReason::SpawnFailed),
+        ] {
+            let mut failures = HarnessFailures::default();
+            let failed = json!({"status":"failed", "errorText":error, "errorKind":kind});
+            for seq in 1..=3 {
+                failures.observe(&failed, seq, seq * 100);
+                assert_eq!(failures.stuck().is_some(), seq == 3, "{error}");
+            }
+            assert_eq!(failures.stuck().map(|s| (s.0, s.1)), Some((reason, 300)));
+            failures.observe(&failed, 3, 999); // duplicate log replay
+            failures.observe(&json!({"status":"cancelled"}), 4, 400);
+            assert_eq!(failures.stuck().unwrap().1, 300);
+            failures.observe(&json!({"status":"completed", "stopReason":"end_turn"}), 5, 500);
+            assert!(failures.stuck().is_none());
+        }
+    }
+
+    #[test]
+    fn stuck_ignores_unrelated_errors_and_redacts_credentials() {
+        for error in [
+            "simulated internal error",
+            "retry after 2503s",
+            "tool use was rejected",
+            "HTTP 403 permission denied",
+            "403 permission_error: this key cannot use the model",
+        ] {
+            assert_eq!(classify(&json!({}), error), None);
+        }
+        let mut failures = HarnessFailures::default();
+        let failed = json!({"status":"failed", "errorText":"HTTP 503 https://alice:password@example.com Bearer secret-token"});
+        for seq in 1..=3 {
+            failures.observe(&failed, seq, seq);
+        }
+        let error = failures.stuck().unwrap().2;
+        assert!(!error.contains("password"), "{error}");
+        assert!(!error.contains("secret-token"), "{error}");
+        for (error, secret) in [
+            (r#"HTTP 503 password="correct horse, battery staple" retry"#, "horse"),
+            (r#"HTTP 503 {"api_key": "a b\"c, d"} retry"#, "c, d"),
+            ("HTTP 503 secret='one two, three'", "two"),
+            (r#"HTTP 401 Authorization: Bearer "abc123""#, "abc123"),
+            (r#"HTTP 401 Authorization: Basic 'dXNlcjpwYXNz word'"#, "word"),
+            (r#"HTTP 503 token="cut off before the quote"#, "before"),
+        ] {
+            let redacted = redact(error);
+            assert!(!redacted.contains(secret), "{redacted}");
+            assert!(redacted.starts_with("HTTP "), "{redacted}");
+        }
+    }
+}

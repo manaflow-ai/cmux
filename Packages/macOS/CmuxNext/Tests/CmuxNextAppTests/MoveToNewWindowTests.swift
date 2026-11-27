@@ -165,56 +165,6 @@ struct MoveToNewWindowTests {
         }
     }
 
-    /// notify-banner-click-all-paths: a banner for a chat whose workspace shows in a window behind the one in front
-    /// selected its tab there but left the other window in front with the keys, so the click showed the wrong chat.
-    /// Opening the banner brings the window showing the chat forward, as Global Search's jump does.
-    @Test func openingABannerForAChatInABackWindowBringsThatWindowForward() async throws {
-        try await PinnedPageTests.withApp { services, _ in
-            let moved = try await Self.newWorkspace(services)
-            let tab = try #require(moved.screens.first?.panes.first?.tabs.first)
-            let source = try Self.window(ofTab: tab.id, services)
-            #expect(services.registry.perform("moveWorkspaceToNewWindow", invocation: Self.on(.workspace, moved.id)))
-            try await PinnedPageTests.until({ services.windows.controllers.count == 2 })
-            let owner = try Self.window(ofTab: tab.id, services)
-            #expect(owner != source)
-            // The other window in front, as when the person works there and the chat finishes behind it.
-            services.windows.bringToFront(try #require(services.windows.controller(for: source)))
-            try await PinnedPageTests.until({ services.windows.active?.state.id == source })
-            services.notifications.open(surface: tab.surface)
-            try await PinnedPageTests.until({ services.windows.active?.state.id == owner })
-        }
-    }
-
-    /// notify-banner-click burst-click (2026-11-26T22:38Z): banners of chats in workspaces of their own, clicked one
-    /// right after another. The click set the window's workspace and left the content swap to the window's observer hop,
-    /// so the chat's pane was not mounted yet: its strip select was dropped and the window's focus stayed on the last
-    /// chat's pane, and the second click showed nothing. Each click now shows its chat in its own turn, in any order.
-    @Test func bannersClickedInQuickSuccessionAcrossWorkspacesEachShowTheirChat() async throws {
-        try await PinnedPageTests.withApp { services, _ in
-            var chats: [(workspace: WorkspaceModel, pane: PaneModel, tab: TabModel)] = []
-            for _ in 0..<4 {
-                let workspace = try await Self.newWorkspace(services)
-                let pane = try #require(workspace.screens.first?.panes.first)
-                chats.append((workspace, pane, try #require(pane.tabs.first)))
-            }
-            @MainActor func expectShown(_ chat: (workspace: WorkspaceModel, pane: PaneModel, tab: TabModel), sourceLocation: SourceLocation = #_sourceLocation) throws {
-                let window = try #require(services.windows.controller(for: try Self.window(ofTab: chat.tab.id, services)), sourceLocation: sourceLocation)
-                #expect(window.state.workspaceID == chat.workspace.id, sourceLocation: sourceLocation)
-                #expect(window.content?.workspace === chat.workspace, "the chat's workspace is not mounted in the click's turn", sourceLocation: sourceLocation)
-                #expect(window.content?.pane(for: chat.pane.handle)?.selectedTab?.id == chat.tab.id, sourceLocation: sourceLocation)
-            }
-            // No await between clicks: every click lands before any observer hop of the one before.
-            for chat in chats.reversed() + [chats[1], chats[3], chats[0]] {
-                services.notifications.open(surface: chat.tab.surface)
-                try expectShown(chat)
-            }
-            // And nothing late puts an earlier click's chat back (the relaunch-click row showed the previous one).
-            let last = chats[0]
-            try await PinnedPageTests.until({ services.windows.active?.focusedPane?.pane === last.pane })
-            try expectShown(last)
-        }
-    }
-
     /// The placement rule: beside the source on its right when the screen
     /// has room, else on its left, else cascaded; always on the screen.
     @Test func theNewWindowOpensBesideTheOldOne() {

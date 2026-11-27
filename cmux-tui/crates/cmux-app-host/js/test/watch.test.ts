@@ -100,15 +100,14 @@ describe("cmux.watch: refcounting is the stop condition", () => {
     expect(host.timers.size).toBe(0)
   })
 
-  test("a remount shows the cached value at once; a source pushed from outside reads again (it missed its pushes)", async () => {
+  test("a remount within staleAfterSeconds shows the cached value without a read", async () => {
     const host = githubHost(section("github.pulls"))
     host.mount("a", "render")
     await host.settle()
     host.global.__cmuxAppUnmount("a")
     host.mount("a2", "render")
-    expect([...host.tree("a2").nodes.values()].filter((n) => n.type === "Row")).toHaveLength(2)
     await host.settle()
-    expect(reads(host, "integration.request")).toBe(4) // author + review-requested, per mount
+    expect(reads(host, "integration.request")).toBe(2) // author + review-requested, once
     expect([...host.tree("a2").nodes.values()].some((n) => n.props.text === "status=fresh")).toBe(true)
   })
 
@@ -346,88 +345,5 @@ describe("cmux.watch: refresh and scene cost", () => {
     await host.settle()
     const rowOps = host.batches("m").slice(mark).flat().filter((op) => !(op.op === "update" && "text" in op.props!))
     expect(rowOps).toEqual([{ op: "update", id: expect.any(String), props: { title: "Renamed" } }])
-  })
-})
-
-describe("cmux.watch: a source pushed from outside this machine (github.pulls, github.changed)", () => {
-  const timerMs = (host: FakeHost) => [...host.timers.values()].map((t) => t.ms)
-
-  test("polls at staleAfterSeconds until the push is live, then only at safetyPollSeconds; down again, it polls", async () => {
-    const host = githubHost(section("github.pulls"))
-    host.mount("m", "render")
-    await host.settle()
-    expect([...host.subscriptions.values()].map((s) => s.stream)).toEqual(["github.changed"])
-    expect(reads(host, "integration.request")).toBe(2)
-    expect(timerMs(host)).toEqual([300_000])
-    // The daemon tells a new subscriber the push is live: the mount's own read covers it.
-    host.emit("github.changed", { live: true })
-    await host.settle()
-    expect(reads(host, "integration.request")).toBe(2)
-    expect(timerMs(host)).toEqual([900_000])
-    // Signed out or offline: back to the poll, no read now.
-    host.emit("github.changed", { live: false })
-    await host.settle()
-    expect(reads(host, "integration.request")).toBe(2)
-    expect(timerMs(host)).toEqual([300_000])
-    // Live again after a gap: one read for what it missed, then the slow re-read.
-    host.emit("github.changed", { live: true })
-    await host.settle()
-    expect(reads(host, "integration.request")).toBe(4)
-    expect(timerMs(host)).toEqual([900_000])
-  })
-
-  test("a reader's everySeconds paces it only while the push is not live", async () => {
-    const host = githubHost(section("github.pulls", "{}", "{ everySeconds: 120 }"))
-    host.mount("m", "render")
-    await host.settle()
-    expect(timerMs(host)).toEqual([120_000])
-    host.emit("github.changed", { live: true })
-    await host.settle()
-    expect(timerMs(host)).toEqual([900_000])
-  })
-
-  test("end to end (fake): a check_run webhook, the stream fires, the mounted watch re-reads once and shows the flipped check", async () => {
-    // The chain this stands for, each seam with its own test: GitHub's check_run webhook ->
-    // the Cloud's ConnectionDO -> `integration.changed` on the person's feed socket
-    // (backend test/github-push.test.ts) -> the daemon's feed client -> `github.changed` to apps
-    // holding integration:github:read (cmux-tui-core feed_client tests, apps routing and
-    // supervisor tests) -> here: the event re-reads the mounted watch once.
-    let check = "pending"
-    const host = new FakeHost(
-      app(`
-        return { render: () => {
-          const w = cmux.watch("github.pulls", { roles: ["author"] })
-          globalThis.w = w
-          return ForEach({ items: () => w.value() ?? [], key: (p) => p.id }, (p) => Row({ title: () => p().title }))
-        } }`)
-    )
-    host.handlers["integration.request"] = () => ok({ items: [pr(7, `PR 7 checks ${check}`)] })
-    host.mount("m", "render")
-    await host.settle()
-    host.emit("github.changed", { live: true })
-    await host.settle()
-    expect(reads(host, "integration.request")).toBe(1)
-    const title = () => [...host.tree("m").nodes.values()].filter((n) => n.type === "Row").map((n) => n.props.title)
-    expect(title()).toEqual(["PR 7 checks pending"])
-    // The webhook: the check run completed. The Cloud coalesces a burst into at most two frames.
-    check = "failed"
-    host.emit("github.changed", {})
-    host.emit("github.changed", {})
-    await host.settle()
-    expect(reads(host, "integration.request")).toBe(2)
-    expect(title()).toEqual(["PR 7 checks failed"])
-    // Nothing polls while the push is live: the one timer is the slow safety re-read.
-    expect(timerMs(host)).toEqual([900_000])
-  })
-
-  test("without the GitHub grant the subscription is refused by the host and it keeps polling", async () => {
-    const host = githubHost(section("github.pulls"))
-    host.mount("m", "render")
-    await host.settle()
-    // No liveness ever arrives (the daemon does not deliver github.changed without the grant).
-    fireTimers(host)
-    await host.settle()
-    expect(reads(host, "integration.request")).toBe(4)
-    expect(timerMs(host)).toEqual([300_000])
   })
 })

@@ -53,21 +53,9 @@ impl Machine {
             "permissionPolicy": "approve-all",
         });
         fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
-        // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-        fs::set_permissions(
-            dir.join("acpmux/config.json"),
-            <fs::Permissions as PermissionsExt>::from_mode(0o600),
-        )
-        .unwrap();
         let work = fs::canonicalize(dir.join("work")).unwrap();
         let trust = json!({work.to_str().unwrap(): "trusted"});
         fs::write(dir.join("acpmux/trust.json"), trust.to_string()).unwrap();
-        // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-        fs::set_permissions(
-            dir.join("acpmux/trust.json"),
-            <fs::Permissions as PermissionsExt>::from_mode(0o600),
-        )
-        .unwrap();
         let launcher = launcher(&dir);
         Self { dir, launcher }
     }

@@ -241,16 +241,23 @@ import Testing
         #expect(!toolbar.view.reveal.isRevealed)
     }
 
-    /// The chevron (Search Tabs) is gone from the bar, and so is "…" (#53356): Search Tabs runs from its key and the
-    /// palette. With nothing pinned the bar keeps no room, so the tabs get the whole row.
-    @Test func searchTabsIsNotInTheBarAndTheBarKeepsNoRoom() {
+    /// The chevron (Search Tabs) is gone from the bar, and so is "…": the tab bar's right-click runs it with no tab
+    /// target (a tab target only reveals that tab). With nothing pinned the bar keeps no room at all.
+    @Test func searchTabsIsInTheTabBarMenu() throws {
         let registry = ActionRegistry.standard()
+        var invocations: [ActionInvocation] = []
+        registry.bind("tab.search", invoke: { invocations.append($0) })
         let toolbar = PaneToolbar(registry: { registry })
         toolbar.update(target: "tab0", kind: .terminal)
         #expect(!toolbar.view.items.map(\.id).contains("tab.search"), "no chevron in the bar")
         #expect(toolbar.view.buttons.isEmpty)
-        #expect(toolbar.view.reservedCount == 0)
-        #expect(registry.descriptor(for: "tab.search") != nil, "Search Tabs stays in the palette")
+        #expect(toolbar.view.reservedCount == 0, "no \"…\" either")
+        let row = try #require(toolbar.tabBarMenuRows().joined().first { ActionRegistry.menuRun(of: $0)?.id == "tab.search" },
+                               "Search Tabs in the tab bar's right-click")
+        #expect(ActionRegistry.menuRun(of: row)?.target == nil)
+        _ = row.target?.perform(row.action, with: row)
+        #expect(invocations.count == 1)
+        #expect(invocations.first?.target == nil)
         toolbar.update(target: "chat", kind: nil, paneKinds: [.terminal])
         #expect(toolbar.view.items.isEmpty)
         #expect(toolbar.view.reservedCount == 0)

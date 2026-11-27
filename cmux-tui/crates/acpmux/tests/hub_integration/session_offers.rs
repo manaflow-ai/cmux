@@ -130,7 +130,7 @@ async fn an_offered_chat_is_a_chip_only_the_person_starts_and_it_reports_its_par
 }
 
 #[tokio::test]
-async fn an_offer_needs_a_title_and_a_prompt_and_a_chat_holds_any_number() {
+async fn an_offer_needs_a_title_and_a_prompt_and_a_chat_holds_a_few() {
     let (hub, mut person) = setup(PermissionPolicy::Ask).await;
     let id = new_chat(&mut person).await;
     let mut agent = agent(&hub).await;
@@ -144,12 +144,12 @@ async fn an_offer_needs_a_title_and_a_prompt_and_a_chat_holds_any_number() {
     elsewhere["cwd"] = json!("relative/folder");
     assert!(agent.request("_acpmux/offer_session", elsewhere).await.is_err());
 
-    // No count cap: past the old limit of 8, every open offer is recorded.
-    for n in 0..20 {
+    // Eight open offers at most: the ninth waits for an answer.
+    for n in 0..8 {
         agent.request("_acpmux/offer_session", offer(&id, &format!("Task {n}"))).await.unwrap();
     }
-    let events = hub.events(&id, 0, 10_000).unwrap();
-    assert_eq!(events.iter().filter(|e| e.kind == "session_offer").count(), 20);
+    let ninth = agent.request("_acpmux/offer_session", offer(&id, "Task 8")).await;
+    assert!(ninth.is_err(), "a ninth open offer was recorded: {ninth:?}");
 }
 
 /// The person's prompt to chat `id`; returns once its turn ends.
@@ -331,7 +331,7 @@ async fn suggested_tasks_tool_offers_each_task_in_one_group() {
         json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2099-01-01"}}),
         json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
         json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": call(3)}),
-        json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": call(7)}),
+        json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": call(6)}),
         json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": call(0)}),
         json!({"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": long}),
     ];
@@ -355,7 +355,7 @@ async fn suggested_tasks_tool_offers_each_task_in_one_group() {
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     assert_eq!(names, ["offer_session", "suggest_tasks"], "{tools:?}");
     assert_eq!(replies[&3]["result"]["isError"], false, "{}", replies[&3]);
-    assert_eq!(replies[&4]["result"]["isError"], false, "seven tasks: {}", replies[&4]);
+    assert_eq!(replies[&4]["result"]["isError"], true, "six tasks: {}", replies[&4]);
     assert_eq!(replies[&5]["result"]["isError"], true, "no task: {}", replies[&5]);
     let refused = &replies[&6]["result"];
     assert_eq!(refused["isError"], true, "long title: {refused}");
@@ -367,18 +367,12 @@ async fn suggested_tasks_tool_offers_each_task_in_one_group() {
     let events = hub.events(&id, 0, 10_000).unwrap();
     let offers: Vec<&Value> =
         events.iter().filter(|e| e.kind == "session_offer").map(|e| &e.msg).collect();
-    // Three tasks and seven (past the old limit of 5): the calls run at once, each in its group.
-    assert_eq!(offers.len(), 10, "{offers:?}");
-    let mut groups: std::collections::BTreeMap<&str, Vec<&str>> = Default::default();
-    for o in &offers {
-        let group = o["groupId"].as_str().unwrap();
-        assert!(group.starts_with("g-") && group.len() <= 64, "{group}");
-        groups.entry(group).or_default().push(o["title"].as_str().unwrap());
-    }
-    let mut sizes: Vec<Vec<&str>> = groups.into_values().collect();
-    sizes.sort_by_key(Vec::len);
-    assert_eq!(sizes[0], ["Task 0", "Task 1", "Task 2"]);
-    assert_eq!(sizes[1].len(), 7, "{sizes:?}");
+    assert_eq!(offers.len(), 3, "{offers:?}");
+    let group = offers[0]["groupId"].as_str().unwrap();
+    assert!(group.starts_with("g-") && group.len() <= 64, "{group}");
+    let titles: Vec<&str> = offers.iter().filter_map(|o| o["title"].as_str()).collect();
+    assert_eq!(titles, ["Task 0", "Task 1", "Task 2"]);
+    assert!(offers.iter().all(|o| o["groupId"] == group), "{offers:?}");
 }
 
 /// The `instructions` an MCP server gives at `initialize`.

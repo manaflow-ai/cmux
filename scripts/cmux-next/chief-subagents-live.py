@@ -29,7 +29,6 @@ Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPM
 import argparse, glob, json, os, re, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
-from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -277,10 +276,6 @@ def turn_starts():
     return [e for e in trace() if e.get("ev") == "turn.start"]
 
 
-def turn_ends():
-    return [e for e in trace() if e.get("ev") == "turn.end"]
-
-
 def row(flow, expected, observed, ok):
     ROWS.append((flow, expected, observed, ok))
     print(f"| {flow} | {expected} | {observed} | {'pass' if ok else 'FAIL'} |", flush=True)
@@ -319,7 +314,6 @@ def ask(text, wait_reply=True):
     """Sends `text` through the Home composer; with wait_reply, the Chief's final reply of that turn."""
     show_home()
     before = len(log_items())
-    ends_before = len(turn_ends())
     for action, extra in (("focus", {}), ("type", {"text": text}), ("send", {})):
         reply = rpc("debug.home.drive", {"action": action, **extra})
         if not (isinstance(reply, dict) and reply.get("ok")):
@@ -349,9 +343,7 @@ def ask(text, wait_reply=True):
         talks = [m for m in items[mine + 1:] if m["kind"] == "talk"]
         return talks[-1]["text"] if talks and items[-1]["kind"] == "talk" else None
     reply = wait(done, opts.turn_timeout, step=3)
-    # A turn that goes on after a talk item logs more: wait for its turn.end in the trace (best effort).
-    if reply and not wait(lambda: len(turn_ends()) > ends_before, 60, step=0.5):
-        print("ask: no turn.end in the trace 60 s after the reply", flush=True)
+    time.sleep(4)  # a turn that goes on after a talk item logs more
     return (done() or reply) or "(no reply)"
 
 
@@ -374,29 +366,13 @@ def agent_tab(ws_id):
     return found[0] if found else None
 
 
-def pane_rendered(what):
-    """Best effort: the shown agent pane has a transcript and it stopped changing (it rendered)."""
-    def read():
-        state = rpc("debug.agent_pane", {"action": "chat_state"}) or {}
-        return pane_text(state) if not state.get("error") and pane_text(state) else None
-    if not wait(read, 15, step=0.2):
-        print(f"{what}: the agent pane shows no transcript after 15 s", flush=True)
-    wait_stable(read, f"{what}'s transcript", timeout=15, interval=0.25, raise_on_timeout=False)
-
-
-def rendered_state(state):
-    """chat_state again once rendered, when it still shows the same session (else the one read before)."""
-    now = rpc("debug.agent_pane", {"action": "chat_state"}) or {}
-    return now if now.get("sessionId") and now.get("sessionId") == state.get("sessionId") else state
-
-
 def focus_workspace(ws_id, name):
     """Shows the subagent's agent tab in the window (`tab.focus`, as `cmux tab <id> focus`)."""
     tab = wait(lambda: agent_tab(ws_id), 30)
     shown = rpc("tab.focus", {"tab": tab}) if tab else {"error": "no agent tab in the app tree"}
     print(f"focus {name}: tab {tab} -> {json.dumps(shown)[:160]}", flush=True)
     wait(lambda: not (rpc("debug.agent_pane", {"action": "chat_state"}) or {}).get("error"), 30)
-    pane_rendered(name)
+    time.sleep(3)  # test harness: let the agent pane render its transcript
     snapshot(name)
 
 
@@ -609,8 +585,7 @@ def stop_one():
     starts = len(turn_starts())
     out = acpmux("cancel", sid) if sid else "(no session)"
     stopped = wait(lambda: subs().get(ids[0], {}).get("stopped") or subs().get(ids[0], {}).get("status") == "done", 90)
-    # sleep-ok: an observation window: a wrong wake would start a Chief turn now, and an absent turn has no event.
-    time.sleep(10)
+    time.sleep(10)  # test harness: give a wrong wake time to show
     quiet = len(turn_starts()) == starts
     ask("Thanks. Anything new from your subagents?")
     logged = [t for i, t in reports({ids[0]}) if "(stopped by the user)" in t] if ids else []
@@ -686,8 +661,7 @@ def restart_mid_run():
                 and os.path.exists(os.path.join(OPTCHAT, "tools.sock")), 300)
     wait_done(ids, 300)
     wait(lambda: len(reports(set(ids))) >= len(ids), 300, step=3)
-    # sleep-ok: an observation window: a duplicate report must NOT arrive, and an absence has no event.
-    time.sleep(20)
+    time.sleep(20)  # test harness: a duplicate would come now
     got = reports(set(ids))
     counts = {i: sum(1 for x, _ in got if x == i) for i in ids}
     row("host restart mid-run", "the host comes back; each report once",
@@ -711,8 +685,7 @@ def subagent_link_opens_its_chat():
     print("link click:", json.dumps(clicked)[:300], flush=True)
     state = wait(lambda: (lambda st: st if st.get("sessionId") == session else None)(
         rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
-    pane_rendered("link-opened")
-    state = rendered_state(state)
+    time.sleep(3)  # test harness: let the agent pane render its transcript
     snapshot("link-opened")
     url = clicked.get("url") or ""
     row("subagent link opens its chat", "Home shows the subagent as a link; a click shows its workspace and chat",
@@ -748,8 +721,7 @@ def subagent_mentions_are_links():
     print("mention click:", json.dumps(clicked)[:300], flush=True)
     state = wait(lambda: (lambda st: st if session and st.get("sessionId") == session else None)(
         rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
-    pane_rendered("mentions-opened")
-    state = rendered_state(state)
+    time.sleep(3)  # test harness: let the agent pane render its transcript
     snapshot("mentions-opened")
     row("subagent mentions are links", "the reply names a2 as a link; a click opens a2's workspace and chat",
         f"ids {ids}; model wrote a link={'](cmux://' in last}; clicked {(clicked.get('url') or '')[:90]!r}; "
@@ -839,8 +811,8 @@ def cli_osc8_link_opens_the_subagent():
     print("cmd-click:", json.dumps(clicked)[:200], f"cell r{r} c{c}", flush=True)
     state = wait(lambda: (lambda st: st if st.get("sessionId") == session else None)(
         rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or rpc("debug.agent_pane", {"action": "chat_state"}) or {}
-    pane_rendered("osc8-opened")
     topo = (rpc("snapshot.get") or {}).get("topology") or {}
+    time.sleep(3)  # test harness: let the agent pane render its transcript
     snapshot("osc8-opened")
     json.dump({"sub": sub, "session": session, "cell": [r, c], "grid": grid, "click": clicked, "chat_state": state,
                "topology": topo, "viewport": text}, open(os.path.join(opts.out, "osc8-proof.json"), "w"), indent=1)
@@ -867,14 +839,8 @@ def subagent_context_is_collapsed():
     focus_workspace(ws.get("id"), f"context-{ids[0]}-collapsed")
     zoomed = tools({"tool": "zoom", "id": ids[0]}).get("text", "")
     # The disclosure's summary ("Context from the Chief (N lines)"), clicked as a user does.
-    shut = pane_text(rpc("debug.agent_pane", {"action": "chat_state"}) or {})
     opened = rpc("debug.agent_pane", {"action": "click", "selector": ".cv-user__context > summary"}) or {}
-    # The disclosure opened: the pane's transcript changes (the view shows), then holds still.
-    if opened.get("clicked"):
-        read = lambda: pane_text(rpc("debug.agent_pane", {"action": "chat_state"}) or {})  # noqa: E731
-        if not wait(lambda: read() != shut, 10, step=0.2):
-            print("context: the transcript did not change after the disclosure click", flush=True)
-        wait_stable(read, "the opened disclosure", timeout=10, interval=0.25, raise_on_timeout=False)
+    time.sleep(2)  # test harness: let the disclosure open
     snapshot(f"context-{ids[0]}-expanded")
     row("subagent context collapsed", "one collapsed \"Context from the Chief\" line opens the view; the task is the message",
         f"disclosure {json.dumps(opened)[:160]}; zoom keeps the task={'Your task' in zoomed}",
@@ -905,8 +871,7 @@ def group_move_stays_in_its_row():
     group = wait(lambda: next((g.get("id") for g in topo().get("workspace_groups", []) if g.get("name") == "row-probe"), None), 30)
     moved = rpc("action.run", {"action": "moveWorkspaceToGroup", "target": f"workspace:{chief['id']}",
                                "args": {"group": f"workspace-group:{group}"}}) if group else {"error": "no group"}
-    # The move answered; a write that went through shows in the topology: read it once it holds still.
-    wait_stable(topo, "the topology after the refused move", timeout=10, interval=0.25, raise_on_timeout=False)
+    time.sleep(3)  # test harness: a write that went through would show now
     after = next((w for w in topo().get("workspaces", []) if w.get("id") == chief["id"]), {})
     snapshot("group-move-refused")
     refused = isinstance(moved, dict) and bool(moved.get("error"))
@@ -1116,17 +1081,7 @@ def cloud_chief():
                "MUX_HARNESS": "claude-sr"}, "host.log")
         tools_sock = os.path.join(mux, "optchat", "tools.sock")
         wait(lambda: os.path.exists(tools_sock), 180)
-        # The host's start-up: it connected to the daemon (its log says so).
-        def host_connected():
-            for path in (os.path.join(mux, "host.log"), os.path.join(brain, "logs", "host.log")):
-                try:
-                    if "daemon connected" in open(path, errors="replace").read():
-                        return True
-                except OSError:
-                    pass
-            return False
-        if not wait(host_connected, 60, step=0.5):
-            safe_print("cloud chief: no 'daemon connected' in the host log after 60 s", flush=True)
+        time.sleep(10)  # test harness: the host's start-up
         answer = unix_call(tools_sock, {"tool": "spawn", "tasks": ["Run `sleep 20`, then reply with only the word cloud-ok."]},
                            timeout=600)
         sub = (re.findall(r"- (a\d+):", answer.get("text", "")) or [None])[0]
@@ -1336,10 +1291,7 @@ def main():
         sys.exit(f"no Chief conversation: {json.dumps(rpc('debug.home'))[:1000]}")
     if not wait(lambda: "daemon connected" in host_log() and os.path.exists(os.path.join(OPTCHAT, "tools.sock")), 180):
         sys.exit("the Chief host did not connect (no tools socket)")
-    # The compactor start-up probe: its line in host.log, then its node built (or its session name taken).
-    if not wait(lambda: "compactor probe (" in host_log() and ("built a node" in host_log() or "is taken" in host_log()),
-                60, step=0.5):
-        print("no compactor probe result in host.log after 60 s; going on", flush=True)
+    time.sleep(10)  # test harness: the compactor start-up probe
     threading.Thread(target=recorder, daemon=True).start()
     print("engine:", json.dumps(engine())[:400], flush=True)
     if cli_sub:

@@ -11,7 +11,6 @@ fn each_walk_has_its_direction_and_its_nowhere() {
             ("focusHistoryBack", Direction::Back, Nowhere::NothingBack),
             ("focusHistoryForward", Direction::Forward, Nowhere::NothingForward),
             ("focusHistoryLast", Direction::Last, Nowhere::NothingLast),
-            ("focusHistoryBackSession", Direction::BackSession, Nowhere::NothingSession),
         ]
     );
     assert_eq!(table.pages.len(), 4);
@@ -30,14 +29,4 @@ fn an_undo_that_closes_panes_waits_for_the_next_undo_on_its_revision() {
         UndoReply { pending: Some(4), closes_panes: Some(2) }
     );
     assert_eq!(undo_reply(true, None, None), UndoReply { pending: None, closes_panes: Some(1) });
-}
-
-#[test]
-fn back_one_session_is_its_own_walk_on_the_wire() {
-    let walk = actions().walks.into_iter().find(|walk| walk.action == "focusHistoryBackSession");
-    let json = serde_json::to_value(walk.expect("the back-one-session walk")).expect("json");
-    assert_eq!(
-        json,
-        serde_json::json!({"action": "focusHistoryBackSession", "direction": "backSession", "nowhere": "nothingSession"})
-    );
 }

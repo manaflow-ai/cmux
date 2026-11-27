@@ -1,13 +1,6 @@
-#if canImport(CryptoKit)
 public import CryptoKit
-#else
-// Linux: swift-crypto serves the same API (Package.swift adds it under CMUX_SWIFTPM_TARGET_LINUX).
-@preconcurrency public import Crypto // swift-crypto marks its key types Sendable only on Apple platforms
-#endif
 public import Foundation
-#if canImport(Security)
 public import Security
-#endif
 
 /// The identity boundary authenticated by a phone-push envelope. Optional
 /// fields are omitted from the canonical form so a relay never needs account
@@ -96,9 +89,7 @@ public enum PhonePushCryptoError: Error, Sendable {
     case invalidKey
     case invalidEnvelope
     case authenticationFailed
-    #if canImport(Security)
     case keychain(OSStatus)
-    #endif
 }
 
 public struct PhonePushReplyFreshness: Sendable {
@@ -240,12 +231,9 @@ public struct PhonePushKeyMaterial: Sendable {
     }
 }
 
-#if canImport(Security)
 extension PhonePushKeyMaterial {
     static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
 
-    /// No call shows UI: each runs inside ``KeychainUserInteraction/withoutUI(_:)`` with a no-prompt
-    /// context, and one that would ask throws `errSecInteractionNotAllowed`; only a missing item makes a key.
     public static func current(bundleID: String, accessGroup: String? = nil) throws -> PhonePushKeyMaterial {
         let service = "ai.manaflow.cmux.phone-push.\(bundleID)"
         var identity: [String: Any] = [
@@ -254,12 +242,11 @@ extension PhonePushKeyMaterial {
             kSecAttrAccount as String: "v1",
         ]
         if let accessGroup { identity[kSecAttrAccessGroup as String] = accessGroup }
-        identity = KeychainNoPromptContext.applied(to: identity)
         var query = identity
         query[kSecReturnData as String] = true
         let accessibility = keychainAccessibility
         var result: CFTypeRef?
-        let status = KeychainUserInteraction.withoutUI { SecItemCopyMatching(query as CFDictionary, &result) }
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
         let data: Data
         if status == errSecItemNotFound {
             let material = PhonePushKeyMaterial(
@@ -271,19 +258,17 @@ extension PhonePushKeyMaterial {
             var item = identity
             item[kSecValueData as String] = encoded
             item[kSecAttrAccessible as String] = accessibility
-            let addStatus = KeychainUserInteraction.withoutUI { SecItemAdd(item as CFDictionary, nil) }
+            let addStatus = SecItemAdd(item as CFDictionary, nil)
             if addStatus == errSecDuplicateItem {
                 var existing: CFTypeRef?
-                let readStatus = KeychainUserInteraction.withoutUI { SecItemCopyMatching(query as CFDictionary, &existing) }
+                let readStatus = SecItemCopyMatching(query as CFDictionary, &existing)
                 guard readStatus == errSecSuccess, let existingData = existing as? Data else {
                     throw PhonePushCryptoError.keychain(readStatus)
                 }
-                let migrationStatus = KeychainUserInteraction.withoutUI {
-                    SecItemUpdate(
-                        identity as CFDictionary,
-                        [kSecAttrAccessible as String: accessibility] as CFDictionary
-                    )
-                }
+                let migrationStatus = SecItemUpdate(
+                    identity as CFDictionary,
+                    [kSecAttrAccessible as String: accessibility] as CFDictionary
+                )
                 guard migrationStatus == errSecSuccess else {
                     throw PhonePushCryptoError.keychain(migrationStatus)
                 }
@@ -293,12 +278,10 @@ extension PhonePushKeyMaterial {
             return material
         } else if status == errSecSuccess, let result = result as? Data {
             data = result
-            let migrationStatus = KeychainUserInteraction.withoutUI {
-                SecItemUpdate(
-                    identity as CFDictionary,
-                    [kSecAttrAccessible as String: accessibility] as CFDictionary
-                )
-            }
+            let migrationStatus = SecItemUpdate(
+                identity as CFDictionary,
+                [kSecAttrAccessible as String: accessibility] as CFDictionary
+            )
             guard migrationStatus == errSecSuccess else {
                 throw PhonePushCryptoError.keychain(migrationStatus)
             }
@@ -332,7 +315,6 @@ extension PhonePushKeyMaterial {
         static func decode(_ data: Data) throws -> Self { try JSONDecoder().decode(Self.self, from: data) }
     }
 }
-#endif
 
 public struct PhonePushPeerKeyStore {
     private static let prefix = "cmux.phone-push.peer.v2."

@@ -29,8 +29,6 @@ export const stackWorld = () => {
   const userVmPlans = new Map<string, string>()
   /** Each Stack user's paid plan (client_read_only_metadata.cmuxPlan); absent = none. */
   const userPlans = new Map<string, string>()
-  /** Each Stack user's cmux NEXT plan (client_read_only_metadata.cmuxNextPlan); absent = none. */
-  const userNextPlans = new Map<string, string>()
   let calls = 0
   const fake = {
     findUserByEmail: async () => undefined,
@@ -49,11 +47,6 @@ export const stackWorld = () => {
       return [...members.keys()].filter((k) => k.endsWith(`:${u}`) && teams.has(k.slice(0, k.length - u.length - 1))).map((k) => k.slice(0, k.length - u.length - 1))
     },
     getUserPlan: async (u: string) => userPlans.get(u) ?? null,
-    // Goes through getUserPlan, so a test that makes getUserPlan fail fails this record read too.
-    getUserPlans: async (u: string) => {
-      const plan = await fake.getUserPlan(u)
-      return plan === "user_gone" ? plan : { plan, next_plan: userNextPlans.get(u) ?? null }
-    },
     getUserVmPlan: async (u: string) => ({ vm_plan: userVmPlans.get(u) ?? null }),
     listTeamMembers: async (t: string) => {
       calls++
@@ -74,7 +67,7 @@ export const stackWorld = () => {
       return had ? ("removed" as const) : ("absent" as const)
     }
   }
-  return { teams, members, perms, removedInStack, anonymous, vmPlans, userVmPlans, userPlans, userNextPlans, fake, calls: () => calls }
+  return { teams, members, perms, removedInStack, anonymous, vmPlans, userVmPlans, userPlans, fake, calls: () => calls }
 }
 export type World = ReturnType<typeof stackWorld>
 

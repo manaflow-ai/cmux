@@ -4,8 +4,10 @@
 //! - A handle belongs to the session it was opened for, the very one: the table keeps a weak
 //!   reference to that session, so a handle of a chat that was replaced or purged since, even
 //!   one with the same ID, is refused (`media.handle`).
-//! - The daemon holds at most [`MAX_OPEN`] over all its connections (`media.busy`); a
-//!   connection or a peer daemon's link holds any number of them within that.
+//! - A table holds at most [`MAX_HANDLES`], and the daemon at most [`MAX_OPEN`] over all its
+//!   connections (`media.handles`, `media.busy`). A peer daemon's link carries the reads of all
+//!   that daemon's clients, which it caps one by one (`server/media_forward.rs`), so its table
+//!   is capped only by [`MAX_OPEN`] ([`Handles::for_peer_link`]).
 //! - A handle whose session is gone counts toward no cap: the insert and the sweeper drop it, and
 //!   [`Handles::forget_orphan`] closes one named by a range for a chat that no longer resolves.
 //! - A handle unused for [`IDLE`] is closed by the table's sweeper: one task per table, spawned
@@ -25,9 +27,9 @@ use std::time::Duration;
 use tokio::task::AbortHandle;
 use tokio::time::Instant;
 
+/// The most files one connection holds open.
+pub const MAX_HANDLES: usize = 8;
 /// The most media files the daemon holds open over all its connections.
-/// Measured: one fd each; the daemon's soft RLIMIT_NOFILE is 65,536 (10,240 on macOS), shared
-/// with its sockets, logs and agents' pipes.
 pub const MAX_OPEN: usize = 256;
 /// A handle unused this long is closed.
 pub const IDLE: Duration = Duration::from_secs(120);
@@ -60,6 +62,7 @@ struct Entry<O> {
 
 struct State<O> {
     entries: HashMap<String, Entry<O>>,
+    cap: usize,
     sweeper: Option<AbortHandle>,
     closed: bool,
 }
@@ -72,8 +75,18 @@ pub struct Handles<O = super::Session> {
 
 impl<O> Default for Handles<O> {
     fn default() -> Self {
-        let state = State { entries: HashMap::new(), sweeper: None, closed: false };
+        let state =
+            State { entries: HashMap::new(), cap: MAX_HANDLES, sweeper: None, closed: false };
         Handles { state: Arc::new(Mutex::new(state)) }
+    }
+}
+
+impl<O> Handles<O> {
+    /// The table of a peer daemon's link: capped by the daemon's [`MAX_OPEN`] alone.
+    pub fn for_peer_link() -> Self {
+        let handles = Self::default();
+        lock(&handles.state).cap = MAX_OPEN;
+        handles
     }
 }
 
@@ -97,16 +110,12 @@ impl<O: Send + Sync + 'static> Handles<O> {
             return Err(refused("media.closed", "the connection that opened the file has ended"));
         }
         state.entries.retain(|_, entry| entry.owner.strong_count() > 0);
+        if state.entries.len() >= state.cap {
+            let message = "too many media files are open; read one to its end";
+            return Err(refused("media.handles", message));
+        }
         let slot = Slot::take().ok_or_else(|| {
-            let mut e = refused(
-                "media.busy",
-                "the daemon has its most media files open over all connections; one frees as \
-                 another is read to its end",
-            );
-            if let Some(data) = e.data.as_mut().and_then(serde_json::Value::as_object_mut) {
-                data.insert("retryable".into(), serde_json::Value::Bool(true));
-            }
-            e
+            refused("media.busy", "the daemon has too many media files open; try again soon")
         })?;
         let Opened { file, identity, .. } = opened;
         let entry = Entry {

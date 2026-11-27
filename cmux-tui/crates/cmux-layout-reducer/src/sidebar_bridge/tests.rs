@@ -365,10 +365,6 @@ fn an_app_click_prefers_apps_open_then_the_interim_show_action_then_its_page() {
         app_activation("cmux/app-store"),
         vec![open("cmux.apps.open"), show("appStore.show"), open("app.open")]
     );
-    assert_eq!(
-        app_activation("cmux/cloud"),
-        vec![open("cmux.apps.open"), show("palette.openCloudPane"), open("app.open")]
-    );
     assert_eq!(app_activation("acme/notes"), vec![open("cmux.apps.open"), open("app.open")]);
 }
 

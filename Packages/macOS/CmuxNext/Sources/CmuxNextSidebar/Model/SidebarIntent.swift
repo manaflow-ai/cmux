@@ -11,10 +11,6 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case selectTab(workspace: WorkspaceID, tab: TabID)
     /// Close one of a workspace's tabs (a row's ✕ on its hover card); the card stays open.
     case closeTab(workspace: WorkspaceID, tab: TabID)
-    /// Open a port the workspace's terminals serve (a port row of its hover card): `url` ("http://localhost:5173/", read as `label`,
-    /// `WorkspacePortLinks`) in a browser tab of that workspace, through its own daemon's `workspace.open_url`. A
-    /// workspace on another machine reaches that machine's localhost the way each of its browser tabs does. No local change.
-    case openPort(workspace: WorkspaceID, url: String, label: String)
     /// Move workspaces, in tree order, to a position. Covers reorder, moving
     /// into or out of groups, pinning, and unpinning.
     case reorder([WorkspaceID], to: DropPosition)
@@ -62,9 +58,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// New workspace on a machine (nil = the machine of the active workspace,
     /// else local), optionally inside a group.
     case newWorkspace(machine: MachineID?, group: GroupID?)
-    /// View a connected Cloud or Mac machine's screen from its visible header.
+    /// View a Cloud machine's screen from its machine header (`SidebarScreenIntentActions`).
     case viewScreen(MachineID)
-    /// Share This Mac's screen from the visible local machine header.
+    /// Share This Mac's screen from the local machine header (`SidebarScreenIntentActions`).
     case shareScreen(MachineID)
     /// Show another profile in this window (dot click, swipe).
     case switchProfile(ProfileKey)

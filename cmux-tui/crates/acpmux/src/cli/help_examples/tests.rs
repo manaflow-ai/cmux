@@ -128,11 +128,8 @@ fn every_example_parses_as_the_command_it_documents() {
             if what.trim().is_empty() {
                 wrong.push(format!("\"{key}\": an example with no description: {line}"));
             }
-            // Input piped in (`printf … | acpmux send coord -`) and `sudo acpmux …` are fine;
-            // parse the acpmux part.
-            let Some(at) = line
-                .find("acpmux ")
-                .filter(|&at| at == 0 || line[..at].ends_with("| ") || &line[..at] == "sudo ")
+            // Input piped in (`printf … | acpmux send coord -`) is fine; parse the acpmux part.
+            let Some(at) = line.find("acpmux ").filter(|&at| at == 0 || line[..at].ends_with("| "))
             else {
                 wrong.push(format!("\"{key}\": does not run acpmux: {line}"));
                 continue;
@@ -158,46 +155,15 @@ fn every_example_parses_as_the_command_it_documents() {
 
 #[test]
 fn help_shows_the_examples_after_the_options() {
-    let mut grammar = attach(Cli::command(), false);
+    let mut grammar = attach(Cli::command());
     let session = grammar.find_subcommand_mut("session").expect("session");
     let help = session.find_subcommand_mut("cancel").expect("cancel").render_help().to_string();
     let examples_at = help.find("Examples:").expect("session cancel --help has Examples:");
     assert!(help.find("Options:").is_some_and(|options| options < examples_at), "{help}");
     // The root keeps its own after-help note and gains the examples below it.
-    let root = attach(Cli::command(), false).render_help().to_string();
+    let root = attach(Cli::command()).render_help().to_string();
     let guide = root.find("acpmux guide").expect("root keeps the guide note");
     assert!(root.find("Examples:").is_some_and(|examples| guide < examples), "{root}");
-}
-
-#[test]
-fn register_help_uses_the_invoking_cli_for_examples_and_inline_commands() {
-    for (front_door, program) in [(true, "cmux agent"), (false, "acpmux")] {
-        let mut grammar = attach(Cli::command(), front_door);
-        let rendered =
-            grammar.find_subcommand_mut("register").unwrap().render_long_help().to_string();
-        let help = rendered.split_whitespace().collect::<Vec<_>>().join(" ");
-        for line in ["register desktop-zoe", "send --no-wait", "register NAME --code CODE"] {
-            assert!(help.contains(&format!("{program} {line}")), "{help}");
-        }
-        assert_eq!(help.contains("`acpmux send"), !front_door, "{help}");
-    }
-}
-
-#[test]
-fn colliding_front_door_commands_keep_their_engine_meaning() {
-    let example = StyledStr::from("acpmux inbox read msg-123\nacpmux list --all");
-    assert_eq!(
-        front_door_text(Some(&example)).as_deref(),
-        Some("cmux agent team-inbox read msg-123\ncmux agent ls --all")
-    );
-    assert_eq!(Cli::command().find_subcommand("team-inbox").unwrap().get_name(), "inbox");
-    let grammar = attach(Cli::command(), true).bin_name("cmux agent");
-    let help = grammar
-        .try_get_matches_from(["cmux agent", "team-inbox", "read", "--help"])
-        .unwrap_err()
-        .to_string();
-    assert!(help.contains("cmux agent team-inbox read"), "{help}");
-    assert!(!help.contains("cmux agent inbox"), "{help}");
 }
 
 #[test]

@@ -1,11 +1,8 @@
 #if DEBUG && os(iOS)
-import CmuxMobileDesign
 import CmuxMobileSupport
-import CmuxMobileTerminal
 import GameController
 import QuartzCore
 import UIKit
-import UIKit.UIGestureRecognizerSubclass
 
 /// `-cmux-mobile-kbd-pin-trace`: one line per display frame to
 /// `Documents/kbd-pin-trace.txt` with the keyboard and the focused composer
@@ -16,16 +13,8 @@ import UIKit.UIGestureRecognizerSubclass
 /// It never changes a view, a responder or a layout of the app. UI tests read
 /// the latest frame from `probe`, a 1 pt label in the key window that takes no
 /// touches (ComposerKeyboardPinUITests).
-///
-/// For the keyboard motion bench (KeyboardMotionBenchUITests,
-/// scripts/measure/ios-keyboard-motion.sh) it also writes the trace's clock
-/// (`epoch=`, CACurrentMediaTime at t=0, which a UI test on the same simulator
-/// host reads on the same clock), `ev=touchBegan` for every touch the app takes,
-/// `ev=keyAccepted` for every edit a text field or the terminal takes, and the
-/// terminal's grid resizes so far (`rz=` per frame), and `ev=deviceOrientation`
-/// for every turn of the phone the app is told of (the rotation bench).
 @MainActor
-public final class KeyboardPinTrace: NSObject {
+final class KeyboardPinTrace: NSObject {
     static let flag = "-cmux-mobile-kbd-pin-trace"
     /// The composers' text fields, in the order a tie is broken.
     static let fieldIDs = ["conversation.composer.text", "terminal.composer.field", "chat.composer.field"]
@@ -36,8 +25,7 @@ public final class KeyboardPinTrace: NSObject {
     private let probe = UILabel(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     private let start = CACurrentMediaTime()
 
-    /// Idempotent: RootView's task and the app's root (TerminalDemoRoot has no RootView) both call it.
-    public static func startIfRequested() {
+    static func startIfRequested() {
         guard shared == nil, CommandLine.arguments.contains(flag) else { return }
         shared = KeyboardPinTrace()
     }
@@ -65,18 +53,11 @@ public final class KeyboardPinTrace: NSObject {
         FileManager.default.createFile(atPath: url.path, contents: nil)
         handle = try? FileHandle(forWritingTo: url)
         super.init()
-        write(String(format: "epoch=%.6f", start))
         probe.isUserInteractionEnabled = false
         probe.alpha = 0.02
         probe.isAccessibilityElement = true
         probe.accessibilityIdentifier = "debug.kbd-pin"
         probe.accessibilityLabel = "keyboard pin probe"
-        if let mode = KeyboardInputInjector.modeIfRequested() {
-            let start = start
-            injector = KeyboardInputInjector(mode: mode, start: start, window: { [weak self] in self?.keyWindow }) { [weak self] line in
-                self?.write(line)
-            }
-        }
         let center = NotificationCenter.default
         let names: [(Notification.Name, String)] = [
             (UIResponder.keyboardWillShowNotification, "willShow"),
@@ -95,9 +76,6 @@ public final class KeyboardPinTrace: NSObject {
                 let local = (info[UIResponder.keyboardIsLocalUserInfoKey] as? Bool) ?? true
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    // A keyboard change can swap the composer (a folded reply, another page): find it again.
-                    self.cachedField = nil
-                    self.cachedContent = nil
                     // The keyboard's own animation, which a nested layout pass inherits.
                     let inherited = UIView.inheritedAnimationDuration
                     self.events.append(String(format: "%@@%.2f:%.2f/%.2f/%.0f", label, CACurrentMediaTime() - self.start, duration, inherited, end.minY))
@@ -114,126 +92,16 @@ public final class KeyboardPinTrace: NSObject {
                     self.write(String(format: "t=%.4f ev=%@ end=%.1f,%.1f,%.1f,%.1f dur=%.3f curve=%d local=%d inh=%.3f",
                                       CACurrentMediaTime() - self.start, label,
                                       end.minX, end.minY, end.width, end.height, duration, curve, local ? 1 : 0, inherited) + place)
-                    if label == "willShow" || label == "willHide" {
-                        self.injector?.keyboard(willShow: label == "willShow", endY: end.minY)
-                    }
                 }
-            }
-        }
-        let edits: [Notification.Name] = [
-            UITextView.textDidChangeNotification, UITextField.textDidChangeNotification, TerminalModel.debugKeyAccepted,
-        ]
-        for name in edits {
-            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.write(String(format: "t=%.4f ev=keyAccepted", CACurrentMediaTime() - self.start))
-                    self.injector?.keyAccepted()
-                }
-            }
-        }
-        // The rotation bench (RotateBenchUITests, scripts/measure/ios_rotate.py): when the app
-        // learns the phone turned, `ev=deviceOrientation o=N` (UIDeviceOrientation), on the
-        // trace's clock; the frames' `orient=` says when the scene's geometry followed.
-        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
-        center.addObserver(forName: UIDevice.orientationDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.write(String(format: "t=%.4f ev=deviceOrientation o=%d", CACurrentMediaTime() - self.start,
-                                  UIDevice.current.orientation.rawValue))
             }
         }
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
         link.add(to: .main, forMode: .common)
         self.link = link
-        // Main-thread busy time between ticks: awake (after-waiting) to asleep (before-waiting).
-        let observer = CFRunLoopObserverCreateWithHandler(
-            nil, CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue, true, 0
-        ) { [weak self] _, activity in
-            guard let self else { return }
-            let now = CACurrentMediaTime()
-            MainActor.assumeIsolated {
-                if activity == .afterWaiting {
-                    self.awakeSince = now
-                    self.wakes += 1
-                } else if let since = self.awakeSince {
-                    self.busy += now - since
-                    self.awakeSince = nil
-                }
-            }
-        }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 
-    /// `-cmux-mobile-kbd-inject`: the bench's second input from inside the app.
-    private var injector: KeyboardInputInjector?
-    private var awakeSince: CFTimeInterval?
-    private var busy: CFTimeInterval = 0
-    private var wakes = 0
-
-    /// Observe the physical release timestamp even when the main queue delivers it late.
-    private final class TouchMarker: UIGestureRecognizer {
-        var onTouch: ((UIView?, CGPoint?) -> Void)?
-        var onRelease: ((TimeInterval) -> Void)?
-        override func canPrevent(_ other: UIGestureRecognizer) -> Bool { false }
-        override func canBePrevented(by other: UIGestureRecognizer) -> Bool { false }
-        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-            onTouch?(touches.first?.view, touches.first.map { $0.location(in: nil) })
-        }
-        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-            if let touch = touches.first { onRelease?(touch.timestamp) }
-            state = .failed
-        }
-        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { state = .failed }
-    }
-
-    private lazy var touchMarker: TouchMarker = {
-        let marker = TouchMarker(target: nil, action: nil)
-        marker.cancelsTouchesInView = false
-        marker.delaysTouchesBegan = false
-        marker.delaysTouchesEnded = false
-        marker.onTouch = { [weak self] view, point in
-            guard let self else { return }
-            // Where and on what: a step that lost the keyboard says what the touch hit.
-            self.write(String(format: "t=%.4f ev=touchBegan x=%.1f y=%.1f view=%@", CACurrentMediaTime() - self.start,
-                              point?.x ?? -1, point?.y ?? -1, view.map { KeyboardInputInjector.name($0) } ?? "-"))
-            if InputLatencyTrace.samplesTouches { InputLatencyTrace.shared?.sampleTouch() }
-            self.injector?.touchBegan(view: view)
-        }
-        marker.onRelease = { [weak self] released in
-            guard let self else { return }
-            self.write(String(format: "t=%.4f ev=touchEnded", released - self.start))
-        }
-        return marker
-    }()
-
-    /// The file's writes, off the main thread: the per-frame write cost the
-    /// keyboard bench's main thread about 19 ms per chat keyboard window
-    /// (input-latency hitches, step 160f1e7c).
-    private let writes = DispatchQueue(label: "cmux.kbd-pin-trace", qos: .utility)
-
-    func write(_ line: String) {
-        guard let handle else { return }
-        let data = Data((line + "\n").utf8)
-        writes.async { handle.write(data) }
-    }
-
-    /// The composer field and the content behind it, found once and kept
-    /// while they stay in the key window: the walks ran every frame.
-    private weak var cachedField: UIView?
-    private weak var cachedContent: UIScrollView?
-
-    private func field(in window: UIWindow) -> UIView? {
-        if let field = cachedField, field.window === window { return field }
-        cachedContent = nil
-        cachedField = Self.composerField(in: window)
-        return cachedField
-    }
-
-    private func content(behind field: UIView, in window: UIWindow) -> UIScrollView? {
-        if let scroll = cachedContent, scroll.window === window { return scroll }
-        cachedContent = Self.content(behind: field, in: window)
-        return cachedContent
+    private func write(_ line: String) {
+        handle?.write(Data((line + "\n").utf8))
     }
 
     private var keyWindow: UIWindow? {
@@ -244,29 +112,16 @@ public final class KeyboardPinTrace: NSObject {
     @objc private func tick(_ link: CADisplayLink) {
         guard let window = keyWindow else { return }
         if probe.window !== window { window.addSubview(probe) }
-        if touchMarker.view !== window { window.addGestureRecognizer(touchMarker) }
         var parts = [String(format: "t=%.4f", link.targetTimestamp - start)]
         parts.append(String(format: "win=%.0fx%.0f", window.bounds.width, window.bounds.height))
         parts.append("orient=\(window.windowScene?.effectiveGeometry.interfaceOrientation.rawValue ?? 0)")
         parts.append("hw=\(GCKeyboard.coalesced == nil ? 0 : 1)")
-        parts.append("rz=\(TerminalModel.debugResizesSentTotal)")
-        // Terminal frames presented so far (a paint marker for the content settle bench).
-        parts.append("tp=\(TerminalModel.debugPresentsTotal)")
-        // Busy ms and wakeups since the last tick; the open stretch counts up to now.
-        let now = CACurrentMediaTime()
-        let open = awakeSince.map { now - $0 } ?? 0
-        parts.append(String(format: "mtb=%.1f mtw=%d", (busy + open) * 1000, wakes))
-        busy = 0
-        wakes = 0
-        if awakeSince != nil { awakeSince = now }
-        let drawnKeyboard = Self.keyboardRect(in: window)
-        injector?.frame(keyboardTop: drawnKeyboard?.minY, windowBottom: window.bounds.maxY)
-        if let keyboard = drawnKeyboard {
+        if let keyboard = Self.keyboardRect(in: window) {
             parts.append(String(format: "kb=%.2f kbx=%.1f kbw=%.1f kbh=%.1f", keyboard.minY, keyboard.minX, keyboard.width, keyboard.height))
         } else {
             parts.append("kb=-")
         }
-        if let field = field(in: window) {
+        if let field = Self.composerField(in: window) {
             let rect = MobileKeyboardProbe().onScreen(field, in: window)
             parts.append(String(format: "field=%@ fy=%.2f fb=%.2f fx=%.1f fw=%.1f fr=%d",
                                 field.accessibilityIdentifier ?? "?", rect.minY, rect.maxY, rect.minX, rect.width,
@@ -282,16 +137,12 @@ public final class KeyboardPinTrace: NSObject {
                 let frame = dock.owningView.map { window.convert(dock.layoutFrame, from: $0) } ?? .zero
                 parts.append(String(format: "dg=%.2f", frame.minY))
             }
-            if let scroll = content(behind: field, in: window) {
+            if let scroll = Self.content(behind: field, in: window) {
                 let frame = MobileKeyboardProbe().onScreen(scroll, in: window)
                 let bounds = (scroll.layer.presentation() ?? scroll.layer).bounds
-                // The content's bottom edge on screen: as the content draws
-                // it (`csrc=drawn`: the terminal's last row, which moves
-                // inside a scroll view that keeps its offset), else the
-                // scroll view's own content (`csrc=scroll`).
-                let drawn = (scroll as? any KeyboardRidingContent)?.drawnContentBottom(in: window)
-                let bottom = drawn ?? frame.minY + scroll.contentSize.height - bounds.minY
-                parts.append(String(format: "cb=%.2f off=%.2f inb=%.2f trk=%d cf=%.2f,%.2f csrc=%@", bottom, bounds.minY, scroll.contentInset.bottom, scroll.isTracking ? 1 : 0, frame.minY, frame.maxY, drawn == nil ? "scroll" : "drawn"))
+                // The content's bottom edge on screen.
+                let bottom = frame.minY + scroll.contentSize.height - bounds.minY
+                parts.append(String(format: "cb=%.2f off=%.2f inb=%.2f trk=%d", bottom, bounds.minY, scroll.contentInset.bottom, scroll.isTracking ? 1 : 0))
             }
         } else {
             parts.append("field=-")
@@ -325,28 +176,7 @@ public final class KeyboardPinTrace: NSObject {
         }
         walk(window)
         if let responder = found.first(where: \.isFirstResponder) { return responder }
-        if let lowest = found.max(by: { MobileKeyboardProbe().onScreen($0, in: window).maxY < MobileKeyboardProbe().onScreen($1, in: window).maxY }) {
-            return lowest
-        }
-        // No composer: what rides the keyboard elsewhere (the terminal's key row), else a search field.
-        return lowestVisible(in: window) { $0.accessibilityIdentifier == "terminal.key.keyboard" }
-            ?? lowestVisible(in: window) { $0 is UISearchTextField && $0.isFirstResponder }
-            ?? lowestVisible(in: window) { $0 is UISearchTextField }
-    }
-
-    private static func lowestVisible(in window: UIWindow, where match: (UIView) -> Bool) -> UIView? {
-        var best: UIView?
-        var bestBottom = -CGFloat.infinity
-        func walk(_ view: UIView) {
-            guard !view.isHidden, view.alpha > 0.01 else { return }
-            if match(view) {
-                let bottom = MobileKeyboardProbe().onScreen(view, in: window).maxY
-                if bottom > bestBottom { best = view; bestBottom = bottom }
-            }
-            for sub in view.subviews { walk(sub) }
-        }
-        walk(window)
-        return best
+        return found.max { MobileKeyboardProbe().onScreen($0, in: window).maxY < MobileKeyboardProbe().onScreen($1, in: window).maxY }
     }
 
     /// The nearest keyboard layout guide an ancestor already has (never
@@ -370,20 +200,14 @@ public final class KeyboardPinTrace: NSObject {
         return nil
     }
 
-    /// The tallest scroll view (not a text view) under the field's column;
-    /// content that says where it draws (`KeyboardRidingContent`) first.
+    /// The tallest scroll view (not a text view) under the field's column.
     static func content(behind field: UIView, in window: UIWindow) -> UIScrollView? {
         let fieldRect = MobileKeyboardProbe().onScreen(field, in: window)
         var best: UIScrollView?
         var bestHeight: CGFloat = 0
         func walk(_ view: UIView) {
             guard !view.isHidden else { return }
-            if let scroll = view as? UIScrollView, !(scroll is UITextView) {
-                let riding = scroll is any KeyboardRidingContent, bestRiding = best is any KeyboardRidingContent
-                guard riding && !bestRiding || riding == bestRiding && scroll.bounds.height > bestHeight else {
-                    for sub in view.subviews { walk(sub) }
-                    return
-                }
+            if let scroll = view as? UIScrollView, !(scroll is UITextView), scroll.bounds.height > bestHeight {
                 let rect = MobileKeyboardProbe().onScreen(scroll, in: window)
                 if rect.minX <= fieldRect.midX, rect.maxX >= fieldRect.midX, rect.height > window.bounds.height / 3 {
                     best = scroll

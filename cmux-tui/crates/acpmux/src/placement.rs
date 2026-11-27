@@ -11,8 +11,7 @@
 //! - RAM: (free − `reserved_gb`) / `per_lane_gb`;
 //! - CPU: (cores − 1-minute load) / `cores_per_lane`;
 //! - disk: (free − `free_gb_floor`) / `disk_per_lane_gb`;
-//! - lanes: the lane limit − live agents, counted as leo-workspace's `lane_admission.room_for`
-//!   counts it: `max_lanes`, or `headroom_max_lanes` while the other three show room for a lane.
+//! - lanes: `max_lanes` − live agents.
 //!
 //! The smallest of the four is its room. Among hosts with room, the registry's
 //! `lane_place.placement_preference` decides first, as leo-workspace's lane-place does
@@ -25,50 +24,19 @@
 //! than the `max_swap_used_fraction` its entry sets (none by default: a Linux
 //! host often keeps a small swap full with plenty of RAM free, which is not
 //! pressure); it is refused when its role forbids the work. When every host
-//! is passed over for room, load or swap, the one least far past its limits
-//! (lanes over its cap, RAM under its floor, counted in lanes) takes
+//! is passed over for room, load or swap, the one with the most room takes
 //! the work anyway and the verdict says so (`overloaded`): load, swap and lane
 //! caps only warn, and no launch is refused for them (Leo's rulebook, as
-//! lane-place does). A host whose resources are unknown (an old build, no reading yet,
-//! or a machine only the mesh hub reaches, which carries no health) is never taken ahead
-//! of a host known to be under its lane cap, even one short of RAM or CPU: its numbers
-//! may be worse. Builds go only to
+//! lane-place does). Builds go only to
 //! `lanes.build: true`; `"fallback"` takes a build only when no `true` host
 //! has room. Hosts, sizes and roles come from fleet-registry.json's
 //! `lanes` entries (no name here); a host with none is not a lane host. A
-//! peer too old to report health is never refused for it: it takes the work only
-//! when no host with a reading is under its cap, and its line says how to update it. A host the registry holds (`hold`, a reservation, `retired`, or a
+//! peer too old to report health is never refused for it: it ranks after
+//! every host with a reading. A host the registry holds (`hold`, a reservation, `retired`, or a
 //! `status` that says it is idle-stopped, stopped or paused) takes no new work at all.
 //!
 //! Without a registry (acpmux outside the fleet) every connected peer is a
 //! candidate and the defaults below size it.
-
-pub(crate) mod command_sampler;
-pub(crate) mod command_shadow;
-pub mod exec_router;
-pub(crate) mod move_targets;
-pub mod reach;
-pub mod run_vm;
-pub mod sub_fork;
-pub mod sub_fork_run;
-pub mod work_place;
-pub mod work_wire;
-
-/// AutoCloud's hidden settings key (RFD 0144), off unless the settings file says `true`.
-pub const AUTO_CLOUD_KEY: &str = "cloud.autoCloud";
-
-/// Whether the AutoCloud key is on in the settings file now, read straight from the file each
-/// call. A missing or unreadable file, or anything but a literal `true`, is off. Every RFD 0144
-/// placer (the command placer's shadow, sub-agent forks) reads the key through this one helper.
-pub fn auto_cloud_on() -> bool {
-    use crate::user_settings::{self, Settings};
-    matches!(user_settings::read(), Settings::Parsed(doc) if auto_cloud_in(&doc))
-}
-
-/// Whether a parsed settings document turns AutoCloud on (`true` only, never a truthy string).
-pub fn auto_cloud_in(doc: &Value) -> bool {
-    crate::user_settings::value(doc, AUTO_CLOUD_KEY) == Some(Value::Bool(true))
-}
 
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -111,41 +79,24 @@ pub fn placed(verdict: &Value) -> Option<String> {
 /// One host to weigh: its name, whether it is this machine, its last
 /// health reading (`_acpmux/host_health` fields, or null), and when that
 /// reading arrived (ms on this machine's clock; `None` when unknown). The
-/// weighing reads `unreachable`, which `peer_at` derives from `health_at` and the failures
-/// recorded (`reach.rs`); the shadow verdict reads `health_at` too (`shadow_admission.rs`).
-/// `via_hub`: a machine only the mesh hub lists (`mesh_book_hosts`), which no link asks
-/// for health, so its resources stay unknown whatever its build.
+/// weighing ignores `health_at`; the shadow verdict reads it (`shadow_admission.rs`).
 #[derive(Clone, Debug)]
 pub struct Candidate {
     pub name: String,
     pub local: bool,
     pub health: Value,
     pub health_at: Option<u64>,
-    pub via_hub: bool,
-    /// Why it cannot be reached now (`reach.rs`): a stale reading, a failed health read, or a
-    /// transfer to it that failed within the cooldown. Such a host takes no work, even as the
-    /// overloaded fallback.
-    pub unreachable: Option<String>,
 }
 
 impl Candidate {
     /// A connected peer from its `Hub::peers` row (`peer.rs` `summary`): its
     /// name, its last reading and `healthAt`. `None` for a row with no name.
     pub fn peer(row: &Value) -> Option<Self> {
-        Self::peer_at(row, crate::store::now_ms(), &reach::Failures::load())
-    }
-
-    /// [`Candidate::peer`] at `now` (ms), with the transfer failures `failures` recorded.
-    pub fn peer_at(row: &Value, now: u64, failures: &reach::Failures) -> Option<Self> {
-        let name = row.get("name")?.as_str()?;
-        let unreachable = reach::row_unreachable(row, now).or_else(|| failures.failure(name, now));
         Some(Self {
-            unreachable,
-            name: name.to_owned(),
+            name: row.get("name")?.as_str()?.to_owned(),
             local: false,
             health: row.get("health").cloned().unwrap_or(Value::Null),
             health_at: row.get("healthAt").and_then(Value::as_u64),
-            via_hub: row.get("via").and_then(Value::as_str) == Some("hub"),
         })
     }
 }
@@ -161,9 +112,6 @@ struct Lanes {
     disk_per_lane_gb: f64,
     cores_per_lane: f64,
     max_lanes: Option<f64>,
-    /// lane-place's admission ceiling past `max_lanes` (`lane_admission.py`): a host may take
-    /// lanes up to it while its RAM holds one more, so it, when set, is the lanes term's cap.
-    headroom_max_lanes: Option<f64>,
     max_swap_used_fraction: Option<f64>,
     /// Why the host takes no new work: its registry entry's `hold` (`lane_hosts`).
     held: Option<String>,
@@ -187,7 +135,6 @@ impl Default for Lanes {
             disk_per_lane_gb: 3.0,
             cores_per_lane: 1.0,
             max_lanes: None,
-            headroom_max_lanes: None,
             max_swap_used_fraction: None,
             held: None,
         }
@@ -216,10 +163,6 @@ impl Lanes {
                 .get("max_lanes")
                 .and_then(Value::as_f64)
                 .filter(|n| n.is_finite() && *n >= 0.0),
-            headroom_max_lanes: v
-                .get("headroom_max_lanes")
-                .and_then(Value::as_f64)
-                .filter(|n| n.is_finite() && *n >= 0.0),
             max_swap_used_fraction: v
                 .get("max_swap_used_fraction")
                 .and_then(Value::as_f64)
@@ -228,40 +171,6 @@ impl Lanes {
             held: v.get(HELD).and_then(Value::as_str).map(str::to_owned),
         }
     }
-
-    /// The most lanes measured headroom may admit: `headroom_max_lanes` when it is at least
-    /// `max_lanes`, else `max_lanes`; none without `max_lanes`.
-    fn ceiling(&self) -> Option<f64> {
-        let cap = self.max_lanes?;
-        Some(self.headroom_max_lanes.filter(|c| *c >= cap).unwrap_or(cap))
-    }
-
-    /// Where `live` lanes stand against the cap, as leo-workspace's `lane_admission.room_for`
-    /// counts them (the one count its picker, admission and cap watch read): under `max_lanes`;
-    /// past it and under the ceiling only while `headroom` (the reading shows room for a lane);
-    /// else full. Without `max_lanes` or a live count, unknown.
-    fn cap_state(&self, live: Option<u64>, headroom: bool) -> CapState {
-        let (Some(cap), Some(ceiling), Some(live)) = (self.max_lanes, self.ceiling(), live) else {
-            return CapState::Unknown;
-        };
-        let live = live as f64;
-        if live < cap {
-            CapState::Under
-        } else if live < ceiling && headroom {
-            CapState::Headroom
-        } else {
-            CapState::Full
-        }
-    }
-}
-
-/// A host's lanes against its cap (`Lanes::cap_state`, lane_admission's `room_for` states).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CapState {
-    Under,
-    Headroom,
-    Full,
-    Unknown,
 }
 
 /// The key `lane_hosts` sets in a held machine's `lanes` value: why it is held.
@@ -281,7 +190,8 @@ pub fn hold(machine: &Value, now_ms: u64) -> Option<String> {
         Value::String(s) if !s.trim().is_empty() => (Some(s.clone()), None),
         Value::Object(_) => (
             text("reason").or_else(|| text("why")).map(str::to_owned),
-            hold.get("until").map(|u| u.as_str().and_then(crate::clock_text::rfc3339_ms)),
+            hold.get("until")
+                .map(|u| u.as_str().and_then(crate::server::machine_health::rfc3339_ms)),
         ),
         _ => return Some(format!("held (its hold {hold} cannot be read)")),
     };
@@ -326,45 +236,6 @@ pub fn personal(registry: Option<&Value>, name: &str) -> bool {
     interactive(registry, name) || machine(registry, name).is_some_and(|m| has_role(m, "leo-apps"))
 }
 
-/// Why a move's `--machine auto` never picks `name` (by name or alias), from the registry:
-/// a person's own machine (`personal`: `interactive`, `leo-mac`, `attended` or `leo-apps`, which
-/// the registry describes as one nothing shared may depend on), or a last-resort host
-/// (`lanes.last_resort`), which takes no agent lane. A hold or reservation is `held`'s.
-/// `None`: auto may pick it. A move that names the machine is the caller's choice.
-pub fn auto_move_refusal(registry: Option<&Value>, name: &str) -> Option<String> {
-    if personal(registry, name) {
-        return Some(
-            "a person's own machine (fleet-registry.json interactive, leo-mac, attended or \
-             leo-apps): never a dependency, so auto never moves a chat there; name it to"
-                .into(),
-        );
-    }
-    last_resort(registry, name).then(|| {
-        "a last-resort host (fleet-registry.json lanes.last_resort): it takes captures and \
-         builds, never an agent lane; name it to"
-            .into()
-    })
-}
-
-/// Whether `row`'s only fault is a build that differs from this one (`outdated`, its disk copy
-/// stale): with that left out it is up (`peer_down`). A move goes over ssh to the peer's own
-/// daemon, so such a peer can still take one.
-pub fn only_outdated(row: &Value) -> bool {
-    if row.get("outdated").and_then(Value::as_bool) != Some(true) {
-        return false;
-    }
-    let mut row = row.clone();
-    if let Some(o) = row.as_object_mut() {
-        o.remove("outdated");
-    }
-    link_down(&row).is_none()
-}
-
-/// The one command that refreshes the outdated peer `name`'s build (`cli/peer_status.rs`).
-pub fn refresh_command(name: &str) -> String {
-    format!("acpmux machine update {name}")
-}
-
 /// Whether the registry gives `name` (by name or alias) `lanes.last_resort: true`: a host
 /// lane-place puts after every other one, and that takes a dispatch only for a capture or
 /// build (design/agent-dispatch.md: "never selected for a general agent lane"). False without
@@ -375,7 +246,7 @@ pub fn last_resort(registry: Option<&Value>, name: &str) -> bool {
 }
 
 /// The registry's entry for `name`, by name or alias (`canonical`).
-pub(crate) fn machine<'a>(registry: Option<&'a Value>, name: &str) -> Option<&'a Value> {
+fn machine<'a>(registry: Option<&'a Value>, name: &str) -> Option<&'a Value> {
     let machines = registry?.get("machines")?.as_object()?;
     let want = canonical(name);
     machines.iter().find(|(n, m)| machine_names(n, m).contains(&want)).map(|(_, m)| m)
@@ -422,8 +293,7 @@ pub fn lane_hosts_at(registry: Option<&Value>, now_ms: u64) -> Option<Vec<(Vec<S
 }
 
 /// Why `names` (a machine's registry name and aliases, `canonical`) takes no new work at
-/// `now_ms`: its `retired` flag, its `status` (`stopped`), its own `hold` (`hold`), its lanes'
-/// `accept_new` false (a drain), else a top-level `reservations` entry naming it
+/// `now_ms`: its `retired` flag, its `status` (`stopped`), its own `hold` (`hold`), else a top-level `reservations` entry naming it
 /// (`{id, owner, hosts, from, until}`, active from `from` to `until`, so it lapses by itself; an
 /// entry whose times cannot be read still holds, as leo-workspace's `fleet_reservations.py`
 /// reads them).
@@ -441,26 +311,7 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
     if let Some(why) = hold(machine, now_ms) {
         return Some(why);
     }
-    let lanes = machine.get("lanes");
-    // A machine that is never a lane host (`lanes.lane_host` false): a person's own box, no
-    // override (Leo, 2026-11-27, of big-red: "then please don't rely on big-red").
-    if lanes.and_then(|l| l.get("lane_host")) == Some(&Value::Bool(false)) {
-        let why = lanes.and_then(|l| l.get("lane_host_why")).and_then(Value::as_str);
-        return Some(match why.map(str::trim).filter(|s| !s.is_empty()) {
-            Some(why) => format!("never a lane host: {why}"),
-            None => "never a lane host (lanes.lane_host false)".into(),
-        });
-    }
-    // leo-workspace lane-place's drain flag: a lane host with `lanes.accept_new` false takes no new
-    // lanes, so this pick skips it too and one field drains a host for every placer.
-    if lanes.and_then(|l| l.get("accept_new")) == Some(&Value::Bool(false)) {
-        let why = lanes.and_then(|l| l.get("accept_new_why")).and_then(Value::as_str);
-        return Some(match why.map(str::trim).filter(|s| !s.is_empty()) {
-            Some(why) => format!("draining: {why}"),
-            None => "draining (lanes.accept_new false)".into(),
-        });
-    }
-    let time = |v: &Value| v.as_str().and_then(crate::clock_text::rfc3339_ms);
+    let time = |v: &Value| v.as_str().and_then(crate::server::machine_health::rfc3339_ms);
     // A list, or an entry's hosts, that cannot be read may name any machine: it holds them all.
     const UNREADABLE: &str = "held: the registry's reservations cannot be read";
     let entries = match registry.get("reservations") {
@@ -499,14 +350,14 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
 /// The `status` words that say a machine is off for now: leo-workspace's host_state.py reads an
 /// `idle-stopped` one (and a `retired` one) as stopped, and reach and the stall reconciler skip it.
 /// `retiring` is still up.
-const STOPPED: [&str; 6] = ["idle-stopped", "stopped", "paused", "retired", "restarting", "stale"];
+const STOPPED: [&str; 4] = ["idle-stopped", "stopped", "paused", "retired"];
 
 /// Why a machine's registry `status` keeps new work off it: it starts with one of `STOPPED`
 /// (any case). It holds even while its peer link reads connected: a link that comes back for a
 /// moment says nothing about whether the VM stays up, and a start forwarded to it was refused
 /// with only an ssh hint. Deleting the status line, as the registry asks once it is started for
 /// good, lets it take work again.
-pub(crate) fn stopped(machine: &Value) -> Option<String> {
+fn stopped(machine: &Value) -> Option<String> {
     let status = machine.get("status")?.as_str()?.trim().to_ascii_lowercase();
     let word = STOPPED.iter().find(|w| status.starts_with(**w))?;
     Some(format!("{word} (its fleet-registry.json status)"))
@@ -515,41 +366,11 @@ pub(crate) fn stopped(machine: &Value) -> Option<String> {
 /// Why a peer row (`Hub::peers`, `peer.rs` `summary`) is no candidate now: its link is not up.
 /// Both its `connected` flag and its live `state` must say up (`degraded` is slow, not gone), so
 /// a flag left set while the link reconnects never makes it one. `None`: it is a candidate.
-///
-/// A machine only the mesh hub lists (`via: "hub"`, `mesh_book_hosts`) is one: its health comes
-/// through the hub (`hub/hub_health.rs`), and a session placed there starts through the hub's
-/// start relay (`server/mesh_control_send.rs` `start_through_hub`), as `acpmux session start
-/// --machine` does. Until 2026-11-24 it never was (a pick of it failed with `no peer "HOST"`),
-/// and on a lane VM, where every fleet host was hub-only, `machine pick` refused them all. A
-/// caller that needs a direct link (a move over ssh, the app's machine list) asks [`link_down`].
 pub fn peer_down(row: &Value) -> Option<String> {
-    if row.get("outdated").and_then(Value::as_bool) == Some(true) {
-        return Some("outdated peer build (stale disk copy)".into());
-    }
     let state = row.get("state").and_then(Value::as_str);
     let flag = row.get("connected").and_then(Value::as_bool) == Some(true);
     let up = flag && state.is_none_or(|s| matches!(s, "connected" | "degraded"));
     (!up).then(|| format!("not connected ({})", state.unwrap_or("down")))
-}
-
-/// [`peer_down`] for a caller that reaches the machine over a direct link only: a machine only
-/// the mesh hub lists is never one ([`hub_only`] says why).
-pub fn link_down(row: &Value) -> Option<String> {
-    if row.get("via").and_then(Value::as_str) == Some("hub")
-        && row.get("outdated").and_then(Value::as_bool) != Some(true)
-    {
-        let name = row.get("name").and_then(Value::as_str).unwrap_or("HOST");
-        return Some(hub_only(name));
-    }
-    peer_down(row)
-}
-
-/// Why a machine only the mesh hub reaches takes no placed work, and the two ways to start there.
-pub fn hub_only(name: &str) -> String {
-    format!(
-        "only the mesh hub reaches it, and a new session starts only over a direct link: \
-         `acpmux machine add {name}` links it, or start the session from a machine linked to it"
-    )
 }
 
 /// `verdict` with each peer `down` names (its name and `peer_down`'s why) listed in `hosts` as
@@ -628,37 +449,7 @@ pub fn registry_path() -> Option<PathBuf> {
 }
 
 pub fn load_registry() -> Option<Value> {
-    let mut registry: Value =
-        serde_json::from_slice(&std::fs::read(registry_path()?).ok()?).ok()?;
-    fold_role_holders(&mut registry);
-    Some(registry)
-}
-
-/// Folds the registry's top-level `role_holders` (`{role: [host, ...]}`) into each machine's
-/// `roles`: a machine's roles are its own `roles` array plus every role whose holder list names
-/// it (by machine name), appended in sorted role order without duplicates. A holder that is no
-/// machine is ignored. Idempotent.
-pub fn fold_role_holders(registry: &mut Value) {
-    let Some(holders) = registry.get("role_holders").and_then(Value::as_object).cloned() else {
-        return;
-    };
-    let Some(machines) = registry.get_mut("machines").and_then(Value::as_object_mut) else {
-        return;
-    };
-    let mut roles: Vec<&String> = holders.keys().collect();
-    roles.sort();
-    for role in roles {
-        let Some(list) = holders[role].as_array() else { continue };
-        for host in list.iter().filter_map(Value::as_str) {
-            let Some(m) = machines.get_mut(host).and_then(Value::as_object_mut) else { continue };
-            let entry = m.entry("roles").or_insert_with(|| json!([]));
-            if let Some(arr) = entry.as_array_mut() {
-                if !arr.iter().any(|r| r.as_str() == Some(role)) {
-                    arr.push(json!(role));
-                }
-            }
-        }
-    }
+    serde_json::from_slice(&std::fs::read(registry_path()?).ok()?).ok()
 }
 
 /// The providers `lane_place.placement_preference` may name besides machine names.
@@ -712,10 +503,6 @@ struct Weighed {
     local: bool,
     lanes: Lanes,
     room: Option<f64>,
-    /// How far its tightest term is past its limit, in lanes (0 or less; 0 with room or no
-    /// reading): `-32` for a host 32 sessions over its lane cap. Room is clamped at 0, so this
-    /// is what tells two hosts with no room apart in the overloaded fallback (`place`).
-    short: f64,
     /// Live agents from the reading; `None` when it has none (unknown, never 0).
     live: Option<u64>,
     refused: Option<String>,
@@ -724,44 +511,7 @@ struct Weighed {
     load: bool,
     /// Its `placement_preference` tier (`tier`), counted only while it has room (`place`).
     tier: Option<(usize, String)>,
-    /// It has no health reading (`unknown`): it takes the work only when no host with one is
-    /// under its lane cap (`place`).
-    unknown: bool,
-    /// Its lanes against its cap (`Lanes::cap_state`).
-    cap: CapState,
     why: String,
-    /// Free RAM in bytes from the reading: the new-chat chip's "This Mac: 12 GB free".
-    ram_free: Option<f64>,
-    /// Its AutoCloud enrollment block from the reading (`autocloud_enroll.rs`), as it said it;
-    /// null from a machine on an older build: `place_mode`'s enrolled tier.
-    auto_cloud: Value,
-}
-
-impl Weighed {
-    /// It has a reading and its lanes are not full (`CapState`): under `max_lanes`, or past it on
-    /// measured headroom. A host with no cap configured, or whose reading has no live count,
-    /// counts as under it: a host we can read goes ahead of one we cannot.
-    fn under_cap(&self) -> bool {
-        !self.unknown && self.cap != CapState::Full
-    }
-}
-
-/// Why `c` has no reading, and what to do about it, for its line.
-fn unknown(c: &Candidate) -> String {
-    let name = &c.name;
-    if c.health.get("unsupported").is_some() {
-        format!(
-            "resources unknown: its acpmux build has no host health; update it (`acpmux machine update {name}`)"
-        )
-    } else if c.via_hub {
-        format!(
-            "resources unknown: only the mesh hub reaches it, and it has not answered a health \
-             read through the hub yet (one is asked at each placement; `acpmux machine add \
-             {name}` links it directly)"
-        )
-    } else {
-        "resources unknown: no health reading yet (one comes within a minute of connecting)".into()
-    }
 }
 
 const GB: f64 = 1e9;
@@ -780,16 +530,11 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         local: c.local,
         lanes: lanes.clone().unwrap_or_default(),
         room: None,
-        short: 0.0,
         live,
         refused: None,
         load: false,
         tier: None,
-        unknown: !known,
-        cap: CapState::Unknown,
         why: String::new(),
-        ram_free: None,
-        auto_cloud: h.get("autoCloud").cloned().unwrap_or(Value::Null),
     };
     let Some(lanes) = lanes else {
         w.refused = Some("not a lane host (no lanes entry in fleet-registry.json)".into());
@@ -800,20 +545,13 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         w.refused = Some(why.clone());
         return w;
     }
-    // A host the transport cannot reach now takes nothing: a pick there fails at the copy or the
-    // start, and the work lands wherever the caller falls back to (`reach.rs`).
-    if let Some(why) = &c.unreachable {
-        w.refused = Some(why.clone());
-        return w;
-    }
     if !known {
-        w.why = unknown(c);
+        w.why = "resources unknown (a build without host health)".into();
         return w;
     }
     let mut parts = Vec::new();
     let mut rooms = Vec::new();
     if let Some(free) = reading(h, "/ram/freeBytes") {
-        w.ram_free = Some(free);
         parts.push(format!("{:.0} GB RAM free", free / GB));
         rooms.push(("RAM", (free / GB - lanes.reserved_gb) / lanes.per_lane_gb));
     }
@@ -827,18 +565,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         parts.push(format!("{:.0} GB disk free", free / GB));
         rooms.push(("disk", (free / GB - lanes.free_gb_floor) / lanes.disk_per_lane_gb));
     }
-    // Headroom, as lane_admission's `headroom_short` judges it: the reading shows room for a lane
-    // in RAM, CPU and disk, within its budget and its swap limit. Past `max_lanes` only it admits
-    // lanes, up to the ceiling.
-    let swap = (reading(h, "/swap/usedBytes"), reading(h, "/swap/totalBytes").filter(|t| *t > 0.0));
-    let over_budget = h.pointer("/pressure/ok").and_then(Value::as_bool) == Some(false);
-    let swap_full = matches!((swap.0, swap.1, lanes.max_swap_used_fraction),
-        (Some(used), Some(total), Some(max)) if used / total >= max);
-    let fits = rooms.iter().map(|r| r.1).min_by(f64::total_cmp).is_some_and(|r| r >= 1.0);
-    let headroom = fits && !over_budget && !swap_full;
-    w.cap = lanes.cap_state(live, headroom);
-    let limit = if headroom { lanes.ceiling() } else { lanes.max_lanes };
-    if let (Some(max), Some(live)) = (limit, live) {
+    if let (Some(max), Some(live)) = (lanes.max_lanes, live) {
         parts.push(format!("{live}/{max:.0} lanes"));
         rooms.push(("lanes", max - live as f64));
     }
@@ -849,8 +576,8 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     }
     w.why = parts.join(", ");
     w.room = room;
-    w.short = tightest.map_or(0.0, |(_, r)| r.min(0.0));
-    if over_budget {
+    let swap = (reading(h, "/swap/usedBytes"), reading(h, "/swap/totalBytes").filter(|t| *t > 0.0));
+    if h.pointer("/pressure/ok").and_then(Value::as_bool) == Some(false) {
         let over: Vec<&str> = h
             .pointer("/pressure/over")
             .and_then(Value::as_array)
@@ -882,10 +609,9 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
 
 /// The pick and every host's verdict, as `_acpmux/place` returns them:
 /// `{"pick": NAME|null, "local": bool, "overloaded": bool (no host had room and the pick
-/// takes it anyway), "why": TEXT, "room": LANES|null (the pick's), "localOver": TEXT|null (why
-/// this machine is over its budget, room or swap), "work": "agent"|"build", "tier": {index, of}|null (the
+/// takes it anyway), "why": TEXT, "work": "agent"|"build", "tier": {index, of}|null (the
 /// pick's placement_preference tier, 1 best), "hosts": [{name, local, ok, room, rank, tier,
-/// live, why, ramFree, refused}]}`.
+/// live, why, refused}]}`.
 pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> Value {
     let hosts = lane_hosts(registry);
     let lanes_of = |name: &str| -> Option<Lanes> {
@@ -936,50 +662,30 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
         }
     }
     // The best placement_preference tier first (a host in none after every one in one), then
-    // most room, then the registry's rank, then fewer live agents. A host with a reading and
-    // room goes first. With none, a host with no reading, unless a host passed over for room,
-    // load or swap is still under its lane cap: a host with no reading never goes ahead of one
-    // known to be under its cap, since its numbers may be worse. Then the hosts passed over
-    // only for room, load or swap whose role takes the work.
-    let takes = |w: &&Weighed| w.load && (work == Work::Agent || w.lanes.build != Build::No);
-    let mut order: Vec<&Weighed> =
-        weighed.iter().filter(|w| w.refused.is_none() && !w.unknown).collect();
-    let mut overloaded = false;
-    if order.is_empty() {
-        let under: Vec<&Weighed> = weighed.iter().filter(|w| takes(w) && w.under_cap()).collect();
-        let unread: Vec<&Weighed> =
-            weighed.iter().filter(|w| w.refused.is_none() && w.unknown).collect();
-        (order, overloaded) = match (unread.is_empty(), under.is_empty()) {
-            (false, true) => (unread, false),
-            (false, false) => (under, true),
-            (true, _) => (weighed.iter().filter(takes).collect(), true),
-        };
+    // most room (a host with no reading after every host with one), then the registry's rank,
+    // then fewer live agents. With none left, the hosts passed over only for room, load or
+    // swap whose role takes the work.
+    let mut order: Vec<&Weighed> = weighed.iter().filter(|w| w.refused.is_none()).collect();
+    let overloaded = order.is_empty();
+    if overloaded {
+        order = weighed
+            .iter()
+            .filter(|w| w.load && (work == Work::Agent || w.lanes.build != Build::No))
+            .collect();
     }
-    // Lanes against the cap first, in lane_admission's pick order: under `max_lanes` (or no cap
-    // or count read), then past it on headroom, then full. An unread host stands between the
-    // last two (`under_cap` and the order above).
-    let cap_rank = |w: &Weighed| match w.cap {
-        CapState::Under | CapState::Unknown => 0,
-        CapState::Headroom => 1,
-        CapState::Full => 2,
-    };
     order.sort_by(|a, b| {
         let room = |w: &Weighed| w.room.unwrap_or(-1.0);
         let best = |w: &Weighed| w.tier.as_ref().map_or(usize::MAX, |t| t.0);
-        cap_rank(a)
-            .cmp(&cap_rank(b))
-            .then(best(a).cmp(&best(b)))
+        best(a)
+            .cmp(&best(b))
             .then(room(b).total_cmp(&room(a)))
-            // With no room, the host least far past its limits first: one 32 sessions over its
-            // cap never ties with one at it (a lane host ran 38 against a cap of 6 on 2026-11-20).
-            .then(b.short.total_cmp(&a.short))
             .then(a.lanes.rank.total_cmp(&b.lanes.rank))
             .then(a.live.unwrap_or(u64::MAX).cmp(&b.live.unwrap_or(u64::MAX)))
     });
     let pick = order.first();
     let why = match pick {
         Some(w) if overloaded => format!(
-            "{}: {} ({}; no host has room, so the one least far past its limits takes it: load and lane caps only warn)",
+            "{}: {} ({}; no host has room, so the one with the most takes it: load and lane caps only warn)",
             w.name,
             w.why,
             w.refused.as_deref().unwrap_or_default()
@@ -988,17 +694,11 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
         None => "no host has room for this; `acpmux machine pick --json` says why each was refused"
             .to_owned(),
     };
-    // This machine's own verdict when its load, room or swap turns it away: the composer's "This
-    // Mac is busy" chip (design/remote-spin-up.md 2.3) says it, and offers the pick instead.
-    let local_over = weighed.iter().find(|w| w.local && w.load).and_then(|w| w.refused.clone());
     json!({
         "pick": pick.map(|w| w.name.clone()),
         "local": pick.is_some_and(|w| w.local),
         "overloaded": overloaded && pick.is_some(),
         "why": why,
-        // The pick's room in lanes (null without a reading): the composer's "room for 5".
-        "room": pick.and_then(|w| w.room),
-        "localOver": local_over,
         "work": work.as_str(),
         "tier": pick.and_then(|w| w.tier.as_ref()).map(|(at, of)| json!({"index": at.saturating_add(1), "of": of})),
         "hosts": weighed.iter().map(|w| json!({
@@ -1011,10 +711,6 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             "tier": w.tier.as_ref().map(|(at, of)| json!({"index": at.saturating_add(1), "of": of})),
             "live": w.live,
             "why": w.why,
-            // Free RAM in bytes (null without a reading): place_mode's chip.
-            "ramFree": w.ram_free,
-            // Its AutoCloud enrollment (null: an older build, not enrolled): `place_mode`.
-            "autoCloud": w.auto_cloud,
             "refused": w.refused,
             // Refused only for room, load or swap: it may still take work (`overloaded`).
             "load": w.load,

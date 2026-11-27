@@ -29,15 +29,6 @@ impl Hub {
         }
         self.watch_orphans();
         self.store_load.ready.send_replace(true);
-        // Chats read now get the synced winners kept for them (`synced.rs`).
-        self.synced_after_start();
-        // Chats with no agent may leave memory (`evict.rs`): the reaper runs for them too.
-        if self.evicted.after().is_some() || self.evicted.cap().is_some() {
-            self.wake_idle_reaper();
-        }
-        // Closed sessions' temporary folders, now and every hour (`closed_tmp.rs`).
-        #[cfg(unix)]
-        self.sweep_closed_tmps();
         self.bg_notify_resume_in_background();
     }
 
@@ -81,11 +72,7 @@ impl Hub {
             let Ok(Some(meta)) = hub.store.load_startup(&id) else {
                 return false;
             };
-            // A deleted chat stays out of the map: the whole read holds it (`soft_delete.rs`).
-            if meta.id != id
-                || super::soft_delete::deleted_until(&meta).is_some()
-                || (meta.permission_policy.is_some() && meta.policy_source.is_none())
-            {
+            if meta.id != id || (meta.permission_policy.is_some() && meta.policy_source.is_none()) {
                 return false;
             }
             // Unknown liveness is kept for adoption; it never turns a possibly running turn
@@ -119,14 +106,7 @@ impl Hub {
             return;
         }
         match method {
-            // Terminal history reads the harness's own file, even if the acpmux event store or
-            // device chat index is still loading after an app restart.
-            INITIALIZE
-            | MUX_STATUS
-            | MUX_PERSON_ENROLL
-            | MUX_PERSON_PROVE
-            | MUX_CHAT_TRANSCRIPT_PAGE
-            | MUX_CHAT_TRANSCRIPT_FIND => {}
+            INITIALIZE | MUX_STATUS | MUX_PERSON_ENROLL | MUX_PERSON_PROVE => {}
             MUX_ATTACH | MUX_INFO | MUX_EVENTS => {
                 if let Ok(key) = crate::server::session_key(params) {
                     self.session_meta(key).await;

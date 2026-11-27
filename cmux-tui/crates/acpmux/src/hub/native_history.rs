@@ -18,7 +18,6 @@
 //! agent runs with, found as `_acpmux/subagent_transcript` finds that store. The caller names only
 //! a cursor, never a path.
 
-use super::native_history_chain as chain;
 use super::{Hub, Session};
 use crate::adopt_replay::PastTurn;
 use crate::rpc::{MAX_MESSAGE_BYTES, RpcError};
@@ -237,18 +236,14 @@ pub(crate) async fn handle(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcE
         Some(Value::Null) | None => None,
         Some(_) => return Err(stale()),
     };
-    let meta = session.meta();
-    let home = super::subagent_transcript::claude_home(hub, &meta).await;
-    let (file, depth, seed, mark) =
-        which_transcript(hub, &session, &meta, home.clone(), mark).await?;
-    // Where paging goes on once this transcript is read to its start (`native_history_chain.rs`).
-    let older = chain::older_ids(&meta, seed.as_deref());
+    let file = transcript(hub, &session)
+        .await
+        .ok_or_else(|| RpcError::invalid_params("the chat has no Claude Code transcript"))?;
     let _turn = READS.acquire().await.map_err(|e| RpcError::internal(e.to_string()))?;
     let session = session.clone();
     let hub = hub.clone();
     tokio::task::spawn_blocking(move || {
         let mut input = std::fs::File::open(&file).map_err(|_| stale())?;
-        let mut hop: Option<chain::Hop> = None;
         let mark = match mark {
             Some(mark) => mark,
             None => {
@@ -292,22 +287,11 @@ pub(crate) async fn handle(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcE
                 return Err(stale());
             }
             let next_mark = if page.start > 0 { self::mark(&mut input, page.start) } else { None };
-            // An earlier transcript's cursor stays chained, so its next page keeps its own band.
-            let next_mark = match (depth, seed.as_deref()) {
-                (1.., Some(id)) => next_mark.map(|inner| chain::chain_mark(depth, id, &inner)),
-                _ => next_mark,
-            };
-            if page.start == 0 && hop.is_none() {
-                hop = Some(chain::hop(home.as_deref(), &older, depth));
-            }
-            let at_start = hop.as_ref().filter(|_| page.start == 0);
-            let mut reply = page_reply_at(&session, depth, before, page, next_mark, at_start);
+            let mut reply = page_reply(&session, before, page, next_mark);
             if result_bytes(&reply) <= REPLY_BYTES || turn_count <= 1 {
                 if reread > 0 {
-                    let read = reply.get("read").and_then(Value::as_u64).unwrap_or(0);
-                    if let Some(fields) = reply.as_object_mut() {
-                        fields.insert("read".into(), json!(read.saturating_add(reread)));
-                    }
+                    let read = reply["read"].as_u64().unwrap_or(0).saturating_add(reread);
+                    reply["read"] = json!(read);
                 }
                 break fit_reply(reply);
             }
@@ -318,68 +302,6 @@ pub(crate) async fn handle(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcE
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))?
-}
-
-/// The transcript a cursor reads, how many transcripts back from the seeded one it is, the
-/// Claude id it belongs to (None for a watched file) and the cursor's own mark:
-/// - a chained mark (`native_history_chain.rs`) names one of the chat's earlier Claude ids, the
-///   only ones it may name;
-/// - else the chat's transcript ([`transcript`]); when the mark was taken on another file, the
-///   seeded transcript of a chat that has since resumed under a new id: the earlier id whose file
-///   it was taken on.
-async fn which_transcript(
-    hub: &Arc<Hub>,
-    session: &Session,
-    meta: &crate::store::SessionMeta,
-    home: Option<PathBuf>,
-    mark: Option<String>,
-) -> Result<(PathBuf, u32, Option<String>, Option<String>), RpcError> {
-    if let Some(chained) = mark.as_deref().and_then(chain::parse) {
-        let (Some(home), true) = (home, chain::authorized(meta, &chained.id)) else {
-            return Err(stale());
-        };
-        let id = chained.id.clone();
-        let file = tokio::task::spawn_blocking(move || crate::adopt::find_claude(&home, &id))
-            .await
-            .ok()
-            .flatten()
-            .ok_or_else(stale)?;
-        return Ok((file, chained.depth, Some(chained.id), Some(chained.inner)));
-    }
-    let watched = meta.watching.as_ref().is_some_and(|w| w.family == "claude");
-    let current = transcript(hub, session).await;
-    let seed = if watched {
-        None
-    } else {
-        meta.agent_session_id
-            .clone()
-            .filter(|_| meta.agent_session_family.as_deref().is_none_or(|f| f == "claude"))
-    };
-    let moved = match (&mark, &current) {
-        (Some(mark), Some(file)) => chain::identity(mark).is_some_and(|want| {
-            std::fs::metadata(file).ok().map(|m| file_identity(&m)) != Some(want)
-        }),
-        (Some(_), None) => true,
-        _ => false,
-    };
-    if moved
-        && !watched
-        && let (Some(home), Some(mark)) = (home, mark.clone())
-    {
-        let ids: Vec<String> = meta.previous_agent_session_ids.iter().rev().cloned().collect();
-        let wanted = mark.clone();
-        let found =
-            tokio::task::spawn_blocking(move || chain::seeded_by_mark(&home, &ids, &wanted))
-                .await
-                .ok()
-                .flatten();
-        if let Some((id, file)) = found {
-            return Ok((file, 0, Some(id), Some(mark)));
-        }
-    }
-    let file = current
-        .ok_or_else(|| RpcError::invalid_params("the chat has no Claude Code transcript"))?;
-    Ok((file, 0, seed, mark))
 }
 
 /// The chat's Claude Code transcript: the one it watches, else its Claude session's in its store.
@@ -393,54 +315,22 @@ async fn transcript(hub: &Arc<Hub>, session: &Session) -> Option<PathBuf> {
     tokio::task::spawn_blocking(move || crate::adopt::find_claude(&home, &id)).await.ok().flatten()
 }
 
-#[cfg(test)]
 fn page_reply(
     session: &Session,
     before: u64,
     page: crate::adopt_replay::ClaudePage,
     mark: Option<String>,
 ) -> Value {
-    page_reply_at(session, 0, before, page, mark, None)
-}
-
-/// The reply for `page`, `depth` transcripts back. `hop`, given when the page reached its
-/// transcript's start, puts the joins' dividers first and points the cursor at the older one.
-fn page_reply_at(
-    session: &Session,
-    depth: u32,
-    before: u64,
-    page: crate::adopt_replay::ClaudePage,
-    mark: Option<String>,
-    hop: Option<&chain::Hop>,
-) -> Value {
     let agent_sid = session.meta().agent_session_id.unwrap_or_default();
     // A record the transcript gives no time takes the one before it, else the page's first.
-    let first_at = page.turns.iter().find_map(|t| t.prompt_at.or(t.answer_at));
-    let mut at = first_at.unwrap_or_else(now_ms);
+    let mut at = page.turns.iter().find_map(|t| t.prompt_at.or(t.answer_at)).unwrap_or_else(now_ms);
     let mut events = Vec::new();
-    for text in hop.map(|hop| hop.dividers(first_at)).unwrap_or_default() {
-        events.push(chain::divider(
-            &session.id,
-            chain::seq(depth, before, events.len()),
-            at,
-            &text,
-        ));
-    }
-    let mut compactions = page.compactions.iter().copied().peekable();
     for (i, turn) in page.turns.iter().enumerate() {
-        while compactions.next_if(|&c| c <= i).is_some() {
-            let seq = chain::seq(depth, before, events.len());
-            let when = turn.prompt_at.unwrap_or(at);
-            events.push(chain::divider(&session.id, seq, when, "compacted"));
-        }
-        let (turn_id, prompt_id) = if depth == 0 {
-            (format!("native-{before}-{i}"), format!("native-prompt-{before}-{i}"))
-        } else {
-            (format!("native-{depth}-{before}-{i}"), format!("native-prompt-{depth}-{before}-{i}"))
-        };
+        let (turn_id, prompt_id) =
+            (format!("native-{before}-{i}"), format!("native-prompt-{before}-{i}"));
         let mut turn_seq = 0;
         for record in turn_records(turn, &agent_sid, &turn_id, &prompt_id) {
-            let seq = chain::seq(depth, before, events.len());
+            let seq = native_seq(before, events.len());
             let mut msg = record.msg;
             if record.names_turn {
                 msg.set("turnSeq", json!(turn_seq));
@@ -454,23 +344,7 @@ fn page_reply_at(
                 "dir": record.dir, "kind": record.kind, "msg": msg}));
         }
     }
-    if compactions.next().is_some() {
-        events.push(chain::divider(
-            &session.id,
-            chain::seq(depth, before, events.len()),
-            at,
-            "compacted",
-        ));
-    }
-    let turns = page.turns.len();
-    match hop.and_then(|hop| hop.next.as_ref()) {
-        // A new transcript's cursor is its end: it jumps forward in bytes, which the reply says.
-        Some(next) => json!({"events": events, "before": next.before, "mark": next.mark,
-            "turns": turns, "read": page.read,
-            "olderTranscript": {"agentSessionId": next.id, "depth": next.depth}}),
-        None => json!({"events": events, "before": page.start, "mark": mark, "turns": turns,
-            "read": page.read}),
-    }
+    json!({"events": events, "before": page.start, "mark": mark, "turns": page.turns.len(), "read": page.read})
 }
 
 /// The serialized result size, before the request id and JSON-RPC envelope. The one MiB margin in

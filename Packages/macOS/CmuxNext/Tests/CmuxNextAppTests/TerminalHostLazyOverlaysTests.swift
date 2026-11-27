@@ -38,19 +38,25 @@ import Testing
         #expect(restart.first?.isHidden == true, "the action went away")
     }
 
-    /// A failed attach shows no Retry button (Leo, 2026-11-22: a vacuous "try again" is just done): the view
-    /// re-attaches by itself while it shows.
-    @Test func aFailedAttachShowsNoRetryButton() async throws {
+    @Test func retryShowsOnlyForAFailedAttach() async throws {
         let clock = ManualClock()
         let host = TerminalHostView(clock: clock)
         host.showStatus(.disconnected(.connectionLost, reconnecting: true))
         host.showStatus(.disconnected(.turnedOffByOrganization, reconnecting: false))
         #expect(Self.buttons(in: host).isEmpty)
+        // From a connected pane: "turned off by your organization" shows at once, so a failed attach right
+        // after it is already in view and has nothing to wait for.
         host.showStatus(.connected)
         host.showStatus(.disconnected(.attachFailed, reconnecting: false))
+        let retry = Self.buttons(in: host).compactMap { $0 as? TerminalRetryButton }
+        #expect(retry.count == 1)
+        // Retry waits with the "Disconnected" label it sits over, then shows with it.
+        #expect(retry.first?.isHidden == true)
         clock.advance(by: .seconds(TerminalStatusBanner.disconnectedRevealDelay))
-        for _ in 0..<200 where host.statusLabelWaits { await Task.yield() }
-        #expect(Self.buttons(in: host).isEmpty)
+        for _ in 0..<200 where retry.first?.isHidden == true { await Task.yield() }
+        #expect(retry.first?.isHidden == false)
+        host.showStatus(.connected)
+        #expect(retry.first?.isHidden == true)
     }
 
     @Test func sizedForBuildsTheChipWhenItShows() {
@@ -64,5 +70,50 @@ import Testing
         #expect(host.sizedForText == nil)
         host.showSizedFor(notice)
         #expect(Self.buttons(in: host).count == 1, "built once")
+    }
+}
+
+/// The Fix chip (design/terminal-fix-chip-gallery.html A): a failed command offers Fix while the App gave an action;
+/// success, Ctrl-C, Return, the close button and Fix itself hide it, and it is built once, the first time it shows.
+@MainActor @Suite struct TerminalFixChipTests {
+    static func failed(_ code: Int?) -> TerminalCommandResult { TerminalCommandResult(exitCode: code, duration: .seconds(1)) }
+
+    @Test func aFailureOffersFixOnlyWithAnAction() {
+        let host = TerminalHostView()
+        host.commandFinished(Self.failed(101))
+        #expect(host.fixChipText == nil, "no action, no chip")
+        #expect(TerminalHostLazyOverlaysTests.buttons(in: host).isEmpty)
+        var fixed = 0
+        host.onFixCommand = { fixed += 1 }
+        host.commandFinished(Self.failed(101))
+        #expect(host.fixChipText == "Exit 101")
+        host.commandFinished(Self.failed(0))
+        #expect(host.fixChipText == nil, "a success hides it")
+        host.commandFinished(Self.failed(130))
+        #expect(host.fixChipText == nil, "Ctrl-C is the person's choice")
+        host.commandFinished(Self.failed(nil))
+        #expect(host.fixChipText == nil, "no status is not a failure")
+        host.commandFinished(Self.failed(2))
+        let fix = TerminalHostLazyOverlaysTests.buttons(in: host).first { $0.title == "Fix" }
+        fix?.performClick(nil)
+        #expect(fixed == 1)
+        #expect(host.fixChipText == nil, "Fix hides it")
+        #expect(TerminalHostLazyOverlaysTests.buttons(in: host).count == 2, "built once: Fix and close")
+    }
+
+    @Test func returnAndTheCloseButtonHideIt() {
+        let host = TerminalHostView()
+        host.onFixCommand = {}
+        host.commandFinished(Self.failed(1))
+        #expect(host.offersFix)
+        host.commandSubmitted()
+        #expect(!host.offersFix)
+        host.commandFinished(Self.failed(1))
+        let close = TerminalHostLazyOverlaysTests.buttons(in: host).first { $0.title.isEmpty }
+        close?.performClick(nil)
+        #expect(!host.offersFix)
+        host.commandFinished(Self.failed(1))
+        host.onFixCommand = nil
+        #expect(!host.offersFix, "taking the action away hides it")
     }
 }

@@ -5,8 +5,6 @@ public import CmuxNextDesign
 public nonisolated struct SidebarGrouping: Hashable, Sendable {
     /// `sidebar.groupBy` (none, folder or recents).
     public var by: SidebarGroupBy = .none
-    /// `sidebar.folderlessUngrouped`: Group by Folder draws no "No Folder" header; rows with no folder sit at the end.
-    public var folderlessUngrouped = false
     /// Group by Status (Debug `sidebar.groupByStatus`, off by default): it wins over `by` while on.
     public private(set) var byStatus = false
     /// Folded Group by Status headers (never Needs you).

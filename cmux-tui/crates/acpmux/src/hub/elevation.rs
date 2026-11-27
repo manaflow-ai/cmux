@@ -65,7 +65,6 @@ pub(super) const CARD: CardKind = CardKind {
     declined: "denied",
     signed: true,
     one_line: Some(1024),
-    wait: crate::store::WaitReason::Elevation,
 };
 
 /// The sudo this daemon runs: [`SUDO`], or in a debug build `ACPMUX_ELEVATION_SUDO`, the tests'
@@ -218,7 +217,7 @@ impl Hub {
             "host": super::start_gate::host_label(),
             "timeoutSecs": ask.timeout.as_secs(),
         });
-        let (outcome, password, _) = self.ask_person(session, CARD, card, ASK_TTL).await;
+        let (outcome, password) = self.ask_person(session, CARD, card, ASK_TTL).await;
         let Some(password) = password else {
             return Ok(json!({"outcome": outcome}));
         };

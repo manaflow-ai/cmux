@@ -53,10 +53,7 @@ export function groupTurns(blocks: Block[], status?: string): TurnGroup[] {
         current = { id: `turn-${groups.length}-message-${block.id}`, activity: [], done: false };
         pendingAssistantIndex = null;
       }
-      // This group is local to this pass, so append in place. Copying the
-      // accumulated array for every message made a long agent turn quadratic
-      // while the transcript rebuilt during a live stream.
-      (current.messages ??= []).push(block);
+      current.messages = [...(current.messages ?? []), block];
       continue;
     }
     if (!current) {
@@ -125,6 +122,10 @@ export function summarizeTurnActivity(blocks: Block[]): string {
     if (block.kind === "assistant") continue;
     if (block.kind === "files") {
       edited += block.files.length;
+      continue;
+    }
+    if (block.kind === "plan") {
+      other++;
       continue;
     }
     if (block.kind !== "tool") {

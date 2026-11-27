@@ -57,29 +57,6 @@ pub struct SessionAuthResult {
     /// daemon with the same harness, account home and route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_session_id: Option<String>,
-    /// Whose credential refused the chat, for `signedOut`, `expired` and `routeAuthNeeded`: the
-    /// agent's own login, an API key a provider issued, or the person's cmux account. Absent when
-    /// the evidence does not say (a route of another kind names it by `routeId`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub credential: Option<SessionAuthCredential>,
-    /// The provider that issued a refused API key, by its id as the chat's model names it
-    /// (`opencode-go` in `opencode-go/deepseek-v4.1-flash`) or as the agent's family implies it
-    /// (`anthropic` for Claude Code); only with `credential` `apiKey`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<String>,
-}
-
-/// Whose credential a sign-in refusal is about, so a client names that party and offers the one
-/// fix that works: sign in to the agent, replace the provider's key, or sign in to cmux.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub enum SessionAuthCredential {
-    /// The agent's own login (an OAuth or subscription sign-in): signing in again renews it.
-    Login,
-    /// An API key a provider issued: signing in does not renew it; a new key replaces it.
-    ApiKey,
-    /// The person's cmux account, which the cmux model router serves the chat with.
-    Cmux,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

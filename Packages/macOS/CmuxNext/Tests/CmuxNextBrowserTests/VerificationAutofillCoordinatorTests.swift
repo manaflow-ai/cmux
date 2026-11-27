@@ -10,28 +10,25 @@ import Testing
         var emails: [VerificationEmail] = []
         private(set) var reads: [Date] = []
         func set(_ emails: [VerificationEmail]) { self.emails = emails }
-        func emails(receivedSince since: Date, accounts: Set<String>) async throws -> [VerificationEmail] {
+        func emails(receivedSince since: Date) async throws -> [VerificationEmail] {
             reads.append(since)
             return emails.filter { $0.receivedAt >= since }
         }
-        func availableAccounts() async throws -> [String] { ["you@example.com"] }
     }
 
     final class Switch { var on = true }
-    final class Accounts { var addresses: Set<String> = ["you@example.com"] }
 
     static let start = Date(timeIntervalSince1970: 1_800_000_000)
     let source = FakeSource()
     let enabled = Switch()
-    let accounts = Accounts()
     let coordinator: VerificationAutofillCoordinator
 
     init() {
         let list = PublicSuffixList.bundled() ?? PublicSuffixList(listText: "")
-        let enabled = enabled, accounts = accounts
+        let enabled = enabled
         coordinator = VerificationAutofillCoordinator(
             inbox: VerificationInbox(policy: VerificationOfferPolicy(publicSuffixes: list)), source: source,
-            isEnabled: { enabled.on }, accounts: { accounts.addresses }, now: { Self.start.addingTimeInterval(30) }, pollInterval: .seconds(3600)
+            isEnabled: { enabled.on }, now: { Self.start.addingTimeInterval(30) }, pollInterval: .seconds(3600)
         )
     }
 
@@ -39,10 +36,9 @@ import Testing
         MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: url)))
     }
 
-    static func email(id: String = "m1", body: String = "Your verification code is 482913.", links: [String] = [],
-                      account: String? = "you@example.com") -> VerificationEmail {
+    static func email(id: String = "m1", body: String = "Your verification code is 482913.", links: [String] = []) -> VerificationEmail {
         VerificationEmail(id: id, senderAddress: "noreply@github.com", senderAuthenticated: true, subject: "", body: body,
-                          links: links.compactMap(URL.init(string:)), receivedAt: start.addingTimeInterval(10), account: account)
+                          links: links.compactMap(URL.init(string:)), receivedAt: start.addingTimeInterval(10))
     }
 
     static func offer(on tab: MockBrowserTab) -> VerificationOffer? {
@@ -130,27 +126,6 @@ import Testing
         #expect(tab.pendingPrompts.isEmpty)
     }
 
-    /// Per-account opt-in: with no account opted in the source is not read, and mail of another
-    /// account (or of an unknown one) is never offered, whatever a source returns.
-    @Test func noOptedInAccountReadsNothing() async {
-        accounts.addresses = []
-        let tab = Self.tab()
-        await source.set([Self.email()])
-        coordinator.pageWaiting(tab)
-        await coordinator.pollOnce()
-        #expect(await source.reads.isEmpty)
-        #expect(tab.pendingPrompts.isEmpty)
-    }
-
-    @Test(arguments: ["work@example.org", nil] as [String?])
-    func mailOfAnAccountNotOptedInIsNeverOffered(account: String?) async {
-        let tab = Self.tab()
-        await source.set([Self.email(account: account)])
-        coordinator.pageWaiting(tab)
-        await coordinator.pollOnce()
-        #expect(tab.pendingPrompts.isEmpty)
-    }
-
     @Test func aNewerEmailReplacesTheShownOffer() async {
         let tab = Self.tab()
         tab.evaluationResult = .bool(true)
@@ -203,8 +178,7 @@ import Testing
         private(set) var inFlight = 0
         private(set) var mostInFlight = 0
         private var gate: CheckedContinuation<Void, Never>?
-        func availableAccounts() async throws -> [String] { [] }
-        func emails(receivedSince since: Date, accounts: Set<String>) async throws -> [VerificationEmail] {
+        func emails(receivedSince since: Date) async throws -> [VerificationEmail] {
             reads += 1
             inFlight += 1
             mostInFlight = max(mostInFlight, inFlight)
@@ -227,7 +201,7 @@ import Testing
         let list = PublicSuffixList.bundled() ?? PublicSuffixList(listText: "")
         let coordinator = VerificationAutofillCoordinator(
             inbox: VerificationInbox(policy: VerificationOfferPolicy(publicSuffixes: list)), source: source,
-            isEnabled: { enabled.on }, accounts: { ["you@example.com"] }, now: { Self.start.addingTimeInterval(30) }, clock: ImmediateClock(),
+            isEnabled: { enabled.on }, now: { Self.start.addingTimeInterval(30) }, clock: ImmediateClock(),
             pollInterval: .seconds(3)
         )
         let first = Self.tab(), second = Self.tab("https://github.com/login/device")

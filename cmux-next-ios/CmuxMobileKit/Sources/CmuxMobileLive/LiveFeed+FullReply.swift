@@ -82,7 +82,7 @@ extension LiveFeed {
                     message += text
                     messageID = id
                     broken = false
-                case .update(.toolCall), .update(.toolCallUpdate), .update(.agentThoughtChunk):
+                case .update(.toolCall), .update(.toolCallUpdate), .update(.plan), .update(.agentThoughtChunk):
                     (broken, boundary) = (true, true)
                 default:
                     break

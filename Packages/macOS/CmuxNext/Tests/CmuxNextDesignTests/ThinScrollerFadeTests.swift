@@ -7,8 +7,7 @@ import CmuxNextWakeupsTestSupport
 /// and grows bigger on near-hover so it's easier to grab". The shared thin scroller (sidebar, hover
 /// cards, Priority view, terminal) is a macOS overlay scroller: hidden at rest, shown while the view
 /// scrolls and for a moment after, shown and wide while the pointer is near the trailing edge or the
-/// knob is dragged, and it takes a press exactly where the pointer widens it (its grab zone,
-/// ThinScrollerGrabZoneTests).
+/// knob is dragged, and it takes clicks only on the drawn knob.
 @MainActor
 @Suite(.serialized)
 struct ThinScrollerFadeTests {
@@ -58,18 +57,13 @@ struct ThinScrollerFadeTests {
         #expect(!scroller.isKnobShown)
     }
 
-    /// Leo 2026-11-22: "hovering only doesnt show". The pointer over the edge, with no scroll,
-    /// shows nothing; once a scroll showed the knob the pointer there widens and holds it.
-    @Test func hoverAloneShowsNothingAndOnlyWidensAKnobAScrollShowed() throws {
+    @Test func thePointerNearTheEdgeShowsAndWidensTheKnob() throws {
         let (scrollView, scroller) = Self.scrollView()
         let far = CGPoint(x: 40, y: 100)
-        let near = CGPoint(x: scrollView.bounds.maxX - ThinScroller.width + 4, y: 100)
+        let near = CGPoint(x: scrollView.bounds.maxX - ThinScroller.nearDistance + 4, y: 100)
         scroller.pointerMoved(to: far)
         #expect(!scroller.isKnobShown)
         scroller.pointerMoved(to: near)
-        #expect(!scroller.isKnobShown, "the pointer alone never shows the knob")
-        #expect(scroller.hitTest(near) == nil, "and a press there is the content's")
-        scroller.flash()
         #expect(scroller.isKnobShown)
         #expect(scroller.isKnobExpanded)
         let knob = try #require(scroller.restingKnobFrame)
@@ -77,20 +71,10 @@ struct ThinScrollerFadeTests {
         #expect(ThinScroller.expandedKnobThickness > ThinScroller.knobThickness * 2)
         #expect(knob.maxX == scroller.bounds.maxX - 2)
         scroller.pointerMoved(to: far)
-        #expect(scroller.isKnobShown && !scroller.isKnobExpanded)
-    }
-
-    /// The knob is an overlay: showing it moves nothing (no layout shift).
-    @Test func showingTheKnobMovesNoLayout() {
-        let (scrollView, scroller) = Self.scrollView()
-        let before = (scrollView.contentView.frame, scrollView.documentView?.frame, scroller.frame)
-        scroller.flash()
-        scroller.pointerMoved(to: CGPoint(x: scrollView.bounds.maxX - 3, y: 100))
-        scrollView.tile()
-        #expect(scroller.isKnobShown)
-        #expect(scrollView.contentView.frame == before.0)
-        #expect(scrollView.documentView?.frame == before.1)
-        #expect(scroller.frame == before.2)
+        #expect(!scroller.isKnobShown)
+        scroller.pointerMoved(to: near)
+        scroller.pointerMoved(to: nil) // the pointer left the view
+        #expect(!scroller.isKnobShown)
     }
 
     @Test func aDragKeepsTheKnobWideAndItStaysAMomentAfter() async throws {
@@ -105,11 +89,12 @@ struct ThinScrollerFadeTests {
         #expect(!presence.shown)
     }
 
-    /// The pointer does not reveal a knob at rest, but it holds and widens one a scroll showed,
-    /// so it can be grabbed.
+    /// The terminal: the pointer does not reveal a knob at rest (the last column is the
+    /// terminal's), but it holds and widens one a scroll showed, so it can be grabbed.
     @Test func withoutRevealAtRestThePointerOnlyHoldsAShownKnob() async throws {
         let clock = ManualClock()
         let (scrollView, scroller) = Self.scrollView(clock: clock)
+        scroller.revealsNearPointerAtRest = false
         scroller.showsOnScroll = false
         let near = CGPoint(x: scrollView.bounds.maxX - 3, y: 100)
         scroller.pointerMoved(to: near)
@@ -129,26 +114,19 @@ struct ThinScrollerFadeTests {
         #expect(!scroller.isKnobShown)
     }
 
-    /// A press lands on the scroller in its grab zone, on the knob and on the track beside it,
-    /// exactly while the pointer there widens the knob; never outside the zone.
-    @Test func pressesLandInTheGrabZoneWhereTheKnobWidens() throws {
+    @Test func clicksLandOnlyOnTheShownKnob() throws {
         let (scrollView, scroller) = Self.scrollView()
-        let knob = scroller.knobRect(for: scroller.rect(for: .knob), expanded: true)
-        let onKnob = scroller.convert(CGPoint(x: knob.midX, y: knob.midY), to: scrollView)
-        // The middle of the slot's longer empty part, beside the knob.
-        let slot = scroller.rect(for: .knobSlot)
-        let trackY = knob.minY - slot.minY > slot.maxY - knob.maxY ? (slot.minY + knob.minY) / 2 : (knob.maxY + slot.maxY) / 2
-        let onTrack = scroller.convert(CGPoint(x: knob.midX, y: trackY), to: scrollView)
-        let content = CGPoint(x: scroller.grabZone.minX - 1, y: onKnob.y)
-        // Hidden: the content's. A scroll shows the knob, and then the zone is the scroller's.
-        scroller.pointerMoved(to: onKnob)
-        #expect(scroller.hitTest(onKnob) == nil)
+        let knobCenter = { () -> CGPoint in
+            let knob = scroller.knobRect(for: scroller.rect(for: .knob), expanded: true)
+            return scroller.convert(CGPoint(x: knob.midX, y: knob.midY), to: scrollView)
+        }
+        #expect(scroller.hitTest(knobCenter()) == nil) // hidden at rest: the click is the content's
         scroller.flash()
-        #expect(scroller.hitTest(onKnob) === scroller) // the pointer there holds the knob, wide
-        #expect(scroller.hitTest(onTrack) === scroller)
-        #expect(scroller.hitTest(content) == nil)
-        #expect(scroller.hitTest(onKnob) === scroller)
-        #expect(scroller.hitTest(onTrack) === scroller)
+        #expect(scroller.hitTest(knobCenter()) === scroller)
+        // Beside the knob (the track below it) the click is the content's.
+        let knob = scroller.knobRect(for: scroller.rect(for: .knob), expanded: true)
+        let below = scroller.convert(CGPoint(x: knob.midX, y: knob.maxY + 40), to: scrollView)
+        #expect(scroller.hitTest(below) == nil)
     }
 
     @Test func theOptOutKeepsTheKnobShownWhileTheContentOverflows() {
@@ -166,7 +144,6 @@ struct ThinScrollerFadeTests {
         defer { Motion.reduceMotionOverride = nil }
         #expect(!Motion.feedback.animatesMovement)
         let (scrollView, scroller) = Self.scrollView()
-        scroller.flash()
         scroller.pointerMoved(to: CGPoint(x: scrollView.bounds.maxX - 3, y: 100))
         #expect(scroller.restingKnobFrame?.width == ThinScroller.expandedKnobThickness)
     }

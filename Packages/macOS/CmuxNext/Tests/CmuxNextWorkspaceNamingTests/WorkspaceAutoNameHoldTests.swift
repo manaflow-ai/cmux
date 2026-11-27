@@ -76,30 +76,4 @@ struct WorkspaceAutoNameHoldTests {
         let renamed = try Self.workspace(store, name: "Release", session: session)
         #expect(reader.label(renamed, front: tabs[0], work: nil) == nil)
     }
-
-    /// Leo, 2026-11-24: "if it wasn't manually adjusted and forecd by the user or agent to be a particular way, can keep
-    /// being like... the main one's name. which can change." acpmux keeps only a few `formerNames`: once the launch name
-    /// drops out of them, a workspace its launcher named after the agent still follows the agent's name.
-    @Test func aLauncherNamedRowFollowsItsAgentAfterTheLaunchNameLeavesFormerNames() throws {
-        let session = "hold-\(#line)"
-        let turns = AgentTurnStateStore()
-        turns.localHost = Self.host
-        let store = DaemonStore()
-        let workspace = try Self.workspace(store, name: "coord", session: session)
-        let chat = try #require(workspace.screens.first?.panes.first?.tabs.first)
-        let reader = Self.reader(turns)
-        func rename(_ name: String, former: [String]) {
-            turns.apply(session: session, sessionName: name.lowercased(), state: nil, lastMessage: nil, muted: false, title: nil,
-                        identity: AgentSessionIdentity(displayName: name, formerNames: former), detail: nil)
-        }
-
-        rename("Mango", former: ["coord"])
-        #expect(reader.label(workspace, front: chat, work: nil) == "Mango")
-        rename("Kiwi", former: (1...8).map { "name-\($0)" })
-        #expect(reader.label(workspace, front: chat, work: nil) == "Kiwi", "the launch name left formerNames")
-
-        // A name the agent never had is not its launcher's, even in the same workspace.
-        let other = try Self.workspace(store, name: "Release", session: session)
-        #expect(reader.label(other, front: chat, work: nil) == nil)
-    }
 }

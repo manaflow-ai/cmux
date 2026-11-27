@@ -1,7 +1,5 @@
 use crate::json::is_compact_value;
-use crate::row::{
-    MAX_PREVIEW, MAX_ROW_TEXT, Outline, Phase, Placement, Row, RowError, RowHead, RowKind,
-};
+use crate::row::{MAX_PREVIEW, MAX_ROW_TEXT, Outline, Placement, Row, RowError, RowHead, RowKind};
 
 fn row(body: &str) -> Row<'_> {
     Row {
@@ -12,7 +10,6 @@ fn row(body: &str) -> Row<'_> {
         group: Some(48190),
         at: 1_794_480_726,
         open: false,
-        phase: Phase::Settled,
         body,
         est: 3,
     }
@@ -25,25 +22,18 @@ fn a_row_encodes_to_the_designs_text() {
     assert_eq!(placement, Placement::Inline);
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        r#"{"id":48211,"rev":1,"kind":"tool","turn":9120,"group":48190,"at":1794480726,"open":false,"phase":"settled","body":{"name":"Bash","out":"ok"},"est":3}"#
+        r#"{"id":48211,"rev":1,"kind":"tool","turn":9120,"group":48190,"at":1794480726,"open":false,"body":{"name":"Bash","out":"ok"},"est":3}"#
     );
 }
 
 #[test]
 fn turn_and_group_are_left_out_when_absent() {
     let mut out = Vec::new();
-    let bare = Row {
-        turn: None,
-        group: None,
-        open: true,
-        phase: Phase::Entering,
-        kind: RowKind::User,
-        ..row("{}")
-    };
+    let bare = Row { turn: None, group: None, open: true, kind: RowKind::User, ..row("{}") };
     bare.encode(None, &mut out).unwrap();
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        r#"{"id":48211,"rev":1,"kind":"user","at":1794480726,"open":true,"phase":"entering","body":{},"est":3}"#
+        r#"{"id":48211,"rev":1,"kind":"user","at":1794480726,"open":true,"body":{},"est":3}"#
     );
 }
 
@@ -59,7 +49,6 @@ fn every_row_text_is_one_compact_json_value_and_its_head_reads_back() {
             group: at.is_multiple_of(3).then_some(at as u64 + 2),
             at: 1_794_480_726 + at as u64,
             open: at.is_multiple_of(4),
-            phase: Phase::ALL[at % 4],
             body: r#"{"md":["a \"quoted\" line","two"]}"#,
             est: at as u32,
         };
@@ -68,24 +57,11 @@ fn every_row_text_is_one_compact_json_value_and_its_head_reads_back() {
         assert!(is_compact_value(std::str::from_utf8(&out).unwrap()));
         let head = RowHead::parse(&out).unwrap();
         assert_eq!(
-            (head.id, head.rev, head.kind, head.turn, head.group, head.at, head.open, head.phase),
-            (
-                source.id,
-                source.rev,
-                kind,
-                source.turn,
-                source.group,
-                source.at,
-                source.open,
-                source.phase
-            )
+            (head.id, head.rev, head.kind, head.turn, head.group, head.at, head.open),
+            (source.id, source.rev, kind, source.turn, source.group, source.at, source.open)
         );
         assert!(out[head.body_at..].starts_with(source.body.as_bytes()));
     }
-    for phase in Phase::ALL {
-        assert_eq!(Phase::parse(phase.as_str()), Some(phase));
-    }
-    assert_eq!(Phase::parse("gone"), None);
     assert_eq!(RowKind::parse("nope"), None);
     assert_eq!(RowHead::parse(b"{\"id\":1}"), None);
     assert_eq!(RowHead::parse(b""), None);
@@ -252,14 +228,4 @@ fn spilled_and_in_memory_bodies_have_identical_row_text() -> Result<(), Box<dyn 
         Err(RowError::Head)
     );
     Ok(())
-}
-
-#[test]
-fn a_text_written_before_phases_reads_live_when_open_and_settled_when_not() {
-    let open = br#"{"id":7,"rev":1,"kind":"text","at":1,"open":true,"body":{},"est":1}"#;
-    let shut = br#"{"id":7,"rev":1,"kind":"text","at":1,"open":false,"body":{},"est":1}"#;
-    assert_eq!(RowHead::parse(open).map(|head| head.phase), Some(Phase::Live));
-    assert_eq!(RowHead::parse(shut).map(|head| head.phase), Some(Phase::Settled));
-    let unknown = br#"{"id":7,"rev":1,"kind":"text","at":1,"open":false,"phase":"gone","body":{}}"#;
-    assert_eq!(RowHead::parse(unknown), None);
 }

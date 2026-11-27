@@ -26,16 +26,13 @@
 //!   held, taken over or removed) and the dialer reads no further frame of
 //!   that subscription. It starts again from the mark: a resume when the mark
 //!   is on, a walk when it is off. A leaving origin is waited out by the
-//!   settle (woken by the writer's turns, no spin); restarts in a row back off,
-//!   and past the Transient class's budget (`acpmux_list_types::resume`) with
-//!   no unit going in the mirror ends and the origin goes back to v1's tee.
+//!   settle (woken by the writer's turns, no spin); restarts in a row back off.
 use acpmux_book::index::Summary;
 use acpmux_client::wire::{ListKey, ListView, Sub};
 use acpmux_client::{Change, Client};
 use acpmux_core::hub::{
     Hub, HubError, MAX_UNIT_CHANGES, MirrorMark, MirrorUnit, Source, UnitChange,
 };
-use acpmux_list_types::resume::{Decision, ResumeBudget, ResumeErrorClass};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -82,28 +79,6 @@ pub enum DialEnd {
     Closed(String),
     /// The hub refused a unit in a way a restart does not mend.
     Refused(HubError),
-    /// The mirror started again `attempts` times in a row with no unit going
-    /// in: `class`'s budget is spent.
-    Restarts { class: ResumeErrorClass, attempts: u32 },
-}
-
-impl DialEnd {
-    /// What this end means to a resume, by variant and code, never by
-    /// message text.
-    pub fn resume_class(&self) -> ResumeErrorClass {
-        match self {
-            DialEnd::Eof => ResumeErrorClass::CleanClose,
-            DialEnd::Closed(code) => match code.as_str() {
-                // The cursor or edition the subscription named is gone.
-                "cursor_gone" | "stale_edition" => ResumeErrorClass::GapTooOld,
-                "mailbox_full" => ResumeErrorClass::Transient,
-                // The client's own protocol close, bad input, a limit.
-                _ => ResumeErrorClass::Unknown,
-            },
-            DialEnd::Refused(error) => error.resume_class(),
-            DialEnd::Restarts { class, .. } => *class,
-        }
-    }
 }
 
 /// Mirrors the peer's live view over `reader`/`writer`, an ordered byte stream
@@ -168,9 +143,8 @@ struct Dial<'a> {
     /// The mark of the last unit the hub queued, or the origin's mark when
     /// the subscription started.
     last_sent: Option<MirrorMark>,
-    /// Restarts since a unit last went in, bounded by the Transient class's
-    /// budget.
-    restarts: ResumeBudget,
+    /// Restarts since a unit last went in.
+    restarts: u32,
     /// [`MAX_UNIT_CHANGES`]; the cut tests take smaller units to reach more cuts.
     unit_changes: usize,
 }
@@ -190,7 +164,7 @@ impl<'a> Dial<'a> {
             edition: 0,
             whole: false,
             last_sent: None,
-            restarts: ResumeBudget::new(),
+            restarts: 0,
             unit_changes: MAX_UNIT_CHANGES,
         }
     }
@@ -313,7 +287,8 @@ impl<'a> Dial<'a> {
                 // guard: no further frame comes on the sid, and the dialer
                 // starts again from the mark, sending nothing of this batch.
                 Change::Dropped { sid, new_sid: None, .. } if sid == self.sid => {
-                    return self.restart().await.err();
+                    self.restart().await;
+                    return None;
                 }
                 Change::Error { code, sid, .. }
                     if sid.as_deref().is_none_or(|sid| sid == self.sid) =>
@@ -357,7 +332,7 @@ impl<'a> Dial<'a> {
     async fn unit(&mut self, changes: Vec<UnitChange>, mark: MirrorMark) -> Result<bool, DialEnd> {
         self.hub.wait_mirror_settled(self.origin).await;
         if self.hub.mirror_mark(self.origin) != self.last_sent {
-            self.restart().await?;
+            self.restart().await;
             return Ok(false);
         }
         let unit =
@@ -365,14 +340,14 @@ impl<'a> Dial<'a> {
         match self.hub.submit_unit(Source::Mirror, unit) {
             Ok(()) => {
                 self.last_sent = Some(mark);
-                self.restarts.on_success();
+                self.restarts = 0;
                 self.counters.units.fetch_add(1, Ordering::Relaxed);
                 Ok(true)
             }
             // Settled, the slot was free; a full slot means another dialer
             // feeds the origin. Start again from the mark.
             Err(HubError::UnitQueueFull) => {
-                self.restart().await?;
+                self.restart().await;
                 Ok(false)
             }
             Err(error) => Err(DialEnd::Refused(error)),
@@ -410,7 +385,7 @@ impl<'a> Dial<'a> {
                 // Held: the origin is leaving, or its record waits for the
                 // storage retry. The start again waits that out, then takes
                 // over or resumes as the mark says then.
-                self.restart().await?;
+                self.restart().await;
                 return Ok(false);
             }
             match self.hub.source(origin) {
@@ -425,7 +400,7 @@ impl<'a> Dial<'a> {
                     }));
                 }
                 _ => {
-                    self.restart().await?;
+                    self.restart().await;
                     return Ok(false);
                 }
             }
@@ -435,33 +410,17 @@ impl<'a> Dial<'a> {
     }
 
     /// Starts again from the mark, after a back-off when restarts come in a
-    /// row. Every restart waits on state that settles on its own (a held or
-    /// leaving origin, another feeder's unit, a dropped subscription), so each
-    /// is a [`ResumeErrorClass::Transient`] failure: once that class's budget
-    /// is spent with no unit going in between, the mirror ends with
-    /// [`DialEnd::Restarts`] instead of starting again, and its link hands the
-    /// origin back to v1's tee.
-    async fn restart(&mut self) -> Result<(), DialEnd> {
-        const CLASS: ResumeErrorClass = ResumeErrorClass::Transient;
-        let in_a_row = self.restarts.used(CLASS);
-        if let Decision::Surface { class, attempts } = self.restarts.on_failure(CLASS) {
-            tracing::warn!(
-                origin = self.origin,
-                class = %class,
-                attempts,
-                "the peer mirror started again too often in a row with no unit going in"
-            );
-            return Err(DialEnd::Restarts { class, attempts });
-        }
+    /// row.
+    async fn restart(&mut self) {
         self.counters.restarts.fetch_add(1, Ordering::Relaxed);
-        if in_a_row > 0 {
+        if self.restarts > 0 {
             let wait = Duration::from_millis(50)
-                .saturating_mul(1 << in_a_row.min(7))
+                .saturating_mul(1 << self.restarts.min(7))
                 .min(MAX_RESTART_BACKOFF);
             tokio::time::sleep(wait).await;
         }
+        self.restarts = self.restarts.saturating_add(1);
         self.start();
-        Ok(())
     }
 
     /// A peer's own row under this origin; another origin's is not mirrored.

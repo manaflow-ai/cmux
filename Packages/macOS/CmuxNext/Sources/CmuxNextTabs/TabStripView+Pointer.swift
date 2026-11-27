@@ -54,10 +54,10 @@ extension TabStripView {
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
         onHoverTab?(id)
-        goo?.hover(id, in: self)
     }
 
-    /// `moved`: a pointer event (true) or content that moved under a still pointer (false, `geometryDidChange`).
+    /// `moved`: a pointer event (true) or content that moved under a still
+    /// pointer (false, `geometryDidChange`).
     func updateHover(at point: CGPoint, moved: Bool) {
         // No hover (or hover card) while any drag involves this strip.
         let dragging = drag != nil || detachedID != nil || dropPlaceholderIndex != nil
@@ -125,7 +125,7 @@ extension TabStripView {
         clearHover()
         newTabButton.isHovered = false
         // Deferred relayout: tabs resize once the pointer has left the extended strip for the delay.
-        if closingModeWidth != nil { closingWatch.pointerLeft() }
+        if closingModeWidth != nil, drag == nil { closingWatch.pointerLeft() }
     }
 
     // MARK: - Clicks
@@ -135,8 +135,6 @@ extension TabStripView {
         let point = convert(event.locationInWindow, from: nil)
         // A press before the strip's model sync (right after a close) catches up first.
         if model.orderedTabs.map(\.id) != lastModelOrder { sync(fromModel: true) }
-        // Titlebar space (the gaps between pills too, #48653): the window moved or ran its double-click action.
-        if pressIsTitlebar(at: point) { return }
         if isInNewTabMenuButton(point) {
             showNewTabMenu(anchor: newTabMenuButton)
             return
@@ -279,7 +277,7 @@ extension TabStripView {
     public override func menu(for event: NSEvent) -> NSMenu? {
         let menu = contextMenu(for: event)
         if let menu { menuTracking.begin(menu) }
-        return NSMenu.withoutSystemItems(menu)
+        return menu
     }
 
     private func contextMenu(for event: NSEvent) -> NSMenu? {
@@ -356,7 +354,6 @@ extension TabStripView {
         if source.entersClosingMode {
             closingModeWidth = TabLayoutEngine.closingModeWidth(afterClosing: id, in: result, current: closingModeWidth)
             if let point { closingHit.closePressed(at: convert(point, to: tabsClip)) }
-            closingWatch.begin()
         }
         model.send(.close(id, source: source))
     }

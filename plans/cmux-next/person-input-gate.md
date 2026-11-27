@@ -5,26 +5,18 @@ Owner: the agent pane (CmuxNextAgentPane). Rules in Rust: cmux-tui `cmux-agent-p
 
 ## The gate
 
-A frame that grants something (`policy.json` `gesture_rules`: Approve, a mode, a trust grant,
+A frame that grants something (`policy.json` `gesture_rules`: Send, Approve, a mode, a trust grant,
 a permission answer, a secret, a login) needs the person's own key press or click in the pane
 (`AgentPaneUserGestures`). Who posted an event decides whether it is the person's
 (`AgentPanePersonInput.isPerson`): the HID system (source pid 0), or the Apple services a person
 drives the Mac through (Screen Sharing, Universal Control, the Accessibility Keyboard). A click or
-key another process posts (CGEventPost: a computer-use driver, a script) is not.
+key another process posts (CGEventPost: a computer-use driver, a script) is not, so a Send an agent
+clicks comes back "Not sent: it needs your own key press or click."
 
-Send and Retry (`session/prompt`) and uploads (`chat.upload`, `chat.upload.begin`) need no gesture.
-They did, and the person's own typed messages kept coming back "Not sent: it needs your own key
-press or click." (Leo, 2026-11-17: "oh god this is so f***ing shitty i can't believe this dialogue
-is still in the app + i can't belive that it still occurs ... go remove this"). A Send's gesture
-ticket, if the page reserved one, is redeemed when it can be and never refuses the prompt.
-A Send still spends the person's gesture, so the Enter never pays for the agent's next gated frame.
-One prompt still waits for the person: one the CLI, MCP or a script seeded into a new chat (no seed
-ticket) stays in the composer until the person sends it (`automationSeedWaits`).
-
-A new chat's first Send in Cloud (`cloud.startChat`) is a Send too, and needs no gesture
-(2026-11-20: the staging GUI probe's Enter came back "Click the choice again to apply it." on every
-Cloud reply). The gesture stays only where it is the person's pick of a folder to copy off this Mac:
-a folder under none of the tab's roots (`AgentPaneCloudStart`, `needsGesture`).
+Uploads of files the person pasted, dropped or chose (`chat.upload`, the first `chat.upload.begin`
+of a batch) need the same gesture, from a credit of their own (`consumeUpload`). One Enter pays for
+the send and for the upload of a file pasted just before it, which begins only after the host says
+where the paste's files are (Leo, 2026-11-06). Posted input never gives that credit.
 
 ## "Computer use can act as me"
 

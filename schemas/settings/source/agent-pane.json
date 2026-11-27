@@ -20,7 +20,7 @@
           },
           "help": {
             "key": "settings.agentPane.outsideRoots.help",
-            "text": "What a link to a file outside the chat's folders does. Keys and .env files never open."
+            "text": "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open."
           },
           "summary": {
             "key": "settings.agentPane.outsideRoots.summary",
@@ -67,30 +67,6 @@
           "swift_enum": {
             "name": "AgentPaneReplySetting.OutsideRoots",
             "generated": false
-          }
-        },
-        {
-          "key": "agentPane.links.openCitationsInEditor",
-          "name": "openCitationsInEditor",
-          "title": {
-            "key": "settings.agentPane.openCitationsInEditor",
-            "text": "Open File Citations in Text Editor"
-          },
-          "help": {
-            "key": "settings.agentPane.openCitationsInEditor.help",
-            "text": "Open local chat links that name a line in your chosen text editor."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "chat",
-            "file",
-            "line",
-            "editor"
-          ],
-          "swift_owner": {
-            "type": "AgentPaneReplySetting",
-            "prefixed": true
           }
         },
         {
@@ -162,7 +138,7 @@
           },
           "help": {
             "key": "settings.agentPane.needsYou.help",
-            "text": "A badge in the chat header counts what your agents wait on."
+            "text": "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs."
           },
           "kind": "toggle",
           "default": false,

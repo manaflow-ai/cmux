@@ -5,9 +5,8 @@ import Testing
 /// P0, 2026-10-29: on a Mac at load ~200, Leo's own typed messages came back "Not sent: it needs
 /// your own key press or click." The person's Enter was recorded when AppKit dispatched it, but the
 /// page's prompt reached the relay more than ``AgentPaneUserGestures/lifetime`` later (a starved main
-/// thread and web process), so the expired gesture refused a send the person made. A send then spent
-/// the person's unspent gesture however old it was; now it needs no gesture at all (Leo, 2026-11-17,
-/// on "Not sent: it needs your own key press or click.": "go remove this").
+/// thread and web process), so the expired gesture refused a send the person made. A send now spends
+/// the person's unspent gesture however old it is; only a send with no gesture of theirs is refused.
 @Suite(.serialized)
 @MainActor
 struct AgentPaneDelayedSendGestureTests {
@@ -35,22 +34,16 @@ struct AgentPaneDelayedSendGestureTests {
         _ = await pane.inbox.frame(containing: #""id":2"#)
         #expect(pane.server.peers.first?.frames.contains { $0.contains("session/prompt") } == true)
 
-        // A prompt with no new key press or click goes too: a send needs none.
-        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 3, promptId: "p-2")]) == nil)
+        // One send per gesture: a prompt with no new key press or click is still refused.
+        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 3, promptId: "p-2")]) == .gestureRequired)
     }
 
-    /// Leo, 2026-11-17: his own typed "hi" came back "Not sent: it needs your own key press or
-    /// click." ("go remove this"). A typed send with no live gesture of the person's is sent.
-    @Test func aPromptWithNoGestureOfThePersonsIsSent() async throws {
+    @Test func aPromptWithNoGestureOfThePersonsIsStillRefused() async throws {
         let pane = try await Self.paneWithChat()
         defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
 
         pane.clock.now += AgentPaneUserGestures.lifetime * 4
-        #expect(!pane.transport.gestures.isAvailable)
-        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 2, promptId: "p-1")]) == nil,
-                "a typed send with no live gesture came back Not sent")
-        _ = await pane.inbox.frame(containing: #""id":2"#)
-        #expect(pane.server.peers.first?.frames.contains { $0.contains("session/prompt") } == true)
+        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 2, promptId: "p-1")]) == .gestureRequired)
     }
 
     /// A send that takes a ticket first (a prompt with attachments, `nativePromptUpload.ts`) gets it
@@ -64,8 +57,7 @@ struct AgentPaneDelayedSendGestureTests {
         let request: [String: Any] = ["method": "session/prompt", "params": ["promptId": "p-1"] as [String: Any]]
         let intent = try #require(AgentPaneGestureIntent(gestureParams: ["intent": request]))
         #expect(pane.transport.reserveGesture(intent) != nil, "the delayed Enter gave its send no ticket")
-        // A Send needs no gesture (Leo, 2026-11-17): a second send still gets a ticket for its uploads.
-        #expect(pane.transport.reserveGesture(intent) != nil, "a send with no gesture got no ticket")
+        #expect(pane.transport.reserveGesture(intent) == nil, "one gesture gave two send tickets")
     }
 
     @Test func aCloudStartTicketSurvivesAReserveSlowerThanTheLiveGesture() throws {
@@ -135,44 +127,6 @@ struct AgentPaneDelayedSendGestureTests {
             "value": "high",
         ])
         #expect(gestures.redeem(ticket, connection: 1, pick: pick))
-    }
-
-    /// Antigravity names its effort `thought_level`: a new chat's held effort pick went under that
-    /// id with the ticket taken for `effort`, the relay refused it, and the pane said "Click the
-    /// choice again to apply it." over the chat's first turn.
-    @Test func anEffortTicketRedeemsWhenTheOpenedHarnessUsesItsThoughtLevelAlias() throws {
-        let gestures = AgentPaneUserGestures()
-        gestures.record()
-        let intent = try #require(AgentPaneGestureIntent(gestureParams: [
-            "intent": [
-                "method": "session/set_config_option",
-                "params": ["configId": "effort", "value": "medium"],
-            ],
-        ]))
-        let ticket = try #require(gestures.reserve(connection: 1, intent: intent))
-        let pick = AgentPaneGesturePick(method: "session/set_config_option", params: [
-            "configId": "thought_level",
-            "value": "medium",
-        ])
-        #expect(gestures.redeem(ticket, connection: 1, pick: pick))
-    }
-
-    /// The alias covers the option's id, never its value: another level is another pick.
-    @Test func anEffortTicketNeverRedeemsForAnotherLevelUnderTheThoughtLevelAlias() throws {
-        let gestures = AgentPaneUserGestures()
-        gestures.record()
-        let intent = try #require(AgentPaneGestureIntent(gestureParams: [
-            "intent": [
-                "method": "session/set_config_option",
-                "params": ["configId": "effort", "value": "medium"],
-            ],
-        ]))
-        let ticket = try #require(gestures.reserve(connection: 1, intent: intent))
-        let pick = AgentPaneGesturePick(method: "session/set_config_option", params: [
-            "configId": "thought_level",
-            "value": "xhigh",
-        ])
-        #expect(!gestures.redeem(ticket, connection: 1, pick: pick))
     }
 
     @Test func aFastTicketRedeemsWhenTheOpenedHarnessUsesItsFastModeValueAlias() throws {

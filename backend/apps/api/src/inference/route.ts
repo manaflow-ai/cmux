@@ -19,7 +19,6 @@ import { usagePriceSet } from "../billing-usage-sync.ts"
 import { creditsMargin, creditsMinReserveUsd } from "../credits.ts"
 import { Effect, Result } from "effect"
 import { allowedModels, fitToRoutes, omittedImagePlaceholder, validateChat } from "./chat-request.ts"
-import { killedRouterModels } from "../models-catalog/store.ts"
 
 const creditFloorMicros = (env: Env) => Math.ceil(creditsMinReserveUsd(env) * 1_000_000)
 
@@ -132,13 +131,12 @@ export const resolveCaller = async (env: Env, request: Request): Promise<Caller 
   return { kind: "team", team: p.team, user: p.user, limitMicros: userLimitMicros(plan.user_limit_usd), plan: plan.plan ?? null }
 }
 
-export const handleInferenceModels = async (env: Env): Promise<Response> => {
+export const handleInferenceModels = (env: Env): Response => {
   const on = switchOn(env.INFERENCE_ENABLED)
   const freeOn = on && switchOn(env.INFERENCE_FREE_ENABLED)
   const allowed = allowedModels(env)
-  const killed = on ? await killedRouterModels(env) : new Set<string>()
   const data = on
-    ? MODELS.filter((m) => allowed.has(m.id) && !killed.has(m.id) && liveRoutes(env, m).length > 0).map((m) => ({
+    ? MODELS.filter((m) => allowed.has(m.id) && liveRoutes(env, m).length > 0).map((m) => ({
         id: m.id,
         object: "model",
         created: 0,
@@ -203,8 +201,6 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
   const checked = await Effect.runPromise(Effect.result(validateChat(env, body)))
   if (Result.isFailure(checked)) return err(checked.failure.status, checked.failure.code, checked.failure.message)
   const { model } = checked.success
-  // The live catalog's kill switch (models-catalog/): a killed model is refused before any money moves.
-  if ((await killedRouterModels(env)).has(model.id)) return err(403, "model.disabled", `${model.name} is turned off for now`)
   const requested = Number(body.max_completion_tokens ?? body.max_tokens ?? model.defaultMaxTokens)
   if (!Number.isInteger(requested) || requested < 1) return err(400, "validation.invalid", "max_tokens must be a positive integer")
   const free = caller.kind === "free"

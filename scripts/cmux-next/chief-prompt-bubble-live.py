@@ -26,9 +26,6 @@ Fleet: scripts/measure/chief-prompt-bubble.sh (builds the tagged app first).
 """
 import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, threading, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from state_wait import wait_stable  # noqa: E402
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
@@ -231,9 +228,7 @@ def main():
     print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
         sys.exit("the tagged app did not come up")
-    # Launch work settles: the first window's surfaces (debug.surfaces) stop changing.
-    wait_stable(lambda: rpc("debug.surfaces"), "the first window's surfaces", timeout=15, interval=0.2, reads=3,
-                raise_on_timeout=False)
+    time.sleep(3)  # test harness: launch work settles
     # An agent tab, as a person opens one (Cmd-Shift-I); its pane starts the app's acpmux.
     rpc("debug.key", {"key": "i", "modifiers": ["cmd", "shift"]})
     if not wait(lambda: "error" not in (pane("pid") or {"error": 1}), 60, 0.5):

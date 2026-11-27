@@ -85,6 +85,6 @@ public final class VerticalTabsActions {
 /// The vertical tabs rows' titles while they name the other change (SettingsActions.xcstrings in CmuxNextActions
 /// holds the catalog titles).
 private struct VerticalTabsStrings {
-    static var turnOff: String { String(localized: "verticalTabs.turnOff", defaultValue: "Turn Off Vertical Tabs", bundle: .localizedModule) }
-    static var expand: String { String(localized: "verticalTabs.expand", defaultValue: "Expand Tabs", bundle: .localizedModule) }
+    static var turnOff: String { String(localized: "verticalTabs.turnOff", defaultValue: "Turn Off Vertical Tabs", bundle: .module) }
+    static var expand: String { String(localized: "verticalTabs.expand", defaultValue: "Expand Tabs", bundle: .module) }
 }

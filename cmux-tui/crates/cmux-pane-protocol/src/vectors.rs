@@ -416,7 +416,7 @@ fn validation_cases() -> Vec<Value> {
         "welcome with extra field",
         "ProviderWelcome",
         json!({ "router_key": "AAAA", "provider": "p", "x": 1 }),
-        true,
+        false,
         11,
     );
     tagged(

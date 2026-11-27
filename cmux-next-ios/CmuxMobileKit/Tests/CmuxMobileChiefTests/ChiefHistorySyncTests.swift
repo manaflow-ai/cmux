@@ -94,7 +94,8 @@ import Testing
         let cache = Self.cache()
         defer { cache.removeAll() }
         func session() -> ChiefSession {
-            ChiefSession(backend: ChiefOfflineBackend(), transcripts: cache)
+            ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: FileManager.default.temporaryDirectory
+                .appendingPathComponent("outbox-\(UUID().uuidString).json")), transcripts: cache)
         }
         let mac = session(), cloud = session()
         mac.useTranscriptAccount("user_a")
@@ -117,7 +118,8 @@ import Testing
     @Test func anotherAccountNeverSeesTheKeptRows() async throws {
         let cache = Self.cache()
         defer { cache.removeAll() }
-        let session = ChiefSession(backend: ChiefOfflineBackend(), transcripts: cache)
+        let outbox = ChiefOutbox(file: FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json"))
+        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox, transcripts: cache)
         session.useTranscriptAccount("user_a")
         session.macID = "mac-A"
         session.use(ChiefMockBackend(sleep: { _ in }))

@@ -68,9 +68,7 @@ public nonisolated struct WorkspaceActivityName: Equatable, Sendable {
             // The newest prompts only: a timeline holds at most `AgentTimeline.limit` events.
             let prompts = turns.timeline(for: session).events.reversed().lazy.filter { $0.kind == .prompt }
                 .compactMap(\.text).prefix(promptsPerChat).reversed()
-            // Another machine's title never steers a name kept as the person's own (cmux#55668).
-            let title = turns.namesAreRemote(session) ? nil : turns.generatedTitle(for: session)
-            return .chat(title: snippet(title ?? tab.name), prompts: prompts.compactMap(snippet))
+            return .chat(title: snippet(turns.generatedTitle(for: session) ?? tab.name), prompts: prompts.compactMap(snippet))
         }
         switch tab.kind {
         case .pty, .remoteTerminal: return .terminal(folder: snippet(tab.cwd), title: snippet(tab.titleText))

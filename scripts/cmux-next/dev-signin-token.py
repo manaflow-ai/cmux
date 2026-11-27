@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""A staging Stack session for the agent test account, for the signed cmux NEXT DEV app (or, with
-`--backend production`, the production agent account's session for cmux NIGHTLY and a Linux screen host).
+"""A staging Stack session for the agent test account, for the signed cmux NEXT DEV app.
 
 The signed NEXT DEV build (com.cmuxterm.app.debug.next, a Release compile) signs in on the staging
 Stack project, and on a Keychain miss restores its session from its file token store
@@ -18,11 +17,6 @@ This signs the agent account in over Stack's password API. The pair comes from t
                        PBKDF2 key from a random secret) and DIR/key.enc (that secret, RSA-OAEP): the
                        only thing the workflow uploads. The private key never leaves the machine that
                        made it, which decrypts the session into credentials.json itself.
-
---backend production signs in on the production Stack project instead (the pair from the
-cmux-next-cloud-journey environment) and names com.cmuxterm.app.nightly in the payload: for a fleet
-Mac's NIGHTLY and `cmux-rd linux-host enable --stack-token-file` to share one account (the Mac-to-Linux
-screen sharing proof). --seed stays staging only: the NIGHTLY's folder comes from its runtime selection.
 
 Prints nothing secret.
 """
@@ -42,23 +36,17 @@ import urllib.request
 from pathlib import Path
 
 STACK = "https://api.stack-auth.com/api/v1/auth/password/sign-in"
-# The development and production defaults (scripts/setup-team-dev.sh verify_credentials mirrors them; the
-# publishable keys are public): (project, client key, the bundle the session is for).
-BACKENDS = {
-    "staging": ("454ecd03-1db2-4050-845e-4ce5b0cd9895", "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g",
-                "com.cmuxterm.app.debug.next"),
-    "production": ("9790718f-14cd-4f7e-824d-eaf527a82b82", "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr",
-                   "com.cmuxterm.app.nightly"),
-}
-PROJECT, CLIENT_KEY, BUNDLE_ID = BACKENDS["staging"]
+# CloudConfiguration.developmentProjectID / developmentClientKey (the publishable key is public).
+PROJECT = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
+CLIENT_KEY = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
+BUNDLE_ID = "com.cmuxterm.app.debug.next"
 
 
-def sign_in(email: str, password: str, backend: str = "staging") -> dict:
-    project, client_key, _ = BACKENDS[backend]
+def sign_in(email: str, password: str) -> dict:
     request = urllib.request.Request(STACK, method="POST", data=json.dumps(
         {"email": email, "password": password}).encode(), headers={
-        "content-type": "application/json", "x-stack-project-id": project,
-        "x-stack-publishable-client-key": client_key, "x-stack-access-type": "client"})
+        "content-type": "application/json", "x-stack-project-id": PROJECT,
+        "x-stack-publishable-client-key": CLIENT_KEY, "x-stack-access-type": "client"})
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             body = json.loads(response.read() or b"{}")
@@ -90,15 +78,14 @@ def seed(session: dict, home: Path) -> Path:
     return path
 
 
-def encrypt(session: dict, pubkey: Path, out: Path, backend: str = "staging") -> None:
-    project, _, bundle_id = BACKENDS[backend]
+def encrypt(session: dict, pubkey: Path, out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as scratch:
         secret = Path(scratch) / "secret"
         fd = os.open(secret, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as handle:
             handle.write(base64.b64encode(secrets.token_bytes(32)).decode() + "\n")
-        payload = json.dumps({**session, "project": project, "bundleID": bundle_id, "issuedAt": int(time.time())})
+        payload = json.dumps({**session, "project": PROJECT, "bundleID": BUNDLE_ID, "issuedAt": int(time.time())})
         subprocess.run(["openssl", "enc", "-aes-256-cbc", "-md", "sha256", "-pbkdf2", "-iter", "200000", "-salt",
                         "-pass", f"file:{secret}", "-out", str(out / "session.enc")],
                        input=payload.encode(), check=True)
@@ -111,22 +98,18 @@ def main() -> int:
     parser.add_argument("--seed", action="store_true", help="write the app's credentials.json for this user")
     parser.add_argument("--pubkey", type=Path, help="an RSA public key (PEM) to encrypt the session to")
     parser.add_argument("--out", type=Path, help="where session.enc and key.enc go (with --pubkey)")
-    parser.add_argument("--backend", choices=sorted(BACKENDS), default="staging",
-                        help="the Stack project to sign in on (production: the NIGHTLY's; --pubkey only)")
     args = parser.parse_args()
     if args.seed == bool(args.pubkey) or (args.pubkey and not args.out):
         parser.error("give --seed, or --pubkey FILE --out DIR")
-    if args.seed and args.backend != "staging":
-        parser.error("--seed writes the staging DEV app's store only; use --pubkey for production")
     email = os.environ.get("CMUX_DOGFOOD_STACK_EMAIL", "")
     password = os.environ.get("CMUX_DOGFOOD_STACK_PASSWORD", "")
     if not email or not password:
         raise SystemExit("dev-signin-token: CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD are not set")
-    session = sign_in(email, password, args.backend)
+    session = sign_in(email, password)
     if args.seed:
         print(f"dev-signin-token: seeded {seed(session, Path.home())}")
     else:
-        encrypt(session, args.pubkey, args.out, args.backend)
+        encrypt(session, args.pubkey, args.out)
         print(f"dev-signin-token: wrote {args.out}/session.enc and key.enc")
     return 0
 

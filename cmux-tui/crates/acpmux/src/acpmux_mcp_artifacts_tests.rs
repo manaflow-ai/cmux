@@ -120,18 +120,6 @@ fn the_tool_list_carries_the_artifact_tools_only_when_offered() {
     assert!(save["description"].as_str().unwrap().contains("artifact_search first"));
 }
 
-/// Each length the calls refuse past is in the schema, so a caller sees it before calling.
-#[test]
-fn the_schemas_carry_the_length_limits_the_calls_enforce() {
-    let tools = definitions();
-    let title = &tools[0]["inputSchema"]["properties"]["title"];
-    assert_eq!(title["maxLength"], MAX_TITLE_CHARS);
-    assert!(title["description"].as_str().unwrap().contains(&format!("at most {MAX_TITLE_CHARS}")));
-    let q = &tools[1]["inputSchema"]["properties"]["q"];
-    assert_eq!(q["maxLength"], MAX_QUERY_CHARS);
-    assert!(q["description"].as_str().unwrap().contains(&format!("at most {MAX_QUERY_CHARS}")));
-}
-
 #[test]
 fn names_paths_and_refs_are_checked() {
     for name in [
@@ -567,36 +555,6 @@ fn legacy_artifact_schema() -> Value {
         "ArtifactFile": {"properties": {"name": {"type": "string"}, "contentBase64": {"type": "string"}},
             "required": ["name", "contentBase64"]}
     }}})
-}
-
-/// Saves that keep landing first are waited out: the save goes again on each new head until it
-/// lands, and the agent never relays "try again" (Leo, 2026-11-22).
-#[tokio::test]
-async fn save_goes_again_while_other_saves_keep_landing_first() {
-    let id = "01J8Z7Q4M6N2K5P8R3T1V9W0X2";
-    let (base, server) = fixture(vec![
-        (200, JSON, json!({"repo": "r", "headSha": "1".repeat(40)}).to_string().into_bytes()),
-        (200, JSON, json!({"sha256": "a".repeat(64), "size": 11}).to_string().into_bytes()),
-        (409, JSON, json!({"currentHeadSha": "2".repeat(40)}).to_string().into_bytes()),
-        (409, JSON, json!({"currentHeadSha": "3".repeat(40)}).to_string().into_bytes()),
-        (409, JSON, json!({"currentHeadSha": "4".repeat(40)}).to_string().into_bytes()),
-        (
-            200,
-            JSON,
-            json!({"id": id, "headSha": "5".repeat(40), "commit": {}}).to_string().into_bytes(),
-        ),
-    ])
-    .await;
-    let result = run(
-        &client(&base),
-        "artifact_save",
-        json!({"title": "Build report", "kind": "html", "html": "<h1>ok</h1>"}),
-    )
-    .await;
-    let seen = server.await.unwrap();
-    assert_eq!(result["isError"], false, "{result}");
-    let last: Value = serde_json::from_slice(&seen[5].body).unwrap();
-    assert_eq!(last["expectedHeadSha"], "4".repeat(40));
 }
 
 #[tokio::test]

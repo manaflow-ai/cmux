@@ -140,7 +140,6 @@ fn start() -> (TunEngine, OwnedFd, OwnedFd, Gateway) {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Miri has no SOCK_DGRAM socketpair, utun's stand-in here")]
 fn packets_cross_the_tunnel_both_ways() {
     let (engine, _engine_side, test_side, mut gateway) = start();
     let ping = ipv4(Ipv4Addr::new(10, 0, 0, 2), Ipv4Addr::new(10, 0, 0, 1), b"ping");
@@ -165,7 +164,6 @@ fn packets_cross_the_tunnel_both_ways() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Miri has no SOCK_DGRAM socketpair, utun's stand-in here")]
 fn a_packet_from_outside_allowed_ips_is_dropped() {
     let (engine, _engine_side, test_side, mut gateway) = start();
     write_frame(
@@ -185,7 +183,6 @@ fn a_packet_from_outside_allowed_ips_is_dropped() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Miri has no SOCK_DGRAM socketpair, utun's stand-in here")]
 fn stop_returns_promptly_on_an_idle_tunnel() {
     let (engine, _engine_side, _test_side, _gateway) = start();
     let began = StdInstant::now();
@@ -197,7 +194,6 @@ fn stop_returns_promptly_on_an_idle_tunnel() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Miri has no SOCK_DGRAM socketpair, utun's stand-in here")]
 fn a_config_without_an_endpoint_is_refused() {
     let config = format!(
         "[Interface]\nPrivateKey = {}\nAddress = 10.0.0.2/32\n\n[Peer]\nPublicKey = {}\nAllowedIPs = 10.0.0.0/24\n",
@@ -212,7 +208,6 @@ fn a_config_without_an_endpoint_is_refused() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Miri has no SOCK_DGRAM socketpair, utun's stand-in here")]
 fn malformed_config_is_refused() {
     let (engine_side, _test_side) = socketpair();
     assert!(matches!(
@@ -229,7 +224,6 @@ fn malformed_config_is_refused() {
 /// from run to run.
 #[cfg(target_os = "macos")]
 #[test]
-#[cfg_attr(miri, ignore = "Miri has no SOCK_DGRAM socketpair, utun's stand-in here")]
 fn the_utun_name_query_answers_a_local_socket_with_its_peer_pid() {
     let (engine_side, _test_side) = socketpair();
     let mut reply = [0u8; 16];
@@ -251,14 +245,12 @@ fn the_utun_name_query_answers_a_local_socket_with_its_peer_pid() {
 /// The decision itself, in every process: a local socket is never a kernel control socket,
 /// whatever this process's pid is.
 #[test]
-#[cfg_attr(miri, ignore = "Miri has no SOCK_DGRAM socketpair, utun's stand-in here")]
 fn a_socketpair_is_not_a_kernel_control_socket() {
     let (engine_side, _test_side) = socketpair();
     assert!(!crate::utun::is_kernel_control(engine_side.as_raw_fd()));
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Miri has no SOCK_DGRAM socketpair, utun's stand-in here")]
 fn a_socketpair_is_not_mistaken_for_utun() {
     let (engine_side, _test_side) = socketpair();
     assert!(crate::utun::interface_name(engine_side.as_raw_fd()).is_none());

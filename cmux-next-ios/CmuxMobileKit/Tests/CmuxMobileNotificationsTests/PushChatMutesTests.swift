@@ -1,14 +1,11 @@
 import Foundation
 import Testing
-#if canImport(UserNotifications)
 import UserNotifications
-#endif
 @testable import CmuxMobileNotifications
 
 /// Mute Chat Notifications on this phone: the app and the service extension read one list, and a
 /// muted chat's push arrives quietly while others keep their sound.
 @Suite struct PushChatMutesTests {
-    #if canImport(UserNotifications)
     @Test func aMutedChatsPushArrivesQuietly() throws {
         let mutes = PushChatMutes(keychain: PushMemoryStore(), defaults: nil)
         mutes.setMuted(true, mac: "MAC-1", session: "sess-1")
@@ -34,7 +31,6 @@ import UserNotifications
         #expect(mutes.muted().isEmpty)
         #expect(mutes.quieted(muted) == nil)
     }
-    #endif
 
     @Test func aBuildWithoutTheKeychainGroupKeepsItInDefaults() throws {
         let defaults = try #require(UserDefaults(suiteName: "PushChatMutesTests-\(UUID().uuidString)"))

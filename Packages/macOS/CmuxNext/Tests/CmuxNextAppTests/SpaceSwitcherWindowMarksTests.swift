@@ -48,10 +48,8 @@ import Testing
         #expect(click(.plain, Self.keys[1]) == .switchHere, "plain is today's strip")
         #expect(click(.plain, Self.keys[1], option: true) == .switchHere)
         #expect(click(.ring, Self.keys[0], elsewhere: nil) == .none)
-        #expect(click(.ring, Self.keys[0]) == .none, "the space shown here asks nothing, also when another window shows it")
-        #expect(click(.ring, Self.keys[0], option: true) == .none)
-        #expect(click(.ring, Self.keys[1], elsewhere: SpaceElsewhere(windowID: "incognito", incognito: true)) == .goToWindow,
-                "one choice is no menu")
+        #expect(click(.ring, Self.keys[0]) == .offer([.goToWindow, .moveHere]), "a ringed current space offers the choices too")
+        #expect(click(.ring, Self.keys[0], option: true) == .goToWindow)
         #expect(click(.menu, Self.keys[0]) == .spaceMenu)
         #expect(SpaceSwitcherStyle.tunable.defaultValue == .ring, "the gallery's pick is the default for the new marker only")
     }
@@ -108,20 +106,6 @@ import Testing
         }
     }
 
-    @Test func retainedAccessibilityButtonFollowsItsSpaceAcrossReorderAndRemoval() throws {
-        let bar = Bar(style: .plain)
-        defer { bar.window.closeAfterTest() }
-        let element = try #require(bar.view.accessibilityChildren()?[1] as? ProfileDotElement)
-        bar.model.profiles.swapAt(1, 2)
-        bar.view.refresh()
-        #expect(element.accessibilityPerformPress())
-        #expect(bar.intents == [.switchProfile(Self.keys[1])])
-        bar.model.profiles.removeLast()
-        bar.view.refresh()
-        #expect(!element.accessibilityPerformPress())
-        #expect(bar.intents == [.switchProfile(Self.keys[1])])
-    }
-
     @Test func clickingAnotherWindowsSpaceOffersGoToWindowAndMoveHere() throws {
         let bar = Bar(style: .ring)
         defer { bar.window.closeAfterTest() }
@@ -153,29 +137,12 @@ import Testing
         #expect(plain.intents == [.switchProfile(Self.keys[1])] && plain.menus.isEmpty)
     }
 
-    /// One choice is no menu: a click on an incognito window's space goes to that window (Leo 2026-11-16:
-    /// "What is go to window and move here?").
-    @Test func anIncognitoSpaceGoesToItsWindowWithNoMenu() {
+    @Test func anIncognitoSpaceOffersOnlyGoToWindow() throws {
         let bar = Bar(style: .ring)
         defer { bar.window.closeAfterTest() }
         bar.view.windowMarks.elsewhere = [Self.keys[1]: SpaceElsewhere(windowID: "incognito", incognito: true)]
         bar.click(1)
-        #expect(bar.menus.isEmpty, "a menu with one row opened")
-        #expect(bar.actions == [.goToWindow(Self.keys[1])] && bar.intents.isEmpty)
-    }
-
-    /// The space this window shows asks nothing, also when another window shows it too: no Go to Window menu.
-    @Test func thisWindowsOwnSpaceOpensNoMenu() {
-        let bar = Bar(style: .ring)
-        defer { bar.window.closeAfterTest() }
-        bar.view.windowMarks.elsewhere = [Self.keys[0]: SpaceElsewhere(windowID: "other", incognito: false)]
-        bar.click(0)
-        #expect(bar.menus.isEmpty && bar.actions.isEmpty && bar.intents.isEmpty, "a click on the space shown here did something")
-    }
-
-    @Test func theMenuLabelsSayWhatTheyDo() {
-        #expect(Strings.goToSpaceWindow == "Switch to That Window")
-        #expect(Strings.moveSpaceHere == "Move to This Window")
+        #expect(try #require(bar.menus.first).items.map(\.title) == [Strings.goToSpaceWindow])
     }
 
     @Test func theSpaceMenuListsEverySpaceAndEndsWithNewSpaces() throws {
@@ -199,18 +166,5 @@ import Testing
         let labels = (bar.view.accessibilityChildren() ?? []).compactMap { ($0 as? NSAccessibilityElement)?.accessibilityLabel() }
         #expect(labels.contains(Strings.spaceInAnotherWindow("Space 1")), "\(labels)")
         #expect(labels.contains("Space 2"))
-    }
-
-    /// The space shown here is here, also when a second window shows it: its mark never says "in another window"
-    /// (Leo 2026-11-11: "why does it say default in another window?").
-    @Test func theCurrentSpacesMarkNeverSaysAnotherWindow() {
-        let bar = Bar(style: .ring)
-        defer { bar.window.closeAfterTest() }
-        bar.view.windowMarks.elsewhere = [Self.keys[0]: SpaceElsewhere(windowID: "other", incognito: false)]
-        bar.view.refresh()
-        let labels = (bar.view.accessibilityChildren() ?? []).compactMap { ($0 as? NSAccessibilityElement)?.accessibilityLabel() }
-        #expect(labels.contains(Strings.profileCurrent("Space 0")), "\(labels)")
-        #expect(!labels.contains(Strings.spaceInAnotherWindow(Strings.profileCurrent("Space 0"))), "\(labels)")
-        #expect(bar.view.windowMarkLabel("Space 0", for: bar.model.profiles[0]) == "Space 0")
     }
 }

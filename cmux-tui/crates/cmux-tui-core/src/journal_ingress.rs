@@ -22,9 +22,11 @@ mod coalesce;
 mod completion;
 pub(crate) mod contention;
 mod disk_full;
+mod effect_intents;
 mod terminal_offer;
 pub(crate) use completion::JournalBatchReceipt;
 use completion::{complete_batch_error, complete_batch_success};
+pub(crate) use effect_intents::{EffectSend, PendingRegistryReceipt};
 pub(crate) use terminal_offer::TerminalOffer;
 
 const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
@@ -64,20 +66,6 @@ const JOURNAL_NONRETRYABLE_RETRY_DELAY: Duration = Duration::from_millis(10);
 const COMMIT_PENDING: u8 = 0;
 const COMMIT_ADMITTED: u8 = 1;
 const COMMIT_CANCELED: u8 = 2;
-
-/// Debug seam (`CMUX_TUI_DEBUG_JOURNAL_WRITER_STALL_MS=N`, off by default):
-/// the journal writer waits N ms before each batch, as a writer busy with
-/// other work, so a test can prove no request waits for it (PL-daemon).
-fn writer_stall() -> Option<Duration> {
-    static STALL: std::sync::OnceLock<Option<Duration>> = std::sync::OnceLock::new();
-    *STALL.get_or_init(|| {
-        std::env::var("CMUX_TUI_DEBUG_JOURNAL_WRITER_STALL_MS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .filter(|ms| *ms > 0)
-            .map(Duration::from_millis)
-    })
-}
 
 #[cfg(not(test))]
 fn journal_durable_wait() -> Duration {
@@ -233,6 +221,9 @@ pub(crate) enum JournalIngressEvent {
         origin: String,
         idempotency_key: String,
     },
+    /// A registry commit (effect receipt, terminal record, workspace
+    /// registry revision) applied in the batch under its own SAVEPOINT.
+    Effect(Box<crate::workspace_registry::RegistryIntent>),
     /// A projected agent hook's retry row, deleted in the batch: the request
     /// that projected the hook waits for it instead of committing the delete
     /// on its own (mux/journal.rs finish_journal_ingress).
@@ -260,9 +251,10 @@ impl JournalIngressEvent {
             | Self::TerminalOutputGap { .. } => JournalLane::Terminal,
             #[cfg(test)]
             Self::TerminalOutput { .. } => JournalLane::Terminal,
-            Self::Frontend { .. } | Self::Producer { .. } | Self::AgentHookCleared { .. } => {
-                JournalLane::Durable
-            }
+            Self::Frontend { .. }
+            | Self::Producer { .. }
+            | Self::Effect(_)
+            | Self::AgentHookCleared { .. } => JournalLane::Durable,
         }
     }
 
@@ -273,6 +265,7 @@ impl JournalIngressEvent {
             Self::TerminalOutput { bytes, .. } => bytes.len(),
             Self::TerminalResize { .. } => 64,
             Self::TerminalOutputGap { .. } => 128,
+            Self::Effect(intent) => intent.estimated_bytes(),
             Self::AgentHookCleared { producer_id, origin, idempotency_key } => producer_id
                 .len()
                 .saturating_add(origin.len())
@@ -361,20 +354,27 @@ enum JournalIngressCompletion {
         deadline: Instant,
         commit_fence: Arc<AtomicU8>,
     },
+    Effect {
+        sender: SyncSender<Result<crate::workspace_registry::RegistryReceipt, String>>,
+        deadline: Instant,
+        commit_fence: Arc<AtomicU8>,
+    },
 }
 
 impl JournalIngressCompletion {
     fn deadline(&self) -> Instant {
         match self {
-            Self::Durable { deadline, .. } | Self::Producer { deadline, .. } => *deadline,
+            Self::Durable { deadline, .. }
+            | Self::Producer { deadline, .. }
+            | Self::Effect { deadline, .. } => *deadline,
         }
     }
 
     fn commit_fence(&self) -> &AtomicU8 {
         match self {
-            Self::Durable { commit_fence, .. } | Self::Producer { commit_fence, .. } => {
-                commit_fence
-            }
+            Self::Durable { commit_fence, .. }
+            | Self::Producer { commit_fence, .. }
+            | Self::Effect { commit_fence, .. } => commit_fence,
         }
     }
 }
@@ -854,21 +854,6 @@ impl JournalIngressSender {
         self.terminal_sender.is_some()
     }
 
-    /// True when [`Self::send_durable`] would queue for a running writer:
-    /// the durable lane exists, the writer runs, and the caller is not the
-    /// writer thread (which would wait on itself).
-    pub(crate) fn accepts_durable(&self) -> bool {
-        self.durable_sender.is_some()
-            && self.state.admission_error().is_none()
-            && self.writer.lock().is_ok_and(|owner| {
-                matches!(
-                    &*owner,
-                    JournalWriterOwner::Running(writer)
-                        if writer.thread.thread().id() != std::thread::current().id()
-                )
-            })
-    }
-
     pub(crate) fn is_current_writer_thread(&self) -> bool {
         self.writer.lock().is_ok_and(|owner| {
             matches!(
@@ -1167,6 +1152,9 @@ pub(crate) fn start(
     let Some(receivers) = receivers else { return Ok(()) };
     let weak = Arc::downgrade(mux);
     mux.spawn_journal_writer("mux-session-journal-writer", move || run(weak, receivers))?;
+    // Registry commits (effect receipts, terminal records, workspace
+    // revisions) ride the writer batch from now on.
+    mux.install_registry_intent_sink();
     Ok(())
 }
 
@@ -1214,11 +1202,6 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     if batch.is_empty() {
                         break;
                     }
-                }
-                if let Some(stall) = writer_stall() {
-                    // Debug seam: a writer busy elsewhere, before it takes
-                    // any lock (no request may wait for it, PL-daemon).
-                    std::thread::sleep(stall);
                 }
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
                 let committed = mux.commit_session_journal_events(

@@ -1,8 +1,4 @@
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 import Foundation
 
 /// The crypto of sealed pushes and mailbox replies (PROTOCOL.md "Sealed pushes

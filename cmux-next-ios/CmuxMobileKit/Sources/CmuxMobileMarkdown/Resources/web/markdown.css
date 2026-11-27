@@ -18,7 +18,6 @@
 html, body { margin: 0; padding: 0; background: transparent; -webkit-text-size-adjust: 100%; }
 body { font: -apple-system-body; line-height: 1.6; color: var(--label); overflow: hidden;
   -webkit-user-select: none; -webkit-touch-callout: none; word-wrap: break-word; }
-body.selectable { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 body.compact { font: -apple-system-subheadline; line-height: 1.5; }
 #content { padding: 0; }
 #content > :first-child { margin-top: 0 !important; }
@@ -54,8 +53,7 @@ hr { border: 0; border-top: 0.5px solid var(--separator); margin: 14px 0; }
 .hljs-comment { color: var(--comment); }
 .d-add { color: var(--add); } .d-del { color: var(--del); } .d-hunk { color: var(--hunk); } .d-meta { color: var(--label3); }
 .table-wrap { overflow-x: auto; margin: 0 0 12px; }
-/* A table narrower than the column is centered; a wider one scrolls in .table-wrap (Leo 2026-11-22). */
-table { border-collapse: collapse; font: -apple-system-subheadline; margin-inline: auto; }
+table { border-collapse: collapse; font: -apple-system-subheadline; }
 th { font-weight: 600; text-align: left; }
 th, td { padding: 8px 12px 8px 0; border-bottom: 0.5px solid var(--separator); vertical-align: top; min-width: 64px; }
 .math-block { overflow: hidden; margin: 4px 0 12px; text-align: center; }

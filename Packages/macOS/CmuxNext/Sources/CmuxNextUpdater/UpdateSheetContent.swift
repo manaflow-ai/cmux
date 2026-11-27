@@ -50,7 +50,6 @@ nonisolated public enum UpdateSheetButton: Sendable, Hashable {
         case .update: UpdaterStrings.update
         case .later: UpdaterStrings.later
         case .cancel: UpdaterStrings.cancel
-        // retry-prompt-ok: an update that downloads and replaces binaries
         case .retry: UpdaterStrings.retry
         case .done: UpdaterStrings.done
         case .relaunch: UpdaterStrings.relaunch

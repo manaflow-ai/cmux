@@ -63,21 +63,12 @@ pub(super) fn search(
     if query.is_empty() {
         return Ok(reply);
     }
-    // The repository's cached listing: one `ls-files` answers every query.
-    let listed = super::read_cache::listed(repository, directory, &below, OPERATION)?;
-    let mut cut = listed.truncated();
+    let (candidates, mut cut) = candidates(repository, directory, &below, OPERATION)?;
     let mut scorer = Scorer::new(&query, MAX_SCORED_CELLS);
     let mut ranked = Vec::new();
-    // Only a match is looked at: a keystroke's looks grow with its matches,
-    // not with every path in the folder (`files_stress_tests`).
-    let mut reached = Folders::of(repository, &below);
-    for path in listed.iter() {
+    for path in &candidates {
         match scorer.score(path) {
-            Scored::Match(score, matches) => {
-                if reached.kind(path).is_some() {
-                    ranked.push(Ranked { path, score, matches });
-                }
-            }
+            Scored::Match(score, matches) => ranked.push(Ranked { path, score, matches }),
             Scored::NoMatch => {}
             Scored::OutOfBudget => {
                 // The rest are unranked; say the results are partial.
@@ -193,8 +184,6 @@ impl Folders {
     /// there or cannot be opened, the path has too many folders, or there
     /// is no look at all. A path with no kind is no candidate and no result.
     pub(super) fn kind(&mut self, path: &str) -> Option<Kind> {
-        #[cfg(test)]
-        LOOKS.with(|looks| looks.set(looks.get() + 1));
         self.tree.as_mut()?.entry(&self.below.join(path)).ok()?.kind()
     }
 
@@ -205,40 +194,23 @@ impl Folders {
     }
 }
 
-#[cfg(test)]
-thread_local! {
-    /// Looks ([`Folders::kind`]) made on this thread: the stress tests count
-    /// work with it (`files_stress_tests`).
-    pub(super) static LOOKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// The paths git lists under `directory`, relative to it, sorted and with no
-/// repeat, and whether the listing was cut.
+/// The files under `directory`, relative to it and sorted, and whether the
+/// listing was cut. `below` is the result of [`folder`] for `directory`.
 ///
 /// git gives the names: the paths of its index and the untracked names. It
 /// is not asked if a tracked path is still there, because git looks at a
 /// path by its name and so through a link. The daemon looks itself
 /// ([`Folders::kind`]): a candidate is a listed path that it reaches through
-/// real folders and that has a name on the disk. That look is the caller's,
-/// made only for the paths it needs (a match, a child), so its cost is what
-/// the reply shows, not every path below `directory`.
-pub(super) fn listed(
+/// real folders and that has a name on the disk.
+pub(super) fn candidates(
     repository: &Repository,
     directory: &Path,
+    below: &Path,
     operation: &'static str,
 ) -> Result<(Vec<String>, bool), ResourceError> {
     // Run in the folder itself, so paths are relative to it and only files
     // under it are listed.
-    #[cfg(test)]
-    super::read_probe::ran(super::read_probe::Read::Listing, &repository.root);
-    let mut listing =
-        vec!["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."];
-    // In the home folder itself, the home folder's repository lists what it
-    // tracks only: its untracked files are every file the person has
-    // (`cmux_git::home`). A folder below it lists the files below that folder.
-    if !repository.lists_untracked() && is_top(repository, directory) {
-        listing.retain(|argument| !matches!(*argument, "--others" | "--exclude-standard"));
-    }
+    let listing = ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."];
     let listed = run_git(directory, &repository.overrides, &listing, MAX_LISTING_BYTES)
         .map_err(|failure| git_failed(operation, &failure))?;
     let mut bytes = listed.stdout;
@@ -252,15 +224,9 @@ pub(super) fn listed(
     // folder one time.
     files.sort_unstable();
     files.dedup();
-    files.retain(|path| !path.contains('\u{FFFD}'));
+    let mut folders = Folders::of(repository, below);
+    files.retain(|path| !path.contains('\u{FFFD}') && folders.kind(path).is_some());
     Ok((files, listed.truncated))
-}
-
-/// Whether `directory` is the repository's top folder, as spelled or with its
-/// symlinks resolved (git names the top folder resolved).
-fn is_top(repository: &Repository, directory: &Path) -> bool {
-    directory == repository.root
-        || std::fs::canonicalize(directory).is_ok_and(|resolved| resolved == repository.root)
 }
 
 /// What scoring one path found.

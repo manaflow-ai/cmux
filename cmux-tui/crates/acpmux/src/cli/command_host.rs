@@ -36,24 +36,6 @@ pub enum PeerCmd {
         #[arg(long)]
         build: bool,
     },
-    /// The lane hosts as one cell (RFD 0181): each one's live sessions against its lane cap,
-    /// the hosts past it, and the ones fleet-registry.json keeps work off (held or stopped)
-    /// while sessions still run there. Read-only: it reads the fleet listing `acpmux ls` reads
-    /// and the registry, and changes nothing.
-    Cells,
-    /// A transfer to a machine failed (a launcher's scp or ssh to its pick): `machine pick`
-    /// passes it over for 10 minutes, then tries it again. `--clear` forgets the failure once
-    /// it answers. A file in acpmux's home on this machine (`placement/reach.rs`).
-    Unreachable {
-        /// The machine the transfer could not reach.
-        name: String,
-        /// What failed, shown in the pick's reason.
-        #[arg(long)]
-        why: Option<String>,
-        /// It answers again: forget its failure.
-        #[arg(long)]
-        clear: bool,
-    },
     /// Whether a machine is dedicated: it runs agents with no per-session
     /// sandbox, the VM is the boundary (vmHost). Claude runs there without the
     /// sandbox only for a session whose caller asked, once the Cloud API said
@@ -72,20 +54,7 @@ pub enum PeerCmd {
     /// memory pressure (avg60), available memory, swap, OOM kills, free disk,
     /// whether a turn runs here, and a build or test that is running. Reads
     /// only; never starts a daemon. Fields it cannot read are left out.
-    /// `--watch`: sample once a second and print one JSON line each time a line
-    /// is crossed (memory available under 25% / 10%, an OOM kill, CPU saturated
-    /// 5 minutes, disk under 10% or 2 GiB), until stdout closes.
-    Load {
-        /// Sample once a second and print an event line when a line is crossed.
-        #[arg(long)]
-        watch: bool,
-        #[command(flatten)]
-        lines: crate::host_load_watch::Lines,
-    },
-    /// One walk of the home directory for `load`'s disk split (`disk_usage.rs`); `load` starts
-    /// it in the background when the last split is old.
-    #[command(name = "disk-walk", hide = true)]
-    DiskWalk,
+    Load,
     /// The shadow admission verdict (cmuxterm-hq#7342) for host readings on
     /// stdin: one JSON object, or an array of them, in; the verdict (or an
     /// array of verdicts) out, as JSON. Pure: reads no host and starts no
@@ -174,17 +143,11 @@ pub enum PeerCmd {
         #[arg(long)]
         user_id: Option<String>,
     },
-    /// Screen/control consent. From the cmux app (its person proof), or as this Mac's admin
-    /// with sudo (`sudo acpmux machine consent grant --control`); a plain shell is refused.
+    /// Request screen/control consent through the daemon. Changing it requires
+    /// the local app's person proof; a shell or agent cannot grant consent.
     Consent {
         #[command(subcommand)]
         cmd: ConsentCmd,
-    },
-    /// The Macs whose cmux app may switch this machine's Control and Screen (pinned in the cmux
-    /// app here, after checking their words). `rm` only removes one; nothing here adds one.
-    Grantors {
-        #[command(subcommand)]
-        cmd: GrantorsCmd,
     },
     /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach, rekey.
     /// The daemon takes them only from the cmux app (its person proof), with the person's
@@ -206,14 +169,6 @@ pub enum PeerCmd {
     Deps {
         #[command(subcommand)]
         cmd: DepsCmd,
-    },
-    /// Run VMs for the hub on this host (RFD 0100's host agent): `serve` makes, pauses,
-    /// resumes and destroys `cmux-*` VMs through libvirt and enforces each VM's lease here,
-    /// with no hosted reaper. Commands come from a local spool (`apply`) until the hub's
-    /// command lease is served.
-    Hypervisor {
-        #[command(subcommand)]
-        cmd: HypervisorCmd,
     },
     /// Install this binary and a daemon on a machine over ssh, then add it as a machine here.
     /// A Linux machine also gets acpmux-update.timer, which keeps its daemon on
@@ -310,21 +265,6 @@ pub enum PeerCmd {
         /// Restart the daemon even when an update restarted it in the last hour.
         #[arg(long)]
         now: bool,
-        /// Install the channel's build even when the installed one is built
-        /// from a newer commit (pulling a bad channel build back). Without
-        /// it the newer installed build is kept.
-        #[arg(long)]
-        allow_downgrade: bool,
-        /// RFD 0060 fast-patch: update now (no wait for the timer or the
-        /// restart window), hand over by restart, health read with rollback,
-        /// and append one line to ~/.local/state/fast-patch/runs.jsonl
-        /// (service acpmux-daemon).
-        #[arg(long)]
-        fast_patch: bool,
-        /// With --fast-patch: the commit expected live; refused when the
-        /// channel names another.
-        #[arg(long, requires = "fast_patch")]
-        commit: Option<String>,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,
@@ -388,33 +328,6 @@ pub enum PeerCmd {
         #[arg(long)]
         probe: bool,
     },
-    /// A unix socket here that reaches OWNER's lane-gh broker over the held carrier link (RFD
-    /// 0127 cut 2) instead of an `ssh -R` forward: one carrier stream per connection, so
-    /// `LANE_GH_SOCKET=PATH lane-gh ...` uses it. OWNER serves it once its owner sets
-    /// `acpmux config --set lane_gh_broker=PATH`. Runs until stopped.
-    BrokerForward {
-        /// The machines whose broker to reach (names in the hub's address book), in order of
-        /// preference: each connection goes to the first whose broker answered its last
-        /// progress check, and fails over before any of its bytes are sent.
-        #[arg(value_name = "OWNER", required = true, num_args = 1..)]
-        owners: Vec<String>,
-        /// Where to listen (a stale socket there is replaced; a served one is left alone).
-        #[arg(long, value_name = "PATH")]
-        socket: std::path::PathBuf,
-    },
-    /// Carry stdin and stdout to loopback PORT on MACHINE through the carrier, held: when
-    /// either machine's acpmux restarts or the circuit drops, the pipe is asked for again and
-    /// goes on with no byte lost or doubled (RFD 0127 cut 4). For ssh's ProxyCommand:
-    /// `ssh -o ProxyCommand='acpmux machine pipe MACHINE' HOST`. A far acpmux without held
-    /// pipes gets a plain pipe, which ends with its circuit.
-    Pipe {
-        /// A machine name in the hub's address book, or its node key.
-        #[arg(value_name = "MACHINE")]
-        machine: String,
-        /// The far machine's loopback port (the one its `remote_daemon` admits).
-        #[arg(long, default_value_t = 22)]
-        port: u16,
-    },
     /// This machine's ssh public key: the one line a new machine lists in its
     /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
     /// ed25519 key when this machine has none (never over an existing key).
@@ -465,110 +378,6 @@ pub enum VaultCmd {
     },
     /// Remove a kept key (`keep`) from this machine.
     Drop { name: String },
-    /// List every secret this user's processes and files can reach, by name and
-    /// path only (never a value), and exit 1 when anything but the owner's
-    /// harness login or this machine's own identity is reachable (exit 2: the
-    /// audit could not see everything). A Cloud chat's VM runs it after a move.
-    Audit,
-}
-
-/// Where `machine hypervisor` keeps its state and talks to libvirt.
-#[derive(clap::Args, Clone, Debug)]
-pub struct HypervisorOpts {
-    /// State folder: leases.json, status.json, the command spool and the VM disks
-    /// (default: ~/.acpmux/hypervisor).
-    #[arg(long, value_name = "DIR")]
-    pub state_dir: Option<PathBuf>,
-    /// libvirt connection URI (`virsh -c`), such as qemu:///system.
-    #[arg(long, value_name = "URI")]
-    pub connect: Option<String>,
-    /// What a slot is: a KVM guest (libvirt), or a pod on this host (a systemd slice
-    /// whose init runs in bwrap), for hosts that cannot run VMs.
-    #[arg(long, value_enum, default_value_t = HypervisorDriverKind::Libvirt)]
-    pub driver: HypervisorDriverKind,
-    /// With --driver pods: the folder of pod roots (default: <state dir>/pods).
-    #[arg(long, value_name = "DIR")]
-    pub pods_dir: Option<PathBuf>,
-    /// With --driver pods: the program each pod boots, HOME at its root (default: sleep
-    /// infinity). For a guest, `acpmux` with `--pod-init-arg daemon`. With `serve --source
-    /// hub` each new pod's init also gets a one-time join token the host minted for its slot
-    /// in CMUX_JOIN_TOKEN and its hub in CMUX_JOIN_HUB: an init `sh -c 'printf "%s\n"
-    /// "$CMUX_JOIN_TOKEN" | acpmux machine join --hub "$CMUX_JOIN_HUB"; unset
-    /// CMUX_JOIN_TOKEN; exec acpmux daemon'` joins the pod as its own machine.
-    #[arg(long, value_name = "PROGRAM")]
-    pub pod_init: Option<String>,
-    /// An argument for --pod-init; repeat for more.
-    #[arg(long = "pod-init-arg", value_name = "ARG", allow_hyphen_values = true)]
-    pub pod_init_args: Vec<String>,
-    /// With --driver pods: a variable of serve's own environment to hand each pod's init,
-    /// by name, so its value never shows in an argv (a model token); repeat for more.
-    #[arg(long = "pod-env", value_name = "NAME")]
-    pub pod_env: Vec<String>,
-    /// With --driver pods: a host path every pod sees read-only at its own path, such as a
-    /// harness installed under a home (`~/.local/share/claude`); repeat for more.
-    #[arg(long = "pod-bind", value_name = "PATH")]
-    pub pod_bind: Vec<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
-pub enum HypervisorSourceKind {
-    Spool,
-    Hub,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
-pub enum HypervisorDriverKind {
-    Libvirt,
-    Pods,
-}
-
-#[derive(Subcommand)]
-pub enum HypervisorCmd {
-    /// Apply queued commands and enforce leases, every --interval-secs: a VM past its
-    /// delete-after is destroyed; one past its max run or idle time, or whose lease the hub
-    /// stopped renewing, or with no lease at all, is paused to disk, never deleted.
-    Serve {
-        #[command(flatten)]
-        opts: HypervisorOpts,
-        /// The qcow2 base image each VM's overlay disk is backed by.
-        #[arg(long, value_name = "FILE")]
-        base_image: Option<PathBuf>,
-        /// libvirt network the VMs attach to.
-        #[arg(long, default_value = "default")]
-        network: String,
-        /// Domain XML template ({{name}}, {{vcpus}}, {{memory_mib}}, {{disk}},
-        /// {{network}}, {{seed_disk}}); a KVM default when omitted.
-        #[arg(long, value_name = "FILE")]
-        template: Option<PathBuf>,
-        /// Seconds between passes.
-        #[arg(long, default_value_t = 5)]
-        interval_secs: u64,
-        /// One pass, then exit.
-        #[arg(long)]
-        once: bool,
-        /// Where commands come from: the local spool `apply` writes, or the hub's command
-        /// lease for this joined machine (`acpmux machine join` first; its own credential).
-        #[arg(long, value_enum, default_value_t = HypervisorSourceKind::Spool)]
-        source: HypervisorSourceKind,
-        /// With --source hub: the most commands one lease takes (1 to 32).
-        #[arg(long, default_value_t = 8)]
-        lease_max: u32,
-    },
-    /// Queue one command for `serve`, as JSON on stdin: {"verb":"create","slot":"a1",
-    /// "spec":{"vcpus":2,"memoryMib":4096},"lease":{"deleteAfterSecs":86400}}; verbs are
-    /// create, pause, resume, destroy, renew, touch and end.
-    Apply {
-        #[command(flatten)]
-        opts: HypervisorOpts,
-        /// The command's id (default: the time and the slot).
-        #[arg(long)]
-        id: Option<String>,
-    },
-    /// List this host's cmux VMs, their state and lease.
-    Ls {
-        #[command(flatten)]
-        opts: HypervisorOpts,
-    },
 }
 
 #[derive(Subcommand)]
@@ -643,43 +452,23 @@ pub enum TunnelCmd {
 
 #[derive(Subcommand)]
 pub enum ConsentCmd {
-    /// Grant screen, control or signed-in-machines consent (exactly one). Under sudo it is set
-    /// here as this Mac's admin; otherwise the daemon takes it only from the cmux app.
-    #[command(group(clap::ArgGroup::new("surface").required(true).args(["screen", "control", "signed_in_machines"])))]
+    /// Ask the app to grant screen or control consent (exactly one of --screen, --control).
     Grant {
         /// Screen recording.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
         screen: bool,
         /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
-        /// Control from this person's other machines signed in to the same account.
-        #[arg(long)]
-        signed_in_machines: bool,
     },
-    /// Revoke screen, control or signed-in-machines consent (exactly one), the same ways.
-    #[command(group(clap::ArgGroup::new("surface").required(true).args(["screen", "control", "signed_in_machines"])))]
+    /// Ask the app to revoke screen or control consent (exactly one of --screen, --control).
     Revoke {
         /// Screen recording.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
         screen: bool,
         /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
-        /// Control from this person's other machines signed in to the same account.
-        #[arg(long)]
-        signed_in_machines: bool,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum GrantorsCmd {
-    /// The pinned Macs (id, name, account, key words) and the pending ask.
-    List,
-    /// Stop a Mac's grants here at once, and drop its pending ask.
-    Rm {
-        /// The Mac's grantor id (`mac-` and 16 hex digits).
-        id: String,
     },
 }
 
@@ -697,12 +486,8 @@ pub enum ApprovalsCmd {
         #[arg(long)]
         name: Option<String>,
     },
-    /// Stop a Mac's Allows here, at once (`rm standing-grant` ends the standing grant).
+    /// Stop a Mac's Allows here, at once.
     Rm { id: String },
-    /// Record a standing pre-grant on this machine: a key of this user's own, enrolled here, with
-    /// which `acpmux allow SESSION --standing-grant` signs a one-time allow of a plain tool ask
-    /// (never a lasting allow, a plan, a mode, a policy or a rule). Keeps the key already there.
-    Grant,
     /// From this Mac: let its cmux app allow the prompts of MACHINE (a machine name
     /// or ssh host), over ssh. The approvals step of `machine enroll`, alone.
     Enroll {

@@ -12,16 +12,14 @@ updates ship that code on its own, signed, minutes after each merge to `feat-cmu
    `cmux-next-web/<key>/web-bundles-<sha256>.tar.gz` and its `manifest.json` (written last) on
    files.cmux.com. `<key>` is `web-bundle-key.py --source`; the manifest's `outputs` is the
    `--outputs` digest of the unpacked tree.
-2. **Pointer** (the `publish` job's "Sign and upload the pointer" step, right after the upload):
-   signs `cmux-next-web/ota/every-merge.json`, a pointer to that key, with the ed25519 key in the
-   `CMUX_WEB_OTA_SIGNING_KEY` secret of the `artifacts` environment. The job runs no bun or node:
-   only this checkout's scripts touch the key, and only that step has it. It never moves the
-   pointer back (`web-ota-pointer.py newer`: the published pointer's `committed_at` must be older),
-   writes it as a compare-and-swap read from R2, so runs of overlapping pushes (each push is its
-   own concurrency group) keep the newest commit, and verifies what it uploaded.
+2. **Pointer** (the `pointer` job): signs `cmux-next-web/ota/every-merge.json`, a pointer to that
+   key, with the ed25519 key in the `CMUX_WEB_OTA_SIGNING_KEY` secret of the `artifacts`
+   environment. The job runs no bun or node: only this checkout's scripts touch the key. It never
+   moves the pointer back (`web-ota-pointer.py newer`: the published pointer's `committed_at` must
+   be older), and it verifies what it uploaded.
 3. **App** (`WebUpdater` in CmuxNextUpdater, `WebUpdates` in CmuxNextWebUpdates): on NIGHTLY bundles and the tip app only, it
-   reads the pointer (a conditional GET: every minute, in the front and
-   behind other apps alike, and when it comes to the front a minute or more after the last read), verifies it, downloads and checks the archive, unpacks it into Application
+   reads the pointer (a conditional GET: every minute while cmux is in the front, every 10 minutes
+   behind other apps, and when it comes to the front a minute or more after the last read), verifies it, downloads and checks the archive, unpacks it into Application
    Support and checks the tree, then serves it from the next safe point.
 
 ## The pointer

@@ -1,6 +1,6 @@
 //! Agents that work and change no durable state write nothing.
 //!
-//! A large session, 2026-11-10 (826 workspaces, 170 agents, nobody at the
+//! Lawrence's daemon, 2026-11-10 (826 workspaces, 170 agents, nobody at the
 //! keyboard): 64 % of the journal rows were `agent.state.changed`, about 3.3 a
 //! second, 2,146 bytes each, 612 MB a day, each one a registry commit. A tool
 //! call, a notification or a hook cmux has no name for moves no durable state:
@@ -898,13 +898,13 @@ fn agents_at_rest_a_waiting_row_that_is_no_helper_report_keeps_the_wait() {
     mux.note_no_agent_hook_projection_pending(&agent.terminal, notes);
     assert!(!mux.agent_hook_projection_is_pending(&agent.terminal), "setup: no wait is noted");
 
-    mux.append_agent_report_echo(&crate::mux::agent_roster_fold::ReportEcho::new(
-        agent.terminal.clone(),
+    mux.append_agent_report_echo(
+        &agent.terminal,
         AgentState::Working,
         AgentSource::Socket,
         None,
         1,
-    ));
+    );
     assert_eq!(
         waiting_projection(&mux, "failing-start").map(|(attempt, _)| attempt),
         Some(first + 1),

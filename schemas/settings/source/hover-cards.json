@@ -41,7 +41,7 @@
           },
           "help": {
             "key": "settings.sidebar.hoverCards.delay.help",
-            "text": "How long the pointer rests before a card opens."
+            "text": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once."
           },
           "kind": "number",
           "range": {
@@ -61,14 +61,14 @@
         },
         {
           "key": "sidebar.hoverCards.layout",
-          "note": "u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). compact (default since Lawrence 2026-11-20: \"drastically simplify all parts of the UI\"): the facts and the last three moments; timeline: stats and a scrollable history of prompts, waits and finished turns; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.",
+          "note": "u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). timeline (default): stats and a scrollable history of prompts, waits and finished turns; compact: the facts and the last three moments; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.",
           "title": {
             "key": "settings.sidebar.hoverCards.layout",
             "text": "Workspace Card Layout"
           },
           "help": {
             "key": "settings.sidebar.hoverCards.layout.help",
-            "text": "What a workspace's hover card shows."
+            "text": "What a workspace's hover card shows: its history of prompts and waits, its details, or both."
           },
           "kind": "choice",
           "swift_enum": {
@@ -111,7 +111,7 @@
               }
             }
           ],
-          "default": "compact",
+          "default": "timeline",
           "keywords": [
             "hover",
             "card",

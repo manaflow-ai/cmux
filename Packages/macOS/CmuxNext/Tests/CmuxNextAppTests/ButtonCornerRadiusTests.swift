@@ -49,15 +49,12 @@ import Testing
         }
 
         // The browser's toolbar and text buttons, as drawn.
-        // Lucas 2026-11-15: they take the tab's ratio on their own side (one shape at every density), or the set radius.
         let toolbar = ChromeIconButton(icon: .navPreviousMatch, label: "Back", action: nil, target: nil, toolbar: true)
         toolbar.layoutSubtreeIfNeeded()
-        let toolbarCorner = Metrics.buttonCornerRadius(proportionalTo: OmnibarStyle.buttonSize)
-        #expect(toolbar.layer?.cornerRadius == toolbarCorner, "\(at): the toolbar button is \(String(describing: toolbar.layer?.cornerRadius)) pt")
+        #expect(toolbar.layer?.cornerRadius == tab, "\(at): the toolbar button is \(String(describing: toolbar.layer?.cornerRadius)) pt")
         let text = ChromeTextButton(title: "Allow", prominent: true, action: nil, target: nil)
         text.layoutSubtreeIfNeeded()
-        let textCorner = Metrics.buttonCornerRadius(proportionalTo: BrowserMetrics.controlHeight)
-        #expect(text.layer?.cornerRadius == textCorner, "\(at): a browser text button is \(String(describing: text.layer?.cornerRadius)) pt")
+        #expect(text.layer?.cornerRadius == tab, "\(at): a browser text button is \(String(describing: text.layer?.cornerRadius)) pt")
 
         // A sidebar card's button.
         let card = SidebarCardTextButton(frame: NSRect(x: 0, y: 0, width: 80, height: 22))

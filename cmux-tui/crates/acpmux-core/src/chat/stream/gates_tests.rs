@@ -16,7 +16,6 @@
 
 use super::*;
 use crate::wire::{CONNECTION_BUDGET_BYTES, CREDIT_WINDOW_BYTES, ReplayMark};
-use acpmux_book::gate_rounds;
 use acpmux_book::row::RowHead;
 use std::fs::File;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -86,10 +85,6 @@ fn emit(name: &str, measures: Measures, unit: &str) {
     }
 }
 
-fn as_u128(samples: &[u64]) -> Vec<u128> {
-    samples.iter().map(|&sample| u128::from(sample)).collect()
-}
-
 fn percentile(samples: &[u64]) -> u64 {
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
@@ -97,8 +92,7 @@ fn percentile(samples: &[u64]) -> u64 {
 }
 
 /// Five rounds, each god round after its small twin; the best round p95 of each side and the
-/// p95 of all its samples. Every round's p95 is reported through [`gate_rounds::report`], so a
-/// round that did different work from the rest is named.
+/// p95 of all its samples.
 fn paired(
     name: &str,
     mode: &str,
@@ -124,18 +118,13 @@ fn paired(
     }
     let (mut small_samples, mut god_samples) = (Vec::new(), Vec::new());
     let (mut small_best, mut god_best) = (u64::MAX, u64::MAX);
-    let (mut small_rounds, mut god_rounds) = (Vec::new(), Vec::new());
     for number in 1..=ROUNDS {
-        let (small_start, god_start) = (small_samples.len(), god_samples.len());
         let small_round = round(&mut small, warmup, samples, &mut small_samples);
         let god_round = round(&mut god, warmup, samples, &mut god_samples);
         small_best = small_best.min(small_round);
         god_best = god_best.min(god_round);
-        small_rounds.push(as_u128(&small_samples[small_start..]));
-        god_rounds.push(as_u128(&god_samples[god_start..]));
         println!("{name} mode={mode} round={number} small_p95={small_round} god_p95={god_round}");
     }
-    gate_rounds::report(name, &[("small", &small_rounds), ("god", &god_rounds)]);
     let measures = Measures {
         small: small_best,
         god: god_best,
@@ -1133,8 +1122,7 @@ const STOPPED_GOD: u64 = 1 << 30;
 const STOPPED_STRETCH: u64 = 8 << 20;
 const STOPPED_TEXT: usize = 8 * 1024;
 const STOPPED_BATCH: usize = 128;
-/// Settled rows the reference reader keeps, by id: more than any window holds. A row a window
-/// delivered (the chat's opening row stays in every window) is never evicted.
+/// Settled rows the reference reader keeps, by id: more than any window holds.
 const VIEW_ROWS: usize = 4096;
 const STOPPED_CASE: &str = "V2_PR04_CHAT_CASE";
 const STOPPED_LINE: &str = "PR4_CHAT_STOPPED ";
@@ -1160,8 +1148,6 @@ fn marker_in(payload: &[u8]) -> u64 {
 #[derive(Default)]
 struct View {
     rows: BTreeMap<u64, u64>,
-    /// Ids a window delivered: they stay in `rows`.
-    pinned: std::collections::BTreeSet<u64>,
     window: Vec<(u64, u64)>,
     cursor: u64,
     edition: u32,
@@ -1175,11 +1161,8 @@ impl View {
         let head = RowHead::parse(row.get().as_bytes()).expect("a row text");
         let hashed = (head.id, hash_of(row.get()));
         self.rows.insert(hashed.0, hashed.1);
-        while self.rows.len() > VIEW_ROWS + self.pinned.len() {
-            let Some(&oldest) = self.rows.keys().find(|id| !self.pinned.contains(id)) else {
-                break;
-            };
-            self.rows.remove(&oldest);
+        while self.rows.len() > VIEW_ROWS {
+            self.rows.pop_first();
         }
         hashed
     }
@@ -1203,8 +1186,7 @@ impl View {
             self.cursor = window.cursor;
             self.edition = window.edition;
             self.windows += 1;
-            let rows: Vec<(u64, u64)> = window.rows.iter().map(|row| self.keep(row)).collect();
-            self.pinned.extend(rows.iter().map(|(id, _)| *id));
+            let rows = window.rows.iter().map(|row| self.keep(row)).collect();
             self.window = rows;
             return;
         }
@@ -1224,7 +1206,6 @@ impl View {
                     self.keep(row);
                 }
                 ChatOp::Text { seq, .. } | ChatOp::Queue { seq, .. } => self.seq(*seq, false),
-                ChatOp::Presence { .. } => {}
             }
         }
     }

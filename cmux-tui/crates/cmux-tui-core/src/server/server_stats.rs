@@ -15,10 +15,6 @@ const HOOK_QUEUE: &str = "hook_queue";
 /// The optional section that reports the registry's disk use by file and by
 /// journal kind (`diagnostics::DiskUsageSnapshot`).
 const DISK: &str = "disk";
-/// Adds the registry's journal checkpoints to `disk`
-/// (`diagnostics::CheckpointDiskSnapshot`). A name of its own: an older SDK
-/// that asks for `disk` gets exactly the shape it decodes.
-const DISK_CHECKPOINTS: &str = "disk_checkpoints";
 /// The optional section that counts the requests by command name and by client kind
 /// (`diagnostics::CommandStatsSnapshot`).
 const COMMANDS: &str = "commands";
@@ -45,7 +41,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
                 mux.connection_stats().socket().map(crate::diagnostics::HookQueueSnapshot::beside)
             })
             .flatten(),
-        disk: wants(DISK).then(|| mux.disk_usage_stats(wants(DISK_CHECKPOINTS))).flatten(),
+        disk: wants(DISK).then(|| mux.disk_usage_stats()).flatten(),
         commands: wants(COMMANDS).then(|| mux.connection_stats().commands().snapshot()),
         journal_followers: wants(JOURNAL_FOLLOWERS).then(|| mux.journal_followers_stats()),
     }

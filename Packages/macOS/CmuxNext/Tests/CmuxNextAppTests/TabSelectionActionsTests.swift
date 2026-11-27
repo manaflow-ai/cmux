@@ -119,10 +119,9 @@ struct TabSelectionActionsTests {
     }
 
     /// The real Cmd-Shift-P palette (`RegistryPaletteProvider`), on a terminal tab: Save and Close
-    /// takes browser pages only, so its three tab rows are not listed there (Leo 2026-11-17: "just...
-    /// stop showijg the toggle on gui"), instead of enabled and refused after the click; a CLI run
-    /// still gets the run's reason.
-    @Test func thePaletteLeavesOutSaveAndCloseOnATerminalTab() async throws {
+    /// takes browser pages only, so its three tab rows are disabled there with the run's reason, as
+    /// the tab menu disables them, instead of enabled and refused after the click.
+    @Test func thePaletteDisablesSaveAndCloseOnATerminalTab() async throws {
         try await PinnedPageTests.withApp { services, connection in
             // The workspace opens on its chat; `newTab` adds a terminal tab, which the strip selects with a click.
             let pane = try await Self.pane(with: 2, services, connection)
@@ -131,11 +130,9 @@ struct TabSelectionActionsTests {
             try await PinnedPageTests.until({ pane.stripModel.selectedID == id }, report: { "selected \(String(describing: pane.stripModel.selectedID))" })
             let items = RegistryPaletteProvider(registry: services.registry).makeItems()
             for action in ["tab.stash", "tab.stashToRight", "tab.stashOthers"] {
-                #expect(!items.contains { $0.id == "action:\(action)" }, "the palette lists \(action) on a terminal tab")
-                let reason = services.registry.withoutRefusals {
-                    ActionTargetReasons.reason(for: ActionID(rawValue: action), invocation: ActionInvocation(), in: services.registry)
-                }
-                #expect(reason == StashHandlerStrings.noPage, "the CLI hears \(reason ?? "nothing") for \(action)")
+                let row = try #require(items.first { $0.id == "action:\(action)" }, "no palette row for \(action)")
+                #expect(!row.isEnabled, "the palette offers \(action) on a terminal tab, and its run refuses after the click")
+                #expect(row.subtitle == StashHandlerStrings.noPage, "\(action) says \(row.subtitle ?? "nothing")")
             }
         }
     }

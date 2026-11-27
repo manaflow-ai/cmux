@@ -11,10 +11,6 @@ public nonisolated enum SidebarContextTarget: Hashable, Sendable {
     case section(SectionID)
     /// Empty space below or between sections.
     case background
-    /// The new workspace (+) button and its chevron: its own short list of the other ways to make a workspace
-    /// (`sidebarNew`), never the sidebar's view toggles. Leo 2026-11-22 (ask-890db939a2): "we want to hide?
-    /// we want to do something? pick a fucking option."
-    case newButton
     /// Empty space in the bottom band (cx-wab7m): Show for each piece hidden from it.
     case footer
     /// The Now Playing card at the bottom (u2437): its hide rows and Play/Pause.

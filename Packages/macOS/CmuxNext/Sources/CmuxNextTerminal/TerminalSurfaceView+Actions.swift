@@ -53,6 +53,7 @@ extension TerminalSurfaceView {
             model.progress = progress
         case .commandFinished(let result):
             model.lastCommand = result
+            (superview as? TerminalHostView)?.commandFinished(result)
         case .childExited:
             model.hasExited = true
         case .secureInput(let mode):
@@ -68,8 +69,6 @@ extension TerminalSurfaceView {
             model.scrollbar = scrollbar
             // Output or a mouse scroll moved the viewport under the cursor box.
             copyMode.syncCursor()
-            // ...and under a wrapped link's underlines.
-            linkPointer.viewportMoved()
         case .startSearch(let needle):
             session.find.searchStarted(needle: needle)
         case .endSearch:

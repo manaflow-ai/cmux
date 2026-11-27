@@ -148,11 +148,8 @@ async fn session(
     outbound: &mut mpsc::Receiver<Vec<u8>>,
     inbound: &mpsc::Sender<Inbound>,
 ) -> SessionEnd {
-    let connect = tokio::time::timeout(
-        Duration::from_secs(10),
-        cmux_egress::ws::connect_async(url, "cmux_weft::client::relay_pool"),
-    )
-    .await;
+    let connect =
+        tokio::time::timeout(Duration::from_secs(10), tokio_tungstenite::connect_async(url)).await;
     let Ok(Ok((socket, _))) = connect else { return SessionEnd::Reconnect { healthy: false } };
     let (mut sink, mut stream) = socket.split();
     if sink.send(Message::Text(ticket_text.to_owned().into())).await.is_err() {
@@ -203,7 +200,3 @@ async fn session(
         }
     }
 }
-
-#[cfg(test)]
-#[path = "relay_pool_seeded_tests.rs"]
-mod seeded_tests;

@@ -50,7 +50,7 @@ fn the_paths_read_are_the_explicit_file_alone_or_the_ambient_ones() {
     assert_eq!(
         credential_paths(&map(&[]), HOME),
         [
-            dev_account_path(HOME).as_str(),
+            "/home/me/.config/cmux/dev-account",
             "/home/me/.secrets/cmuxterm-dev.env",
             "/home/me/.secrets/cmux.env"
         ]
@@ -84,9 +84,8 @@ fn ambient_files_sign_in_only_the_declared_owner() {
     assert_eq!(decide(&reads(&[], &[], false)).refusal, Some(Refusal::NoDeclaredAccount));
     let other = "CMUX_DOGFOOD_STACK_EMAIL=someone@x\nCMUX_DOGFOOD_STACK_PASSWORD=p1\n";
     let owner = "CMUX_DOGFOOD_STACK_EMAIL=OWNER@x\nCMUX_DOGFOOD_STACK_PASSWORD=p2\n";
-    let account = dev_account_path(HOME);
     let files = [
-        (account.as_str(), " owner@x\n"),
+        ("/home/me/.config/cmux/dev-account", " owner@x\n"),
         ("/home/me/.secrets/cmuxterm-dev.env", other),
         ("/home/me/.secrets/cmux.env", owner),
     ];
@@ -111,7 +110,7 @@ fn ambient_files_sign_in_only_the_declared_owner() {
     assert_eq!(decide(&reads(&unknown, &files, false)), Decision::default());
     // A half pair never mixes sources.
     let half = [
-        (account.as_str(), "owner@x"),
+        ("/home/me/.config/cmux/dev-account", "owner@x"),
         ("/home/me/.secrets/cmux.env", "CMUX_DOGFOOD_STACK_EMAIL=owner@x\n"),
     ];
     let rest = [("CMUX_DOGFOOD_STACK_PASSWORD", "p4")];
@@ -240,30 +239,6 @@ fn automatic_keeps_the_popup_for_safari_only() {
     assert!(opens_default_browser(SignInWindow::Automatic, Some("com.microsoft.edgemac")));
     assert!(!opens_default_browser(SignInWindow::Popup, Some("com.microsoft.edgemac")));
     assert!(opens_default_browser(SignInWindow::DefaultBrowser, Some("com.apple.Safari")));
-}
-
-#[test]
-fn automatic_opens_the_in_app_tab_when_the_app_can() {
-    let safari = Some("com.apple.Safari");
-    let edge = Some("com.microsoft.edgemac");
-    for browser in [safari, edge, None] {
-        assert_eq!(sign_in_place(SignInWindow::Automatic, browser, true), SignInPlace::InApp);
-        assert_eq!(sign_in_place(SignInWindow::InApp, browser, true), SignInPlace::InApp);
-    }
-    // No in-app browser: the old rule, popup with Safari, else the default browser.
-    assert_eq!(sign_in_place(SignInWindow::Automatic, safari, false), SignInPlace::Popup);
-    assert_eq!(sign_in_place(SignInWindow::Automatic, None, false), SignInPlace::Popup);
-    assert_eq!(sign_in_place(SignInWindow::Automatic, edge, false), SignInPlace::DefaultBrowser);
-    assert_eq!(sign_in_place(SignInWindow::InApp, edge, false), SignInPlace::DefaultBrowser);
-    // The Debug Settings choices stay what they name.
-    assert_eq!(sign_in_place(SignInWindow::Popup, edge, true), SignInPlace::Popup);
-    assert_eq!(
-        sign_in_place(SignInWindow::DefaultBrowser, safari, true),
-        SignInPlace::DefaultBrowser
-    );
-    // The old answer is unchanged for the old choices.
-    assert!(!opens_default_browser(SignInWindow::InApp, safari));
-    assert!(opens_default_browser(SignInWindow::InApp, edge));
 }
 
 #[test]

@@ -1,4 +1,0 @@
-{
-  "agent": "network",
-  "why": "Live background updates download and run new daemon binaries from files.cmux.com."
-}

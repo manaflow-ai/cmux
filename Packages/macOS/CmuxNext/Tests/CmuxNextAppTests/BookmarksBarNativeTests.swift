@@ -1,13 +1,12 @@
 import AppKit
 @testable import CmuxNextBookmarks
-import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// The bookmarks bar is native AppKit (``BookmarksBarView``) over the app's one bookmark model
 /// (``BookmarksBarHostSource``): the row lays out with what does not fit behind the chevron, a
 /// folder is an `NSMenu`, and a drop or a move is the app's write.
-@MainActor @Suite(.serialized, .closesItsWindows)
+@MainActor @Suite(.serialized)
 struct BookmarksBarNativeTests {
     private static func window(width: CGFloat) -> NSWindow {
         _ = NSApplication.shared

@@ -137,7 +137,7 @@ final class SidebarPullRequestCardView: NSView, HoverCardTextReporting {
     static let visibleRows = 8
 
     var onOpen: ((SidebarPullRequestItem) -> Void)?
-    private let scroll = OverlayScrollView()
+    private let scroll = NSScrollView()
     private let list = FlippedView()
     private(set) var rows: [SidebarPullRequestCardRow] = []
 

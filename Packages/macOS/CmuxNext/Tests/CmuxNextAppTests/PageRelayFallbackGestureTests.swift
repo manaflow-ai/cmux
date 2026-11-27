@@ -24,7 +24,7 @@ import Testing
         services.machines.local.store.noteHandshake(try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8)))
         #expect(!services.machines.local.supports(DaemonClientRole.originClaimCapability))
         #expect(services.machines.local.connection == nil)
-        return PageRelayChannel(service: services.machines.local, page: PageRelayPage.id(page))
+        return PageRelayChannel(service: services.machines.local, page: PageRelayChannel.relayPageID(page))
     }
 
     private static func outcome(_ channel: PageRelayChannel, _ operation: String, _ context: PageCallContext,
@@ -91,12 +91,8 @@ import Testing
         }
         // A `confirm` op of a page that has one needs the sheet; a click is not enough.
         let apps = try Self.channel("cmux.apps")
-        #expect(await Self.outcome(apps, "apps.uninstall", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 8)) == .refused)
-        #expect(await Self.outcome(apps, "apps.uninstall", PageCallContext(page: "cmux.apps", origin: "user", confirmed: true)) == .forwarded)
-        // An install is a `gesture` op (Leo, 2026-11-16: "if i click install it means it works"):
-        // the Install click carries it, and a call with no click is still refused.
-        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 9)) == .forwarded)
-        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps")) == .refused)
+        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 8)) == .refused)
+        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", origin: "user", confirmed: true)) == .forwarded)
     }
 
     /// A change subscription never needs a gesture: on this daemon the page has no live events

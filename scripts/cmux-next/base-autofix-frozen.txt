@@ -18,8 +18,5 @@ docs/mdm/*
 !docs/mdm/com.manaflow.cmux*
 !docs/mdm/cmux-example.mobileconfig
 !docs/mdm/managed-preferences.md
-# The published settings keys record only grows, and cmux-config's own writer adds the regenerated
-# schema's rows to it (base-autofix.sh 5c); a removed row still needs a person's retired-keys.json entry.
-!schemas/settings/published-keys.txt
 # The bot pushes with GITHUB_TOKEN, which cannot push workflow files.
 .github/workflows/*

@@ -88,21 +88,6 @@ pub fn parse(source: &str) -> Result<Value, JsoncError> {
         .map_err(|error| JsoncError::Json(error.to_string()))
 }
 
-/// UTF-8 byte offset of the opening quote of the key of the member at
-/// `path` (the last member of a repeated key); `None` when `source` does not
-/// parse or has no such member (Swift `JSONC.position(of:in:)`).
-pub fn member_start(source: &str, path: &[String]) -> Option<usize> {
-    let mut node = tree::parse_root(source.as_bytes()).ok()??;
-    let mut start = None;
-    for key in path {
-        let tree::Node::Object(object) = node else { return None };
-        let member = object.members.into_iter().rev().find(|member| &member.key == key)?;
-        start = Some(member.key_start);
-        node = member.node;
-    }
-    start
-}
-
 /// `source` with the value at `path` set to `value`, creating intermediate
 /// objects as needed. Everything outside the edited value is preserved byte
 /// for byte.

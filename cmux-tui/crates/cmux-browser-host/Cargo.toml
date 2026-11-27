@@ -20,8 +20,6 @@ workspace = true
 
 [dependencies]
 cmux-json.workspace = true
-# The REPL and page agent scripts compiled in compressed (build.rs, src/host.rs).
-cmux-embed.workspace = true
 base64.workspace = true
 serde.workspace = true
 # raw_value only (a9): script values keep the page's key order. Never

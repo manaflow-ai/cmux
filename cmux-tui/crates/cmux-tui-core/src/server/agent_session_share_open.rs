@@ -50,7 +50,7 @@ impl NewIds {
 
 /// A create's or an invite-chat's terms, checked: a TTL of 1 minute to 7 days, 1 to 8 uses (to
 /// 1000 for a link made with a role, `view` or `talk`), and a `create_id` of 1 to 64 bytes when
-/// there is one. Drive is never a link role.
+/// there is one.
 fn terms(
     ttl_secs: u64,
     uses: u32,
@@ -60,9 +60,7 @@ fn terms(
 ) -> Result<ShareTerms, &'static str> {
     let id_ok =
         create_id.as_ref().is_none_or(|id| !id.is_empty() && id.len() <= MAX_CREATE_ID_BYTES);
-    if role == Some(Role::Drive)
-        || signed_in_role == Some(Role::Drive)
-        || !(MIN_TTL_SECS..=MAX_TTL_SECS).contains(&ttl_secs)
+    if !(MIN_TTL_SECS..=MAX_TTL_SECS).contains(&ttl_secs)
         || !(1..=if role.is_some() { MAX_LINK_USES } else { MAX_USES }).contains(&uses)
         || !id_ok
     {
@@ -160,21 +158,7 @@ pub(super) fn invite_chat(
             }
         };
         let fresh = made.is_some();
-        // The chat's other shares that invite the account take the role too: one role per
-        // person on a chat, however many invite shares it has.
-        let others: Vec<String> = all
-            .iter()
-            .filter(|s| s.session == session && s.share_id != share_id && s.live().is_ok())
-            .filter(|s| {
-                s.invitees.iter().any(|i| i.account == account && i.state == InviteState::Invited)
-            })
-            .map(|s| s.share_id.clone())
-            .collect();
-        let (mut answer, mut changed) =
-            invite_in(all, &share_id, account.clone(), role, now, &connected)?;
-        for other in others {
-            changed |= invite_in(all, &other, account.clone(), role, now, &connected)?.1;
-        }
+        let (mut answer, changed) = invite_in(all, &share_id, account, role, now, &connected)?;
         answer.set("created_share", json!(fresh));
         let expires_at = find(all, &share_id)?.expires_at;
         answer.set("expires_at", json!(expires_at));
@@ -231,7 +215,6 @@ pub(super) fn push(
         pending_room_ops: Vec::new(),
         guests: Vec::new(),
         invitees: Vec::new(),
-        requests: Vec::new(),
         role,
         signed_in_role,
     });
@@ -260,24 +243,9 @@ pub(super) fn invite_in(
     }
     let answer = json!({"share_id": share.share_id, "account": account, "role": role,
         "state": InviteState::Invited, "invite_url": share.invite_url()});
-    // An account the owner invites no longer asks: its request (pending or declined) goes.
-    share.requests.retain(|r| r.account != account);
     if let Some(invitee) = share.invitees.iter_mut().find(|i| i.account == account) {
         if invitee.state == InviteState::Invited {
-            if invitee.role == role {
-                return Ok((answer, false));
-            }
-            // Another role: the invite keeps its place (the account never loses access on the
-            // way), and the guests it joined as take the new role. Their connections close at
-            // the next `settle` (`LinkShares::note_ended`), so each binds again with an author
-            // of that role; none keeps one its role no longer matches.
-            invitee.role = role;
-            for guest in share.guests.iter_mut() {
-                if guest.invited() && guest.account.as_ref() == Some(&account) {
-                    guest.role = Some(role);
-                }
-            }
-            return Ok((answer, true));
+            return if invitee.role == role { Ok((answer, false)) } else { Err("share.invited") };
         }
         *invitee = Invitee {
             account: account.clone(),
@@ -285,10 +253,10 @@ pub(super) fn invite_in(
             invited_at: now,
             state: InviteState::Invited,
         };
-        retire_link_guests(share, &account, role);
+        retire_link_guests(share, &account);
         return Ok((answer, true));
     }
-    retire_link_guests(share, &account, role);
+    retire_link_guests(share, &account);
     if share.invitees.len() >= MAX_INVITEES {
         // A removed account goes first, when room is needed.
         share.invitees.retain(|i| i.state == InviteState::Invited);
@@ -306,15 +274,13 @@ pub(super) fn invite_in(
 /// The account's guests that joined by the link end once it is invited: from then on it reaches
 /// the chat only as the invite's guest, with the role the owner chose (a viewer invite never
 /// leaves an earlier link guest able to send). Their connections close at the next `settle` and
-/// the room hears their end. A Drive invite preserves the old attempt as a link attempt.
-fn retire_link_guests(share: &mut LinkShare, account: &str, role: Role) {
+/// the room hears their end; their attempts answer nothing, so a retry joins by the invite.
+fn retire_link_guests(share: &mut LinkShare, account: &str) {
     let joined_by_link = |g: &Guest| g.via.is_some() && g.account.as_deref() == Some(account);
     for guest in share.guests.iter_mut().filter(|g| joined_by_link(g)) {
         if guest.state == GuestState::Active {
             guest.state = GuestState::Left;
         }
-        if role != Role::Drive {
-            guest.attempt_id_sha256.clear();
-        }
+        guest.attempt_id_sha256 = String::new();
     }
 }

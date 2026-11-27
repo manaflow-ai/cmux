@@ -11,15 +11,14 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
     func testOnboardingAndSignIn() {
         let g = "1 Onboarding, sign-in and pairing"
         capture([
-            Scene(group: g, id: "launch-mark", env: Self.signedOut, signedIn: false,
+            Scene(group: g, id: "launch-mark", env: Self.signedOut, signedIn: false, settle: 0,
                   frames: [("launch-mark", 0.15), ("welcome-intro", 1.2)]),
-            // keep: Welcome's intro animation ends on its own clock.
-            Scene(group: g, id: "welcome-settled", env: Self.signedOut, signedIn: false, ready: .clock(6)),
-            Scene(group: g, id: "welcome-intro-frozen", args: ["-cmux-mobile-intro-freeze", "0.6"], env: Self.signedOut, signedIn: false, ready: .mark("first_frame")),
-            Scene(group: g, id: "email-sheet", env: Self.signedOut, signedIn: false) { app in
+            Scene(group: g, id: "welcome-settled", env: Self.signedOut, signedIn: false, settle: 6),
+            Scene(group: g, id: "welcome-intro-frozen", args: ["-cmux-mobile-intro-freeze", "0.6"], env: Self.signedOut, signedIn: false, settle: 3),
+            Scene(group: g, id: "email-sheet", env: Self.signedOut, signedIn: false, settle: 5) { app in
                 C.tap(C.label(app, contains: "Continue with email"), "Continue with email")
             },
-            Scene(group: g, id: "email-sheet-keyboard", env: Self.signedOut, signedIn: false) { app in
+            Scene(group: g, id: "email-sheet-keyboard", env: Self.signedOut, signedIn: false, settle: 5) { app in
                 C.steps([
                     { C.tap(C.label(app, contains: "Continue with email"), "Continue with email") },
                     { C.showKeyboard(app, field: app.textFields.firstMatch, "email field") },
@@ -27,11 +26,11 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
                 ])
             },
             Scene(group: g, id: "email-code", args: ["-cmux-mobile-email", "someone@example.com", "-cmux-mobile-no-restore"],
-                  env: Self.signedOut, signedIn: false) { app in
+                  env: Self.signedOut, signedIn: false, settle: 4) { app in
                 C.wait(app.textFields["Code"].firstMatch, "code field")
             },
             Scene(group: g, id: "email-code-wrong", args: ["-cmux-mobile-email", "someone@example.com", "-cmux-mobile-no-restore"],
-                  env: Self.signedOut, signedIn: false) { app in
+                  env: Self.signedOut, signedIn: false, settle: 4) { app in
                 let tip = app.buttons["Continue"].firstMatch
                 if tip.waitForExistence(timeout: 2) { tip.tap() }
                 return C.steps([
@@ -39,40 +38,36 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
                     { app.typeText("111111"); return nil },
                 ])
             },
-            Scene(group: g, id: "onboarding-demo", args: ["-cmux-mobile-demo", "onboarding"], env: Self.signedOut, signedIn: false,
+            Scene(group: g, id: "onboarding-demo", args: ["-cmux-mobile-demo", "onboarding"], env: Self.signedOut, signedIn: false, settle: 0,
                   frames: [("onboarding-welcome", 1.5), ("onboarding-email", 3.5), ("onboarding-code", 6.5),
                            ("onboarding-team", 10), ("onboarding-notifications", 14), ("onboarding-shell", 19)]),
             Scene(group: g, id: "setup-teams-loading", args: ["-cmux-mobile-no-restore", "-cmuxMobile.setupComplete", "NO"],
-                  env: ["CMUX_MOBILE_MOCK_AUTH": "1", "CMUX_MOBILE_MOCK_TEAMS_DELAY": "60"], signedIn: false, ready: .element("setup.teams.loading")),
+                  env: ["CMUX_MOBILE_MOCK_AUTH": "1", "CMUX_MOBILE_MOCK_TEAMS_DELAY": "60"], signedIn: false, settle: 3),
             Scene(group: g, id: "setup-teams-choose", args: ["-cmux-mobile-no-restore", "-cmuxMobile.setupComplete", "NO"],
-                  env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false) { app in
+                  env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false, settle: 3) { app in
                 C.wait(app.scrollViews["setup.teams.choose"], "team chooser")
             },
             Scene(group: g, id: "setup-create-team", args: ["-cmux-mobile-no-restore", "-cmuxMobile.setupComplete", "NO"],
-                  env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false) { app in
+                  env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false, settle: 3) { app in
                 C.tap(C.any(app, "setup.teams.create"), "Create team row")
             },
             Scene(group: g, id: "setup-signout-confirm", args: ["-cmux-mobile-no-restore", "-cmuxMobile.setupComplete", "NO"],
-                  env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false) { app in
+                  env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false, settle: 3) { app in
                 C.tap(C.any(app, "setup.sign-out"), "setup sign-out")
             },
             Scene(group: g, id: "setup-pair-waiting", args: ["-cmux-mobile-setup-pair"], env: ["CMUX_MOBILE_MOCK_AUTH": "1"],
-                  signedIn: false, frames: [("setup-pair-waiting", 2.6), ("setup-pair-mac-found", 7.5)]),
-            // keep: the pairing demo finds the Mac on its own clock.
+                  signedIn: false, settle: 0, frames: [("setup-pair-waiting", 2.6), ("setup-pair-mac-found", 7.5)]),
             Scene(group: g, id: "setup-pair-elsewhere", args: ["-cmux-mobile-setup-pair", "-cmux-mobile-setup-pair-elsewhere"],
-                  env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false, ready: .clock(7)),
-            // keep: the pairing demo finds the Mac on its own clock.
+                  env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false, settle: 7),
             Scene(group: g, id: "setup-pair-no-account-mac", args: ["-cmux-mobile-setup-pair", "-cmux-mobile-setup-pair-other-account"],
-                  env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false, ready: .clock(4)),
-            // keep: the pairing demo's Continue works once the Mac is found, on its own clock.
+                  env: ["CMUX_MOBILE_MOCK_AUTH": "1"], signedIn: false, settle: 4),
             Scene(group: g, id: "setup-notifications", args: ["-cmux-mobile-setup-pair"], env: ["CMUX_MOBILE_MOCK_AUTH": "1"],
-                  signedIn: false, ready: .clock(7)) { app in
+                  signedIn: false, settle: 7) { app in
                 let next = app.buttons["setup.pair-mac.cta"].firstMatch
                 return C.tap(next, "Connect your Mac continue")
             },
-            // keep: the pairing demo's Continue works once the Mac is found, on its own clock.
             Scene(group: g, id: "notification-permission-alert", args: ["-cmux-mobile-setup-pair"], env: ["CMUX_MOBILE_MOCK_AUTH": "1"],
-                  signedIn: false, looks: [.light], ready: .clock(7)) { app in
+                  signedIn: false, looks: [.light], settle: 7) { app in
                 C.steps([
                     { C.tap(app.buttons["setup.pair-mac.cta"].firstMatch, "Connect your Mac continue") },
                     { C.tap(C.label(app, contains: "Allow"), "Allow notifications button") },
@@ -103,9 +98,6 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "sidebar-add-team-menu", args: ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-sidebar-open"]) { app in
                 C.tap(app.buttons["Add team"].firstMatch, "Add team")
             },
-            Scene(group: g, id: "sidebar-invite-tapped", args: ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-sidebar-open"]) { app in
-                C.tap(app.buttons["sidebar.invite"], "drawer Invite")
-            },
             Scene(group: g, id: "alert-create-team", args: ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-sidebar-open"]) { app in
                 C.steps([
                     { C.tap(app.buttons["Add team"].firstMatch, "Add team") },
@@ -127,16 +119,16 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
                     { C.tap(C.label(app, contains: "Invite to team"), "Invite to team") },
                 ])
             },
-            Scene(group: g, id: "team-appearance-editor", args: ["-cmux-mobile-demo", "editor"]),
-            Scene(group: g, id: "drawer-demo", args: ["-cmux-mobile-demo", "drawer"],
+            Scene(group: g, id: "team-appearance-editor", args: ["-cmux-mobile-demo", "editor"], settle: 5),
+            Scene(group: g, id: "drawer-demo", args: ["-cmux-mobile-demo", "drawer"], settle: 0,
                   frames: [("drawer-dragging", 1.6), ("drawer-open", 3.0), ("drawer-team-switched", 7.0)]),
-            Scene(group: g, id: "rubber-band", args: ["-cmux-mobile-demo", "rubber"],
+            Scene(group: g, id: "rubber-band", args: ["-cmux-mobile-demo", "rubber"], settle: 0,
                   frames: [("sidebar-overdrag", 2.6)]),
-            Scene(group: g, id: "states-demo", args: ["-cmux-mobile-demo", "states"],
+            Scene(group: g, id: "states-demo", args: ["-cmux-mobile-demo", "states"], settle: 0,
                   frames: [("workspaces-loading", 3.0), ("workspaces-failed", 5.0), ("workspaces-offline-banner", 8.0),
                            ("macs-asleep", 11.0), ("no-macs-connect", 13.0), ("toast-paired", 16.5)]),
         ]
-        for banner in ["connected", "reconnecting", "offline", "no-network", "pairing", "pairing-reset"] {
+        for banner in ["connected", "reconnecting", "offline", "pairing", "pairing-reset"] {
             scenes.append(Scene(group: g, id: "banner-\(banner)", args: ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-banner-demo", banner]))
         }
         scenes.append(Scene(group: g, id: "banner-signed-out", args: ["-cmux-mobile-recovery-gallery", "signedout"]))
@@ -151,9 +143,9 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
         let g = "13 Settings"
         var scenes: [Scene] = [
             Scene(group: g, id: "root-top", args: ["-cmux-mobile-tab", "settings"]),
-            Scene(group: g, id: "root-appearance", args: ["-cmux-mobile-demo", "settings-middle"]),
-            Scene(group: g, id: "root-bottom", args: ["-cmux-mobile-demo", "settings-bottom"]),
-            Scene(group: g, id: "signout-confirm", args: ["-cmux-mobile-demo", "settings-bottom"]) { app in
+            Scene(group: g, id: "root-appearance", args: ["-cmux-mobile-demo", "settings-middle"], settle: 4),
+            Scene(group: g, id: "root-bottom", args: ["-cmux-mobile-demo", "settings-bottom"], settle: 4),
+            Scene(group: g, id: "signout-confirm", args: ["-cmux-mobile-demo", "settings-bottom"], settle: 4) { app in
                 C.tap(C.any(app, "settings.logout"), "Sign out row")
             },
             Scene(group: g, id: "compact-list-on", args: ["-cmux-mobile-tab", "settings", "-cmuxMobile.settings.compactWorkspaceList", "YES"]),
@@ -161,35 +153,35 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
         let pages = ["account", "team", "transport", "devices", "terminal", "terminalSizing", "composer", "notifications",
                      "acknowledgements", "chiefCalls", "screenSharing", "accentColor", "automations", "longPressMenus"]
         for page in pages {
-            scenes.append(Scene(group: g, id: "page-\(page)", args: ["-cmux-mobile-settings-page", page]))
+            scenes.append(Scene(group: g, id: "page-\(page)", args: ["-cmux-mobile-settings-page", page], settle: 3.5))
         }
         scenes += [
-            Scene(group: g, id: "page-transport-details", args: ["-cmux-mobile-settings-page", "transport", "-cmux-mobile-transport-details", "YES"]),
-            Scene(group: g, id: "devices-remove-this-phone", args: ["-cmux-mobile-settings-page", "devices"]) { app in
+            Scene(group: g, id: "page-transport-details", args: ["-cmux-mobile-settings-page", "transport", "-cmux-mobile-transport-details", "YES"], settle: 3.5),
+            Scene(group: g, id: "devices-remove-this-phone", args: ["-cmux-mobile-settings-page", "devices"], settle: 3.5) { app in
                 C.steps([{ C.scrollDown(app, times: 3) }, { C.tap(C.any(app, "settings.removeThisPhone"), "Remove this iPhone") }])
             },
-            Scene(group: g, id: "devices-mac-row-menu", args: ["-cmux-mobile-settings-page", "devices"]) { app in
+            Scene(group: g, id: "devices-mac-row-menu", args: ["-cmux-mobile-settings-page", "devices"], settle: 3.5) { app in
                 C.longPress(C.label(app, contains: "Mac Studio"), "Mac Studio row")
             },
-            Scene(group: g, id: "devices-mac-row-swipe", args: ["-cmux-mobile-settings-page", "devices"]) { app in
+            Scene(group: g, id: "devices-mac-row-swipe", args: ["-cmux-mobile-settings-page", "devices"], settle: 3.5) { app in
                 C.swipeLeft(app.cells.containing(NSPredicate(format: "label CONTAINS[c] 'Mac Studio'")).firstMatch, "Mac Studio cell")
             },
-            Scene(group: g, id: "devices-pair-scanner", args: ["-cmux-mobile-settings-page", "devices"]) { app in
+            Scene(group: g, id: "devices-pair-scanner", args: ["-cmux-mobile-settings-page", "devices"], settle: 3.5) { app in
                 C.steps([{ C.scrollDown(app, times: 1) }, { C.tap(C.any(app, "settings.scanMacCode"), "Scan QR row") }])
             },
-            Scene(group: g, id: "chief-calls-key-typed", args: ["-cmux-mobile-settings-page", "chiefCalls"]) { app in
+            Scene(group: g, id: "chief-calls-key-typed", args: ["-cmux-mobile-settings-page", "chiefCalls"], settle: 3.5) { app in
                 C.steps([
                     { C.showKeyboard(app, field: C.any(app, "settings.chiefCalls.keyField"), "key field") },
                     { app.typeText("sk-demo-0000000000000000"); return nil },
                 ])
             },
-            Scene(group: g, id: "accent-picked", args: ["-cmux-mobile-settings-page", "accentColor"]) { app in
+            Scene(group: g, id: "accent-picked", args: ["-cmux-mobile-settings-page", "accentColor"], settle: 3.5) { app in
                 let cells = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'settings.accentColor.'"))
                 guard cells.count > 2 else { return "no accent choices" }
                 cells.element(boundBy: 2).tap()
                 return nil
             },
-            Scene(group: g, id: "team-editor-from-settings", args: ["-cmux-mobile-settings-page", "team"]) { app in
+            Scene(group: g, id: "team-editor-from-settings", args: ["-cmux-mobile-settings-page", "team"], settle: 3.5) { app in
                 C.tap(C.label(app, contains: "Color and icon"), "Color and icon row")
             },
             Scene(group: g, id: "dynamic-type-xxxl", args: ["-cmux-mobile-tab", "settings", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),

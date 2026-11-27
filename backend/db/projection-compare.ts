@@ -86,28 +86,12 @@ export const TEAM_COLUMN: Readonly<Record<string, string>> = {
   home_conversations: "team_id"
 }
 
-/**
- * Tables that hold dev build rows (apps/api build-space-projection.ts): their first key is `dev:<slug>|<id>`. Those
- * rows are Postgres only (never in the MySQL shadow), so every compare leaves them out.
- */
-export const SPACED_TABLES: ReadonlySet<string> = new Set(["installs", "hosts", "automations", "automation_runs", "connections", "home_conversations", "home_participants", "home_invites", "home_message_search"])
-
-/** A dev build's row (build-space-projection.ts): its first key names its space. */
-export const isDevBuildRow = (table: string, r: Record<string, unknown>): boolean => {
-  const first = PROJECTION_TABLES[table]?.key[0]
-  return SPACED_TABLES.has(table) && first !== undefined && String(r[first]).startsWith("dev:")
-}
-
-/** A Postgres WHERE clause that leaves out dev build rows and the rows of `exclude` teams (a row with no team stays). */
+/** A Postgres WHERE clause that leaves out the rows of `exclude` teams (a row with no team stays). */
 const pgScope = (table: string, exclude: ReadonlyArray<string>, values: Array<unknown>): string => {
   const col = TEAM_COLUMN[table]
-  const first = PROJECTION_TABLES[table]?.key[0]
-  const parts = SPACED_TABLES.has(table) && first ? [`"${first}" NOT LIKE 'dev:%'`] : []
-  if (col && exclude.length > 0) {
-    values.push([...exclude])
-    parts.push(`("${col}" IS NULL OR NOT ("${col}" = ANY($${values.length}::text[])))`)
-  }
-  return parts.length === 0 ? "" : ` WHERE ${parts.join(" AND ")}`
+  if (!col || exclude.length === 0) return ""
+  values.push([...exclude])
+  return ` WHERE ("${col}" IS NULL OR NOT ("${col}" = ANY($${values.length}::text[])))`
 }
 /** The MySQL form of pgScope. */
 const myScope = (table: string, exclude: ReadonlyArray<string>, values: Array<unknown>): string => {

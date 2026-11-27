@@ -7,18 +7,16 @@ import CmuxNextTestSupport
 import GhosttyNextKit
 import Testing
 
-/// Where a terminal's text shows when a split or a close resizes its pane. Such a change is one commit
-/// (`ScreenContentView+SnapFrame`): its own turn shows the layout before it, the first frame tick shows the layout after
-/// it, each pane at its rest and each terminal at its pane's new size, and nothing moves after that tick. In that frame
-/// the text is on the edge Ghostty keeps it on when its grid changes (`PageList.resizeWithoutReflow`):
-/// - more rows: Ghostty pulls scrollback down only when the cursor is on the last row, so a prompt on the last row stays
-///   on the pane's bottom edge; otherwise the new rows are blank ones under the text, which keeps its top;
-/// - fewer rows: Ghostty trims the blank rows under the cursor first and moves only the rest into the history, so a
-///   prompt on the last row of a full screen stays on the bottom edge, and a short output keeps its top.
+/// Leo 2026-11-06 (ask-fcac5debb4): "So after I close it, it does a jolt. Like, how does it sort of... it goes all the way
+/// down and then back up. Like, but if it's at the top, it doesn't". A split's or a close's spring holds the terminal at its
+/// final size on one edge of its pane (`TerminalSurfaceView` `restAt`). The edge was the bottom whenever the cursor was in
+/// the lower half, but Ghostty pulls scrollback down only when the cursor is on the last row: a low prompt above it, with no
+/// history to pull, showed its text a whole growth above its place at the spring's first frame, then slid back. A pane
+/// that shrank always rode its top, so a prompt on the last row of a full screen snapped up at the first frame.
 ///
-/// Each case reads the pane host's edges and the prompt row from the view tree at rest before the change, in the
-/// change's own turn, after the first frame tick (a 120 Hz tick of the frame owner), after each of the 3 ticks that
-/// follow, and after the commit's work (``Commit``).
+/// Each case runs the motion frame by frame (120 Hz ticks of the frame owner) and checks the spec's targets
+/// (``MotionTargetTrace``): the prompt row and the pane's edges never move away from where they rest, the prompt never
+/// moves more in a frame than its pane's edges do, and nothing moves after the landing.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct SplitMotionTargetTests {
@@ -30,8 +28,8 @@ struct SplitMotionTargetTests {
     static let thirds = PaneGroundCoversPaneTests.column(.split("x", axis: .vertical, ratio: 1.0 / 3, a: .leaf("p1"),
                                                                 b: .split("y", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3"))))
 
-    /// p1 over p2; p2 closes, so p1 grows down. p1's prompt is in its lower half but not on its last row, with no history:
-    /// Ghostty keeps the text's top, so the frame that shows the close shows the prompt where it was.
+    /// p1 over p2; p2 closes, so p1 grows down. p1's prompt is in its lower half but not on its last row, with no history
+    /// (Leo's recording): Ghostty keeps the text's top, so the prompt stays where it is.
     @Test func aCloseUnderALowPromptAboveTheLastRowKeepsThePromptInPlace() async throws {
         let rig = Rig(Self.stack, focused: "p1")
         defer { rig.close() }
@@ -40,237 +38,148 @@ struct SplitMotionTargetTests {
         let metrics = try Self.metrics("p1", rig)
         try #require(Int(metrics.cursor_row) * 2 >= Int(metrics.rows) && Int(metrics.cursor_row) < Int(metrics.rows) - 1,
                      "SETUP: p1's cursor row \(metrics.cursor_row) of \(metrics.rows) is not low and above the last row")
-        let commit = try Self.commit("p1", rig, closing: "p2") {
+        let trace = try Self.trace("p1", rig) {
             _ = try #require(rig.model.showPaneClose("p2"), "p2 did not close in the key's turn")
         }
-        Self.report("close, low prompt above the last row", commit)
-        Self.expectOneFrame(commit)
-        #expect(commit.before.bottom - commit.first.bottom > 100, "the close did not grow p1 down: \(commit.before) -> \(commit.first)")
-        #expect(commit.promptKeepsTop && abs(commit.first.top - commit.before.top) <= Place.slack,
-                "the prompt left its place: \(commit.before) -> \(commit.first)")
+        Self.report("close, low prompt above the last row", trace)
+        #expect(trace.violations.isEmpty, "\(trace.violations.count) frames break a motion target: \(trace.violations.prefix(4))")
     }
 
     /// p1 over p2; p2 closes. p1's prompt is on its last row with a long history: Ghostty pulls the history down, so the
-    /// frame that shows the close shows the prompt on p1's new bottom edge.
-    @Test func aCloseUnderAPromptOnTheLastRowShowsThePromptOnTheNewBottomEdge() async throws {
+    /// prompt rides p1's moving bottom edge to its rest (the bottom hold, kept).
+    @Test func aCloseUnderAPromptOnTheLastRowRidesTheBottomEdge() async throws {
         let rig = Rig(Self.stack, focused: "p1")
         defer { rig.close() }
         try await Self.write("p1", rig, lines: 200)
-        let commit = try Self.commit("p1", rig, closing: "p2") {
+        let trace = try Self.trace("p1", rig) {
             _ = try #require(rig.model.showPaneClose("p2"), "p2 did not close in the key's turn")
         }
-        Self.report("close, prompt on the last row", commit)
-        Self.expectOneFrame(commit)
-        #expect(commit.before.bottom - commit.first.bottom > 100, "the close did not grow p1 down: \(commit.before) -> \(commit.first)")
-        #expect(commit.promptKeepsBottom, "the prompt is not on p1's new bottom edge: \(commit.before) -> \(commit.first)")
+        Self.report("close, prompt on the last row", trace)
+        #expect(trace.violations.isEmpty, "\(trace.violations.count) frames break a motion target: \(trace.violations.prefix(4))")
     }
 
     /// p1 alone; a split opens p2 under it, so p1 shrinks. p1's prompt is on the last row of a full screen: Ghostty moves
-    /// the top rows into the history, so the frame that shows the split shows the prompt on p1's new bottom edge.
+    /// the top rows into the history, so the prompt rides p1's bottom edge up, never snapping up at the first frame.
     @Test func aSplitUnderAFullScreenKeepsThePromptOnTheBottomEdge() async throws {
         let rig = Rig(Self.single, focused: "p1")
         defer { rig.close() }
         try await Self.write("p1", rig, lines: 200)
-        let commit = try Self.commit("p1", rig) {
+        let trace = try Self.trace("p1", rig) {
             rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.stack)])
         }
-        Self.report("split open, full screen", commit)
-        Self.expectOneFrame(commit)
-        #expect(commit.first.bottom - commit.before.bottom > 100, "the split did not move p1's bottom edge up: \(commit.before) -> \(commit.first)")
-        #expect(commit.promptKeepsBottom, "the prompt is not on p1's new bottom edge: \(commit.before) -> \(commit.first)")
+        Self.report("split open, full screen", trace)
+        #expect(trace.violations.isEmpty, "\(trace.violations.count) frames break a motion target: \(trace.violations.prefix(4))")
     }
 
-    /// p1 alone with a short output at the top; a split opens under it. The text keeps its top (a guard): the frame that
-    /// shows the split shows the prompt where it was.
+    /// p1 alone with a short output at the top; a split opens under it. The text keeps its top (a guard).
     @Test func aSplitUnderAShortOutputKeepsItsTop() async throws {
         let rig = Rig(Self.single, focused: "p1")
         defer { rig.close() }
         try await Self.write("p1", rig, lines: 3)
-        let commit = try Self.commit("p1", rig) {
+        let trace = try Self.trace("p1", rig) {
             rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.stack)])
         }
-        Self.report("split open, short output", commit)
-        Self.expectOneFrame(commit)
-        #expect(commit.first.bottom - commit.before.bottom > 100, "the split did not move p1's bottom edge up: \(commit.before) -> \(commit.first)")
-        #expect(commit.promptKeepsTop && abs(commit.first.top - commit.before.top) <= Place.slack,
-                "the prompt left its place: \(commit.before) -> \(commit.first)")
+        Self.report("split open, short output", trace)
+        #expect(trace.violations.isEmpty, "\(trace.violations.count) frames break a motion target: \(trace.violations.prefix(4))")
     }
 
-    /// p1 over p2; p1 closes, so p2 grows up. Whatever p2 shows, the frame that shows the close shows p2's edges at their
-    /// rest and its text on the edge Ghostty keeps it on: a prompt on the last row, with its history, stays on the bottom
-    /// edge; a short output and a prompt above the last row keep their place under p2's top edge, which moved up.
+    /// p1 over p2; p1 closes, so p2 grows up (ask-1cbd6386ac, Leo 2026-11-08: "the upwards thing. target gets
+    /// recalculated ... shit doesn't look right, shit is not smooth"). Whatever p2 shows, its text rides the edge Ghostty
+    /// keeps it on, and every edge goes straight to its rest.
     @Test(arguments: [3, 0, 200])
-    func aCloseOfThePaneAboveGrowsThePaneBelowUpInOneFrame(lines: Int) async throws {
+    func aCloseOfThePaneAboveGrowsThePaneBelowUpInOneMotion(lines: Int) async throws {
         let rig = Rig(Self.stack, focused: "p2")
         defer { rig.close() }
         let rows = try Self.rows("p2", rig)
         try await Self.write("p2", rig, lines: lines == 0 ? rows * 3 / 4 : lines)
-        let commit = try Self.commit("p2", rig, closing: "p1") {
+        let trace = try Self.trace("p2", rig) {
             _ = try #require(rig.model.showPaneClose("p1"), "p1 did not close in the key's turn")
         }
-        Self.report("close above, \(lines == 0 ? "low prompt" : "\(lines) lines")", commit)
-        Self.expectOneFrame(commit)
-        #expect(commit.first.top - commit.before.top > 100 && abs(commit.first.bottom - commit.before.bottom) <= Place.slack,
-                "the close did not grow p2 up: \(commit.before) -> \(commit.first)")
-        if lines == 200 {
-            #expect(commit.promptKeepsBottom, "the prompt on the last row left p2's bottom edge: \(commit.before) -> \(commit.first)")
-        } else {
-            #expect(commit.promptKeepsTop, "the text left its place under p2's top edge: \(commit.before) -> \(commit.first)")
-        }
+        Self.report("close above, \(lines == 0 ? "low prompt" : "\(lines) lines")", trace)
+        #expect(trace.violations.isEmpty, "\(trace.violations.count) frames break a motion target: \(trace.violations.prefix(4))")
     }
 
-    /// p1 over p2; Cmd-Shift-D on p2 opens p3 under it with even sizing, so p1's bottom edge and all of p2 move up. The
-    /// frame that shows the split shows each of them at its rest, its prompt (on the last row of a full screen) on its
-    /// new bottom edge.
+    /// p1 over p2; Cmd-Shift-D on p2 opens p3 under it with even sizing, so p1's bottom edge and all of p2 move up. Each
+    /// of them goes straight to its rest on the one spring.
     @Test(arguments: ["p1", "p2"] as [PaneID])
-    func aSplitDownUnderTwoPanesShowsEveryPaneAtItsRestInOneFrame(pane: PaneID) async throws {
+    func aSplitDownUnderTwoPanesMovesEveryPaneUpInOneMotion(pane: PaneID) async throws {
         let rig = Rig(Self.stack, focused: "p2")
         defer { rig.close() }
         try await Self.write(pane, rig, lines: 200)
-        let commit = try Self.commit(pane, rig) {
+        let trace = try Self.trace(pane, rig) {
             rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.thirds)])
         }
-        Self.report("split down under two, \(pane)", commit)
-        Self.expectOneFrame(commit)
-        #expect(commit.first.bottom - commit.before.bottom > 50, "the split did not move \(pane)'s bottom edge up: \(commit.before) -> \(commit.first)")
-        #expect(commit.promptKeepsBottom, "the prompt is not on \(pane)'s new bottom edge: \(commit.before) -> \(commit.first)")
+        Self.report("split down under two, \(pane)", trace)
+        #expect(trace.violations.isEmpty, "\(trace.violations.count) frames break a motion target: \(trace.violations.prefix(4))")
     }
 
-    /// Two Cmd-Shift-D one display frame apart: p1 alone splits, and right after the frame tick that shows that split, p2
-    /// splits again. Each split is one commit: its own turn shows what the window showed before it (for the second one,
-    /// the first split, whole), its frame tick shows p1 at that layout's rest with its prompt on its bottom edge, and
-    /// p1's bottom edge only goes up. `PaneLayoutCommitTests.twoLayoutChangesShowOnlyWholeLayouts` holds the same for
-    /// every pane and divider, and for two changes in one turn.
-    @Test func aSecondSplitOneFrameAfterTheFirstShowsEachSplitWhole() async throws {
+    /// Two quick Cmd-Shift-D: p1 alone splits, and 6 frames in (50 ms) p2 splits again. The second split starts from what
+    /// the window shows: p1's edges keep going one way to the new rest and land on the first motion's deadline, not one
+    /// whole spring after the second press (design/motion.md: "A newly measured endpoint retargets from the currently
+    /// drawn geometry and keeps the original deadline").
+    @Test func aSecondSplitMidMotionRetargetsWithoutGoingBack() async throws {
         let rig = Rig(Self.single, focused: "p1")
         defer { rig.close() }
         try await Self.write("p1", rig, lines: 200)
-        let halves = try Self.commit("p1", rig, settles: false) {
+        let trace = try Self.trace("p1", rig, midway: (frame: 6, change: {
+            rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.thirds)])
+        })) {
             rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.stack)])
         }
-        let thirds = try Self.commit("p1", rig) {
-            rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.thirds)])
-        }
-        Self.report("split down twice, first split", halves)
-        Self.report("split down twice, second split", thirds)
-        Self.expectOneFrame(halves)
-        Self.expectOneFrame(thirds)
-        #expect(halves.first.bottom - halves.before.bottom > 100 && thirds.first.bottom - thirds.before.bottom > 50,
-                "p1's bottom edge did not go up at each split: \(halves.before) -> \(halves.first) -> \(thirds.first)")
-        #expect(halves.promptKeepsBottom && thirds.promptKeepsBottom,
-                "the prompt left p1's bottom edge: \(halves.before) -> \(halves.first) -> \(thirds.first)")
+        Self.report("split down twice", trace)
+        #expect(trace.violations.isEmpty, "\(trace.violations.count) frames break a motion target: \(trace.violations.prefix(4))")
     }
 
     // MARK: - The rig
 
-    /// Where one pane shows in the window (y grows up): its host's top and bottom edges, and the top of its cursor's row.
-    struct Place {
-        /// The slack below which a difference is rounding (a 2x backing pixel is 0.5 pt).
-        static let slack: CGFloat = 0.5
-
-        var top: CGFloat
-        var bottom: CGFloat
-        var prompt: CGFloat
-
-        func isNear(_ other: Place) -> Bool {
-            abs(top - other.top) <= Place.slack && abs(bottom - other.bottom) <= Place.slack && abs(prompt - other.prompt) <= Place.slack
+    /// Records `pane`'s prompt row and its pane's edges from the frame before `change` to the landing, then where they
+    /// rest after one more layout pass.
+    /// `midway` is a second change made after that many frames (a second key press during the motion).
+    static func trace(_ pane: PaneID, _ rig: Rig, midway: (frame: Int, change: () throws -> Void)? = nil,
+                      _ change: () throws -> Void) throws -> MotionTargetTrace {
+        var trace = MotionTargetTrace()
+        var edges = try Self.edges(pane, rig)
+        let leftover = try Self.leftover(pane, rig)
+        func sample() throws {
+            let now = try Self.edges(pane, rig)
+            let step = max(abs(now.top - edges.top), abs(now.bottom - edges.bottom))
+            edges = now
+            trace.record("\(pane) top", now.top, containerStep: nil)
+            trace.record("\(pane) bottom", now.bottom, containerStep: nil)
+            trace.record("\(pane) prompt", try Self.promptY(pane, rig), containerStep: step)
         }
-    }
-
-    /// What the window showed of one pane around one layout change (``commit(_:_:closing:settles:_:)``).
-    struct Commit {
-        /// At rest before the change.
-        let before: Place
-        /// In the change's own turn, after its layout pass.
-        let turn: Place
-        /// After the first frame tick.
-        let first: Place
-        /// After each of the 3 frame ticks that follow, then after the commit's work and one more layout pass.
-        let later: [Place]
-        /// The space under the grid's last row before the change and after it (``leftover(_:_:)``): less than a cell, and
-        /// another one for another grid.
-        let leftover: (before: CGFloat, after: CGFloat)
-        /// Each part of the commit's contract that the view tree broke, one line each.
-        let breaks: [String]
-
-        /// How far a prompt's place against a pane edge may differ between the two grids: the change of the leftover.
-        var promptSlack: CGFloat { abs(leftover.after - leftover.before) + Place.slack }
-        /// The change's own turn shows the pane and its prompt where they were.
-        var turnShowsTheLayoutBefore: Bool { turn.isNear(before) }
-        /// The first frame tick showed the pane and its prompt at their rest: nothing moved after it.
-        var firstFrameIsTheRest: Bool { later.allSatisfy { $0.isNear(first) } }
-        /// The prompt keeps its place under the pane's top edge: the text keeps its top.
-        var promptKeepsTop: Bool { abs((first.top - first.prompt) - (before.top - before.prompt)) <= promptSlack }
-        /// The prompt keeps its place over the pane's bottom edge: a prompt on the last row stays on it.
-        var promptKeepsBottom: Bool { abs((first.prompt - first.bottom) - (before.prompt - before.bottom)) <= promptSlack }
-    }
-
-    /// Makes `change` and records `pane` around it (``Commit``): at rest before it, in its own turn, after the first frame
-    /// tick and, with `settles`, after each of the 3 ticks that follow and after the commit's work and one more layout
-    /// pass. `closing`: the pane the change closes. ``Commit/breaks`` names every part of the commit's contract that the
-    /// view tree broke: a pane host that moved in the change's own turn, a closed pane hidden before the change showed or
-    /// shown after it, a screen in motion, a frame tick that asks for more frames, a pane host off its rest rect after
-    /// the first tick.
-    static func commit(_ pane: PaneID, _ rig: Rig, closing: PaneID? = nil, settles: Bool = true,
-                       _ change: () throws -> Void) throws -> Commit {
-        let screen = try rig.screen
-        let before = try Self.place(pane, rig), leftoverBefore = try Self.leftover(pane, rig)
-        let hosts = rig.root.context.hosts.map { (name: $0.key.rawValue, host: $0.value, frame: $0.value.frame) }
-        let closed = closing.flatMap { rig.root.context.hosts[$0] }
-        var breaks: [String] = []
-
-        // The change's own turn: every pane host shows where it showed, the closed pane too, and nothing springs.
+        try sample()
         try change()
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
-        let turn = try Self.place(pane, rig)
-        for entry in hosts where entry.host.frame != entry.frame {
-            breaks.append("the change's own turn moved \(entry.name)'s host from \(entry.frame) to \(entry.host.frame)")
-        }
-        if closed?.isHidden == true { breaks.append("the change's own turn hid the closed pane") }
-        if screen.hasMotion { breaks.append("the change put the screen in motion") }
-
-        // The first frame tick: every pane host of the new layout is at its rest rect, and the closed pane is hidden.
-        if rig.frame() { breaks.append("the first frame tick asks for more frames") }
-        let first = try Self.place(pane, rig)
-        for id in screen.paneFrames.keys {
-            guard let host = rig.root.context.hosts[id], let rest = screen.displayedFrame(of: id) else {
-                breaks.append("\(id.rawValue) has no host after the first frame tick")
-                continue
+        try sample()
+        var frames = 0
+        var moving = true
+        while frames < 240, moving {
+            if frames == midway?.frame {
+                try midway?.change()
+                rig.root.syncWithModel()
+                rig.root.layoutSubtreeIfNeeded()
             }
-            if host.frame != rest { breaks.append("the first frame tick left \(id.rawValue)'s host at \(host.frame), not at its rest \(rest)") }
+            moving = rig.frame()
+            frames += 1
+            try sample()
         }
-        if closed?.isHidden == false { breaks.append("the closed pane still shows after the first frame tick") }
-
-        // Nothing moves after it.
-        var later: [Place] = []
-        if settles {
-            for tick in 2...4 {
-                if rig.frame() { breaks.append("frame tick \(tick) still moves something") }
-                later.append(try Self.place(pane, rig))
-            }
-            rig.commit()
-            later.append(try Self.place(pane, rig))
-        }
-        if screen.hasMotion { breaks.append("the screen is in motion after the change showed") }
-        let leftoverAfter = try Self.leftover(pane, rig)
-        return Commit(before: before, turn: turn, first: first, later: later, leftover: (leftoverBefore, leftoverAfter), breaks: breaks)
+        rig.commit()
+        try #require(frames > 3, "the motion did not spring (\(frames) frames)")
+        trace.deadline(Self.deadline)
+        rig.root.layoutSubtreeIfNeeded()
+        let rest = try Self.edges(pane, rig)
+        trace.settle("\(pane) top", rest.top)
+        trace.settle("\(pane) bottom", rest.bottom)
+        trace.settle("\(pane) prompt", try Self.promptY(pane, rig))
+        trace.allowFirstStep("\(pane) prompt", try Self.leftover(pane, rig) - leftover)
+        return trace
     }
 
-    /// The commit's contract, the same for every case: the change's own turn shows the layout before it, the first frame
-    /// tick shows the layout after it with the pane and its prompt at their rest, and nothing moves after that tick.
-    static func expectOneFrame(_ commit: Commit) {
-        #expect(commit.breaks.isEmpty, "\(commit.breaks.count) parts of the commit broke: \(commit.breaks.prefix(4))")
-        #expect(commit.turnShowsTheLayoutBefore, "the change's own turn moved the pane or its prompt: \(commit.before) -> \(commit.turn)")
-        #expect(commit.firstFrameIsTheRest,
-                "the pane or its prompt moved after the frame that showed the change: \(commit.first) -> \(commit.later)")
-    }
-
-    /// Where `pane`'s host edges and its prompt row show now.
-    static func place(_ pane: PaneID, _ rig: Rig) throws -> Place {
-        let edges = try Self.edges(pane, rig)
-        return Place(top: edges.top, bottom: edges.bottom, prompt: try Self.promptY(pane, rig))
-    }
+    /// The frame by which every tracked element shows at its rest: the `split` spring's 235 ms ceiling at 120 Hz, plus the
+    /// key's frame.
+    static let deadline = 30
 
     /// The pane host's top and bottom edges in the window.
     static func edges(_ pane: PaneID, _ rig: Rig) throws -> (top: CGFloat, bottom: CGFloat) {
@@ -287,8 +196,8 @@ struct SplitMotionTargetTests {
         return frame.maxY - metrics.padding_top - CGFloat(metrics.cursor_row) * metrics.cell_height
     }
 
-    /// The space under the grid's last row in its surface (less than a cell). Another grid has another one, so a prompt on
-    /// the last row sits that much nearer to its pane's bottom edge, or farther from it, after the change.
+    /// The space under the grid's last row in its surface (less than a cell): where the final grid's rows sit against
+    /// the edge the hold rides differs from the start grid's by the change in it.
     static func leftover(_ pane: PaneID, _ rig: Rig) throws -> CGFloat {
         let surface = try PaneContentPolicyTests.surface(pane, in: rig)
         let metrics = try Self.metrics(pane, rig)
@@ -314,8 +223,8 @@ struct SplitMotionTargetTests {
         await terminal.io.nextWrite()
     }
 
-    static func report(_ name: String, _ commit: Commit) {
-        print("layout-commit: \(name): before \(commit.before), own turn \(commit.turn), first tick \(commit.first), "
-            + "rest \(commit.later.last ?? commit.first)")
+    static func report(_ name: String, _ trace: MotionTargetTrace) {
+        print("motion-trace: \(name): \(trace.summary)")
+        for line in trace.frames { print("motion-frames: \(name): \(line)") }
     }
 }

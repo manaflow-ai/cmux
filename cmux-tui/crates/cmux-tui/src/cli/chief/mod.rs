@@ -28,7 +28,6 @@ mod primary;
 pub(in crate::cli) mod registry;
 mod relocate;
 mod render;
-mod scheduled;
 mod script;
 mod script_text;
 mod shutdown;
@@ -277,9 +276,7 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         Err(error) => return usage_failure(&global, &error, m.usage),
     };
     if args.help {
-        // The cmux app's `chief …` verbs too (cli/app_action_help.rs).
-        let usage = super::app_action_help::append("chief", m.usage);
-        println!("{}", usage.as_deref().unwrap_or(m.usage));
+        println!("{}", m.usage);
         return 0;
     }
     let word = match &args.control {

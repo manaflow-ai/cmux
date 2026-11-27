@@ -5,8 +5,8 @@ bun=$(command -v bun || true)
 [ -n "$bun" ] || { echo 'cmux run: bun is required' >&2; exit 2; }
 if [ -d "$root/cmux-tui/bindings/typescript" ]; then
   sdk="$root/cmux-tui/bindings/typescript"
-elif [ -d "$root/Resources/code-mode/sdk" ] || [ -f "$root/Resources/code-mode.tar.xz" ]; then
-  sdk="$("$(dirname -- "$0")/cmux-code-mode-unpack" "$root/Resources")/sdk"
+elif [ -d "$root/Resources/code-mode/sdk" ]; then
+  sdk="$root/Resources/code-mode/sdk"
 else
   sdk="$root/code-mode/sdk"
 fi

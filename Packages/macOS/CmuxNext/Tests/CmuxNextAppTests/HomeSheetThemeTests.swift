@@ -49,7 +49,7 @@ import Testing
             HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineEngine()),
         ]
         let ink = scope.perform { Palette.textPrimary }
-        let hint = scope.perform { Palette.textSecondary }
+        let hint = scope.perform { Palette.textTertiary }
         var fields: [NSTextField] = []
         for root in roots {
             scope.root(root)

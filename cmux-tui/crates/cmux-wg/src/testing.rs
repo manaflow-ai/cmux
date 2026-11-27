@@ -15,15 +15,6 @@ use zeroize::Zeroizing;
 use crate::config::{Endpoint, InterfaceAddress, WgConfig};
 
 pub mod sim;
-pub mod tcp_oracle;
-
-/// Make every tunnel this process starts from now on use the loss-based
-/// controller (Cubic) instead of the default BBR, as `CMUX_WG_ULTRA_CC=cubic`
-/// does, for a test whose subject is a window that loss cuts. Unlike setting
-/// the variable, it is safe while other test threads run.
-pub fn pin_loss_based_congestion() {
-    crate::ultra::CUBIC_PINNED.store(true, std::sync::atomic::Ordering::Relaxed);
-}
 
 /// A fresh Curve25519 keypair as `(private, public)`.
 #[allow(
@@ -129,51 +120,4 @@ pub fn config_pair(server_addr: SocketAddr) -> ConfigPair {
         ultra: crate::UltraChoice::Off,
     };
     ConfigPair { client, server, client_v4, server_v4, client_v6, server_v6 }
-}
-
-/// What one datagram a tunnel received carried, for [`set_receive_tap`].
-#[derive(Debug, Clone, Copy)]
-pub enum Received<'a> {
-    /// A handshake initiation or response.
-    Handshake,
-    /// A cookie reply (the rate limiter's answer).
-    Cookie,
-    /// A data message that decrypted to nothing: a WireGuard keepalive.
-    Keepalive,
-    /// A message boringtun refused (a replayed counter: a copy sent on a
-    /// second route, a replay after a roam).
-    Refused,
-    /// The tunnel's own control packets: an ultra hello, an off-path note
-    /// or a path probe.
-    TunnelControl(&'static str),
-    /// An ultra-mode parity datagram, consumed by the repair layer before
-    /// WireGuard sees it.
-    Parity,
-    /// An IP packet for the overlay (TCP, UDP), as decrypted.
-    Packet(&'a [u8]),
-}
-
-/// Called with the receiving tunnel's first interface address, what the
-/// datagram carried and its size on the wire.
-pub type ReceiveTap = fn(local: IpAddr, received: Received<'_>, wire_bytes: usize);
-
-static RECEIVE_TAP: std::sync::OnceLock<ReceiveTap> = std::sync::OnceLock::new();
-
-/// Measurement only: every datagram any tunnel in this process receives is
-/// reported to `tap`, by what it carried, so a test can attribute each
-/// datagram the peer sent to the sender that made it. Set once per process
-/// (a test binary of its own); `false` if a tap was already set. Unset, the
-/// receive path pays one atomic load.
-pub fn set_receive_tap(tap: ReceiveTap) -> bool {
-    RECEIVE_TAP.set(tap).is_ok()
-}
-
-pub(crate) fn tapping() -> bool {
-    RECEIVE_TAP.get().is_some()
-}
-
-pub(crate) fn tap_received(local: Option<IpAddr>, received: Received<'_>, wire_bytes: usize) {
-    if let (Some(tap), Some(local)) = (RECEIVE_TAP.get(), local) {
-        tap(local, received, wire_bytes);
-    }
 }

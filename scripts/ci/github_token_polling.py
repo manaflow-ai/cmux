@@ -77,10 +77,7 @@ SHELL_API = re.compile(r"^(gh)$")
 GH_VERBS = {"api", "run", "pr", "issue", "release", "workflow", "label", "search", "cache"}
 API_TEXT = re.compile(r"api\.github\.com")
 API_URL_VALUE = re.compile(r"github\.api_url|api\.github\.com|\$\{?GITHUB_API_URL\b")
-# Workflows sometimes check out the main-branch copy of a helper under a
-# tooling directory before running it. Keep following that helper for token
-# accounting while resolving it against the repository root.
-SCRIPT_PATH = re.compile(r"^(?:\./)?(?:\.tick-tooling/)?((?:scripts|\.github)/[\w./-]+\.(?:sh|bash|py|js|mjs|cjs|ts))$")
+SCRIPT_PATH = re.compile(r"^(?:\./)?((?:scripts|\.github)/[\w./-]+\.(?:sh|bash|py|js|mjs|cjs|ts))$")
 INTERPRETERS = {"bash", "sh", "python", "python3", "node", "bun", "ruby", "source", "."}
 SEPARATORS = {";", "&&", "||", "|", "(", "$(", "{", "then", "else", "elif", "do", "!", "`", "&", "if", "while",
               "until", "time"}
@@ -112,14 +109,8 @@ def calls_with_own_token(step: dict, job: dict, workflow: dict, script: str = ""
 def shell_words(text: str) -> list[tuple[str, int]]:
     """The shell's words and operators with their offsets: quoted text joins its word but is not a
     keyword, comments and heredoc bodies are dropped, and `$(` opens a nested command."""
-    return _shell_words(text, 0, substitution=False)[0]
-
-
-def _shell_words(text: str, i: int, *, substitution: bool) -> tuple[list[tuple[str, int]], int]:
-    """Read from i until the matching substitution close or end of input, keeping absolute offsets."""
     words: list[tuple[str, int]] = []
-    n = len(text)
-    depth = 0
+    i, n = 0, len(text)
     current, start, quoted = "", -1, False
     pending_heredocs: list[tuple[str, bool, int]] = []
 
@@ -172,31 +163,26 @@ def _shell_words(text: str, i: int, *, substitution: bool) -> tuple[list[tuple[s
             current, quoted, i = current + text[i + 1:end], True, end + 1
             continue
         if c == '"':
-            j = literal = i + 1
-            pieces = []
-            while j < n and text[j] != '"':
+            j, depth = i + 1, 0
+            while j < n and (text[j] != '"' or depth):
                 if text[j] == "\\":
                     j += 2
-                elif text.startswith("$(", j):
-                    pieces.append(text[literal:j])
-                    nested, close = _shell_words(text, j + 2, substitution=True)
-                    words.extend(nested)
-                    words.append((";", close))
-                    j = literal = close + 1
-                else:
-                    j += 1
-            pieces.append(text[literal:j])
+                    continue
+                if text.startswith("$(", j):
+                    depth += 1
+                elif text[j] == ")" and depth:
+                    depth -= 1
+                j += 1
+            inner = text[i + 1:j]
+            # A command substitution inside the quotes is code: read it as its own words.
+            for match in re.finditer(r"\$\(", inner):
+                sub_start = i + 1 + match.start()
+                words.extend(nested_substitution(text, sub_start))
             if start < 0:
                 start = i
-            current, quoted, i = current + "".join(pieces), True, j + 1
+            current, quoted, i = current + re.sub(r"\$\([^)]*\)?", "", inner), True, j + 1
             continue
-        if text.startswith("<<<", i):
-            # Consume the entire here-string operator so its last two characters cannot open a heredoc.
-            flush()
-            words.append(("<<<", i))
-            i += 3
-            continue
-        if text.startswith("<<", i):
+        if text.startswith("<<", i) and not text.startswith("<<<", i):
             flush()
             m = re.match(r"<<(-?)\s*(['\"]?)([A-Za-z_][\w]*)\2", text[i:])
             if m:
@@ -207,13 +193,6 @@ def _shell_words(text: str, i: int, *, substitution: bool) -> tuple[list[tuple[s
         for op in ("$(", "&&", "||", ";;", ";", "|", "(", ")", "`", "&", "{", "}"):
             if text.startswith(op, i) and (op not in "{}" or start < 0 and (i + 1 >= n or text[i + 1] in " \t\n;")):
                 flush()
-                if substitution:
-                    if op == ")" and depth == 0:
-                        return words, i
-                    if op in ("$(", "("):
-                        depth += 1
-                    elif op == ")":
-                        depth -= 1
                 words.append((op, i))
                 i += len(op)
                 break
@@ -223,7 +202,23 @@ def _shell_words(text: str, i: int, *, substitution: bool) -> tuple[list[tuple[s
             current += c
             i += 1
     flush()
-    return words, n
+    return words
+
+
+def nested_substitution(text: str, at: int) -> list[tuple[str, int]]:
+    """The words of the `$(...)` that starts at `at`, offsets kept."""
+    depth, j = 0, at
+    while j < len(text):
+        if text.startswith("$(", j):
+            depth += 1
+            j += 2
+            continue
+        if text[j] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        j += 1
+    return [(word, at + 2 + offset) for word, offset in shell_words(text[at + 2:j])] + [(";", j)]
 
 
 def command_positions(words: list[tuple[str, int]]) -> list[bool]:

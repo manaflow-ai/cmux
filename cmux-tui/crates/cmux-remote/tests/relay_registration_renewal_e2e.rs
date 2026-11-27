@@ -79,8 +79,6 @@ fn ticket(authority: &TicketAuthority, permission: RelayPermission, seconds: u64
             generation: None,
             issued_at_unix: now,
             expires_at_unix: now + seconds,
-            grant: None,
-            region: None,
         })
         .unwrap()
 }

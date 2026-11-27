@@ -4,9 +4,8 @@
 //! worker's poll loop.
 //!
 //! The worker hands over each asking connection; the minter answers it
-//! with one line and closes it. Asks are answered one at a time, in order;
-//! any number may wait (each holds only its connection), and
-//! [`MAX_QUEUE_WAIT`] keeps every reply within the CLI's timeout.
+//! with one line and closes it. Asks are answered one at a time; at most
+//! [`MAX_PENDING`] wait, and the worker answers more with `busy` at once.
 //! The minter has its own [`CloudClient`] (the same bound machine and
 //! install key) from each bind on. Dropping the [`Minter`] (the worker
 //! ending) stops it: asks still queued get `vm.agent_stopping`, and the
@@ -23,6 +22,7 @@
 
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
@@ -34,6 +34,8 @@ use super::client::{CloudClient, Http};
 use super::github::{self, TokenAsk};
 use super::handoff::{self, HandoffReport};
 
+/// Asks that may wait for the minter; more are answered `busy`.
+pub const MAX_PENDING: usize = 8;
 /// An ask that waited longer than this is answered `busy`, not minted:
 /// with one mint (at most three 20 s API calls, twice with a bearer
 /// retry) after it, the reply comes within the CLI's 240 s.
@@ -50,18 +52,6 @@ pub enum Ask {
     GithubStatus(Result<(), String>),
     /// The session host's relay Register ticket (`carrier_ticket.rs`).
     CarrierTicket(Result<(), String>),
-    /// One apps route as this machine (`apps_call.rs`).
-    /// Boxed, like the other large asks: the minter's queue moves `Ask`s by value.
-    AppsCall(Box<Result<super::apps_call::AppsCall, String>>),
-    /// The process on a port, for `cmux app publish --port` (`apps_call.rs`), read under the
-    /// machine's `proc` directory.
-    AppsListener(Result<u16, String>, std::path::PathBuf),
-    /// Start, check or stop a published version as the app user (`apps_spawn.rs`).
-    AppsRun(Box<(Result<super::apps_spawn::AppsRun, String>, super::apps_spawn::RunPaths)>),
-    /// One MCP message to the platform's hosted MCP server as this machine (`mcp_call.rs`).
-    McpCall(Box<Result<super::mcp_call::McpCall, String>>),
-    /// `cmux machine request` as this machine (`machine_request.rs`).
-    MachineRequest(Box<Result<super::machine_request::MachineAsk, String>>),
     Handoff(Result<HandoffReport, String>),
 }
 
@@ -88,6 +78,9 @@ enum Msg<H: Http> {
     Ask(Ask, UnixStream, Instant),
 }
 
+/// A `busy` reply never holds the poll loop longer than this.
+const BUSY_WRITE_TIMEOUT: Duration = Duration::from_millis(200);
+
 /// The role's stop, shared with the minter. Setting it waits for a reply
 /// being written, and a reply is written only while it is unset, so no
 /// token is handed out once [`Stop::set`] returns.
@@ -111,6 +104,7 @@ impl Stop {
 /// The worker's handle on the minter thread.
 pub struct Minter<H: Http> {
     tx: Option<Sender<Msg<H>>>,
+    pending: Arc<AtomicUsize>,
     stop: Arc<Stop>,
     thread: Option<JoinHandle<()>>,
 }
@@ -131,11 +125,12 @@ impl<H: Http + Send + 'static> Minter<H> {
     /// `stop` is set no token is handed out.
     pub fn spawn(now: fn() -> u64, log: fn(&str), stop: Arc<Stop>) -> io::Result<Minter<H>> {
         let (tx, rx) = mpsc::channel();
-        let stopping = Arc::clone(&stop);
+        let pending = Arc::new(AtomicUsize::new(0));
+        let (counter, stopping) = (Arc::clone(&pending), Arc::clone(&stop));
         let thread = std::thread::Builder::new()
             .name("cmux-host-github".to_owned())
-            .spawn(move || run(&rx, &stopping, now, log))?;
-        Ok(Minter { tx: Some(tx), stop, thread: Some(thread) })
+            .spawn(move || run(&rx, &counter, &stopping, now, log))?;
+        Ok(Minter { tx: Some(tx), pending, stop, thread: Some(thread) })
     }
 
     /// The machine is bound (again): mint as this client from now on.
@@ -145,30 +140,42 @@ impl<H: Http + Send + 'static> Minter<H> {
         }
     }
 
-    /// Hands one asking connection to the minter; it waits its turn.
-    pub fn ask(&self, ask: impl Into<Ask>, stream: UnixStream) {
-        if let Some(tx) = self.tx.as_ref() {
-            let _ = tx.send(Msg::Ask(ask.into(), stream, Instant::now()));
+    /// Hands one asking connection to the minter, or answers `busy` now.
+    pub fn ask(&self, ask: impl Into<Ask>, mut stream: UnixStream) {
+        let ask = ask.into();
+        if self.pending.fetch_add(1, Ordering::SeqCst) >= MAX_PENDING {
+            self.pending.fetch_sub(1, Ordering::SeqCst);
+            let busy = github::refusal("busy", "too many asks are waiting; retry");
+            let _ = write_reply(&mut stream, &busy, BUSY_WRITE_TIMEOUT);
+            return;
+        }
+        let sent = self.tx.as_ref().map(|tx| tx.send(Msg::Ask(ask, stream, Instant::now())));
+        if !matches!(sent, Some(Ok(()))) {
+            self.pending.fetch_sub(1, Ordering::SeqCst);
         }
     }
 }
 
-fn run<H: Http>(rx: &Receiver<Msg<H>>, stop: &Stop, now: fn() -> u64, log: fn(&str)) {
+fn run<H: Http>(
+    rx: &Receiver<Msg<H>>,
+    pending: &AtomicUsize,
+    stop: &Stop,
+    now: fn() -> u64,
+    log: fn(&str),
+) {
     let mut client: Option<Box<CloudClient<H>>> = None;
     while let Ok(msg) = rx.recv() {
         match msg {
             Msg::Bound(next) => client = Some(next),
             Msg::Ask(ask, mut stream, queued) => {
                 let stopping =
-                    || github::refusal("vm.agent_stopping", "the Cloud agent is stopping");
+                    || github::refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
                 let mut reply = if stop.is_set() {
                     stopping()
                 } else if queued.elapsed() > MAX_QUEUE_WAIT {
-                    github::transient_refusal(
-                        "busy",
-                        "the ask waited over a minute behind other asks",
-                    )
+                    github::refusal("busy", "the ask waited too long; retry")
                 } else if !connected(&stream) {
+                    pending.fetch_sub(1, Ordering::SeqCst);
                     continue;
                 } else {
                     match ask {
@@ -177,25 +184,6 @@ fn run<H: Http>(rx: &Receiver<Msg<H>>, stop: &Stop, now: fn() -> u64, log: fn(&s
                         Ask::GithubStatus(ask) => answer_status(client.as_deref_mut(), ask, now()),
                         Ask::CarrierTicket(ask) => {
                             answer_carrier(client.as_deref_mut(), ask, now())
-                        }
-                        Ask::AppsCall(ask) => answer_apps(client.as_deref_mut(), *ask, now()),
-                        Ask::McpCall(ask) => answer_mcp(client.as_deref_mut(), *ask, now()),
-                        Ask::MachineRequest(ask) => {
-                            answer_machine_request(client.as_deref_mut(), *ask, now())
-                        }
-                        Ask::AppsListener(port, proc_root) => {
-                            let peer = super::apps_call::peer_uid(&stream);
-                            super::apps_call::listener_reply(&proc_root, port, peer)
-                        }
-                        Ask::AppsRun(run) => {
-                            let (ask, paths) = *run;
-                            let peer = super::apps_call::peer_uid(&stream);
-                            super::apps_spawn::answer(
-                                &paths,
-                                ask,
-                                peer,
-                                &super::apps_spawn::SystemUsers,
-                            )
                         }
                         Ask::Handoff(report) => {
                             answer_report(client.as_deref_mut(), report, now(), log)
@@ -212,6 +200,7 @@ fn run<H: Http>(rx: &Receiver<Msg<H>>, stop: &Stop, now: fn() -> u64, log: fn(&s
                 }
                 let _ = write_reply(&mut stream, &reply, REPLY_WRITE_TIMEOUT);
                 drop(stopped);
+                pending.fetch_sub(1, Ordering::SeqCst);
             }
         }
     }
@@ -248,10 +237,7 @@ pub fn answer_repos<H: Http>(
         Err(why) => return github::refusal("request.invalid", &why),
     };
     let Some(client) = client else {
-        return github::transient_refusal(
-            "vm.unbound",
-            "This machine is not bound to cmux Cloud yet.",
-        );
+        return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
     };
     client.github_repos(&ask, now_wall_ms)
 }
@@ -266,10 +252,7 @@ pub fn answer_status<H: Http>(
         return github::refusal("request.invalid", &why);
     }
     let Some(client) = client else {
-        return github::transient_refusal(
-            "vm.unbound",
-            "This machine is not bound to cmux Cloud yet.",
-        );
+        return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
     };
     client.github_status(now_wall_ms)
 }
@@ -287,54 +270,6 @@ pub fn answer_carrier<H: Http>(
         return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
     };
     client.carrier_ticket(now_wall_ms)
-}
-
-/// One apps route, sent off the agent poll loop like the status read.
-pub fn answer_apps<H: Http>(
-    client: Option<&mut CloudClient<H>>,
-    ask: Result<super::apps_call::AppsCall, String>,
-    now_wall_ms: u64,
-) -> Value {
-    let call = match ask {
-        Ok(call) => call,
-        Err(why) => return github::refusal("request.invalid", &why),
-    };
-    let Some(client) = client else {
-        return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
-    };
-    client.apps_call(&call, now_wall_ms)
-}
-
-/// One machine request, sent off the agent poll loop like the apps routes.
-pub fn answer_machine_request<H: Http>(
-    client: Option<&mut CloudClient<H>>,
-    ask: Result<super::machine_request::MachineAsk, String>,
-    now_wall_ms: u64,
-) -> Value {
-    let ask = match ask {
-        Ok(ask) => ask,
-        Err(why) => return github::refusal("request.invalid", &why),
-    };
-    let Some(client) = client else {
-        return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
-    };
-    client.machine_request(&ask, now_wall_ms)
-}
-
-/// One hosted MCP message, sent off the agent poll loop like the apps routes.
-pub fn answer_mcp<H: Http>(
-    client: Option<&mut CloudClient<H>>,
-    ask: Result<super::mcp_call::McpCall, String>,
-    now_wall_ms: u64,
-) -> Value {
-    let call = match ask {
-        Ok(call) => call,
-        Err(why) => return github::refusal("request.invalid", &why),
-    };
-    let Some(client) = client else {
-        return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
-    };
-    client.mcp_call(&call, now_wall_ms)
 }
 
 /// The reply for one hand-off report: a refusal before a bind or for a

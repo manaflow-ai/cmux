@@ -1,0 +1,87 @@
+name: cmux skill contracts
+
+on:
+  pull_request:
+    paths:
+      - "skills/cmux-browser/**"
+      - "skills/cmux-settings/**"
+      - "web/data/cmux.schema.json"
+      - "tests/test_cmux_settings_supported_paths.py"
+      - "tests/git_fixture_env.py"
+      - ".agents/skills"
+      - ".claude/skills/**"
+      - "skills.sh"
+      - "scripts/validate-cmux-browser-skill.py"
+      - "tests/test_cmux_browser_skill.py"
+      - "tests/test_cmux_settings_jsonc.py"
+      - "tests/test_cmux_settings_transactions.py"
+      - ".github/workflows/cmux-skill-contract.yml"
+      - "skills/cmux-bug-triage/**"
+      - "tests/fixtures/bug-triage/**"
+      - "tests/test_cmux_bug_triage.py"
+      - "tests/test_socket_control_schema.py"
+  push:
+    branches: [main]
+    paths:
+      - "skills/cmux-browser/**"
+      - "skills/cmux-settings/**"
+      - "web/data/cmux.schema.json"
+      - "tests/test_cmux_settings_supported_paths.py"
+      - "tests/git_fixture_env.py"
+      - ".agents/skills"
+      - ".claude/skills/**"
+      - "skills.sh"
+      - "scripts/validate-cmux-browser-skill.py"
+      - "tests/test_cmux_browser_skill.py"
+      - "tests/test_cmux_settings_jsonc.py"
+      - "tests/test_cmux_settings_transactions.py"
+      - ".github/workflows/cmux-skill-contract.yml"
+      - "skills/cmux-bug-triage/**"
+      - "tests/fixtures/bug-triage/**"
+      - "tests/test_cmux_bug_triage.py"
+      - "tests/test_socket_control_schema.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-skill-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
+jobs:
+  browser-skill:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate browser skill documentation contract
+        run: python3 scripts/validate-cmux-browser-skill.py
+
+      - name: Exercise browser skill regression guard
+        run: python3 tests/test_cmux_browser_skill.py
+
+      - name: Exercise settings JSONC mutation regressions
+        run: python3 tests/test_cmux_settings_jsonc.py
+
+      - name: Exercise settings transaction regressions
+        run: python3 tests/test_cmux_settings_transactions.py
+
+      - name: Exercise settings skill path validation
+        run: python3 tests/test_cmux_settings_supported_paths.py
+
+      # These two had no registry entry, so no job ran them (tests/test_pr_lane_coverage.py).
+      - name: The published socket control settings in the schema
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_socket_control_schema.py
+
+      - name: The cmux-bug-triage skill script on the tester report fixture
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_cmux_bug_triage.py

@@ -17,7 +17,7 @@ use serve_common::Host;
 use std::sync::Arc;
 use std::time::Duration;
 
-const MACHINE: &str = "vm_alpha01";
+const MACHINE: &str = "vm-alpha01";
 
 fn host_with_clock() -> (Host, ManualClock) {
     let clock = ManualClock::default();

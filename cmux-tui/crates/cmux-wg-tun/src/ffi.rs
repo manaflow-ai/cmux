@@ -94,7 +94,3 @@ pub unsafe extern "C" fn cmux_wg_tun_stop(tun: *mut CmuxWgTun) {
     let tun = unsafe { Box::from_raw(tun) };
     tun.0.stop();
 }
-
-#[cfg(test)]
-#[path = "ffi_tests.rs"]
-mod tests;

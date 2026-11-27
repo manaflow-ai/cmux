@@ -6,7 +6,7 @@ import Testing
 #if os(iOS)
 import UIKit
 
-/// ask-87d30da8e5: the phone's chrome and accent follow the Mac's theme by default. The palette
+/// ask-87d30da8e5: the phone's accent follows the Mac's theme; its backgrounds never do. The palette
 /// is derived from the theme the Mac sends with the Mac's own code, kept on disk so launch and
 /// offline have it before any link, replaced by what a connected Mac sends, and never overrides a
 /// look the person chose on the phone (Match Mac theme off, an accent picked, an explicit Light or Dark).
@@ -69,40 +69,6 @@ import UIKit
         #expect(appearance.theme.selectionBackground == "#585b70")
         #expect(appearance.wallpaper == .init(id: "ab12", bytes: 3, tintOpacity: 0.62))
         #expect(CmuxMobileMacAppearance.decode(Data(##"{"theme":{"background":"red","foreground":"#ffffff","palette":[],"accent":"neutral","background_opacity":1},"wallpaper":null}"##.utf8)) == nil)
-    }
-
-    /// The Mac's window blur crosses the wire (none from a Mac that predates it) and the phone's
-    /// picture is blurred by it, as the Mac frosts what shows through its window.
-    @Test func theMacsBlurDecodesAndBlursThePicture() throws {
-        let frame = ##"{"theme":{"background":"#1e1e2e","foreground":"#cdd6f4","palette":["#000000","#111111","#222222","#333333","#444444","#555555","#666666","#777777"],"accent":"neutral","background_opacity":0.8,"background_blur":-1},"wallpaper":null}"##
-        #expect(try #require(CmuxMobileMacAppearance.decode(Data(frame.utf8))).theme.backgroundBlur == -1)
-        #expect(Self.mocha.theme.backgroundBlur == nil)
-        #expect(CmuxMobileMacTheme.blurRadius(nil) == 0)
-        #expect(CmuxMobileMacTheme.blurRadius(0) == 0)
-        #expect(CmuxMobileMacTheme.blurRadius(12) == 12)
-        #expect(CmuxMobileMacTheme.blurRadius(-1) == 20)
-        #expect(CmuxMobileMacTheme.blurRadius(-2) == 8)
-        // A hard black and white edge comes out soft: the pixel beside it is gray.
-        let sharp = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 10), format: { let f = UIGraphicsImageRendererFormat(); f.scale = 1; return f }()).image { context in
-            UIColor.black.setFill(); context.fill(CGRect(x: 0, y: 0, width: 20, height: 10))
-            UIColor.white.setFill(); context.fill(CGRect(x: 20, y: 0, width: 20, height: 10))
-        }
-        #expect(CmuxMobileMacTheme.blurred(sharp, radius: 0) == nil)
-        let soft = try #require(CmuxMobileMacTheme.blurred(sharp, radius: 4))
-        #expect(soft.size == sharp.size)
-        let gray = try #require(Self.red(soft, x: 19, y: 5))
-        #expect(gray > 40 && gray < 215)
-    }
-
-    /// The red byte of pixel (x, y).
-    static func red(_ image: UIImage, x: Int, y: Int) -> Int? {
-        guard let cg = image.cgImage else { return nil }
-        var pixel = [UInt8](repeating: 0, count: 4)
-        guard let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                                      space: CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.draw(cg, in: CGRect(x: -x, y: y - cg.height + 1, width: cg.width, height: cg.height))
-        return Int(pixel[0])
     }
 
     /// Launch and offline: the last theme is read from disk before any link.

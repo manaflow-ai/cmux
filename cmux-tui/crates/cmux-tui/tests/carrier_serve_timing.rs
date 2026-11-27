@@ -4,10 +4,10 @@
 //! the first connection and the ones after it. It asserts only that every
 //! connection is answered; it prints the times (and the connect log) so one
 //! harness gives the before and after of a serve change:
-//! `cargo test -p cmux-tui --test it -- carrier_serve_timing:: --nocapture`.
+//! `cargo test -p cmux-tui --test carrier_serve_timing -- --nocapture`.
 #![cfg(target_os = "linux")]
 
-use crate::carrier_support;
+mod carrier_support;
 
 use std::io::{BufReader, Write};
 use std::os::unix::net::UnixStream;

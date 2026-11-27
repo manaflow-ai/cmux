@@ -76,7 +76,7 @@ fn cloud_repo_connect_then_same_add_resumes_without_message() {
     assert_eq!(error["code"], "repo.needs_github");
     assert_eq!(error["retry"]["args"], args("project"));
     assert_eq!(error["retry"]["wait_action"], "cloud.repo.wait_github");
-    assert!(error["message"].as_str().unwrap().contains("on its own"));
+    assert!(error["message"].as_str().unwrap().contains("automatically"));
     let fake = Fake { installation: vec![repo("org/project", "installation")], ..fake };
     *fake.install_url.borrow_mut() = None;
     let done = add(&fake, &error["retry"]["args"]).unwrap();
@@ -119,22 +119,13 @@ fn cloud_repo_typed_seed_failures_have_next_action() {
             error["code"],
             if code == "seed.needs_github" { "repo.needs_github" } else { code }
         );
-        let message = error["message"].as_str().unwrap().to_ascii_lowercase();
-        // The next action itself, never a bare "retry".
-        assert!(!message.contains("retry") && !message.contains("try again"), "{code}: {message}");
-        let action = if code == "seed.needs_github" {
-            "connect"
-        } else if code == "seed.unknown_job" {
-            "adding the repository"
-        } else {
-            match code {
-                "seed.disk_full" => "free disk space",
-                "seed.clone_failed" => "check",
-                "seed.unavailable" => "open a chat",
-                _ => "choose",
-            }
-        };
-        assert!(message.contains(action), "{code}: {message}");
+        assert!(
+            error["message"]
+                .as_str()
+                .unwrap()
+                .to_ascii_lowercase()
+                .contains(if code == "seed.needs_github" { "connect" } else { "retry" })
+        );
         assert!(fake.records.borrow().is_empty());
     }
 }

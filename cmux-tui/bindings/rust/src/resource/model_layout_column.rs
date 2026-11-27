@@ -5,6 +5,7 @@ use crate::resource::handles::state_ops::{ColumnEdge, ColumnMode};
 
 /// One stable horizontal viewport column.
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct LayoutColumn {
     pub column_id: SplitId,
     pub width: f64,
@@ -27,6 +28,7 @@ pub struct LayoutColumn {
 /// Only row 1 may omit `row_id`, in a document sent to
 /// `workspace.layout.apply`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct LayoutRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub row_id: Option<SplitId>,
@@ -39,6 +41,7 @@ impl<'de> Deserialize<'de> for LayoutRow {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
         struct Wire {
             #[serde(default)]
             row_id: Option<SplitId>,
@@ -74,6 +77,7 @@ impl ColumnRole {
 /// layout of a screen is in each session snapshot, and a document that is
 /// read and then sent to `workspace.layout.apply` keeps each member.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct LayoutColumnDock {
     pub edge: ColumnEdge,
     pub mode: ColumnMode,
@@ -109,6 +113,7 @@ impl<'de> Deserialize<'de> for LayoutColumn {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
         struct Wire {
             column_id: SplitId,
             width: f64,

@@ -6,8 +6,7 @@ mod common;
 
 use cmux_browser_import::time::UNIX_TO_REFERENCE;
 use cmux_browser_import::{
-    Bookmark, Extension, InstalledExtension, ReadError, arc, chromium, exported, extension_plan,
-    firefox, lz4, ops, pickle, safari, search, url,
+    Bookmark, ReadError, arc, chromium, exported, firefox, lz4, pickle, safari, search, url,
 };
 use rusqlite::Connection;
 use std::path::Path;
@@ -204,22 +203,19 @@ fn chromium_session_files_pick_the_newest() {
 }
 
 #[test]
-fn chromium_extensions_keep_store_installs_and_unpacked_folders() {
+fn chromium_extensions_keep_store_installs_only() {
     let profile = tempfile::tempdir().unwrap();
     let p = profile.path();
     let id = |c: char| c.to_string().repeat(32);
-    let (store, policy, default, theme, unpacked, localized, disabled, relative, off_store, flag) =
-        (id('a'), id('b'), id('c'), id('d'), id('e'), id('f'), id('g'), id('h'), id('i'), id('j'));
+    let (store, policy, default, theme, unpacked, localized, disabled) =
+        (id('a'), id('b'), id('c'), id('d'), id('e'), id('f'), id('g'));
     let preferences = format!(
         r#"{{"extensions":{{"settings":{{
         "{store}":{{"location":1,"from_webstore":true,"state":1,"manifest":{{"name":"Zeta","version":"0.1"}}}},
         "{policy}":{{"location":7,"manifest":{{"name":"Policy"}}}},
         "{default}":{{"location":1,"was_installed_by_default":true,"manifest":{{"name":"Default"}}}},
         "{theme}":{{"location":1,"manifest":{{"name":"Theme","theme":{{}}}}}},
-        "{unpacked}":{{"location":4,"path":"/Users/me/code/helper","manifest":{{"name":"Unpacked","version":"2.0"}}}},
-        "{relative}":{{"location":4,"path":"{relative}/1.0_0","manifest":{{"name":"Relative"}}}},
-        "{off_store}":{{"location":1,"from_webstore":false,"manifest":{{"name":"Side loaded"}}}},
-        "{flag}":{{"location":8,"path":"/opt/flag-ext","manifest":{{"name":"Flag","theme":{{}}}}}},
+        "{unpacked}":{{"location":4,"manifest":{{"name":"Unpacked"}}}},
         "{disabled}":{{"location":1,"state":0,"manifest":{{"name":"alpha"}}}},
         "nmmhkkegccagdldgiimedpiccmgmieda":{{"location":1,"manifest":{{"name":"Payments"}}}},
         "not-an-id":{{"manifest":{{"name":"Bad"}}}}}}}}}}"#
@@ -245,80 +241,18 @@ fn chromium_extensions_keep_store_installs_and_unpacked_folders() {
         br#"{"APPNAME":{"message":"Mittel"}}"#,
     );
     let found = chromium::extensions(p);
-    type Row<'a> = (&'a str, &'a str, Option<&'a str>, bool, bool, Option<&'a str>);
-    let got: Vec<Row<'_>> = found
+    let got: Vec<(&str, &str, Option<&str>, bool)> = found
         .iter()
-        .map(|e| {
-            (
-                e.id.as_str(),
-                e.name.as_str(),
-                e.version.as_deref(),
-                e.enabled,
-                e.from_web_store,
-                e.unpacked_path.as_deref(),
-            )
-        })
+        .map(|e| (e.id.as_str(), e.name.as_str(), e.version.as_deref(), e.enabled))
         .collect();
     assert_eq!(
         got,
         [
-            (disabled.as_str(), "alpha", None, false, true, None),
-            (localized.as_str(), "Mittel", Some("1.10"), true, true, None),
-            (
-                unpacked.as_str(),
-                "Unpacked",
-                Some("2.0"),
-                true,
-                false,
-                Some("/Users/me/code/helper")
-            ),
-            (store.as_str(), "Zeta", Some("0.1"), false, true, None),
+            (disabled.as_str(), "alpha", None, false),
+            (localized.as_str(), "Mittel", Some("1.10"), true),
+            (store.as_str(), "Zeta", Some("0.1"), false),
         ]
     );
-    let json = found[2].to_json();
-    assert_eq!(json["unpackedPath"], "/Users/me/code/helper");
-    assert_eq!(json["fromWebStore"], false);
-    assert!(found[0].to_json().get("unpackedPath").is_none(), "a store install has no folder");
-}
-
-#[test]
-fn chromium_installed_extensions_list_every_id_with_unpacked_folders() {
-    let profile = tempfile::tempdir().unwrap();
-    let p = profile.path();
-    let id = |c: char| c.to_string().repeat(32);
-    let (store, policy, unpacked, folder_only) = (id('a'), id('b'), id('c'), id('d'));
-    common::write(
-        p,
-        "Preferences",
-        format!(
-            r#"{{"extensions":{{"settings":{{
-            "{store}":{{"location":1,"path":"{store}/1.0_0"}},
-            "{policy}":{{"location":7}},
-            "not-an-id":{{"location":1}}}}}}}}"#
-        )
-        .as_bytes(),
-    );
-    common::write(
-        p,
-        "Secure Preferences",
-        format!(r#"{{"extensions":{{"settings":{{"{unpacked}":{{"location":4,"path":"/tmp/copy"}}}}}}}}"#)
-            .as_bytes(),
-    );
-    common::write(p, &format!("Extensions/{folder_only}/1.0_0/manifest.json"), b"{}");
-    let found = chromium::installed_extensions(p);
-    let got: Vec<(&str, Option<&str>)> =
-        found.iter().map(|e| (e.id.as_str(), e.path.as_deref())).collect();
-    assert_eq!(
-        got,
-        [
-            (store.as_str(), None),
-            (policy.as_str(), None),
-            (unpacked.as_str(), Some("/tmp/copy")),
-            (folder_only.as_str(), None),
-        ]
-    );
-    // A profile with nothing yet (a new cmux profile) has none.
-    assert!(chromium::installed_extensions(tempfile::tempdir().unwrap().path()).is_empty());
 }
 
 // MARK: Arc
@@ -629,81 +563,4 @@ fn pickle_reads_are_bounded() {
     assert_eq!(raw.int64(), Some((2 << 32) | 1));
     let mut short = pickle::Pickle::raw(&[0xFF, 0xFF, 0xFF, 0x7F]);
     assert_eq!(short.string16(), None);
-}
-
-// MARK: Extension install plan
-
-#[test]
-fn an_extension_install_plan_skips_what_the_profile_has() {
-    let id = |c: char| c.to_string().repeat(32);
-    let ext = |c: char, store: bool, path: Option<&str>| Extension {
-        id: id(c),
-        name: c.to_string(),
-        version: None,
-        enabled: true,
-        from_web_store: store,
-        unpacked_path: path.map(str::to_owned),
-    };
-    let source = [
-        ext('a', true, None),            // new store install
-        ext('b', true, None),            // already installed by id
-        ext('c', false, Some("/src/c")), // new unpacked
-        ext('d', false, Some("/src/d")), // copy loaded by an earlier import (id from its path)
-        ext('e', false, Some("/src/e")), // unpacked whose manifest key kept its id
-        ext('a', true, None),            // a second source profile's copy of the same one
-        ext('f', false, None),           // neither store nor folder
-    ];
-    let installed = [
-        InstalledExtension { id: id('b'), path: None },
-        InstalledExtension { id: id('z'), path: Some(format!("/cmux/imported/{}", id('d'))) },
-        InstalledExtension { id: id('e'), path: Some("/elsewhere".into()) },
-    ];
-    let plan = extension_plan::plan(&source, &installed, "/cmux/imported/").unwrap();
-    assert_eq!(plan.store.iter().map(|e| e.id.clone()).collect::<Vec<_>>(), [id('a')]);
-    assert_eq!(
-        plan.unpacked.iter().map(|(e, copy)| (e.id.clone(), copy.clone())).collect::<Vec<_>>(),
-        [(id('c'), format!("/cmux/imported/{}", id('c')))]
-    );
-    assert_eq!(plan.installed, 3);
-    // A relative copy folder is refused; a fresh profile installs everything.
-    assert!(extension_plan::plan(&source, &[], "imported").is_none());
-    let fresh =
-        extension_plan::install_plan(&source, tempfile::tempdir().unwrap().path(), "/x").unwrap();
-    assert_eq!((fresh.store.len(), fresh.unpacked.len(), fresh.installed), (2, 3, 0));
-}
-
-#[test]
-fn the_install_plan_op_reads_the_cmux_profile_and_round_trips_extensions() {
-    let profile = tempfile::tempdir().unwrap();
-    let have = "b".repeat(32);
-    common::write(
-        profile.path(),
-        "Preferences",
-        format!(r#"{{"extensions":{{"settings":{{"{have}":{{"location":1}}}}}}}}"#).as_bytes(),
-    );
-    let store = ext_json('a', true, None);
-    let unpacked = ext_json('c', false, Some("/Users/me/ext"));
-    let request = serde_json::json!({
-        "profile": profile.path().to_string_lossy(),
-        "copyRoot": "/cmux/imported",
-        "extensions": [store, ext_json('b', true, None), unpacked],
-    });
-    let reply = ops::call("chromium.extension_install_plan", &request, None).expect("plan");
-    let ok = &reply["ok"];
-    assert_eq!(ok["store"][0]["id"], "a".repeat(32), "{reply}");
-    assert_eq!(ok["unpacked"][0]["extension"]["unpackedPath"], "/Users/me/ext");
-    assert_eq!(ok["unpacked"][0]["copy"], format!("/cmux/imported/{}", "c".repeat(32)));
-    assert_eq!(ok["installed"], 1);
-}
-
-fn ext_json(c: char, store: bool, path: Option<&str>) -> serde_json::Value {
-    Extension {
-        id: c.to_string().repeat(32),
-        name: c.to_string(),
-        version: Some("1.0".into()),
-        enabled: true,
-        from_web_store: store,
-        unpacked_path: path.map(str::to_owned),
-    }
-    .to_json()
 }

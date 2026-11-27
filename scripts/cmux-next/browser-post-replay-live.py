@@ -234,8 +234,7 @@ def submit(engine, case):
 
 
 def settle(engine, case, since, name):
-    # sleep-ok: an observation window for a POST that must never come (a replay); absence has no event to wait on
-    time.sleep(6)
+    time.sleep(6)  # time for a replayed POST to arrive; the count is the check
     snapshot(name)
     shown = shown_since(engine, case, since)
     print(f"note: {engine}/{case}: shown after the step: {shown or ['nothing (cmux page or blank)']}", flush=True)
@@ -256,8 +255,7 @@ try:
     check(launch() is not None, "the app starts")
     rpc("action.run", {"action": "workspace.selectFirst"})
     rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
-    # Until the new workspace has a focused pane for the tabs.
-    wait_for(lambda: ((rpc("snapshot.get").get("topology") or {}).get("focus") or {}).get("pane"), "the new workspace's pane", 20)
+    time.sleep(1)
     for engine in ENGINES:
         # duplicate
         tab = submit(engine, "duplicate")
@@ -310,7 +308,6 @@ try:
         wait_for(lambda: shown_since(engine, "relaunch", since), f"{engine}/relaunch shows a page", 15)
         settle(engine, "relaunch", since, f"{engine}-relaunch")
     # Tabs of the other cases came back too: none of them may send its form on the way.
-    # sleep-ok: an observation window for POSTs that must never come; absence has no event to wait on
     time.sleep(3)
     for engine in ENGINES:
         for case in CASES:

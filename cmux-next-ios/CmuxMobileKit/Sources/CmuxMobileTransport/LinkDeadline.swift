@@ -3,22 +3,16 @@ import Foundation
 /// Bounds link I/O even if the underlying receive does not observe cancellation.
 /// The owner supplies cleanup for abandoned I/O and for a resource opened too late.
 public enum LinkDeadline {
-    /// `extend`: once `timeout` passed, how much longer the I/O may go (asked again each time it
-    /// passes; nil gives up). A send-path wait passes its link's stall verdict here
-    /// (`LinkProgress.stallExtension(after:)`), so `timeout` bounds silence since the last
-    /// progress, not the whole wait (Leo, 2026-11-24: "if it's making good progress, it shiukd
-    /// be allowed to keep going?").
     public static func run<Value: Sendable>(
         timeout: Duration,
-        timeoutError: LinkError = LinkError(code: "reply_timeout", message: "reply timed out"),
-        extend: (@Sendable () -> Duration?)? = nil,
+        timeoutError: LinkError = LinkError(code: "reply_timeout", message: "The Mac didn't answer. Retry."),
         operation: @escaping @Sendable () async throws -> Value,
         onCancel: @escaping @Sendable () async -> Void = {},
         onDiscard: @escaping @Sendable (Value) async -> Void = { _ in }
     ) async throws -> Value {
         // Unstructured workers do not inherit a caller's cancellation.
         try Task.checkCancellation()
-        let race = LinkDeadlineRace(timeout: timeout, timeoutError: timeoutError, extend: extend,
+        let race = LinkDeadlineRace(timeout: timeout, timeoutError: timeoutError,
                                     operation: operation, onCancel: onCancel, onDiscard: onDiscard)
         if timeout <= .zero {
             race.abandon(timeoutError)
@@ -31,7 +25,6 @@ public enum LinkDeadline {
 private final class LinkDeadlineRace<Value: Sendable>: @unchecked Sendable { // crash-allow: immutable callbacks and lock-guarded state
     private let timeout: Duration
     private let timeoutError: LinkError
-    private let extend: (@Sendable () -> Duration?)?
     private let operation: @Sendable () async throws -> Value
     private let onCancel: @Sendable () async -> Void
     private let onDiscard: @Sendable (Value) async -> Void
@@ -40,13 +33,12 @@ private final class LinkDeadlineRace<Value: Sendable>: @unchecked Sendable { // 
     private var continuation: CheckedContinuation<Value, any Error>?
     private var tasks: [Task<Void, Never>] = []
 
-    init(timeout: Duration, timeoutError: LinkError, extend: (@Sendable () -> Duration?)?,
+    init(timeout: Duration, timeoutError: LinkError,
          operation: @escaping @Sendable () async throws -> Value,
          onCancel: @escaping @Sendable () async -> Void,
          onDiscard: @escaping @Sendable (Value) async -> Void) {
         self.timeout = timeout
         self.timeoutError = timeoutError
-        self.extend = extend
         self.operation = operation
         self.onCancel = onCancel
         self.onDiscard = onDiscard
@@ -92,12 +84,7 @@ private final class LinkDeadlineRace<Value: Sendable>: @unchecked Sendable { // 
     }
 
     private func expire() async {
-        do {
-            try await Task.sleep(for: timeout)
-            while let left = extend?(), left > .zero {
-                try await Task.sleep(for: left)
-            }
-        } catch { return }
+        do { try await Task.sleep(for: timeout) } catch { return }
         abandon(timeoutError)
     }
 

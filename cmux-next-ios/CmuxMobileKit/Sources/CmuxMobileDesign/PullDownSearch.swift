@@ -10,6 +10,7 @@ public extension View {
     func cmuxMobilePullDownSearch(text: Binding<String>) -> some View {
         searchable(text: text, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
             .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
             .background { PullDownSearch() }
     }
 }

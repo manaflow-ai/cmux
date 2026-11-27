@@ -12,7 +12,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "home.show",
         group: GROUP,
-        title: t("ActionCatalog", "action.home.show", "Go to Chief"),
+        title: t("ActionCatalog", "action.home.show", "Go to Home"),
         keywords: &["home", "mux", "messages", "conversations", "orchestrator"],
         category: "window",
         symbol: "house",
@@ -20,47 +20,6 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "home show",
         main_menu: Some("file"),
-        focuses: true,
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "home.showSetup",
-        group: GROUP,
-        title: t("ActionCatalog", "action.home.showSetup", "Set Up cmux…"),
-        keywords: &["home", "setup", "set up", "onboarding", "first run", "agents", "account", "history", "cli"],
-        category: "window",
-        symbol: "checklist",
-        surfaces: PALETTE | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "home setup",
-        main_menu: Some("app"),
-        focuses: true,
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "home.makeItYours",
-        cli_name: "action home-make-it-yours",
-        group: GROUP,
-        title: t("ActionCatalog", "action.home.makeItYours", "Make cmux Yours"),
-        keywords: &["make cmux yours", "onboarding", "intro", "walk", "replay", "first run", "look", "density", "background", "opacity", "material", "terminal first", "agents first"],
-        category: "window",
-        symbol: "paintbrush",
-        surfaces: PALETTE,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        focuses: true,
-        is_person_only: true,
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "home.meetChief",
-        group: GROUP,
-        title: t("HomeActions", "action.home.meetChief", "Meet Chief"),
-        keywords: &["chief", "meet", "onboarding", "intro", "introduction", "welcome", "tour", "first run", "getting started", "permissions", "density", "text size"],
-        category: "window",
-        symbol: "sparkles",
-        surfaces: PALETTE,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "action home-meet-chief",
         focuses: true,
         ..Action::DEFAULT
     },
@@ -79,7 +38,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "home.tab",
         group: GROUP,
-        title: t("HomeActions", "action.home.tab", "Open Chief in Tab"),
+        title: t("HomeActions", "action.home.tab", "Open Home in Tab"),
         keywords: &["home", "tab", "split", "pane", "messages", "conversations", "side by side"],
         category: "window",
         symbol: "house",
@@ -106,7 +65,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "home.switchView",
         group: GROUP,
-        title: t("HomeActions", "action.home.switchView", "Switch Chief View"),
+        title: t("HomeActions", "action.home.switchView", "Switch Home View"),
         keywords: &["home", "messages", "channels", "slack", "imessage", "view", "toggle", "switch", "layout"],
         category: "window",
         symbol: "arrow.left.arrow.right",
@@ -316,20 +275,6 @@ pub static ACTIONS: &[Action] = &[
         waits_for_result: true,
         ..Action::DEFAULT
     },
-    // Set My Picture: the person's own conversation picture (`user_local`), as
-    // `cmux avatar set me FILE` (`participant.avatar.set`); the app asks for the image.
-    Action {
-        id: "home.setMyAvatar",
-        group: GROUP,
-        title: t("HomeActions", "action.home.setMyAvatar", "Set My Picture…"),
-        keywords: &["avatar", "picture", "photo", "profile", "image", "me", "channels", "conversation"],
-        category: "window",
-        symbol: "person.crop.circle",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "avatar set",
-        waits_for_result: true,
-        ..Action::DEFAULT
-    },
     Action {
         id: "home.archiveChief",
         group: GROUP,
@@ -371,64 +316,6 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "home delete-chief",
         is_destructive: true,
         waits_for_result: true,
-        ..Action::DEFAULT
-    },
-    // This Mac's Chief registry, the palette form of `cmux chief edit|engine|adopt` (the owner's
-    // `chief.profile.*` and `chief.engine.set`, which the CLI calls itself: ownerVerb). Edit Chief… opens the
-    // Chief's editor page (Home's `#/chief/<agent>/edit`). Only the person adopts a Chief or sets its engine.
-    Action {
-        id: "home.editChief",
-        group: GROUP,
-        title: t("HomeActions", "action.home.editChief", "Edit Chief…"),
-        keywords: &["home", "chief", "edit", "profile", "role", "personality", "instructions", "tools", "backend", "lock"],
-        category: "window",
-        symbol: "pencil",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
-        cli_name: "action home-edit-chief",
-        arguments: &[args::LOCAL_CHIEF],
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "home.setChiefModel",
-        group: GROUP,
-        title: t("HomeActions", "action.home.setChiefModel", "Set Chief Model…"),
-        keywords: &["home", "chief", "engine", "model", "backend", "llm"],
-        category: "window",
-        symbol: "cpu",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
-        cli_name: "action home-set-chief-model",
-        arguments: &[args::LOCAL_CHIEF, args::CHIEF_MODEL],
-        is_person_only: true,
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "home.setChiefEffort",
-        group: GROUP,
-        title: t("HomeActions", "action.home.setChiefEffort", "Set Chief Effort…"),
-        keywords: &["home", "chief", "engine", "effort", "reasoning", "thinking"],
-        category: "window",
-        symbol: "gauge.with.dots.needle.50percent",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
-        cli_name: "action home-set-chief-effort",
-        arguments: &[args::LOCAL_CHIEF, args::CHIEF_EFFORT],
-        is_person_only: true,
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "home.adoptChief",
-        group: GROUP,
-        title: t("HomeActions", "action.home.adoptChief", "Make Agent a Chief…"),
-        keywords: &["home", "chief", "adopt", "agent", "promote", "make"],
-        category: "window",
-        symbol: "person.badge.plus",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
-        cli_name: "action home-adopt-chief",
-        arguments: &[args::ADOPT_AGENT],
-        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {

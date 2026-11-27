@@ -149,17 +149,10 @@ fn replace(slot: &mut Option<String>, value: Option<String>) {
     }
 }
 
-const SIDECAR: &str = "custom-title.json";
-
-/// The title sidecar of transcript `path`: the one file besides it that [`read`] takes from.
-pub(super) fn sidecar_path(path: &Path) -> Option<PathBuf> {
-    Some(path.parent()?.join(file_stem(path)?).join(SIDECAR))
-}
-
 /// `<enc>/<session id>/custom-title.json` (`{customTitle}`), read when the
 /// transcript has no custom title.
 fn sidecar_title(path: &Path, session_id: &str) -> Option<String> {
-    let file = path.parent()?.join(session_id).join(SIDECAR);
+    let file = path.parent()?.join(session_id).join("custom-title.json");
     let value: Value = crate::store_file::read_json_bounded(&file, 64 * 1024)?;
     title_field(value.get("customTitle"))
 }
@@ -174,7 +167,7 @@ pub(super) fn classify(parts: &[&str]) -> PathRole {
     let name = parts.last().copied().unwrap_or_default();
     let session = parts.len() == 2 && name.ends_with(".jsonl") && !name.starts_with("agent-");
     // The custom-title sidecar renames its session.
-    let sidecar = parts.len() == 3 && name == SIDECAR;
+    let sidecar = parts.len() == 3 && name == "custom-title.json";
     role(session, sidecar)
 }
 

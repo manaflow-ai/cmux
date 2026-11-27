@@ -82,16 +82,6 @@ pub(super) const SYMLINK_IN_PATH: &str = "fs.symlink_in_path";
 /// The deflate level: about as fast as a link of hundreds of MB/s, and
 /// within a few percent of the best size on source text.
 const DEFLATE_LEVEL: u32 = 3;
-/// The zstd level when the link's rate says nothing ([`zstd_level`]).
-const DEFAULT_ZSTD_LEVEL: i32 = 3;
-/// A part whose wire bytes reach this goes over a byte stream of its own
-/// ([`Remote::stream_part`]): raw bytes, not a third more as base64 on a line.
-/// Below it the line's round trip is the cost, not its bytes.
-const STREAM_MIN_BYTES: usize = 256 * 1024;
-/// How long a write stream's dial waits for the daemon's `ready`. A carrier
-/// that takes no stream (it carries lines only) stays silent or refuses it:
-/// past this the part goes as a line, and so does every later one.
-const STREAM_READY_DEADLINE: Duration = Duration::from_secs(15);
 
 /// A listing named something other than one plain component.
 #[derive(Debug)]
@@ -203,20 +193,11 @@ pub(super) struct Remote {
     /// (`fs-write-nofollow-v1`, [`Remote::negotiate`]): every write says
     /// `no_follow`, so a caller need not `fs.stat` the target first.
     no_follow: bool,
-    /// The zstd level, when the machine takes zstd write bytes
-    /// (`fs-write-zstd-v1`, [`Remote::negotiate`]); preferred over deflate.
-    zstd: Option<i32>,
-    /// Parts go over byte streams of their own ([`Remote::stream_part`]): the
-    /// machine serves `fs-v1` write streams with permissions
-    /// (`fs-write-deflate-v1`), and none was refused yet on this connection.
-    streams: bool,
 }
 
 impl Remote {
     pub(super) fn connect(socket: &Path) -> anyhow::Result<Self> {
-        let stream = crate::link::spans::time("rpc dial", || {
-            dial(socket, Some(IO_DEADLINE), Some(IO_DEADLINE))
-        })?;
+        let stream = dial(socket, Some(IO_DEADLINE), Some(IO_DEADLINE))?;
         let mut remote = Self::on(stream);
         remote.socket = Some(socket.to_path_buf());
         Ok(remote)
@@ -231,8 +212,6 @@ impl Remote {
             next_id: 1,
             deflate: false,
             no_follow: false,
-            zstd: None,
-            streams: false,
         }
     }
 
@@ -261,7 +240,7 @@ impl Remote {
                 Err(_) => {}
             }
             progress();
-            crate::link::spans::sleep("reconnect backoff", pause.min(self.patience.reconnect));
+            std::thread::sleep(pause.min(self.patience.reconnect));
             pause = (pause * 2).min(Duration::from_secs(5));
         }
     }
@@ -276,10 +255,8 @@ impl Remote {
 
     /// Writes compressed bytes from now on when the machine's `identify`
     /// lists `fs-write-deflate-v1`, and no-follow writes when it lists
-    /// `fs-write-nofollow-v1`; zstd ones when it lists `fs-write-zstd-v1`, and
-    /// large parts over byte streams of their own when it serves `fs-v1` with
-    /// deflate. A machine that lacks them, or does not answer `identify`, gets
-    /// every write exactly as before.
+    /// `fs-write-nofollow-v1`. A machine that lacks them, or does not answer
+    /// `identify`, gets every write exactly as before.
     pub(super) fn negotiate(&mut self) {
         let served: Vec<String> = self
             .call("identify", json!({}))
@@ -293,8 +270,6 @@ impl Remote {
         let serves = |capability: &str| served.iter().any(|name| name == capability);
         self.deflate = serves(cmux_tui_core::fs_ops::FS_WRITE_DEFLATE_CAPABILITY);
         self.no_follow = serves(cmux_tui_core::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY);
-        self.zstd = serves(cmux_tui_core::fs_ops::FS_WRITE_ZSTD_CAPABILITY).then(zstd_level);
-        self.streams = self.deflate && serves(cmux_tui_core::fs_ops::FS_CAPABILITY);
     }
 
     /// Whether every write of this connection refuses a symlink on its path
@@ -332,19 +307,6 @@ impl Remote {
     /// request sent again on it when it is [`replayable`]. Only a machine
     /// that stopped answering, or the ceiling, fails the call.
     fn call_with_progress(
-        &mut self,
-        cmd: &str,
-        params: Value,
-        progress: &mut dyn FnMut(),
-    ) -> anyhow::Result<Value> {
-        let started = Instant::now();
-        let answer = self.call_with_progress_untimed(cmd, params, progress);
-        crate::link::spans::add(&format!("rpc {cmd}"), started.elapsed());
-        answer
-    }
-
-    /// [`Remote::call_with_progress`] without its count in [`crate::link::spans`].
-    fn call_with_progress_untimed(
         &mut self,
         cmd: &str,
         mut params: Value,
@@ -606,25 +568,36 @@ impl Remote {
         progress: &mut dyn FnMut(),
     ) -> anyhow::Result<String> {
         let first = read_part(reader)?;
-        // The file's kind from its name and first bytes: an archive's later parts are stored too.
-        let kind = cmux_bytes::classify::classify(name_of(path), &first);
+        let compress = self.deflate && shrinks(&first);
         let second = if first.len() == PART_BYTES { read_part(reader)? } else { Vec::new() };
         if second.is_empty() {
             let request = self
                 .guarded(json!({ "path": path, "mode": "overwrite", "permissions": permissions }));
-            let entry = self.send_part(request, &first, kind, progress)?;
+            let entry = self.call_with_progress(
+                "fs.write",
+                with_bytes(request, &first, compress)?,
+                progress,
+            )?;
             return revision_of(&entry);
         }
         let (parent, name) = split(path)?;
         let part = format!("{}/.{name}{PART_SUFFIX}", parent.trim_end_matches('/'));
         let request =
             self.guarded(json!({ "path": part, "mode": "overwrite", "permissions": permissions }));
-        let mut revision = revision_of(&self.send_part(request, &first, kind, progress)?)?;
+        let mut revision = revision_of(&self.call_with_progress(
+            "fs.write",
+            with_bytes(request, &first, compress)?,
+            progress,
+        )?)?;
         let mut chunk = second;
         while !chunk.is_empty() {
             let request =
                 self.guarded(json!({ "path": part, "mode": "append", "expected": revision }));
-            revision = revision_of(&self.send_part(request, &chunk, kind, progress)?)?;
+            revision = revision_of(&self.call_with_progress(
+                "fs.write",
+                with_bytes(request, &chunk, compress)?,
+                progress,
+            )?)?;
             chunk = read_part(reader)?;
         }
         // Only a file is replaced; a folder in the way stays and the rename
@@ -647,118 +620,6 @@ impl Remote {
         Ok(entry["entry"]["revision"].as_str().map_or(revision, str::to_string))
     }
 
-    /// Writes one part (`request` says where and how) and returns the answer's `data`: in the
-    /// codec [`choose`] picks, over a byte stream of its own when its wire bytes reach
-    /// [`STREAM_MIN_BYTES`] and the machine takes streams, else as one `fs.write` line.
-    fn send_part(
-        &mut self,
-        request: Value,
-        part: &[u8],
-        kind: cmux_bytes::classify::Kind,
-        progress: &mut dyn FnMut(),
-    ) -> anyhow::Result<Value> {
-        let coded = choose(part, kind, self.zstd, self.deflate)?;
-        let wire = coded.as_ref().map_or(part, |(_, wire)| wire.as_slice());
-        // A held copy's hold is checked on the line path (`git_seed::held_op`) only: its
-        // writes stay lines.
-        let held = super::fence::hold_for("fs.write").is_some();
-        if self.streams && self.socket.is_some() && wire.len() >= STREAM_MIN_BYTES && !held {
-            let mut header = request.clone();
-            header.set("stream", json!(true));
-            header.set("size", json!(wire.len()));
-            if let Some((encoding, _)) = &coded {
-                header.set("encoding", json!(encoding));
-                header.set("decoded_size", json!(part.len()));
-            }
-            match self.stream_part(header, wire, progress) {
-                Ok(Some(data)) => return Ok(data),
-                // The carrier takes no stream: this part and every later one go as lines.
-                Ok(None) => self.streams = false,
-                // A stream that dropped after `ready` left nothing at its path; a write that
-                // is safe to send twice goes again as a line, with the line's own replays.
-                Err(error) if error.is::<Dropped>() && replayable("fs.write", &request) => {}
-                Err(error) => return Err(error),
-            }
-        }
-        self.call_with_progress("fs.write", with_bytes(request, part, coded), progress)
-    }
-
-    /// One write stream (`fs_ops::stream`): a new dial, the `header` line, the daemon's
-    /// `ready`, exactly `wire` raw bytes, then the answer's `data`. `None` when the stream was
-    /// not taken (the dial failed, or no `ready` came within [`STREAM_READY_DEADLINE`], or the
-    /// daemon said it needs a dial of its own): nothing was written, and the part goes as a
-    /// line. The machine's refusal is an [`FsRefusal`], as on a line.
-    fn stream_part(
-        &mut self,
-        mut header: Value,
-        wire: &[u8],
-        progress: &mut dyn FnMut(),
-    ) -> anyhow::Result<Option<Value>> {
-        let Some(socket) = self.socket.clone() else { return Ok(None) };
-        super::fence::check("fs.write")?;
-        let Ok(stream) = dial(&socket, Some(STREAM_READY_DEADLINE), self.write_timeout()) else {
-            return Ok(None);
-        };
-        let id = self.next_id;
-        self.next_id += 1;
-        header.set("id", json!(id));
-        header.set("cmd", json!("fs.write"));
-        let mut line = header.to_string();
-        line.push('\n');
-        let mut reader = BufReader::new(stream);
-        if reader.get_mut().write_all(line.as_bytes()).is_err() {
-            return Ok(None);
-        }
-        let ready = match stream_answer(&mut reader, id, STREAM_READY_DEADLINE, progress) {
-            Ok(answer) => answer,
-            Err(_) => return Ok(None),
-        };
-        if !answered_ok(&ready) {
-            let refusal = refusal_of(&ready);
-            // The line path's answer to a stream: this carrier hands dials to one line
-            // connection.
-            if refusal.code == "params.invalid" && refusal.message.contains("dial of its own") {
-                return Ok(None);
-            }
-            return Err(refusal.into());
-        }
-        if ready.get("data").and_then(|data| data.get("ready")).and_then(Value::as_bool)
-            != Some(true)
-        {
-            return Ok(None);
-        }
-        let silence = self.read_timeout();
-        let _ = reader.get_ref().set_read_timeout(silence);
-        for slice in wire.chunks(SEND_SLICE_BYTES) {
-            if let Err(error) = reader.get_mut().write_all(slice) {
-                // A daemon that refused mid-stream (bytes past `decoded_size`, a full disk)
-                // answers before it stops reading: that answer says why.
-                if let Ok(answer) = stream_answer(&mut reader, id, Duration::from_secs(1), progress)
-                    && !answered_ok(&answer)
-                {
-                    return Err(refusal_of(&answer).into());
-                }
-                if timed_out(&error) {
-                    return Err(stalled(
-                        error,
-                        "the machine took no bytes of the stream",
-                        self.write_timeout(),
-                    ));
-                }
-                return Err(
-                    Dropped(format!("the write stream to the machine dropped: {error}")).into()
-                );
-            }
-            progress();
-        }
-        let answer = stream_answer(&mut reader, id, answer_budget(silence, wire.len()), progress)?;
-        progress();
-        if !answered_ok(&answer) {
-            return Err(refusal_of(&answer).into());
-        }
-        Ok(Some(answer.get("data").cloned().unwrap_or(Value::Null)))
-    }
-
     /// Reads the whole file at `path` into memory, up to [`READ_CAP`]
     /// bytes; None when it is not there.
     pub(super) fn read(&mut self, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
@@ -778,25 +639,6 @@ impl Remote {
         }
         let mut bytes = Buffer(Vec::new());
         Ok(self.read_into(path, &mut bytes)?.map(|_| bytes.0))
-    }
-
-    /// The SHA-256 of the file at `path`, hex, read through bounded range
-    /// reads; None when it is not there.
-    pub(super) fn sha256(&mut self, path: &str) -> anyhow::Result<Option<String>> {
-        use sha2::Digest as _;
-        struct Hashing(sha2::Sha256);
-        impl Write for Hashing {
-            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-                self.0.update(bytes);
-                Ok(bytes.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        let mut out = Hashing(sha2::Sha256::new());
-        let size = self.read_into(path, &mut out)?;
-        Ok(size.map(|_| out.0.finalize().iter().map(|byte| format!("{byte:02x}")).collect()))
     }
 
     /// Streams the file at `path` into `out` through bounded range reads.
@@ -923,9 +765,11 @@ fn answer_budget(silence: Option<Duration>, request_bytes: usize) -> Duration {
     silence.unwrap_or(IO_DEADLINE).saturating_add(crossing)
 }
 
-/// Whether `error` is a socket timeout ([`crate::link::socket_timed_out`]).
+/// Whether `error` is a socket timeout: SO_RCVTIMEO and SO_SNDTIMEO end a
+/// blocking read or write with EAGAIN (`WouldBlock`; os error 35 on macOS,
+/// 11 on Linux), and some platforms answer `TimedOut`.
 fn timed_out(error: &std::io::Error) -> bool {
-    crate::link::socket_timed_out(error)
+    matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
 }
 
 /// A socket error as the person reads it: a timeout says what stalled and
@@ -951,73 +795,20 @@ fn encode(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-/// `request` with the bytes of `part` on its line: `coded` (its encoding with
-/// `decoded_size`) when there is one, else plain base64 as before.
-fn with_bytes(mut request: Value, part: &[u8], coded: Option<Coded>) -> Value {
-    match coded {
-        Some((encoding, wire)) => {
+/// `request` with the bytes of `part`: deflate (with `decoded_size`) when
+/// `compress` and that is smaller, else plain base64 as before.
+fn with_bytes(mut request: Value, part: &[u8], compress: bool) -> anyhow::Result<Value> {
+    if compress {
+        let wire = deflate(part)?;
+        if wire.len() < part.len() {
             request.set("bytes_base64", json!(encode(&wire)));
-            request.set("encoding", json!(encoding));
+            request.set("encoding", json!(cmux_tui_core::fs_ops::DEFLATE));
             request.set("decoded_size", json!(part.len()));
-        }
-        None => {
-            request.set("bytes_base64", json!(encode(part)));
+            return Ok(request);
         }
     }
-    request
-}
-
-/// A part's wire form: the `encoding` it says and its bytes.
-type Coded = (&'static str, Vec<u8>);
-
-/// How `part` of a file of `kind` goes, in cmux-bytes' order: stored when the kind is already
-/// compressed or a sample of it is near random (no compressor pass spent on it); else zstd at
-/// `zstd` when the machine takes it, else deflate when it takes that and the start shrinks; and
-/// the compressed form only when it is under `keep_ratio` of the raw bytes.
-fn choose(
-    part: &[u8],
-    kind: cmux_bytes::classify::Kind,
-    zstd: Option<i32>,
-    deflate: bool,
-) -> anyhow::Result<Option<Coded>> {
-    let params = cmux_bytes::params::Params::default();
-    if part.len() < 64
-        || kind == cmux_bytes::classify::Kind::Compressed
-        || cmux_bytes::entropy::bits_per_byte(part, params.entropy_sample)
-            >= params.entropy_store_bits
-    {
-        return Ok(None);
-    }
-    let coded = match zstd {
-        Some(level) => (cmux_tui_core::fs_ops::ZSTD, zstd::bulk::compress(part, level)?),
-        None if deflate && shrinks(part) => (cmux_tui_core::fs_ops::DEFLATE, self::deflate(part)?),
-        None => return Ok(None),
-    };
-    #[allow(
-        clippy::cast_precision_loss,
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "a part is at most PART_BYTES and keep_ratio is in 0..=1, so the product fits a usize"
-    )]
-    let keep = (part.len() as f64 * params.keep_ratio) as usize;
-    Ok((coded.1.len() < keep).then_some(coded))
-}
-
-/// The zstd level for this Mac's link: cmux-bytes' `level_for` on the copy estimate's rate
-/// (measured, or its first guess), so a slow link gets more compression and a fast one less.
-fn zstd_level() -> i32 {
-    let (rate, _) = super::estimate::rate();
-    if rate == 0 {
-        return DEFAULT_ZSTD_LEVEL;
-    }
-    #[allow(clippy::cast_precision_loss, reason = "a link rate in bytes/s is far below 2^52")]
-    let link = cmux_bytes::policy::Link { bytes_per_sec: rate as f64, rtt: 0.0, cores: 1 };
-    cmux_bytes::policy::level_for(&link, &cmux_bytes::params::Params::default())
-}
-
-/// The last name of `path` (all of it when it has no `/`).
-fn name_of(path: &str) -> &str {
-    path.trim_end_matches('/').rsplit('/').next().unwrap_or(path)
+    request.set("bytes_base64", json!(encode(part)));
+    Ok(request)
 }
 
 /// Whether the start of `part` shrinks by more than a tenth (and by more
@@ -1035,54 +826,6 @@ fn deflate(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
     let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), level);
     encoder.write_all(bytes)?;
     encoder.finish()
-}
-
-/// The answer line for `id` on a write stream, waited for up to `budget`; a dropped stream is
-/// [`Dropped`].
-fn stream_answer(
-    reader: &mut BufReader<UnixStream>,
-    id: u64,
-    budget: Duration,
-    progress: &mut dyn FnMut(),
-) -> anyhow::Result<Value> {
-    let answer_by = Instant::now() + budget;
-    let mut line = Vec::new();
-    let mut limited = Read::take(&mut *reader, MAX_ANSWER_BYTES + 1);
-    let read = loop {
-        match limited.read_until(b'\n', &mut line) {
-            Ok(_) => break line.len(),
-            Err(error) if timed_out(&error) && Instant::now() < answer_by => progress(),
-            Err(error) if timed_out(&error) => {
-                return Err(stalled(error, "the machine did not answer the write stream", None));
-            }
-            Err(error) => {
-                return Err(
-                    Dropped(format!("the write stream to the machine dropped: {error}")).into()
-                );
-            }
-        }
-    };
-    if read == 0 || line.last() != Some(&b'\n') {
-        return Err(Dropped("the machine daemon closed the write stream".into()).into());
-    }
-    let answer: Value = serde_json::from_slice(&line).context("the answer is not JSON")?;
-    if answer.get("id") != Some(&json!(id)) {
-        bail!("the machine daemon answered another request on a write stream");
-    }
-    Ok(answer)
-}
-
-/// Whether a stream answer says `ok: true`.
-fn answered_ok(answer: &Value) -> bool {
-    answer.get("ok").and_then(Value::as_bool) == Some(true)
-}
-
-/// The refusal an `ok: false` answer carries.
-fn refusal_of(answer: &Value) -> FsRefusal {
-    FsRefusal {
-        code: answer.get("error_code").and_then(Value::as_str).unwrap_or("fs.unknown").to_string(),
-        message: answer.get("error").and_then(Value::as_str).unwrap_or_default().to_string(),
-    }
 }
 
 fn revision_of(data: &Value) -> anyhow::Result<String> {

@@ -330,37 +330,27 @@ async fn the_daemons_prompt_cache_switches_never_reach_an_agent() {
 }
 
 /// The values of one turn or session of whoever started the daemon (a Chief
-/// turn's subrouter session key and seal, 2026-10-19; a terminal Claude's
-/// CMUX_AGENT_TOOLS_ANSWER) never reach an agent
+/// turn's subrouter session key and seal, 2026-10-19) never reach an agent
 /// the daemon spawns; a profile that sets one on purpose still passes it.
 #[tokio::test]
 async fn the_daemons_turn_values_never_reach_an_agent() {
     let dir = scratch("turnenv", "export EDITOR=vi\n");
     let signed_in = json!({"ANTHROPIC_API_KEY": "sk-test"});
     let keyed = json!({"ANTHROPIC_API_KEY": "sk-test", "SUBROUTER_SESSION_KEY": "preset-sub"});
-    // Cut off from cmux's tools: it passes the answer `off` to its own stdio servers (a person's
-    // `cmux` entry), whatever the daemon inherited.
-    let cut_off = json!({"ANTHROPIC_API_KEY": "sk-test", "ACPMUX_AGENT_TOOLS": "0"});
-    let harnesses =
-        json!({"claude": claude(signed_in), "keyed": claude(keyed), "cutoff": claude(cut_off)});
+    let harnesses = json!({"claude": claude(signed_in), "keyed": claude(keyed)});
     let turn = [
         ("SUBROUTER_SESSION_KEY", "optchat-home-turn"),
         ("CODEX_PROMPT_CACHE_KEY", "optchat-home-turn"),
         ("OPTCHAT_TURN_SEAL", "00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff"),
         ("OPTCHAT_SUBAGENT", "1"),
         ("AI_AGENT", "claude-code"),
-        // A terminal Claude's answer to cmux's tools (the `claude` shim): a daemon its shell
-        // started must not hold it for its lifetime over the live setting.
-        ("CMUX_AGENT_TOOLS_ANSWER", "on"),
     ];
     let inside: Vec<(&str, &str)> =
         [("CLAUDECODE", "1")].into_iter().chain(turn.iter().copied()).collect();
     for (case, extra) in [("inside a turn", inside.as_slice()), ("own env", turn.as_slice())] {
-        for (harness, want) in [
-            ("claude", json!({})),
-            ("keyed", json!({"SUBROUTER_SESSION_KEY": "preset-sub"})),
-            ("cutoff", json!({"CMUX_AGENT_TOOLS_ANSWER": "off"})),
-        ] {
+        for (harness, want) in
+            [("claude", json!({})), ("keyed", json!({"SUBROUTER_SESSION_KEY": "preset-sub"}))]
+        {
             let d = start(&dir, harnesses.clone(), extra).await;
             let (reply, _) = ask(&d, harness).await;
             assert_eq!(found(&reply)["turnScoped"], want, "{case}, {harness}: {reply:?}");
@@ -1114,38 +1104,6 @@ async fn vertex_from_the_login_shell_keeps_its_regions() {
     let v = found(&reply);
     assert_eq!(v["cloudMlRegion"], Value::Null, "{v}");
     assert_eq!(v["vertexRegions"], json!([]), "{v}");
-}
-
-/// (d3) Foundry switched on in the login shell with an Entra ID service principal: the agent
-/// gets the AZURE_* names Azure's credential chain reads (never Codex's AZURE_OPENAI_API_KEY);
-/// without the switch it gets none; a profile's own switch unlocks only the non-secret ones.
-#[tokio::test]
-async fn foundry_from_the_login_shell_keeps_its_azure_sign_in() {
-    let azure = "export AZURE_TENANT_ID=t\nexport AZURE_CLIENT_ID=c\nexport AZURE_CLIENT_SECRET=s\nexport AZURE_OPENAI_API_KEY=o\n";
-    let dir = scratch(
-        "foundry",
-        &format!("export CLAUDE_CODE_USE_FOUNDRY=1\nexport ANTHROPIC_FOUNDRY_RESOURCE=r\n{azure}"),
-    );
-    let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
-    let (reply, _) = ask(&d, "claude").await;
-    let v = found(&reply);
-    assert_eq!(v["auth"], json!(["foundry"]), "{v}");
-    assert_eq!(
-        v["azureKeys"],
-        json!(["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"]),
-        "{v}"
-    );
-    drop(d);
-    let dir = scratch("nofoundry", &format!("export ANTHROPIC_API_KEY=sk-login\n{azure}"));
-    let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
-    let (reply, _) = ask(&d, "claude").await;
-    assert_eq!(found(&reply)["azureKeys"], json!([]));
-    drop(d);
-    let dir = scratch("foundryprof", azure);
-    let harnesses = json!({"claude": claude(json!({"CLAUDE_CODE_USE_FOUNDRY": "1"}))});
-    let d = start(&dir, harnesses, &[]).await;
-    let (reply, _) = ask(&d, "claude").await;
-    assert_eq!(found(&reply)["azureKeys"], json!(["AZURE_CLIENT_ID", "AZURE_TENANT_ID"]));
 }
 
 /// A profile's own Bedrock switch (any local client can add a profile)

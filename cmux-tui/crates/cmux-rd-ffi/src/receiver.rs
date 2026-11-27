@@ -44,15 +44,7 @@ pub enum ReceiverError {
 pub const FEEDBACK_INTERVAL_US: u64 = 50_000;
 /// Feedback is sent at least this often while the session lives (keepalive).
 pub const KEEPALIVE_US: u64 = 1_000_000;
-/// The shortest time between two feedbacks that ask for a keyframe, or two
-/// round trips when that is longer: the keyframe the first request gets
-/// answers every request sent before it lands. On a path that holds every
-/// datagram for 50-100 ms (Wi-Fi away from the access point), requests one
-/// round trip apart turned each burst of late frames into another keyframe.
-pub const MIN_RECOVERY_REQUEST_INTERVAL_US: u64 = 250_000;
-/// Frames waiting for the caller. A keyframe replaces every older waiting
-/// frame (newest wins); a reference chain longer than this means the caller
-/// fell behind: the chain is dropped and a keyframe requested.
+/// Frames waiting for the caller; older ones are dropped and recovery requested.
 pub const MAX_READY_FRAMES: usize = 16;
 /// Arrivals kept between feedback calls; older ones are dropped.
 pub const MAX_PENDING_ARRIVALS: usize = 8 * MAX_ARRIVALS;
@@ -64,57 +56,25 @@ pub const MESSAGE_OVERHEAD: usize = 64;
 /// Decode times kept for the feedback median.
 const DECODE_SAMPLES: usize = 30;
 
-/// Popped frames awaiting a decode report; older ones are forgotten (a frame
-/// whose decode is never reported acknowledges nothing).
-const MAX_POPPED: usize = 32;
-
-/// A frame handed to the caller, remembered until its decode is reported.
-#[derive(Debug, Clone, Copy)]
-struct Popped {
-    frame: u32,
-    ltr_token: Option<u64>,
-    keyframe: bool,
-}
-
 /// Viewer state for one display stream.
 #[derive(Debug)]
 pub struct Receiver {
     carrier: Carrier,
     /// The display stream this receiver reassembles; its feedback names it.
     stream: u16,
-    reassembler: Reassembler,
     nack_after_us: u64,
+    reassembler: Reassembler,
     deframer: StreamDeframer,
     ready: VecDeque<CompleteFrame>,
-    acknowledged_ltr_tokens: VecDeque<u64>,
-    /// Frames handed out by [`Self::pop_frame`] whose decode is not yet
-    /// reported, oldest first, so [`Self::note_decode`] acknowledges the token
-    /// of the frame that decoded and not of whichever frame was popped last.
-    popped: VecDeque<Popped>,
     messages: VecDeque<Message>,
     message_bytes: usize,
     arrivals: VecDeque<Arrival>,
     decode_us: VecDeque<u32>,
     keyframe_requested: bool,
-    /// The app asked for a keyframe ([`Self::request_keyframe`]). Silence on
-    /// the link never holds this request: a static page sends no frames, and
-    /// that is not an outage. Only the viewer's own recovery asks wait.
-    keyframe_asked: bool,
-    /// The ready queue lost part of a reference chain: frames are dropped
-    /// until a keyframe restarts the decoder.
-    chain_broken: bool,
-    /// The current recovery request already went out in a feedback; a new
-    /// request goes out at once instead of on the feedback interval.
-    recovery_sent: bool,
-    /// When a feedback last asked for a keyframe.
-    last_recovery_request_us: Option<u64>,
     released_since_feedback: bool,
     last_feedback_us: Option<u64>,
     frames_released: u64,
     frames_lost: u64,
-    frames_skipped: u64,
-    /// Frames ever put on the ready queue (the session tracks release order by it).
-    frames_queued: u64,
     failed: bool,
 }
 
@@ -125,15 +85,10 @@ pub struct Stats {
     pub need_recovery: bool,
     pub frames_released: u64,
     pub frames_lost: u64,
-    /// Decodable frames dropped from the ready queue because a newer
-    /// keyframe made them unneeded (newest wins).
-    pub frames_skipped: u64,
 }
 
 impl Receiver {
-    /// `deadline_us`: the longest a frame may wait for missing shards; the
-    /// wait itself is one round trip plus 10 ms after the frame's NACK
-    /// (`Reassembler::repair_window_us`), with this as its ceiling.
+    /// `deadline_us`: how long a frame may wait for missing shards.
     /// `nack_after_us`: how long a frame waits before its gaps are NACKed.
     pub fn new(carrier: Carrier, deadline_us: u64, nack_after_us: u64) -> Self {
         Self::for_stream(carrier, 0, deadline_us, nack_after_us)
@@ -145,32 +100,19 @@ impl Receiver {
         Self {
             carrier,
             stream,
-            reassembler: {
-                let mut r = Reassembler::with_nack_after(deadline_us, nack_after_us);
-                // A gap's reorder grace counts from when the gap is first seen.
-                r.set_gap_grace(true);
-                r
-            },
             nack_after_us,
+            reassembler: Reassembler::new(deadline_us),
             deframer: StreamDeframer::default(),
             ready: VecDeque::new(),
-            acknowledged_ltr_tokens: VecDeque::new(),
-            popped: VecDeque::new(),
             messages: VecDeque::new(),
             message_bytes: 0,
             arrivals: VecDeque::new(),
             decode_us: VecDeque::new(),
             keyframe_requested: false,
-            keyframe_asked: false,
-            chain_broken: false,
-            recovery_sent: false,
-            last_recovery_request_us: None,
             released_since_feedback: false,
             last_feedback_us: None,
             frames_released: 0,
             frames_lost: 0,
-            frames_skipped: 0,
-            frames_queued: 0,
             failed: false,
         }
     }
@@ -225,37 +167,12 @@ impl Receiver {
 
     /// The oldest frame ready to decode.
     pub fn pop_frame(&mut self) -> Option<CompleteFrame> {
-        let frame = self.ready.pop_front()?;
-        if self.popped.len() >= MAX_POPPED {
-            self.popped.pop_front();
-        }
-        self.popped.push_back(Popped {
-            frame: frame.frame,
-            ltr_token: frame.body.ltr_token,
-            keyframe: frame.flags & flags::KEYFRAME != 0,
-        });
-        Some(frame)
+        self.ready.pop_front()
     }
 
     /// Frames ready to decode.
     pub fn ready_frames(&self) -> usize {
         self.ready.len()
-    }
-
-    /// Frames ever put on the ready queue, dropped ones included.
-    pub fn frames_queued(&self) -> u64 {
-        self.frames_queued
-    }
-
-    /// The session's round trip (clock pings), which sizes how long a NACKed
-    /// frame is waited for; `None` when unknown.
-    pub fn set_path_rtt_us(&mut self, rtt_us: Option<u64>) {
-        self.reassembler.set_path_rtt_us(rtt_us);
-    }
-
-    /// How long a NACKed frame is waited for before recovery is requested.
-    pub fn repair_window_us(&self) -> u64 {
-        self.reassembler.repair_window_us()
     }
 
     /// The oldest queued message.
@@ -265,90 +182,23 @@ impl Receiver {
         Some(m)
     }
 
-    /// Records one decode time for the feedback median. `frame` is the
-    /// popped frame that decoded: its LTR token, if any, is acknowledged to the
-    /// host. `None` records the time only (a viewer that offers no LTR).
-    pub fn note_decode(&mut self, frame: Option<u32>, decode_us: u32) {
-        if let Some(frame) = frame
-            && let Some(at) = self.popped.iter().position(|p| p.frame == frame)
-        {
-            let decoded = self.popped[at];
-            if decoded.keyframe {
-                // An IDR flushes every reference: tokens acknowledged before it,
-                // and frames popped before it, name pictures the decoder no
-                // longer holds.
-                self.acknowledged_ltr_tokens.clear();
-                self.popped.drain(..=at);
-            } else {
-                self.popped.remove(at);
-            }
-            if let Some(token) = decoded.ltr_token
-                && !self.acknowledged_ltr_tokens.contains(&token)
-            {
-                self.acknowledged_ltr_tokens.push_back(token);
-                while self.acknowledged_ltr_tokens.len() > cmux_rd_proto::MAX_LTR_TOKENS {
-                    self.acknowledged_ltr_tokens.pop_front();
-                }
-            }
-        }
+    /// Records one decode time for the feedback median.
+    pub fn note_decode(&mut self, decode_us: u32) {
         if self.decode_us.len() >= DECODE_SAMPLES {
             self.decode_us.pop_front();
         }
         self.decode_us.push_back(decode_us);
     }
 
-    /// Retries NACKs a measured repair round trip apart instead of every
-    /// [`FEEDBACK_INTERVAL_US`] (design D6; `Reassembler::set_rtt_nack_retry`).
-    /// Off by default.
-    pub fn set_rtt_nack_retry(&mut self, on: bool) {
-        self.reassembler.set_rtt_nack_retry(on);
-    }
-
     /// Asks the host for a keyframe (a decode error or a frame gap). The
     /// request rides every feedback until a keyframe is released.
     pub fn request_keyframe(&mut self) {
-        // A new request goes out in the next feedback, not on the interval;
-        // so does one held while the link was quiet.
-        self.recovery_sent &= self.keyframe_requested && self.keyframe_asked;
         self.keyframe_requested = true;
-        self.popped.clear();
-        self.acknowledged_ltr_tokens.clear();
-        self.keyframe_asked = true;
     }
 
     /// Whether the next feedback asks the host to recover.
     pub fn need_recovery(&self) -> bool {
-        self.keyframe_requested || self.chain_broken || self.reassembler.need_recovery()
-    }
-
-    /// A recovery request that no feedback carried yet: it goes out at once,
-    /// so a given-up frame costs one round trip, not a feedback interval more.
-    fn recovery_unsent(&self) -> bool {
-        self.need_recovery() && !self.recovery_sent
-    }
-
-    /// How long after a keyframe request the next one may go out:
-    /// [`MIN_RECOVERY_REQUEST_INTERVAL_US`], or two round trips if longer.
-    pub fn recovery_request_interval_us(&self) -> u64 {
-        self.reassembler
-            .rtt_us()
-            .map_or(0, |rtt| rtt.saturating_mul(2))
-            .max(MIN_RECOVERY_REQUEST_INTERVAL_US)
-    }
-
-    /// When the next keyframe request may go out (0: now).
-    fn recovery_allowed_at(&self) -> u64 {
-        self.last_recovery_request_us
-            .map_or(0, |at| at.saturating_add(self.recovery_request_interval_us()))
-    }
-
-    /// Whether a feedback sent at `now_us` asks for a keyframe. The viewer's
-    /// own asks wait while the link is away (an outage, design D12), whose
-    /// late frames are not lost; the app's request never waits on silence.
-    fn asks_recovery(&self, now_us: u64) -> bool {
-        self.need_recovery()
-            && now_us >= self.recovery_allowed_at()
-            && (self.keyframe_asked || !self.reassembler.link_away(now_us))
+        self.keyframe_requested || self.reassembler.need_recovery()
     }
 
     /// Counters for the status line.
@@ -358,7 +208,6 @@ impl Receiver {
             need_recovery: self.need_recovery(),
             frames_released: self.frames_released,
             frames_lost: self.frames_lost,
-            frames_skipped: self.frames_skipped,
         }
     }
 
@@ -373,9 +222,6 @@ impl Receiver {
         let Some(last) = self.last_feedback_us else { return 0 };
         if self.released_since_feedback || self.arrivals.len() > MAX_ARRIVALS {
             return 0;
-        }
-        if self.recovery_unsent() {
-            return self.recovery_allowed_at();
         }
         let mut deadline = last.saturating_add(KEEPALIVE_US);
         if !self.arrivals.is_empty() || self.need_recovery() {
@@ -410,7 +256,6 @@ impl Receiver {
             || keepalive
             || overflow
             || nack_due
-            || (self.recovery_unsent() && now_us >= self.recovery_allowed_at())
             || (due && (!self.arrivals.is_empty() || self.need_recovery())))
         {
             return None;
@@ -420,45 +265,22 @@ impl Receiver {
         let fb = if overflow {
             // Arrivals beyond one message go out first, without the rest.
             Feedback {
-                acked_frame: if self.keyframe_requested {
-                    0
-                } else {
-                    self.reassembler.last_released()
-                },
-                acked_ltr_tokens: self.acknowledged_ltr_tokens(),
+                acked_frame: self.reassembler.last_released(),
                 arrivals,
                 ..Feedback::default()
             }
         } else {
             self.last_feedback_us = Some(now_us);
             self.released_since_feedback = false;
-            let need_recovery = self.asks_recovery(now_us);
-            if need_recovery {
-                self.recovery_sent = true;
-                self.last_recovery_request_us = Some(now_us);
-            } else if self.need_recovery() && self.reassembler.link_away(now_us) {
-                // Held until the outage ends (the next arrival), not retried
-                // on every call while away.
-                self.recovery_sent = true;
-            }
             Feedback {
-                acked_frame: if self.keyframe_requested {
-                    0
-                } else {
-                    self.reassembler.last_released()
-                },
+                acked_frame: self.reassembler.last_released(),
                 decode_us: self.median_decode_us(),
-                need_recovery,
-                acked_ltr_tokens: self.acknowledged_ltr_tokens(),
+                need_recovery: self.need_recovery(),
                 arrivals,
                 nacks: self.nacks(now_us),
             }
         };
         Some(self.frame_datagram(&fb.encode()))
-    }
-
-    fn acknowledged_ltr_tokens(&self) -> Vec<u64> {
-        self.acknowledged_ltr_tokens.iter().copied().collect()
     }
 
     fn median_decode_us(&self) -> u32 {
@@ -502,48 +324,23 @@ impl Receiver {
 
     fn on_datagram(&mut self, datagram: &[u8], now_us: u64) -> Result<(), ReceiverError> {
         let (header, payload) = DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
-        // The first datagram after an outage sends a held recovery request at once.
-        if self.reassembler.link_away(now_us) {
-            self.recovery_sent = false;
-        }
         match header.kind {
             DatagramKind::Video | DatagramKind::Fec => {
-                self.note_arrival(header.transport_seq, now_us);
+                if self.arrivals.len() >= MAX_PENDING_ARRIVALS {
+                    self.arrivals.pop_front();
+                }
+                // Viewer monotonic microseconds; the field wraps and only differences matter.
+                self.arrivals.push_back(Arrival {
+                    transport_seq: header.transport_seq,
+                    arrival_us: now_us as u32,
+                });
                 let released = self.reassembler.push(&header, payload, now_us);
                 released.into_iter().for_each(|f| self.on_released(f));
                 self.count_losses();
                 Ok(())
             }
-            // An ultra capacity probe is padding: only its arrival time matters. It rides
-            // the same transport feedback as media, so the host's probe planner can read
-            // the train's dispersion. Like any datagram, it shows the link is live.
-            DatagramKind::Probe => {
-                self.note_arrival(header.transport_seq, now_us);
-                self.note_link_datagram(now_us);
-                Ok(())
-            }
-            _ => {
-                self.note_link_datagram(now_us);
-                self.queue_message(STREAM_DATAGRAM, datagram.to_vec())
-            }
+            _ => self.queue_message(STREAM_DATAGRAM, datagram.to_vec()),
         }
-    }
-
-    /// A datagram of any kind (another stream's, a clock pong) arrived on
-    /// this stream's link at `now_us`: the link is not on hold.
-    pub fn note_link_datagram(&mut self, now_us: u64) {
-        if self.reassembler.link_away(now_us) {
-            self.recovery_sent = false;
-        }
-        self.reassembler.note_datagram(now_us);
-    }
-
-    fn note_arrival(&mut self, transport_seq: u16, now_us: u64) {
-        if self.arrivals.len() >= MAX_PENDING_ARRIVALS {
-            self.arrivals.pop_front();
-        }
-        // Viewer monotonic microseconds; the field wraps and only differences matter.
-        self.arrivals.push_back(Arrival { transport_seq, arrival_us: now_us as u32 });
     }
 
     fn queue_message(&mut self, kind: u8, bytes: Vec<u8>) -> Result<(), ReceiverError> {
@@ -558,51 +355,25 @@ impl Receiver {
         Ok(())
     }
 
-    /// Queues a released frame, newest wins. What may be dropped:
-    /// - A keyframe (an IDR, which flushes every reference) needs no earlier
-    ///   frame, so every frame still waiting is dropped and counted skipped.
-    /// - A P-frame or a recovery frame needs its reference chain decoded in
-    ///   order, so it never drops the frames before it. A recovery frame does
-    ///   not drop either: frames between its reference and itself may be
-    ///   long-term references the host predicts from later, and the host
-    ///   counts them received (`acked_frame`).
-    /// - A tile frame (rd change C3) tops off its own region only, so tiles
-    ///   are never dropped for each other and never drop video frames.
-    ///
-    /// A chain longer than [`MAX_READY_FRAMES`] means the caller fell behind:
-    /// the whole chain is dropped (decoding past a hole shows a corrupted
-    /// picture), and so is every frame after it until a keyframe arrives.
     fn on_released(&mut self, frame: CompleteFrame) {
         self.released_since_feedback = true;
         self.frames_released += 1;
-        let tile = frame.flags & flags::TILE != 0;
-        let keyframe =
-            !tile && (frame.flags & flags::KEYFRAME != 0 || frame.body.ref_frame == REF_NONE);
+        let keyframe = frame.flags & flags::KEYFRAME != 0 || frame.body.ref_frame == REF_NONE;
         if keyframe {
             self.keyframe_requested = false;
-            self.keyframe_asked = false;
-            self.chain_broken = false;
-            self.frames_skipped += self.ready.len() as u64;
-            self.ready.clear();
-        } else if self.chain_broken {
-            self.frames_lost += 1;
-            return;
-        } else if self.ready.len() >= MAX_READY_FRAMES {
-            self.frames_lost += self.ready.len() as u64 + 1;
-            self.ready.clear();
-            self.chain_broken = !tile;
-            self.keyframe_requested = true;
-            return;
         }
-        self.frames_queued += 1;
+        if self.ready.len() >= MAX_READY_FRAMES {
+            // The caller fell behind. The dropped frame breaks the reference
+            // chain, so the decoder must restart from a keyframe, unless the
+            // new frame is one.
+            self.ready.pop_front();
+            self.frames_lost += 1;
+            self.keyframe_requested |= !keyframe;
+        }
         self.ready.push_back(frame);
     }
 
     fn count_losses(&mut self) {
         self.frames_lost += self.reassembler.take_losses().len() as u64;
-        // Recovered: the next request is new and goes out at once.
-        if !self.need_recovery() {
-            self.recovery_sent = false;
-        }
     }
 }

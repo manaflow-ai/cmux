@@ -147,8 +147,6 @@ impl Mux {
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
     ) -> anyhow::Result<Arc<Self>> {
-        use crate::restore_progress::{RestorePhase, enter};
-        enter(RestorePhase::Snapshot);
         // Continues the registry open's laps: the owner logs them (startup_timings).
         let mut timings = registry.take_open_timings();
         // Warm the pages the adoption's terminal ends write while the restore
@@ -185,7 +183,6 @@ impl Mux {
             rebuild: agent_roster_rebuild,
             unmarked_from: agent_roster_unmarked_from,
         } = agent_roster_restore::restore_agent_roster(&registry)?;
-        enter(RestorePhase::MuxBuild);
         let feed_local = Mutex::new(registry.open_feed_local()?);
         let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;
@@ -362,7 +359,6 @@ impl Mux {
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             journal_plugin: crate::journal_plugin::JournalPluginRuntime::default(),
-            journal_plugin_demand: Default::default(),
             machine_usage: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
@@ -377,7 +373,6 @@ impl Mux {
             agent_roster: Mutex::new(agent_roster),
             agent_roster_worker: Default::default(),
             agent_message_pump: Default::default(),
-            terminal_warm_compact: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
             #[cfg(unix)]
@@ -468,7 +463,6 @@ impl Mux {
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(input_lane),
             tree_reply_flight: Default::default(),
-            workspace_delta: Default::default(),
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]
@@ -477,7 +471,6 @@ impl Mux {
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
             pty_reclaim_forced: AtomicBool::new(false),
-            idle_freeing: Default::default(),
             terminal_host_closes: Arc::new(host_close::TerminalHostCloses::default()),
             creating_inputs: Default::default(),
             terminal_reap_grace_ms: AtomicU64::new(
@@ -485,7 +478,6 @@ impl Mux {
             ),
             terminal_reaper: Mutex::default(),
             launch_snapshot_path: Mutex::new(None),
-            launch_snapshot_flush: Mutex::new(None),
             settings: settings::SettingsSlot::default(),
             keybindings: keybindings::KeybindingsSlot::default(),
             terminal_work: terminal_work::TerminalWorkPool::default(),
@@ -508,13 +500,6 @@ impl Mux {
         if let Some(from_version) = agent_roster_unmarked_from {
             mux.agent_roster_worker.unmarked_from.store(from_version, Ordering::Release);
         }
-        // A migrated roster is stale before its owner takes any of its work:
-        // the replay of its tail below reconciles projections only from a
-        // roster that is not, and a short replay can finish before the
-        // rebuild starts.
-        if agent_roster_rebuild {
-            mux.agent_roster_worker.stale.store(true, Ordering::Release);
-        }
         // The agent roster's one owner: every fold and snapshot save runs there.
         mux.start_agent_roster_worker()?;
         // A long tail (a lost snapshot, a start long after the last save)
@@ -531,12 +516,6 @@ impl Mux {
                         .with(|gate| gate.borrow_mut().take());
             }
             mux.continue_agent_roster_replay(replay);
-            #[cfg(test)]
-            if let Some(seam) = agent_roster_restore::AFTER_REPLAY_SCHEDULED_FOR_TEST
-                .with(|seam| seam.borrow_mut().take())
-            {
-                seam(&mux);
-            }
         }
         // A stale roster (a reducer version bump) is served now and rebuilt
         // from the whole journal in the owner while the daemon serves.
@@ -562,11 +541,9 @@ impl Mux {
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.output_store.start(&mux, &mut parts)?;
         timings.absorb(parts, "mux.build");
-        enter(RestorePhase::Browsers);
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
         timings.lap("restore.browsers");
-        enter(RestorePhase::HostAdoption);
         // Set before adoption: a host that adopts on its own thread names its
         // surfaces from here (finish_terminal_adoption).
         mux.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner).extend(
@@ -575,7 +552,6 @@ impl Mux {
         #[cfg(any(unix, windows))]
         mux.adopt_terminal_hosts()?;
         timings.lap("terminal.adopt_hosts");
-        enter(RestorePhase::Reconcile);
         {
             let mut state = mux.state.lock().unwrap();
             state.rebuild_resource_indexes();
@@ -608,7 +584,6 @@ impl Mux {
             std::thread::sleep(Duration::from_millis(25));
         }
         timings.lap("restore.reconcile");
-        enter(RestorePhase::Finish);
         mux.close_ephemeral_workspaces()?;
         timings.lap("workspace.close_ephemeral");
         // cx-6so.49: host losses whose respawn an earlier owner never ran

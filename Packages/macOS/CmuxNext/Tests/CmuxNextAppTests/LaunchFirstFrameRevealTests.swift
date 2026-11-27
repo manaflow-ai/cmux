@@ -184,18 +184,6 @@ import Testing
         #expect(launch.drawsAtOnce(launch.pane.contentHost), "the first frame drew the pane clear, then faded it in")
     }
 
-    /// startup-every-path (Mac cold-launch video, 2026-11-25): the sidebar painted about 1.5 s before the main pane.
-    /// A chat tab whose view waits for the first frame or the daemon's tree draws its saved page (`drawLastPage`)
-    /// with `.pane` still not ready, so the held content kept that picture clear until the reveal deadline. The
-    /// picture is the pane's content from the last quit: it draws in the first frame, as a terminal's saved frame does.
-    @Test func aChatsLastFrameDrawsInTheFirstFrame() {
-        let launch = LaunchWindow()
-        defer { launch.tearDown() }
-        launch.pane.showLaunchImage(Self.lastFrame())
-        #expect(!launch.reveal.isReady(.pane), "the region itself waits for the live page")
-        #expect(launch.drawsAtOnce(launch.pane.contentHost), "the chat's saved page stayed clear until the reveal deadline")
-    }
-
     /// A host with no screen commits no frame (the layer gets no presentation copy).
     @Test(.enabled("a window with no screen draws no frame") { await MainActor.run { !NSScreen.screens.isEmpty } },
           .enabled("animation speed is off on this host") { await MainActor.run { Motion.speed != .off } })

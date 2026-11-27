@@ -13,25 +13,14 @@ extension UpdaterService {
     /// while an update waits, so a check answers with the waiting update,
     /// never nothing. Installing always shows.
     public var readyCard: UpdateReadyCard? {
-        guard let pill = footerPill ?? askedWhileStaged else { return installedBuildCard }
+        guard let pill = footerPill ?? askedWhileStaged else { return nil }
         // An install the person followed on the notice card stays there (``UpdateCard/installing``).
         if pill == .installing, flow.card(downloadsAutomatically: true) == .installing { return nil }
         if pill == .ready, case .ready(let version) = flow.phase,
            updateSnooze.hides(version: version, at: now()) { return nil }
         let notes = UpdateReadyNotes(version: stagedVersion, notes: stagedNotes, fullNotesURL: stagedReleaseNotesURL)
         return UpdateReadyCard(version: stagedVersion, isInstalling: !pill.isEnabled, automaticUpdates: automaticUpdates, notes: notes,
-                               changelog: stagedChangelog, failure: UpdateInstallFailure.forStaged(stagedBuild(), failed: failedInstall),
-                               heldBy: relaunchHold.flatMap { $0.surfaced ? $0.reason : nil })
-    }
-
-    /// The card for a newer build already installed on disk, with no update staged: the same
-    /// Restart to Update (``relaunchIntoInstalledBuild()``); nil while Sparkle holds an update, the
-    /// install runs, or the person hid it (``updateSnooze``).
-    private var installedBuildCard: UpdateReadyCard? {
-        guard relaunchInstalledBuild != nil, let installed = installedNewerBuild, flow.phase != .installing,
-              !updateSnooze.hides(version: installed.displayVersion, at: now()) else { return nil }
-        return UpdateReadyCard(version: installed.displayVersion, isInstalling: false, automaticUpdates: automaticUpdates,
-                               notes: UpdateReadyNotes(version: installed.displayVersion, notes: nil, fullNotesURL: nil))
+                               changelog: stagedChangelog, failure: UpdateInstallFailure.forStaged(stagedBuild(), failed: failedInstall))
     }
 
     /// The staged update's pill when the user asked to check while it waits.
@@ -60,7 +49,6 @@ extension UpdaterService {
         case .ready(let version):
             if let version, stagedVersion != version { stagedVersion = version }
             loadStagedNotes()
-            loadStagedPullRequests()
             prewarmStagedUpdate()
         case .installing:
             break
@@ -69,7 +57,6 @@ extension UpdaterService {
             stagedNotesTask = nil
             if stagedVersion != nil { stagedVersion = nil }
             if stagedNotes != nil { stagedNotes = nil }
-            clearStagedPullRequests()
         }
     }
 
@@ -108,6 +95,5 @@ extension UpdaterService {
         }
         debugIndicatorPhase = .ready(version: version)
         stagedNotes = notes
-        stagedPullRequests = notes.map { BuildPullRequests(notes: [$0]) }
     }
 }

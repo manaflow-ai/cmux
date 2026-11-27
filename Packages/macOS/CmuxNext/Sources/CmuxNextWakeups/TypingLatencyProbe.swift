@@ -268,14 +268,6 @@ public final class TypingLatencyProbe: Sendable {
         if let finished { emit(finished, complete: true) }
     }
 
-    /// Drops the open sample without a row: a caller that opened it before its dispatch hands the key to a
-    /// route that opens its own sample (`debug.key` sending through the app's `sendEvent`), which would
-    /// otherwise write this one as an incomplete row.
-    public func withdraw() {
-        guard output != nil || flows != nil else { return }
-        state.withLock { $0.open = nil }
-    }
-
     /// Waits for every row emitted so far to reach the file (tests).
     func flush() {
         writes.sync {}

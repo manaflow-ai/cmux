@@ -36,10 +36,6 @@ what the gate covered.
 
 ## Verify path selection
 
-Not runnable on `feat-cmux-next` either: `CmuxIrxTransport` and `CmuxIrohTransport`, the Swift
-packages this section tests, had no consumer and were deleted, and the release gate now refuses
-`direct-only` and `private-path` with exit 2. The steps below record what they covered.
-
 The active `IrxConnection` subscribes to native Iroh path events and records
 the initial selected path separately, because the event watcher does not replay
 it. It refreshes the selected snapshot after a selection or a lag marker.

@@ -72,37 +72,6 @@ cmux-next today only flips `document.designMode` (contenteditable) behind the sa
   `toggleBrowserDesignMode` action; the action runs `BrowserDesignModeController` (app), which owns
   per-tab state. Routing cards goes through one function.
 
-## Comments, Codex-style (2026-11-20)
-
-David Beyer, on the Nov 20 call: "I like the way Codex does it ... if I wanna do a lot of them, this
-would be visually messy ... then I wanna do another one." Each pick used to land as two chips (text
-and crop) with no say about what to change. Now:
-
-- **A click opens a comment bubble** under the element (above it when there is no room), in the
-  runtime's closed shadow root: the pick's number and element, one auto-growing field ("Add a
-  comment"), and a quiet hint ("Return to add"). No buttons. Return adds the pick with its comment,
-  Shift-Return is a new line, Escape drops a new pick, clicking another element keeps a typed comment
-  (an empty new pick is dropped). Keys and text typed in the bubble stop at the document, so the page
-  never sees them.
-- **Numbered pins.** Every pick keeps a pin with its number on its top-left corner. Clicking a pick
-  again opens its bubble to edit ("Return to save"); Delete on an emptied comment removes it, and the
-  rest renumber.
-- **Only added picks are in snapshots**, each with `comment` and `number`, so the chat gets one card
-  per pick, once, and again only when its comment or number changes (same id: the chip is replaced).
-- **One chip per pick** in the agent chat (`BrowserPickChip.tsx`): its number in a badge, the comment
-  as its title, the element and page under it; the crop rides inside the chip (`shot`) and goes as an
-  image block after the card's text. Home gets one text file per pick (no separate crop file).
-- **Pins follow chips.** A chip removed with its ×, or sent, is reported back
-  (`designSelection.released {ids}`), and the browser takes those picks off the page.
-- **Escape with no bubble open leaves design mode**; added picks stay in the composer.
-- A drag still draws a region; cmux-next now completes it from the stroke's bounds
-  (`BrowserDesignModeCards.captureCompletion`) and returns to picking.
-
-Tests: `webviews/test/browser-design-mode-runtime.test.ts` (the runtime on a real DOM),
-`webviews/test/design-selection.test.ts`, `BrowserDesignModeCardsTests`. Captures:
-`scripts/cmux-next/media/tours/browser-element-comments.json` (`debug.design_mode` types into the
-bubble). The picker stays behind Debug Settings > Browser Page Loading > UI pointer picker.
-
 ## Data flow
 
 ```

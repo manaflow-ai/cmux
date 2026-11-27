@@ -25,7 +25,6 @@ extension SidebarListViewComponents {
         fadingRows[ObjectIdentifier(view)] = nil
         view.clearFoldClip()
         view.layer?.zPosition = 0 // a stuck header's raise belongs to the header it stood for
-        view.isVeiled = false // as does the cover over a row under it
         // A parked view must not retain a render-server move from the list it just left. In
         // particular, a non-animated reload removes a row by recycling it directly, without
         // passing it through RowMotion.run's stop set; leaving its additive spring active would
@@ -98,8 +97,6 @@ extension SidebarListViewComponents {
                 guard let self else { return false }
                 return SidebarFoldAction(list: self).toggle(key)
             }
-        case (.listHeader, let view as ListHeaderRowView):
-            view.screenButton.onPress = { [weak self] in self?.model.send(.shareScreen(.local)) }
         case let (.section(sectionID), view as SectionHeaderRowView):
             if case let .machine(machine) = sectionID {
                 view.allowsAdd = true

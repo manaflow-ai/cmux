@@ -24,13 +24,6 @@ pub type ListEntry = (String, ItemId);
 
 type RefKey = (String, String);
 
-#[cfg(test)]
-thread_local! {
-    /// Items a subtree walk visited on this thread: the work count the
-    /// scale tests hold to the rows an operation touches (`scale_tests.rs`).
-    pub(super) static SUBTREE_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
 /// The sidebar document. Mutations go through the reducer
 /// ([`super::reduce`]), which keeps the indexes.
 #[derive(Debug, Clone, Default)]
@@ -202,8 +195,6 @@ impl Doc {
     fn push_subtree<'a>(&'a self, item: &'a Item, out: &mut Vec<&'a Item>) {
         let mut stack: Vec<(&Item, usize)> = vec![(item, 0)];
         while let Some((item, depth)) = stack.pop() {
-            #[cfg(test)]
-            SUBTREE_VISITS.with(|visits| visits.set(visits.get() + 1));
             out.push(item);
             if item.body.is_group() && depth <= MAX_GROUP_DEPTH {
                 let children: Vec<&Item> =

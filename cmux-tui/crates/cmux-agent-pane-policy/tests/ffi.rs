@@ -10,8 +10,7 @@ use cmux_agent_pane_policy::ffi::{
     cmux_agent_pane_policy_abi_version, cmux_agent_pane_policy_bytes_free,
     cmux_agent_pane_policy_call, cmux_agent_pane_policy_check,
     cmux_agent_pane_policy_check_gesture, cmux_agent_pane_policy_filter_reply,
-    cmux_agent_pane_policy_free, cmux_agent_pane_policy_json_keys_verdict,
-    cmux_agent_pane_policy_new, cmux_agent_pane_policy_observe,
+    cmux_agent_pane_policy_free, cmux_agent_pane_policy_new, cmux_agent_pane_policy_observe,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -169,7 +168,7 @@ fn c_abi_runs_the_check_corpus() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/check.json");
     let cases: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let cases = cases.as_array().unwrap();
-    assert_eq!(cases.len(), 80, "check.json: every case runs here too");
+    assert_eq!(cases.len(), 76, "check.json: every case runs here too");
     for case in cases {
         let pane = new();
         let s = &case["state"];
@@ -213,7 +212,7 @@ fn c_abi_runs_the_check_corpus() {
 /// only a click passes it.
 #[test]
 fn c_abi_a_click_only_answer_passes_on_a_click_only() {
-    assert_eq!(cmux_agent_pane_policy_abi_version(), 5);
+    assert_eq!(cmux_agent_pane_policy_abi_version(), 3);
     let pane = new();
     call(pane.0, "add", json!({"session": "s1"})).unwrap();
     let frames = [
@@ -221,7 +220,6 @@ fn c_abi_a_click_only_answer_passes_on_a_click_only() {
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/plan/build","params":{"sessionId":"s1","permissionId":"p1","target":"compare"}}"#,
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/permission_respond","params":{"sessionId":"s1","permissionId":"p1","optionId":"yes"}}"#,
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/permission_group_respond","params":{"sessionId":"s1","groupId":"g1","revision":1,"decisionKey":"k","decision":"allow_once"}}"#,
-        r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/customize_run","params":{"run":{"customize":"keep"}}}"#,
     ];
     for frame in frames {
         let old = check(&pane, frame, false, false, None, None);
@@ -243,7 +241,6 @@ fn c_abi_a_click_only_answer_passes_on_a_click_only() {
     assert_eq!(
         p["click_only"],
         json!([
-            "_acpmux/customize_run",
             "_acpmux/permission_group_respond",
             "_acpmux/permission_respond",
             "_acpmux/plan/build",
@@ -414,22 +411,6 @@ fn c_abi_runs_the_pick_corpus() {
         json!({"digest": null})
     );
     assert_eq!(call(none, "canonical_digest", json!({})), Err(ERR_INVALID));
-    // The text canonical_digest hashes: keys in UTF-8 byte order, no
-    // whitespace, only quote, backslash and control characters escaped.
-    assert_eq!(
-        call(
-            none,
-            "canonical_json",
-            json!({"value": {"é": "\u{1}", "Which one?": "B", "a/b": [1, 2.0, true, null]}})
-        )
-        .unwrap(),
-        json!({"json": "{\"Which one?\":\"B\",\"a/b\":[1,2,true,null],\"é\":\"\\u0001\"}"})
-    );
-    assert_eq!(
-        call(none, "canonical_json", json!({"value": {"q": 1.5}})).unwrap(),
-        json!({"json": null})
-    );
-    assert_eq!(call(none, "canonical_json", json!({})), Err(ERR_INVALID));
     assert_eq!(call(none, "pick", json!({"method": 1})), Err(ERR_INVALID));
     assert_eq!(call(none, "pick", json!({"method": "m", "params": []})), Err(ERR_INVALID));
 }
@@ -595,44 +576,4 @@ fn c_abi_a_reply_is_cut_to_its_shape() {
     };
     assert_eq!(code, NO_SHAPE);
     assert!(out.ptr.is_null());
-}
-
-/// The pane's line through the C ABI (`service_wait`, src/service_wait.rs): a daemon that listens
-/// and answers late is busy and never offered a restart; one that neither runs nor listens is down,
-/// with Restart (Leo, 2026-11-18: "i cant connect to agent service?").
-#[test]
-fn service_wait_says_busy_or_down() {
-    let none = std::ptr::null();
-    let busy = call(none, "service_wait", json!({"process_alive": true, "socket_accepts": true}));
-    assert_eq!(busy.unwrap(), json!({"state": "busy", "restart": false}));
-    let starting =
-        call(none, "service_wait", json!({"process_alive": true, "socket_accepts": false}));
-    assert_eq!(starting.unwrap(), json!({"state": "starting", "restart": false}));
-    let down = call(none, "service_wait", json!({"process_alive": false, "socket_accepts": false}));
-    assert_eq!(down.unwrap(), json!({"state": "down", "restart": true}));
-    assert_eq!(call(none, "service_wait", json!({"process_alive": true})), Err(ERR_INVALID));
-}
-
-fn keys_verdict(bytes: &[u8]) -> i32 {
-    unsafe { cmux_agent_pane_policy_json_keys_verdict(bytes.as_ptr(), bytes.len()) }
-}
-
-/// The strict duplicate-key check through the C ABI (the Swift host's only
-/// caller of src/json_keys.rs): 0 clean, 1 malformed, 2 duplicate.
-#[test]
-fn c_abi_json_keys_verdict() {
-    assert_eq!(keys_verdict(br#"{"a":1,"b":[1,{"a":2}]}"#), 0);
-    assert_eq!(keys_verdict(br#"{"a":1,"a":2}"#), 2);
-    assert_eq!(keys_verdict(br#"[{"x":{"k":1,"k":1}}]"#), 2);
-    // A composed and a decomposed accent are one key (NFC), as Swift compares them.
-    assert_eq!(keys_verdict("{\"\u{e9}\":1,\"e\u{301}\":2}".as_bytes()), 2);
-    assert_eq!(keys_verdict(br#"{"\u00e9":1,"\u0065\u0301":2}"#), 2);
-    assert_eq!(keys_verdict(br#"{"a":1,}"#), 1);
-    assert_eq!(keys_verdict(b"{\"a\":1} x"), 1);
-    assert_eq!(keys_verdict(b""), 1);
-    assert_eq!(keys_verdict(&[b'"', 0xff, b'"']), 1, "not UTF-8 is malformed");
-    assert_eq!(unsafe { cmux_agent_pane_policy_json_keys_verdict(std::ptr::null(), 0) }, 1);
-    assert_eq!(unsafe { cmux_agent_pane_policy_json_keys_verdict(std::ptr::null(), 3) }, ERR_NULL);
-    let deep = format!("{}{}", "[".repeat(100_000), "]".repeat(100_000));
-    assert_eq!(keys_verdict(deep.as_bytes()), 0, "no recursion");
 }

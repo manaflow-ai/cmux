@@ -347,10 +347,9 @@ public final class SidebarDocStore {
     }
 
     /// What a drop of `items` may do beside each row (one FFI call per drag).
-    /// Pinned takes a drop like any section: a drag into it pins, a drag out unpins, as the palette and
-    /// the API do (the reducer remembers where an item came from when it enters Pinned).
+    /// Pinned takes only what is pinned already (`SidebarDocRecords.keepingPinned`).
     public func acceptance(dragging items: [String]) -> [String: SidebarDocAcceptance] {
-        isActive ? mirror.acceptance(dragging: items) : [:]
+        isActive ? records.keepingPinned(mirror.acceptance(dragging: items), dragging: items) : [:]
     }
 
     nonisolated public static let pinnedSection = "sec_pinned"
@@ -380,17 +379,6 @@ public final class SidebarDocStore {
     /// Pin: the items move to the end of Pinned.
     public func pin(_ items: [String], title: String) {
         guard !items.isEmpty else { return } // nothing placed yet to move (an adopt is on the way)
-        // Pin keeps a group member in its group. Only a top-level item entering Pinned takes the acting
-        // window’s Space. An already pinned item still belongs to the window that pinned it.
-        if let room = newItemRoom() {
-            let records = settledRecords
-            let entering = items.filter { id in
-                guard let record = records.items[id] else { return false }
-                return record.parent == nil && record.section != Self.pinnedSection
-            }
-            let stamps = Self.roomOps(moving: entering, into: Self.pinnedSection, room: room, records: records)
-            if !stamps.isEmpty { return send(ops: [["op": "pin", "items": items]] + stamps, title: title) }
-        }
         send(.pin(items, key: Self.newKey()), title: title) { remote, key, _ in
             try await remote.pin(items, key: key)
         }

@@ -1,5 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers"
-import type { RawEnv } from "./env.ts"
+import type { Env } from "./env.ts"
 import { hostAllowed } from "./egress-hosts.ts"
 import type { EgressAdmission } from "./usage-meter-do.ts"
 
@@ -32,7 +32,7 @@ const dropped = (k: string) => DROPPED.has(k) || k.startsWith("cf-") || k.starts
  * comes back to tenant code and its next request passes this gate again. Tenant code holds
  * no credential, so nothing secret can leave through it.
  */
-export class AutomationEgress extends WorkerEntrypoint<RawEnv, AutomationEgressProps> {
+export class AutomationEgress extends WorkerEntrypoint<Env, AutomationEgressProps> {
   /** Raw TCP (`cloudflare:sockets` connect) is never allowed: only HTTPS through `fetch`. */
   override connect(socket: Socket): void {
     if (this.env.ENVIRONMENT === "test") egressTest.connects++

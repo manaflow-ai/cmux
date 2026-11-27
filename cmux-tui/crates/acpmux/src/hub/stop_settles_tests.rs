@@ -368,31 +368,3 @@ async fn a_failed_turn_holds_the_persons_prompt_for_resume_only_after_its_retrie
     assert_eq!(paused.msg["held"], json!(["p-mine"]), "{:?}", paused.msg);
     assert!(s.queue_paused());
 }
-
-/// A Stop while another operation holds the chat's agent slot (an agent's start or kill, a write
-/// to a harness that stopped reading, the end of a hosted agent whose link does not answer): the
-/// Stop answers at once, the turn reads `stopping`, and its escalation ends the turn cancelled
-/// although it cannot reach the agent. The Stop used to wait on the slot with no bound, so it
-/// never answered and the turn ran on (freeze map, ask-bb427cbcae).
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_stop_while_the_agent_slot_is_held_still_ends_the_turn() {
-    let (hub, s) = chat(false).await;
-    let run = prompt(&hub, &s, "deaf-to-cancel");
-    record(&hub, &s, "", "agent_message_chunk", |m| {
-        m["params"]["update"]["content"]["text"] == "running"
-    })
-    .await;
-    let held = s.child.lock().await;
-    let stop = tokio::time::timeout(Duration::from_secs(5), hub.cancel(&s)).await;
-    assert!(matches!(stop, Ok(Ok(()))), "the Stop waited on the held agent slot: {stop:?}");
-    assert_eq!(state(&hub, &s), "stopping", "the Stop does not show");
-    // The agent never takes the cancel, and the slot stays held through the escalation.
-    record(&hub, &s, "mux", "stop_escalated", |m| m["step"] == "slot_held").await;
-    drop(held);
-    let answer = tokio::time::timeout(WAIT, run).await.expect("the prompt answers").unwrap();
-    if let Ok(answer) = &answer {
-        assert_eq!(answer["stopReason"], "cancelled", "{answer:?}");
-    }
-    let result = record(&hub, &s, "mux", "turn_result", |_| true).await;
-    assert_eq!(result.msg["status"], "cancelled", "{:?}", result.msg);
-}

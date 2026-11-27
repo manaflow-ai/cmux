@@ -6,14 +6,13 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
-@testable import CmuxNextWakeups
 import Foundation
 import Testing
 
 /// cx-jniyz.1: a cmux-tui owner that accepts connections but never answers leaves the launch
 /// window on "cmux-tui is unavailable" with nothing to press. The window offers Retry Now, and,
 /// once a plain `server ensure` failed the way a stuck owner makes it fail (the daemon's restore
-/// bound passed, or no answer), Restart cmux-tui: it runs the same `server ensure`
+/// bound passed, or no answer), Restart cmux-tui: after a confirm it runs the same `server ensure`
 /// with `--replace-unresponsive`, then tries to connect again. A refusal says so and leaves Retry.
 ///
 /// The app runs its real startup path against a stand-in `cmux-tui` script (never a real daemon,
@@ -155,11 +154,14 @@ struct DaemonRestartTests {
         return view
     }
 
-    /// Presses Restart cmux-tui: it restarts at once, with no question first.
-    private static func pressRestart(_ view: DaemonConnectingView) throws {
-        let dialogs = CmuxDialogCenter.shared.records.count
+    /// Presses Restart cmux-tui and confirms the question it asks.
+    private static func restartAndConfirm(_ view: DaemonConnectingView) async throws {
         try press(try #require(shown("daemon.restart", in: view)))
-        #expect(CmuxDialogCenter.shared.records.count == dialogs, "Restart asked a question first")
+        await wait { CmuxDialogCenter.shared.records.contains { $0.spec.identifier == "cmux.dialog.restartDaemon" } }
+        let question = try #require(CmuxDialogCenter.shared.records.last { $0.spec.identifier == "cmux.dialog.restartDaemon" })
+        #expect(!question.spec.lines.isEmpty)
+        #expect(question.spec.cancelButton != nil)
+        #expect(CmuxDialogCenter.shared.press(question.id, button: "restart"))
     }
 
     @Test func restartIsOfferedOnlyAfterAPlainEnsureFailedAndReplacesThenConnectsAgain() async throws {
@@ -172,21 +174,21 @@ struct DaemonRestartTests {
         // Restart too: no daemon runs, so the person needs a way out (restore fuzz h2). Until then
         // this asserted Restart hidden here, which left a full disk with nothing to press.
         await Self.wait { Self.shown("daemon.restart", in: view) != nil }
-        // No Retry Now (Leo 2026-11-22: a vacuous "try again" is just done): the connect retries by itself.
-        #expect(Self.shown("daemon.retryNow", in: view) == nil)
+        let retry = Self.shown("daemon.retryNow", in: view)
+        #expect(retry != nil)
         #expect(Self.shown("daemon.restart", in: view) != nil)
         #expect(standIn.ensures().allSatisfy { !$0.contains("--replace-unresponsive") })
 
-        // The owner is stuck now: the window coming back into sight asks again at once, and the failure still offers Restart.
+        // The owner is stuck now: Retry Now asks again, and the failure still offers Restart.
         standIn.mark(standIn.stuck)
         let before = standIn.ensures().count
-        FrameScheduler.tellSightFollowers(of: try #require(view.window))
-        // Restart already shows, so wait for that ensure.
+        try Self.press(try #require(retry))
+        // Restart already shows, so wait for Retry Now's own ensure.
         await Self.wait { standIn.ensures().count > before }
         #expect(standIn.ensures().count > before)
         #expect(Self.shown("daemon.restart", in: view) != nil)
 
-        try Self.pressRestart(view)
+        try await Self.restartAndConfirm(view)
         await Self.wait {
             let ensures = standIn.ensures()
             guard let replace = ensures.firstIndex(where: { $0.contains("--replace-unresponsive") }) else { return false }
@@ -204,7 +206,7 @@ struct DaemonRestartTests {
         #expect(ensures.filter { $0.contains("--replace-unresponsive") }.count == 1)
     }
 
-    @Test func aRefusedRestartSaysSoAndKeepsRestart() async throws {
+    @Test func aRefusedRestartSaysSoAndLeavesRetry() async throws {
         let launched = try Self.launch(stuck: true, refuse: true)
         defer { launched.stop() }
         let standIn = launched.standIn
@@ -212,7 +214,7 @@ struct DaemonRestartTests {
         await Self.wait { Self.shown("daemon.restart", in: view) != nil }
         #expect(Self.shown("daemon.restart", in: view) != nil)
 
-        try Self.pressRestart(view)
+        try await Self.restartAndConfirm(view)
         let status = { Self.control("daemon.recoveryStatus", in: view, as: NSTextField.self) }
         await Self.wait {
             standIn.ensures().contains { $0.contains("--replace-unresponsive") } && status()?.isHidden == false
@@ -222,15 +224,15 @@ struct DaemonRestartTests {
         #expect(!shownStatus.isHidden)
         #expect(!shownStatus.stringValue.isEmpty)
         #expect(!shownStatus.stringValue.contains("server.replace"))
-        let restart = Self.shown("daemon.restart", in: view)
-        #expect(restart != nil)
-        #expect(restart?.isEnabled == true)
+        let retry = Self.shown("daemon.retryNow", in: view)
+        #expect(retry != nil)
+        #expect(retry?.isEnabled == true)
     }
 
     #if DEBUG
     /// The restore journey's daemon variants (scripts/cmux-next/restore-journey.py) read the
     /// recovery state through `debug.daemon` and press Restart through it, on the same path the
-    /// button takes: the stuck owner's launch window, then a replace.
+    /// button takes after its confirm: the stuck owner's launch window, then a replace.
     @Test func debugDaemonReportsTheRecoveryStateAndRestartsThroughIt() async throws {
         let launched = try Self.launch(stuck: true)
         defer { launched.stop() }
@@ -260,7 +262,7 @@ struct DaemonRestartTests {
         #expect(!windows.isEmpty)
         #expect(windows.allSatisfy { $0["shows"] == .string("connecting") }, "\(windows)")
 
-        // Restart, as the button does: the stand-in sees the replace.
+        // Restart, as the button does after its confirm: the stand-in sees the replace.
         let started = try await call(["action": .string("restart")])
         #expect(started["action"] == .string("restart"))
         await Self.wait { launched.standIn.ensures().contains { $0.contains("--replace-unresponsive") } }

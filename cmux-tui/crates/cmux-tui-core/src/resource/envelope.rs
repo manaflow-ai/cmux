@@ -10,6 +10,7 @@ use super::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RequestEnvelope {
     pub protocol: String,
     #[serde(rename = "type")]
@@ -81,6 +82,7 @@ impl RequestEnvelope {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ResponseEnvelope {
     pub protocol: String,
     #[serde(rename = "type")]
@@ -153,6 +155,7 @@ impl ResponseEnvelope {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ResourceCursor {
     pub generation: String,
     pub revision: WireDecimal,
@@ -163,6 +166,7 @@ pub struct ResourceCursor {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StreamItemEnvelope {
     pub protocol: String,
     #[serde(rename = "type")]
@@ -185,6 +189,7 @@ pub enum StreamEndReason {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StreamEndEnvelope {
     pub protocol: String,
     #[serde(rename = "type")]

@@ -24,7 +24,7 @@ pub struct PolicyKey {
 }
 
 /// Every policy key, in documentation order.
-pub const POLICY_KEYS: [PolicyKey; 10] = [
+pub const POLICY_KEYS: [PolicyKey; 8] = [
     PolicyKey {
         name: "EnrollmentToken",
         ty: PolicyType::String,
@@ -71,16 +71,6 @@ pub const POLICY_KEYS: [PolicyKey; 10] = [
         name: "DisableAutoUpdate",
         ty: PolicyType::Boolean,
         help: "Turn off automatic updates (also honored in the legacy com.cmuxterm.app domain).",
-    },
-    PolicyKey {
-        name: "DisableTelemetry",
-        ty: PolicyType::Boolean,
-        help: "Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain).",
-    },
-    PolicyKey {
-        name: "ComputerUseActsAsPerson",
-        ty: PolicyType::Boolean,
-        help: "Computer use can act as me: clicks and key presses computer use makes in a chat count as the person's for Send, Retry and Approve, and nothing else. Off by default. Honored only as a forced value from an installed profile; the person can still turn it off until cmux restarts, and every action it lets through is logged.",
     },
 ];
 

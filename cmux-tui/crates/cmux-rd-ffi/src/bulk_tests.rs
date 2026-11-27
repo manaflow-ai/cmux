@@ -192,10 +192,6 @@ fn accept(rx: &Rx, payload: &[u8]) -> Result<(CmuxRdBulkChunk, Option<serde_json
 }
 
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "3 MB through the receiver, over 10 minutes under Miri; the same calls run in an_upload_stops_at_the_credit_and_resumes_with_more"
-)]
 fn a_download_grants_credit_as_the_golden_message() {
     let rx = Rx(cmux_rd_bulk_receiver_new());
     // The host's side of the flow control, from cmux-rd-core.
@@ -279,5 +275,5 @@ fn open_transfers_are_bounded() {
 
 #[test]
 fn the_bulk_objects_are_abi_4() {
-    assert!(cmux_rd_ffi_abi_version() >= 4);
+    assert_eq!(cmux_rd_ffi_abi_version(), 5);
 }

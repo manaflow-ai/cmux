@@ -59,13 +59,12 @@ import Testing
         try body()
     }
 
-    @Test func theStackShowsFiveItemsByDefaultAndSaysTheRest() throws {
+    @Test func theStackShowsFiveItemsByDefaultAndTheRestReadInTheTooltip() throws {
         try Self.withCap(nil) {
             let stack = try Self.stack(Self.sevenItems(), Self.busy)
             #expect(stack.states.count == 5)
             #expect(stack.states.first == .error, "the most urgent first")
-            #expect(stack.accessibilityHelp()?.contains(Strings.statusMore(2)) == true)
-            #expect(stack.themedToolTip == nil, "a badge on a row has a tooltip")
+            #expect(stack.themedToolTip?.contains(Strings.statusMore(2)) == true)
         }
     }
 
@@ -80,12 +79,12 @@ import Testing
         }
     }
 
-    @Test func theCornerBadgeSaysEveryStateWithoutAMoreCount() throws {
+    @Test func theCornerBadgeTooltipListsEveryStateWithoutAMoreCount() throws {
         try Self.withCap(.three) {
             let corner = try Self.stack(Self.sevenItems(style: .corner), Self.busy)
             #expect(corner.states.count == 1)
-            #expect(corner.accessibilityHelp()?.contains(Strings.unreadCount(6)) == true)
-            #expect(corner.accessibilityHelp()?.contains(Strings.statusMore(4)) == false)
+            #expect(corner.themedToolTip?.contains(Strings.unreadCount(6)) == true)
+            #expect(corner.themedToolTip?.contains(Strings.statusMore(4)) == false)
         }
     }
 
@@ -95,7 +94,7 @@ import Testing
             let stack = try Self.stack(Self.sevenItems(), Self.busy)
             #expect(stack.states.count == shown)
             let more = 7 - shown
-            #expect((stack.accessibilityHelp()?.contains(Strings.statusMore(more)) == true) == (more > 0))
+            #expect((stack.themedToolTip?.contains(Strings.statusMore(more)) == true) == (more > 0))
         }
     }
 

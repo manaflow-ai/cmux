@@ -3,11 +3,7 @@
 //! the mux only holds the daemon's cloud link and publishes its events.
 
 use super::*;
-use crate::cloud_conversations::{CloudConversations, CloudEvent, HostReplica, Target};
-
-/// Where the `appkv:<user>` stream's events go: the apps supervisor's synced
-/// storage (apps/synced.rs). They never reach a client.
-pub(crate) type AppKvSink = Arc<dyn Fn(&CloudEvent) + Send + Sync>;
+use crate::cloud_conversations::{CloudConversations, HostReplica};
 
 /// The cloud services one binary installs once (absent without a cloud transport).
 #[derive(Default)]
@@ -20,49 +16,20 @@ pub(crate) struct CloudServices {
     pub(crate) feed: OnceLock<crate::feed_client::FeedClient>,
     /// How `feed.reports.reply` reaches acpmux, installed by the binary.
     pub(crate) feed_reply: OnceLock<crate::feed_client::ReplySender>,
-    /// Synced app storage's stream events (set when the apps supervisor starts).
-    appkv: OnceLock<AppKvSink>,
-    /// The Cloud machines' state sockets (`apps-machine-state-watch`).
-    #[cfg(unix)]
-    pub(crate) machine_state: crate::server::machine_state_push::MachineStatePush,
-    /// The Forum page's hosted forum (server/forum_routed.rs), set up on the first `forum.*` op.
-    #[cfg(unix)]
-    pub(crate) forum: OnceLock<crate::server::forum_routed::ForumOwner>,
-}
-
-/// Whether `event` belongs to the daemon's own `appkv:<user>` stream.
-fn is_appkv(event: &CloudEvent) -> bool {
-    match event {
-        CloudEvent::AppKvReset { .. } | CloudEvent::AppKvChanged { .. } => true,
-        CloudEvent::SubscriptionState { target, .. } => *target == Target::AppKv,
-        _ => false,
-    }
 }
 
 impl Mux {
     /// Installs the cloud link once (the binary that has a cloud transport
     /// does this at startup) and routes its events to subscribers. A second
-    /// install is refused and leaves the first in place. The synced app
-    /// storage stream's events go only to the apps supervisor.
+    /// install is refused and leaves the first in place.
     pub fn install_cloud_conversations(self: &Arc<Self>, service: CloudConversations) -> bool {
         let weak = Arc::downgrade(self);
         service.set_sink(Arc::new(move |event| {
             if let Some(mux) = weak.upgrade() {
-                if is_appkv(&event) {
-                    if let Some(sink) = mux.cloud.appkv.get() {
-                        sink(&event);
-                    }
-                    return;
-                }
                 mux.emit(MuxEvent::CloudConversation(Arc::new(event)));
             }
         }));
         self.cloud.conversations.set(service).is_ok()
-    }
-
-    /// Routes the `appkv:<user>` stream's events to synced app storage (once).
-    pub(crate) fn set_appkv_sink(&self, sink: AppKvSink) {
-        let _ = self.cloud.appkv.set(sink);
     }
 
     /// The installed cloud link, if any.

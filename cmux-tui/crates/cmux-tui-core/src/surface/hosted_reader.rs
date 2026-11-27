@@ -76,115 +76,6 @@ struct StreamEnd<'a> {
     _frames: Option<host_frames::HostFrames>,
 }
 
-/// One live host connection between frames.
-struct Connection {
-    stager: HostedFrameStager,
-    frames: host_frames::HostFrames,
-}
-
-/// How [`HostedReader::stream`] returned.
-enum Step<'a> {
-    End(StreamEnd<'a>),
-    /// The link parked with nothing queued.
-    Park(Connection),
-}
-
-/// What the reader does next.
-enum Next {
-    Connect(UnixStream),
-    /// Go on reading the connection it holds.
-    Read,
-}
-
-/// Dropped when the reader ends for good, not when it parks. The completion
-/// is declared first so it drops first: input waiting out a reconnect
-/// (surface/input.rs) wakes after the completion is recorded.
-struct ReaderGuards {
-    _completion: ReaderCompletionGuard,
-    _wake_waiting_input: WakeInputOnReaderEnd,
-}
-
-/// The whole reader, on its thread or parked behind its quiet link
-/// ([`super::idle_links`]): a hibernated terminal holds no reader thread.
-struct Parked {
-    reader: HostedReader,
-    surface: Arc<Surface>,
-    _guards: ReaderGuards,
-    connection: Option<Connection>,
-    /// The mirror was parked with the reader: rebuilt when it reads again.
-    mirror_parked: bool,
-}
-
-impl Parked {
-    fn run(mut self, mut next: Next) {
-        loop {
-            let connection = match next {
-                Next::Read => {
-                    if std::mem::take(&mut self.mirror_parked)
-                        && let Some(pty) = self.surface.as_pty()
-                    {
-                        self.reader.mirror_resumed(pty);
-                    }
-                    self.connection.take()
-                }
-                Next::Connect(reader) => {
-                    rehost::request_custody(&self.surface);
-                    self.reader.connect(reader).ok()
-                }
-            };
-            let surface = self.surface.clone();
-            let pty = surface.as_pty().expect("host reader owns a PTY surface");
-            let end = match connection {
-                Some(connection) => match self.reader.stream(&surface, pty, connection) {
-                    Step::End(end) => end,
-                    Step::Park(connection) => {
-                        #[cfg(unix)]
-                        let slot = connection.frames.consumer_slot();
-                        self.connection = Some(connection);
-                        // Nobody views the terminal: its mirror parks with
-                        // the reader (surface/mirror_park.rs).
-                        self.mirror_parked = self.reader.park_mirror(pty);
-                        #[cfg(unix)]
-                        match slot.park(self, Parked::resume) {
-                            Ok(()) => return,
-                            // A frame or the end is already here, or the link
-                            // reads again: read on this thread.
-                            Err(parked) => self = parked,
-                        }
-                        next = Next::Read;
-                        continue;
-                    }
-                },
-                None => self.reader.frames_not_started(pty),
-            };
-            let Some(reader) =
-                self.reader.after_stream(&surface, end.received_exit, end.resync_requested)
-            else {
-                return;
-            };
-            next = Next::Connect(reader);
-        }
-    }
-
-    /// The parked link has a frame or ended: read it on a new thread. With
-    /// no thread to be had the host link is shut down and its waiters fail,
-    /// as when a demultiplexer could not start, and the reader ends.
-    #[cfg(unix)]
-    fn resume(self) {
-        let name = format!("surface-{}-host", self.reader.id);
-        host_frames::spawn_or(
-            &name,
-            self,
-            |parked| parked.run(Next::Read),
-            |parked| {
-                if let Some(pty) = parked.surface.as_pty() {
-                    parked.reader.frames_not_started(pty);
-                }
-            },
-        );
-    }
-}
-
 impl HostedReader {
     /// Test seam value of `CMUX_TUI_TEST_HOSTED_OUTPUT_APPLY_DELAY_MS`.
     pub(super) fn output_apply_delay_from_env() -> Option<Duration> {
@@ -196,32 +87,48 @@ impl HostedReader {
 
     /// Thread body: stream from the host until it ends, then exit, resync or
     /// reconnect.
-    pub(super) fn run(self, surface: Arc<Surface>, reader: UnixStream) {
-        let guards = ReaderGuards {
-            _completion: ReaderCompletionGuard(
-                surface.as_pty().expect("host reader owns a PTY surface").reader_completion.clone(),
-            ),
-            _wake_waiting_input: WakeInputOnReaderEnd(surface.clone()),
-        };
-        Parked { reader: self, surface, _guards: guards, connection: None, mirror_parked: false }
-            .run(Next::Connect(reader));
+    pub(super) fn run(mut self, surface: Arc<Surface>, mut reader: UnixStream) {
+        // Declared first so it drops last: input waiting out a reconnect
+        // (surface/input.rs) wakes after the completion below is recorded.
+        let _wake_waiting_input = WakeInputOnReaderEnd(surface.clone());
+        let _reader_completion = ReaderCompletionGuard(
+            surface.as_pty().expect("host reader owns a PTY surface").reader_completion.clone(),
+        );
+        loop {
+            let pty = surface.as_pty().expect("host reader owns a PTY surface");
+            rehost::request_custody(&surface);
+            let end = self.stream(&surface, pty, reader);
+            let Some(next) = self.after_stream(&surface, end.received_exit, end.resync_requested)
+            else {
+                return;
+            };
+            reader = next;
+        }
     }
 
     /// One host connection: targeted responses, staging and the ordered
-    /// transitions. `Park` hands the connection back when the link went
-    /// quiet and parked: the reader may park too.
+    /// transitions.
     fn stream<'a>(
         &mut self,
         surface: &Arc<Surface>,
         pty: &'a PtySurface,
-        connection: Connection,
-    ) -> Step<'a> {
+        reader: UnixStream,
+    ) -> StreamEnd<'a> {
         let mux = self.mux.clone();
-        let Connection { mut stager, frames } = connection;
+        let mut stager = HostedFrameStager::new_for_version(
+            self.sequence_boundary,
+            self.protocol_version,
+            self.smart_renderer,
+        );
         let mut received_exit = None;
         let mut resync_requested = false;
         let mut journal_target = None;
         let mut journal_update = None;
+        // `reader` moves into the demultiplexer; a reconnect reassigns it.
+        let frames = match self.spawn_frames(reader) {
+            Ok(frames) => frames,
+            Err(_) => return self.frames_not_started(pty),
+        };
         loop {
             if journal_update.is_none() {
                 journal_target = pty.journal_target();
@@ -234,12 +141,6 @@ impl HostedReader {
             let frame = match frames.recv() {
                 host_frames::HostFrame::Frame(frame) => frame,
                 host_frames::HostFrame::End => break,
-                host_frames::HostFrame::Idle => {
-                    // Nothing is mid-apply: the journal reservation is taken
-                    // again before the next frame, as after any frame.
-                    drop(journal_update.take());
-                    return Step::Park(Connection { stager, frames });
-                }
             };
             // Targeted responses must be consumed before live staging:
             // HostedFrameStager intentionally rejects every nonzero request id.
@@ -348,13 +249,13 @@ impl HostedReader {
             }
         }
         frames.abandon();
-        Step::End(StreamEnd {
+        StreamEnd {
             received_exit,
             resync_requested,
             _journal_target: journal_target,
             _journal_update: journal_update,
             _frames: Some(frames),
-        })
+        }
     }
 
     /// The demultiplexer did not start (its socket clone or thread spawn
@@ -378,18 +279,6 @@ impl HostedReader {
             _journal_update: None,
             _frames: None,
         }
-    }
-
-    /// A new connection's stager and demultiplexer.
-    fn connect(&self, reader: UnixStream) -> std::io::Result<Connection> {
-        Ok(Connection {
-            stager: HostedFrameStager::new_for_version(
-                self.sequence_boundary,
-                self.protocol_version,
-                self.smart_renderer,
-            ),
-            frames: self.spawn_frames(reader)?,
-        })
     }
 
     /// Start the frame demultiplexer that reads this connection's `reader`.

@@ -135,10 +135,8 @@ import Testing
                 "placement and pointer escape must use the same pinned fill")
     }
 
-    /// Check the panel itself when shown and after its pill moves, rather than only the source's hit band. The open
-    /// card keeps its place while the layout shifts under it (Leo 2026-11-24: "affected by layout shifts when it
-    /// shouldnt be"); it moves only when the pointer takes another target.
-    @Test func thePanelStaysPutWhenThePinnedPillMoves() throws {
+    /// Check the panel itself when shown and after its pill moves, rather than only the source's hit band.
+    @Test func thePanelFollowsThePinnedPill() throws {
         let harness = Self.sidebar(clock: ManualClock())
         defer { harness.tearDown() }
         let row = try #require(harness.pinnedRow)
@@ -153,12 +151,12 @@ import Testing
         #expect(panel.escapeGeometry?.anchor == pill)
 
         row.pill.frame = row.pill.frame.offsetBy(dx: -12, dy: 8)
+        let movedPill = harness.window.convertToScreen(row.convert(row.pill.frame, to: nil))
         harness.coordinator.pointerLocation = { CGPoint(x: panel.cardFrame.midX, y: panel.cardFrame.midY) }
-        let opened = panel.cardFrame
         harness.coordinator.geometryChanged(in: harness.window)
-        let hold = AnchoredEdgeHold.sample(from: opened, step: { harness.coordinator.geometryChanged(in: harness.window) }) { panel.cardFrame }
-        #expect(hold.held, "\(hold)")
-        #expect(panel.escapeGeometry?.anchor == pill)
+        #expect(panel.cardFrame.minX <= movedPill.maxX + 0.001)
+        #expect(movedPill.maxX - panel.cardFrame.minX < pixel + 0.001)
+        #expect(panel.escapeGeometry?.anchor == movedPill)
     }
 
     /// The list row of the other workspace still opens its own card (the pinned lookup takes nothing from it).
@@ -170,18 +168,5 @@ import Testing
         #expect(harness.list.hoverCardWorkspace(at: point) == Self.listedID)
         let pinnedPoint = harness.list.convert(try harness.pinnedRowMiddle(), from: nil)
         #expect(harness.list.hoverCardWorkspace(at: pinnedPoint) == Self.pinnedID)
-    }
-
-    /// A capture tour's `debug.mouse` `row` and the icon picker find a row by `rowFrameOnScreen`, which looked only
-    /// at list rows: every pinned workspace answered nil, so the pin lifecycle tour's hovers, drags and clicks on
-    /// pinned rows all failed. A pinned workspace answers with its drawn pill; a list row still answers with its row.
-    @Test func aPinnedRowIsFoundOnScreen() throws {
-        let harness = Self.sidebar(clock: ManualClock())
-        defer { harness.tearDown() }
-        let row = try #require(harness.pinnedRow, "the pinned workspace drew no row")
-        let pill = harness.window.convertToScreen(row.convert(row.pill.frame, to: nil))
-        #expect(harness.list.rowFrameOnScreen(for: Self.pinnedID) == pill)
-        let listed = try #require(harness.list.rowFrameOnScreen(for: Self.listedID), "the list row was not found")
-        #expect(!listed.intersects(pill), "the list row answered with the pinned pill")
     }
 }

@@ -47,14 +47,6 @@ class ExpressionTest(unittest.TestCase):
         self.assertIsNone(lm.expression_problem("Zlib OR Apache-2.0 OR MIT", [ZLIB]))
         self.assertIsNotNone(lm.expression_problem("(MIT AND Zlib) OR Apache-2.0", [MIT]))
 
-    def test_jpeg_encoder_needs_the_ijg_notice(self) -> None:
-        # jpeg-encoder 0.6.1 declares (MIT OR Apache-2.0) AND IJG; its IJG text is the
-        # src/fdct.rs header, stored as a reviewed text (reviewed.json license_texts).
-        notice = (Path(__file__).resolve().parent / "texts/vstroebel-jpeg-encoder-d85bc4c329b1/IJG-NOTICE.txt").read_text()
-        self.assertIsNotNone(lm.expression_problem("(MIT OR Apache-2.0) AND IJG", [MIT, APACHE]))
-        self.assertIsNone(lm.expression_problem("(MIT OR Apache-2.0) AND IJG", [MIT, APACHE, notice]))
-        self.assertFalse(lm.matches("IJG", MIT))
-
     def test_an_or_later_term_matches_the_named_versions_text(self) -> None:
         mpl = "Mozilla Public License Version 2.0\n1. Definitions"
         self.assertIsNone(lm.expression_problem("MPL-2.0+", [mpl]))

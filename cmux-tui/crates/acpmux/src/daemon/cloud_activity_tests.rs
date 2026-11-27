@@ -4,30 +4,27 @@ use super::*;
 fn a_running_turn_is_sent_then_renewed_and_its_end_carries_the_end_time() {
     let mut t = Tracker::default();
     // Nothing at work and nothing sent: the agent learns 0 once.
-    assert_eq!(t.line(0, true, 0).unwrap(), json!({"acp_activity": {"turn_end": 1, "turns": 0}}));
+    assert_eq!(t.line(0, true, 0).unwrap(), json!({"acp_activity": {"turns": 0}}));
     assert!(t.line(0, false, 0).is_none(), "an unchanged 0 between renewals");
     assert!(t.line(0, true, 0).is_some(), "every renewal goes, 0 included");
 
     t.acted(1_000);
     let started = t.line(1, false, 0).unwrap();
-    assert_eq!(
-        started,
-        json!({"acp_activity": {"turn_end": 1, "turns": 1, "last_agent_action_at": 1_000}})
-    );
+    assert_eq!(started, json!({"acp_activity": {"turns": 1, "last_agent_action_at": 1_000}}));
     // A mux record that changes nothing sends nothing; the tick renews.
     t.acted(1_500);
     assert!(t.line(1, false, 0).is_none(), "an action while at work waits for the renewal");
     t.acted(2_000);
     assert_eq!(
         t.line(1, true, 0).unwrap(),
-        json!({"acp_activity": {"turn_end": 1, "turns": 1, "last_agent_action_at": 2_000}})
+        json!({"acp_activity": {"turns": 1, "last_agent_action_at": 2_000}})
     );
 
     // The turn ends at 3 000: the count drops and the end is the last action.
     t.acted(3_000);
     assert_eq!(
         t.line(0, false, 0).unwrap(),
-        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 3_000}})
+        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 3_000}})
     );
     assert!(t.line(0, false, 0).is_none());
 }
@@ -43,7 +40,7 @@ fn an_action_after_the_count_dropped_to_zero_still_goes() {
     t.acted(2_000);
     assert_eq!(
         t.line(0, false, 0).unwrap(),
-        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 2_000}})
+        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 2_000}})
     );
     assert!(t.line(0, false, 0).is_none());
 }
@@ -58,7 +55,7 @@ fn an_unsent_line_goes_again_and_older_times_never_move_back() {
     t.unsent();
     assert_eq!(
         t.line(2, false, 0).unwrap(),
-        json!({"acp_activity": {"turn_end": 1, "turns": 2, "last_agent_action_at": 5_000}})
+        json!({"acp_activity": {"turns": 2, "last_agent_action_at": 5_000}})
     );
 }
 
@@ -84,18 +81,18 @@ fn the_first_zero_after_work_carries_the_time_it_was_seen() {
     // Quiet for ten minutes, then the count drops before `turn_result` is read.
     assert_eq!(
         t.line(0, false, 601_000).unwrap(),
-        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 601_000}})
+        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 601_000}})
     );
     // Later zeros keep that time: an idle machine's period is not restarted by renewals.
     assert_eq!(
         t.line(0, true, 900_000).unwrap(),
-        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 601_000}})
+        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 601_000}})
     );
     // The first line a daemon sends, 0 at work, counts from when it was seen as well.
     let mut fresh = Tracker::default();
     assert_eq!(
         fresh.line(0, true, 5_000).unwrap(),
-        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 5_000}})
+        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 5_000}})
     );
 }
 
@@ -115,7 +112,7 @@ fn each_line_names_its_daemon() {
     let mut t = Tracker::new("/run/acpmux-a.sock".into());
     assert_eq!(
         t.line(2, false, 0).unwrap(),
-        json!({"acp_activity": {"turn_end": 1, "turns": 2, "daemon": "/run/acpmux-a.sock"}})
+        json!({"acp_activity": {"turns": 2, "daemon": "/run/acpmux-a.sock"}})
     );
 }
 
@@ -287,13 +284,13 @@ fn after_a_lag_a_session_at_work_is_unknown_until_its_turn_ends() {
 #[test]
 fn a_persons_prompt_time_goes_at_once_and_never_moves_back() {
     let mut t = Tracker::default();
-    assert_eq!(t.line(0, true, 0).unwrap(), json!({"acp_activity": {"turn_end": 1, "turns": 0}}));
+    assert_eq!(t.line(0, true, 0).unwrap(), json!({"acp_activity": {"turns": 0}}));
     assert!(t.line(0, false, 0).is_none());
 
     t.person_prompted(7_000);
     assert_eq!(
         t.line(0, false, 0).unwrap(),
-        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_person_prompt_at": 7_000}}),
+        json!({"acp_activity": {"turns": 0, "last_person_prompt_at": 7_000}}),
         "a new prompt time goes without waiting for the renewal"
     );
     assert!(t.line(0, false, 0).is_none(), "an unchanged time sends nothing");
@@ -316,98 +313,4 @@ fn an_agents_action_is_no_persons_prompt() {
     t.acted(1_000);
     let line = t.line(1, false, 0).unwrap();
     assert!(line["acp_activity"].get("last_person_prompt_at").is_none(), "{line}");
-}
-
-/// A line that lets the Cloud pause the machine flushes the guest's writes first, so a
-/// transcript read from the paused machine's saved disk has every line (cmux#36050).
-#[test]
-fn only_a_line_with_nothing_at_work_flushes_before_it_goes() {
-    let mut t = Tracker::new(String::new());
-    let busy = t.line(2, false, 0).unwrap();
-    assert!(!flushes_before(&busy), "{busy}");
-    let idle = t.line(0, false, 1_000).unwrap();
-    assert!(flushes_before(&idle), "{idle}");
-    let renewal = t.line(0, true, 21_000).unwrap();
-    assert!(flushes_before(&renewal), "{renewal}");
-    assert!(!flushes_before(&json!({"other": 0})));
-}
-
-/// Wake kind 5 (cmuxterm-hq RFD 0017): a pause never lands mid tool call. A fake agent's turn
-/// runs one tool call (`pending`, then `in_progress`) and the clock runs past a lane's 300 s idle
-/// window on renewals alone: every line from the call's naming to its `completed` says one
-/// session at work in a phase the Cloud reads as awake, never 0 and never `model-wait`, and the
-/// call's start goes the moment it is seen, not at the next renewal.
-#[test]
-fn a_tool_call_holds_every_line_awake_past_the_idle_window() {
-    const IDLE_WINDOW_MS: u64 = 300_000;
-    let mut t = Tracker::new("/run/acpmux.sock".into());
-    t.observe(&[turn("a")], 1_000);
-    assert_eq!(phases(&t.line(1, false, 1_000).unwrap()), [("model-wait".to_owned(), 1_000)]);
-    // The call is named between two renewals: its line goes at once, unasked.
-    assert!(t.tool_event("a", "tool_call", &call("t1", "pending")));
-    t.observe(&[turn("a")], 1_500);
-    let named = t.line(1, false, 1_500).expect("a tool's start waits for no renewal");
-    assert_eq!(phases(&named), [("tool-starting".to_owned(), 1_500)]);
-    assert!(t.tool_event("a", "tool_call_update", &call("t1", "in_progress")));
-    t.observe(&[turn("a")], 2_000);
-    assert_eq!(phases(&t.line(1, false, 2_000).unwrap()), [("tool".to_owned(), 2_000)]);
-    // A long `sleep` or build: no event at all, only renewals, well past the idle window.
-    let mut now = 2_000;
-    while now < 2_000 + 2 * IDLE_WINDOW_MS {
-        now += RENEW.as_secs() * 1_000;
-        t.observe(&[turn("a")], now);
-        let line = t.line(1, true, now).expect("every renewal goes");
-        assert_eq!(line["acp_activity"]["turns"], 1, "at {now}: {line}");
-        assert!(!flushes_before(&line), "at {now}: a line that lets the Cloud pause: {line}");
-        assert_eq!(phases(&line), [("tool".to_owned(), 2_000)], "at {now}");
-    }
-    assert!(t.tool_event("a", "tool_call_update", &call("t1", "completed")));
-    t.observe(&[turn("a")], now + 1);
-    assert_eq!(phases(&t.line(1, false, now + 1).unwrap()), [("model-wait".to_owned(), now + 1)]);
-}
-
-/// Wake kind 5, a restart mid tool call: acpmux restarts while its agent host (which outlives
-/// it) runs a tool. The new daemon never saw the call's start, so the session it finds at work
-/// must not read as `model-wait` (the Cloud's turn sleep would pause the machine under the
-/// running tool): it is `unknown` until its turn ends, through the unsettled startup and the
-/// first lines after it, past the idle window. A turn that starts after the restart is read as
-/// usual.
-#[test]
-fn a_session_at_work_across_a_restart_is_unknown_until_its_turn_ends() {
-    let mut t = Tracker::new("/run/acpmux.sock".into());
-    // Startup: the store loads, adoption has not found the session yet.
-    t.startup(false);
-    t.observe(&[], 1_000);
-    let line = t.line(reported_at_work(0, false) as u64, true, 1_000).unwrap();
-    assert_eq!(line["acp_activity"]["turns"], 1, "an unsettled startup is busy");
-    // Settled: adoption found the session whose tool still runs.
-    let mut now = 1_000;
-    while now < 1_000 + 2 * 300_000 {
-        now += RENEW.as_secs() * 1_000;
-        t.startup(true);
-        t.observe(&[turn("a")], now);
-        let line = t.line(1, true, now).unwrap();
-        assert_eq!(
-            phases(&line),
-            [("unknown".to_owned(), 21_000)],
-            "at {now}: a tool this daemon never saw start reads as model-wait: {line}"
-        );
-    }
-    assert!(t.turn_ended("a"));
-    t.startup(true);
-    t.observe(&[turn("a"), turn("b")], now + 1);
-    assert_eq!(
-        phases(&t.line(2, false, now + 1).unwrap()),
-        [("model-wait".to_owned(), now + 1), ("model-wait".to_owned(), now + 1)]
-    );
-}
-
-/// Every line carries the turn-end promise (version 1), at work or not, so the agent can
-/// advertise `activity-turn-end`; an older daemon's line has none (cmux-host's old-vs-new test).
-#[test]
-fn every_line_promises_turn_end() {
-    let mut t = Tracker::default();
-    assert_eq!(t.line(0, true, 0).unwrap()["acp_activity"]["turn_end"], TURN_END_VERSION);
-    assert_eq!(t.line(2, false, 1_000).unwrap()["acp_activity"]["turn_end"], 1);
-    assert_eq!(t.line(0, false, 2_000).unwrap()["acp_activity"]["turn_end"], 1);
 }

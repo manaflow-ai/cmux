@@ -35,27 +35,6 @@ import Testing
         #expect(plan.pending.message == TabClosePromptPlan.checkingMessage)
     }
 
-    /// Leo, 2026-11-22: "shit shouldnt somehow instantly dissipate after i
-    /// navigate away for like one second". The app's background wiped the
-    /// cache, so a close right after a one-second app switch waited for the
-    /// Mac; now what is known stays, marked stale, for `maxAge`.
-    @Test func aBackgroundKeepsKnownProgramsMarkedStale() {
-        var cache = TabProgramCache()
-        cache.record(tabID: "t2", programs: ["python3.14"], at: 10)
-        cache.record(tabID: "t3", programs: ["sleep"], at: 1)
-        cache.outputSince(tabID: "t3")
-        cache.markStale(at: 20)
-        // Back one second later: still known, so the close asks at once.
-        #expect(cache.programs(of: ["t2"], now: 21) == ["python3.14"])
-        // Stale: past `maxAge` from the background with no new read, unknown.
-        #expect(cache.programs(of: ["t2"], now: 20 + TabProgramCache.maxAge + 0.1) == nil)
-        // One already past its age when the app left is gone.
-        #expect(cache.programs(of: ["t3"], now: 21) == nil)
-        // The grid's read on return replaces it.
-        cache.record(tabID: "t2", programs: [], at: 22)
-        #expect(cache.programs(of: ["t2"], now: 40) == [])
-    }
-
     @Test func aKnownIdleShellStillAsksTheMacButNeverAtOnce() {
         // Idle a moment ago is no proof it is idle now: the Mac is asked.
         var cache = TabProgramCache()

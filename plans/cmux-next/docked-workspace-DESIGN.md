@@ -219,8 +219,8 @@ it have no tabbar, ensure cmd shift p actions for it too".
   - It never shows over Home, floating or docked (`ChiefPanel.isShown(stage:home:)`).
 - It opens only on purpose: a workspace, tab, agent link or subagent pill clicked in the Chief while Home shows
   (`WindowDockActions.chiefLinkWillOpen`, `WindowDockFrame.armChiefPanel`), whose next show in this window opens the
-  panel floating, also when the person docked it before (cmux#37372: no link click docks the Chief) (the arm lapses after 10 s, so a later sidebar pick shows no Chief); only with `home.chiefDock.openBeside` on,
-  which is off by default (cmux#45889: a link opens only its target), or Show/Hide Chief (`home.openChiefDock`, Cmd-I, rebindable; on Home it focuses the message box). A workspace
+  panel floating, also when the person docked it before (cmux#37372: no link click docks the Chief) (the arm lapses after 10 s, so a later sidebar pick shows no Chief; `home.chiefDock.openBeside` turns it
+  off), or Show/Hide Chief (`home.openChiefDock`, Cmd-I, rebindable; on Home it focuses the message box). A workspace
   opened any other way (sidebar, Cmd-P, switch, restore, launch, new window) shows no Chief. A relaunch never
   reopens it, and a Home dock an older build saved (by a link or by Cmd-I) is dropped (cmux#37365: the Chief is
   never pinned on screen at launch).

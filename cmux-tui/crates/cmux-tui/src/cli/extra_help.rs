@@ -14,8 +14,6 @@ use super::UsageError;
 mod app_scopes;
 #[cfg(unix)]
 pub(super) use app_scopes::print;
-#[cfg(all(test, unix))]
-pub(super) use app_scopes::text;
 
 /// `acp` and `link` parse their own options; `main` routes them only as the
 /// first word. A cmux global option before them otherwise reached the
@@ -26,16 +24,7 @@ pub(super) fn own_options_scope(scope: &str) -> Option<UsageError> {
     // no fix (docs/cli-conventions.md in cmuxterm-hq).
     matches!(
         scope,
-        "acp"
-            | "link"
-            | "harness"
-            | "chats"
-            | "github"
-            | "gitlab"
-            | "host"
-            | "repo"
-            | "carrier"
-            | "autocloud"
+        "acp" | "link" | "harness" | "chats" | "github" | "gitlab" | "host" | "repo" | "carrier"
     )
     .then(|| {
         UsageError::new(format!(

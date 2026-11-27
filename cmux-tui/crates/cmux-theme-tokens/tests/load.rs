@@ -427,27 +427,3 @@ fn unsafe_override_set_directly_is_ignored() {
     assert_tokens(&ThemeTokens::derive(&loaded.input), SWIFT_MONOKAI);
     assert!(loaded.diagnostics.iter().any(|d| d.contains("theme override")));
 }
-
-/// `appearance.selection: neutral` keeps the neutral selection fill under a
-/// theme accent (the Codex look: a blue accent, a gray selected row), and
-/// `accent` (the default) draws exactly what the accent drew before.
-#[test]
-fn neutral_selection_ignores_the_accent() {
-    let neutral = ThemeTokens::derive(&ThemeInput::GHOSTTY_DEFAULT);
-    let accented =
-        ThemeInput { accent_color: Some(Rgb::hex(0x339CFF)), ..ThemeInput::GHOSTTY_DEFAULT };
-    let tinted = ThemeTokens::derive(&accented);
-    assert_ne!(tinted.selection_fill, neutral.selection_fill);
-    let gray = ThemeTokens::derive(&ThemeInput { selection: ThemeSelection::Neutral, ..accented });
-    assert_eq!(gray.selection_fill, neutral.selection_fill);
-    assert_eq!(gray.secondary_selection_fill, neutral.secondary_selection_fill);
-    // The accent still reaches everything else.
-    assert_eq!(gray.accent, tinted.accent);
-    assert_eq!(gray.focus_ring, tinted.focus_ring);
-    assert_eq!(
-        ThemeTokens::derive(&ThemeInput { selection: ThemeSelection::Accent, ..accented }),
-        tinted
-    );
-    assert_eq!(ThemeSelection::parse("neutral"), Some(ThemeSelection::Neutral));
-    assert_eq!(ThemeSelection::parse("gray"), None);
-}

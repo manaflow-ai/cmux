@@ -43,7 +43,7 @@ fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<Value,
         return Err(RpcError::invalid_params("a chat reaches only its own goal"));
     }
     match m {
-        method::MUX_GOAL_SET => hub.goal_set_named(&session, &request(params)?),
+        method::MUX_GOAL_SET => hub.goal_set(&session, &request(params)?),
         method::MUX_GOAL_UPDATE => {
             let status =
                 str_param(params, "status").and_then(Reported::parse).ok_or_else(|| {
@@ -85,5 +85,30 @@ pub(crate) fn request(params: &Value) -> Result<GoalRequest, RpcError> {
 }
 
 #[cfg(test)]
-#[path = "goal_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn set_needs_an_objective_and_a_done_when_and_checks_budgets() {
+        let ok =
+            request(&json!({"objective": " Ship it ", "doneWhen": "CI green", "tokenBudget": 5}));
+        assert_eq!(
+            ok.ok(),
+            Some(GoalRequest {
+                objective: "Ship it".into(),
+                done_when: "CI green".into(),
+                token_budget: Some(5),
+                time_budget_minutes: None,
+            })
+        );
+        assert!(request(&json!({"objective": "Ship it"})).is_err());
+        assert!(request(&json!({"objective": "  ", "doneWhen": "x"})).is_err());
+        assert!(request(&json!({"objective": "a", "doneWhen": "b", "tokenBudget": 0})).is_err());
+        assert!(
+            request(&json!({"objective": "a", "doneWhen": "b", "timeBudgetMinutes": "ten"}))
+                .is_err()
+        );
+        assert!(request(&json!({"objective": "a".repeat(MAX_TEXT + 1), "doneWhen": "b"})).is_err());
+    }
+}

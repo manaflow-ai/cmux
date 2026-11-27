@@ -8,7 +8,6 @@
 //! second session on the family default.
 use super::*;
 use acpmux::adopt::HarnessHomes;
-use acpmux::server::{Origin, serve_connection_with};
 
 /// Two Claude Code profiles over one Claude store (`CLAUDE_CONFIG_DIR`, as Claude Code lays it
 /// out): `claude` and `claude-sr2`, a profile of its own family, as huge-blue's is.
@@ -140,81 +139,4 @@ async fn adopt_names_a_claude_profile_of_another_family_and_runs_on_it() {
     assert_eq!(meta.cwd, project);
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(root);
-}
-
-/// Red on the base: an adopted chat records no creator (`hub/created_by.rs`), and a start nobody
-/// marked counted a chat with none as the person's, so a lane's adopt (a failover, a successor)
-/// started Claude Code asking for a next-prompt suggestion after every turn, about $0.10 each (sr2
-/// audit, 2026-11-21: most chats a lane Mac made that day had no creator). Its first start is the
-/// person's only when the person asked for the adopt (`hub/host_level.rs` `for_a_person`).
-#[tokio::test]
-async fn an_adopt_nobody_proved_the_person_asked_for_starts_claude_without_suggestions() {
-    let root = std::env::temp_dir().join(format!("acpmux-adopt-sugg-{}", uuid::Uuid::now_v7()));
-    let config_dir = root.join("claude");
-    let project = root.join("project");
-    std::fs::create_dir_all(&project).unwrap();
-    let log = root.join("init.log");
-    let mut cfg = two_claude_profiles(&config_dir, StoreMode::Memory);
-    for profile in cfg.harnesses.values_mut() {
-        profile.env.insert("FAKE_CLAUDE_INIT_LOG".into(), log.to_string_lossy().into_owned());
-    }
-    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-    let hub = Hub::new(cfg, store);
-    // What each adopt's start asked Claude Code for: its own initialize lines. The adopt answers
-    // once its start wrote Claude Code's initialize, which Claude Code reads (and the fake logs)
-    // after that: wait up to 10 s for the line.
-    let asked = |log: &std::path::Path, seen: usize| {
-        let log = log.to_owned();
-        async move {
-            let deadline = std::time::Instant::now() + Duration::from_secs(10);
-            loop {
-                let all = std::fs::read_to_string(&log).unwrap_or_default();
-                let lines: Vec<String> = all
-                    .lines()
-                    .skip(seen)
-                    .map(|l| l.rsplit(' ').next().unwrap().to_owned())
-                    .collect();
-                if !lines.is_empty() || std::time::Instant::now() > deadline {
-                    return lines;
-                }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        }
-    };
-    let transcript = |chat: &str| {
-        let path = config_dir.join(format!("projects/p/{chat}.jsonl"));
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let line = json!({"type": "user", "cwd": project, "sessionId": chat,
-                          "message": {"role": "user", "content": "hi"}});
-        std::fs::write(&path, format!("{line}\n")).unwrap();
-    };
-
-    // A script or a lane: a local connection that never proved it is the person.
-    let lane_chat = uuid::Uuid::new_v4().to_string();
-    transcript(&lane_chat);
-    let mut lane = connect(&hub, &config_dir).await;
-    let s = lane.request(method::SESSION_NEW, adopt("claude", &lane_chat, &project)).await.unwrap();
-    assert!(hub.resolve(s["sessionId"].as_str().unwrap()).unwrap().meta().created_by.is_none());
-    let lane_asked = asked(&log, 0).await;
-
-    // The person's app.
-    let person_chat = uuid::Uuid::new_v4().to_string();
-    transcript(&person_chat);
-    hub.set_harness_homes(HarnessHomes {
-        claude: config_dir.clone(),
-        codex: config_dir.join("no-codex"),
-    });
-    let (in_tx, in_rx) = mpsc::channel(64);
-    let (out_tx, out_rx) = mpsc::channel(4096);
-    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::LocalApp));
-    let mut app = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    let init = json!({"protocolVersion": 1, "clientInfo": {"name": "test"}});
-    app.request(method::INITIALIZE, init).await.unwrap();
-    app.request(method::SESSION_NEW, adopt("claude", &person_chat, &project)).await.unwrap();
-    let person_asked = asked(&log, lane_asked.len()).await;
-
-    hub.shutdown_all().await;
-    let _ = std::fs::remove_dir_all(root);
-    assert_eq!(lane_asked, ["false"], "the lane's adopt asked Claude Code for suggestions");
-    assert_eq!(person_asked, ["true"], "the person's adopt asked Claude Code for none");
 }

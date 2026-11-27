@@ -16,7 +16,6 @@ public struct CmuxMobileTerminalTheme: Equatable, Sendable {
         "minimum-contrast", "faint-opacity", "palette-generate", "palette-harmonious",
         "alpha-blending", "window-colorspace",
         "search-background", "search-foreground", "search-selected-background", "search-selected-foreground",
-        "background-cells-opacity", "background-cells-neutral-fade",
     ]
     /// The longest value kept on one line (hostd's bound).
     static let maxValueLength = 64
@@ -60,16 +59,8 @@ public struct CmuxMobileTerminalTheme: Equatable, Sendable {
 
     /// The Ghostty config text that gives a terminal this theme: every theme key (and `theme`, so
     /// no theme file of the phone's loads) reset to Ghostty's default, then the Mac's lines.
-    public var configText: String { configText(seeThrough: false) }
-
-    /// ``configText``, and with `seeThrough` (the page under the terminal shows its Mac's wallpaper,
-    /// ``CmuxMobileMacTheme/wallpaper``) a transparent default background: the cells' own colors
-    /// stay, and the picture under the theme's tint shows behind the rest, as on the Mac, where the
-    /// window paints the picture and its tint and the surfaces draw at `background-opacity = 0`
-    /// (`GhosttyRuntimeSurfacePolicy`).
-    public func configText(seeThrough: Bool) -> String {
-        let ground = seeThrough ? ["background-opacity = 0"] : []
-        return (["theme ="] + Self.keys.map { "\($0) =" } + lines + ground).joined(separator: "\n") + "\n"
+    public var configText: String {
+        (["theme ="] + Self.keys.map { "\($0) =" } + lines).joined(separator: "\n") + "\n"
     }
 
     /// Whether the background is dark (relative luminance below one half).
@@ -96,10 +87,6 @@ public struct CmuxMobileTerminalTheme: Equatable, Sendable {
     static func hex(_ value: String) -> String? {
         rgb(value) == nil ? nil : value.lowercased()
     }
-
-    /// The phone's own terminal look, shown while Settings > Appearance > Match Mac theme is off:
-    /// true black with the app's light gray text (the colors of a phone no Mac ever themed).
-    public static let stock = CmuxMobileTerminalTheme(lines: ["background = #000000", "foreground = #e6e6e6"])!
 
     /// The 0...1 components of `#rrggbb`.
     public static func rgb(_ value: String) -> (Double, Double, Double)? {
@@ -128,11 +115,9 @@ extension CmuxMobileTerminalTheme {
 }
 
 /// Each linked Mac's terminal theme, from its `appearance` frames (``MacAppearanceFeed``), for
-/// every terminal of that Mac, whatever Mac the phone focuses. Settings > Appearance > Match Mac
-/// theme (on by default) is the override: off, every terminal shows ``CmuxMobileTerminalTheme/stock``.
-/// Leo, 2026-11-22: "if you want it different, then it's a toggle."
-/// A change posts ``didChange`` with the Mac id under ``macIDKey`` (terminals of that Mac recolor),
-/// or with no Mac id when the switch flips (every terminal recolors).
+/// every terminal of that Mac, whatever Mac the phone focuses and whatever Settings > Appearance >
+/// Match Mac theme says (that switch is the phone's chrome; a terminal shows its machine's colors).
+/// A change posts ``didChange`` with the Mac id under ``macIDKey``; terminals of that Mac recolor.
 @MainActor
 public final class CmuxMobileTerminalThemes {
     public static let shared = CmuxMobileTerminalThemes()
@@ -144,38 +129,20 @@ public final class CmuxMobileTerminalThemes {
     /// own Mac's first frame, so a cold launch does not flash the phone's default colors.
     private let cached: CmuxMobileTerminalTheme?
 
-    /// Whether terminals show their Mac's theme (Match Mac theme).
-    private let followsMac: @MainActor () -> Bool
-    private var switchObserver: (any NSObjectProtocol)?
-
-    public init(cached: CmuxMobileMacAppearance? = CmuxMobileMacAppearanceCache.standard.load(),
-                macTheme: CmuxMobileMacTheme = .shared) {
+    public init(cached: CmuxMobileMacAppearance? = CmuxMobileMacAppearanceCache.standard.load()) {
         self.cached = cached.flatMap(CmuxMobileTerminalTheme.init(appearance:))
-        followsMac = { [weak macTheme] in macTheme?.matchesMac ?? true }
-        switchObserver = NotificationCenter.default.addObserver(
-            forName: CmuxMobileMacTheme.matchesMacDidChange, object: macTheme, queue: nil
-        ) { [weak self] _ in
-            // The switch is set on the main thread (Settings); recolor there at once.
-            let recolor: @MainActor @Sendable () -> Void = { [weak self] in
-                guard let self else { return }
-                NotificationCenter.default.post(name: Self.didChange, object: self)
-            }
-            if Thread.isMainThread { MainActor.assumeIsolated(recolor) } else { Task { @MainActor in recolor() } }
-        }
     }
 
     /// The theme for a terminal of `macID`: that Mac's, else the cached one; nil before any Mac
-    /// ever sent one. With Match Mac theme off, ``CmuxMobileTerminalTheme/stock``.
+    /// ever sent one.
     public func theme(for macID: String?) -> CmuxMobileTerminalTheme? {
-        guard followsMac() else { return .stock }
-        return macID.flatMap { byMac[$0] } ?? cached
+        macID.flatMap { byMac[$0] } ?? cached
     }
 
     /// `macID`'s newest appearance frame.
     public func apply(_ appearance: CmuxMobileMacAppearance, macID: String) {
         guard let theme = CmuxMobileTerminalTheme(appearance: appearance), byMac[macID] != theme else { return }
         byMac[macID] = theme
-        guard followsMac() else { return }
         themeLog.info("terminal theme of \(macID, privacy: .private(mask: .hash)): \(theme.lines.count) lines, background \(theme.background, privacy: .public), from \(appearance.terminal == nil ? "chrome colors" : "terminal lines", privacy: .public)")
         NotificationCenter.default.post(name: Self.didChange, object: self, userInfo: [Self.macIDKey: macID])
     }

@@ -1,0 +1,32 @@
+{
+  "checkedAtUTC": "2026-09-11T05:33:49.856189+00:00",
+  "baseRevision": "72ce5e9b41a83d3f8f3a21288856449f3580686e",
+  "dirtyWorktree": true,
+  "leaseID": "20260910211351-8258-9168",
+  "host": "cmux@cmux11s-mac-mini",
+  "slot": "cmux11s-v.4",
+  "sharedTests": {
+    "passed": 48,
+    "suites": 9,
+    "newInstallationTests": 5,
+    "newEndpointShutdownTests": 2,
+    "command": "swift test --package-path Packages/Shared/CmuxIrxTransport -j 4 --filter \"IrxRelayCredentialInstallerTests|IrxDirectOnlyEndpointTests|IrxLiveQUICTests|IrxLivenessTests|V2\""
+  },
+  "iOSBuild": {
+    "tag": "iv2a",
+    "result": "BUILD SUCCEEDED",
+    "derivedData": "/tmp/cmux-iv2a-20260910211351"
+  },
+  "sourceSnapshot": {
+    "files": 76,
+    "localRemoteHashesMatch": true,
+    "scope": "All shared transport source/tests/fixtures and Package.swift, plus the changed iOS lifecycle file."
+  },
+  "notVerified": [
+    "Live authenticated relay credential rollover",
+    "Deployed backend and fresh database",
+    "One-hour simulator acceptance",
+    "Mac application tests after legacy retirement"
+  ],
+  "leaseDisposition": "Released after the shared tests, iOS build and source receipts were captured."
+}

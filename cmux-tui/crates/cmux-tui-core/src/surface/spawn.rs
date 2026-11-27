@@ -41,38 +41,10 @@ fn wait_for_local_output(fd: RawFd, wake: &mut UnixStream) -> std::io::Result<bo
     }
 }
 
-/// A local runtime's output: a reader the reader thread parses from.
-pub(crate) trait LocalReader: Read + Send {
-    /// Blocks until a read takes bytes (or the end) without blocking, for a
-    /// source whose read blocks with no descriptor to poll (the holder's
-    /// stream). The reader thread waits here before it takes its 64 KiB
-    /// read buffer, so an idle terminal holds none (CMUX-571 infinite
-    /// items). A source with nothing to wait for returns at once.
-    fn wait_readable(&mut self) {}
-
-    /// [`Self::wait_readable`] for at most `idle`: false when nothing came
-    /// (the reader then parks, [`LocalReaderTask`]). A source that cannot
-    /// park waits as long as it takes.
-    fn wait_readable_for(&mut self, _idle: Duration) -> bool {
-        self.wait_readable();
-        true
-    }
-}
-
-/// A quiet holder terminal's reader parks on its sink after this long
-/// (CMUX-571 infinite items): a thousand idle terminals hold no reader
-/// thread, and one that prints keeps its thread between bursts.
-#[cfg(unix)]
-const HOLDER_READER_PARK_AFTER: Duration = Duration::from_secs(10);
-
-/// A PTY's or a byte backend's reader: its descriptor (or channel) is what the
-/// reader waits on, in its read.
-impl LocalReader for Box<dyn Read + Send> {}
-
 /// What the local runtime of one terminal runs on.
 pub(crate) struct LocalLaunch {
     pub master: Box<dyn MasterPty + Send>,
-    pub reader: Box<dyn LocalReader>,
+    pub reader: Box<dyn Read + Send>,
     pub writer: Box<dyn Write + Send>,
     pub killer: Box<dyn ChildKiller + Send>,
     /// Blocks until the far side ended; runs on the reaper thread. Dropping
@@ -125,7 +97,7 @@ impl Surface {
         } = spawn;
         let LocalLaunch {
             master,
-            reader,
+            mut reader,
             writer,
             killer,
             wait,
@@ -141,8 +113,6 @@ impl Surface {
         // reads the screen and what is still unparsed at one instant.
         #[cfg(unix)]
         let parsed_sink = holder.as_ref().map(|terminal| terminal.sink.clone());
-        #[cfg(unix)]
-        let holder_sink = parsed_sink.clone();
         // Direct PTY readers can wait for readiness before taking the source
         // order gate. Holder and byte-backend readers are not backed by this
         // PTY descriptor, so they retain their existing blocking path.
@@ -157,7 +127,7 @@ impl Surface {
             })
             .transpose()?;
         #[cfg(unix)]
-        let (wake_writer, wake_reader) = if read_fd.is_some() {
+        let (wake_writer, mut wake_reader) = if read_fd.is_some() {
             let (writer, reader) = UnixStream::pair()?;
             writer.set_nonblocking(true)?;
             reader.set_nonblocking(true)?;
@@ -247,11 +217,10 @@ impl Surface {
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
-                reader_detached: AtomicBool::new(false),
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: TerminalMirror::new(Box::new(term), opts.scrollback),
+                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),
@@ -266,7 +235,6 @@ impl Surface {
                 input_route: arc_swap::ArcSwapOption::empty(),
                 #[cfg(any(unix, windows))]
                 input_port: Default::default(),
-                paste_pacer: Mutex::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
@@ -295,8 +263,6 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 recover_requested: AtomicBool::new(false),
-                #[cfg(unix)]
-                host_fence_wait: Default::default(),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(false),
@@ -363,56 +329,118 @@ impl Surface {
         }
         spawn_frame_producer(&surface)?;
 
-        // A holder terminal's reader parks on its sink while the terminal is
-        // quiet, and its reaper is the reader's tail: the reader ends only
-        // once the sink ended (or detached), so the end is there to take.
-        // An idle holder terminal holds no thread (CMUX-571 infinite items).
-        #[cfg(unix)]
-        let park_sink = holder_sink;
-        #[cfg(not(unix))]
-        let park_sink: Option<()> = None;
-        let reaper_completion =
-            surface.as_pty().expect("local PTY surface owns its reaper").reaper_completion.clone();
-        reaper_completion.reset();
-        let (tail, wait) = if park_sink.is_some() {
-            (Some((wait, ReaderCompletionGuard(reaper_completion.clone()))), None)
-        } else {
-            (None, Some(wait))
-        };
-
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
-        #[cfg(unix)]
-        let read_fd = output
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .descriptor
-            .as_ref()
-            .map(AsRawFd::as_raw_fd);
-        let publisher =
-            output.lock().unwrap_or_else(std::sync::PoisonError::into_inner).publisher();
-        let task = LocalReaderTask {
-            _completion: ReaderCompletionGuard(
-                surface
-                    .as_pty()
-                    .expect("local PTY reader owns a PTY surface")
-                    .reader_completion
-                    .clone(),
-            ),
-            surface: surface.clone(),
-            reader,
-            output,
-            publisher,
-            #[cfg(unix)]
-            read_fd,
-            #[cfg(unix)]
-            wake_reader,
-            #[cfg(unix)]
-            park_sink,
-            tail,
-        };
-        let reader_thread = std::thread::Builder::new()
-            .name(format!("surface-{id}-reader"))
-            .spawn(move || task.run())?;
+        let reader_thread =
+            std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
+                let surface = surface.clone();
+                #[cfg(unix)]
+                let read_fd = output
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .descriptor
+                    .as_ref()
+                    .map(AsRawFd::as_raw_fd);
+                move || {
+                    let _reader_completion = ReaderCompletionGuard(
+                        surface
+                            .as_pty()
+                            .expect("local PTY reader owns a PTY surface")
+                            .reader_completion
+                            .clone(),
+                    );
+                    let mut would_block = crate::backoff::Backoff::new(
+                        Duration::from_millis(1),
+                        Duration::from_millis(50),
+                    );
+                    let publisher = output
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .publisher();
+                    loop {
+                        let pty = surface.as_pty().expect("surface reader got non-pty surface");
+                        #[cfg(unix)]
+                        let ready = if let (Some(fd), Some(wake)) = (read_fd, wake_reader.as_mut())
+                        {
+                            match wait_for_local_output(fd, wake) {
+                                Ok(ready) => ready,
+                                Err(_) => break,
+                            }
+                        } else {
+                            true
+                        };
+                        #[cfg(not(unix))]
+                        let ready = true;
+                        #[cfg(all(test, unix))]
+                        if ready {
+                            pty.run_geometry_test_hook(PtyGeometryTestStep::LocalReaderReady);
+                        }
+                        let (result, events) = {
+                            let mut output =
+                                output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                            // A resize may have drained the readiness that woke
+                            // us. Recheck under the same parser lock before a
+                            // blocking read, then parse on that same boundary.
+                            #[cfg(unix)]
+                            let ready = ready
+                                && read_fd.is_none_or(|fd| {
+                                    local_output::readable(fd, 0).unwrap_or(false)
+                                });
+                            let result = if ready {
+                                output
+                                    .read(pty, |buf| {
+                                        let mut count = reader.read(buf)?;
+                                        // A flood: the bytes already waiting are parsed with
+                                        // this read, not one parse per PTY read (1 KiB on
+                                        // macOS). A lone echo finds nothing more.
+                                        #[cfg(unix)]
+                                        if count > 0
+                                            && let Some(fd) = read_fd
+                                        {
+                                            local_output::fill_waiting(
+                                                fd,
+                                                buf,
+                                                &mut count,
+                                                |rest| reader.read(rest),
+                                            );
+                                        }
+                                        Ok(count)
+                                    })
+                                    .map(Some)
+                            } else {
+                                Ok(None)
+                            };
+                            let events = output.take_pending();
+                            (result, events)
+                        };
+                        publisher.publish(&surface, events);
+                        match result {
+                            Ok(Some(0)) => break,
+                            Ok(_) => would_block.reset(),
+                            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                                continue;
+                            }
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                // No parser or source lock is held across backoff.
+                                would_block.sleep();
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    #[cfg(unix)]
+                    {
+                        let mut output =
+                            output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        // Dead surfaces can remain visible. Do not keep their
+                        // duplicated PTY descriptor alive with that placement.
+                        output.finish();
+                    }
+                    if let Some(pty) = surface.as_pty() {
+                        pty.publish_final_frame();
+                        pty.local_pty_drained.store(true, Ordering::Release);
+                    }
+                    publish_local_exit_if_ready(&surface);
+                }
+            })?;
         *surface
             .as_pty()
             .expect("local PTY surface owns its reader")
@@ -420,9 +448,11 @@ impl Surface {
             .lock()
             .unwrap() = Some(reader_thread);
 
-        let Some(wait) = wait else { return Ok(surface) };
         // Child reaper: retain the native status and rendezvous with PTY EOF
         // so final output is visible before the mux observes completion.
+        let reaper_completion =
+            surface.as_pty().expect("local PTY surface owns its reaper").reaper_completion.clone();
+        reaper_completion.reset();
         // Keep the surface alive with the join handle until the child wait
         // completes. This prevents a deadline timeout from detaching a live
         // reaper when teardown drops the last external surface reference.
@@ -430,7 +460,12 @@ impl Surface {
         let reaper_thread =
             match std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn(move || {
                 let _reaper_completion = ReaderCompletionGuard(reaper_completion);
-                reap(&reaper_surface, wait);
+                let end = wait();
+                if let Some(pty) = reaper_surface.as_pty() {
+                    *pty.exit.lock().unwrap() = Some(end);
+                }
+                close_local_terminal_master_after_exit(&reaper_surface);
+                publish_local_exit_if_ready(&reaper_surface);
             }) {
                 Ok(reaper_thread) => reaper_thread,
                 Err(error) => {
@@ -446,183 +481,6 @@ impl Surface {
             .unwrap() = Some(reaper_thread);
 
         Ok(surface)
-    }
-}
-
-/// The far side ended (`wait` returned): record its end and publish the
-/// exit once the reader drained too.
-fn reap(surface: &Arc<Surface>, wait: Box<dyn FnOnce() -> TerminalEnd + Send>) {
-    let end = wait();
-    if let Some(pty) = surface.as_pty() {
-        *pty.exit.lock().unwrap() = Some(end);
-    }
-    close_local_terminal_master_after_exit(surface);
-    publish_local_exit_if_ready(surface);
-}
-
-/// A reader that parked ends its thread. Let go of that thread's handle if it
-/// is this one, so the ended thread's stack is freed now and not when the tab
-/// closes: every quiet holder terminal kept one 2 MiB stack mapped.
-#[cfg(unix)]
-pub(super) fn detach_own_reader_thread(pty: &PtyTerminalRuntime) {
-    let mut slot = pty.reader_thread.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if slot.as_ref().is_some_and(|reader| reader.thread().id() == std::thread::current().id()) {
-        pty.reader_detached.store(true, Ordering::Release);
-        drop(slot.take());
-    }
-}
-
-/// One local terminal's reader, on its thread or parked on its holder sink
-/// ([`HolderSink::park`](crate::holder_runtime::HolderSink::park)) while the
-/// terminal is quiet.
-struct LocalReaderTask {
-    /// Completes when the reader ends for good (not when it parks).
-    _completion: ReaderCompletionGuard,
-    surface: Arc<Surface>,
-    reader: Box<dyn LocalReader>,
-    output: Arc<Mutex<local_output::LocalOutput>>,
-    publisher: local_output::OutputPublisher,
-    #[cfg(unix)]
-    read_fd: Option<RawFd>,
-    #[cfg(unix)]
-    wake_reader: Option<UnixStream>,
-    /// A holder terminal's sink: the reader parks on it when quiet.
-    #[cfg(unix)]
-    park_sink: Option<Arc<crate::holder_runtime::HolderSink>>,
-    /// The reaper this reader runs once it ends, for a holder terminal (with
-    /// the reaper's completion).
-    tail: Option<(Box<dyn FnOnce() -> TerminalEnd + Send>, ReaderCompletionGuard)>,
-}
-
-impl LocalReaderTask {
-    /// Read until the end; or until the terminal goes quiet and the reader
-    /// parks, to run again on a new thread when it has something.
-    fn run(mut self) {
-        let mut would_block =
-            crate::backoff::Backoff::new(Duration::from_millis(1), Duration::from_millis(50));
-        loop {
-            let surface = self.surface.clone();
-            let pty = surface.as_pty().expect("surface reader got non-pty surface");
-            // A holder stream blocks here, holding no read buffer and no lock;
-            // a quiet one parks, holding no thread either.
-            #[cfg(unix)]
-            let parks = self.park_sink.clone();
-            #[cfg(not(unix))]
-            let parks: Option<()> = None;
-            match parks {
-                #[cfg(unix)]
-                Some(sink) => {
-                    if !self.reader.wait_readable_for(HOLDER_READER_PARK_AFTER) {
-                        match sink.park(self, LocalReaderTask::resume) {
-                            Ok(()) => {
-                                detach_own_reader_thread(pty);
-                                return;
-                            }
-                            Err(task) => self = task,
-                        }
-                        continue;
-                    }
-                }
-                _ => self.reader.wait_readable(),
-            }
-            #[cfg(unix)]
-            let ready = if let (Some(fd), Some(wake)) = (self.read_fd, self.wake_reader.as_mut()) {
-                match wait_for_local_output(fd, wake) {
-                    Ok(ready) => ready,
-                    Err(_) => break,
-                }
-            } else {
-                true
-            };
-            #[cfg(not(unix))]
-            let ready = true;
-            #[cfg(all(test, unix))]
-            if ready {
-                pty.run_geometry_test_hook(PtyGeometryTestStep::LocalReaderReady);
-            }
-            #[cfg(unix)]
-            let read_fd = self.read_fd;
-            let reader = &mut self.reader;
-            let (result, events) = {
-                let mut output =
-                    self.output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                // A resize may have drained the readiness that woke
-                // us. Recheck under the same parser lock before a
-                // blocking read, then parse on that same boundary.
-                #[cfg(unix)]
-                let ready = ready
-                    && read_fd.is_none_or(|fd| local_output::readable(fd, 0).unwrap_or(false));
-                let result = if ready {
-                    output
-                        .read(pty, |buf| {
-                            let mut count = reader.read(buf)?;
-                            // A flood: the bytes already waiting are parsed with
-                            // this read, not one parse per PTY read (1 KiB on
-                            // macOS). A lone echo finds nothing more.
-                            #[cfg(unix)]
-                            if count > 0
-                                && let Some(fd) = read_fd
-                            {
-                                local_output::fill_waiting(fd, buf, &mut count, |rest| {
-                                    reader.read(rest)
-                                });
-                            }
-                            Ok(count)
-                        })
-                        .map(Some)
-                } else {
-                    Ok(None)
-                };
-                let events = output.take_pending();
-                (result, events)
-            };
-            self.publisher.publish(&surface, events);
-            match result {
-                Ok(Some(0)) => break,
-                Ok(_) => would_block.reset(),
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
-                    continue;
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    // No parser or source lock is held across backoff.
-                    would_block.sleep();
-                }
-                Err(_) => break,
-            }
-        }
-        self.finish();
-    }
-
-    /// The reader ended: release the source, mark the output drained, and
-    /// for a holder terminal take its end (the reaper's work).
-    fn finish(self) {
-        let LocalReaderTask { _completion, surface, output, tail, .. } = self;
-        #[cfg(unix)]
-        {
-            let mut output = output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            // Dead surfaces can remain visible. Do not keep their
-            // duplicated PTY descriptor alive with that placement.
-            output.finish();
-        }
-        #[cfg(not(unix))]
-        drop(output);
-        if let Some(pty) = surface.as_pty() {
-            pty.publish_final_frame();
-            pty.local_pty_drained.store(true, Ordering::Release);
-        }
-        publish_local_exit_if_ready(&surface);
-        drop(_completion);
-        if let Some((wait, _reaper_completion)) = tail {
-            reap(&surface, wait);
-        }
-    }
-
-    /// The parked reader has something to read: read on a new thread. With
-    /// no thread to be had it reads on the thread that woke it.
-    #[cfg(unix)]
-    fn resume(self) {
-        let name = format!("surface-{}-reader", self.surface.id);
-        host_frames::spawn_or(&name, self, LocalReaderTask::run, LocalReaderTask::run);
     }
 }
 
@@ -663,7 +521,7 @@ impl Surface {
         let command = vec![side.terminal.clone()];
         let launch = LocalLaunch {
             master: Box::new(master),
-            reader: Box::new(reader),
+            reader,
             writer,
             killer: Box::new(BackendKiller(side.clone())),
             wait: Box::new(move || wait_end(&side)),

@@ -14,9 +14,6 @@ private let logger = Logger(subsystem: "com.cmuxterm.remote", category: "device-
 struct ScreenSharingState: Codable, Equatable, Sendable {
     var userID: String?
     var hubURL: String?
-    /// The build space the app anchored this device in (`dev:<slug>` for a tagged dev build, nil for the default
-    /// space): the renewal goes to that space's User DO, the only one that knows the anchor.
-    var buildSpace: String?
     /// The app has told this worker its join consent at least once; until then no session serves.
     var consentKnown = false
     /// The app's join consent: when `enabled`, a session needs `view` (or `full` for Full Control).
@@ -56,14 +53,6 @@ final class DeviceAgent {
     private(set) var identity: DeviceIdentity?
     private(set) var hub: DeviceHub?
     private(set) var state: ScreenSharingState
-    private(set) var relayOnly = false
-    /// Changes whenever host ownership changes. Approval tasks capture this so a
-    /// stale answer cannot write permission after the app takes ownership.
-    private var ownershipEpoch = 0
-    /// The app owns host tickets while any app channel is open. The worker is
-    /// then identity and push relay only, so it must not end or replace the
-    /// app-owned session when a reused ticket arrives.
-    var mayHostSessions: Bool { !relayOnly }
     let sessions = HostSessions()
     let banner = ApprovalBanner()
     let indicator = ShareIndicator()
@@ -71,14 +60,6 @@ final class DeviceAgent {
     let relay = PushRelay()
     /// Called when anything in `status` changes.
     var changed: () -> Void = {}
-    /// Host-ticket sink. The worker owns the default HostSessions sink; keeping
-    /// this boundary explicit lets ownership tests observe a ticket before any
-    /// signaling or end-session write occurs.
-    var serveTicket: (SessionTicket) -> Void = { _ in }
-    /// Hub approval operations are dependency boundaries, so the ownership
-    /// guard runs around the decision and remembered-permission writes.
-    var decideApproval: @MainActor (DeviceHub, SessionRequest, SessionDecision, SessionScope) async throws -> Void = { _, _, _, _ in }
-    var rememberApproval: @MainActor (DeviceHub, String, DeviceScope) async throws -> Void = { _, _, _ in }
     private var loading: Task<DeviceIdentity?, Never>?
 
     init(keychainScope: String, statePath: String, headless: Bool) {
@@ -90,18 +71,11 @@ final class DeviceAgent {
         sessions.permits = { [weak self] in self?.state.permits($0) ?? false }
         sessions.changed = { [weak self] in self?.sessionsChanged() }
         banner.changed = { [weak self] in self?.changed() }
-        serveTicket = { [weak self] ticket in self?.sessions.serve(ticket) }
-        decideApproval = { hub, request, decision, scope in try await hub.decide(request, decision: decision, scope: scope) }
-        rememberApproval = { hub, viewer, scope in try await hub.setPermission(host: hub.identity.id, viewer: viewer, scope: scope) }
         banner.decide = { [weak self] request, choice in
-            guard let self, let hub = self.hub, !self.relayOnly else {
-                throw DeviceHubError.server(status: 409, code: .sessionNotPending, message: "the app owns Mac Screen approvals")
-            }
-            let epoch = self.ownershipEpoch
+            guard let hub = self?.hub else { throw DeviceHubError.notSignedIn }
             let (decision, scope, thenPermission) = choice.answer(requested: request.scope)
-            try await self.decideApproval(hub, request, decision, scope)
-            guard !self.relayOnly, self.ownershipEpoch == epoch, self.hub === hub else { return }
-            if let thenPermission { try await self.rememberApproval(hub, request.viewerId, thenPermission) }
+            try await hub.decide(request, decision: decision, scope: scope)
+            if let thenPermission { try await hub.setPermission(host: hub.identity.id, viewer: request.viewerId, scope: thenPermission) }
         }
         indicator.stop = { [weak self] in self?.sessions.stop() }
         indicator.revoke = { [weak self] in self?.sessions.revokeViewer() }
@@ -135,23 +109,13 @@ final class DeviceAgent {
 
     // MARK: Account
 
-    /// The app anchored this device for `userID` on `hubURL`, in `buildSpace` (nil: the default space).
-    func anchored(userID: String, hubURL: String, buildSpace: String? = nil) {
-        let changedAccount = state.userID != userID || state.hubURL != hubURL || state.buildSpace != buildSpace
+    /// The app anchored this device for `userID` on `hubURL`.
+    func anchored(userID: String, hubURL: String) {
+        let changedAccount = state.userID != userID || state.hubURL != hubURL
         state.userID = userID
         state.hubURL = hubURL
-        state.buildSpace = buildSpace
         state.save(statePath)
         if changedAccount || hub == nil { startHub() }
-    }
-
-    /// `dev:` and a slug of lowercase ASCII letters, digits and inner dashes, at most 64 (the hub's pattern).
-    nonisolated static func isBuildSpace(_ value: String) -> Bool {
-        guard value.hasPrefix("dev:") else { return false }
-        let slug = Array(value.utf8.dropFirst(4))
-        func edge(_ b: UInt8) -> Bool { (0x61...0x7A).contains(b) || (0x30...0x39).contains(b) }
-        guard let first = slug.first, let last = slug.last, slug.count <= 64, edge(first), edge(last) else { return false }
-        return slug.allSatisfy { edge($0) || $0 == UInt8(ascii: "-") }
     }
 
     /// The app signed out: this device leaves the hub until it anchors again.
@@ -169,25 +133,6 @@ final class DeviceAgent {
         state.save(statePath)
         sessions.consentChanged()
     }
-
-    /// While the app has a channel open it owns host tickets and approvals. The
-    /// worker remains the identity and push relay, but must not race the app host.
-    func setRelayOnly(_ relayOnly: Bool) {
-        guard self.relayOnly != relayOnly else { return }
-        ownershipEpoch &+= 1
-        self.relayOnly = relayOnly
-        if relayOnly {
-            sessions.closeAll()
-            banner.update([])
-        } else if let hub {
-            followPending(hub)
-        }
-        changed()
-    }
-
-    /// Updates the worker's active hub. Both normal account handoff and tests
-    /// use this boundary so stale approval tasks can compare hub identity.
-    func setHub(_ hub: DeviceHub?) { self.hub = hub }
 
     /// The hub refused this identity (removed): a new one; the app registers it.
     func renewIdentity() async -> DeviceIdentity? {
@@ -208,14 +153,13 @@ final class DeviceAgent {
     private func startHub() {
         stopHub()
         guard let identity, let userID = state.userID, let text = state.hubURL, let url = URL(string: text) else { return }
-        let client = DeviceHubClient(baseURL: url, identity: identity, source: .deviceRenewal(userID: userID),
-                                     buildSpace: state.buildSpace.map(DeviceHubBuildSpace.dev) ?? .nightly)
+        let client = DeviceHubClient(baseURL: url, identity: identity, source: .deviceRenewal(userID: userID))
         let relay = self.relay
         let socket = DeviceHubSocket(connector: RelayingConnector(inner: URLSessionDeviceHubConnector(client: client), relay: relay))
         let hub = DeviceHub(client: client, socket: socket, secrets: KeychainRelaySecretStore(bundleIdentifier: keychainScope),
                             deviceName: Host.current().localizedName ?? "Mac")
         hub.onSessionPush = { [weak self] push in self?.handle(push) }
-        setHub(hub)
+        self.hub = hub
         followPending(hub)
         Task { [weak self] in
             await hub.start()
@@ -229,16 +173,14 @@ final class DeviceAgent {
         sessions.closeAll()
         hub?.onSessionPush = nil
         hub?.stop()
-        setHub(nil)
+        hub = nil
         banner.update([])
         changed()
     }
 
-    func handle(_ push: DeviceHubPush) {
+    private func handle(_ push: DeviceHubPush) {
         switch push {
-        case let .sessionTicket(ticket):
-            guard mayHostSessions else { break }
-            serveTicket(ticket)
+        case let .sessionTicket(ticket): sessions.serve(ticket)
         case let .sessionRevoked(id, _), let .sessionEnded(id, _): sessions.sessionOver(id)
         default: break
         }
@@ -247,13 +189,9 @@ final class DeviceAgent {
 
     /// The banner follows the hub's pending requests (Observation, no poll).
     private func followPending(_ hub: DeviceHub) {
-        guard !relayOnly else {
-            banner.update([])
-            return
-        }
         let requests = withObservationTracking { hub.pendingRequests } onChange: { [weak self, weak hub] in
             Task { @MainActor [weak self, weak hub] in
-                guard let self, let hub, self.hub === hub, !self.relayOnly else { return }
+                guard let self, let hub, self.hub === hub else { return }
                 followPending(hub)
             }
         }

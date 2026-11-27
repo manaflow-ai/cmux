@@ -468,7 +468,7 @@ fn others_pick_the_cheapest_tier_and_gemini_is_not_mini() {
 
 #[test]
 fn only_the_unix_socket_may_complete() {
-    use crate::conn_origin::Origin;
+    use crate::server::Origin;
     assert!(allowed(Origin::Local));
     for origin in [Origin::Web, Origin::LocalApp, Origin::Peer] {
         assert!(!allowed(origin), "{origin:?} may not run a completion");

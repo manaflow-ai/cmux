@@ -8,8 +8,6 @@
   package_notices.py check-data
   package_notices.py check-windows-toolchain [--gcc GCC]
   package_notices.py check-windows-binary BINARY [BINARY ...]
-  package_notices.py windows-toolchain-archive
-  package_notices.py check-windows-sysroot SYSROOT [--cc CC]
   package_notices.py check-darwin-binary BINARY [BINARY ...]
 
 `generate` writes DIR/<kind>-<rust target>.md for kind `cmux-tui` (bin/cmux-tui
@@ -282,33 +280,6 @@ def windows_toolchain_problems(gcc_version: str, predefined_macros: str, inputs:
         )
     if "_UCRT" not in macros:
         problems.append("the MinGW gcc targets msvcrt, but the reviewed Windows runtime is the UCRT build")
-    return problems
-
-
-def windows_toolchain_archive(inputs: Inputs) -> tuple[str, str]:
-    """The reviewed MinGW-Builds archive's URL and sha256, from the review's own toolchain text:
-    the Linux cross-build (scripts/ci/windows-gnu-cross-build.sh) links against exactly this archive."""
-    win, _ = _reviewed_windows(inputs)
-    match = re.search(r"\((https://\S+\.7z), sha256 ([0-9a-f]{64})\)", win["toolchain"])
-    if not match:
-        raise ValueError("package-notices.json windows_gnu toolchain names no archive URL and sha256")
-    return match.group(1), match.group(2)
-
-
-def windows_sysroot_problems(sysroot: Path, predefined_macros: str, inputs: Inputs) -> list[str]:
-    """A Linux cross-build's sysroot (the reviewed archive, unpacked; its sha256 is checked before
-    unpacking): the C compiler's <_mingw.h> must be the reviewed mingw-w64 and UCRT, and the GCC
-    runtime libraries must be the reviewed GCC's. clang compiles the C code there, so the binaries
-    carry no GCC ident (check-windows-binary accepts none); the runtime archives are the reviewed ones."""
-    win, _ = _reviewed_windows(inputs)
-    problems = [p for p in windows_toolchain_problems(f"x ({win['gcc_build']}) {win['gcc_version']}", predefined_macros, inputs)]
-    gcc_lib = sysroot / "lib" / "gcc" / "x86_64-w64-mingw32" / win["gcc_version"]
-    for name in ("libgcc.a", "libgcc_eh.a"):
-        if not (gcc_lib / name).is_file():
-            problems.append(f"{gcc_lib / name} is missing: the sysroot is not the reviewed GCC {win['gcc_version']} runtime")
-    for name in ("crt2.o", "libmingw32.a", "libmingwex.a", "libucrt.a"):
-        if not (sysroot / "x86_64-w64-mingw32" / "lib" / name).is_file():
-            problems.append(f"the sysroot has no x86_64-w64-mingw32/lib/{name}")
     return problems
 
 
@@ -596,10 +567,6 @@ def main(argv: list[str]) -> int:
     sub.add_parser("check-data")
     check_toolchain = sub.add_parser("check-windows-toolchain")
     check_toolchain.add_argument("--gcc", default="x86_64-w64-mingw32-gcc", help="the linker rustc uses for x86_64-pc-windows-gnu")
-    sub.add_parser("windows-toolchain-archive")
-    check_sysroot = sub.add_parser("check-windows-sysroot")
-    check_sysroot.add_argument("sysroot", type=Path)
-    check_sysroot.add_argument("--cc", default="x86_64-w64-mingw32-cc", help="the C compiler wrapper the cross-build uses")
     check_windows = sub.add_parser("check-windows-binary")
     check_windows.add_argument("binaries", type=Path, nargs="+")
     check_darwin = sub.add_parser("check-darwin-binary")
@@ -619,20 +586,6 @@ def main(argv: list[str]) -> int:
                 print(f"package_notices: error: {problem}", file=sys.stderr)
             if not problems:
                 print(f"package_notices: {version.splitlines()[0]} is the reviewed Windows runtime toolchain")
-            return 1 if problems else 0
-        if args.command == "windows-toolchain-archive":
-            print(*windows_toolchain_archive(load_inputs()))
-            return 0
-        if args.command == "check-windows-sysroot":
-            macros = subprocess.run(
-                [args.cc, "-dM", "-E", "-x", "c", "-"], input="#include <_mingw.h>\n",
-                capture_output=True, text=True, check=True,
-            ).stdout
-            problems = windows_sysroot_problems(args.sysroot, macros, load_inputs())
-            for problem in problems:
-                print(f"package_notices: error: {problem}", file=sys.stderr)
-            if not problems:
-                print(f"package_notices: {args.sysroot} is the reviewed Windows runtime (mingw-w64, UCRT, GCC runtime)")
             return 1 if problems else 0
         if args.command == "check-windows-binary":
             inputs = load_inputs()

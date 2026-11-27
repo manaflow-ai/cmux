@@ -26,9 +26,6 @@ mod update_plan;
 #[path = "harness_health/claude_expiry.rs"]
 mod claude_expiry;
 
-#[path = "harness_health/dev_builds.rs"]
-mod dev_builds;
-
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::harness_health::{Settings, latest::Sources};
 use acpmux::hub::Hub;
@@ -142,15 +139,9 @@ impl Client {
 
 /// A hub over the profiles in `user`, with no newest-version lookups.
 fn hub_for(root: &Path, user: &Path, home: &Path) -> Arc<Hub> {
-    let sources = ProfileSources { user_dir: Some(user.into()), ..ProfileSources::none() };
+    let sources = ProfileSources { managed: vec![], user_dir: Some(user.into()), cmux_json: None };
     std::fs::create_dir_all(root.join("acpmux")).unwrap();
     std::fs::write(root.join("acpmux/config.json"), "{}").unwrap();
-    // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-    std::fs::set_permissions(
-        root.join("acpmux/config.json"),
-        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
-    )
-    .unwrap();
     let mut cfg = Config::load_from_with(&root.join("acpmux/config.json"), &sources).unwrap();
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
@@ -339,15 +330,9 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
         ("/brew/formula/gemini-cli.json", json!({"versions": {"stable": "0.10.1"}})),
     ]);
 
-    let sources = ProfileSources { user_dir: Some(user.clone()), ..ProfileSources::none() };
+    let sources = ProfileSources { managed: vec![], user_dir: Some(user.clone()), cmux_json: None };
     std::fs::create_dir_all(root.join("acpmux")).unwrap();
     std::fs::write(root.join("acpmux/config.json"), "{}").unwrap();
-    // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-    std::fs::set_permissions(
-        root.join("acpmux/config.json"),
-        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
-    )
-    .unwrap();
     let mut cfg = Config::load_from_with(&root.join("acpmux/config.json"), &sources).unwrap();
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
@@ -642,11 +627,10 @@ async fn wait_row(app: &mut Client, id: &str, done: impl Fn(&Value) -> bool) -> 
     panic!("{id} never got there");
 }
 
-/// Auto-update (on by default, per harness; Leo: "auto update for ppl"): turning it on, or a check
-/// that finds a harness with it on outdated, runs its own updater (never one that needs sudo),
-/// then checks again. A failed update is not retried for the same version until auto-update is
-/// turned on again. The choice is kept in acpmux's home; a remote WebSocket connection cannot
-/// change it.
+/// Auto-update (off by default, per harness): turning it on, or a check that finds an opted-in
+/// harness outdated, runs its own updater (never one that needs sudo), then checks again. A failed
+/// update is not retried for the same version until auto-update is turned on again. The choice is
+/// kept in acpmux's home; a remote WebSocket connection cannot change it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again() {
     let root = scratch("auto");
@@ -688,7 +672,7 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     )
     .unwrap();
     profile(&user, "opencode", &format!("command = \"{}\"\n", opencode.display()));
-    // npm, outdated, auto-update turned off.
+    // npm, outdated, auto-update off.
     let npm = root.join("npm");
     let codex = npm.join("bin/codex-acp");
     program(
@@ -705,16 +689,6 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     ]);
     let hub = hub_for(&root, &user, &home);
     let chosen = root.join("acpmux/harness-auto-update.json");
-    // SAFETY: geteuid has no preconditions. Root writes any folder, so the sudo case is not one.
-    let rooted = unsafe { libc::geteuid() } == 0;
-    // The person turned claude and codex off (and opencode as root, whose update would run).
-    std::fs::create_dir_all(chosen.parent().unwrap()).unwrap();
-    let off = if rooted {
-        json!({"off": ["claude", "codex", "opencode"]})
-    } else {
-        json!({"off": ["claude", "codex"]})
-    };
-    std::fs::write(&chosen, off.to_string()).unwrap();
     hub.health.attach(Settings {
         sources: Some(Sources {
             npm: format!("http://127.0.0.1:{port}/npm"),
@@ -727,10 +701,7 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     });
     let mut app = Client::open(&hub, Origin::LocalApp);
     let first = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
-    assert_eq!(row(&first, "claude")["autoUpdate"], false, "turned off: {first}");
-    if !rooted {
-        assert_eq!(row(&first, "opencode")["autoUpdate"], true, "on by default: {first}");
-    }
+    assert_eq!(row(&first, "claude")["autoUpdate"], false, "off by default: {first}");
 
     std::fs::write(&fail, "").unwrap();
     let on = app
@@ -743,6 +714,8 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     assert_eq!(r["lastAutoUpdate"]["detail"], "network is down", "{r}");
     // Same installed and newest version: the periodic step does not run it again.
     assert_eq!(hub.auto_update_harnesses().await, Vec::<String>::new());
+    // SAFETY: geteuid has no preconditions. Root writes any folder, so the sudo case is not one.
+    let rooted = unsafe { libc::geteuid() } == 0;
     if !rooted {
         app.call(method::MUX_HARNESS_HEALTH, json!({"autoUpdate": {"id": "opencode", "on": true}}))
             .await
@@ -753,7 +726,7 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
         .await
         .expect_err("web origin");
     let saved = std::fs::read_to_string(&chosen).expect("choice saved");
-    assert!(!saved.contains("claude") && saved.contains("codex"), "{saved}");
+    assert!(saved.contains("claude") && !saved.contains("codex"), "{saved}");
 
     // Turning it on again tries again; only claude runs its updater, then everything is checked again.
     std::fs::remove_file(&fail).unwrap();
@@ -785,7 +758,7 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
         .await
         .expect("auto-update off");
     assert_eq!(row(&off, "claude")["autoUpdate"], false, "{off}");
-    assert!(std::fs::read_to_string(&chosen).unwrap().contains("claude"));
+    assert!(!std::fs::read_to_string(&chosen).unwrap().contains("claude"));
 
     let _ = std::process::Command::new("chmod").arg("-R").arg("u+w").arg(&root).status();
     let _ = std::fs::remove_dir_all(&root);
@@ -840,10 +813,6 @@ async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() 
         ("/npm/opencode-ai/latest", json!({"version": "0.16.0"})),
     ]);
     let hub = hub_for(&root, &user, &home);
-    // Auto-update is turned off for every harness: the request runs anyway.
-    let chosen = root.join("acpmux/harness-auto-update.json");
-    std::fs::create_dir_all(chosen.parent().unwrap()).unwrap();
-    std::fs::write(&chosen, json!({"off": ["claude", "opencode"]}).to_string()).unwrap();
     hub.health.attach(Settings {
         sources: Some(Sources {
             npm: format!("http://127.0.0.1:{port}/npm"),
@@ -851,7 +820,8 @@ async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() 
         }),
         cache: None,
         home: home.clone(),
-        auto_update: Some(chosen),
+        // Auto-update is off for every harness: the request runs anyway.
+        auto_update: Some(root.join("acpmux/harness-auto-update.json")),
         ..Settings::default()
     });
     let mut local = Client::open(&hub, Origin::Local);

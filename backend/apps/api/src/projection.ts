@@ -11,19 +11,15 @@ import { drizzleStatements } from "./projection-drizzle.ts"
  */
 /** The search rows table is hash-partitioned (not modeled in Drizzle): raw SQL with the same guard. */
 const rawStatements: Record<string, (p: Record<string, unknown>, stream: string, seq: number) => [string, Array<unknown>]> = {
-  "home.message.upsert": (p, stream, seq) => {
-    // A dev build's row names its space (build-space-projection.ts); a nightly or stable row takes the column default.
-    const dev = typeof p.space === "string" && p.space !== ""
-    return [
-      `INSERT INTO home_message_search (conversation_id, seq, message_id, author_id, author_kind, created_at, edited_at, body, source_stream, source_seq${dev ? ", space" : ""})
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10${dev ? ", $11" : ""})
+  "home.message.upsert": (p, stream, seq) => [
+    `INSERT INTO home_message_search (conversation_id, seq, message_id, author_id, author_kind, created_at, edited_at, body, source_stream, source_seq)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT (conversation_id, seq) DO UPDATE SET message_id = excluded.message_id, author_id = excluded.author_id,
        author_kind = excluded.author_kind, edited_at = excluded.edited_at, body = excluded.body,
        source_stream = excluded.source_stream, source_seq = excluded.source_seq
      WHERE home_message_search.source_seq < excluded.source_seq`,
-      [p.conversation_id, p.seq, p.message_id, p.author_id, p.author_kind, p.created_at, p.edited_at ?? null, p.body, stream, seq, ...(dev ? [p.space] : [])]
-    ]
-  },
+    [p.conversation_id, p.seq, p.message_id, p.author_id, p.author_kind, p.created_at, p.edited_at ?? null, p.body, stream, seq]
+  ],
   "home.message.delete": (p, stream, seq) => [
     `DELETE FROM home_message_search WHERE conversation_id = $1 AND seq = $2 AND source_stream = $3 AND source_seq <= $4`,
     [p.conversation_id, p.seq, stream, seq]

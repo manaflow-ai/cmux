@@ -32,13 +32,13 @@ fn server(spawner: &FakeSpawner, transport: &FakeTransport) -> Server<FakeContro
 fn connect(kind_token: &str) -> ConnectRequest {
     ConnectRequest {
         kind: "cloud-vm".into(),
-        target: "vm_alpha01".into(),
+        target: "vm-alpha01".into(),
         open_token: OpenToken(kind_token.into()),
     }
 }
 
 fn rescue(key: &str) -> Request {
-    Request::new("cloud.rescue.open", json!({ "machine": "vm_alpha01" }))
+    Request::new("cloud.rescue.open", json!({ "machine": "vm-alpha01" }))
         .origin(Origin::User)
         .key(key)
 }
@@ -68,7 +68,7 @@ fn a_long_base64url_token_is_accepted_unchanged_and_passed_to_nobody() {
     assert!(linked.is_ok(), "the connector accepts the token as given: {linked:?}");
     let opened = s.handle(&rescue("r-1").open_token(&t));
     assert!(opened.is_ok(), "rescue.open accepts the token as given: {opened:?}");
-    assert_eq!(transport.log().opened, [("vm_alpha01".to_owned(), Grid::new(80, 24))]);
+    assert_eq!(transport.log().opened, [("vm-alpha01".to_owned(), Grid::new(80, 24))]);
     let everything = sent(&mut s, &spawner, &transport);
     assert!(!everything.contains(&t), "the server passes the token to nobody");
     assert!(!everything.contains("ot_a_"), "not even a part of it");
@@ -99,7 +99,7 @@ fn a_reconnect_needs_a_new_token_and_never_sends_the_old_one() {
     let old = token("c");
     s.connector().connect(connect(&old)).expect("connect");
     // The link goes down.
-    spawner.exit("vm_alpha01", 1);
+    spawner.exit("vm-alpha01", 1);
     let _ = s.connector().take_events();
     let refused = s.connector().connect(connect("")).err();
     assert!(matches!(refused, Some(BackendError::Invalid { .. })), "{refused:?}");
@@ -124,7 +124,7 @@ fn debug_output_of_every_request_type_hides_the_token() {
     let open = OpenRequest {
         kind: "cloud-vm-rescue".into(),
         terminal: "t-1".into(),
-        target: "vm_alpha01".into(),
+        target: "vm-alpha01".into(),
         open_token: OpenToken(t.clone()),
         command: None,
         cwd: None,
@@ -163,9 +163,9 @@ fn the_server_binary_never_writes_the_token_to_stdout_or_stderr() {
     let lines = [
         // Each op path that takes the token, and their error paths.
         json!({ "type": "op", "id": "1", "op": "cloud.rescue.open", "origin": "user",
-            "idempotency_key": "r-1", "args": { "machine": "vm_alpha01" }, "open_token": t }),
+            "idempotency_key": "r-1", "args": { "machine": "vm-alpha01" }, "open_token": t }),
         json!({ "type": "op", "id": "2", "op": "cloud.machine.connect", "origin": "user",
-            "idempotency_key": "c-1", "args": { "machine": "vm_alpha01" }, "open_token": t }),
+            "idempotency_key": "c-1", "args": { "machine": "vm-alpha01" }, "open_token": t }),
         json!({ "type": "op", "id": "3", "op": "cloud.rescue.open", "origin": "nobody",
             "args": {}, "open_token": t }),
         json!({ "type": "op", "id": "4", "op": "cloud.rescue.open", "open_token": { "v": t } }),

@@ -39,7 +39,8 @@ const LONG_CONNECTION_CAPACITY: &str = "long_connection_capacity";
 /// `MAX_TERMINAL_CONNECTIONS`; each one holds its threads and its socket
 /// until it ends, so the number is the bound of both, but for the
 /// connections that came before their terminal's seat: they join with no
-/// limit (`diagnostics/long_connections.rs`).
+/// limit (`diagnostics/long_connections.rs`). It is the server's bound of
+/// resource streams (`RESOURCE_STREAMS_SERVER_CAPACITY`).
 pub(in crate::server) const MAX_LONG_TERMINAL_CONNECTIONS: u64 = 256;
 
 impl ConnectionPermit {

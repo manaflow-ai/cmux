@@ -86,7 +86,6 @@ import Testing
         #expect(plan.reconfigure.isEmpty)
     }
 
-    #if os(iOS)
     // MARK: Snapshot edits
 
     @Test func aLiveInsertIsAnEditNotARebuild() {
@@ -108,110 +107,10 @@ import Testing
         #expect(FeedSnapshotEdit(old: ["a", "b", "c"], new: ["b", "a", "c"]) == nil)
     }
 
-    #endif
-
-    // MARK: The pinned group (open asks first)
-
-    static func ask(_ id: String, ago: TimeInterval) -> FeedItem {
-        FeedItem(id: id, kind: .needsInput, workspaceID: "w1", tabID: "t", agentName: "Claude", harness: "claude",
-                 workspaceTitle: "cmux", markdown: "body", quote: nil, createdAt: Date(timeIntervalSince1970: 1_000_000 - ago))
-    }
-
-    /// The whole Feed's first rows are its open asks; a filtered Feed has no pinned group.
-    @Test func thePinnedGroupIsTheOpenAsksOfTheWholeFeed() {
-        let store = FeedStore(items: [Self.item("new", ago: 1), Self.ask("ask-old", ago: 30), Self.item("mid", ago: 10), Self.ask("ask-new", ago: 5)])
-        #expect(store.visibleItems.map(\.id) == ["ask-new", "ask-old", "new", "mid"])
-        #expect(FeedPinnedGroup.count(store.visibleItems, filter: .all) == 2)
-        store.filter = .needsYou
-        #expect(store.visibleItems.map(\.id) == ["ask-new", "ask-old"])
-        #expect(FeedPinnedGroup.count(store.visibleItems, filter: store.filter) == 0)
-        store.filter = .finished
-        #expect(FeedPinnedGroup.count(store.visibleItems, filter: store.filter) == 0)
-        // Answered: the ask is an event in time order again, and the group is one smaller.
-        store.filter = .all
-        store.resolveElsewhere("ask-old", text: "Answered")
-        #expect(store.visibleItems.map(\.id) == ["ask-new", "new", "mid", "ask-old"])
-        #expect(FeedPinnedGroup.count(store.visibleItems, filter: .all) == 1)
-        store.resolveElsewhere("ask-new", text: "Answered")
-        #expect(store.visibleItems.map(\.id) == ["new", "ask-new", "mid", "ask-old"])
-        #expect(FeedPinnedGroup.count(store.visibleItems, filter: .all) == 0)
-    }
-
-    // The edit rules are in Rust (feed_list_edit.rs); its tests run there too, and these on iOS.
-    #if os(iOS)
-    /// An answered ask leaves the pinned group as one row move (the table animates it), not a rebuild.
-    @Test func anAnsweredAskIsARowMove() {
-        let old = ["ask-new", "ask-old", "new", "mid", "last"]
-        let new = ["ask-new", "new", "mid", "ask-old", "last"]
-        #expect(FeedSnapshotEdit(old: old, new: new) == nil)
-        let move = FeedMoveEdit(old: old, new: new, movers: ["ask-old"])
-        #expect(move?.removed == [])
-        #expect(move?.steps == [.move("ask-old", before: "last")])
-        #expect(move?.applied(to: old) == new)
-        // The oldest event of all: it goes after the last row.
-        let toEnd = FeedMoveEdit(old: ["ask", "a", "b"], new: ["a", "b", "ask"], movers: ["ask"])
-        #expect(toEnd?.steps == [.move("ask", before: nil)])
-        #expect(toEnd?.applied(to: ["ask", "a", "b"]) == ["a", "b", "ask"])
-        // An ask that opens again goes back up.
-        let back = FeedMoveEdit(old: ["a", "b", "ask"], new: ["ask", "a", "b"], movers: ["ask"])
-        #expect(back?.applied(to: ["a", "b", "ask"]) == ["ask", "a", "b"])
-    }
-
-    /// A live event and a removal in the same update ride along with the move.
-    @Test func aMoveCarriesInsertsAndRemovals() {
-        let old = ["ask-1", "ask-2", "a", "b", "c"]
-        let new = ["ask-2", "n1", "a", "ask-1", "c", "n2"]
-        let move = FeedMoveEdit(old: old, new: new, movers: ["ask-1"])
-        #expect(move?.removed == ["b"])
-        #expect(move?.steps == [.insert("n2", before: nil), .move("ask-1", before: "c"), .insert("n1", before: "a")])
-        #expect(move?.applied(to: old) == new)
-        // Two asks answered at once.
-        let both = FeedMoveEdit(old: old, new: ["a", "ask-1", "b", "c", "ask-2"], movers: ["ask-1", "ask-2"])
-        #expect(both?.applied(to: old) == ["a", "ask-1", "b", "c", "ask-2"])
-    }
-
-    /// Any other row changing place, no mover, or too many at once: the section is rebuilt as before.
-    @Test func otherReordersStillRebuild() {
-        #expect(FeedMoveEdit(old: ["ask", "a", "b"], new: ["b", "a", "ask"], movers: ["ask"]) == nil)
-        #expect(FeedMoveEdit(old: ["a", "b"], new: ["b", "a"], movers: []) == nil)
-        #expect(FeedMoveEdit(old: ["a", "b"], new: ["b", "a"], movers: ["gone"]) == nil)
-        let asks = (0..<5).map { "ask\($0)" }
-        #expect(FeedMoveEdit(old: asks + ["a"], new: ["a"] + asks, movers: Set(asks), limit: 4) == nil)
-        #expect(FeedMoveEdit(old: asks + ["a"], new: ["a"] + asks, movers: Set(asks), limit: 5)?.applied(to: asks + ["a"]) == ["a"] + asks)
-    }
-
-    #endif
-
     /// Only events never shown before count for the "N new" pill (an undone Done does not).
     @Test func onlyNeverSeenEventsAreNew() {
         var seen: Set<String> = ["a", "b"]
         #expect(FeedListPlan.fresh(["n1", "a"], seen: &seen) == ["n1"])
         #expect(FeedListPlan.fresh(["n1"], seen: &seen).isEmpty)
-    }
-
-    // MARK: Arrivals (ios-feed.md item K)
-
-    @Test func liveEventsAtTheTopSpringIn() {
-        #expect(FeedArrival.springs(fresh: ["n"], order: ["n", "a", "b"], hadRows: true, atTop: true))
-        #expect(FeedArrival.springs(fresh: ["n", "m"], order: ["m", "n", "a"], hadRows: true, atTop: true))
-    }
-
-    @Test func aLoadAFilterSwitchOrAScrolledReaderShowsAtOnce() {
-        // The first rows of a session.
-        #expect(!FeedArrival.springs(fresh: ["a", "b"], order: ["a", "b"], hadRows: false, atTop: true))
-        // The reader is down the list (the "N new" pill counts them instead) or a jump is animating.
-        #expect(!FeedArrival.springs(fresh: ["n"], order: ["n", "a"], hadRows: true, atTop: false))
-        // A filter switch brings in unseen older rows below the top.
-        #expect(!FeedArrival.springs(fresh: ["old"], order: ["a", "old"], hadRows: true, atTop: true))
-        // A burst bigger than an arrival.
-        let burst: [String] = (0..<5).map { "n\($0)" }
-        #expect(!FeedArrival.springs(fresh: Set(burst), order: burst + ["a"], hadRows: true, atTop: true))
-        #expect(!FeedArrival.springs(fresh: [], order: ["a"], hadRows: true, atTop: true))
-    }
-
-    @Test func theSoftTapPlaysAtMostOncePerGap() {
-        #expect(FeedArrival.taps(now: 100, last: nil))
-        #expect(!FeedArrival.taps(now: 101, last: 100))
-        #expect(FeedArrival.taps(now: 100 + FeedArrival.hapticGap, last: 100))
     }
 }

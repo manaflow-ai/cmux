@@ -15,20 +15,6 @@ use x11rb::protocol::xproto::{
 use x11rb::protocol::Event;
 use x11rb::CURRENT_TIME;
 
-/// `WxH+X+Y`, as X geometry strings are written.
-fn parse_geometry(text: &str) -> Result<(i16, i16, u16, u16), String> {
-    let bad = || format!("--geometry {text}: WxH+X+Y");
-    let (size, at) = text.split_once('+').ok_or_else(bad)?;
-    let (w, h) = size.split_once('x').ok_or_else(bad)?;
-    let (x, y) = at.split_once('+').ok_or_else(bad)?;
-    let num = |s: &str| s.trim().parse::<u16>().map_err(|_| bad());
-    let (w, h, x, y) = (num(w)?, num(h)?, num(x)?, num(y)?);
-    if w == 0 || h == 0 || x > i16::MAX as u16 || y > i16::MAX as u16 {
-        return Err(bad());
-    }
-    Ok((x as i16, y as i16, w, h))
-}
-
 pub fn run(opts: &Opts) -> Res<()> {
     let display = opts.str_or("display", ":99");
     let kind = Kind::parse(&opts.str_or("workload", "marker"))?;
@@ -39,38 +25,18 @@ pub fn run(opts: &Opts) -> Res<()> {
 
     let (conn, screen_num) = x11rb::connect(Some(&display))?;
     let screen = conn.setup().roots[screen_num].clone();
-    // `--geometry WxH+X+Y`: a titled, managed window there (a window share's test); else an
-    // undecorated window from `--origin X,Y` (default 0,0) to the screen's far corner, which puts
-    // the marker on one monitor of several (the host's monitor pick).
-    let geometry = opts.get("geometry").map(parse_geometry).transpose()?;
-    let (x, y, w, h) = match geometry {
-        Some(g) => g,
-        None => {
-            let (x, y) = match opts.get("origin") {
-                Some(v) => parse_origin(v)?,
-                None => (0, 0),
-            };
-            if x >= screen.width_in_pixels || y >= screen.height_in_pixels {
-                return Err(format!(
-                    "--origin {x},{y} is off the {}x{} screen",
-                    screen.width_in_pixels, screen.height_in_pixels
-                )
-                .into());
-            }
-            (x as i16, y as i16, screen.width_in_pixels - x, screen.height_in_pixels - y)
-        }
-    };
+    let (w, h) = (screen.width_in_pixels, screen.height_in_pixels);
     let win = conn.generate_id()?;
     let aux = CreateWindowAux::new()
-        .override_redirect(u32::from(geometry.is_none()))
+        .override_redirect(1)
         .background_pixel(crate::workload::GRAY)
-        .event_mask(EventMask::KEY_PRESS | EventMask::BUTTON_PRESS | EventMask::EXPOSURE);
+        .event_mask(EventMask::KEY_PRESS | EventMask::EXPOSURE);
     conn.create_window(
         screen.root_depth,
         win,
         screen.root,
-        x,
-        y,
+        0,
+        0,
         w,
         h,
         0,
@@ -78,17 +44,6 @@ pub fn run(opts: &Opts) -> Res<()> {
         screen.root_visual,
         &aux,
     )?;
-    if geometry.is_some() {
-        use x11rb::protocol::xproto::{AtomEnum, PropMode};
-        use x11rb::wrapper::ConnectionExt as _;
-        conn.change_property8(
-            PropMode::REPLACE,
-            win,
-            AtomEnum::WM_NAME,
-            AtomEnum::STRING,
-            b"cmux-rd testapp",
-        )?;
-    }
     conn.map_window(win)?;
     conn.set_input_focus(InputFocus::POINTER_ROOT, win, CURRENT_TIME)?;
 
@@ -97,34 +52,18 @@ pub fn run(opts: &Opts) -> Res<()> {
     painter.full_redraw(counter)?;
     // Round trip: the server has processed the map, focus, and first frame.
     conn.get_input_focus()?.reply()?;
-    println!("ready {w}x{h} {} window {win:#x}", kind.name());
+    println!("ready {w}x{h} {}", kind.name());
     std::io::stdout().flush()?;
 
     let fd = conn.stream().as_raw_fd();
     let interval = painter.interval_ns();
     let mut next_tick = interval.map(|iv| now_ns() + iv);
-    // `--wander-ms N` (with `--geometry`): the window moves 40,30 pixels and back every N ms,
-    // so a window share's follow is seen live.
-    let wander_ns = opts.num_or::<u64>("wander-ms", 0)? * 1_000_000;
-    let mut next_wander = (wander_ns > 0 && geometry.is_some()).then(|| now_ns() + wander_ns);
-    let mut wandered = false;
     loop {
-        if let Some(t) = next_wander.filter(|&t| now_ns() >= t) {
-            use x11rb::protocol::xproto::ConfigureWindowAux;
-            wandered = !wandered;
-            let d = i32::from(wandered);
-            let aux = ConfigureWindowAux::new().x(i32::from(x) + 40 * d).y(i32::from(y) + 30 * d);
-            conn.configure_window(win, &aux)?;
-            conn.flush()?;
-            next_wander = Some(t + wander_ns);
-        }
         let mut dirty_marker = false;
         let mut redraw = false;
         while let Some(ev) = conn.poll_for_event()? {
             match ev {
-                // A click counts too: a click bumps only the window it lands on, which proves
-                // where the host put the pointer (a monitor pick maps it through its origin).
-                Event::KeyPress(_) | Event::ButtonPress(_) => {
+                Event::KeyPress(_) => {
                     counter = counter.wrapping_add(1);
                     dirty_marker = true;
                 }
@@ -150,27 +89,7 @@ pub fn run(opts: &Opts) -> Res<()> {
                 continue;
             }
         }
-        let timeout = [next_tick, next_wander]
-            .into_iter()
-            .flatten()
-            .min()
-            .map(|t| t.saturating_sub(now_ns()));
+        let timeout = next_tick.map(|t| t.saturating_sub(now_ns()));
         wait_readable(&[fd], timeout)?;
     }
 }
-
-/// `X,Y` in screen pixels.
-fn parse_origin(value: &str) -> Res<(u16, u16)> {
-    let bad = || format!("--origin wants X,Y in pixels, got {value:?}");
-    let (x, y) = value.split_once(',').ok_or_else(bad)?;
-    let (x, y): (u16, u16) =
-        (x.trim().parse().map_err(|_| bad())?, y.trim().parse().map_err(|_| bad())?);
-    if x > i16::MAX as u16 || y > i16::MAX as u16 {
-        return Err(bad().into());
-    }
-    Ok((x, y))
-}
-
-#[cfg(test)]
-#[path = "testapp_tests.rs"]
-mod tests;

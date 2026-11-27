@@ -11,9 +11,7 @@
 //!   back, by its record of a linked work tree or by its `core.worktree`
 //!   setting, or it names no work tree and is not in a work tree; or the
 //!   entry is a link to the git folder, and then the git folder is of no
-//!   other work tree ([`link_names`]). A git folder that uses a common
-//!   folder names a work tree by its record only: with no record, the
-//!   file and the link are refused;
+//!   other work tree ([`link_names`]);
 //! - the git folder uses no common folder, or the common folder of the
 //!   repository that has it as the git folder of a linked work tree.
 //!
@@ -162,12 +160,6 @@ pub(crate) fn check(
         Names::OtherPlace => {
             format!(": the git folder has the record of a work tree at another place{ASK}")
         }
-        Names::NoRecordOfItsPlace => {
-            format!(
-                ": the git folder uses the common folder of a repository and has no record of \
-                 the place of its work tree{ASK}"
-            )
-        }
     };
     Err(GitFailure::Exit(format!(
         "{REFUSED}the work tree {} and the git folder that git gives for it do not name each \
@@ -188,10 +180,6 @@ enum Names {
     /// The `.git` file names the git folder, and the git folder has the
     /// record of a work tree at another place.
     OtherPlace,
-    /// The `.git` entry, a file or a link, leads to the git folder, and the
-    /// git folder uses a common folder and has no record of the place of
-    /// its work tree.
-    NoRecordOfItsPlace,
     /// The `.git` entry is a link to the git folder, and the git folder is
     /// in a work tree or names one.
     LinkToAnother,
@@ -241,16 +229,6 @@ fn has_own_common_folder(git_dir: &Path) -> bool {
     }
 }
 
-/// Whether `git_dir` uses a common folder: it has the file `commondir`, as
-/// the git folder of a linked work tree has. git gives such a git folder
-/// its work tree by the record of the place of the work tree's `.git` file
-/// (the file `gitdir`), which git writes when it makes the work tree. With
-/// no such record the git folder does not say which folder it is for: git
-/// then takes each folder whose `.git` entry leads to it.
-fn uses_a_common_folder(git_dir: &Path) -> bool {
-    !matches!(record(&git_dir.join("commondir")), Record::Missing)
-}
-
 /// Whether the `.git` entry of the work tree `top` leads to `git_dir`, and
 /// `git_dir` names the work tree back.
 fn entry_names(
@@ -293,11 +271,6 @@ fn entry_names(
         // makes apart from a work tree. The file then gets the rule of a
         // link ([`link_names`]), with its limit: a git folder of no work
         // tree is opened.
-        //
-        // That limit is not for a git folder that uses a common folder: it
-        // is a part of a repository, and its record is gone. The setting
-        // is asked only for a git folder with no common folder.
-        Record::Missing if uses_a_common_folder(git_dir) => Ok(Names::NoRecordOfItsPlace),
         Record::Missing => Ok(match core_worktree()? {
             Some(setting) => each_other(
                 !setting.is_empty() && is_same(&git_dir.join(path_from_bytes(&setting)), top),
@@ -321,8 +294,6 @@ fn entry_names(
 ///
 /// A limit: a git folder that names no work tree does not say which folder
 /// it is for, so each folder whose `.git` entry is a link to it is opened.
-/// The limit is not for a git folder that uses a common folder
-/// ([`uses_a_common_folder`]): with no record, the link is refused.
 fn link_names(
     link: &Path,
     git_dir: &Path,
@@ -333,13 +304,7 @@ fn link_names(
     }
     let Some(in_a_work_tree) = is_in_a_work_tree(git_dir) else { return Ok(Names::Not) };
     let has_record = !matches!(record(&git_dir.join("gitdir")), Record::Missing);
-    if in_a_work_tree || has_record {
-        return Ok(Names::LinkToAnother);
-    }
-    if uses_a_common_folder(git_dir) {
-        return Ok(Names::NoRecordOfItsPlace);
-    }
-    if core_worktree()?.is_some() {
+    if in_a_work_tree || has_record || core_worktree()?.is_some() {
         return Ok(Names::LinkToAnother);
     }
     Ok(Names::EachOther)

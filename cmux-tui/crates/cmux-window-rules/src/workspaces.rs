@@ -182,13 +182,12 @@ pub struct CloseFacts {
 }
 
 /// The question before a workspace close, or None to close at once: a
-/// terminal running a program asks, and so do two or more incognito
-/// workspaces closing with no window left to undo them (nothing reopens
-/// them). Other workspaces closing with no window left run at once: Reopen
-/// Closed Workspace and History bring them back.
+/// terminal running a program asks, and so do two or more closing with no
+/// window left to undo them.
 pub fn close_prompt(facts: &CloseFacts) -> Option<ClosePrompt> {
-    let unrecoverable = facts.ask_without_undo && facts.incognito && facts.count > 1;
-    if facts.count == 0 || (facts.programs.is_empty() && !unrecoverable) {
+    if facts.count == 0
+        || (facts.programs.is_empty() && !(facts.ask_without_undo && facts.count > 1))
+    {
         return None;
     }
     let title = if facts.titled {
@@ -234,6 +233,7 @@ pub enum Confirmation {
     /// Clear Space Terminal Defaults ([`space_clear_defaults`]).
     SpaceClearDefaults,
     RemoteInstall,
+    UpdateRollback,
     /// A tab group's close follows the tab close rule.
     TabGroupClose,
     KillProcess,
@@ -255,6 +255,7 @@ pub fn confirmation(id: &str, stash: bool) -> Confirmation {
         "space.delete" => Confirmation::SpaceDelete,
         "space.clearDefaults" => Confirmation::SpaceClearDefaults,
         "remote.install" => Confirmation::RemoteInstall,
+        "updates.rollback" => Confirmation::UpdateRollback,
         "tabGroup.close" => Confirmation::TabGroupClose,
         "taskManager.killProcess" => Confirmation::KillProcess,
         "home.deleteChief" => Confirmation::DeleteChief,

@@ -103,7 +103,6 @@ async fn keystrokes_do_not_wait_for_workspace_side_queries() {
         chief_socket: None,
         browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
         surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
-        viewport_sync: None,
     });
     let (phone_stream, mac_stream) = tokio::io::duplex(64 * 1024);
     let phone = Link::new(phone_stream, Role::Phone, LinkConfig::default(), None);
@@ -112,15 +111,7 @@ async fn keystrokes_do_not_wait_for_workspace_side_queries() {
         let incoming = mac.accept().await.unwrap();
         serve(
             config,
-            Peer {
-                device_id: "test-phone".into(),
-                session_id: "test-session".into(),
-                video: None,
-                session_exposure: None,
-                route: None,
-                path: None,
-                viewport: None,
-            },
+            Peer { device_id: "test-phone".into(), session_id: "test-session".into(), video: None, session_exposure: None },
             Arc::new(LinkAuth::default()),
             incoming,
         )

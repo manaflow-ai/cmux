@@ -73,8 +73,7 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
            pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1)),
            marked_unread INTEGER NOT NULL DEFAULT 0 CHECK(marked_unread IN (0,1)),
            description TEXT,
-           task_status TEXT,
-           keep_awake INTEGER NOT NULL DEFAULT 0 CHECK(keep_awake IN (0,1))
+           task_status TEXT
          );
          CREATE TABLE IF NOT EXISTS tab_presentation (
            tab_id TEXT PRIMARY KEY NOT NULL,
@@ -118,7 +117,6 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
     migrate_workspace_presentation_add_pinned(transaction)?;
     migrate_workspace_presentation_add_marked_unread(transaction)?;
     workspace_notes::migrate_workspace_presentation_add_notes(transaction)?;
-    migrate_workspace_presentation_add_keep_awake(transaction)?;
     add_group_icon_column(transaction, "tab_groups")?;
     crate::state::tab_state_store::add_tab_pinned_url_column(transaction)?;
     super::feed_local_store::create_feed_local_schema(transaction)?;
@@ -198,26 +196,6 @@ fn migrate_workspace_presentation_add_marked_unread(
     Ok(())
 }
 
-/// Add Keep Awake (`workspace-keep-awake-v1`) to registries created before the column existed;
-/// every existing workspace keeps the default (not kept awake) until the app mirrors its set.
-fn migrate_workspace_presentation_add_keep_awake(
-    transaction: &Transaction<'_>,
-) -> anyhow::Result<()> {
-    let has_keep_awake = transaction
-        .prepare("PRAGMA table_info(workspace_presentation)")?
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<Result<Vec<_>, _>>()?
-        .iter()
-        .any(|column| column == "keep_awake");
-    if !has_keep_awake {
-        transaction.execute_batch(
-            "ALTER TABLE workspace_presentation ADD COLUMN keep_awake INTEGER NOT NULL
-               DEFAULT 0 CHECK(keep_awake IN (0,1));",
-        )?;
-    }
-    Ok(())
-}
-
 /// One sidebar group. Groups are ordered by their index in [`PresentationSnapshot::groups`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorkspaceGroupRecord {
@@ -246,9 +224,6 @@ pub struct WorkspacePresentationRecord {
     /// (`workspace-status-v1`, a classic cmux task lane); `None`
     /// is automatic.
     pub task_status: Option<String>,
-    /// Kept awake on a Mac (Keep Workspace Awake, `workspace-keep-awake-v1`): the daemon's
-    /// freeing timer never ends its shells (`mux/park_eligibility.rs`).
-    pub keep_awake: bool,
 }
 
 impl WorkspacePresentationRecord {
@@ -261,13 +236,12 @@ impl WorkspacePresentationRecord {
             && !self.marked_unread
             && self.description.is_none()
             && self.task_status.is_none()
-            && !self.keep_awake
     }
 }
 
 /// A partial workspace presentation update. `None` leaves a field unchanged,
 /// `Some(None)` clears it, and `Some(Some(value))` sets it. `pinned` has no
-/// clear state: `Some(value)` sets it, and so do `marked_unread` and `keep_awake`.
+/// clear state: `Some(value)` sets it, and so does `marked_unread`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WorkspacePresentationUpdate {
     pub group: Option<Option<String>>,
@@ -278,7 +252,6 @@ pub struct WorkspacePresentationUpdate {
     pub marked_unread: Option<bool>,
     pub description: Option<Option<String>>,
     pub task_status: Option<Option<String>>,
-    pub keep_awake: Option<bool>,
 }
 
 impl WorkspacePresentationUpdate {
@@ -329,9 +302,6 @@ impl WorkspacePresentationUpdate {
         if let Some(task_status) = &self.task_status {
             record.task_status = task_status.clone();
         }
-        if let Some(keep_awake) = self.keep_awake {
-            record.keep_awake = keep_awake;
-        }
     }
 }
 
@@ -358,9 +328,6 @@ pub struct PresentationSnapshot {
     pub home_workspace: Option<String>,
     /// The app of every live app workspace, by workspace key (`app-screens-v1`).
     pub app_workspaces: HashMap<String, String>,
-    /// Terminal ids the daemon recovered from orphaned hosts (`workspace-recovered-v1`): their
-    /// durable rows keep the recovered launch spec (`mux/orphan_hosts.rs`).
-    pub recovered_terminals: HashSet<String>,
     /// App tab records, by public browser id (`app-screens-v1`).
     pub app_tabs: HashMap<String, crate::state::app_workspaces::AppTabRecord>,
     /// Tab groups of every pane, rendered with Chrome-style colors.
@@ -873,8 +840,7 @@ fn read_workspace_presentation(
 ) -> anyhow::Result<WorkspacePresentationRecord> {
     Ok(transaction
         .query_row(
-            "SELECT group_id, color, icon, title, pinned, marked_unread, description, task_status,
-                    keep_awake
+            "SELECT group_id, color, icon, title, pinned, marked_unread, description, task_status
              FROM workspace_presentation WHERE workspace_key = ?1",
             [workspace_key],
             |row| {
@@ -887,7 +853,6 @@ fn read_workspace_presentation(
                     marked_unread: row.get::<_, i64>(5)? != 0,
                     description: row.get(6)?,
                     task_status: row.get(7)?,
-                    keep_awake: row.get::<_, i64>(8)? != 0,
                 })
             },
         )
@@ -933,8 +898,8 @@ pub(crate) fn write_workspace_presentation(
         transaction.execute(
             "INSERT INTO workspace_presentation(
                workspace_key, group_id, color, icon, title, pinned, marked_unread,
-               description, task_status, keep_awake)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+               description, task_status)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(workspace_key) DO UPDATE SET
                group_id = excluded.group_id,
                color = excluded.color,
@@ -943,8 +908,7 @@ pub(crate) fn write_workspace_presentation(
                pinned = excluded.pinned,
                marked_unread = excluded.marked_unread,
                description = excluded.description,
-               task_status = excluded.task_status,
-               keep_awake = excluded.keep_awake",
+               task_status = excluded.task_status",
             params![
                 workspace_key,
                 record.group,
@@ -954,8 +918,7 @@ pub(crate) fn write_workspace_presentation(
                 i64::from(record.pinned),
                 i64::from(record.marked_unread),
                 record.description,
-                record.task_status,
-                i64::from(record.keep_awake)
+                record.task_status
             ],
         )?;
     }
@@ -974,7 +937,6 @@ pub(crate) fn write_workspace_presentation(
             "marked_unread": record.marked_unread,
             "description": record.description,
             "task_status": record.task_status,
-            "keep_awake": record.keep_awake,
         }),
     )?;
     if update.pinned.is_some() {
@@ -1098,7 +1060,7 @@ impl WorkspaceRegistry {
             "DELETE FROM workspace_presentation
              WHERE group_id IS NULL AND color IS NULL AND icon IS NULL AND title IS NULL
                AND pinned = 0 AND marked_unread = 0 AND description IS NULL
-               AND task_status IS NULL AND keep_awake = 0",
+               AND task_status IS NULL",
             [],
         )?;
         let order = read_groups(&tx)?.into_iter().map(|group| group.id).collect::<Vec<_>>();
@@ -1294,26 +1256,6 @@ impl WorkspaceRegistry {
     /// restart restores an unread marker only for unacknowledged ones.
     pub(crate) fn acked_notification_ids(&self) -> anyhow::Result<HashSet<String>> {
         acked_notification_ids_in(&self.connection.get())
-    }
-
-    /// When each notification was first read, by id: its console acknowledgement
-    /// (`notification_acks`) or a client's read (`resource_notification_reads`),
-    /// whichever came first. Both tables keep only retained notifications, so
-    /// this is bounded by the ledger.
-    pub(crate) fn notification_first_reads(&self) -> anyhow::Result<HashMap<String, u64>> {
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT notification_id, MIN(at) FROM (
-               SELECT notification_id, acked_at_ms AS at FROM notification_acks
-               UNION ALL
-               SELECT notification_id, read_at_ms AS at FROM resource_notification_reads
-             ) GROUP BY notification_id",
-        )?;
-        let reads = statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
-            .map(|row| row.map(|(id, at)| (id, u64::try_from(at).unwrap_or(0))))
-            .collect::<Result<HashMap<_, _>, _>>()?;
-        Ok(reads)
     }
 
     /// Replace every tab group and membership (metadata-only changes that leave tab order alone).

@@ -61,24 +61,6 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
 }
 
 extension TerminalSession {
-    /// Existing terminal counters and native scroll state for `debug.surfaces`.
-    public func diagnosticFields(_ diagnostics: TerminalSurfaceDiagnostics) -> [String: Any] {
-        var value: [String: Any] = [
-            "terminal_title": model.title,
-            "snapshots": diagnostics.restoredSnapshots,
-            "surface_swaps": diagnostics.swappedSurfaces,
-            "local_history_mismatch": diagnostics.localHistoryMismatches,
-            "local_snapshots": diagnostics.localSnapshots,
-            "last_frame_holds": diagnostics.lastFrameHolds,
-            "frame_held": diagnostics.holdingFrame,
-        ]
-        if let bar = model.scrollbar {
-            value["scrollbar"] = ["total_rows": bar.totalRows, "offset_rows": bar.offsetRows,
-                                   "visible_rows": bar.visibleRows]
-        }
-        return value
-    }
-
     /// The grid Ghostty's last frame drew (``TerminalSurfaceDiagnostics/drawnGrid``) and the owner's
     /// locked grid, without the rest of ``diagnostics``: cheap enough to read every display frame.
     public var drawnAndOwnerGrid: (drawn: TerminalGridSize?, owner: TerminalGridSize?) {
@@ -88,10 +70,6 @@ extension TerminalSession {
         let grid = ghostty_surface_grid(surface)
         return (drawn, grid.locked ? TerminalGridSize(columns: Int(grid.columns), rows: Int(grid.rows)) : nil)
     }
-
-    /// The surface exists and got a replay or output: what the frame-timing log's blank signal reads of a terminal
-    /// (`blank_first_frame`). Two reads, no Ghostty call (``diagnostics`` makes several).
-    public var showsContent: Bool { surfaceView.surface != nil && surfaceHasContent }
 
     public var diagnostics: TerminalSurfaceDiagnostics {
         let surface = surfaceView

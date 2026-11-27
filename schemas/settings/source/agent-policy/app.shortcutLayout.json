@@ -1,4 +1,0 @@
-{
-  "agent": "settable",
-  "why": "Which keys lists and the code editor answer to and how shortcuts find their key: the person's keyboard habits, nothing private or destructive, and `cmux settings set app.keyStyle vim` is the documented way to set it."
-}

@@ -15,14 +15,6 @@ pub const LIST_WORKSPACES_KNOWN_CAPABILITY: &str = "list-workspaces-known-v1";
 /// `limit` on `list-workspaces`: the first N workspaces in sidebar order and
 /// `total`, so a client draws its first screen before it reads the rest.
 pub const LIST_WORKSPACES_LIMIT_CAPABILITY: &str = "list-workspaces-limit-v1";
-/// `after` on `list-workspaces` with `limit`: the page that starts at that position in
-/// sidebar order, and `next`, the position of the page after it, on every page that is not the
-/// last. A `limit` page also stops at [`LIST_WORKSPACES_PAGE_BYTES`] of rows, so the phone's
-/// first window costs the same at 10, 100 and 1,000 workspaces.
-pub const LIST_WORKSPACES_PAGE_CAPABILITY: &str = "list-workspaces-page-v1";
-/// The rows one `limit` page carries at most, in bytes (at least one row): well under the
-/// 4 MiB frame cap (handbook: whole-list-reply-near-frame-cap).
-pub const LIST_WORKSPACES_PAGE_BYTES: usize = 64 * 1024;
 
 /// The `list-workspaces` reply: the tree plus the registry identity it
 /// belongs to. The launch snapshot stores the same value.
@@ -53,16 +45,14 @@ pub(super) fn list_workspaces_reply_since(
     mux: &Mux,
     known: &cmd_workspaces::KnownTree,
     limit: Option<usize>,
-    after: usize,
     remote_view: Option<&incognito_remote::Hidden>,
 ) -> anyhow::Result<Value> {
     if let Some(hidden) = remote_view {
-        return list_workspaces_reply_seen(mux, known, limit, after, hidden);
+        return list_workspaces_reply_seen(mux, known, limit, hidden);
     }
-    // A branch switch reaches the cache from the watch of its HEAD file; a HEAD the watch can
-    // miss goes to the background refresh past its lifetime (git_heads.rs), and one that moved
-    // bumps the revision. This request can still answer `unchanged`; the request after the
-    // refresh gets the tree (cmux#42895). Constant cost until a value is due.
+    // A branch switch has no event: each HEAD past its cache lifetime goes to the background
+    // refresh, and one that moved bumps the revision. This request can still answer
+    // `unchanged`; the request after the refresh gets the tree (cmux#42895).
     mux.revalidate_git_heads();
     let tree_revision = mux.tree_revision();
     let (registry_id, generation) = mux.registry_identity();
@@ -93,7 +83,7 @@ pub(super) fn list_workspaces_reply_since(
         }));
     }
     if let Some(limit) = limit {
-        let (mut reply, whole) = list_workspaces_reply_first(mux, limit, after, None)?;
+        let (mut reply, whole) = list_workspaces_reply_first(mux, limit, None)?;
         // A part of the tree is not a tree to hold: only a whole one gets the revision
         // a later `known` sends back.
         if whole {
@@ -109,34 +99,19 @@ pub(super) fn list_workspaces_reply_since(
 /// `list-workspaces` with `limit` (`list-workspaces-limit-v1`): the first `limit`
 /// workspaces in sidebar order (the sidebar document's order, else the personal order, then
 /// the workspaces neither places, as `workspace.list {order: "personal"}` sorts them), with
-/// `total`, the number of workspaces. Only those rows are serialized, up to
-/// [`LIST_WORKSPACES_PAGE_BYTES`] of them (at least one). `after` (`list-workspaces-page-v1`)
-/// skips that many first; a page that is not the last carries `next`, the `after` of the page
-/// that follows. True with it when the reply holds every workspace. With `hidden` (a remote
-/// device, #31210), the workspaces it must not see are left out before the page is taken and
-/// before `total` counts.
+/// `total`, the number of workspaces. Only those rows are serialized. True with it when the
+/// reply holds every workspace. With `hidden` (a remote device, #31210), the workspaces it
+/// must not see are left out before the first `limit` are taken and before `total` counts.
 pub(super) fn list_workspaces_reply_first(
     mux: &Mux,
     limit: usize,
-    after: usize,
     hidden: Option<&incognito_remote::Hidden>,
 ) -> anyhow::Result<(Value, bool)> {
     let order = SidebarOrder::read(mux)?;
     let notifications = mux.tree_decorations();
     let (mut reply, whole) = mux.with_state(|state| {
-        let (page, total) = order.page(state, after, limit, hidden);
-        let (mut reply, taken) = tree_json::workspaces_json_at(
-            state,
-            &notifications,
-            &page,
-            total,
-            LIST_WORKSPACES_PAGE_BYTES,
-        );
-        let next = after.saturating_add(taken);
-        if next < total {
-            reply.set("next", json!(next));
-        }
-        (reply, after == 0 && taken == total)
+        let (first, total) = order.first(state, limit, hidden);
+        (tree_json::workspaces_json_at(state, &notifications, &first, total), first.len() == total)
     });
     let (registry_id, generation) = mux.registry_identity();
     reply.set("registry_id", json!(registry_id));
@@ -169,17 +144,6 @@ impl SidebarOrder {
     fn first(
         &self,
         state: &State,
-        limit: usize,
-        hidden: Option<&incognito_remote::Hidden>,
-    ) -> (Vec<usize>, usize) {
-        self.page(state, 0, limit, hidden)
-    }
-
-    /// [`Self::first`] past the first `after` of them.
-    fn page(
-        &self,
-        state: &State,
-        after: usize,
         limit: usize,
         hidden: Option<&incognito_remote::Hidden>,
     ) -> (Vec<usize>, usize) {
@@ -218,7 +182,6 @@ impl SidebarOrder {
         }
         let first = rows
             .iter()
-            .skip(after)
             .take(limit)
             .filter_map(|row| row.get("index").and_then(Value::as_u64))
             .map(|i| i as usize)
@@ -242,7 +205,6 @@ fn list_workspaces_reply_seen(
     mux: &Mux,
     known: &cmd_workspaces::KnownTree,
     limit: Option<usize>,
-    after: usize,
     hidden: &incognito_remote::Hidden,
 ) -> anyhow::Result<Value> {
     use std::hash::{Hash, Hasher};
@@ -290,7 +252,7 @@ fn list_workspaces_reply_seen(
         return Ok(reply);
     }
     if let Some(limit) = limit {
-        let (mut page, whole) = list_workspaces_reply_first(mux, limit, after, Some(hidden))?;
+        let (mut page, whole) = list_workspaces_reply_first(mux, limit, Some(hidden))?;
         if whole && mux.tree_revision() == daemon_revision {
             page.set("tree_revision", json!(tree_revision));
         }
@@ -307,8 +269,7 @@ impl Command {
     /// its `total` and revision were read with (`incognito_remote::list_with_one_view`),
     /// so the dispatcher leaves it as it is.
     pub(super) fn prunes_its_own_reply(&self) -> bool {
-        matches!(self, Self::ListWorkspaces { known, limit, since, .. }
-            if known.is_some() || limit.is_some() || since.is_some())
+        matches!(self, Self::ListWorkspaces { known, limit } if known.is_some() || limit.is_some())
     }
 }
 

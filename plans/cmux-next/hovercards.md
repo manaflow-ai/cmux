@@ -35,7 +35,7 @@ under a still pointer kept its hover and card on the tab that moved away).
   effects schedule/cancel the one timer and show/hide the one card. Targets
   are stable ids (`tab:<id>`, `ws:<id>`) with a window and a delay.
 - `HoverCardCoordinator` (AppServices.hoverCards, injected into every strip
-  and sidebar): the only `HoverCardPanel` (made at the launch's first idle moment by `warm()`, with the sidebar's body, nothing shown, so the first card builds nothing; else on the first card;
+  and sidebar): the only `HoverCardPanel` (created on the first card,
   reused; the tab and workspace bodies are one reused view each per
   source), the only timer (one-shot `DemandTimer`), and the only event
   monitor (key, click, wheel; installed only while a card is pending or

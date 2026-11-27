@@ -31,7 +31,7 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let scope = ThemeScope(level: .room)
@@ -40,8 +40,8 @@ import Testing
         let calendar = try Self.london()
         terminal.reload = {}
         terminal.notificationCenter = center
-        terminal.backdropClock.now = { Self.today }
-        terminal.backdropClock.calendar = { calendar }
+        terminal.now = { Self.today }
+        terminal.calendar = { calendar }
         terminal.follow(settings)
         return Harness(settings: settings, terminal: terminal, center: center, scope: scope, page: SettingsPageProvider(settings: settings),
                        url: url, calendar: calendar)
@@ -88,12 +88,10 @@ import Testing
         let (today, calendar) = (Self.today, harness.calendar)
         await settle { harness.scope.backdropSelection == .art(.daily(on: today, calendar: calendar)) }
         let tomorrow = BackdropArt.nextDay(after: today, calendar: calendar).addingTimeInterval(60)
-        harness.terminal.backdropClock.now = { tomorrow }
-        harness.terminal.backdropClock.turn()
+        harness.terminal.now = { tomorrow }
+        harness.terminal.showShuffledArt()
         #expect(harness.scope.backdropSelection == .art(.daily(on: tomorrow, calendar: calendar)))
         #expect(harness.scope.backdropSelection != .art(.daily(on: today, calendar: calendar)))
-        // debug.themes reports the change after: the next local midnight.
-        #expect(harness.terminal.backdropClock.nextChange == BackdropRotation.daily.nextTurn(after: tomorrow, calendar: calendar))
     }
 
     /// A time zone or clock change re-picks the work for the new local day at once.
@@ -105,7 +103,7 @@ import Testing
         let (today, calendar) = (Self.today, harness.calendar)
         await settle { harness.scope.backdropSelection == .art(.daily(on: today, calendar: calendar)) }
         let tomorrow = BackdropArt.nextDay(after: today, calendar: calendar).addingTimeInterval(60)
-        harness.terminal.backdropClock.now = { tomorrow }
+        harness.terminal.now = { tomorrow }
         harness.center.post(name: .NSSystemClockDidChange, object: nil)
         await settle { harness.scope.backdropSelection == .art(.daily(on: tomorrow, calendar: calendar)) }
         #expect(harness.scope.backdropSelection == .art(.daily(on: tomorrow, calendar: calendar)))
@@ -136,8 +134,8 @@ import Testing
         var shown: [BackdropArt] = []
         for _ in 0..<(2 * BackdropArt.allCases.count) {
             let now = day
-            harness.terminal.backdropClock.now = { now }
-            harness.terminal.backdropClock.turn()
+            harness.terminal.now = { now }
+            harness.terminal.showShuffledArt()
             if case let .art(art) = harness.scope.backdropSelection { shown.append(art) }
             day = BackdropArt.nextDay(after: now, calendar: calendar).addingTimeInterval(60)
         }

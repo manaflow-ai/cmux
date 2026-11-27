@@ -13,11 +13,7 @@ use super::{Command, MessageWriter, Mux, Response, send_response};
 use crate::resource::TerminalPublicId;
 
 const DEADLINE: Duration = Duration::from_secs(5);
-/// The longest terminal list one subscribe carries (input validation of one request).
-const MAX_TERMINALS: usize = 256;
-/// Each open request's waiter is a thread that sleeps in `recv_timeout` for at most
-/// [`DEADLINE`]; a small stack keeps its cost constant, so the count is not capped.
-const WAIT_STACK_BYTES: usize = 128 * 1024;
+const CAPACITY: usize = 16;
 
 struct Subscriber {
     terminals: HashSet<String>,
@@ -47,11 +43,15 @@ impl URLRequests {
         terminals: Vec<String>,
         writer: MessageWriter,
     ) -> anyhow::Result<()> {
-        anyhow::ensure!(terminals.len() <= MAX_TERMINALS, "too many URL opener terminals");
+        anyhow::ensure!(terminals.len() <= 256, "too many URL opener terminals");
         for terminal in &terminals {
             TerminalPublicId::parse(terminal.clone())?;
         }
         let mut state = self.0.lock().recover_poison();
+        anyhow::ensure!(
+            state.subscribers.len() < CAPACITY || state.subscribers.contains_key(&client),
+            "too many URL opener clients"
+        );
         state
             .subscribers
             .insert(client, Subscriber { terminals: terminals.into_iter().collect(), writer });
@@ -61,6 +61,9 @@ impl URLRequests {
     fn prepare(&self, terminal: &str, url: &str) -> Option<(String, mpsc::Receiver<bool>)> {
         let (id, writer, receiver) = {
             let mut state = self.0.lock().recover_poison();
+            if state.pending.len() >= CAPACITY {
+                return None;
+            }
             let mut candidates = state.subscribers.iter().filter(|(_, subscriber)| {
                 subscriber.terminals.contains(terminal) && subscriber.writer.is_open()
             });
@@ -158,7 +161,7 @@ pub(super) fn handle(
     }
 }
 
-pub(super) fn validate_url(raw: &str) -> bool {
+fn validate_url(raw: &str) -> bool {
     raw.len() <= 16_384
         && !raw.chars().any(|c| c.is_control() || c.is_whitespace())
         && url::Url::parse(raw)
@@ -187,14 +190,11 @@ pub(super) fn start(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let cleanup_id = request_id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-url-open".into())
-        .stack_size(WAIT_STACK_BYTES)
-        .spawn(move || {
-            let opened = receiver.recv_timeout(DEADLINE).unwrap_or(false);
-            worker_mux.control_clients.url_opens.cancel(&request_id);
-            respond(&worker_writer, worker_id, opened);
-        });
+    let spawned = std::thread::Builder::new().name("mux-url-open".into()).spawn(move || {
+        let opened = receiver.recv_timeout(DEADLINE).unwrap_or(false);
+        worker_mux.control_clients.url_opens.cancel(&request_id);
+        respond(&worker_writer, worker_id, opened);
+    });
     if spawned.is_err() {
         mux.control_clients.url_opens.cancel(&cleanup_id);
         return respond(writer, id, false);
@@ -217,5 +217,79 @@ fn respond(writer: &MessageWriter, id: Option<Value>, opened: bool) -> bool {
 }
 
 #[cfg(test)]
-#[path = "url_open_tests.rs"]
-mod tests;
+mod tests {
+    use super::super::tests::captured_writer;
+    use super::*;
+
+    const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn url_open_has_no_headless_or_wrong_terminal_queue() {
+        let broker = URLRequests::default();
+        assert!(broker.prepare(TERMINAL, "https://github.com/login/device").is_none());
+        let (writer, _) = captured_writer();
+        broker.subscribe(1, vec![TERMINAL.into()], writer).unwrap();
+        assert!(broker.prepare("term_other", "https://example.com").is_none());
+    }
+
+    #[test]
+    fn url_open_requires_claim_and_actual_delivery_ack() {
+        let broker = URLRequests::default();
+        let (writer, _) = captured_writer();
+        broker.subscribe(1, vec![TERMINAL.into()], writer).unwrap();
+        let (id, receiver) = broker.prepare(TERMINAL, "https://example.com/?code=abc").unwrap();
+        assert!(!broker.complete(&id, true));
+        assert!(broker.claim(&id));
+        assert!(!broker.claim(&id));
+        assert!(broker.complete(&id, true));
+        assert!(receiver.recv().unwrap());
+        assert!(!broker.claim(&id));
+    }
+
+    #[test]
+    fn url_open_does_not_guess_between_frontends() {
+        let broker = URLRequests::default();
+        let (first, _) = captured_writer();
+        let (second, _) = captured_writer();
+        broker.subscribe(1, vec![TERMINAL.into()], first).unwrap();
+        broker.subscribe(2, vec![TERMINAL.into()], second).unwrap();
+        assert!(broker.prepare(TERMINAL, "https://example.com").is_none());
+        broker.disconnect(2);
+        assert!(broker.prepare(TERMINAL, "https://example.com").is_some());
+    }
+
+    #[test]
+    fn url_open_disconnect_deadline_and_capacity_are_bounded() {
+        let broker = URLRequests::default();
+        let (writer, _) = captured_writer();
+        broker.subscribe(1, vec![TERMINAL.into()], writer).unwrap();
+        let mut requests = Vec::new();
+        for _ in 0..CAPACITY {
+            requests.push(broker.prepare(TERMINAL, "https://example.com").unwrap());
+        }
+        assert!(broker.prepare(TERMINAL, "https://example.com").is_none());
+        broker.0.lock().recover_poison().pending.get_mut(&requests[0].0).unwrap().deadline =
+            Instant::now();
+        assert!(!broker.claim(&requests[0].0));
+        broker.disconnect(1);
+        for (_, receiver) in requests {
+            assert!(receiver.recv().is_err());
+        }
+        assert!(broker.0.lock().recover_poison().pending.is_empty());
+    }
+
+    #[test]
+    fn url_open_validates_without_rewriting_auth_url_bytes() {
+        assert!(validate_url("HTTPS://github.com/login/device?state=AbC%2F%2b#fragment"));
+        for url in [
+            "file:///tmp/file",
+            "javascript:alert(1)",
+            "https://",
+            "https://foo/\ncommand",
+            "https://foo/a b",
+        ] {
+            assert!(!validate_url(url));
+        }
+        assert!(!validate_url(&format!("https://example.com/{}", "a".repeat(16_384))));
+    }
+}

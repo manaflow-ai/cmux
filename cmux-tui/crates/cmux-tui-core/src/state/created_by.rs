@@ -5,15 +5,8 @@
 //! so it never lands next to the person's selection. Stored by workspace
 //! key, so it survives a restart, and shown as `extra.created_by` on the
 //! workspace (the sidebar's creator tree reads it).
-//!
-//! `created-by-detail-v1` (Leo, 2026-11-19: "acpmux should expose these a lot better"): an agent's
-//! create also names its acpmux session (`session_name`), the `host` it runs on and a one-line
-//! `purpose`, and `room.create` and `tab.create_*` take the same `created_by`. A space or tab
-//! keeps it in `resource_created_by` and shows it as `created_by` (a space) or
-//! `extra.created_by` (a tab). Shown to say who made a thing and why, never a trust claim.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
@@ -57,30 +50,18 @@ pub(crate) struct CreatedBy {
     /// The creator workspace as the request named it: a public id or a key.
     pub(crate) workspace: Option<String>,
     pub(crate) session: Option<String>,
-    /// The agent session's name (`ACPMUX_SESSION_NAME`), its host and what it made this for.
-    pub(crate) session_name: Option<String>,
-    pub(crate) host: Option<String>,
-    pub(crate) purpose: Option<String>,
 }
 
 impl CreatedBy {
     /// The request's `created_by` object (its shape is checked by the
     /// catalog); None when absent or not an object.
     pub(crate) fn from_fields(fields: &Map<String, Value>) -> Option<Self> {
-        Self::from_value(fields.get("created_by")?)
-    }
-
-    /// A `created_by` object; None when it is not one or names no known kind.
-    pub(crate) fn from_value(value: &Value) -> Option<Self> {
-        let value = value.as_object()?;
+        let value = fields.get("created_by")?.as_object()?;
         let text = |name: &str| value.get(name).and_then(Value::as_str).map(str::to_string);
         Some(Self {
             kind: CreatorKind::from_wire(value.get("kind")?.as_str()?)?,
             workspace: text("workspace"),
             session: text("session"),
-            session_name: text("session_name"),
-            host: text("host"),
-            purpose: text("purpose"),
         })
     }
 
@@ -119,9 +100,6 @@ impl Drop for Restore {
     }
 }
 
-/// The detail columns `created-by-detail-v1` adds to `workspace_created_by`.
-const DETAIL_COLUMNS: [&str; 3] = ["session_name", "host", "purpose"];
-
 pub(crate) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspace_created_by (
@@ -129,32 +107,9 @@ pub(crate) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()>
            kind TEXT NOT NULL,
            creator_key TEXT,
            session TEXT
-         );
-         CREATE TABLE IF NOT EXISTS resource_created_by (
-           resource TEXT NOT NULL,
-           id TEXT NOT NULL,
-           kind TEXT NOT NULL,
-           session TEXT,
-           session_name TEXT,
-           host TEXT,
-           purpose TEXT,
-           PRIMARY KEY(resource, id)
          );",
     )?;
-    // Additive: a table an older build made has no detail columns. Older builds name their
-    // columns, so they keep reading and writing it.
-    let columns = transaction
-        .prepare("PRAGMA table_info(workspace_created_by)")?
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<Result<Vec<_>, _>>()?;
-    for column in DETAIL_COLUMNS {
-        if !columns.iter().any(|name| name == column) {
-            transaction.execute_batch(&format!(
-                "ALTER TABLE workspace_created_by ADD COLUMN {column} TEXT;"
-            ))?;
-        }
-    }
-    prune_gone_tabs(transaction)
+    Ok(())
 }
 
 /// The key of the live workspace `named`: a public id, or a key as stored
@@ -195,139 +150,13 @@ pub(crate) fn record(
 ) -> anyhow::Result<()> {
     for key in keys {
         transaction.execute(
-            "INSERT INTO workspace_created_by(workspace_key, kind, creator_key, session,
-               session_name, host, purpose)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO workspace_created_by(workspace_key, kind, creator_key, session)
+             VALUES(?1, ?2, ?3, ?4)
              ON CONFLICT(workspace_key) DO UPDATE SET kind = excluded.kind,
-               creator_key = excluded.creator_key, session = excluded.session,
-               session_name = excluded.session_name, host = excluded.host,
-               purpose = excluded.purpose",
-            params![
-                key,
-                created_by.kind.wire(),
-                creator_key,
-                created_by.session,
-                created_by.session_name,
-                created_by.host,
-                created_by.purpose
-            ],
+               creator_key = excluded.creator_key, session = excluded.session",
+            params![key, created_by.kind.wire(), creator_key, created_by.session],
         )?;
     }
-    Ok(())
-}
-
-/// A space (`room`) or a tab that a `created_by` made: stored by its public id.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Made {
-    Room,
-    Tab,
-}
-
-impl Made {
-    fn wire(self) -> &'static str {
-        match self {
-            Self::Room => "room",
-            Self::Tab => "tab",
-        }
-    }
-}
-
-/// Store `created_by` for the new space or tab `id`.
-pub(crate) fn record_made(
-    connection: &Connection,
-    made: Made,
-    id: &str,
-    created_by: &CreatedBy,
-) -> anyhow::Result<()> {
-    connection.execute(
-        "INSERT INTO resource_created_by(resource, id, kind, session, session_name, host, purpose)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
-         ON CONFLICT(resource, id) DO UPDATE SET kind = excluded.kind,
-           session = excluded.session, session_name = excluded.session_name,
-           host = excluded.host, purpose = excluded.purpose",
-        params![
-            made.wire(),
-            id,
-            created_by.kind.wire(),
-            created_by.session,
-            created_by.session_name,
-            created_by.host,
-            created_by.purpose
-        ],
-    )?;
-    Ok(())
-}
-
-/// The columns [`made_value`] reads.
-const MADE_COLUMNS: &str = "kind, session, session_name, host, purpose";
-
-/// The shown `created_by` of a row whose [`MADE_COLUMNS`] start at column `first`.
-fn made_value(row: &rusqlite::Row<'_>, first: usize) -> rusqlite::Result<Value> {
-    let text = |at: usize| row.get::<_, Option<String>>(first + at);
-    Ok(snapshot_value(
-        row.get::<_, String>(first)?,
-        None,
-        text(1)?,
-        Detail { session_name: text(2)?, host: text(3)?, purpose: text(4)? },
-    ))
-}
-
-/// The `created_by` of the space or tab `id`; None when nothing recorded one.
-pub(crate) fn made_by(
-    connection: &Connection,
-    made: Made,
-    id: &str,
-) -> anyhow::Result<Option<Value>> {
-    Ok(super::values::query_row_cached(
-        connection,
-        &format!("SELECT {MADE_COLUMNS} FROM resource_created_by WHERE resource = ?1 AND id = ?2"),
-        [made.wire(), id],
-        |row| made_value(row, 0),
-    )
-    .optional()?)
-}
-
-/// The recorded `created_by` of every live tab, by id: one statement for a whole list, whatever
-/// the number of tabs; a closed tab's row is not read.
-pub(crate) fn live_tabs_made_by(connection: &Connection) -> anyhow::Result<HashMap<String, Value>> {
-    let mut statement = connection.prepare_cached(
-        "SELECT c.id, c.kind, c.session, c.session_name, c.host, c.purpose
-         FROM resource_created_by AS c
-         JOIN resource_tabs AS t ON t.public_id = c.id
-         WHERE c.resource = 'tab' AND t.deleted_revision IS NULL",
-    )?;
-    let rows =
-        statement.query_map([], |row| Ok((row.get::<_, String>(0)?, made_value(row, 1)?)))?;
-    Ok(rows.collect::<Result<_, _>>()?)
-}
-
-/// Forget the tabs that no longer exist at all (not even as a closed tab that may reopen), so
-/// the table does not grow with every tab an agent ever made. Runs at the state schema's start.
-fn prune_gone_tabs(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let has_tabs = transaction
-        .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'resource_tabs'",
-            [],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some();
-    if has_tabs {
-        transaction.execute(
-            "DELETE FROM resource_created_by WHERE resource = 'tab'
-               AND id NOT IN (SELECT public_id FROM resource_tabs)",
-            [],
-        )?;
-    }
-    Ok(())
-}
-
-/// Forget what made the space or tab `id`, once it is deleted.
-pub(crate) fn forget_made(connection: &Connection, made: Made, id: &str) -> anyhow::Result<()> {
-    connection.execute(
-        "DELETE FROM resource_created_by WHERE resource = ?1 AND id = ?2",
-        [made.wire(), id],
-    )?;
     Ok(())
 }
 
@@ -359,36 +188,20 @@ pub(crate) fn descends_from(
     Ok(false)
 }
 
-/// The `created-by-detail-v1` fields of a stored row.
-#[derive(Default)]
-pub(crate) struct Detail {
-    pub(crate) session_name: Option<String>,
-    pub(crate) host: Option<String>,
-    pub(crate) purpose: Option<String>,
-}
-
 /// `extra.created_by` of a workspace: its kind, its creator's public id while that workspace
-/// lives (`creator`), its agent session, and that session's name, host and purpose.
-/// `state/workspace_extras.rs` reads the rows.
+/// lives (`creator`), and its agent session. `state/workspace_extras.rs` reads the rows.
 pub(crate) fn snapshot_value(
     kind: String,
     creator: Option<String>,
     session: Option<String>,
-    detail: Detail,
 ) -> Value {
     let mut value = Map::new();
     value.insert("kind".into(), json!(kind));
-    let fields = [
-        ("workspace", creator),
-        ("session", session),
-        ("session_name", detail.session_name),
-        ("host", detail.host),
-        ("purpose", detail.purpose),
-    ];
-    for (name, field) in fields {
-        if let Some(field) = field {
-            value.insert(name.into(), json!(field));
-        }
+    if let Some(creator) = creator {
+        value.insert("workspace".into(), json!(creator));
+    }
+    if let Some(session) = session {
+        value.insert("session".into(), json!(session));
     }
     Value::Object(value)
 }

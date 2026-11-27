@@ -47,7 +47,7 @@ import Testing
         let memberGutters = Set(members.compactMap { gutter(rows, .workspace(WorkspaceID($0))) })
         #expect(memberGutters == [0], "every member at the ungrouped rows' edge: \(memberGutters)")
         let lines = lineX(rows)
-        #expect(Set(groups.compactMap { lines[$0] }) == [SidebarStyle.groupLineX(membersMinX: 0) + SidebarStyle.groupRailInset], "one line x: \(lines)")
+        #expect(Set(groups.compactMap { lines[$0] }) == [SidebarStyle.groupLineX(membersMinX: 0)], "one line x: \(lines)")
         #expect(groups.allSatisfy { lines[$0] != nil })
     }
 

@@ -3,7 +3,6 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
-import CmuxNextUpdater
 import Foundation
 import Testing
 
@@ -52,15 +51,7 @@ import Testing
             ("card-5-update-found", found),
             ("card-6-tidy-up-switch", tidy),
             ("card-7-downloading", AAUpdateDownloadCardGalleryTests.downloading(rateSeconds: 3)),
-            ("card-8-star-prompt", starPrompt()),
         ]
-    }
-
-    /// The one-time GitHub star ask as the app builds it (``SidebarNoticeCard/starPrompt(id:title:detail:open:dismissLabel:shownAction:)``).
-    static func starPrompt() -> SidebarNoticeCard {
-        .starPrompt(id: UpdaterService.starCardID, title: StarPromptCenter.title, detail: StarPromptCenter.detail,
-                    open: SidebarNoticeCard.Action(id: UpdaterService.starOpenAction, title: StarPromptCenter.openTitle),
-                    dismissLabel: UpdaterService.cardDismissLabel, shownAction: UpdaterService.tipShownAction)
     }
 
     static func notice(_ card: SidebarNoticeCard, width: CGFloat, placement: SidebarNoticeCardView.GlyphPlacement, dark: Bool) throws -> CGImage {

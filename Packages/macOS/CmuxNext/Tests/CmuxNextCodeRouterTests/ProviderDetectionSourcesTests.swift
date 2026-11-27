@@ -32,11 +32,10 @@ struct ProviderDetectionSourcesTests {
         func delete(for provider: AIProvider) throws {}
     }
 
-    static func detector(files: [String: String] = [:], env: [String: String] = [:], keychain: Set<String> = [],
-                         savedKeys: Set<AIProvider> = []) -> ProviderDetector {
+    static func detector(files: [String: String] = [:], env: [String: String] = [:], keychain: Set<String> = []) -> ProviderDetector {
         ProviderDetector(environment: DetectionEnvironment(
             home: home, environment: env, files: Files(files: files), keychain: Keychain(services: keychain),
-            servers: NoServers(), labeler: AccountLabeler(salt: Data(repeating: 7, count: 32)), savedKeys: savedKeys))
+            servers: NoServers(), labeler: AccountLabeler(salt: Data(repeating: 7, count: 32))))
     }
 
     static let codexConfig = "/fixture/home/.codex/config.toml"
@@ -131,19 +130,11 @@ struct ProviderDetectionSourcesTests {
         #expect(detection.sources == [.keychain(ProviderDetector.codexKeychainService)])
     }
 
-    @Test(arguments: ["", "short", "contains\nnewline"])
+    @Test(arguments: ["short", "contains\nnewline"])
     func malformedAPIKeyIsUnknownBeforeTheFirstPrompt(key: String) {
-        // An empty environment value is still a configured source: it must be
-        // reported as malformed, rather than disappearing as "missing".
         let detection = Self.detector(env: ["OPENAI_API_KEY": key]).detectLocal(.openAI)
         #expect(detection.status == .unknown)
         #expect(detection.sources == [.environment("OPENAI_API_KEY")])
-    }
-
-    @Test func emptyEnvironmentKeyFallsBackToSavedKey() {
-        let detection = Self.detector(env: ["OPENAI_API_KEY": ""], savedKeys: [.openAI]).detectLocal(.openAI)
-        #expect(detection.status == .signedIn)
-        #expect(detection.sources == [.cmuxKeychain, .environment("OPENAI_API_KEY")])
     }
 
     /// Gemini reads `GEMINI_API_KEY` before `GOOGLE_API_KEY`: only the key that would be sent is judged.
@@ -186,6 +177,12 @@ struct ProviderDetectionSourcesTests {
         let resolver = CredentialResolver(environment: detector.environment, keys: NoSavedKeys())
         let connects = (try? resolver.credential(for: c.provider, pasted: nil)) != nil
         #expect(connects == c.accepted)
+    }
+
+    @Test func emptyAPIKeyUsesMissingStateBecauseConnectIgnoresIt() {
+        let detection = Self.detector(env: ["OPENAI_API_KEY": ""]).detectLocal(.openAI)
+        #expect(detection.status == .missing)
+        #expect(detection.sources.isEmpty)
     }
 
     @Test(arguments: [

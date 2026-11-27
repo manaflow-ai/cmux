@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::store::{LocalStore, META_SCHEMA, SessionMeta, Store, ToolRow};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::path::Path;
 
 const CHAT: &str = "chat-parts";
@@ -36,9 +36,8 @@ fn god(id: &str) -> SessionMeta {
             })
         })
         .collect();
-    m.available_commands = Some(
-        json!({"sessionUpdate": "available_commands_update", "availableCommands": commands}).into(),
-    );
+    m.available_commands =
+        Some(json!({"sessionUpdate": "available_commands_update", "availableCommands": commands}));
     m.tools.rows = (0..1_250)
         .map(|i| ToolRow {
             id: format!("mcp:server-{i:05}"),
@@ -297,103 +296,4 @@ fn the_journal_keeps_the_parts_through_a_checkpoint_and_a_replay() {
     store.flush().unwrap_or_else(|e| panic!("{e:#}"));
     let listed = store.list().unwrap_or_else(|e| panic!("{e:#}"));
     assert_eq!(listed.iter().find(|l| l.id == CHAT).map(|l| l.tools.clone()), Some(m.tools));
-}
-
-/// Chats whose agents report the same commands and tool rows hold one copy of them, read from
-/// disk or reported live, so the daemon's memory does not grow with the number of chats that
-/// share them (Leo, 2026-11-16, on a 952 MB daemon: "infinite everything feels like nothing").
-/// An edit to one chat's rows detaches that chat alone.
-#[test]
-fn chats_with_the_same_commands_and_tools_share_one_copy() {
-    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-    let store = local(dir.path());
-    for id in ["a", "b", "c"] {
-        let mut m = god(id);
-        m.id = id.into();
-        store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
-    }
-    let mut listed = local(dir.path()).list().unwrap_or_else(|e| panic!("{e:#}"));
-    listed.sort_by(|a, b| a.id.cmp(&b.id));
-    assert_eq!(listed.len(), 3);
-    let commands = |m: &SessionMeta| m.available_commands.clone().unwrap_or_else(|| panic!());
-    for other in &listed[1..] {
-        assert!(commands(&listed[0]).shares(&commands(other)), "{} has its own commands", other.id);
-        assert!(listed[0].tools.rows.shares(&other.tools.rows), "{} has its own rows", other.id);
-    }
-    let reported: SharedValue = Value::clone(&commands(&listed[0])).into();
-    assert!(reported.shares(&commands(&listed[1])), "a live report shares the chats' copy");
-
-    let (first, rest) = listed.split_at_mut(1);
-    first[0].tools.rows[0].enabled = false;
-    assert!(!first[0].tools.rows.shares(&rest[0].tools.rows));
-    assert!(rest[0].tools.rows.shares(&rest[1].tools.rows));
-    assert!(rest[0].tools.rows[0].enabled);
-}
-
-fn hashed() -> u64 {
-    HASHED.with(Cell::get)
-}
-
-/// Saves `m` (a copy, as `write_snapshot`'s `session.meta()` is) `saves` times as drafts; the
-/// parts' bytes those saves hashed.
-fn hashed_per_drafts(store: &dyn Store, m: &mut SessionMeta, saves: u64) -> u64 {
-    HASHED.with(|h| h.set(0));
-    for n in 0..saves {
-        m.composer_draft = Some(format!("a draft, keystroke {n}"));
-        m.updated_at = 100 + n;
-        store.save_kept(&m.clone()).unwrap_or_else(|e| panic!("draft save: {e:#}"));
-    }
-    hashed()
-}
-
-/// sessions-2000-attached: every save of a chat hashed its whole commands and tool rows (up to
-/// ~1 MB) for the parts fingerprint, the same bytes each prompt. A save whose parts are the copies
-/// the last save had hashes none; an edited part is hashed, written and read back, on both store
-/// paths.
-#[cfg(unix)]
-#[test]
-fn a_save_hashes_the_parts_only_when_they_changed() {
-    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-    let storage = cmux_journal::SimStorage::new(72);
-    let local_store = local(dir.path());
-    let journal_store = journal(home.path(), &storage);
-    for (path, store) in
-        [("session.json", &local_store as &dyn Store), ("journal", journal_store.as_ref())]
-    {
-        let mut m = god(CHAT);
-        HASHED.with(|h| h.set(0));
-        store.save(&m.clone()).unwrap_or_else(|e| panic!("{path}: first save: {e:#}"));
-        assert!(hashed() > 900_000, "{path}: the first save hashed {} bytes", hashed());
-
-        let drafts = hashed_per_drafts(store, &mut m, 20);
-        assert_eq!(drafts, 0, "{path}: 20 drafts hashed {drafts} bytes of unchanged parts");
-
-        // An edit of the shared rows detaches them: hashed, written, read back.
-        m.tools.rows[0].status = Some("failed".into());
-        HASHED.with(|h| h.set(0));
-        reset();
-        store.save(&m.clone()).unwrap_or_else(|e| panic!("{path}: {e:#}"));
-        assert!(hashed() > 200_000, "{path}: an edited row was not hashed");
-        assert!(written() > 200_000, "{path}: an edited row was not written");
-        let drafts = hashed_per_drafts(store, &mut m, 5);
-        assert_eq!(drafts, 0, "{path}: drafts after the edit hashed {drafts} bytes");
-
-        // So does an edit of the commands, and dropping them.
-        if let Some(commands) = m.available_commands.as_mut() {
-            commands["availableCommands"][0]["name"] = json!("renamed");
-        }
-        store.save(&m.clone()).unwrap_or_else(|e| panic!("{path}: {e:#}"));
-        m.available_commands = None;
-        store.save(&m.clone()).unwrap_or_else(|e| panic!("{path}: {e:#}"));
-        store.flush().unwrap_or_else(|e| panic!("{path}: {e:#}"));
-    }
-    let loaded = local(dir.path()).load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).unwrap();
-    assert_eq!(loaded.tools.rows[0].status.as_deref(), Some("failed"));
-    assert_eq!(loaded.available_commands, None);
-    drop(journal_store);
-    let reopened = journal(home.path(), &storage);
-    let loaded = reopened.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).unwrap();
-    assert_eq!(loaded.tools.rows[0].status.as_deref(), Some("failed"));
-    assert_eq!(loaded.available_commands, None);
 }

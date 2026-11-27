@@ -121,13 +121,6 @@ struct SitePermissionEngineResetTests {
         #expect(kinds.count == 3)
         #expect(tab.pageInfoFake.appliedChanges.allSatisfy { $0.1 == $0.0.defaultSetting })
     }
-
-    @Test func aKindChosenDuringTheResetKeepsItsChoice() async {
-        let tab = MockBrowserEngine().makeMockTab(.init(initialURL: URL(string: "https://example.com")))
-        tab.pageInfoFake.live = [.camera: .allow, .location: .block]
-        await SitePermissionEngineReset.run(origin: "https://example.com", stored: [], provider: tab) { $0 != .camera }
-        #expect(tab.pageInfoFake.appliedChanges.map(\.0) == [.location])
-    }
 }
 
 /// A Page Info window that grows after it appears (Site data's rows arriving after its loading

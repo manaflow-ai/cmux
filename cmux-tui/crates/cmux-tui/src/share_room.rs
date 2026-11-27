@@ -49,27 +49,11 @@ pub(crate) fn url() -> Option<String> {
     if let Ok(url) = std::env::var(ENV) {
         return Some(url.trim().to_owned());
     }
-    // A Cloud machine's daemon has no app bundle: its room is the platform its host provisioned
-    // (`CMUX_PLATFORM_ORIGIN`, from the trusted turn scope), so a Cloud chat's links go to the
-    // same environment's room as its owner's app (cloud multiplayer lane C).
-    if let Some(room) = cloud_machine_room(std::env::var(PLATFORM_ORIGIN_ENV).ok().as_deref()) {
-        return Some(room.to_owned());
-    }
     let exe = std::env::current_exe().ok();
     let identity =
         crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref());
     default_for(identity.map_or(BuildKind::Unbundled, |identity| identity.build().kind()))
         .map(str::to_owned)
-}
-
-/// The trusted platform origin a Cloud machine's host hands its daemon (cmux-host `turn_scope`).
-const PLATFORM_ORIGIN_ENV: &str = "CMUX_PLATFORM_ORIGIN";
-
-/// The room of a Cloud machine whose host names `origin`: only a declared deployment's, whose
-/// owner API the app mints the owner token from (`share_owner_api`); any other origin, none.
-fn cloud_machine_room(origin: Option<&str>) -> Option<&'static str> {
-    let origin = origin?.trim().trim_end_matches('/');
-    [DEVELOPMENT, STAGING, PRODUCTION].into_iter().find(|room| *room == origin)
 }
 
 /// This daemon's app's URL scheme (the one its Info.plist registers, cmux-cloud-config `callback_scheme`), which
@@ -98,5 +82,46 @@ fn default_for(kind: BuildKind) -> Option<&'static str> {
 }
 
 #[cfg(test)]
-#[path = "share_room_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_build_kind_has_its_room() {
+        assert_eq!(default_for(BuildKind::Release), Some(PRODUCTION));
+        assert_eq!(default_for(BuildKind::Rc), Some(PRODUCTION));
+        assert_eq!(default_for(BuildKind::Nightly), Some(STAGING));
+        assert_eq!(default_for(BuildKind::Staging), Some(STAGING));
+        assert_eq!(default_for(BuildKind::Dev), Some(DEVELOPMENT));
+        assert_eq!(default_for(BuildKind::Unbundled), None);
+    }
+
+    #[test]
+    fn each_build_names_the_scheme_it_registers() {
+        use crate::app_identity::AppIdentity;
+        let app = |bundle: Option<&str>, tag: Option<&str>| AppIdentity {
+            bundle_id: bundle.map(str::to_owned),
+            tag: tag.map(str::to_owned),
+            socket_override: None,
+            shipped_tag: tag.map(str::to_owned),
+        };
+        let cases = [
+            (app(Some("com.cmuxterm.app.nightly"), None), "cmux-nightly"),
+            (app(Some("com.cmuxterm.app"), None), "cmux"),
+            (app(Some("com.cmuxterm.app.rc"), None), "cmux-rc"),
+            (app(Some("com.cmuxterm.app.debug.next"), None), "cmux-next-dev"),
+            (app(Some("com.cmuxterm.app.debug"), None), "cmux-dev"),
+            (
+                app(Some("com.cmuxterm.app.debug.share.links"), Some("share-links")),
+                "cmux-dev-share-links",
+            ),
+            (app(None, Some("share-links")), "cmux-dev-share-links"),
+        ];
+        for (identity, scheme) in cases {
+            assert_eq!(scheme_of(&identity, None), scheme, "{identity:?}");
+        }
+        // The bundle's own setting wins (cmux NIGHTLY's LSEnvironment), unless it cannot be a scheme.
+        let nightly = app(Some("com.cmuxterm.app.nightly"), None);
+        assert_eq!(scheme_of(&nightly, Some("cmux-nightly")), "cmux-nightly");
+        assert_eq!(scheme_of(&nightly, Some("1 bad")), "cmux-nightly");
+    }
+}

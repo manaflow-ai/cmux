@@ -255,25 +255,6 @@ import Testing
         #expect(chrome.pageOverlays.lift(of: card) == 0 && abs(bottom() - resting) < 0.5)
     }
 
-    /// https://github.com/manaflow-ai/cmux/issues/45018: the host's `browser.siteEngines` check sees every page a tab
-    /// commits, a hidden one's too, once per address: a Chromium New Tab page where open.spotify.com is typed, a link
-    /// or a redirect reaches the check, not only a tab made at that address.
-    @Test func eachCommittedPageReachesTheSiteEngineCheckOnce() async {
-        let page = Self.tab("start.example")
-        let entry = BrowserEntry(tab: page)
-        defer { entry.close() }
-        var committed: [URL] = []
-        entry.state.onPageCommitted = { committed.append($0) }
-        let spotify = URL(string: "https://open.spotify.com/track/1")!
-        page.load(spotify)
-        await Self.settle()
-        #expect(committed.last == spotify, "the typed address reached the check: \(committed)")
-        let count = committed.filter { $0 == spotify }.count
-        page.reload()
-        await Self.settle()
-        #expect(committed.filter { $0 == spotify }.count == count, "the same address is reported once: \(committed)")
-    }
-
     /// History is the tab's, not the toolbar's (Chrome's HistoryTabHelper): a tab that never shows, or loads while
     /// another tab of the pane shows, records its visits and finished loads then, and a later show records none again.
     @Test func aHiddenTabRecordsItsVisitsAndFinishedLoads() async {

@@ -7,11 +7,6 @@
 //! 20,000-file folder took 290 s more than a small repository, at 8 connections), so a folder of
 //! many small files was bound by round trips, not bytes: 131,000 files at 8 connections is
 //! about 1,600 s of waiting alone.
-//!
-//! A batch stays lines (base64), not write streams: a stream is one dial and one `ready`
-//! round trip per file, the very wait a batch removes, and many files on one raw stream would
-//! need a new daemon op behind a capability of its own. A batch's files are small (one part at
-//! most), so base64's third is a few KiB each; a large file goes alone, over a stream.
 
 use std::io::{BufRead as _, Read as _, Write as _};
 use std::time::Instant;
@@ -22,7 +17,7 @@ use serde_json::{Value, json};
 
 use super::{
     Dropped, FsRefusal, MAX_ANSWER_BYTES, MAX_OTHER_ANSWERS, Remote, SEND_SLICE_BYTES,
-    answer_budget, choose, name_of, revision_of, stalled, timed_out, with_bytes,
+    answer_budget, revision_of, shrinks, stalled, timed_out, with_bytes,
 };
 
 /// One file of a batch: written whole over whatever file is at `path` (never a part file).
@@ -50,7 +45,7 @@ pub(in crate::link::sync_cli) struct Called {
 
 impl Remote {
     /// Writes `files`, each as one `fs.write` overwrite exactly as [`Remote::write`] sends a file
-    /// of one part (zstd or deflate when the machine takes it and the bytes shrink, `no_follow` when it
+    /// of one part (deflated when the machine takes it and the bytes shrink, `no_follow` when it
     /// takes that, under a held copy's hold), all sent before the first answer is read.
     pub(in crate::link::sync_cli) fn write_batch(&mut self, files: &[Whole<'_>]) -> Batched {
         let mut requests = Vec::with_capacity(files.len());
@@ -58,9 +53,9 @@ impl Remote {
             let request = self.guarded(
                 json!({ "path": file.path, "mode": "overwrite", "permissions": file.permissions }),
             );
-            let kind = cmux_bytes::classify::classify(name_of(file.path), file.bytes);
-            match choose(file.bytes, kind, self.zstd, self.deflate) {
-                Ok(coded) => requests.push(("fs.write", with_bytes(request, file.bytes, coded))),
+            let compress = self.deflate && shrinks(file.bytes);
+            match with_bytes(request, file.bytes, compress) {
+                Ok(request) => requests.push(("fs.write", request)),
                 Err(error) => {
                     return Batched {
                         answers: files.iter().map(|_| None).collect(),

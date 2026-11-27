@@ -67,8 +67,7 @@ import Testing
             #expect(!view.isHidden && view.alphaValue == 1, "the \(name) button's target opacity on hover is not 1")
             let fade = try #require(Self.fade(view), "the \(name) button popped in instead of fading in")
             #expect((fade.fromValue as? NSNumber)?.doubleValue == 0 && (fade.toValue as? NSNumber)?.doubleValue == 1)
-            #expect(fade.duration > MotionScale.micro - 0.02 && fade.duration < MotionScale.micro + 0.03,
-                    "the \(name) fade-in takes \(fade.duration) s, not about the micro step's \(MotionScale.micro) s")
+            #expect(fade.duration > 0.1 && fade.duration < 0.15, "the \(name) fade-in takes \(fade.duration) s, not about 0.12 s")
             #expect(Self.points(fade.timingFunction) == Self.points(Motion.fadeCurve), "the \(name) fade-in is not the ease-out fade curve")
             #expect(view.frame == slot, "the \(name) button moved as it appeared")
             #expect((view.layer?.animationKeys() ?? []) == ["opacity"], "the \(name) button animates more than its opacity")
@@ -81,8 +80,7 @@ import Testing
         for (name, view) in Self.buttons(header) {
             #expect(!view.isHidden && view.alphaValue == 0, "the \(name) button vanished instead of fading out")
             let fade = try #require(Self.fade(view), "the \(name) button popped out instead of fading out")
-            #expect(fade.duration > MotionScale.micro - 0.02 && fade.duration < MotionScale.micro + 0.03,
-                    "the \(name) fade-out takes \(fade.duration) s, not about the micro step's \(MotionScale.micro) s")
+            #expect(fade.duration > 0.1 && fade.duration < 0.15, "the \(name) fade-out takes \(fade.duration) s, not about 0.12 s")
         }
     }
 

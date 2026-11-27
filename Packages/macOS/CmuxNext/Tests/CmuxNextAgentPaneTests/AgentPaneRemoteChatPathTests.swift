@@ -174,7 +174,7 @@ struct AgentPaneRemoteChatPathTests {
                     try "ok\n".write(to: target, atomically: true, encoding: .utf8)
                 }
                 var opened: [URL] = []
-                rig.model.onOpenFile = { url, _, _ in opened.append(url); return true }
+                rig.model.onOpenFile = { url, _ in opened.append(url); return true }
                 rig.model.replyLinks.revealFolder = { opened.append($0) }
                 var connection: Int?
                 rig.model.replyLinks.confirmOutside = { _, answer in
@@ -194,33 +194,6 @@ struct AgentPaneRemoteChatPathTests {
         }
     }
 
-    @Test(arguments: [false, true]) func numberedCitationUsesTheConfiguredTarget(enabled: Bool) async throws {
-        let rig = try Self.rig()
-        defer { try? FileManager.default.removeItem(at: rig.folder) }
-        rig.model.replyLinks.settings = {
-            var settings = AgentPaneReplySetting.fallback
-            settings.openCitationsInEditor = enabled
-            return settings
-        }
-        let file = rig.outside.appendingPathComponent("example.txt")
-        try "first\nsecond\n".write(to: file, atomically: true, encoding: .utf8)
-        var opened = false
-        rig.model.onOpenFile = { url, target, line in
-            opened = true
-            #expect(url.resolvingSymlinksInPath().path == file.resolvingSymlinksInPath().path)
-            #expect(target == (enabled ? .editor : .tab))
-            #expect(line == (enabled ? 2 : nil))
-            return true
-        }
-        let params: [String: Any] = ["path": file.path, "line": 2]
-        _ = await Self.ask(rig.model, "link.openPath", params)
-        #expect(!opened)
-        rig.model.transport.gestures.record(click: true)
-        let reply = await Self.ask(rig.model, "link.openPath", params)
-        #expect(Self.errorCode(reply) == nil)
-        #expect(opened)
-    }
-
     /// The control: the same confirmed Open in a chat that stays on this Mac opens the file.
     @Test func aConfirmedOpenInALocalChatOpensTheFile() async throws {
         let rig = try Self.rig()
@@ -229,7 +202,7 @@ struct AgentPaneRemoteChatPathTests {
         let log = rig.outside.appendingPathComponent("build.log")
         try "ok\n".write(to: log, atomically: true, encoding: .utf8)
         var opened: [URL] = []
-        rig.model.onOpenFile = { url, _, _ in opened.append(url); return true }
+        rig.model.onOpenFile = { url, _ in opened.append(url); return true }
         rig.model.replyLinks.confirmOutside = { _, answer in answer(true) }
         rig.model.transport.gestures.record(click: true)
         let reply = await Self.ask(rig.model, "link.openPath", ["path": log.path])

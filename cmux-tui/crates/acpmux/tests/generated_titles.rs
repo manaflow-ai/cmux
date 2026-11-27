@@ -24,8 +24,7 @@ const TITLER: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_titler.py"
 /// A hub whose title command records each request in `asked`.
 fn hub(asked: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        // `plain`: an agent that forks with its own session/fork (no Claude resume).
-        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "claude"}, "plain": {"argv": ["python3", FAKE]}},
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "claude"}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         "titles": {"command": ["python3", TITLER, asked]}
@@ -257,17 +256,13 @@ async fn a_chat_the_person_renamed_asks_no_model_for_a_title() {
     client.prompt(&launched, "Plan a three-dish picnic menu").await;
     assert!(client.titled(Duration::from_secs(3)).await.is_none(), "titled a renamed lane");
     assert_eq!(client.info(&launched).await["titleSource"], json!("named"));
-    // The rename titled it by its name in words; its prompt's line does not replace that.
-    assert_eq!(client.title(&launched).await, json!("Picnic menu"));
 
     let renamed = client.new_session().await;
-    // The daemon named it: `nameGiven` is absent or false (`_acpmux/info` lists every key, #49714).
-    assert_ne!(client.info(&renamed).await["nameGiven"], json!(true), "the daemon named it");
+    assert_eq!(client.info(&renamed).await.get("nameGiven"), None, "the daemon named it");
     client.call("_acpmux/rename", json!({"sessionId": renamed, "newName": "menu-ideas"})).await;
     assert_eq!(client.info(&renamed).await["nameGiven"], json!(true));
     client.prompt(&renamed, "Plan a three-dish picnic menu").await;
     assert!(client.titled(Duration::from_secs(3)).await.is_none(), "titled a renamed chat");
-    assert_eq!(client.title(&renamed).await, json!("Menu ideas"));
     assert!(!asked.exists(), "the title command ran: {:?}", std::fs::read_to_string(&asked));
 }
 
@@ -284,82 +279,4 @@ async fn generated_titles_can_be_disabled_without_removing_the_prompt_placeholde
     assert!(client.titled(Duration::from_secs(2)).await.is_none(), "titled while disabled");
     assert_eq!(client.title(&session).await, json!("Plan a three-dish picnic menu"));
     assert!(!asked.exists(), "the title command ran while disabled");
-}
-
-impl Client {
-    async fn new_plain(&mut self) -> String {
-        let created = self
-            .call("session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "plain"}}}))
-            .await;
-        created["sessionId"].as_str().unwrap().to_owned()
-    }
-}
-
-/// A fork opens titled at once from its parent's title, with a fork mark (#50024); its first
-/// prompt refines that title with the parent's title in the request, never alone, and a harness
-/// title made from that prompt (pi's, from acpmux's sender banner, #50098) does not replace it.
-#[tokio::test]
-async fn a_fork_opens_under_its_parents_title_and_its_first_prompt_only_refines_it() {
-    let asked = asked_path("fork");
-    let hub = hub(&asked);
-    let mut client = Client::open(&hub);
-    client.watch().await;
-    let parent = client.new_plain().await;
-    client.prompt(&parent, "Plan a three-dish picnic menu").await;
-    client.titled(Duration::from_secs(15)).await.expect("the parent was not titled");
-    assert_eq!(client.title(&parent).await, json!("Three-Dish Picnic Menu"));
-
-    let fork = client
-        .call(
-            "session/fork",
-            json!({"sessionId": parent, "cwd": std::env::temp_dir(), "mcpServers": []}),
-        )
-        .await;
-    let fork = fork["sessionId"].as_str().unwrap().to_owned();
-    let info = client.info(&fork).await;
-    assert_eq!(info["title"], json!("Three-Dish Picnic Menu (fork)"), "{info}");
-    assert_eq!(info["titleSource"], json!("inherited"));
-
-    // Its harness titles it from the first prompt alone, here with a banner: the fork keeps its title.
-    client
-        .prompt(
-            &fork,
-            "harness-title: [Part of this prompt reads as another agent (Codex)'s output",
-        )
-        .await;
-    client.titled(Duration::from_secs(15)).await.expect("the fork's title was not refined");
-    // The fake titler answers the parent's title again: the fork keeps its mark.
-    assert_eq!(client.title(&fork).await, json!("Three-Dish Picnic Menu (fork)"));
-    let requests = std::fs::read_to_string(&asked).unwrap();
-    let last = requests.split("\n---\n").filter(|r| !r.trim().is_empty()).last().unwrap();
-    assert!(last.contains("a fork of a chat titled \"Three-Dish Picnic Menu\""), "{last}");
-
-    // A fork of the fork: one mark.
-    let again = client
-        .call(
-            "session/fork",
-            json!({"sessionId": fork, "cwd": std::env::temp_dir(), "mcpServers": []}),
-        )
-        .await;
-    assert_eq!(
-        client.title(again["sessionId"].as_str().unwrap()).await,
-        json!("Three-Dish Picnic Menu (fork)")
-    );
-    let _ = std::fs::remove_file(&asked);
-    let _ = std::fs::remove_file(cwd_path(&asked));
-}
-
-/// No chat is titled after acpmux's own mark of who wrote its prompt (#50098).
-#[tokio::test]
-async fn a_harness_title_made_from_an_attribution_mark_is_ignored() {
-    let asked = asked_path("mark");
-    let hub = hub(&asked);
-    let mut client = Client::open(&hub);
-    let session = client.new_plain().await;
-    client.prompt(&session, "harness-title: From another agent (lane-a), not the person:").await;
-    let info = client.info(&session).await;
-    assert_ne!(info["titleSource"], json!("harness"), "{info}");
-    assert!(!info["title"].as_str().unwrap_or("").starts_with("From another agent"), "{info}");
-    let _ = std::fs::remove_file(&asked);
-    let _ = std::fs::remove_file(cwd_path(&asked));
 }

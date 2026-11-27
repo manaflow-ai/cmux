@@ -28,6 +28,11 @@ import UniformTypeIdentifiers
         #expect(CGImageDestinationFinalize(destination))
     }
 
+    @Test func aProfileMayNameAGIFOrWebPPicture() {
+        for name in ["cat.png", "cat.JPG", "cat.heic", "cat.gif", "cat.webp"] { #expect(HomeChiefFiles.namesPicture(name), "\(name)") }
+        for name in ["AB", "🐱", "../cat.png", "cat.svg"] { #expect(!HomeChiefFiles.namesPicture(name), "\(name)") }
+    }
+
     @Test func aStillIsDrawnSmallAndAGIFKeptAsItIs() throws {
         let home = try Self.home(), source = try Self.home()
         let files = HomeChiefFiles(muxHome: home)

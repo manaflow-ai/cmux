@@ -3,7 +3,7 @@ import CoreGraphics
 
 /// DEV and NIGHTLY (Debug menu > Sidebar States Playground): the mock sidebar each playground column draws, one row
 /// per ``SidebarStatesPlaygroundState``: Home and a pinned workspace in the top bands, then This Mac's rows and groups
-/// (the archived row dimmed in place), then one row on an SSH machine. ``ref(for:)`` says which real
+/// (the archived row under the open Archive section), then one row on an SSH machine. ``ref(for:)`` says which real
 /// row view draws each state.
 struct SidebarStatesPlaygroundFixture {
     /// Where a state's row view lives: a list row, or an item of a band block (Home, a pin).
@@ -16,7 +16,7 @@ struct SidebarStatesPlaygroundFixture {
     static let pinnedWorkspace = WorkspaceID("sp-pinned")
     static let idle = WorkspaceID("sp-idle"), busy = WorkspaceID("sp-busy"), unread = WorkspaceID("sp-unread")
     static let needsYou = WorkspaceID("sp-needs-you"), error = WorkspaceID("sp-error"), needsInput = WorkspaceID("sp-needs-input")
-    static let selected = WorkspaceID("sp-selected")
+    static let usageWarning = WorkspaceID("sp-usage-warning"), selected = WorkspaceID("sp-selected")
     static let hovered = WorkspaceID("sp-hovered"), renaming = WorkspaceID("sp-renaming"), archived = WorkspaceID("sp-archived")
     static let remote = WorkspaceID("sp-remote"), member = WorkspaceID("sp-member"), accent = WorkspaceID("sp-accent")
     static let faviconMono = WorkspaceID("sp-favicon-mono"), faviconColorful = WorkspaceID("sp-favicon-colorful")
@@ -46,6 +46,7 @@ struct SidebarStatesPlaygroundFixture {
         case .needsYou: .list(.workspace(Self.needsYou))
         case .error: .list(.workspace(Self.error))
         case .needsInput: .list(.workspace(Self.needsInput))
+        case .usageWarning: .list(.workspace(Self.usageWarning))
         case .pinned, .pinnedHoverCard: .band(block: SidebarLayoutDocument.pinnedSectionID.rawValue, item: Self.pin)
         case .selected: .list(.workspace(Self.selected))
         case .hovered: .list(.workspace(Self.hovered))
@@ -77,6 +78,8 @@ struct SidebarStatesPlaygroundFixture {
         }
         var needsInput = row(Self.needsInput, "Program asks a question", activity: .waiting(kind: .question))
         needsInput.activityFromProgram = true // an OSC 7501 report opts its row in to the detailed marks
+        var usage = row(Self.usageWarning, "Runaway agent chat")
+        usage.usageWarnings = ["No autocompact cap"]
         let favicons = SidebarStatesPlaygroundFavicons()
         func browser(_ id: WorkspaceID, _ title: String, _ image: CGImage?) -> SidebarWorkspace {
             var row = row(id, title)
@@ -99,6 +102,7 @@ struct SidebarStatesPlaygroundFixture {
             .workspace(row(Self.needsYou, "Agent needs you", activity: .waiting)),
             .workspace(row(Self.error, "Build failed", activity: .error)),
             .workspace(needsInput),
+            .workspace(usage),
             .workspace(row(Self.hovered, "Hovered workspace", color: .purple)),
             .workspace(row(Self.accent, "Colored workspace", color: .purple)),
             .workspace(row(Self.renaming, "Renaming workspace")),
@@ -131,7 +135,6 @@ struct SidebarStatesPlaygroundFixture {
         model.itemInfo = [Self.home: home, Self.pin: pin]
         model.docDrag = SidebarDocDrag(item: { _ in nil }, section: { _ in nil }, begin: { _ in [:] }, drop: { _, _ in }, adoptRef: { _ in nil })
         model.expanded = expanded
-        model.listsArchived = true // the archived row draws dimmed in place: the sidebar itself lists none
         model.colorIndicator = .leftRail // a colored row's color is its leading bar
         return model
     }

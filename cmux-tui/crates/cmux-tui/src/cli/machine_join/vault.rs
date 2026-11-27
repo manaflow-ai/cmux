@@ -32,7 +32,7 @@ mod policy;
 
 pub(in crate::cli) use policy::Policy;
 
-pub(super) const USAGE: &str = "usage: cmux machine vault set NAME [--host H]... [--no-hosts | --env]   (the value from a hidden prompt or stdin)
+const USAGE: &str = "usage: cmux machine vault set NAME [--host H]... [--no-hosts | --env]   (the value from a hidden prompt or stdin)
        cmux machine vault policy NAME (--host H... | --no-hosts | --env)
        cmux machine vault ls
   --host H     agents get a placeholder; the machine sends the real value only to H (repeat for more)

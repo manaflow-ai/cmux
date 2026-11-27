@@ -575,12 +575,7 @@ fn ensure_running<C: ControlPlane>(
             // paused machine): it is not paused, so the connect goes on and
             // the readiness read below decides.
             Err(error) if error.code == codes::NOT_PAUSED => {}
-            Err(error) => {
-                // The serve loop retries a transient refusal and names the
-                // step of a final one (crate::ops::start_retry, super::park).
-                server.attach_mut().start_failed = Some(machine.to_owned());
-                return Err(error);
-            }
+            Err(error) => return Err(error),
         }
         // The machine's state changed: read its link facts again.
         let attach = server.attach_mut();

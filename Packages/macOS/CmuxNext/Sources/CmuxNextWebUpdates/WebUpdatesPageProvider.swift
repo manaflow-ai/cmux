@@ -79,8 +79,7 @@ extension WebUpdates {
     static func pageCode(_ refusal: WebUpdateRefusal) -> String {
         switch refusal {
         case .abiMismatch: "app_too_old"
-        // The switch file keeps the app on what it serves: to the card, nothing newer to take.
-        case .notNewer, .refusedBySwitchFile: "not_newer"
+        case .notNewer: "not_newer"
         case .malformed, .unsigned, .wrongChannel: "untrusted"
         case .integrity: "damaged"
         case .transfer: "offline"

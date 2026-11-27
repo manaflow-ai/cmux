@@ -8,18 +8,18 @@
 set -uo pipefail
 command -v gh >/dev/null && exit 0
 
-# The pin: gh v2.105.0 (2026-11-17, adds `gh event listen`), sha256 from its gh_2.105.0_checksums.txt.
-GH_PIN_VERSION=2.105.0
+# The pin: gh v2.103.3 (2026-10-26), sha256 from its gh_2.103.3_checksums.txt.
+GH_PIN_VERSION=2.103.3
 file_sha256() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
 }
 pinned_gh() {
   local asset sum
   case "$(uname -s)/$(uname -m)" in
-    Darwin/arm64) asset="gh_${GH_PIN_VERSION}_macOS_arm64.zip" sum=2a5d03103ae444927383b93d9ffd65579a26e2eb900ce1cf11f55258d5319ded ;;
-    Darwin/x86_64) asset="gh_${GH_PIN_VERSION}_macOS_amd64.zip" sum=23602cbccbbdc6285a8520745b714cb927ce2ca621779373c2a20cd8e33fda66 ;;
-    Linux/x86_64) asset="gh_${GH_PIN_VERSION}_linux_amd64.tar.gz" sum=79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f ;;
-    Linux/aarch64 | Linux/arm64) asset="gh_${GH_PIN_VERSION}_linux_arm64.tar.gz" sum=b1278c75107423d818f1937fd92cafc9e5e9b606631568f68d7fb816f5885a02 ;;
+    Darwin/arm64) asset="gh_${GH_PIN_VERSION}_macOS_arm64.zip" sum=d700207eae9ae98fe2b89535c2c087c07823d4628c56364695a5a07ef311c062 ;;
+    Darwin/x86_64) asset="gh_${GH_PIN_VERSION}_macOS_amd64.zip" sum=a2f86418f4350ae6e9ec60d5000bdf7665728436946a97fc27fe50e6ae752682 ;;
+    Linux/x86_64) asset="gh_${GH_PIN_VERSION}_linux_amd64.tar.gz" sum=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d ;;
+    Linux/aarch64 | Linux/arm64) asset="gh_${GH_PIN_VERSION}_linux_arm64.tar.gz" sum=ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63 ;;
     *) return 1 ;;
   esac
   command -v curl >/dev/null 2>&1 || return 1
@@ -28,12 +28,7 @@ pinned_gh() {
   sum="${GH_PIN_SHA256:-$sum}"
   local dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pinned-gh-$GH_PIN_VERSION"
   rm -rf "$dir" && mkdir -p "$dir/unpacked" "$dir/bin" || return 1
-  # With the job's token (GH_PIN_TOKEN from the step), through the API: the Macs get 403 on anonymous
-  # release downloads (scripts/ci/github-release-download.sh; without it, curl as before).
-  local fetch="$(dirname "$0")/../github-release-download.sh"
-  { [ -f "$fetch" ] && GH_DOWNLOAD_TOKEN="${GH_PIN_TOKEN:-}" bash "$fetch" "$url" "$dir/$asset" \
-      --connect-timeout 10 --max-time 120 --retry 3 --retry-all-errors; } ||
-  { [ ! -f "$fetch" ] && curl -fsSL --connect-timeout 10 --max-time 120 --retry 3 --retry-all-errors -o "$dir/$asset" "$url"; } || {
+  curl -fsSL --connect-timeout 10 --max-time 120 --retry 3 --retry-all-errors -o "$dir/$asset" "$url" || {
     echo "::warning title=Pinned gh::could not download $url"; return 1; }
   local actual
   actual="$(file_sha256 "$dir/$asset")"

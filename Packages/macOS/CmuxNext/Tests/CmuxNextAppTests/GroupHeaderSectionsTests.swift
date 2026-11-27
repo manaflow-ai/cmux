@@ -8,7 +8,7 @@ import Testing
 /// maybe we can also have an option to have that"): a group draws as a plain section heading. The real header, for a
 /// group with no color and every palette color, in a dark, a light and a wallpaper room: no fill, rim or dot at rest,
 /// its name in the theme's quiet ink; the row's own fill under the pointer; its members' line draws nothing. The
-/// default draws a visible band (`GroupHeaderAlwaysVisibleTests`).
+/// default stays cmux's glass group (`GroupHeaderAlwaysVisibleTests`).
 @MainActor @Suite(.serialized) struct GroupHeaderSectionsTests {
     static func header(_ tint: GroupTint, in scope: ThemeScope, hovered: Bool) -> GroupHeaderRowView {
         let id = GroupID("grp_section")
@@ -67,8 +67,7 @@ import Testing
         #expect(SidebarSectionsPreferences().groupHeaderBackground == .auto)
         #expect(!SidebarGroupBackgroundStyle.sections.drawsBackground)
         #expect(!SidebarGroupBackgroundStyle.sections.drawsGlass(appLooksGlassy: true))
-        #expect(!SidebarGroupBackgroundStyle.sections.indentsMembers)
-        #expect(SidebarGroupBackgroundStyle.allCases.filter { !$0.drawsMembersMark } == [.folder, .sections])
+        #expect(SidebarGroupBackgroundStyle.allCases.filter { !$0.drawsBackground } == [.sections])
         var before = SidebarSectionsPreferences()
         before.groupHeaderBackground = .auto
         var after = before

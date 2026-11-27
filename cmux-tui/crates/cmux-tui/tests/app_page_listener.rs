@@ -168,8 +168,6 @@ fn the_apps_daemon_mints_its_websocket_credential_and_serves_its_pages() {
     let lower = page.to_ascii_lowercase();
     assert!(lower.contains("content-type: text/html"), "{page}");
     assert!(lower.contains(&format!("connect-src 'self' ws://{addr}")), "{page}");
-    // A page may compile its own wasm (ghostty-web's VT core), nothing more.
-    assert!(lower.contains("script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval';"), "{page}");
     assert!(lower.contains("x-content-type-options: nosniff"), "{page}");
     assert_eq!(status(&http_get(&addr, "/pages/home-channels/index.html", &addr)), "200");
     // Relative ../__shared imports from a page resolve under the same pages tree.

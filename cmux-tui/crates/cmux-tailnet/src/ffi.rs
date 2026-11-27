@@ -15,8 +15,6 @@ unsafe extern "C" {
     pub fn tailscale_set_authkey(sd: Tailscale, authkey: *const c_char) -> c_int;
     pub fn tailscale_set_control_url(sd: Tailscale, control_url: *const c_char) -> c_int;
     pub fn tailscale_set_ephemeral(sd: Tailscale, ephemeral: c_int) -> c_int;
-    /// cmux patch 0004: the ACL tags (comma separated) the node asks for at login.
-    pub fn tailscale_set_advertise_tags(sd: Tailscale, tags: *const c_char) -> c_int;
     pub fn tailscale_set_logfd(sd: Tailscale, fd: c_int) -> c_int;
     pub fn tailscale_getips(sd: Tailscale, buf: *mut c_char, buflen: usize) -> c_int;
     pub fn tailscale_dial(

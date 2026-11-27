@@ -14,15 +14,11 @@ public struct SettingsCloudPages {
     public var machines: () -> AnyView
     public var automations: () -> AnyView
     public var connectGitHub: () -> AnyView
-    /// Cloud → Vault: the end-to-end encrypted secrets this phone holds the key to (nil: no row).
-    public var vault: (() -> AnyView)?
 
-    public init(machines: @escaping () -> AnyView, automations: @escaping () -> AnyView, connectGitHub: @escaping () -> AnyView,
-                vault: (() -> AnyView)? = nil) {
+    public init(machines: @escaping () -> AnyView, automations: @escaping () -> AnyView, connectGitHub: @escaping () -> AnyView) {
         self.machines = machines
         self.automations = automations
         self.connectGitHub = connectGitHub
-        self.vault = vault
     }
 }
 

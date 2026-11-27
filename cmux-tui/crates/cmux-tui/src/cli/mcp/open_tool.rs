@@ -12,7 +12,7 @@
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
-use super::{Backend, Server, envelope, live_file, md_deck, pptx_view, tool_error, v2_tools};
+use super::{Backend, Server, envelope, live_file, pptx_view, tool_error, v2_tools};
 
 pub(super) const NAME: &str = "open";
 
@@ -29,7 +29,7 @@ pub(super) fn descriptor() -> Value {
     json!({
         "name": NAME,
         "title": "Open a file, diff or page",
-        "description": "Open a file, a diff or a web page in a cmux viewer tab, where the person asked, in one call. kind: file (path), diff (path: a file or folder; none for the working tree's changes) or page (url). where: right (the column right of this chat, made when there is none), left, below, above (a new pane on that side of this chat's pane, or of pane), here (this chat's own pane), sticky (a column docked to edge, default right; an existing docked column takes it), pane (a tab in pane), workspace (a tab in that workspace, which stays in the background). The person's view stays unless focus is true. A .md file shows rendered in cmux's Markdown page (tables, Mermaid diagrams), which follows the file as it changes: open a plan or report you wrote there. A .pptx file previews as its slides (a strip and the current slide); a Markdown deck (a .slides.md file, or front matter slides: true) shows as slides with Present and Export PDF / .pptx (see the slides tool). A shown page, SVG, PDF, image or .pptx file reloads in its tab when the file changes (live, default true for those).",
+        "description": "Open a file, a diff or a web page in a cmux viewer tab, where the person asked, in one call. kind: file (path), diff (path: a file or folder; none for the working tree's changes) or page (url). where: right (the column right of this chat, made when there is none), left, below, above (a new pane on that side of this chat's pane, or of pane), here (this chat's own pane), sticky (a column docked to edge, default right; an existing docked column takes it), pane (a tab in pane), workspace (a tab in that workspace, which stays in the background). The person's view stays unless focus is true. A .pptx file previews as its slides (a strip and the current slide). A shown page, SVG, PDF, image or .pptx file reloads in its tab when the file changes (live, default true for those).",
         "inputSchema": {
             "type": "object",
             "additionalProperties": false,
@@ -64,15 +64,6 @@ impl<B: Backend> Server<B> {
     /// Runs `open`: the target pane first (a split, a column or a named pane), then the
     /// app's open action into it.
     pub(super) fn call_open(&self, arguments: &Map<String, Value>) -> Value {
-        self.open_as(arguments, None)
-    }
-
-    /// `open`, with the file shown as a deck of `deck` kind whatever its name (`slides`).
-    pub(super) fn open_as(
-        &self,
-        arguments: &Map<String, Value>,
-        deck: Option<pptx_view::Kind>,
-    ) -> Value {
         let known = [
             "kind",
             "path",
@@ -121,11 +112,13 @@ impl<B: Backend> Server<B> {
         let arguments = &arguments;
         let place = place.as_str();
         let focus = arguments.get("focus").and_then(Value::as_bool).unwrap_or(false);
+        // A .pptx shows as a page: the deck viewer this server serves on loopback.
+        let deck = kind == "file" && value.is_some_and(pptx_view::is_deck);
         let live = match arguments.get("live") {
-            None => None,
-            Some(Value::Bool(live)) => Some(*live),
+            None => value.is_some_and(|value| deck || live_file::renders_in_browser(value)),
+            Some(Value::Bool(live)) => *live,
             Some(_) => return invalid("open live must be true or false"),
-        };
+        } && kind == "file";
         let open_id = match arguments.get("idempotency_key") {
             Some(Value::String(key)) => {
                 if let Err(error) = cmux_tui_core::resource::validate_idempotency_key(key) {
@@ -145,22 +138,6 @@ impl<B: Backend> Server<B> {
             Some(value) if kind != "page" => Some(self.chat_path(value)),
             value => value.map(str::to_owned),
         };
-        // A .pptx or a Markdown deck shows as a page: the deck viewer this server serves on
-        // loopback.
-        let deck_kind = match (kind, value.as_deref()) {
-            ("file", Some(path)) => deck.or_else(|| {
-                if pptx_view::is_deck(path) {
-                    Some(pptx_view::Kind::Pptx)
-                } else {
-                    md_deck::is_deck(path).then_some(pptx_view::Kind::Markdown)
-                }
-            }),
-            _ => None,
-        };
-        let deck = deck_kind.is_some();
-        let live = live.unwrap_or_else(|| {
-            value.as_deref().is_some_and(|value| deck || live_file::renders_in_browser(value))
-        }) && kind == "file";
         // The file `live` watches: the one opened, or the deck behind the viewer page.
         let watched = if kind == "file" { value.clone() } else { None };
         let (kind, action, value_key) =
@@ -172,12 +149,12 @@ impl<B: Backend> Server<B> {
                  the person, or show the text in a terminal",
             );
         };
-        let value = match (value, deck_kind) {
-            (Some(path), Some(deck_kind)) => match self.deck_url(&path, deck_kind) {
+        let value = match value {
+            Some(path) if deck => match self.deck_url(&path) {
                 Ok(url) => Some(url),
                 Err(message) => return invalid(message),
             },
-            (value, _) => value,
+            value => value,
         };
         let (pane, made) = match self.open_target(place, arguments, &open_id) {
             Ok(target) => target,
@@ -236,7 +213,7 @@ impl<B: Backend> Server<B> {
 
     /// The loopback address of the viewer page for the deck at `path` (absolute), starting
     /// the deck server with the first deck.
-    fn deck_url(&self, path: &str, kind: pptx_view::Kind) -> Result<String, String> {
+    fn deck_url(&self, path: &str) -> Result<String, String> {
         let path = std::path::Path::new(path);
         if !path.is_file() {
             return Err(format!("open: there is no file at {}", path.display()));
@@ -245,7 +222,7 @@ impl<B: Backend> Server<B> {
         if decks.is_none() {
             *decks = Some(pptx_view::Decks::start()?);
         }
-        decks.as_ref().ok_or_else(|| "open: no deck viewer".to_owned())?.url(path, kind)
+        decks.as_ref().ok_or_else(|| "open: no deck viewer".to_owned())?.url(path)
     }
 
     /// A pane's browser tabs as `(tab, browser)`; `None` when the list fails.

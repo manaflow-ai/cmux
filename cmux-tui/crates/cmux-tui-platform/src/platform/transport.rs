@@ -79,41 +79,6 @@ pub fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
     imp::connect(path)
 }
 
-/// The kernel send buffer of each client the daemon accepts, on macOS
-/// (CMUX-571). A macOS Unix stream socket's send buffer defaults to 8 KiB,
-/// and there the sender's buffer alone bounds what one write may queue (a
-/// larger receive buffer at the client changes nothing). Every attach
-/// `output` line (up to 1 MiB at a flood) then left in 8 KiB writes, each
-/// waiting for the app's reader to wake and drain it: the daemon sat blocked
-/// in `writev` with no process near one core, and a 200 MB burst ran at
-/// 65-73 MB/s. 256 KiB is the app reader's read size (LineTransport) and the
-/// terminal host's own send buffer (`CLIENT_SEND_BUFFER_BYTES`); the kernel
-/// holds it only while a client lags. Linux keeps its default (about 208 KiB).
-pub const CLIENT_SEND_BUFFER_BYTES: i32 = 256 * 1024;
-
-/// Overrides [`CLIENT_SEND_BUFFER_BYTES`]: bytes, `0` for the OS default (the
-/// old behavior, a bench's base arm). The app passes it on from
-/// `CMUX_NEXT_TUI_CLIENT_SEND_BUFFER` (DaemonDiagnosticKnobs).
-pub const CLIENT_SEND_BUFFER_ENV: &str = "CMUX_TUI_CLIENT_SEND_BUFFER";
-
-/// The send buffer for `value` of [`CLIENT_SEND_BUFFER_ENV`]: the default when
-/// it is unset or not a number of bytes, else that size (`0`: the OS default),
-/// at most 8 MiB (macOS `kern.ipc.maxsockbuf`).
-pub fn client_send_buffer_from(value: Option<&str>) -> i32 {
-    match value.map(str::trim).and_then(|v| v.parse::<i32>().ok()) {
-        Some(bytes) if (0..=8 << 20).contains(&bytes) => bytes,
-        _ => CLIENT_SEND_BUFFER_BYTES,
-    }
-}
-
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn client_send_buffer_bytes() -> i32 {
-    static BYTES: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
-    *BYTES.get_or_init(|| {
-        client_send_buffer_from(std::env::var(CLIENT_SEND_BUFFER_ENV).ok().as_deref())
-    })
-}
-
 /// Connect and refuse a listener that runs as another user before the
 /// caller writes anything. Windows sockets report no listener credentials:
 /// there the socket file must be owned by our token user
@@ -292,30 +257,7 @@ mod imp {
                     format!("refused a socket client running as uid {peer_uid}"),
                 ));
             }
-            #[cfg(target_os = "macos")]
-            size_send_buffer(&stream, super::client_send_buffer_bytes());
             Ok(Box::new(stream))
-        }
-    }
-
-    /// Sizes an accepted client's kernel send buffer. Best effort: a socket
-    /// that refuses keeps its default, which only costs more writes. `0`
-    /// leaves the default.
-    #[cfg(target_os = "macos")]
-    fn size_send_buffer(stream: &UnixStream, bytes: libc::c_int) {
-        if bytes <= 0 {
-            return;
-        }
-        // SAFETY: the descriptor is `stream`'s open socket for this call, and
-        // setsockopt reads one c_int from a live local of the given length.
-        unsafe {
-            libc::setsockopt(
-                std::os::fd::AsRawFd::as_raw_fd(stream),
-                libc::SOL_SOCKET,
-                libc::SO_SNDBUF,
-                (&raw const bytes).cast(),
-                size_of::<libc::c_int>() as libc::socklen_t,
-            );
         }
     }
 
@@ -476,53 +418,5 @@ mod read_waiter_tests {
 
         (&second_peer).write_all(b"y").unwrap();
         Stream::wait_readable(&second, &mut waiter).unwrap();
-    }
-}
-
-#[cfg(test)]
-mod client_send_buffer_tests {
-    use super::{CLIENT_SEND_BUFFER_BYTES, client_send_buffer_from};
-
-    #[test]
-    fn the_override_is_bytes_and_zero_keeps_the_os_default() {
-        assert_eq!(client_send_buffer_from(None), CLIENT_SEND_BUFFER_BYTES);
-        assert_eq!(client_send_buffer_from(Some("0")), 0);
-        assert_eq!(client_send_buffer_from(Some(" 1048576 ")), 1 << 20);
-        for bad in ["", "big", "-1", "99999999999", "16777216"] {
-            assert_eq!(client_send_buffer_from(Some(bad)), CLIENT_SEND_BUFFER_BYTES, "{bad:?}");
-        }
-    }
-}
-
-/// CMUX-571: an accepted client's socket queues a whole attach batch without
-/// waiting for the client to read. With macOS's 8 KiB default a write blocked
-/// after about 8 KiB.
-#[cfg(all(test, target_os = "macos"))]
-mod accepted_send_buffer_tests {
-    use std::io::Write;
-    use std::path::PathBuf;
-    use std::time::Duration;
-
-    #[test]
-    fn an_accepted_client_takes_more_than_128_kib_before_a_write_blocks() {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.subsec_nanos());
-        let path = PathBuf::from(format!("/tmp/cmux-sndbuf-{}-{nanos}.sock", std::process::id()));
-        let listener = super::listen(&path).expect("listen");
-        let _client = super::connect(&path).expect("connect");
-        let mut accepted = listener.accept().expect("accept");
-        accepted.set_write_timeout(Some(Duration::from_millis(50))).expect("timeout");
-        let chunk = [b'x'; 16 * 1024];
-        let mut queued = 0usize;
-        // The client never reads: each write lands in the kernel buffers until one times out.
-        while queued < 1 << 20 {
-            match accepted.write(&chunk) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => queued += n,
-            }
-        }
-        let _ = std::fs::remove_file(&path);
-        assert!(queued > 128 * 1024, "queued {queued} bytes before a write blocked");
     }
 }

@@ -12,7 +12,7 @@
    "name": "uBlock Origin (MV2)",
    "category": "adblock",
    "check": "adblock",
-   "source": "https://github.com/gorhill/uBlock/releases/download/1.76.4/uBlock0_1.76.4.chromium.crx",
+   "source": "https://github.com/gorhill/uBlock/releases/download/1.75.0/uBlock0_1.75.0.chromium.crx",
    "note": "MV2; delisted from the Web Store for Chrome 138+, so the signed CRX comes from the uBlock GitHub release"
   },
   {
@@ -684,57 +684,4 @@
   },
   {
    "id": "fpnmgdkabkmnadcjpehmlllkndpkmiak",
-   "name": "Wayback Machine",
-   "category": "utility",
-   "check": "popup"
-  },
-  {
-   "id": "ohlencieiipommannpdfcmfdpjjmeolj",
-   "name": "Print Friendly & PDF",
-   "category": "utility",
-   "check": "worker"
-  },
-  {
-   "id": "hehijbfgiekmjfkfjpbkbammjbdenadd",
-   "name": "IE Tab",
-   "category": "utility",
-   "check": "popup"
-  },
-  {
-   "id": "inlikjemeeknofckkjolnjbpehgadgge",
-   "name": "Distill Web Monitor",
-   "category": "utility",
-   "check": "popup"
-  },
-  {
-   "id": "hoklmmgfnpapgjgcpechhaamimifchmp",
-   "name": "Similarweb",
-   "category": "seo",
-   "check": "popup"
-  },
-  {
-   "id": "akdgnmcogleenhbclghghlkkdndkjdjc",
-   "name": "SEOquake",
-   "category": "seo",
-   "check": "popup"
-  },
-  {
-   "id": "hbapdpeemoojbophdfndmlgdhppljgmp",
-   "name": "Keywords Everywhere",
-   "category": "seo",
-   "check": "popup"
-  },
-  {
-   "id": "fadndhdgpmmaapbmfcknlfgcflmmmieb",
-   "name": "FrankerFaceZ",
-   "category": "media",
-   "check": "worker"
-  },
-  {
-   "id": "ajopnjidmegmdimjlfnijceegpefgped",
-   "name": "BetterTTV",
-   "category": "media",
-   "check": "worker"
-  }
- ]
-}
+   "name": "Wayback Machine"

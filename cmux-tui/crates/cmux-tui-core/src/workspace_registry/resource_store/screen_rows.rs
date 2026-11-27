@@ -33,7 +33,6 @@
 use super::*;
 use crate::model::{ColumnDock, DockEdge, DockMode};
 
-mod floating_panes;
 mod identities;
 pub(super) use identities::validate_screen_splits;
 
@@ -70,7 +69,7 @@ pub(super) fn create_column_dock_schema(transaction: &Transaction<'_>) -> anyhow
            screen_id TEXT NOT NULL
          );",
     )?;
-    floating_panes::create_schema(transaction)
+    Ok(())
 }
 
 fn write_column_docks(
@@ -105,12 +104,7 @@ pub(super) fn delete_side_tables(
     revision: i64,
 ) -> anyhow::Result<()> {
     identities::retire_side_splits(transaction, screen_id, revision)?;
-    for table in [
-        "resource_column_docks",
-        "resource_screen_rows",
-        "resource_lone_docks",
-        "resource_floating_panes",
-    ] {
+    for table in ["resource_column_docks", "resource_screen_rows", "resource_lone_docks"] {
         transaction
             .execute(&format!("DELETE FROM {table} WHERE screen_id = ?1"), params![screen_id])?;
     }
@@ -165,8 +159,7 @@ pub(super) fn side_tables_match(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(stored == desired_rows(screen)
         && column_docks_match(transaction, screen)?
-        && stored_lone_dock(transaction, screen.public_id.as_str())? == desired_lone_dock(screen)?
-        && floating_panes::matches(transaction, screen)?)
+        && stored_lone_dock(transaction, screen.public_id.as_str())? == desired_lone_dock(screen)?)
 }
 
 /// `(column id, column json)` of the screen's lone pinned column, if it has one.
@@ -216,15 +209,16 @@ fn write_lone_dock(transaction: &Transaction<'_>, screen: &RegistryScreen) -> an
 fn overlay_lone_docks(
     connection: &Connection,
     screens: &mut [RegistryScreen],
-    side_rows: SideRows,
 ) -> anyhow::Result<()> {
-    let records =
-        side_records(side_rows, screens, " WHERE lone.screen_id = ?1", |filter, params| {
-            stored_lone_docks(connection, filter, params)
-        })?;
+    let mut statement = connection.prepare(
+        "SELECT lone.screen_id, lone.column_json FROM resource_lone_docks AS lone
+             JOIN resource_parked_splits AS parked
+               ON parked.public_id = lone.column_id AND parked.screen_id = lone.screen_id",
+    )?;
+    let records = statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
     for (screen_id, column_json) in records {
-        #[cfg(test)]
-        count_other_screen_side_row(screens, &screen_id);
         let Some(screen) = screens.iter_mut().find(|screen| screen.public_id.as_str() == screen_id)
         else {
             continue;
@@ -248,71 +242,21 @@ fn overlay_lone_docks(
     Ok(())
 }
 
-/// Which rows of the dock, row and lone dock side tables a load reads. The
-/// floating panes table has its own read, keyed by the loaded screens.
-#[derive(Clone, Copy)]
-pub(super) enum SideRows {
-    /// Each row of each table: the full load.
-    All,
-    /// Only the rows of the screens the load holds: one keyed read per
-    /// screen and table, so a load of no screen reads no row.
-    OfLoadedScreens,
-}
+/// `((screen id, column id), [(row id, height)])` as read from the table.
+type StoredColumnRows = ((String, String), Vec<(String, i64)>);
 
-/// The records `read` gives for `side_rows`: one read with no filter, or one
-/// read per screen of `screens` with `filter` (`?1` is the screen id), in the
-/// order of `screens`.
-fn side_records<T>(
-    side_rows: SideRows,
-    screens: &[RegistryScreen],
-    filter: &str,
-    read: impl Fn(&str, &[&dyn rusqlite::ToSql]) -> anyhow::Result<Vec<T>>,
-) -> anyhow::Result<Vec<T>> {
-    match side_rows {
-        SideRows::All => read("", &[]),
-        SideRows::OfLoadedScreens => {
-            let mut records = Vec::new();
-            for screen in screens {
-                records.extend(read(filter, &[&screen.public_id.as_str()])?);
-            }
-            Ok(records)
-        }
-    }
-}
-
-/// `(screen id, column json)` of each stored lone pinned column whose id is
-/// still parked for its screen.
-fn stored_lone_docks(
+/// `screens` with docks ([`with_column_docks`]) and rows overlaid.
+pub(super) fn with_side_tables(
     connection: &Connection,
-    filter: &str,
-    params: &[&dyn rusqlite::ToSql],
-) -> anyhow::Result<Vec<(String, String)>> {
-    let mut statement = connection.prepare(&format!(
-        "SELECT lone.screen_id, lone.column_json FROM resource_lone_docks AS lone
-             JOIN resource_parked_splits AS parked
-               ON parked.public_id = lone.column_id AND parked.screen_id = lone.screen_id{filter}",
-    ))?;
-    let records = statement
-        .query_map(params, |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(records)
-}
-
-/// `(screen id, column id, row id, height)` of a `resource_screen_rows` row.
-type StoredRow = (String, String, String, i64);
-
-/// The stored rows, each column's rows together and in position order.
-fn stored_rows(
-    connection: &Connection,
-    filter: &str,
-    params: &[&dyn rusqlite::ToSql],
-) -> anyhow::Result<Vec<StoredRow>> {
-    let mut statement = connection.prepare(&format!(
-        "SELECT screen_id, column_id, row_id, height_permille FROM resource_screen_rows{filter}
+    screens: Vec<RegistryScreen>,
+) -> anyhow::Result<Vec<RegistryScreen>> {
+    let mut screens = with_column_docks(connection, screens)?;
+    let mut statement = connection.prepare(
+        "SELECT screen_id, column_id, row_id, height_permille FROM resource_screen_rows
          ORDER BY screen_id, column_id, position",
-    ))?;
+    )?;
     let records = statement
-        .query_map(params, |row| {
+        .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -321,78 +265,8 @@ fn stored_rows(
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(records)
-}
-
-/// `(screen id, column id, edge, mode)` of a `resource_column_docks` row.
-type StoredDock = (String, String, String, String);
-
-/// The stored top and bottom docks.
-fn stored_docks(
-    connection: &Connection,
-    filter: &str,
-    params: &[&dyn rusqlite::ToSql],
-) -> anyhow::Result<Vec<StoredDock>> {
-    let mut statement = connection.prepare(&format!(
-        "SELECT screen_id, column_id, edge, mode FROM resource_column_docks{filter}"
-    ))?;
-    let records = statement
-        .query_map(params, |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(records)
-}
-
-#[cfg(test)]
-thread_local! {
-    static OTHER_SCREEN_SIDE_ROWS_READ: Cell<u64> = const { Cell::new(0) };
-}
-
-/// Counts a side table row that a load read for a screen it does not load
-/// (test hook).
-#[cfg(test)]
-fn count_other_screen_side_row(screens: &[RegistryScreen], screen_id: &str) {
-    if !screens.iter().any(|screen| screen.public_id.as_str() == screen_id) {
-        OTHER_SCREEN_SIDE_ROWS_READ.with(|rows| rows.set(rows.get() + 1));
-    }
-}
-
-/// Side table rows that loads on this thread read for a screen they did not
-/// load (test hook).
-#[cfg(test)]
-pub(super) fn other_screen_side_rows_read_for_test() -> u64 {
-    OTHER_SCREEN_SIDE_ROWS_READ.with(Cell::get)
-}
-
-/// `((screen id, column id), [(row id, height)])` as read from the table.
-type StoredColumnRows = ((String, String), Vec<(String, i64)>);
-
-/// `screens` with docks ([`with_column_docks`]) and rows overlaid, from the
-/// side table rows that `side_rows` names. A load of some screens reads the
-/// rows of those screens only; each screen gets the value the full load gives
-/// it. No statement runs for an empty `screens`.
-pub(super) fn with_side_tables(
-    connection: &Connection,
-    screens: Vec<RegistryScreen>,
-    side_rows: SideRows,
-) -> anyhow::Result<Vec<RegistryScreen>> {
-    if screens.is_empty() {
-        return Ok(screens);
-    }
-    let mut screens = with_column_docks(connection, screens, side_rows)?;
-    let records = side_records(side_rows, &screens, " WHERE screen_id = ?1", |filter, params| {
-        stored_rows(connection, filter, params)
-    })?;
     let mut columns: Vec<StoredColumnRows> = Vec::new();
     for (screen, column, row, height) in records {
-        #[cfg(test)]
-        count_other_screen_side_row(&screens, &screen);
         match columns.last_mut() {
             Some((key, rows)) if key.0 == screen && key.1 == column => rows.push((row, height)),
             _ => columns.push(((screen, column), vec![(row, height)])),
@@ -405,8 +279,7 @@ pub(super) fn with_side_tables(
         };
         overlay_column_rows(screen, &column_id, &rows);
     }
-    overlay_lone_docks(connection, &mut screens, side_rows)?;
-    floating_panes::overlay(connection, &mut screens)?;
+    overlay_lone_docks(connection, &mut screens)?;
     Ok(screens)
 }
 
@@ -517,21 +390,20 @@ pub(super) fn column_docks_match(
 fn with_column_docks(
     connection: &Connection,
     mut screens: Vec<RegistryScreen>,
-    side_rows: SideRows,
 ) -> anyhow::Result<Vec<RegistryScreen>> {
-    // The full load reads `resource_column_docks` with no ORDER BY, and the
-    // engine then gives the rows in rowid order: that is the engine's
-    // behaviour, not a promise of SQL. A read keyed by the screen alone
-    // would walk the primary key and give the column id order, and of 2
-    // stored docks of one edge the first row wins. So the keyed read names
-    // the order the full load sees.
-    let in_rowid_order = " WHERE screen_id = ?1 ORDER BY rowid";
-    let rows = side_records(side_rows, &screens, in_rowid_order, |filter, params| {
-        stored_docks(connection, filter, params)
-    })?;
+    let mut statement =
+        connection.prepare("SELECT screen_id, column_id, edge, mode FROM resource_column_docks")?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
     for (screen_id, column_id, edge, mode) in rows {
-        #[cfg(test)]
-        count_other_screen_side_row(&screens, &screen_id);
         let (Some(edge), Some(mode)) = (DockEdge::parse(&edge), DockMode::parse(&mode)) else {
             continue;
         };
@@ -632,6 +504,5 @@ pub(super) fn upsert_resource_screen(
     )?;
     write_column_docks(transaction, screen)?;
     write_lone_dock(transaction, screen)?;
-    write_screen_rows(transaction, screen)?;
-    floating_panes::write(transaction, screen)
+    write_screen_rows(transaction, screen)
 }

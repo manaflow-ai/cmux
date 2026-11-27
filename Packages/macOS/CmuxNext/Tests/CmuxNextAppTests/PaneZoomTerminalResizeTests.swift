@@ -5,11 +5,11 @@ import CmuxNextTerminalGeometry
 import CmuxNextTestSupport
 import Testing
 
-/// Cmd-Shift-Enter on terminals. A zoom and an unzoom are one commit each: the key's turn changes no pane on
-/// screen, and the frame that shows the change gives the zoomed pane its new size, so its terminal reports
-/// one grid to the PTY owner then, the final one. No frame shows the pane at a size between the two, so no
-/// grid of such a size goes out (a zoom on a spring once made ~30 PTY resizes, shell redraws and owner
-/// reflows, and announcements landing frames behind the view made the text jump).
+/// Cmd-Shift-Enter was laggy and buggy on terminals (Lawrence 2026-10-20): the zooming pane is laid
+/// out live at its spring rect on every frame, and every new size reported a new grid to the PTY
+/// owner, so one zoom made ~30 PTY resizes, shell redraws and owner reflows, and announcements
+/// landing frames behind the view made the text jump. The pane still moves live (its terminal
+/// draws the reflow preview at every size); the grid goes to the owner once, when the spring lands.
 @MainActor
 @Suite(.closesItsWindows)
 struct PaneZoomTerminalResizeTests {
@@ -114,35 +114,21 @@ struct PaneZoomTerminalResizeTests {
     /// p1 | p2.
     static let pair: SplitNode = .split("h", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
 
-    /// The zoom's own turn reports no grid, and neither does a frame in which the zoom waits for its panes
-    /// (the pane keeps its slot in them); the one frame that shows the zoom reports the zoomed pane's
-    /// final grid; no frame after it reports another. This fixture asks for no move of its panes.
     @Test(arguments: ["p1", "p2", "p3", "p4"])
-    func aZoomInA2x2ReportsTheTerminalGridOnceInTheFrameThatShowsIt(pane: String) throws {
+    func aZoomInA2x2ReportsTheTerminalGridOnceWhenItLandsNotOnEveryFrame(pane: String) throws {
         let screen = Screen(Self.grid2)
         defer { screen.tearDown() }
         let probe = try screen.probe(PaneID(pane))
         let before = probe.reports.count
         screen.zoom(PaneID(pane))
-        #expect(probe.reports.count == before, "the zoom's own turn reported a grid: it goes with the frame that shows the zoom")
-        // A frame in which the zoom waits asks for the next one; the frame that shows the zoom asks for no more.
-        var waited = 0
-        while waited < 40, screen.root.advanceFrame(1.0 / 120) {
-            waited += 1
-            #expect(probe.reports.count == before, "frame \(waited), before the one that shows the zoom, reported a grid")
-        }
-        #expect(waited < 40, "the zoom did not show in the 40 frames after its key")
-        let shown = Array(probe.reports.dropFirst(before))
-        #expect(shown.count == 1, "the frame that shows a zoom reported \(shown.count) grids")
-        #expect(shown.last == probe.grid, "the grid reported is not the zoomed pane's final grid")
         screen.settle()
-        #expect(probe.reports.count == before + 1, "a frame after the zoom showed reported \(probe.reports.count - before - 1) more grids")
+        let reports = Array(probe.reports.dropFirst(before))
+        #expect(reports.count == 1, "one zoom reported \(reports.count) grids: a PTY resize per frame")
+        #expect(reports.last == probe.grid, "the grid reported is not the zoomed pane's final grid")
+        #expect(probe.settles >= 1, "the terminal never heard the zoom land")
     }
 
-    /// An unzoom reports the pane's grid once, with the frame that shows it. A zoom taken back in its own
-    /// turn (Cmd-Shift-Enter twice before a frame) never shows: the pane keeps its slot and its size, and
-    /// the PTY is never resized.
-    @Test func anUnzoomReportsOnceAndAZoomTakenBackBeforeItShowsReportsNothing() throws {
+    @Test func anUnzoomReportsOnceAndAZoomInterruptedBackToItsSlotReportsNothing() throws {
         let screen = Screen(Self.pair)
         defer { screen.tearDown() }
         let probe = try screen.probe("p2")
@@ -150,25 +136,25 @@ struct PaneZoomTerminalResizeTests {
         screen.settle()
         let zoomed = probe.reports.count
         screen.unzoom()
-        #expect(probe.reports.count == zoomed, "the unzoom's own turn reported a grid: it goes with the frame that shows the unzoom")
         screen.settle()
         #expect(probe.reports.count - zoomed == 1, "one unzoom reported \(probe.reports.count - zoomed) grids")
         #expect(probe.reports.last == probe.grid)
 
-        // Zoom, then Cmd-Shift-Enter again in the same turn: no frame shows the zoom, the pane stays in the
-        // slot whose grid the owner already has, so the PTY is never resized.
+        // Zoom, then Cmd-Shift-Enter again a few frames in: it springs back to the slot whose grid the
+        // owner already has, so the PTY is never resized.
         let rest = probe.reports.count
         screen.zoom("p2")
+        for _ in 1...4 { screen.root.advanceFrame(1.0 / 120) }
         screen.unzoom()
         screen.settle()
-        #expect(probe.reports.count == rest, "a zoom taken back before it showed resized the PTY \(probe.reports.count - rest) times")
+        #expect(probe.reports.count == rest, "an interrupted zoom resized the PTY \(probe.reports.count - rest) times")
     }
 
-    /// Side panes lagged when the sidebar opened and closed: the sidebar's width animation moves the
-    /// content edge on every display frame, so every pane beside it resizes on every frame even
-    /// though no pane is on a layout spring of its own. The window says the content area is in
-    /// motion (``ContentAreaMotionHosting``) and the terminals hold their grid until it lands, as
-    /// a terminal in a pane on a layout spring does.
+    /// Leo, 2026-10-20: side panes lag when the sidebar opens and closes. The sidebar's width
+    /// animation moves the content edge on every display frame, so every pane beside it
+    /// resizes on every frame even though no pane is on a layout spring of its own. The window
+    /// says the content area is in motion (``ContentAreaMotionHosting``) and the terminals hold
+    /// their grid until it lands, exactly as a zooming pane does.
     @Test func aSidebarSlideReportsOneGridPerTerminalAtTheLandingNotOnEveryFrame() throws {
         let screen = Screen(Self.pair, sliding: true)
         defer { screen.tearDown() }

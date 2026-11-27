@@ -43,7 +43,7 @@ pub fn record(
     agent: &str,
     kind: &str,
 ) -> std::io::Result<()> {
-    let word = crate::sender_env::subagent_word;
+    let word = crate::cli::sender::subagent_word;
     if !word(agent) || !word(kind) || call_path(home, session, tool_use_id).is_none() {
         return Err(std::io::Error::other("a subagent's call is named by plain words"));
     }
@@ -56,7 +56,7 @@ pub fn of(home: &Path, session: &str, tool_use_id: &str) -> Option<Value> {
     let text = std::fs::read(call_path(home, session, tool_use_id)?).ok()?;
     let sub: Value = serde_json::from_slice(&text).ok()?;
     let word = |key: &str| {
-        sub.get(key).and_then(Value::as_str).filter(|w| crate::sender_env::subagent_word(w))
+        sub.get(key).and_then(Value::as_str).filter(|w| crate::cli::sender::subagent_word(w))
     };
     let (id, kind) = (word("id")?, word("type")?);
     Some(json!({"id": id, "type": kind}))
@@ -96,5 +96,30 @@ pub fn forget(home: &Path, session: &str) {
 }
 
 #[cfg(test)]
-#[path = "subagent_call_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_call_names_its_subagent_until_it_ends() {
+        let home = std::env::temp_dir().join(format!("subagent-call-{}", uuid::Uuid::now_v7()));
+        let sub = json!({"id": "a0a68e7af3df5967e", "type": "general-purpose"});
+        record(&home, "s/1", "toolu_01a", "a0a68e7af3df5967e", "general-purpose").unwrap();
+        record(&home, "s/1", "toolu_01b", "a0a68e7af3df5967e", "general-purpose").unwrap();
+        record(&home, "s/1", "toolu_01c", "b1", "Explore").unwrap();
+        assert!(record(&home, "s/1", "..", "a0", "general-purpose").is_err(), "no path");
+        assert!(record(&home, "s/1", "toolu_01d", "a/0", "general-purpose").is_err(), "no path");
+        let params = json!({"name": "send", "_meta": {TOOL_USE_ID_META: "toolu_01a"}});
+        assert_eq!(of_call(&home, "s/1", &params), Some(sub.clone()));
+        assert_eq!(of_call(&home, "s/1", &json!({"name": "send"})), None);
+        assert_eq!(of(&home, "s/2", "toolu_01a"), None, "another session's call");
+        end(&home, "s/1", "toolu_01a");
+        assert_eq!(of(&home, "s/1", "toolu_01a"), None);
+        assert_eq!(of(&home, "s/1", "toolu_01b"), Some(sub));
+        end_agent(&home, "s/1", "a0a68e7af3df5967e");
+        assert_eq!(of(&home, "s/1", "toolu_01b"), None);
+        assert_eq!(of(&home, "s/1", "toolu_01c"), Some(json!({"id": "b1", "type": "Explore"})));
+        forget(&home, "s/1");
+        assert_eq!(of(&home, "s/1", "toolu_01c"), None);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+}

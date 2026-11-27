@@ -42,10 +42,7 @@ struct KeyboardResizeArrowDirectionTests {
             root.layoutSubtreeIfNeeded()
             root.driver.isManual = true
             model.intentHandler = { [unowned self] intent in
-                switch intent {
-                case .setColumnWidth(_, _, _, _, .ended), .setLayoutSizes: ended.append(intent)
-                default: break
-                }
+                if case .setColumnWidth(_, _, _, _, .ended) = intent { ended.append(intent) }
             }
         }
 
@@ -171,21 +168,18 @@ struct KeyboardResizeArrowDirectionTests {
         #expect(abs(last - (try #require(start["p0"]).maxX + rig.step)) <= 1, "the divider rests at \(last)")
     }
 
-    /// A trade is one press: both widths go out as one change (one intent, one layout transaction).
-    @Test func aTradeSendsBothWidthsAsOneChange() throws {
+    /// A trade is one press: both widths go out under one layout transaction.
+    @Test func aTradeSendsBothWidthsInOneTransaction() throws {
         let rig = Rig(Self.columns([0.5, 0.5]), focus: "p1")
         defer { rig.window.closeAfterTest() }
         #expect(rig.press("p1", .right))
-        guard rig.ended.count == 1, case let .setLayoutSizes(values, _)? = rig.ended.first else {
-            Issue.record("the trade went to the app as \(rig.ended)")
-            return
+        let sent = rig.ended.compactMap { intent -> (LayoutColumnID, Double, LayoutTransactionID)? in
+            guard case let .setColumnWidth(column, _, width, transaction, .ended) = intent else { return nil }
+            return (column, width, transaction)
         }
-        let sent = values.compactMap { value -> LayoutColumnID? in
-            guard case let .width(column, _, _) = value else { return nil }
-            return column
-        }
-        #expect(sent.count == 2 && values.count == 2, "want the two columns' widths, got \(values)")
-        #expect(Set(sent) == ["c0", "c1"])
+        #expect(sent.count == 2, "want the two columns' widths, got \(sent)")
+        #expect(Set(sent.map(\.2)).count == 1, "the trade's widths went out in \(Set(sent.map(\.2)).count) transactions")
+        #expect(Set(sent.map(\.0)) == ["c0", "c1"])
     }
 
     /// One scrolling column has no divider beside it: its right edge moves with the arrow (as before), up to the full
@@ -367,19 +361,17 @@ struct KeyboardResizeShownStepTests {
     }
 }
 
-/// #34123: a trade sent two widths, one daemon command each, under one transaction. The first
+/// Claude review of #34123: a trade sends two widths, one daemon command each, under one transaction. The first
 /// command's reply settled the whole transaction, so a daemon snapshot that came before the second command's event
 /// (the store applies events once per display frame) dropped the second width's override, and for a frame that column
 /// showed its old width and every column after it jumped. The transaction settles when its last value is answered.
-/// A trade is one command now (`KeyboardResizeTradeAtomicTests`); values that still go as their own commands under one
-/// transaction (a split's sizing, a dock's width) keep this rule.
 @MainActor
 @Suite(.closesItsWindows)
 struct KeyboardResizeTradeSettleTests {
     @Test func aTradeSettlesWhenItsLastWidthIsAnswered() throws {
         let columns = [LayoutColumn(id: "c0", width: 0.5, root: .leaf("p0")), LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1"))]
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p0")
-        model.intentHandler = { _ in } // the app sends each of these widths as its own command, and settles it at its reply
+        model.intentHandler = { _ in } // the app sends each width as its own command, and settles it at its reply
         func width(_ column: LayoutColumnID) -> Double? { model.screens.first?.layout.columns.first { $0.id == column }?.width }
         func daemon(_ c0: Double, _ c1: Double) -> [LayoutScreen] {
             [LayoutScreen(id: "s", name: "s", layout: .columns([LayoutColumn(id: "c0", width: c0, root: .leaf("p0")),
@@ -411,10 +403,7 @@ struct KeyboardResizeRefusedPressTests {
         let rig = KeyboardResizeArrowDirectionTests.Rig(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5, 0.5]), focus: "p0")
         defer { rig.window.closeAfterTest() }
         rig.model.intentHandler = { [model = rig.model] intent in
-            switch intent {
-            case let .setColumnWidth(_, _, _, transaction, .ended), let .setLayoutSizes(_, transaction): model.rejectTransaction(transaction)
-            default: break
-            }
+            if case let .setColumnWidth(_, _, _, transaction, .ended) = intent { model.rejectTransaction(transaction) }
         }
         let screen = try rig.screen
         #expect(screen.scroll.target == 0)
@@ -432,67 +421,54 @@ struct KeyboardResizeRefusedPressTests {
 /// - A reply that came in the turn of the first width's command (a handler that settles at once) settled the trade
 ///   before its second width was counted, so a daemon snapshot before the second width's event showed the first column
 ///   at its old width.
-/// Both widths go to the app as one intent now (`LayoutIntent.setLayoutSizes`): the app refuses or sends the pair, and
-/// the pair has one reply.
 /// - A trade beside a column the daemon has not made yet (a stand-in, `ProvisionalPane`) sent the other column's width,
 ///   which the daemon applied, and the stand-in's, which it refused: half a trade at the daemon. The press is refused
 ///   at once instead, before anything moves, as other pane verbs on a stand-in are.
 @MainActor
 @Suite(.closesItsWindows)
 struct KeyboardResizeTradeAtomicTests {
-    @Test func aTradeTheAppRefusesShowsNeitherWidthAndSendsNothingElse() throws {
+    @Test func aTradeWhoseFirstWidthIsRefusedShowsAndSendsNeither() throws {
         let rig = KeyboardResizeArrowDirectionTests.Rig(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5]), focus: "p1")
         defer { rig.window.closeAfterTest() }
-        var sent: [LayoutIntent] = []
+        var sent: [LayoutColumnID] = []
         rig.model.intentHandler = { [model = rig.model] intent in
-            switch intent {
-            // c0's pane has no handle: the app refuses the trade at once.
-            case let .setLayoutSizes(_, transaction): model.rejectTransaction(transaction)
-            case .setColumnWidth, .setSplitRatio: sent.append(intent)
-            default: break
-            }
+            guard case let .setColumnWidth(column, _, _, transaction, .ended) = intent else { return }
+            // c0's pane has no handle: the app refuses its width at once.
+            if column == "c0" { model.rejectTransaction(transaction) } else { sent.append(column) }
         }
         _ = rig.press("p1", .right)
-        #expect(sent.isEmpty, "a refused trade still sent \(sent)")
+        #expect(sent.isEmpty, "a trade refused for c0 still sent \(sent)")
         let widths = rig.model.screens[0].layout.columns.map(\.width)
-        #expect(widths == [0.5, 0.5], "a refused trade shows widths \(widths)")
+        #expect(widths == [0.5, 0.5], "a trade refused for c0 shows widths \(widths)")
     }
 
-    @Test func aSnapshotBeforeTheTradesOneReplyKeepsBothWidthsAndTheReplySettlesBoth() throws {
+    @Test func aReplyInTheFirstWidthsTurnDoesNotSettleTheTrade() throws {
         let rig = KeyboardResizeArrowDirectionTests.Rig(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5]), focus: "p1")
         defer { rig.window.closeAfterTest() }
-        var transactions: [LayoutTransactionID] = []
-        rig.model.intentHandler = { intent in
-            if case let .setLayoutSizes(_, transaction) = intent { transactions.append(transaction) }
+        rig.model.intentHandler = { [model = rig.model] intent in
+            // c0's command is answered in its own turn; c1's reply comes later.
+            if case .setColumnWidth("c0", _, _, let transaction, .ended) = intent { model.settleTransaction(transaction) }
         }
         #expect(rig.press("p1", .left))
         let trade = rig.model.screens[0].layout.columns.map(\.width)
         try #require(trade[0] > 0.5 && trade[1] < 0.5, "the press made no trade: \(trade)")
-        #expect(transactions.count == 1, "the trade went to the app as \(transactions.count) changes")
-        let press = try #require(transactions.first)
-        func daemon(_ widths: [Double]) -> [LayoutScreen] {
-            [LayoutScreen(id: "s", name: "s", layout: .columns(KeyboardResizeArrowDirectionTests.columns(widths)))]
-        }
-        // A daemon snapshot from before the command's events.
-        rig.model.apply(screens: daemon([0.5, 0.5]))
-        #expect(rig.model.screens[0].layout.columns.map(\.width) == trade, "the snapshot undid the trade before its reply")
-        // The trade's one reply, then the daemon's next snapshot: its widths, nothing held over them.
-        rig.model.settleTransaction(press)
-        rig.model.apply(screens: daemon([0.6, 0.4]))
-        #expect(rig.model.screens[0].layout.columns.map(\.width) == [0.6, 0.4], "the trade's one reply did not settle both of its widths")
+        // A daemon snapshot from before either event.
+        rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5])))])
+        #expect(rig.model.screens[0].layout.columns.map(\.width) == trade, "the snapshot undid half the trade before its second reply")
     }
 
-    /// #34123: a handler that answers the trade at once and applies the daemon's snapshot in that
+    /// Codex review 3 of #34123: a handler that answers the last width at once and applies the daemon's snapshot in that
     /// turn (a synchronous source, such as the layout demo's) removes the trade's overrides because it succeeded; the press
     /// read that as a refusal and said nothing moved.
-    @Test func aTradeAnsweredAndAppliedInItsOwnTurnIsAPress() throws {
+    @Test func aTradeAnsweredAndAppliedInItsLastWidthsTurnIsAPress() throws {
         let rig = KeyboardResizeArrowDirectionTests.Rig(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5]), focus: "p1")
         defer { rig.window.closeAfterTest() }
+        var widths: [LayoutColumnID: Double] = [:]
         rig.model.intentHandler = { [model = rig.model] intent in
-            guard case let .setLayoutSizes(values, transaction) = intent else { return }
-            var widths: [LayoutColumnID: Double] = [:]
-            for case let .width(column, _, width) in values { widths[column] = width }
+            guard case let .setColumnWidth(column, _, width, transaction, .ended) = intent else { return }
+            widths[column] = width
             model.settleTransaction(transaction)
+            guard widths.count == 2 else { return }
             let columns = KeyboardResizeArrowDirectionTests.columns([widths["c0"] ?? 0.5, widths["c1"] ?? 0.5])
             model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))])
         }
@@ -544,21 +520,5 @@ struct KeyboardResizeOneUndoStepTests {
         // The next press is its own undo step.
         content.handle(.setColumnWidth(LayoutColumnID("column:10"), anyPane: left, width: 0.6, transaction: .make(), phase: .ended))
         #expect(content.gestureTransactions.latest == first + 2)
-    }
-
-    /// A change of several values is one intent and one command, so one daemon transaction; a change the app refuses
-    /// (a value whose pane has no handle) takes none.
-    @Test func aChangeOfSeveralValuesTakesOneDaemonTransaction() throws {
-        let shown = try PaneCloseControllerTests.Shown([ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(1)),
-                                                        ColumnSnapshot(id: 11, width: 0.5, layout: .leaf(2))])
-        defer { shown.end() }
-        let content = try #require(shown.content)
-        let (left, right) = (LayoutPaneID(try shown.key(1)), LayoutPaneID(try shown.key(2)))
-        let (c10, c11) = (LayoutColumnID("column:10"), LayoutColumnID("column:11"))
-        let first = content.gestureTransactions.latest
-        content.handle(.setLayoutSizes([.width(c10, anyPane: left, 0.55), .width(c11, anyPane: right, 0.45)], transaction: .make()))
-        #expect(content.gestureTransactions.latest == first + 1, "one change took \(content.gestureTransactions.latest - first) daemon transactions")
-        content.handle(.setLayoutSizes([.width(c10, anyPane: left, 0.5), .width(c11, anyPane: "gone", 0.5)], transaction: .make()))
-        #expect(content.gestureTransactions.latest == first + 1, "a change the app refused took a daemon transaction")
     }
 }

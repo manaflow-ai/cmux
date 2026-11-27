@@ -18,12 +18,6 @@ settings = ["dep:objc2-app-kit", "dep:libc", "dep:windows-sys"]
 
 [dependencies]
 
-[dev-dependencies]
-# The light field gallery fixtures (examples/light_fixtures.rs).
-png = { workspace = true }
-# The shared Stop presence corpus (tests/turn_presence_cases.rs).
-serde_json = { workspace = true }
-
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3", features = ["NSWorkspace"], optional = true }
 

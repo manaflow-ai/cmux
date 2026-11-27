@@ -4,9 +4,6 @@ import CmuxNextCompat
 import CmuxNextTestSupport
 import Testing
 
-// The API under test is DEBUG-only, so `swift test -c release` skips this file.
-#if DEBUG
-
 /// A capture backdrop (`debug.capture_backdrop`) is the app's own patterned window behind a
 /// window, and a snapshot of the window composites it behind the window, so a translucent
 /// window or its glass shows the pattern (ask: lifted-row glass translucency could not be shown
@@ -221,4 +218,3 @@ import Testing
         return Array(bytes[index..<index + 4])
     }
 }
-#endif

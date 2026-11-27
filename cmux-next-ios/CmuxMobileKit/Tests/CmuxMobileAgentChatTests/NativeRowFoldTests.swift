@@ -89,8 +89,6 @@ import UIKit
         let controller = ChatTranscriptController(placement: .owned, surface: surface, store: store,
                                                   empty: AnyView(EmptyView()), dock: AnyView(Color.clear.frame(height: 96)), jump: nil)
         controller.reducesMotion = { false }
-        // Each turn's tool row on screen, not folded under its turn's Worked for (WorkedFoldTests).
-        controller.transcriptList.foldsWork = false
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         if let category { window.traitOverrides.preferredContentSizeCategory = category }
         window.rootViewController = controller

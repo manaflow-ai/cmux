@@ -209,27 +209,22 @@ fn items_archived_together_come_back_in_their_order() {
     run(&mut doc, vec![archive(&["w1", "w2"])]);
     assert_eq!(list(&doc, &machine(), Some("g1")), ["w3", "w1", "w2"]);
     run(&mut doc, vec![Op::Pin { items: vec![item_id("w2"), item_id("w1")] }]);
-    assert!(!archived(&doc, &item_id("w1")) && !archived(&doc, &item_id("w2")));
-    assert_eq!(list(&doc, &machine(), Some("g1")), ["w3"]);
-    let mut pinned = list(&doc, PINNED_SECTION_ID, None);
-    pinned.sort();
-    assert_eq!(pinned, ["w1", "w2"]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w2", "w1", "w3"]);
 }
 
 #[test]
-fn archive_unpins_an_older_pin_in_the_group_and_pin_unarchives() {
+fn archive_unpins_in_the_group_and_pin_unarchives() {
     let mut doc = fixture();
-    // A pin an older daemon made inside the group (`extra.pinned`).
-    let mut item = doc.item(&item_id("w3")).expect("item").clone();
-    item.extra.insert(PINNED_IN_GROUP_KEY.into(), serde_json::Value::Bool(true));
-    apply_rows(&mut doc, &[Op::ItemPut { item }]);
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w3", "w1", "w2"]);
     run(&mut doc, vec![archive(&["w3"])]);
     assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w2", "w3"]);
     let item = doc.item(&item_id("w3")).expect("item");
     assert!(item.archived() && !item.pinned_in_group());
     run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w3", "w1", "w2"]);
     let item = doc.item(&item_id("w3")).expect("item");
-    assert!(!item.archived() && item.section == PINNED_SECTION_ID);
+    assert!(!item.archived() && item.pinned_in_group());
 }
 
 #[test]

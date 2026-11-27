@@ -50,11 +50,6 @@ async fn a_brief_is_folded_once_saved_beside_the_log_and_read_back_while_nothing
     assert_eq!(first["brief"], pure_brief());
     assert_eq!(first["seq"], 17);
     let saved = sessions.join("chat").join(crate::review_brief::FILE);
-    // The fold is written by the disk writer (`disk_writer.rs`).
-    assert!(
-        crate::disk_writer::flush(std::time::Duration::from_secs(10)),
-        "the disk writer is behind"
-    );
     assert!(saved.is_file(), "the fold is kept beside the log");
 
     // Nothing logged since: the saved fold answers, and no record is read. A goal changed in the
@@ -74,10 +69,6 @@ async fn a_later_open_folds_only_what_the_chat_logged_since() {
     let hub = hub(&sessions);
     let session = hub.resolve("chat").unwrap();
     hub.review_brief(&session, Some("/work/repo")).unwrap();
-    assert!(
-        crate::disk_writer::flush(std::time::Duration::from_secs(10)),
-        "the disk writer is behind"
-    );
 
     let saved = sessions.join("chat").join(crate::review_brief::FILE);
     let mut text: Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();

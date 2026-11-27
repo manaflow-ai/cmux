@@ -11,7 +11,6 @@
 // until no hand sandbox uses it. The key file is read here and never printed.
 import { readFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { BACKGROUND_AFTER, settleBackground } from "../src/providers/freestyle/background.ts"
 
 const slug = process.argv[2] ?? ""
 if (!/^cmuxnp-(dev|stg)-hand-v[0-9]+$/.test(slug)) throw new Error("usage: bake-hand-sandbox.ts cmuxnp-<dev|stg>-hand-v<N> <release tree>")
@@ -24,12 +23,8 @@ if (!/^[0-9a-f]{64}$/.test(handSha)) throw new Error(`no x86_64 linux hand in tr
 const keyFile = (process.env.FREESTYLE_KEY_FILE ?? "~/.secrets/freestyle-cmux-next-dev-20261004.key").replace(/^~/, homedir())
 const key = readFileSync(keyFile, "utf8").trim()
 const API = "https://api.freestyle.sh"
-// A step past 60 s goes to the background, so the provider edge's ~125 s hold cannot cut it (src/providers/freestyle/background.ts).
 const call = async (method: string, path: string, body?: unknown, ms = 60_000) => {
-  const auth = { authorization: `Bearer ${key}` }
-  const deadlineAt = Date.now() + ms
-  const sent = await fetch(`${API}${path}`, { method, redirect: "manual", headers: { ...BACKGROUND_AFTER, ...auth, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(ms) })
-  const { res } = await settleBackground(sent, API, auth, deadlineAt)
+  const res = await fetch(`${API}${path}`, { method, redirect: "manual", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(ms) })
   return { status: res.status, json: (await res.json().catch(() => ({}))) as Record<string, any> }
 }
 const STEPS: Array<[string, string]> = [

@@ -144,7 +144,7 @@ impl Probe {
             // A probe Claude Code joins no peer list, as an agent's does not (`agent/command.rs`,
             // `hub/native_messaging.rs`); the profile's own value, set below, wins.
             if matches!(cli, Cli::Claude) {
-                cmd.env(crate::claude_stdio::native_messaging::SWITCH_ENV, "0");
+                cmd.env(crate::hub::native_messaging::SWITCH_ENV, "0");
             }
             cmd.args(rest)
                 .args(match cli {
@@ -210,7 +210,7 @@ pub(crate) fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 
 /// The program's identity for the cache: its real path, size and
 /// modification time. Unset when the program cannot be read.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CacheKey {
     pub program: PathBuf,
     pub len: u64,
@@ -252,8 +252,8 @@ impl Cache {
         cache_path(&self.dir, harness)
     }
 
-    /// Every cached list whose program is unchanged, by harness, with that program's identity.
-    pub fn load_all(&self) -> BTreeMap<String, (Vec<LiveModel>, CacheKey)> {
+    /// Every cached list whose program is unchanged, by harness.
+    pub fn load_all(&self) -> BTreeMap<String, Vec<LiveModel>> {
         let mut out = BTreeMap::new();
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return out };
         for entry in entries.flatten() {
@@ -265,24 +265,20 @@ impl Cache {
             else {
                 continue;
             };
-            if let Some(listed) = self.load(harness, None) {
-                out.insert(harness.to_owned(), listed);
+            if let Some(models) = self.load(harness, None) {
+                out.insert(harness.to_owned(), models);
             }
         }
         out
     }
 
     /// The cached list for `harness` when its program is unchanged (and is
-    /// `program`, when given), with the identity it was read under.
-    pub fn load(
-        &self,
-        harness: &str,
-        program: Option<&Path>,
-    ) -> Option<(Vec<LiveModel>, CacheKey)> {
+    /// `program`, when given).
+    pub fn load(&self, harness: &str, program: Option<&Path>) -> Option<Vec<LiveModel>> {
         let file: CacheFile<Vec<LiveModel>> =
             serde_json::from_slice(&std::fs::read(self.path(harness)).ok()?).ok()?;
         let current = CacheKey::of(program.unwrap_or(&file.key.program))?;
-        (current == file.key && !file.models.is_empty()).then_some((file.models, current))
+        (current == file.key && !file.models.is_empty()).then_some(file.models)
     }
 
     /// Keeps `models` for `harness` (write to a temporary file, then rename).
@@ -432,9 +428,7 @@ pub fn overlay(models: &mut [Value], live: &[LiveModel]) {
         if let Some(fast) = model.fast {
             entry["fast"] = json!(fast);
         }
-        if !model.service_tiers.is_empty()
-            || (model.fast == Some(false) && entry.get("serviceTiers").is_some())
-        {
+        if !model.service_tiers.is_empty() {
             entry["serviceTiers"] = json!(model.service_tiers);
         }
     }

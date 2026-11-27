@@ -7,12 +7,12 @@ mod agents_doctor;
 mod app_control;
 mod attach;
 mod attention;
-mod auth_handoff;
 mod auth_token;
 mod automation;
 mod billing;
 mod browser;
 mod cli_connection;
+mod coderouter;
 mod config;
 mod copy_mode;
 mod foreign_viewport;
@@ -44,17 +44,15 @@ mod update_notice;
 
 pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
-pub(crate) use app_control::{
-    AppControlMessages, NightlyMessages, RecordMessages, ShareMessages, TryMessages, VersionLabels,
-};
+pub(crate) use app_control::{AppControlMessages, NightlyMessages, TryMessages, VersionLabels};
 pub(crate) use attach::AttachMessages;
 pub(crate) use attention::AttentionMessages;
-pub(crate) use auth_handoff::AuthHandoffMessages;
 pub(crate) use auth_token::AuthTokenMessages;
 pub(crate) use automation::AutomationMessages;
 pub(crate) use billing::BillingMessages;
 pub(crate) use browser::BrowserMessages;
 pub(crate) use cli_connection::CliConnectionMessages;
+pub(crate) use coderouter::CodeRouterMessages;
 pub(crate) use config::ConfigMessages;
 pub(crate) use copy_mode::CopyModeMessages;
 pub(crate) use foreign_viewport::ForeignViewportMessages;
@@ -174,10 +172,10 @@ pub(crate) struct Catalog {
     pub agents_doctor: AgentsDoctorMessages,
     pub host_share: host_share::Messages,
     pub app_control: AppControlMessages,
+    pub coderouter: CodeRouterMessages,
     pub automation: AutomationMessages,
     pub billing: BillingMessages,
     pub auth_token: AuthTokenMessages,
-    pub auth_handoff: AuthHandoffMessages,
     pub live_code: LiveCodeMessages,
     pub sandbox_run: SandboxRunMessages,
     pub update_notice: UpdateNoticeMessages,
@@ -197,10 +195,10 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    coderouter: coderouter::ENGLISH,
     automation: automation::ENGLISH,
     billing: billing::ENGLISH,
     auth_token: auth_token::ENGLISH,
-    auth_handoff: auth_handoff::ENGLISH,
     live_code: live_code::ENGLISH,
     sandbox_run: sandbox_run::ENGLISH,
     update_notice: update_notice::ENGLISH,
@@ -238,10 +236,10 @@ static ENGLISH: Catalog = Catalog {
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    coderouter: coderouter::JAPANESE,
     automation: automation::JAPANESE,
     billing: billing::JAPANESE,
     auth_token: auth_token::JAPANESE,
-    auth_handoff: auth_handoff::JAPANESE,
     live_code: live_code::JAPANESE,
     sandbox_run: sandbox_run::JAPANESE,
     update_notice: update_notice::JAPANESE,
@@ -279,19 +277,7 @@ static JAPANESE: Catalog = Catalog {
 
 pub(crate) fn catalog() -> &'static Catalog {
     static CATALOG: OnceLock<&'static Catalog> = OnceLock::new();
-    CATALOG.get_or_init(|| {
-        catalog_for_settings(crate::feature_flags::settings().as_ref(), &system_locale())
-    })
-}
-
-/// The catalog for `app.language` in a settings document when it names a
-/// shipped locale, else for the environment's `locale`.
-pub(crate) fn catalog_for_settings(
-    settings: Option<&serde_json::Value>,
-    locale: &str,
-) -> &'static Catalog {
-    let chosen = settings.and_then(cmux_config::language::from_settings);
-    catalog_for_locale(cmux_config::language::resolve(chosen, &[locale]))
+    CATALOG.get_or_init(|| catalog_for_locale(&system_locale()))
 }
 
 pub(crate) fn catalog_for_locale(locale: &str) -> &'static Catalog {

@@ -25,12 +25,11 @@
           "upstream": "https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/c3968b385e8072d61651eb8e32f498703058c2fd/LICENSE"
         }
       ],
-      "note": "mbadolato/iTerm2-Color-Schemes release-20260713-155359-c3968b3 (commit c3968b38), the archive Ghostty's iterm2_themes dependency fetches: https://deps.files.ghostty.org/ghostty-themes-release-20260713-155359-c3968b3.tgz is byte-equal to that release's ghostty-themes.tgz (sha256 14b3044bef67a3cb83523973bd16d3aa0fb0096ddd1e0ecba3916d14d6d67f20). The archive holds the theme files only. The LICENSE is byte-equal at fc73ce39 (release-20260216-151611-fc73ce3, the snapshot in cmux's Resources/ghostty/themes). ghostty-next fetches release-20260921-150923-0b55a9e (https://deps.files.ghostty.org/ghostty-themes-release-20260921-150923-0b55a9e.tgz, sha256 da83fb32fcef53c8cb1dca868fb700a904d5d86420d7588e574a0f81a75008d5, theme files only); its LICENSE at commit 0b55a9e6 is byte-equal to this text. ghostty-next a6b9048e fetches release-20261026-153024-27cbbb5 (https://deps.files.ghostty.org/ghostty-themes-release-20261026-153024-27cbbb5.tgz, sha256 38bb80d98456677bad9a78a76e83a1e4851e88900aec93af74c6251ca32b78a0, byte-equal to that release's ghostty-themes.tgz; theme files only); its LICENSE at commit 27cbbb5e is byte-equal to this text. ghostty-next 2bd5d2503 (the vt-1.0.1 sync) fetches release-20261102-150615-3d8a6a1 (https://deps.files.ghostty.org/ghostty-themes-release-20261102-150615-3d8a6a1.tgz, sha256 b61b297e4245e0a5e46ac1e8d92ec8f7390d4394db4bafc93cfa3209f215435e; theme files only); its LICENSE at commit 3d8a6a1 is byte-equal to this text.",
+      "note": "mbadolato/iTerm2-Color-Schemes release-20260713-155359-c3968b3 (commit c3968b38), the archive Ghostty's iterm2_themes dependency fetches: https://deps.files.ghostty.org/ghostty-themes-release-20260713-155359-c3968b3.tgz is byte-equal to that release's ghostty-themes.tgz (sha256 14b3044bef67a3cb83523973bd16d3aa0fb0096ddd1e0ecba3916d14d6d67f20). The archive holds the theme files only. The LICENSE is byte-equal at fc73ce39 (release-20260216-151611-fc73ce3, the snapshot in cmux's Resources/ghostty/themes). ghostty-next fetches release-20260921-150923-0b55a9e (https://deps.files.ghostty.org/ghostty-themes-release-20260921-150923-0b55a9e.tgz, sha256 da83fb32fcef53c8cb1dca868fb700a904d5d86420d7588e574a0f81a75008d5, theme files only); its LICENSE at commit 0b55a9e6 is byte-equal to this text. ghostty-next a6b9048e fetches release-20261026-153024-27cbbb5 (https://deps.files.ghostty.org/ghostty-themes-release-20261026-153024-27cbbb5.tgz, sha256 38bb80d98456677bad9a78a76e83a1e4851e88900aec93af74c6251ca32b78a0, byte-equal to that release's ghostty-themes.tgz; theme files only); its LICENSE at commit 27cbbb5e is byte-equal to this text.",
       "packages": [
         "N-V-__8AALZGBAAS5NLVH-c8eC-6VtCdcH-9nUvVfUSkWS__",
         "N-V-__8AAM94BAAFk_hn4UW0x_OBD2g0vOwexeAAyWNNo4eB",
-        "N-V-__8AAIs9BgCF_swp81fS2tAWIJytW8NCUa6EbSOygPE3",
-        "N-V-__8AAFpzBgAPo4OIKKdP0WTD6scDoaBGVGTdltSyA2Hp"
+        "N-V-__8AAIs9BgCF_swp81fS2tAWIJytW8NCUa6EbSOygPE3"
       ]
     },
     "unicode-16": {
@@ -324,8 +323,6 @@
     "pkg/simdutf": {
       "covered_by": "pinned:simdutf",
       "files": {
-        "vendor/LICENSE-APACHE": "3d34610fc6b5e1b0bfe4e2f36171c2d62c28ef05cb8d704f5a0073be41a43b3d",
-        "vendor/LICENSE-MIT": "fc8dbc04e03ad4efc08a647ffe7f995b811a95bc04c0e85a56d5277c6593fa5f",
         "vendor/simdutf.cpp": "38dc5481dc4b7eef95cea8056b84d940419288100f317ecaff683bd89f163263",
         "vendor/simdutf.h": "d3501fc2143f0edc5c84e6bb013a7fdb8ccd95514f7fd0816669248e62676301"
       },

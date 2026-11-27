@@ -183,8 +183,7 @@ import Testing
         a.send(prompt: "continue-a")
         // Wait for the user_message the remote journal returned, then verify
         // which machine actually received the prompt.
-        // The bubble shows as sent at once (`isUnconfirmed`); the machine's record confirms it.
-        #expect(await until { a.turns.count > 1 && !(a.turns.last?.isUnconfirmed ?? true) })
+        #expect(await until { a.turns.count > 1 })
         #expect(wire.sent.contains { $0.0 == "vm-a" && $0.1 == "shared" && $0.2 == "continue-a" })
         #expect(!wire.sent.contains { $0.0 == "vm-b" })
         first.disconnect()
@@ -203,31 +202,9 @@ import Testing
         let store = try #require(relay.store(sessionID: session))
         store.send(prompt: "hello from the phone")
         // `wire` is not observed: wait for the user_message the machine sent back, then read what it received.
-        // The bubble shows as sent at once (`isUnconfirmed`); the machine's record confirms it.
-        #expect(await until { store.turns.first.map { !$0.isUnconfirmed } ?? false })
+        #expect(await until { !store.turns.isEmpty })
         #expect(wire.sent.contains { $0.0 == "vm-a" && $0.1 == session && $0.2 == "hello from the phone" })
         relay.disconnect()
-    }
-
-    @Test func channelRecoveryReopensOnlyTheCurrentCloudTarget() async throws {
-        let wire = Wire()
-        let relay = CloudChatRelay(machine: try machine("vm-a", team: "team-a"), macID: "mac")
-        relay.bind(wire)
-        #expect(await ready(relay.hub))
-        let store = try #require(relay.store(sessionID: "shared"))
-        let recover = try #require(relay.hub.onStall)
-        await recover()
-        #expect(relay.hub.isReady)
-        #expect(relay.store(sessionID: "shared") === store)
-        #expect(wire.services.count == 2)
-        #expect(wire.services.allSatisfy { $0.0 == "cloud-acpmux" && $0.1 == ["machine_id": "vm-a", "team_id": "team-a"] })
-        // A recovery captured by the old carrier or before account teardown is inert.
-        await recover()
-        #expect(wire.services.count == 2)
-        let current = try #require(relay.hub.onStall)
-        relay.retire()
-        await current()
-        #expect(wire.services.count == 2)
     }
 
     @Test func reconnectKeepsTheChatStoreAndUsesTheNewCarrier() async throws {

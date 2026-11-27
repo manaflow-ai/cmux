@@ -50,7 +50,7 @@ public struct AgentVoiceBar: View {
         .padding(.leading, 14)
         .padding(.trailing, 8)
         .padding(.vertical, 8)
-        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 22, style: .continuous))
+        .glassEffect(.regular, in: .rect(cornerRadius: 22, style: .continuous))
         .padding(.horizontal, 12)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("voiceMode.bar")
@@ -108,9 +108,9 @@ public struct AgentVoiceBar: View {
                 Image(systemName: session.isMuted ? "mic.slash.fill" : "mic.fill")
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 36, height: 36)
-                    .cmuxMobilePressBackground(session.isMuted ? Color.cmuxMobileAccent.opacity(0.18) : Color.cmuxMobileFill, in: .circle)
+                    .background(session.isMuted ? Color.cmuxMobileAccent.opacity(0.18) : Color.cmuxMobileFill, in: .circle)
             }
-            .buttonStyle(.cmuxPressFillInLabel)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityLabel(session.isMuted ? AgentVoiceText.unmute : LiveCallText.mute)
             .accessibilityIdentifier("voiceMode.mute")
             closeButton
@@ -125,9 +125,9 @@ public struct AgentVoiceBar: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
-                .cmuxMobilePressBackground(CmuxMobileTheme.standard.colors.danger.color, in: .circle)
+                .background(Color.red, in: .circle)
         }
-        .buttonStyle(.cmuxPressFillInLabel)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(AgentVoiceText.end)
         .accessibilityIdentifier("voiceMode.end")
     }

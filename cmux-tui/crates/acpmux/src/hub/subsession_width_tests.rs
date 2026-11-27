@@ -82,15 +82,12 @@ async fn only_live_children_hold_a_width_slot() {
     assert_eq!(count(), 1, "a child whose harness is up holds a slot");
 
     for live in [SessionStatus::Running, SessionStatus::Waiting, SessionStatus::Ready] {
-        match NotWaiting::of(live) {
-            Some(settled) => hub.set_status(&child, settled),
-            None => hub.set_waiting(&child, crate::store::WaitReason::Permission),
-        }
+        hub.set_status(&child, live);
         assert_eq!(count(), 1, "a {live} child holds a slot");
     }
 
     // Hibernated after its turn: its harness exited, its history stays.
-    hub.set_status(&child, NotWaiting::Idle);
+    hub.set_status(&child, SessionStatus::Idle);
     assert_eq!(count(), 0, "a finished, hibernated child frees its slot");
     drop(reserve().expect("the freed slot takes a new start"));
 
@@ -103,15 +100,15 @@ async fn only_live_children_hold_a_width_slot() {
     let starting = child.turn_lock.lock().await;
     assert_eq!(count(), 1, "a child starting its harness for a prompt holds a slot");
     assert!(reserve().is_err());
-    hub.set_status(&child, NotWaiting::Running);
+    hub.set_status(&child, SessionStatus::Running);
     drop(starting);
     assert_eq!(count(), 1, "a woken child holds its slot");
 
     // Its harness died.
-    hub.set_status(&child, NotWaiting::Disconnected);
+    hub.set_status(&child, SessionStatus::Disconnected);
     assert_eq!(count(), 0, "a dead child frees its slot");
 
-    hub.set_status(&child, NotWaiting::Ready);
+    hub.set_status(&child, SessionStatus::Ready);
     hub.kill(&child, false).await.unwrap();
     assert_eq!(child.status(), SessionStatus::Closed);
     assert_eq!(count(), 0, "a closed child frees its slot");

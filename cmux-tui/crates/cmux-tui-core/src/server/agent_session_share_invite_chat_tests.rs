@@ -122,14 +122,14 @@ fn a_refused_invite_to_a_chat_leaves_no_share() {
     let moved = invite_chat(&mut owner, surface, "ann@example.com", json!({"session":"acp_other"}));
     assert_code(&moved, "share.chat_moved");
     assert!(list(&mut owner).is_empty(), "no refusal made a share");
-    // Another role for an account already invited changes its role on the same share.
+    // Another role for an account already invited is refused, and nothing else changes.
     let made = invited(&mut owner, surface, "ann@example.com", json!({"role":"view"}));
-    let other = invited(&mut owner, surface, "ann@example.com", json!({"role":"talk"}));
-    assert_eq!(other["share_id"], made["share_id"]);
+    let other = invite_chat(&mut owner, surface, "ann@example.com", json!({"role":"talk"}));
+    assert_code(&other, "share.invited");
     let shares = list(&mut owner);
     assert_eq!(shares.len(), 1);
     assert_eq!(shares[0]["share_id"], made["share_id"]);
-    assert_eq!(accounts(&shares[0]), [("ann@example.com".into(), "talk".into())]);
+    assert_eq!(accounts(&shares[0]), [("ann@example.com".into(), "view".into())]);
 }
 
 #[test]

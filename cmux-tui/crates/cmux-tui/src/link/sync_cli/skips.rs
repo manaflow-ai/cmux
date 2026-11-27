@@ -10,10 +10,6 @@ use serde_json::{Value, json};
 /// Most skipped paths a summary lists; the counts cover the rest.
 pub(super) const LISTED: usize = 200;
 
-/// Most ignored paths named (they are collapsed to the top folder, but a project can have many);
-/// the `ignored` count covers the rest, so they never crowd out a secret in [`LISTED`].
-pub(super) const IGNORED_LISTED: usize = 50;
-
 /// Why a path was left out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Why {
@@ -23,8 +19,7 @@ pub(super) enum Why {
     KeyFile,
     /// A folder of keys and logins ([`credential`]: `.ssh`, `.aws`, `.config/gh`, ...).
     CredentialFolder,
-    /// A file of tokens or passwords ([`credential`]: `.netrc`,
-    /// `.cargo/credentials.toml`, ...; [`secret_at`]: a registry file with a token).
+    /// A file of tokens or passwords ([`credential`]: `.netrc`, `.cargo/credentials.toml`, ...).
     CredentialFile,
     SymlinkInside,
     SymlinkOutside,
@@ -43,9 +38,6 @@ pub(super) enum Why {
     NameNotUtf8,
     /// A dependency or build folder the project rebuilds on the machine.
     Heavy,
-    /// A path the folder's `.gitignore` (or git's other ignore rules) names; it
-    /// stays on this Mac.
-    Ignored,
     /// The name of the sync record itself.
     Reserved,
     /// A pull's merge with conflict markers, kept on this Mac.
@@ -68,7 +60,6 @@ impl Why {
             Self::Special => "special",
             Self::NameTooLong | Self::NameControl | Self::NameNotUtf8 => "name",
             Self::Heavy => "heavy",
-            Self::Ignored => "ignored",
             Self::Reserved | Self::ConflictMerge => "reserved",
         }
     }
@@ -91,7 +82,6 @@ impl Why {
             Self::NameControl => "a name Linux can't hold (control character)",
             Self::NameNotUtf8 => "a name Linux can't hold (not UTF-8)",
             Self::Heavy => "a heavy folder rebuilt on the machine",
-            Self::Ignored => "ignored (by .gitignore; stays on this Mac)",
             Self::Reserved => "the name of the sync record",
             Self::ConflictMerge => "a sync conflict's merge, kept on this Mac",
         }
@@ -107,31 +97,17 @@ pub(super) struct Skips {
     total: u64,
     counts: BTreeMap<&'static str, u64>,
     listed: Vec<(String, Why)>,
-    /// How many [`Why::Ignored`] paths were named.
-    ignored_named: usize,
 }
 
 impl Skips {
     pub(super) fn new(top: &Path) -> Self {
-        Self {
-            top: top.to_path_buf(),
-            total: 0,
-            counts: BTreeMap::new(),
-            listed: Vec::new(),
-            ignored_named: 0,
-        }
+        Self { top: top.to_path_buf(), total: 0, counts: BTreeMap::new(), listed: Vec::new() }
     }
 
     /// `path` (relative to the folder; a folder ends in `/`) was left out.
     pub(super) fn note(&mut self, path: &str, why: Why) {
         self.total += 1;
         *self.counts.entry(why.kind()).or_default() += 1;
-        if why == Why::Ignored {
-            if self.ignored_named >= IGNORED_LISTED {
-                return;
-            }
-            self.ignored_named += 1;
-        }
         if self.listed.len() < LISTED {
             self.listed.push((path.to_string(), why));
         }
@@ -164,15 +140,6 @@ impl Skips {
         if count > 0 {
             self.total += count;
             *self.counts.entry("other").or_default() += count;
-        }
-    }
-
-    /// `count` files of a copy past its limits stayed on this Mac after its first pass
-    /// ([`super::size_cap`]): counted as `left_on_mac`, never named (there may be thousands).
-    pub(super) fn left_on_mac(&mut self, count: u64) {
-        if count > 0 {
-            self.total += count;
-            *self.counts.entry("left_on_mac").or_default() += count;
         }
     }
 
@@ -211,19 +178,6 @@ pub(super) fn secret(name: &str) -> Option<Why> {
         .any(|prefix| lower.starts_with(prefix))
         || [".pem", ".p12", ".pfx", ".key"].iter().any(|suffix| lower.ends_with(suffix));
     key.then_some(Why::KeyFile)
-}
-
-/// Why the untracked file at `relative` (under `top`) stays on this Mac
-/// because it may hold a secret: [`secret`]'s names, plus everything the git
-/// seed leaves out (`git_seed::secrets::reason`: `.netrc`, a registry file
-/// with a token). One rule for a chat's copy and its seed, so a folder never
-/// sends a secret on one path that the other keeps here.
-pub(super) fn secret_at(top: &Path, relative: &str) -> Option<Why> {
-    let name = relative.rsplit('/').next().unwrap_or(relative);
-    if let Some(why) = secret(name) {
-        return Some(why);
-    }
-    cmux_tui_core::git_seed::secrets::reason(top, relative.as_bytes()).map(|_| Why::CredentialFile)
 }
 
 /// Folders of keys and logins, as paths of one or more names, left out at
@@ -300,13 +254,6 @@ pub(crate) fn credential_text(relative: &str) -> Option<&'static str> {
     credential(relative, false).map(Why::text)
 }
 
-/// Why the file at `relative` (under `top`) stays on this Mac as a secret, in words: the copy's
-/// own rule ([`secret_at`], then [`credential`]), for a snapshot of the folder
-/// (`seed/snapshot.rs`) that must leave out exactly what the copy does.
-pub(crate) fn secret_text(top: &Path, relative: &str) -> Option<&'static str> {
-    secret_at(top, relative).or_else(|| credential(relative, false)).map(Why::text)
-}
-
 /// The first of [`CREDENTIAL_FOLDERS`] under `home` that the canonical `folder` is in or holds, in any case:
 /// a selected folder the App refuses too (`AgentPaneCloudFolderRefusal.secretFolder`), which
 /// `cloud start-chat --from-folder` checks before any machine is made.
@@ -360,5 +307,65 @@ pub(super) fn heavy_by(name: &str, mut has_file: impl FnMut(&str) -> bool) -> bo
 }
 
 #[cfg(test)]
-#[path = "skips_tests.rs"]
-mod tests;
+mod tests {
+    use super::{LISTED, Skips, Why, heavy, secret};
+
+    /// The credential folders a copy leaves out at any depth are exactly the
+    /// ones the App refuses as a selected folder
+    /// (`AgentPaneCloudFolderRefusal.secretFolders`), read from its source.
+    #[test]
+    fn credential_folders_are_the_apps_secret_folders() {
+        let swift = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift",
+        );
+        let source = std::fs::read_to_string(&swift).unwrap();
+        let list = source
+            .split("public static let secretFolders = [")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .expect("secretFolders in AgentPaneCloudFolder.swift");
+        let apps: Vec<&str> = list.split('"').skip(1).step_by(2).collect();
+        assert!(!apps.is_empty());
+        assert_eq!(super::CREDENTIAL_FOLDERS, apps.as_slice());
+    }
+
+    #[test]
+    fn secrets_are_env_files_and_keys() {
+        for name in [".env", ".env.local", "id_rsa", "id_ed25519.pub", "cert.PEM", "a.p12", "x.key"]
+        {
+            assert!(secret(name).is_some(), "{name}");
+        }
+        for name in ["env.txt", "README.md", "keys.rs", "pem"] {
+            assert!(secret(name).is_none(), "{name}");
+        }
+    }
+
+    #[test]
+    fn ambiguous_heavy_names_need_the_file_that_makes_them_one() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(heavy(dir.path(), "node_modules"));
+        assert!(!heavy(dir.path(), "target"));
+        assert!(!heavy(dir.path(), "build"));
+        assert!(!heavy(dir.path(), "venv"));
+        std::fs::write(dir.path().join("Cargo.toml"), "").unwrap();
+        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+        assert!(heavy(dir.path(), "target"));
+        assert!(heavy(dir.path(), "build"));
+        assert!(heavy(dir.path(), "dist"));
+        assert!(!heavy(dir.path(), "src"));
+    }
+
+    #[test]
+    fn every_skip_is_counted_and_the_first_ones_are_named() {
+        let mut skips = Skips::new(std::path::Path::new("/top"));
+        for index in 0..LISTED + 5 {
+            skips.note(&format!("f{index:04}"), Why::Special);
+        }
+        skips.note(".env", Why::EnvFile);
+        assert_eq!(skips.total(), LISTED as u64 + 6);
+        let (files, counts) = skips.json();
+        assert_eq!(files.as_array().unwrap().len(), LISTED);
+        assert_eq!(counts["special"], LISTED as u64 + 5);
+        assert_eq!(counts["secret"], 1);
+    }
+}

@@ -23,11 +23,8 @@ pub(super) const SCHEMA: u64 = 1;
 pub(super) const TARGET: &str = "aarch64-apple-darwin";
 /// Overrides `https://files.cmux.com/cmux-tui/` (a test's `file://` folder, a mirror).
 pub(super) const BASE_ENV: &str = "CMUX_APP_TRY_FILES_BASE";
-/// Overrides `~/Library/Application Support/cmux-next/app-try`.
+/// Overrides `~/Library/Application Support/cmux/app-try`.
 pub(super) const STATE_ENV: &str = "CMUX_APP_TRY_STATE";
-/// Overrides the signed forward-only channel pointer (an isolated fixture can
-/// use `file://`; the default is the public nightly-live channel).
-pub(super) const CHANNEL_ENV: &str = "CMUX_APP_TRY_CHANNEL";
 pub(super) const BIN: &str = "Contents/Resources/bin";
 /// The file `mac-live.json` is: a few kilobytes.
 pub(super) const LIVE_MAX_BYTES: u64 = 256 * 1024;
@@ -48,96 +45,16 @@ pub(super) const FILES: &[(&str, &str)] = &[
     ("cmux-tui-agent-screen-detection", "cmux-agent-screen-detection"),
 ];
 
-/// The second Screen Recording holder an app must not ship beside its Screen Sharing helper
-/// (cmux#47409's check-screen-share-identity.sh refuses the same bundle).
-pub(super) const COMPUTER_USE_APP: &str = "cmux Computer Use.app";
-
-/// The app's one Screen Sharing helper (`Contents/Library/* Helper.app`, or `* Screen Sharing.app` in an app built before the rename), `None` when it
-/// bundles none. Refuses an app holding two helpers, or cmux Computer Use.app: macOS keeps the
-/// grants under one holder, and a try never picks one of several.
-pub(super) fn library_helper(app: &Path) -> Result<Option<PathBuf>, String> {
-    let library = app.join(super::helper::LIBRARY);
-    if library.join(COMPUTER_USE_APP).exists() {
-        return Err(format!(
-            "the app holds {COMPUTER_USE_APP} beside its Screen Sharing helper (a second Screen \
-             Recording holder); nothing was swapped"
-        ));
-    }
-    let mut found = Vec::new();
-    if let Ok(entries) = fs::read_dir(&library) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let real_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
-            if real_dir && !name.starts_with('.') && super::helper::is_helper_name(&name) {
-                found.push(entry.path());
-            }
-        }
-    }
-    found.sort();
-    match found.as_slice() {
-        [] => Ok(None),
-        [one] => Ok(Some(one.clone())),
-        many => Err(format!(
-            "the app holds {} Screen Sharing helpers, not one ({}); nothing was swapped",
-            many.len(),
-            many.iter()
-                .filter_map(|path| path.file_name())
-                .map(|name| name.to_string_lossy())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )),
-    }
-}
-
 /// `cmux-tui/<commit>/mac-live.json`'s payload (CI's `cmux-machine-channel.py --purpose mac-live`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub(super) struct LivePayload {
     pub schema: u64,
     pub purpose: String,
     pub commit: String,
-    /// Commits whose daemon protocol can take this build, newest first.
+    /// Every commit whose app can take this build live, newest first.
     #[serde(default)]
     pub live_from: Vec<String>,
-    /// Commits whose app content outside the replaced companions is unchanged.
-    #[serde(default)]
-    pub native_from: Vec<String>,
-    /// Commits whose daemon ABI (the FFI pin and the Rust the Swift build reads) can run this build's bin
-    /// files beside their own app, newest first: `live_from` and on past its whole-app floor. Only the
-    /// nightly-live channel reads it; older files have none and fall back to `live_from`.
-    #[serde(default)]
-    pub daemon_from: Vec<String>,
     pub targets: BTreeMap<String, BTreeMap<String, Binary>>,
-    /// The commit's signed Screen Sharing helper (try_cmd/helper.rs). A top-level key, never a
-    /// name in `targets`: a CLI from before it ignores the key (this struct denies no unknown
-    /// field) and leaves the app's helper as it is, where a new name in `targets` would refuse.
-    #[serde(default)]
-    pub screen_sharing_helper: Option<super::helper::HelperFile>,
-    /// The commit's source tree key (`cmux_tui_tree_key.py --version v2`). A Team-signed app takes
-    /// these binaries from the tree's Team-signed set ([`team_signed`]), never the ad-hoc bytes.
-    #[serde(default)]
-    pub tree_key: Option<String>,
-}
-
-/// The forward-only pointer published beside the per-commit files.  It uses
-/// the same signed envelope and binary payload as a per-commit file, but the
-/// channel is what lets an explicit `cmux app try channel` experiment discover
-/// the newest commit without GitHub or a checkout.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-pub(super) struct ChannelPayload {
-    pub schema: u64,
-    pub purpose: String,
-    pub channel: String,
-    pub commit: String,
-    pub committed_at: u64,
-    pub published_at: u64,
-    pub expires_at: u64,
-    #[serde(default)]
-    pub live_from: Vec<String>,
-    #[serde(default)]
-    pub daemon_from: Vec<String>,
-    /// As [`LivePayload::tree_key`]: the daemon updater of a Team-signed app waits for a pointer naming it.
-    #[serde(default)]
-    pub tree_key: Option<String>,
 }
 
 /// The payload of `body` when a `keys` signature covers it, it is a Mac live
@@ -164,76 +81,13 @@ pub(super) fn verify(
     Ok(payload)
 }
 
-/// Opens the signed nightly-live pointer.  The purpose and channel are checked
-/// before the commit is used, and its first `live_from` entry must bind the
-/// pointer to the commit whose per-commit file will be fetched next.
-pub(super) fn verify_channel(
-    body: &[u8],
-    keys: &[(String, [u8; 32])],
-    now: u64,
-) -> Result<ChannelPayload, String> {
-    let bytes = channel::open_envelope(body, keys)?;
-    let payload: ChannelPayload = serde_json::from_slice(&bytes)
-        .map_err(|e| format!("the channel payload does not parse: {e}"))?;
-    if payload.schema != SCHEMA {
-        return Err(format!("unknown channel payload schema {}", payload.schema));
-    }
-    if payload.purpose != PURPOSE || payload.channel != "nightly-live" {
-        return Err(format!(
-            "the payload is for {} channel {}, not the nightly-live Mac channel",
-            payload.purpose, payload.channel
-        ));
-    }
-    if !channel::lower_hex(&payload.commit, 40) {
-        return Err("the channel names no commit".to_owned());
-    }
-    if payload.expires_at <= now {
-        return Err(format!("the channel expired at {} (now {now})", payload.expires_at));
-    }
-    if payload.live_from.first().map(String::as_str) != Some(payload.commit.as_str()) {
-        return Err("the channel's live_from does not start at its commit".to_owned());
-    }
-    if !payload.daemon_from.is_empty()
-        && payload.daemon_from.first().map(String::as_str) != Some(payload.commit.as_str())
-    {
-        return Err("the channel's daemon_from does not start at its commit".to_owned());
-    }
-    Ok(payload)
-}
-
-/// Channel timestamps are the ordering authority; a pointer never moves back
-/// to an older (or equal) publication after a successful apply.
-pub(super) fn channel_is_newer(previous: Option<u64>, current: u64) -> bool {
-    previous.is_none_or(|previous| current > previous)
-}
-
-/// Whether an app at `app_commit` (a nightly stamps CMUXCommit short) has
-/// daemon compatibility: exactly one `live_from` entry is that commit.
+/// Whether an app at `app_commit` (a nightly stamps CMUXCommit short) can take
+/// the build live: exactly one `live_from` entry is that commit.
 pub(super) fn takes(live_from: &[String], app_commit: &str) -> bool {
     if app_commit.len() < 7 || !channel::lower_hex(app_commit, app_commit.len()) {
         return false;
     }
     live_from.iter().filter(|entry| entry.starts_with(app_commit)).count() == 1
-}
-
-/// The app commits the nightly-live channel takes: `daemon_from` when the
-/// signed file has it, else `live_from` (a file from before daemon_from).
-/// A channel apply swaps only the daemon's bin files and never claims the app
-/// is at the target, so the daemon ABI is all it needs to match.
-pub(super) fn daemon_list<'a>(daemon_from: &'a [String], live_from: &'a [String]) -> &'a [String] {
-    if daemon_from.is_empty() { live_from } else { daemon_from }
-}
-
-/// Native equality must cover the same full commit as daemon compatibility.
-/// Older manifests prove it only when the app already contains the target commit.
-pub(super) fn native_matches(payload: &LivePayload, app_commit: &str) -> bool {
-    if !takes(&payload.live_from, app_commit) {
-        return false;
-    }
-    payload.live_from.iter().find(|entry| entry.starts_with(app_commit)).is_some_and(|entry| {
-        channel::lower_hex(entry, 40)
-            && (entry == &payload.commit || payload.native_from.contains(entry))
-    })
 }
 
 /// One file of the app's `bin/` a try sets: the build's, or none (the build
@@ -253,13 +107,6 @@ pub(super) fn files_base() -> String {
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| channel::FILES_PREFIX.to_owned());
     if base.ends_with('/') { base } else { format!("{base}/") }
-}
-
-pub(super) fn channel_url() -> String {
-    std::env::var(CHANNEL_ENV)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| format!("{}channels/mac-live.json", files_base()))
 }
 
 /// The files the build sets in `bin/`, every binary checked: its url is the
@@ -308,69 +155,6 @@ pub(super) fn wanted(payload: &LivePayload, base: &str) -> Result<Vec<Wanted>, S
     Ok(out)
 }
 
-// ------------------------------------------------------------------ the Team-signed set
-
-/// `cmux-tui/tree/<key>/team-signed/completion.json` (scripts/ci/cmux_tui_team_sign.py): the tree's
-/// bin files signed with the app's Team ID, each named by the sha256 of its ad-hoc build.
-pub(super) fn team_signed_url(base: &str, tree_key: &str) -> String {
-    format!("{base}tree/{tree_key}/team-signed/completion.json")
-}
-
-/// The pointer's tree key, when it names a well-formed one.
-pub(super) fn tree_key(tree_key: Option<&str>) -> Option<&str> {
-    tree_key.filter(|key| channel::lower_hex(key, 40))
-}
-
-/// `files` (the signed payload's ad-hoc build) mapped onto the tree's Team-signed set in
-/// `completion`: each file is the Team-signed one whose `unsigned_sha256` is the payload's sha256,
-/// so the signed payload still names the build file by file. A Team-signed app runs only
-/// Team-signed bin files (Cloud, the peer check): an ad-hoc `bin/cmux` there breaks both
-/// (cmuxterm-hq#11364). Any file the set lacks, or holds for other bytes, refuses the whole set.
-pub(super) fn team_signed(
-    files: Vec<Wanted>,
-    tree_key: &str,
-    completion: &Value,
-    base: &str,
-) -> Result<Vec<Wanted>, String> {
-    if completion.get("schema").and_then(Value::as_u64) != Some(1)
-        || completion.get("key").and_then(Value::as_str) != Some(tree_key)
-        || completion.get("target").and_then(Value::as_str) != Some(TARGET)
-    {
-        return Err(format!("the Team-signed set of tree {tree_key} is not its {TARGET} set"));
-    }
-    let set = completion.get("files").and_then(Value::as_object);
-    files
-        .into_iter()
-        .map(|wanted| {
-            let Some(binary) = &wanted.binary else { return Ok(wanted) };
-            let entry = set.and_then(|set| set.get(&wanted.file)).filter(|entry| !entry.is_null());
-            let field = |name: &str| entry.and_then(|entry| entry.get(name));
-            if field("unsigned_sha256").and_then(Value::as_str) != Some(binary.sha256.as_str()) {
-                return Err(format!(
-                    "{}: the Team-signed set of tree {tree_key} has no signed copy of this build",
-                    wanted.file
-                ));
-            }
-            let sha256 = field("sha256").and_then(Value::as_str).unwrap_or_default();
-            let size = field("size").and_then(Value::as_u64).unwrap_or(0);
-            if !channel::lower_hex(sha256, 64) || size == 0 || size > channel::BINARY_MAX_BYTES {
-                return Err(format!("{}: the Team-signed entry is malformed", wanted.file));
-            }
-            let url = format!(
-                "{}tree/{tree_key}/team-signed/{sha256}/{}",
-                channel::FILES_PREFIX,
-                wanted.file
-            );
-            let fetch_url = url.replacen(channel::FILES_PREFIX, base, 1);
-            Ok(Wanted {
-                file: wanted.file,
-                binary: Some(Binary { url, sha256: sha256.to_owned(), size }),
-                fetch_url: Some(fetch_url),
-            })
-        })
-        .collect()
-}
-
 // ------------------------------------------------------------------ reading files
 
 /// A small file at `url`: `None` when there is none (404, or 403 as the bucket
@@ -411,7 +195,7 @@ pub(super) fn curl_get(url: &str, headers: &[&str], max: u64) -> Result<(u16, Ve
     Ok((status, body))
 }
 
-pub(super) fn download(url: &str, to: &Path, max: u64) -> Result<(), String> {
+fn download(url: &str, to: &Path, max: u64) -> Result<(), String> {
     if let Some(path) = url.strip_prefix("file://") {
         let size = fs::metadata(path).map_err(|e| format!("{url}: {e}"))?.len();
         if size > max {
@@ -449,7 +233,7 @@ pub(super) fn sha256_file(path: &Path) -> Result<String, String> {
 
 // ------------------------------------------------------------------ the store
 
-/// `~/Library/Application Support/cmux-next/app-try`: every file a try put in or
+/// `~/Library/Application Support/cmux/app-try`: every file a try put in or
 /// took out, by sha256 (`builds/<sha256>/<file>`), and the receipts
 /// (`last.json`, `history.jsonl`).
 pub(super) struct Store {
@@ -465,10 +249,7 @@ impl Store {
             return Some(PathBuf::from(path));
         }
         let home = std::env::var_os("HOME").filter(|value| !value.is_empty())?;
-        let shared = PathBuf::from(home)
-            .join("Library")
-            .join("Application Support")
-            .join(cmux_config::NEXT_DIR);
+        let shared = PathBuf::from(home).join("Library").join("Application Support").join("cmux");
         let build = app.and_then(|app| {
             let cli = app.join(BIN).join("cmux");
             crate::app_identity::AppIdentity::detect(|_| None, Some(&cli))
@@ -524,32 +305,6 @@ impl Store {
     pub(super) fn last(&self) -> Option<Value> {
         let body = fs::read(self.root.join("last.json")).ok()?;
         serde_json::from_slice(&body).ok()
-    }
-
-    pub(super) fn channel_last(&self) -> Result<Option<u64>, String> {
-        let path = self.root.join("channel.json");
-        let body = match fs::read(&path) {
-            Ok(body) => body,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(format!("{}: {error}", path.display())),
-        };
-        let value: Value = serde_json::from_slice(&body)
-            .map_err(|error| format!("{}: invalid channel state: {error}", path.display()))?;
-        let committed_at = value
-            .get("committed_at")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| format!("{}: channel state has no committed_at", path.display()))?;
-        Ok(Some(committed_at))
-    }
-
-    pub(super) fn record_channel(&self, committed_at: u64, commit: &str) -> Result<(), String> {
-        fs::create_dir_all(&self.root).map_err(|e| format!("{}: {e}", self.root.display()))?;
-        let part = tempfile::NamedTempFile::new_in(&self.root).map_err(|e| e.to_string())?;
-        let body = serde_json::to_vec(&json!({ "committed_at": committed_at, "commit": commit }))
-            .map_err(|e| e.to_string())?;
-        fs::write(part.path(), body).map_err(|e| e.to_string())?;
-        part.persist(self.root.join("channel.json")).map_err(|e| e.to_string())?;
-        Ok(())
     }
 
     /// Writes `receipt` as `last.json` (renamed into place) and appends it to `history.jsonl`.
@@ -742,10 +497,6 @@ pub(super) struct Applied {
     pub prior: Map<String, Value>,
     pub steps: Value,
     pub changed: bool,
-    /// What the try did with the Screen Sharing helper (`steps.screen_sharing_helper`), and
-    /// what `undo` puts back (`undo.screen_sharing_helper`); set by the caller of [`apply`].
-    pub helper_step: Option<Value>,
-    pub helper_undo: Option<Value>,
 }
 
 fn place(bin: &Path, file: &str, to: Option<&(PathBuf, String)>) -> Result<(), String> {
@@ -836,8 +587,6 @@ pub(super) fn apply(
             prior: Map::new(),
             steps: json!({ "daemon": "unchanged" }),
             changed: false,
-            helper_step: None,
-            helper_undo: None,
         });
     }
 
@@ -911,7 +660,7 @@ pub(super) fn apply(
             (file, value)
         })
         .collect();
-    Ok(Applied { prior, steps, changed: true, helper_step: None, helper_undo: None })
+    Ok(Applied { prior, steps, changed: true })
 }
 
 fn rolled_back(error: String, left: &[String]) -> String {

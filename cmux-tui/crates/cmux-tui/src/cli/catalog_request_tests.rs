@@ -15,32 +15,11 @@ struct Case {
 
 /// One case per catalog row with a request (`every_request_row_has_a_cli_case`).
 fn cases() -> Vec<Case> {
-    vec![
-        Case {
-            id: "history.removeSite",
-            argv: &["history", "remove-site", "example.com"],
-            values: vec![("argument:host", json!("example.com"))],
-        },
-        Case { id: "closed.clear", argv: &["closed", "clear"], values: vec![] },
-        Case {
-            id: "closed.delete",
-            argv: &["closed", "cl_1", "delete"],
-            values: vec![("argument:closed", json!("cl_1"))],
-        },
-        Case { id: "errors.clear", argv: &["errors", "clear"], values: vec![] },
-        Case {
-            id: "workspace.unpinFromSpace",
-            argv: &["room", "unpin", "--workspace", "ws_00000000000000000000000000000004"],
-            values: vec![("target:workspace", json!("ws_00000000000000000000000000000004"))],
-        },
-    ]
-}
-
-/// Whether `argv` runs the verb `cli_name`: its words in order (an id may sit between them, as
-/// in `closed <id> delete`).
-fn runs_verb(argv: &[&str], cli_name: &str) -> bool {
-    let mut words = argv.iter();
-    cli_name.split(' ').all(|verb| words.any(|word| *word == verb))
+    vec![Case {
+        id: "workspace.unpinFromSpace",
+        argv: &["room", "unpin", "--workspace", "ws_00000000000000000000000000000004"],
+        values: vec![("target:workspace", json!("ws_00000000000000000000000000000004"))],
+    }]
 }
 
 /// What the CLI sends for `argv`: its lane, operation and params. A verb the CLI resolves
@@ -106,7 +85,7 @@ fn catalog_request_matches_cli() {
             errors.push(format!("{}: a request row with no case in cases()", action.id));
             continue;
         };
-        if !runs_verb(case.argv, action.cli_name) {
+        if !case.argv.join(" ").starts_with(action.cli_name) {
             errors.push(format!("{}: the case does not run `{}`", action.id, action.cli_name));
         }
         errors.extend(drift(action, case));
@@ -177,18 +156,4 @@ fn a_drifted_row_is_caught() {
     };
     let case = Case { id: errors_clear.id, argv: &["errors", "clear"], values: vec![] };
     assert_eq!(drift(&errors_clear, &case), None, "the app lane");
-}
-
-/// A room verb given the room's id (the value a room picker answers) is one typed request with
-/// nothing read first, so it can be a request row's verb; given a name, the CLI reads the room
-/// list first and it cannot.
-#[test]
-fn a_room_verb_by_id_is_one_request() {
-    const ROOM: &str = "prof_0000000000000000000000000000000a";
-    const WORKSPACE: &str = "ws_00000000000000000000000000000004";
-    let (lane, operation, params) =
-        sent_by_cli(&["room", ROOM, "pin", "--workspace", WORKSPACE]).expect("one request");
-    assert_eq!((lane, operation.as_str()), (RequestLane::Session, "room.pin"));
-    assert_eq!(params["room"], ROOM);
-    assert!(sent_by_cli(&["room", "Work", "pin", "--workspace", WORKSPACE]).is_err());
 }

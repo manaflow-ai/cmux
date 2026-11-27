@@ -124,6 +124,14 @@ where
             continue;
         }
 
+        if argument == "coderouter" {
+            return Err(CliUsageError {
+                message: "cmux-relay: Coderouter commands are not available in this version."
+                    .to_owned(),
+                code: "coderouter_unavailable",
+            });
+        }
+
         if argument.starts_with('-') {
             return Err(usage("cmux-relay: unknown option."));
         }

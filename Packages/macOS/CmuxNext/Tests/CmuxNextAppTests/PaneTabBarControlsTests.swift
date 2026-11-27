@@ -13,7 +13,7 @@ import Testing
 
 /// Leo 2026-10-28: "WHY WAS THIS NEW TAB BUTTON CHANGED TO BE A DROPDOWN????????????????" Every
 /// tab-strip + is a plain one-click action; the chooser remains on hold/right-click. The pane top bar
-/// has no creation buttons and no "⋮" (https://github.com/manaflow-ai/cmux/issues/53356).
+/// keeps only "⋮", whose menu holds the creation rows.
 /// Leo's "+ (v)" adds a separate pane-type chooser beside the pane's + without changing that plain-plus action.
 @MainActor @Suite(.closesItsWindows, .serialized) struct PaneTabBarControlsTests {
     private static func tree(_ surfaces: [UInt64]) -> DaemonTree {
@@ -27,20 +27,20 @@ import Testing
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
     }
 
-    @Test func theTopBarOffersNoCreationButtonsAndNoMoreMenu() {
+    @Test func theTopBarOffersNoButtonsOfItsOwn() {
         let registry = ActionRegistry.standard()
         let toolbar = PaneToolbar(registry: { registry }, paneTarget: ActionTargetRef(kind: .pane, id: "sample-pane"))
         toolbar.update(target: "sample-terminal", kind: .terminal)
         #expect(toolbar.view.items.isEmpty, "the terminal and browser buttons repeat the + menu")
         #expect(toolbar.view.buttons.isEmpty)
-        #expect(!toolbar.view.subviews.contains { $0 is OverflowButton }, "no ⋮ (#53356)")
+        #expect(toolbar.view.intrinsicContentSize.width == 0, "no \"…\" either: the pane's actions are the tab bar's right-click")
     }
 
     /// Relaunch (Leo 2026-11-04: "too many layout shifts/flicker renderings"): a restored pane's toolbar was empty at its
     /// first layout (its items came on the observation's first turn), so the first frame gave the tab strip the whole
-    /// row and the next one took 27 pt back. The toolbar has its items, and its width, before any run-loop turn. With
-    /// nothing pinned that width is none: the bar has no ⋮ to keep room for (#53356), so no gap stays at the row's end.
-    @Test func thePaneToolbarHasItsWidthBeforeTheFirstLayout() throws {
+    /// row and the next one took 27 pt back. The toolbar has its items, and its width, before any run-loop turn: the
+    /// width the pane's first layout sees is the width it keeps once the observation has run.
+    @Test func thePaneToolbarHasItsWidthBeforeTheFirstLayout() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -51,8 +51,9 @@ import Testing
         let pane = PaneController(pane: model, daemon: services.daemon, layoutPaneID: LayoutPaneID(model.id), services: services, state: WindowState(record: record))
         defer { pane.teardown() }
         let toolbar = PaneToolbar(pane: pane) // no await: what the pane's first layout sees
-        #expect(toolbar.view.intrinsicContentSize.width == 0, "nothing pinned: no ⋮ and no room kept for one")
-        #expect(!toolbar.view.subviews.contains { $0 is OverflowButton })
+        let first = toolbar.view.intrinsicContentSize.width
+        await Task.yield() // the observation's first turn
+        #expect(toolbar.view.intrinsicContentSize.width == first, "the toolbar's slot is settled before the first layout")
     }
 
     @Test func thePaneStripPlusIsAPlainButtonWithoutATypeMenuOnPress() throws {

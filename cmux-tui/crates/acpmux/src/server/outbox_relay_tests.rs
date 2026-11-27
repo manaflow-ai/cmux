@@ -22,11 +22,6 @@ struct FakeHub {
     unknown: std::sync::atomic::AtomicBool,
     /// How many more sends the hub keeps but whose answer is lost on the way back.
     lose: std::sync::atomic::AtomicUsize,
-    /// Until when every send is answered 529 with the hub's `retryAfterSeconds`, as an
-    /// overloaded hub does.
-    busy_until: Mutex<Option<(tokio::time::Instant, Duration)>>,
-    /// When the hub took each post, and its key.
-    taken: Mutex<Vec<(tokio::time::Instant, String)>>,
 }
 
 impl MeshHub for FakeHub {
@@ -53,21 +48,10 @@ impl MeshHub for FakeHub {
                 e.code = Some("mesh.unknown_recipient".into());
                 return Err(e);
             }
-            let busy = *self.busy_until.lock().unwrap();
-            if let Some((until, retry_after)) = busy
-                && tokio::time::Instant::now() < until
-            {
-                let mut e = HubError::unavailable("overloaded");
-                e.status = Some(529);
-                e.retry_after = Some(retry_after);
-                return Err(e);
-            }
             let lose = &self.lose;
             if lose.fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok() {
                 return Err(HubError::unavailable("the connection reset"));
             }
-            let key = message.idempotency_key.clone();
-            self.taken.lock().unwrap().push((tokio::time::Instant::now(), key));
             Ok(receipt("queued", message.to.clone()))
         })
     }
@@ -240,11 +224,7 @@ async fn a_delivery_that_may_have_reached_the_peer_is_never_relayed() {
             state: State::Queued,
             attempts: 1,
             never_sent: false,
-            resends: 0,
-            resent_at: 0,
             relay_post: None,
-            relay_unreached: false,
-            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,
@@ -311,11 +291,7 @@ fn an_attempt_on_the_peer_link_is_saved_as_maybe_sent_until_the_link_refuses_it(
         state: State::Queued,
         attempts: 0,
         never_sent: true,
-        resends: 0,
-        resent_at: 0,
         relay_post: None,
-        relay_unreached: false,
-        direct_maybe: false,
         open_on_peer: false,
         pin: None,
         proof: None,
@@ -395,39 +371,12 @@ async fn a_send_whose_record_cannot_be_saved_is_refused_and_not_kept() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// RFD 0124 R6: the sender can distinguish a full disk and retry the same prompt.
-#[cfg(unix)]
-#[tokio::test]
-async fn an_outbox_enospc_answers_busy_disk_full() {
-    let (hub, _) = setup(FakeHub::default());
-    let dir = tempfile::tempdir().unwrap();
-    hub.outbox.open(&dir.path().join("outbox.json"));
-    *hub.outbox.next_write_error.lock().unwrap() =
-        Some(std::io::Error::from_raw_os_error(libc::ENOSPC));
-
-    let params = request("huge-blue/lane", "retry-after-enospc");
-    let error = call(&hub, method::MUX_SEND_QUEUE, params.clone()).await.unwrap_err();
-    assert_eq!(error["code"], crate::rpc::BUSY_CODE);
-    assert_eq!(error["data"]["reason"], "disk_full");
-    assert_eq!(error["data"]["retryable"], true);
-    assert!(hub.outbox.list(None, 10).0.is_empty());
-
-    let daemon = crate::client::DaemonError(serde_json::from_value(error).unwrap());
-    let envelope = crate::cli::errors::classify(&daemon.into()).envelope();
-    assert_eq!(envelope["error"]["code"], "busy");
-    assert_eq!(envelope["error"]["detail"], "disk_full");
-    assert_eq!(envelope["error"]["retryable"], true);
-
-    let queued = call(&hub, method::MUX_SEND_QUEUE, params).await.unwrap();
-    assert!(queued["deliveryId"].is_string(), "{queued}");
-}
-
-/// Another peer's link coming back (`peer_ready` is one signal for every peer) does not end the
-/// wait of a message whose own peer is still down: the retry sleeps out its delay instead of
-/// trying again, and writing its journal, once per other peer's reconnect.
+/// A peer whose link is ready again while an attempt runs (before its failure is saved) ends
+/// the wait for the next one: the retry does not sleep out its delay with the peer up.
 #[tokio::test(start_paused = true)]
-async fn another_peers_ready_leaves_a_down_targets_retry_waiting() {
+async fn a_peer_ready_during_an_attempt_ends_the_retry_wait() {
     let (hub, _fake) = setup(FakeHub { unknown: true.into(), ..FakeHub::default() });
+    // Fires `peer_ready` the moment attempt 1 starts, as a reconnect would.
     let fired = {
         let hub = hub.clone();
         tokio::spawn(async move {
@@ -435,114 +384,17 @@ async fn another_peers_ready_leaves_a_down_targets_retry_waiting() {
                 let changed = hub.outbox.changed.notified();
                 let running = hub.outbox.list(None, 10).0;
                 if running.iter().any(|d| d.attempts == 1 && d.state == State::Delivering) {
-                    for _ in 0..50 {
-                        hub.outbox.peer_ready.notify_waiters();
-                        tokio::task::yield_now().await;
-                    }
+                    hub.outbox.peer_ready.notify_waiters();
                     return tokio::time::Instant::now();
                 }
                 changed.await;
             }
         })
     };
-    let id = queue(&hub, request("huge-blue/lane", "prompt-other-peer-ready")).await;
-    let fired = fired.await.unwrap();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
-    loop {
-        let changed = hub.outbox.changed.notified();
-        if hub.outbox.get(&id).unwrap().attempts >= 2 {
-            break;
-        }
-        assert!(tokio::time::timeout_at(deadline, changed).await.is_ok(), "no attempt 2");
-    }
-    let waited = fired.elapsed();
-    assert!(
-        waited >= Duration::from_secs(RETRY_DELAYS_SECS[0]) - Duration::from_millis(100),
-        "attempt 2 came {waited:?} after 50 other peers' ready signals, its own peer still down"
-    );
-}
-
-/// Review of #53719, F1: a delivery whose own peer is up (its last attempt failed unsent without
-/// an outage) waits its own delay when another peer's link comes back; before, `peer_down_for`
-/// answered "not down" and every such delivery went again on each ready anywhere.
-#[tokio::test(start_paused = true)]
-async fn another_peers_ready_leaves_an_up_targets_retry_waiting() {
-    let (hub, _fake, peer) = setup_peer(FakeHub { unknown: true.into(), ..FakeHub::default() });
-    let id = queue(&hub, request("huge-blue/lane", "prompt-up-other-peer-ready")).await;
-    let d = after_attempt(&hub, &id, 1).await;
-    assert_eq!(d.state, State::Queued, "{d:?}");
-    // Its own peer is up now, its count unchanged: no ready of its own came.
-    peer.connected.store(true, SeqCst);
-    let fired = tokio::time::Instant::now();
-    for _ in 0..50 {
-        hub.outbox.note_peer_ready("elsewhere");
-        tokio::task::yield_now().await;
-    }
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
-    loop {
-        let changed = hub.outbox.changed.notified();
-        if hub.outbox.get(&id).unwrap().attempts >= 2 {
-            break;
-        }
-        assert!(tokio::time::timeout_at(deadline, changed).await.is_ok(), "no attempt 2");
-    }
-    let waited = fired.elapsed();
-    assert!(
-        waited >= Duration::from_secs(RETRY_DELAYS_SECS[0]) - Duration::from_millis(100),
-        "attempt 2 came {waited:?} after 50 other peers' ready signals"
-    );
-}
-
-/// Review of #53719, F1: only a target's own peer's ready is its own. A target naming a peer
-/// this daemon does not know waits until that peer's link is ready; one naming no peer never
-/// wakes on a ready.
-#[test]
-fn a_ready_is_only_its_own_peers() {
-    let outbox = crate::hub::outbox::Outbox::default();
-    let unknown = own_ready_count(&outbox, "ghost/lane");
-    assert_eq!(unknown, Some(("ghost".to_owned(), 0)));
-    for target in ["lane", "/lane", "ghost/"] {
-        assert_eq!(own_ready_count(&outbox, target), None, "{target}");
-    }
-    assert!(!own_ready_since(&outbox, None));
-    outbox.note_peer_ready("elsewhere");
-    outbox.peer_ready.notify_waiters();
-    assert!(!own_ready_since(&outbox, unknown.as_ref()), "another peer's ready");
-    outbox.note_peer_ready("ghost");
-    assert!(own_ready_since(&outbox, unknown.as_ref()), "its own peer's ready");
-    assert_eq!(outbox.peer_ready_count("ghost"), 1);
-}
-
-/// A peer whose link is ready again while an attempt runs (before its failure is saved) ends
-/// the wait for the next one: the retry does not sleep out its delay with the peer up.
-#[tokio::test(start_paused = true)]
-async fn a_peer_ready_during_an_attempt_ends_the_retry_wait() {
-    let (hub, _fake, peer) = setup_peer(FakeHub { unknown: true.into(), ..FakeHub::default() });
-    // The moment attempt 1 starts, a `peer_ready` fires with this target still down (another
-    // peer's link): it alone does not end the wait. Once attempt 1 settles, this target's link
-    // comes back as a reconnect does (`peer_runtime_io` marks the link connected, then sends
-    // `PeerNotice::Connected`), and that ends it.
-    let mid = {
-        let hub = hub.clone();
-        tokio::spawn(async move {
-            loop {
-                let changed = hub.outbox.changed.notified();
-                let running = hub.outbox.list(None, 10).0;
-                if running.iter().any(|d| d.attempts == 1 && d.state == State::Delivering) {
-                    hub.outbox.peer_ready.notify_waiters();
-                    return;
-                }
-                changed.await;
-            }
-        })
-    };
     let id = queue(&hub, request("huge-blue/lane", "prompt-ready-mid-attempt")).await;
-    mid.await.unwrap();
+    let fired = fired.await.unwrap();
     let d = after_attempt(&hub, &id, 1).await;
     assert_eq!(d.state, State::Queued, "{d:?}");
-    let fired = tokio::time::Instant::now();
-    peer.connected.store(true, std::sync::atomic::Ordering::SeqCst);
-    hub.outbox.note_peer_ready("huge-blue");
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     loop {
         let changed = hub.outbox.changed.notified();
@@ -556,48 +408,4 @@ async fn a_peer_ready_during_an_attempt_ends_the_retry_wait() {
         waited < Duration::from_secs(RETRY_DELAYS_SECS[0]),
         "attempt 2 waited {waited:?} with the peer ready"
     );
-}
-
-/// Twenty sends queued while the hub answers 529 for one window (its `retryAfterSeconds`): they
-/// wait behind its gate, not each on its own back-off, and all go once one probe gets through,
-/// within that one window. A send repeated under the same prompt id goes once.
-#[tokio::test(start_paused = true)]
-async fn twenty_sends_refused_for_one_window_drain_together_when_it_ends() {
-    const WINDOW: Duration = Duration::from_secs(30);
-    let fake = FakeHub::default();
-    let start = tokio::time::Instant::now();
-    *fake.busy_until.lock().unwrap() = Some((start + WINDOW, WINDOW));
-    let (hub, fake) = setup(fake);
-    let mut ids = Vec::new();
-    for n in 0..20 {
-        let id =
-            queue(&hub, request(&format!("huge-blue/drain-{n}"), &format!("p-drain-{n}"))).await;
-        ids.push(id);
-    }
-    // The same prompt again: the delivery already queued, not a second post.
-    let again = queue(&hub, request("huge-blue/drain-3", "p-drain-3")).await;
-    assert_eq!(again, ids[3]);
-    let deadline = start + Duration::from_secs(3_600);
-    loop {
-        let changed = hub.outbox.changed.notified();
-        if ids.iter().all(|id| hub.outbox.get(id).is_some_and(|d| d.state == State::Delivered)) {
-            break;
-        }
-        assert!(tokio::time::timeout_at(deadline, changed).await.is_ok(), "not all delivered");
-    }
-    let taken = fake.taken.lock().unwrap().clone();
-    let last = taken.iter().map(|(at, _)| *at).max().unwrap();
-    let drain = last.duration_since(start);
-    let first = taken.iter().map(|(at, _)| *at).min().unwrap();
-    eprintln!(
-        "drain of 20 queued sends after one refused window of {}s: {:.2}s (first taken {:.2}s)",
-        WINDOW.as_secs(),
-        drain.as_secs_f64(),
-        first.duration_since(start).as_secs_f64(),
-    );
-    let mut keys: Vec<_> = taken.iter().map(|(_, k)| k.clone()).collect();
-    keys.sort();
-    keys.dedup();
-    assert_eq!((taken.len(), keys.len()), (20, 20), "each once: {taken:?}");
-    assert!(drain < WINDOW + Duration::from_secs(1), "20 sends took {drain:?}, not one window");
 }

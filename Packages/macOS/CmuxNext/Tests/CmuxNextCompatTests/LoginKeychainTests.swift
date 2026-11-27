@@ -1,4 +1,3 @@
-#if canImport(Security) // LoginKeychain is Security-only
 import CmuxNextCompat
 import Testing
 
@@ -31,4 +30,3 @@ import Testing
         #expect(LoginKeychain.userInteractionAllowed == before)
     }
 }
-#endif

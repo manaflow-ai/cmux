@@ -58,19 +58,6 @@ nonisolated public struct WebSwapGate: Sendable {
         return .askPages
     }
 
-    /// One page's sight half. `inSight`: the page shows on screen now (its window is on screen and
-    /// not covered, and the page is not hidden in it), whether cmux is in the front or not. A page in
-    /// sight never reloads for a swap: a reload draws the page blank until its new document boots and
-    /// restores, and an every-merge channel hands over an update every few minutes, so the chat Leo
-    /// was reading and the update notes beside it blanked together, again and again (Leo,
-    /// 2026-11-22: "some sort of situation just now that compLETELY blanked out this agent chat + the
-    /// update notes"; "the agent pane just blanked out entirely yet again ... some sort of ultra hard
-    /// reload?"). It takes the update once it is out of sight (another tab, pane or window, a
-    /// minimized or covered window, a hidden app), or when it next opens.
-    public static func sight(inSight: Bool) -> Decision {
-        inSight ? .later(after: retry, reason: "page.in-sight") : .askPages
-    }
-
     /// The pages' half: each page's answer, nil when a reload keeps all it holds, else why not
     /// (`page.no-answer` for a page that did not answer in time). Which pages reload (their
     /// indexes) and, when any page holds, what held the first one.

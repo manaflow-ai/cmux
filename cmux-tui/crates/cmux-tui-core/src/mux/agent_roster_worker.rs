@@ -211,12 +211,6 @@ pub(in crate::mux) struct AgentRosterWorker {
     /// The replay is done, and the projection reconcile it owes waits for a
     /// pass whose fold reached the journal head (`run_roster_pass`).
     pub(in crate::mux) reconcile_pending: AtomicBool,
-    /// Direct reports' echoes the roster has not folded yet
-    /// (`agent_report_echoes.rs`).
-    pub(in crate::mux) report_echoes: Mutex<ReportEchoes>,
-    /// Each terminal's turn to append an echo. Never taken under the hook
-    /// projector's lock: the append runs the projector.
-    pub(in crate::mux) echo_appends: EchoAppends,
     /// Test seam (`agent_roster_restore::REPLAY_GATE_FOR_TEST`).
     #[cfg(test)]
     pub(in crate::mux) replay_gate: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
@@ -239,15 +233,6 @@ pub(in crate::mux) struct AgentRosterWorker {
     /// save the roster at this version, so a stop before the rebuild cannot
     /// leave it passing for the current reducer's fold.
     pub(in crate::mux) unmarked_from: std::sync::atomic::AtomicU32,
-    /// Test seam: runs once in a direct agent report, after its projection
-    /// commit and before its journal echo.
-    #[cfg(test)]
-    pub(in crate::mux) report_echo_seam: Mutex<Option<Box<dyn FnOnce() + Send>>>,
-    /// Test seam: runs once in the owner's deferred reconcile
-    /// (`settle_report_echoes`), after it read the roster and before it takes
-    /// the hook projector's lock.
-    #[cfg(test)]
-    pub(in crate::mux) settle_seam: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl Drop for AgentRosterWorker {
@@ -314,7 +299,6 @@ fn run_owner(control: &RosterControl, mux: &Weak<Mux>) {
         let left = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let left = session.run_roster_pass(pass);
             session.run_agent_roster_rebuild_slice();
-            session.settle_report_echoes();
             left
         }))
         .unwrap_or_else(|_| {
@@ -411,12 +395,10 @@ impl Mux {
     }
 
     /// Whether the roster may still show states older than the journal: its start's replay
-    /// runs in the background, or the projection reconcile that replay owes has not run yet, or it
-    /// is stale (a reducer bump) and waits for its rebuild: a guarded send stays refused then.
+    /// runs in the background, or the projection reconcile that replay owes has not run yet.
     pub(crate) fn agent_roster_settling(&self) -> bool {
         self.agent_roster_replaying()
             || self.agent_roster_worker.reconcile_pending.load(Ordering::Acquire)
-            || self.agent_roster_stale()
     }
 
     /// Whether the start's roster replay is still running in the background.
@@ -478,5 +460,40 @@ impl Mux {
 // Test-only, in its own module: the crash ratchet counts the parent's
 // `#[cfg(test)]` methods as daemon code.
 #[cfg(test)]
-#[path = "agent_roster_worker_replay_for_test_tests.rs"]
-mod replay_for_test;
+mod replay_for_test {
+    use super::*;
+
+    impl Mux {
+        /// Starts a roster replay from zero in this running daemon, as a start
+        /// whose snapshot does not restore does: the roster goes back to empty and
+        /// the owner replays the journal in the background, `page` records per
+        /// page, through `gate` (`agent_roster_restore::REPLAY_GATE_FOR_TEST`).
+        #[cfg(test)]
+        pub(crate) fn restart_agent_roster_replay_for_test(
+            &self,
+            page: usize,
+            gate: (SyncSender<()>, Receiver<()>),
+        ) {
+            use agent_roster_restore::{RosterFoldLimits, restore_agent_roster_within};
+            assert!(self.settle_agent_roster_for_test());
+            let restored = {
+                let registry = self.workspace_registry.lock().unwrap();
+                registry
+                    .put_journal_reducer_state(
+                        crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                        crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                        0,
+                        "",
+                    )
+                    .unwrap();
+                let limits =
+                    RosterFoldLimits { page, save_every_pages: 64, stop_after_pages: None };
+                restore_agent_roster_within(&registry, limits, Some(Duration::ZERO)).unwrap()
+            };
+            *self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner) = restored.host;
+            *self.agent_roster_worker.replay_gate.lock().unwrap_or_else(PoisonError::into_inner) =
+                Some(gate);
+            self.continue_agent_roster_replay(restored.replay.expect("a replay from zero"));
+        }
+    }
+}

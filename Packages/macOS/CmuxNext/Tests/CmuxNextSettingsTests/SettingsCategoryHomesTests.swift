@@ -34,8 +34,7 @@ struct SettingsCategoryHomesTests {
         #expect(!general.contains { $0.hasPrefix("tabs.") || $0.hasPrefix("layout.") })
         #expect(!general.contains { $0.hasPrefix("diff.") || $0.hasPrefix("markdown.") })
         #expect(Self.home(of: "tabs.newTabPosition") == "tabs")
-        // New Tab's own rows live on its page (its widgets were retired on 2026-11-11, 4f3b29a4073c).
-        #expect(Self.home(of: "tabs.newTabTemplate") == "newTab")
+        #expect(Self.home(of: "tabs.newTabWidgets.clock") == "newTab")
     }
 
     @Test func eachToolOwnsItsFont() {
@@ -55,18 +54,10 @@ struct SettingsCategoryHomesTests {
 
     @Test func chatLooksLiveInChatAndAgentBehaviorInAgents() {
         let chat = Self.rows("chat")
-        // Every chat display row is on Chat: a new row the page layout does not place falls into
-        // the first card of its schema group (Agents > Defaults for `settings.group.agentChat`),
-        // as Play Sound When Work Finishes did (#38484).
-        let elsewhere = Self.categories.flatMap { category in
-            category.groups.flatMap(\.rows)
-                .filter { $0.hasPrefix("agentPane.display.") && category.spec.id != "chat" }
-                .map { "\(category.spec.id): \($0)" }
-        }
-        #expect(elsewhere.isEmpty, "chat display rows outside Chat: \(elsewhere)")
-        #expect(Self.home(of: "agentPane.display.finishSound") == "chat")
+        #expect(chat.filter { $0.hasPrefix("agentPane.display.") }.count == Self.categories
+            .flatMap { $0.groups.flatMap(\.rows) }.filter { $0.hasPrefix("agentPane.display.") }.count)
         let transcript = [
-            "agentPane.display.detail", "agentPane.display.statusVerbs.mode",
+            "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.statusVerbs.mode",
             "agentPane.display.statusVerbs.custom", "agentPane.needsYou.enabled", "agentPane.showMachineLoadWarnings",
         ]
         #expect(transcript.allSatisfy(chat.contains))

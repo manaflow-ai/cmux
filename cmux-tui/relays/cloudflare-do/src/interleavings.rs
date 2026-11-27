@@ -119,12 +119,11 @@ fn pending_socket() -> SlotAttachment {
         parked: None,
         last_seen_ms: 0,
         pending_handover: false,
-        inline: Default::default(),
     }
 }
 
 fn route() -> PendingRoute {
-    PendingRoute { lane: LaneToken("lane".into()), generation: 1, region: None }
+    PendingRoute { lane: LaneToken("lane".into()), generation: 1 }
 }
 
 impl World {
@@ -361,7 +360,6 @@ impl World {
             }),
             last_seen_ms: 0,
             pending_handover: false,
-            inline: Default::default(),
         });
     }
 

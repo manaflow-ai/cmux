@@ -32,7 +32,7 @@ struct ColdCmdNRowSlotTests {
             let store = services.daemon.store
             let config = launched.root.appendingPathComponent("cmux.json")
             try Data(#"{"workspaces":{"newPlacement":"afterCurrent"}}"#.utf8).write(to: config)
-            let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: config,
+            let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: config,
                                               managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
             await settings.reload()
             services.settings = settings

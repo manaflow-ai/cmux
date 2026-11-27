@@ -31,12 +31,8 @@ pub(crate) fn mark_unavailable(
 ) {
     for model in models {
         let Some(id) = model.get("id").and_then(Value::as_str) else { continue };
-        if let Some(reason) = refused.get(&(harness.to_owned(), id.to_owned()))
-            && let Some(fields) = model.as_object_mut()
-        {
-            // A newer CLI alone cannot resolve an explicit refusal from this provider.
-            fields.remove("codexUpdateVersion");
-            fields.insert("unavailable".into(), Value::String(reason.clone()));
+        if let Some(reason) = refused.get(&(harness.to_owned(), id.to_owned())) {
+            model["unavailable"] = Value::String(reason.clone());
         }
     }
 }
@@ -59,20 +55,5 @@ impl Hub {
         let meta = session.meta();
         let Some(model) = current_model(&meta) else { return };
         self.refused_models.lock().unwrap().insert((meta.harness.clone(), model), reason);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn provider_refusal_survives_a_bundled_release_offer() {
-        let mut rows =
-            [json!({"id": "m", "codexUpdateVersion": "1.2.0", "unavailable": "Update Codex"})];
-        let refused = HashMap::from([(("codex".into(), "m".into()), "Provider refused".into())]);
-        mark_unavailable(&mut rows, "codex", &refused);
-        assert_eq!(rows[0], json!({"id": "m", "unavailable": "Provider refused"}));
     }
 }

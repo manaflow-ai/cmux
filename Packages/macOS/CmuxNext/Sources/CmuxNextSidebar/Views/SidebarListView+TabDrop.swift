@@ -9,8 +9,6 @@ extension SidebarListViewComponents {
         var windowPoint: NSPoint
         var sourceMachine: MachineID?
         /// `externalDragMoved`'s slot dwell, kept for autoscroll's re-hit.
-        var wholeGroup = false
-        var groupBlocks: [SidebarGroupDragPlan.Block]?
         var slotDwell: CFTimeInterval = 0
         var springTarget: WorkspaceID?
         var springGroupTarget: GroupID?
@@ -37,7 +35,7 @@ extension SidebarListViewComponents {
     /// pointer takes the tab, so a hand crossing the slot on its way to the
     /// row does not slide the row away from under it (cx-8g6ez).
     func externalDragMoved(windowPoint: NSPoint, sourceMachine: MachineID?,
-                           slotDwell: CFTimeInterval = 0, wholeGroup: Bool = false) -> (SidebarTabDrop, NSRect)? {
+                           slotDwell: CFTimeInterval = 0) -> (SidebarTabDrop, NSRect)? {
         guard drag == nil, !model.isFiltering else { return nil }
         let point = convert(windowPoint, from: nil)
         guard visibleRect.contains(point) else {
@@ -53,14 +51,9 @@ extension SidebarListViewComponents {
             setHovered(nil)
         }
         autoscroll.update(windowPoint: windowPoint)
-        if let baseY = DropResolver.baseY(forDisplayY: dropY(point.y), gapY: displayed.gapY, gapHeight: displayed.gapShift) {
+        if let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) {
             let (base, rules) = tabDragBase(external)
             var proposal = rules?.drop(y: baseY)
-            external.wholeGroup = wholeGroup
-            if wholeGroup, proposal != nil {
-                if external.groupBlocks == nil { external.groupBlocks = SidebarGroupDragPlan.blocks(of: base.rows) }
-                proposal = SidebarGroupDragPlan.externalDrop(at: baseY, in: external.groupBlocks ?? [])
-            }
             external.slotDeadline = nil
             if slotDwell > 0, let slot = proposal, case .newWorkspace = slot {
                 let now = CACurrentMediaTime()
@@ -92,11 +85,11 @@ extension SidebarListViewComponents {
     func externalDragRefusal(windowPoint: NSPoint, sourceMachine: MachineID?) -> (SidebarTabDropRefusal, NSRect)? {
         guard drag == nil, !model.isFiltering else { return nil }
         let point = convert(windowPoint, from: nil)
-        guard let baseY = DropResolver.baseY(forDisplayY: dropY(point.y), gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return nil }
+        guard let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return nil }
         let external = self.external ?? ExternalDrag(windowPoint: windowPoint, sourceMachine: sourceMachine)
         external.sourceMachine = sourceMachine
         guard let (key, reason) = tabDragBase(external).rules?.refusal(y: baseY), let row = displayed.row(for: key) else { return nil }
-        return (reason, drawnFrame(for: row))
+        return (reason, frame(for: row))
     }
     /// A tab drag's base layout (no gap) and its drop rules in the Rust reducer, made again only when the rows, their
     /// look or the tab's machine change, so a move lays out nothing and crosses into Rust with its y only.
@@ -105,7 +98,6 @@ extension SidebarListViewComponents {
         if let base = external.base, base.key == key, base.machine == external.sourceMachine { return (base.layout, base.rules) }
         let layout = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
         let rules = DropResolver.TabDragRules(base: layout, sections: model.sections, sourceMachine: external.sourceMachine)
-        external.groupBlocks = nil
         external.base = (key, external.sourceMachine, layout, rules)
         return (layout, rules)
     }
@@ -142,9 +134,9 @@ extension SidebarListViewComponents {
     func highlightRect(for proposal: SidebarTabDrop) -> NSRect? {
         switch proposal {
         case let .intoWorkspace(id):
-            return displayed.row(for: .workspace(id)).map(drawnFrame(for:))
+            return displayed.row(for: .workspace(id)).map(frame(for:))
         case let .intoGroup(id):
-            return displayed.groupRow(id).map(drawnFrame(for:))
+            return displayed.groupRow(id).map(frame(for:))
         case .newWorkspace:
             return displayed.gapY.map { NSRect(x: inset, y: $0, width: indentWidth, height: displayed.gapHeight) }
         }

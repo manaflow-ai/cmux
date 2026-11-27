@@ -7,7 +7,7 @@ offline at 00:45Z, and every nightly job then sat queued on a label no online ru
 the dedicated nightly Macs (cmux7s-mac-mini and cmux15, label glaeda-nightly-only-m4pro) stood idle. GitHub keeps a
 queued job for up to 24 h and never says why, and the run holds its concurrency group the whole time.
 
-This runs first, before `decide`, on decide's own runner (so it never waits longer than decide), and reads only
+This runs first, before `decide`, on a GitHub-hosted runner (never on the label it judges), and reads only
 vars.CI_RUNNER_STATE: the runner census runner-heal publishes every two minutes (schema runner-state/v1; gzip,
 base64 JSON). It fails the job, and so the run, when the census is fresh and a label the run's routing variables
 name is carried by no runner, or only by offline ones (compared case-insensitively, as GitHub matches runs-on). It

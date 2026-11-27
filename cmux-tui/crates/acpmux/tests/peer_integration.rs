@@ -144,121 +144,8 @@ async fn listen_with_peer_token(b: Arc<Hub>, tag: &str) -> (u16, String) {
     (port, token)
 }
 
-async fn incoming_presence_peer(tag: &str) -> (Arc<Hub>, String, String) {
-    let b = hub(config(PermissionPolicy::Ask)).await;
-    let (port, peer_token) = listen_with_peer_token(b.clone(), tag).await;
-    let mut cb = client(b.clone()).await;
-    cb.call("_acpmux/live", json!({"live": true})).await.unwrap();
-    let first = cb
-        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": format!("{tag}-one")}}}))
-        .await.unwrap()["sessionId"].as_str().unwrap().to_owned();
-    let second = cb
-        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": format!("{tag}-two")}}}))
-        .await.unwrap()["sessionId"].as_str().unwrap().to_owned();
-    let a = hub(config(PermissionPolicy::Ask)).await;
-    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
-        .await
-        .unwrap();
-    (a, first, second)
-}
-
-fn authored_view(chat: &str, token: &str, author: &Value) -> Value {
-    json!({"sessionId": chat, "visible": true, "_meta": {"acpmux": {"presenceClient": token, "author": author}}})
-}
-
 fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
-}
-
-#[tokio::test]
-async fn incoming_presence_token_cannot_cross_chats() {
-    let (a, first, second) = incoming_presence_peer("presence-token-binding").await;
-    let peer = a.peer_by_name("b").unwrap();
-    let author = json!({"id": "tailnet:canonical-ana", "name": "Ana"});
-    let token = "00000000-0000-0000-0000-000000000001";
-    peer.request(method::MUX_ATTACH, json!({"sessionId": first, "visible": false, "limit": 0}))
-        .await
-        .unwrap();
-    peer.request(method::MUX_VIEW, authored_view(&first, token, &author)).await.unwrap();
-    peer.request(method::MUX_ATTACH, json!({"sessionId": second, "visible": false, "limit": 0}))
-        .await
-        .unwrap();
-    let reused = peer.request(method::MUX_VIEW, authored_view(&second, token, &author)).await;
-    assert_eq!(reused.unwrap_err().message, "presence client belongs to another chat");
-}
-
-#[tokio::test]
-async fn incoming_presence_tokens_are_removed_on_detach() {
-    let (a, first, second) = incoming_presence_peer("presence-token-detach").await;
-    let peer = a.peer_by_name("b").unwrap();
-    let author = json!({"id": "tailnet:detach-ana", "name": "Ana"});
-    let token = "00000000-0000-0000-0000-000000000002";
-    peer.request(method::MUX_ATTACH, json!({"sessionId": first, "visible": false, "limit": 0}))
-        .await
-        .unwrap();
-    peer.request(method::MUX_VIEW, authored_view(&first, token, &author)).await.unwrap();
-    peer.request(method::MUX_DETACH, json!({"sessionId": first})).await.unwrap();
-    peer.request(method::MUX_ATTACH, json!({"sessionId": second, "visible": false, "limit": 0}))
-        .await
-        .unwrap();
-    peer.request(method::MUX_VIEW, authored_view(&second, token, &author)).await.unwrap();
-}
-
-#[tokio::test]
-async fn incoming_presence_tokens_are_capped_at_1024() {
-    let (a, first, _) = incoming_presence_peer("presence-token-cap").await;
-    let peer = a.peer_by_name("b").unwrap();
-    peer.request(method::MUX_ATTACH, json!({"sessionId": first, "visible": false, "limit": 0}))
-        .await
-        .unwrap();
-    let author = json!({"id": "tailnet:cap-ana", "name": "Ana"});
-    for i in 1..=1024 {
-        let token = format!("00000000-0000-0000-0000-{i:012x}");
-        peer.request(method::MUX_VIEW, authored_view(&first, &token, &author)).await.unwrap();
-    }
-    let token = "00000000-0000-0000-0000-000000001025";
-    let refused = peer.request(method::MUX_VIEW, authored_view(&first, token, &author)).await;
-    assert_eq!(refused.unwrap_err().message, "too many presence clients on peer link");
-}
-
-#[tokio::test]
-async fn history_search_finds_an_already_closed_peer_session_by_its_reply() {
-    let b = hub(config(PermissionPolicy::Ask)).await;
-    let mut cb = client(b.clone()).await;
-    let s = cb.call(method::SESSION_NEW, json!({
-        "cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "finished"}}
-    })).await.unwrap();
-    cb.call(
-        method::SESSION_PROMPT,
-        json!({
-            "sessionId": s["sessionId"], "prompt": [{"type":"text","text":"fold\nthis word"}]
-        }),
-    )
-    .await
-    .unwrap();
-    cb.call(method::SESSION_CLOSE, json!({"sessionId":s["sessionId"]})).await.unwrap();
-    let (port, token) = listen_with_peer_token(b, "history-search").await;
-    let a = hub(config(PermissionPolicy::Ask)).await;
-    a.add_peer("other", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(token), true)
-        .await
-        .unwrap();
-    let mut ca = client(a).await;
-    let result = ca
-        .call(
-            method::MUX_SESSION_SEARCH,
-            json!({
-                "allSessions":true, "query":"echo fold"
-            }),
-        )
-        .await
-        .unwrap();
-    assert_eq!(result["incomplete"], json!([]), "{result}");
-    assert_eq!(result["hits"].as_array().unwrap().len(), 1, "{result}");
-    let hit = &result["hits"][0];
-    assert_eq!(hit["host"], "other");
-    assert_eq!(hit["session"], "finished");
-    assert_eq!(hit["role"], "assistant");
-    assert_eq!(hit["preview"], "echo: fold this word");
 }
 
 #[tokio::test]
@@ -544,8 +431,9 @@ async fn a_peers_link_makes_no_presence_and_typing_through_it_is_refused() {
     ] {
         params["_meta"] = author["_meta"].clone();
         let refused = ca.call(m, params).await.unwrap_err();
-        assert!(refused.contains("this presence operation is unavailable"), "{m}: {refused}");
+        assert!(refused.contains("a peer daemon's link carries none"), "{m}: {refused}");
     }
+    // B holds no one for the link, though A's client attached showing the chat.
     let held = cb
         .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
         .await
@@ -554,10 +442,11 @@ async fn a_peers_link_makes_no_presence_and_typing_through_it_is_refused() {
 }
 
 /// A peer added with the dashboard token only serves this daemon's link as Web, not Peer: the
-/// link still stands for no one there (`hub/presence.rs`). Authored presence is refused before it
-/// can cross a connection whose dashboard token does not prove a peer daemon.
+/// link still stands for no one there (`hub/presence.rs`). Typing in that peer's chat is refused
+/// here, before it is forwarded, and a visible attach or view through the link records no owner
+/// on the peer, before or after the client that sent it leaves.
 #[tokio::test]
-async fn authored_presence_over_a_dashboard_token_link_is_refused() {
+async fn typing_in_a_chat_on_a_dashboard_token_peer_is_refused_before_forwarding() {
     let b = hub(config(PermissionPolicy::Ask)).await;
     let (port, _) = listen_with_peer_token(b.clone(), "presence-web").await;
     let mut cb = client(b.clone()).await;
@@ -568,24 +457,9 @@ async fn authored_presence_over_a_dashboard_token_link_is_refused() {
         .await
         .unwrap();
     let mut ca = client(a.clone()).await;
-    // Opt in on A so the request reaches B's Web-origin author guard instead of
-    // being refused locally by the shared-presence Live gate.
-    ca.call("_acpmux/live", json!({"live": true})).await.unwrap();
     ca.call("_acpmux/attach", json!({"sessionId": "b/web-shared", "limit": 0})).await.unwrap();
-    let author = json!({"id": "tailnet:ana@example.com", "name": "Ana"});
-    for (m, params) in [
-        (
-            "_acpmux/typing",
-            json!({"sessionId": "b/web-shared", "on": true, "_meta": {"acpmux": {"author": author}}}),
-        ),
-        (
-            "_acpmux/view",
-            json!({"sessionId": "b/web-shared", "visible": true, "_meta": {"acpmux": {"author": author}}}),
-        ),
-    ] {
-        let refused = ca.raw(m, params).await;
-        assert_eq!(refused["error"]["data"]["reason"], "author.origin_refused", "{m}: {refused}");
-    }
+    let refused = ca.call("_acpmux/typing", json!({"sessionId": "b/web-shared", "on": true})).await;
+    assert!(refused.unwrap_err().contains("a peer daemon's link carries none"));
     let held = cb
         .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
         .await
@@ -595,212 +469,11 @@ async fn authored_presence_over_a_dashboard_token_link_is_refused() {
     drop(ca);
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(a.peers()[0]["connected"], true, "the link outlives its client");
-}
-
-/// A stable participant must return after a link flap without another view/typing request.
-#[tokio::test]
-async fn peer_presence_recovers_unchanged_participants_after_reconnect() {
-    let b = hub(config(PermissionPolicy::Ask)).await;
-    let (port, token) = listen_with_peer_token(b.clone(), "presence-reconnect").await;
-    let mut cb = client(b.clone()).await;
-    let session = cb
-        .call(
-            method::SESSION_NEW,
-            json!({
-                "cwd": std::env::temp_dir(), "mcpServers": [],
-                "_meta": {"acpmux": {"name": "presence-stable"}}
-            }),
-        )
+    let held = cb
+        .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
         .await
         .unwrap();
-    let sid = session["sessionId"].as_str().unwrap();
-    cb.call("_acpmux/live", json!({"live": true})).await.unwrap();
-    cb.call(method::MUX_ATTACH, json!({"sessionId": sid, "visible": false})).await.unwrap();
-    cb.call(
-        method::MUX_VIEW,
-        json!({
-            "sessionId": sid, "visible": true,
-            "_meta": {"acpmux": {"author": {"id": "tailnet:stable-ana", "name": "Ana"}}}
-        }),
-    )
-    .await
-    .unwrap();
-    let (relay, flap) = one_flap_relay(port, Duration::ZERO).await;
-    let a = hub(config(PermissionPolicy::Ask)).await;
-    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(token), true)
-        .await
-        .unwrap();
-    let mut ca = client(a.clone()).await;
-    let attached = ca
-        .call(
-            method::MUX_ATTACH,
-            json!({
-                "sessionId": "b/presence-stable", "limit": 0, "visible": false
-            }),
-        )
-        .await
-        .unwrap();
-    assert_eq!(attached["presence"]["participants"][0]["id"], "tailnet:stable-ana");
-    let peer = a.peer_by_name("b").unwrap();
-    let epoch = peer.link_epoch();
-    let mut settled = peer.settled();
-    flap.send(()).unwrap();
-    ca.wait(method::MUX_PRESENCE, |p| p["participants"] == json!([])).await;
-    ca.wait(method::MUX_PRESENCE, |p| p["participants"][0]["id"] == "tailnet:stable-ana").await;
-    tokio::time::timeout(Duration::from_secs(15), async {
-        while peer.link_epoch() == epoch
-            || !peer.connected.load(std::sync::atomic::Ordering::SeqCst)
-        {
-            settled.changed().await.unwrap();
-        }
-    })
-    .await
-    .expect("peer reconnects");
-    // No client on B changed presence after the initial view.
-    assert_eq!(b.presence.snapshot(sid)["participants"][0]["id"], "tailnet:stable-ana");
-}
-
-/// Presence authored on B is relayed to A and restored after the peer link
-/// reconnects. The view remains visible even though the only request between
-/// the view and the flap is a typing on/off pair.
-#[tokio::test]
-async fn authored_peer_view_survives_reconnect_without_new_client_input() {
-    let a = hub(config(PermissionPolicy::Ask)).await;
-    let mut ca = client(a.clone()).await;
-    let session = ca
-        .call(
-            method::SESSION_NEW,
-            json!({
-                "cwd": std::env::temp_dir(), "mcpServers": [],
-                "_meta": {"acpmux": {"name": "outgoing-presence"}}
-            }),
-        )
-        .await
-        .unwrap();
-    let sid = session["sessionId"].as_str().unwrap().to_owned();
-    ca.call("_acpmux/live", json!({"live": true})).await.unwrap();
-    ca.call(method::MUX_ATTACH, json!({"sessionId": sid, "visible": false})).await.unwrap();
-
-    let (port, token) = listen_with_peer_token(a.clone(), "presence-outgoing-reconnect").await;
-    let (relay, flap) = one_flap_relay(port, Duration::ZERO).await;
-    let b = hub(config(PermissionPolicy::Ask)).await;
-    b.add_peer("a", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(token), true)
-        .await
-        .unwrap();
-    let mut cb = client(b.clone()).await;
-    cb.call("_acpmux/live", json!({"live": true})).await.unwrap();
-    cb.call(
-        method::MUX_ATTACH,
-        json!({"session": "a/outgoing-presence", "limit": 0, "visible": false}),
-    )
-    .await
-    .unwrap();
-
-    // B's app authors presence on A's chat through the peer link. A's client
-    // is the observer, so the test exercises both the outgoing and replay
-    // paths rather than a local-only presence update.
-    let author = json!({"id": "tailnet:outgoing-ana", "name": "Ana"});
-    cb.call(
-        method::MUX_VIEW,
-        json!({
-            "sessionId": "a/outgoing-presence", "visible": true,
-            "_meta": {"acpmux": {"author": author}}
-        }),
-    )
-    .await
-    .unwrap();
-    cb.call(
-        "_acpmux/typing",
-        json!({"sessionId": "a/outgoing-presence", "on": true, "_meta": {"acpmux": {"author": author}}}),
-    )
-    .await
-    .unwrap();
-    cb.call(
-        "_acpmux/typing",
-        json!({"sessionId": "a/outgoing-presence", "on": false, "_meta": {"acpmux": {"author": author}}}),
-    )
-    .await
-    .unwrap();
-    let stable = ca
-        .wait(method::MUX_PRESENCE, |p| {
-            p["participants"].as_array().is_some_and(|people| {
-                people.iter().any(|person| {
-                    person["id"] == "tailnet:outgoing-ana"
-                        && person["viewing"] == true
-                        && person["typing"] == false
-                })
-            })
-        })
-        .await;
-    assert_eq!(stable["participants"].as_array().unwrap().len(), 1, "{stable}");
-
-    flap.send(()).unwrap();
-    ca.wait(method::MUX_PRESENCE, |p| p["participants"] == json!([])).await;
-    let restored = ca
-        .wait(method::MUX_PRESENCE, |p| {
-            p["participants"].as_array().is_some_and(|people| {
-                people.iter().any(|person| {
-                    person["id"] == "tailnet:outgoing-ana"
-                        && person["viewing"] == true
-                        && person["typing"] == false
-                })
-            })
-        })
-        .await;
-    assert_eq!(restored["participants"].as_array().unwrap().len(), 1, "{restored}");
-}
-
-/// Identical raw ids from different peers never mix their presence in a local client.
-#[tokio::test]
-async fn peer_presence_is_scoped_to_the_attached_source() {
-    let a = hub(config(PermissionPolicy::Ask)).await;
-    let sessions = vec![json!({"sessionId": "same-chat", "name": "twin"})];
-    for name in ["left", "right"] {
-        let port = lying_peer(Lying {
-            instance: json!(name),
-            sessions: sessions.clone(),
-            ..Lying::default()
-        })
-        .await;
-        a.add_peer(name, &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
-            .await
-            .unwrap();
-    }
-    let mut watcher = client(a.clone()).await;
-    watcher.call("_acpmux/attach", json!({"sessionId": "right/twin", "limit": 0})).await.unwrap();
-    watcher.call("_acpmux/live", json!({"live": true})).await.unwrap();
-    let legacy = watcher
-        .raw(
-            "_acpmux/view",
-            json!({"sessionId": "right/twin", "visible": true,
-        "_meta": {"acpmux": {"author": {"id": "ana", "name": "Ana"}}}}),
-        )
-        .await;
-    assert_eq!(legacy["error"]["data"]["reason"], "peerFeature.unsupported", "{legacy}");
-    a.presence.publish_remote(
-        &json!({"sessionId": "same-chat", "participants": [{"id": "wrong"}]}),
-        "left",
-    );
-    a.presence.publish_remote(
-        &json!({"sessionId": "same-chat", "participants": [{"id": "right"}]}),
-        "right",
-    );
-    let first = watcher
-        .wait("_acpmux/presence", |p| !p["participants"].as_array().unwrap().is_empty())
-        .await;
-    assert_eq!(first["participants"][0]["id"], "right", "{first}");
-    assert!(first.get("_acpmuxPeer").is_none());
-    // Overwrite the right chat's final withdrawal before this current-thread fanout can run.
-    // Recovery must replay its cached snapshot, not only this daemon's local attachments.
-    a.presence.publish_remote(&json!({"sessionId": "same-chat", "participants": []}), "right");
-    for _ in 0..1024 {
-        a.presence.publish_remote(
-            &json!({"sessionId": "same-chat", "participants": [{"id": "wrong"}]}),
-            "left",
-        );
-    }
-    let recovered = watcher.wait("_acpmux/presence", |p| p["participants"] == json!([])).await;
-    assert!(recovered.get("_acpmuxPeer").is_none());
+    assert_eq!(held["presence"]["participants"], json!([]), "{held}");
 }
 
 /// A peer that lists a chat under one of this daemon's own raw ids: a client attached to the
@@ -856,12 +529,8 @@ async fn hears_no_local_presence(local: &mut C, far: &mut C, own: &str) {
     loop {
         let line =
             tokio::time::timeout(Duration::from_secs(20), far.rx.recv()).await.unwrap().unwrap();
-        let message = Message::parse(&line).unwrap();
-        assert!(
-            !matches!(&message, Message::Notification { method, .. } if method == method::MUX_PRESENCE),
-            "{line}"
-        );
-        if matches!(message, Message::Response { id, .. } if id == far.next) {
+        assert!(!line.contains("_acpmux/presence"), "{line}");
+        if matches!(Message::parse(&line), Ok(Message::Response { id, .. }) if id == far.next) {
             break;
         }
     }
@@ -3291,7 +2960,7 @@ async fn lying_peer(says: Lying) -> u16 {
     let port = l.local_addr().unwrap().port();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = l.accept().await {
-            let Ok(mut ws) = acpmux::server::accept_ws(tcp).await else { continue };
+            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let says = says.clone();
             tokio::spawn(async move {
                 // Non-text frames (the client's pings, #38015) are not requests: skip them.
@@ -3964,7 +3633,7 @@ async fn legacy_models_peer(a_port: u16) -> u16 {
     let port = l.local_addr().unwrap().port();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = l.accept().await {
-            let Ok(ws) = acpmux::server::accept_ws(tcp).await else { continue };
+            let Ok(ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             tokio::spawn(async move {
                 let (mut sink, mut source) = ws.split();
                 // Non-text frames (the client's pings, #38015) are not requests: skip them.
@@ -4076,32 +3745,23 @@ async fn auto_placement_takes_a_running_name_only_with_reuse_here_or_on_a_peer()
     tokio::spawn(acpmux::server::serve_unix(a.clone(), l));
     let cli = acpmux::client::Client::connect(&sock).await.unwrap();
 
-    let here = resolve(&cli, "agent", Some("near"), false, false, false, false)
-        .await
-        .unwrap_err()
-        .to_string();
+    let here =
+        resolve(&cli, "agent", Some("near"), false, false, false).await.unwrap_err().to_string();
     assert!(here.contains("already runs on this machine") && here.contains("--reuse"), "{here}");
-    assert_eq!(
-        resolve(&cli, "agent", Some("near"), true, false, false, false).await.unwrap(),
-        None
-    );
-    let there = resolve(&cli, "agent", Some("far"), false, false, false, false)
-        .await
-        .unwrap_err()
-        .to_string();
+    assert_eq!(resolve(&cli, "agent", Some("near"), true, false, false).await.unwrap(), None);
+    let there =
+        resolve(&cli, "agent", Some("far"), false, false, false).await.unwrap_err().to_string();
     assert!(there.contains("already runs on b"), "{there}");
     assert_eq!(
-        resolve(&cli, "agent", Some("far"), true, false, false, false).await.unwrap().as_deref(),
+        resolve(&cli, "agent", Some("far"), true, false, false).await.unwrap().as_deref(),
         Some("b")
     );
     // On two machines: not guessed at, even with --reuse.
-    let two = resolve(&cli, "agent", Some("both"), true, false, false, false)
-        .await
-        .unwrap_err()
-        .to_string();
+    let two =
+        resolve(&cli, "agent", Some("both"), true, false, false).await.unwrap_err().to_string();
     assert!(two.contains("this machine, b") && two.contains("--machine"), "{two}");
     // A new name goes to the pick (which a busy test machine may refuse).
-    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false, false, false, false).await {
+    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false, false, false).await {
         let e = e.to_string();
         assert!(!e.contains("runs on") && !e.contains("--reuse"), "{e}");
     }
@@ -4884,110 +4544,4 @@ async fn a_switch_of_a_peer_chat_needs_a_peer_that_takes_one() {
         .await;
     assert!(reply.get("error").is_none(), "a plain fork still goes to the peer: {reply}");
     a.peer_by_name("old").unwrap().stop();
-}
-
-/// A standing pre-grant (`cli/standing_grant.rs`; Leo, 2026-11-23: "you guys should simply
-/// decide on case by case and allow permissions. i grant it beforehand"): a local client that is
-/// no person allows a pending tool ask with the grant's key, signed from the session's `pending`
-/// entry exactly as `acpmux allow --standing-grant` reads it. Unsigned it is refused; signed for
-/// a lasting allow it is refused; once the grant leaves `mac-approvers.json` it counts nothing.
-#[tokio::test]
-async fn a_standing_grant_allows_a_local_tool_ask_once_and_never_a_lasting_allow() {
-    use acpmux::cli::standing_grant as grant;
-    let home = std::env::temp_dir().join(format!("api-standing-grant-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&home);
-    std::fs::create_dir_all(&home).unwrap();
-    let key_file = home.join(grant::KEY_FILE);
-    let key = grant::ensure_key(&key_file).unwrap();
-    // Made once, kept: a second grant signs with the same key.
-    let again = grant::ensure_key(&key_file).unwrap();
-    assert_eq!(grant::entry(&key), grant::entry(&again));
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        let mode = std::fs::metadata(&key_file).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "the grant's key is this user's own");
-    }
-    let file = home.join(acpmux::hub::mac_approvers::FILE);
-    let write = |macs: Value| {
-        acpmux::config::write_atomic(&file, json!({"macs": macs}).to_string().as_bytes()).unwrap()
-    };
-    write(json!([grant::entry(&key)]));
-
-    let h = hub(config(PermissionPolicy::Ask)).await;
-    h.person.macs.open(file.clone());
-    let mut tool = plain(h.clone()).await;
-    let s = tool
-        .call(
-            method::SESSION_NEW,
-            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "coord"}}}),
-        )
-        .await
-        .unwrap();
-    let id = s["sessionId"].as_str().unwrap().to_owned();
-    tool.call(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
-    let ask = async |c: &mut C, text: &str, after: Option<&str>| -> Value {
-        c.next += 1;
-        let line = Message::request(
-            c.next,
-            method::SESSION_PROMPT,
-            json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}),
-        );
-        c.tx.send(line.to_line()).await.unwrap();
-        let p = c
-            .wait(method::MUX_PERMISSION_PENDING, |p| {
-                p["sessionId"] == id && after.is_none_or(|a| p["permissionId"] != a)
-            })
-            .await;
-        // What the CLI signs from: the session's `pending` entry in `_acpmux/info`.
-        let info = c.call(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
-        info["pending"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|e| e["permissionId"] == p["permissionId"])
-            .cloned()
-            .unwrap()
-    };
-    let now = acpmux::hub::approvers::unix_now();
-    let respond = |pending: &Value, option: &str, meta: Option<Value>| {
-        let mut r =
-            json!({"sessionId": id, "permissionId": pending["permissionId"], "optionId": option});
-        if let Some(meta) = meta {
-            r["_meta"] = json!({"acpmux": meta});
-        }
-        r
-    };
-
-    let pending = ask(&mut tool, "ask: rm", None).await;
-    // Unsigned, from a client that is no person: refused, and the prompt stays.
-    let e = tool.call(method::MUX_PERMISSION_RESPOND, respond(&pending, "yes", None)).await;
-    assert!(e.unwrap_err().contains("approve this on the Mac app"));
-    // Signed for the lasting allow: refused (a grant never widens).
-    let lasting = grant::signed_meta(&key, &id, &pending, "always", now).unwrap();
-    let e =
-        tool.call(method::MUX_PERMISSION_RESPOND, respond(&pending, "always", Some(lasting))).await;
-    assert!(e.unwrap_err().contains("approve this on the Mac app"));
-    // Signed for the one-time allow: it counts.
-    let once = grant::signed_meta(&key, &id, &pending, "yes", now).unwrap();
-    tool.call(method::MUX_PERMISSION_RESPOND, respond(&pending, "yes", Some(once.clone())))
-        .await
-        .unwrap();
-    let decided = tool
-        .wait(method::MUX_EVENT, |p| p["kind"] == "permission_decision" && p["sessionId"] == id)
-        .await;
-    assert_eq!(decided["msg"]["outcome"]["optionId"], "yes", "{decided}");
-
-    // The next prompt: the old signature counts nothing; a fresh one does, until the grant is
-    // removed from the file (`machine approvals rm standing-grant`, then the reload).
-    let next = ask(&mut tool, "ask: again", pending["permissionId"].as_str()).await;
-    let replay = json!({"sessionId": id, "permissionId": next["permissionId"], "optionId": "yes",
-                        "_meta": {"acpmux": once}});
-    assert!(tool.call(method::MUX_PERMISSION_RESPOND, replay).await.is_err());
-    write(json!([]));
-    h.person.macs.view(&json!({"reload": true}));
-    let fresh = grant::signed_meta(&key, &id, &next, "yes", now).unwrap();
-    let e = tool.call(method::MUX_PERMISSION_RESPOND, respond(&next, "yes", Some(fresh))).await;
-    assert!(e.unwrap_err().contains("approve this on the Mac app"));
-    let _ = std::fs::remove_dir_all(&home);
 }

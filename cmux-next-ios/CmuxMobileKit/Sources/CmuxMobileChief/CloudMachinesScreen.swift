@@ -12,9 +12,6 @@ private let theme = CmuxMobileTheme.standard
 public struct CloudMachinesScreen: View {
     @State private var model: CloudMachinesModel
     @State private var creating = false
-    /// A failed load reads again on its own (Leo, 2026-11-22: "vacuous decisions like that should
-    /// be just done"): a spinner first, the failure with one quiet line past the quiet bound, no Try Again.
-    @State private var autoRetry = AutoRetry()
     /// Opens the Cloud chats through a paired Mac (the shell's Cloud Chats sheet); nil hides it.
     private let openChats: (() -> Void)?
 
@@ -34,37 +31,28 @@ public struct CloudMachinesScreen: View {
                         .accessibilityIdentifier("cloudMachines.new")
                 }
             }
-            .refreshable { await model.load(reportFailure: true) }
+            .refreshable { await model.load() }
             .task { await model.load() }
-            .autoRetry(autoRetry, failing: loadFailed) { await model.load() }
             .sheet(isPresented: $creating) { NewCloudMachineSheet(model: model) }
             .modifier(CloudMachineAlerts(model: model, showsFailure: !model.showsDetail))
             .background(theme.colors.bgGrouped.color.ignoresSafeArea())
     }
 
-    /// The list failed to load for a signed-in account: a read to try again on its own.
-    private var loadFailed: Bool {
-        guard case .failed = model.phase else { return false }
-        return model.isSignedIn
-    }
-
     @ViewBuilder private var content: some View {
         switch model.phase {
-        case .failed(let message) where !loadFailed || autoRetry.isQuietLineShown:
+        case .loading:
+            CmuxSpinner(label: Text("Loading Cloud machines…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("cloudMachines.loading")
+        case .failed(let message):
             ContentUnavailableView {
                 Label("Couldn't load Cloud machines", systemImage: "exclamationmark.triangle")
             } description: {
                 Text(message)
             } actions: {
-                AutoRetryQuietLine(autoRetry)
+                Button("Try Again") { Task { await model.load() } }.buttonStyle(.borderedProminent)
             }
             .accessibilityIdentifier("cloudMachines.failed")
-        case .loading, .failed:
-            // placeholder-ok: This personal Cloud list has never answered for this account.
-            CmuxSpinner(label: Text("Loading Cloud machines…"))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityIdentifier("cloudMachines.loading")
-                .placeholderBound("cloud.machines.loading", .milliseconds(2000))
         case .loaded:
             list
         }
@@ -90,23 +78,18 @@ public struct CloudMachinesScreen: View {
                         NavigationLink {
                             CloudMachineDetail(model: model, id: machine.id, openChats: openChats)
                         } label: {
-                            CloudMachineRow(machine: machine, busy: model.busyID == machine.id,
-                                            awaitingApproval: model.isAwaitingApproval(machine.id))
+                            CloudMachineRow(machine: machine, busy: model.busyID == machine.id)
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if machine.status == .running {
-                                Button("Pause", systemImage: "pause") { Task { await model.pause(machine) } }.tint(CmuxMobileTheme.standard.colors.needsYou.color).disabled(!model.canAct)
+                                Button("Pause", systemImage: "pause") { Task { await model.pause(machine) } }.tint(.orange).disabled(!model.canAct)
                             } else if machine.status == .paused {
-                                Button("Start", systemImage: "play") { Task { await model.start(machine) } }.tint(CmuxMobileTheme.standard.colors.success.color).disabled(!model.canAct)
+                                Button("Start", systemImage: "play") { Task { await model.start(machine) } }.tint(.green).disabled(!model.canAct)
                             }
                         }
                         .accessibilityIdentifier("cloudMachines.row.\(machine.id)")
                     }
-                    // A new machine held for approval: one quiet row at the end, nothing above it moves.
-                    if model.isAwaitingApproval(CloudMachinesModel.newMachineID) { CloudMachineHeldRow() }
                 }
-            } else if model.isAwaitingApproval(CloudMachinesModel.newMachineID) {
-                Section("Machines") { CloudMachineHeldRow() }
             }
             if !model.archives.isEmpty {
                 Section {
@@ -123,7 +106,7 @@ public struct CloudMachinesScreen: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .overlay {
-            if model.machines.isEmpty && model.archives.isEmpty && !model.isAwaitingApproval(CloudMachinesModel.newMachineID) {
+            if model.machines.isEmpty && model.archives.isEmpty {
                 ContentUnavailableView {
                     Label("No Cloud Machines", systemImage: "cloud")
                 } description: {
@@ -142,8 +125,6 @@ public struct CloudMachinesScreen: View {
 struct CloudMachineRow: View {
     let machine: CloudMachine
     let busy: Bool
-    /// An action on it waits for approval in the Feed: the status reads so, in the same line.
-    var awaitingApproval = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -159,32 +140,8 @@ struct CloudMachineRow: View {
     }
 
     private var subtitle: String {
-        // Held for approval: the short status takes the status's place and the cost gives up its
-        // room, so the line is never longer than it was and the row keeps its height.
-        if awaitingApproval {
-            return [String(localized: "Waiting for approval"), machine.size.summary].filter { !$0.isEmpty }.joined(separator: " · ")
-        }
-        return [cloudMachineStatusTitle(machine.status), machine.size.summary, machine.cost(now: .now)]
+        [cloudMachineStatusTitle(machine.status), machine.size.summary, machine.cost(now: .now)]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-}
-
-/// A row's status while an action on it waits for approval in the Feed.
-let cloudMachineAwaitingApprovalTitle = String(localized: "Waiting for approval in your Feed")
-
-/// A new machine held for approval: the Machines row it shows as until it is made.
-struct CloudMachineHeldRow: View {
-    var body: some View {
-        HStack(spacing: 12) {
-            Circle().fill(Color(uiColor: .tertiaryLabel)).frame(width: 8, height: 8).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("New Cloud Machine").font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
-                Text(cloudMachineAwaitingApprovalTitle).font(theme.type.meta).foregroundStyle(theme.colors.label2)
-            }
-            Spacer(minLength: 8)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("cloudMachines.held.new")
     }
 }
 
@@ -254,10 +211,6 @@ struct CloudSnapshotRow: View {
     }
 
     private var detail: String {
-        // Held for approval: said in place of the dates, so the line grows no longer.
-        if model.isAwaitingApproval(snapshot.id) {
-            return [cloudMachineAwaitingApprovalTitle, CloudMachine.Size.gigabytes(snapshot.sizeMB)].joined(separator: " · ")
-        }
         var parts = [CloudMachine.Size.gigabytes(snapshot.sizeMB)]
         if let at = snapshot.createdAt { parts.append(at.formatted(date: .abbreviated, time: .shortened)) }
         if let until = snapshot.archiveUntil { parts.append(String(localized: "kept until \(until.formatted(date: .abbreviated, time: .omitted))")) }
@@ -266,17 +219,22 @@ struct CloudSnapshotRow: View {
     }
 }
 
-/// The page's refusal alert. An action held for approval is no alert: its row says so.
+/// The page's refusal alert and approval note.
 struct CloudMachineAlerts: ViewModifier {
     let model: CloudMachinesModel
     var showsFailure = true
 
     func body(content: Content) -> some View {
         content
-            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.shownFailure != nil }, set: { if !$0 { model.dismissFailure() } })) {
+            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(model.shownFailure ?? "")
+                Text(model.failure ?? "")
+            }
+            .alert("Waiting for approval", isPresented: Binding(get: { showsFailure && model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(model.notice ?? "")
             }
     }
 }
@@ -294,6 +252,7 @@ struct NewCloudMachineSheet: View {
                 Section {
                     TextField("Name (optional)", text: $name)
                         .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                         .accessibilityIdentifier("cloudMachines.new.name")
                 }
                 Section {
@@ -343,8 +302,7 @@ struct CloudMachineDetail: View {
             if let machine = model.machine(id) {
                 List {
                     Section {
-                        LabeledContent("Status", value: model.isAwaitingApproval(machine.id)
-                                       ? cloudMachineAwaitingApprovalTitle : cloudMachineStatusTitle(machine.status))
+                        LabeledContent("Status", value: cloudMachineStatusTitle(machine.status))
                         LabeledContent("Size", value: machine.size.summary)
                         if let cost = machine.cost(now: .now) { LabeledContent("Cost", value: cost) }
                         if let active = machine.lastActiveAt {

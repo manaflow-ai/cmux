@@ -10,7 +10,7 @@ struct IPhoneHostChiefTests {
     static func dependencies(chief: IPhoneHostService.ChiefPlacement?) -> IPhoneHostService.Dependencies {
         IPhoneHostService.Dependencies(
             executable: URL(fileURLWithPath: "/bin/cmux-mobile-host"), baseURL: URL(fileURLWithPath: "/dev/null"),
-            stackProjectID: "p", buildSpace: .nightly, stateDirectory: URL(fileURLWithPath: "/tmp/cmux-mobile-state"),
+            stackProjectID: "p", stateDirectory: URL(fileURLWithPath: "/tmp/cmux-mobile-state"),
             accessToken: { _ in "t" }, daemonSocket: { "/tmp/cmux-tui-501/cmux-app-tag.sock" }, acpmux: { nil },
             fileRoots: { ["/a"] }, computerName: { "Mac" }, chief: { chief })
     }

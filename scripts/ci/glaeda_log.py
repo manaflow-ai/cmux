@@ -12,7 +12,6 @@ names the program (empty: never ask it; tests that fake gh set that).
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -45,35 +44,3 @@ def cached_job_log(repo: str, job_id: object) -> str | None:
     if done.returncode != 0 or len(done.stdout) > MAX_BYTES:
         return None
     return done.stdout.decode(errors="replace")
-
-
-# A run's state as this host's glaeda-gh daemon last read it (`glaeda-gh read`: its cache only, never a wait and never
-# a GitHub read). base_red_excuse asks it whether a run it holds a settled copy of is still the run GitHub would serve
-# (the same attempt, updated at the same time, completed), so a retried merge check reads none of that run again.
-RUN_KEYS = ("status", "conclusion", "run_attempt", "updated_at")
-
-
-def cached_run(repo: str, run_id: object) -> dict | None:
-    """RUN_ID's state as glaeda-gh holds it: {status, conclusion, run_attempt, updated_at, at} with AT the epoch of the
-    daemon's last read of it, or None (no glaeda-gh, not cached, an older glaeda-gh without `read`, a timeout)."""
-    exe = program()
-    try:
-        run = int(run_id)  # type: ignore[call-overload]
-    except (TypeError, ValueError):
-        return None
-    if exe is None or run <= 0 or "/" not in str(repo):
-        return None
-    key = f"run:{str(repo).lower()}/{run}"
-    try:
-        done = subprocess.run([exe, "read"], input=json.dumps({"keys": [{"key": key}]}).encode(),
-                              capture_output=True, timeout=DEADLINE, check=False)
-        entry = (json.loads(done.stdout or b"{}").get("entries") or {}).get(key) if done.returncode == 0 else None
-    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
-        return None
-    data = entry.get("data") if isinstance(entry, dict) else None
-    if not isinstance(data, dict) or entry.get("error") or data.get("id") not in (run, None):
-        return None
-    at = entry.get("fetchedAt") or entry.get("dataAt")
-    if not isinstance(at, (int, float)):
-        return None
-    return {**{name: data.get(name) for name in RUN_KEYS}, "at": float(at)}

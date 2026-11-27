@@ -42,20 +42,6 @@ struct LayoutRequestWireTests {
         expectGate(SetColumnWidthRequest.self, optional: nil)
     }
 
-    @Test func aGesturesEndedValuesGoAsOneCommandInTheirOrder() throws {
-        let trade: [SetLayoutSizesRequest.Value] = [.width(pane: PaneID(rawValue: 2), 0.25), .width(pane: PaneID(rawValue: 5), 0.75)]
-        #expect(try line(SetLayoutSizesRequest(values: trade, transaction: 31)) == envelope("set-layout-sizes", [
-            "values": .array([.object(["pane": .number(2), "width": .number(0.25)]), .object(["pane": .number(5), "width": .number(0.75)])]),
-            "transaction": .number(31),
-        ]))
-        let release: [SetLayoutSizesRequest.Value] = [.ratio(SplitID(rawValue: 4), 0.5), .width(pane: PaneID(rawValue: 2), 0.25)]
-        #expect(try line(SetLayoutSizesRequest(values: release, transaction: 7)) == envelope("set-layout-sizes", [
-            "values": .array([.object(["split": .number(4), "ratio": .number(0.5)]), .object(["pane": .number(2), "width": .number(0.25)])]),
-            "transaction": .number(7),
-        ]))
-        expectGate(SetLayoutSizesRequest.self, optional: "layout-sizes-batch-v1")
-    }
-
     @Test func anUndoSendsTheRevisionToConfirmOnlyWhenConfirming() throws {
         #expect(try line(UndoLayoutRequest(pane: PaneID(rawValue: 3))) == envelope("undo-layout", ["pane": .number(3)]))
         #expect(try line(UndoLayoutRequest(pane: PaneID(rawValue: 3), revision: 12, confirmClose: true)) ==

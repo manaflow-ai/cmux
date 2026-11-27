@@ -13,12 +13,9 @@
 //! The socket names no device, so UniiChat's agent gets no shell or screen
 //! on this computer: it is a chat backend, not a remote hand.
 //!
-//! Sign-in is UniiChat's own: the token `unii login` (or this adapter's own
-//! `uniichat-agent login`, `uniichat_login.rs`, which needs no `unii`) keeps
-//! at `$UNII_HOME/<host>/token` (default `~/.unii`). No token, or one the
-//! server refuses, fails the session with the setup steps. Its ACP sign-in is
-//! a `terminal` method: `cmux harness login unii` runs this command line
-//! again with `login`, in that terminal.
+//! Sign-in is UniiChat's own: the token `unii login` keeps at
+//! `$UNII_HOME/<host>/token` (default `~/.unii`). No token, or one the
+//! server refuses, fails the session with the setup steps.
 //!
 //! Memory: UniiChat keeps one chat per account that never ends, so by
 //! default a prompt sends only its last text block (a Chief turn's new
@@ -34,6 +31,7 @@ use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -41,13 +39,112 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-pub use crate::uniichat_endpoint::{Endpoint, HOSTED, Options, SETUP};
+/// The hosted UniiChat, used when neither `--url` nor `$UNII_URL` names one.
+pub const HOSTED: &str = "https://uniichat.com";
 
 /// The UniiChat wire version this adapter reads (View.ts `WIRE`).
 pub const WIRE: u32 = 2;
 
 /// The name a stop gives UniiChat's own turn (View.ts `TURN`).
 pub const TURN: &str = "Unii's turn";
+
+/// How to install the `unii` terminal and sign in, shown when the adapter
+/// has no sign-in to use.
+pub const SETUP: &str = "Install the unii terminal (curl -fsSL https://uniichat.com/install.sh | sh), then sign in with `unii login`";
+
+/// The adapter's command line flags.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Options {
+    /// The server (`https://uniichat.com`, `http://127.0.0.1:8788`); none:
+    /// `$UNII_URL`, else the hosted one.
+    pub url: Option<String>,
+    /// Where `unii` keeps its sign-ins; none: `$UNII_HOME`, else `~/.unii`.
+    pub home: Option<PathBuf>,
+    /// Send every text block of a prompt, not only the last one.
+    pub whole_prompt: bool,
+}
+
+/// One UniiChat server and the sign-in this computer holds for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Endpoint {
+    /// `http(s)://host[:port]`, no trailing slash.
+    pub base: String,
+    /// The WebSocket origin (`ws(s)://host[:port]`).
+    pub ws: String,
+    /// `host[:port]`, the folder `unii` keeps this server's token in.
+    pub host: String,
+    /// The token file `unii login` writes.
+    pub token_file: PathBuf,
+}
+
+impl Endpoint {
+    /// The server and token file from the flags, then the environment
+    /// values given (`UNII_URL`, `UNII_HOME`, the home folder), the way the
+    /// `unii` terminal finds them (Term.ts `SERVER`, `TOKEN`).
+    pub fn resolve(
+        options: &Options,
+        env_url: Option<String>,
+        env_home: Option<String>,
+        user_home: Option<PathBuf>,
+    ) -> Result<Endpoint, String> {
+        let url = options
+            .url
+            .clone()
+            .or(env_url.filter(|u| !u.trim().is_empty()))
+            .unwrap_or_else(|| HOSTED.to_owned());
+        let base = url.trim().trim_end_matches('/').to_owned();
+        let (scheme, rest) = base
+            .split_once("://")
+            .ok_or_else(|| format!("UniiChat url {base} needs http:// or https://"))?;
+        let ws_scheme = match scheme {
+            "https" => "wss",
+            "http" => "ws",
+            _ => return Err(format!("UniiChat url {base} needs http:// or https://")),
+        };
+        let host = rest.split(['/', '?', '#']).next().unwrap_or("").to_owned();
+        if host.is_empty() {
+            return Err(format!("UniiChat url {base} has no host"));
+        }
+        let base = format!("{scheme}://{host}");
+        let home = options
+            .home
+            .clone()
+            .or(env_home.filter(|h| !h.trim().is_empty()).map(PathBuf::from))
+            .or(user_home.map(|h| h.join(".unii")))
+            .ok_or("no home folder for the UniiChat sign-in")?;
+        Ok(Endpoint {
+            ws: format!("{ws_scheme}://{host}"),
+            token_file: home.join(&host).join("token"),
+            host,
+            base,
+        })
+    }
+
+    /// The sign-in token, or the setup steps when there is none.
+    pub fn token(&self) -> Result<String, String> {
+        match std::fs::read_to_string(&self.token_file) {
+            Ok(t) if !t.trim().is_empty() => Ok(t.trim().to_owned()),
+            _ => Err(format!(
+                "UniiChat: this computer is not signed in to {}. {SETUP}{}.",
+                self.host,
+                self.login_suffix()
+            )),
+        }
+    }
+
+    /// The setup steps for a sign-in the server refused.
+    pub fn signed_out(&self) -> String {
+        format!(
+            "UniiChat: {} refused this computer's sign-in (signed out or expired). Sign in again with `unii login{}`.",
+            self.host,
+            self.login_suffix()
+        )
+    }
+
+    fn login_suffix(&self) -> String {
+        if self.base == HOSTED { String::new() } else { format!(" {}", self.base) }
+    }
+}
 
 /// The text one prompt sends: its last text block, or all of them. A paste
 /// cmux's composer sent as its own block goes with it (`cli_agent::prompt_text`).
@@ -348,9 +445,7 @@ async fn handle(msg: Value, ctx: &Arc<(Options, Endpoint)>, state: &Arc<Mutex<St
                 "authMethods": [{
                     "id": "unii-login",
                     "name": "Sign in to UniiChat",
-                    "type": "terminal",
-                    "args": ["login"],
-                    "description": "Sign in with your email or GitHub name: UniiChat sends a link, and you type the code it shows."
+                    "description": format!("{SETUP}.")
                 }]
             }),
         ),
@@ -455,7 +550,8 @@ async fn connect(endpoint: &Endpoint, token: &str) -> Result<Socket, (i64, Strin
         "authorization",
         format!("Bearer {token}").parse().map_err(|_| (AUTH_REQUIRED, endpoint.signed_out()))?,
     );
-    match tokio::time::timeout(Duration::from_secs(20), crate::happy_dial::connect_ws(req)).await {
+    match tokio::time::timeout(Duration::from_secs(20), tokio_tungstenite::connect_async(req)).await
+    {
         Err(_) => Err((-32603, format!("UniiChat: {} did not answer in 20 s", endpoint.host))),
         Ok(Err(tokio_tungstenite::tungstenite::Error::Http(r)))
             if matches!(r.status().as_u16(), 401 | 403) =>
@@ -475,7 +571,7 @@ async fn say(
     body: Vec<u8>,
     sizes: &str,
 ) -> Result<(), (i64, String)> {
-    let client = crate::happy_dial::http_client()
+    let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(120))
         .user_agent(concat!("acpmux-uniichat/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -620,5 +716,185 @@ async fn run_prompt(
 }
 
 #[cfg(test)]
-#[path = "uniichat_agent_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn state(busy: bool) -> Value {
+        json!({"$": "state", "busy": busy})
+    }
+
+    #[test]
+    fn resolves_the_hosted_server_and_the_unii_token_file() {
+        let e =
+            Endpoint::resolve(&Options::default(), None, None, Some("/Users/me".into())).unwrap();
+        assert_eq!(e.base, "https://uniichat.com");
+        assert_eq!(e.ws, "wss://uniichat.com");
+        assert_eq!(e.token_file, PathBuf::from("/Users/me/.unii/uniichat.com/token"));
+    }
+
+    #[test]
+    fn resolves_a_self_hosted_server_with_its_port() {
+        let e = Endpoint::resolve(
+            &Options::default(),
+            Some("http://127.0.0.1:8788/".into()),
+            Some("/tmp/u".into()),
+            None,
+        )
+        .unwrap();
+        assert_eq!(e.base, "http://127.0.0.1:8788");
+        assert_eq!(e.ws, "ws://127.0.0.1:8788");
+        assert_eq!(e.token_file, PathBuf::from("/tmp/u/127.0.0.1:8788/token"));
+        let flag = Options { url: Some("https://x.dev".into()), ..Options::default() };
+        let e = Endpoint::resolve(&flag, Some("http://y".into()), None, Some("/h".into())).unwrap();
+        assert_eq!(e.host, "x.dev");
+        assert!(
+            Endpoint::resolve(
+                &Options { url: Some("ftp://x".into()), ..Options::default() },
+                None,
+                None,
+                Some("/h".into())
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_missing_sign_in_says_how_to_set_up() {
+        let e =
+            Endpoint::resolve(&Options::default(), None, Some("/nonexistent-unii".into()), None)
+                .unwrap();
+        let err = e.token().unwrap_err();
+        assert!(err.contains("not signed in to uniichat.com"), "{err}");
+        assert!(err.contains("unii login"), "{err}");
+        assert!(err.contains("install.sh"), "{err}");
+    }
+
+    #[test]
+    fn sends_the_last_text_block_unless_whole() {
+        let blocks = vec![
+            json!({"type": "text", "text": "view "}),
+            json!({"type": "image", "data": "aGk=", "mimeType": "image/png"}),
+            json!({"type": "text", "text": "new"}),
+        ];
+        assert_eq!(prompt_text(&blocks, false), "new");
+        assert_eq!(prompt_text(&blocks, true), "view new");
+        assert_eq!(prompt_images(&blocks), vec![b"hi".to_vec()]);
+        let (body, sizes) = say_body("new", &prompt_images(&blocks));
+        assert_eq!(body, b"hinew");
+        assert_eq!(sizes, "2");
+        assert_eq!(say_body("x", &[]).1, "");
+    }
+
+    /// A huge paste in cmux's composer goes as its own text block after the
+    /// typed one (`_meta.cmux.pasted`): the message is the typed text and
+    /// every paste, a blank line between them, never the paste alone.
+    #[test]
+    fn a_pasted_block_goes_with_the_typed_text() {
+        let pasted =
+            |text: &str| json!({"type": "text", "text": text, "_meta": {"cmux": {"pasted": true}}});
+        let blocks = vec![
+            json!({"type": "text", "text": "view "}),
+            json!({"type": "text", "text": "why does this fail?"}),
+            pasted("the log"),
+        ];
+        assert_eq!(prompt_text(&blocks, false), "why does this fail?\n\nthe log");
+        assert_eq!(prompt_text(&blocks, true), "view why does this fail?\n\nthe log");
+        assert_eq!(prompt_text(&[pasted("only a paste")], false), "only a paste");
+    }
+
+    #[test]
+    fn streams_deltas_once_and_ends_when_idle() {
+        let mut t = Turn::new(false);
+        t.hear(&state(true));
+        t.taken();
+        assert_eq!(
+            t.hear(&json!({"$": "delta", "kind": "mind", "text": "hm"})),
+            vec![Out::Thought("hm".into())]
+        );
+        assert_eq!(
+            t.hear(&json!({"$": "delta", "kind": "unii", "text": "Hel"})),
+            vec![Out::Message("Hel".into())]
+        );
+        assert_eq!(
+            t.hear(&json!({"$": "delta", "kind": "unii", "text": "lo"})),
+            vec![Out::Message("lo".into())]
+        );
+        // The logged entry repeats what streamed: nothing new goes out.
+        assert_eq!(
+            t.hear(&json!({"$": "entry", "id": 9, "kind": "unii", "text": "Hello"})),
+            vec![]
+        );
+        assert_eq!(t.ended(), None);
+        t.hear(&state(false));
+        assert_eq!(t.ended(), Some(Ended::Done));
+    }
+
+    #[test]
+    fn an_entry_never_streamed_goes_out_whole() {
+        let mut t = Turn::new(false);
+        t.taken();
+        t.hear(&state(true));
+        assert_eq!(
+            t.hear(&json!({"$": "entry", "kind": "unii", "text": "Hi"})),
+            vec![Out::Message("Hi".into())]
+        );
+        // A second message of the same turn, after a blank line.
+        assert_eq!(
+            t.hear(&json!({"$": "delta", "kind": "unii", "text": "More", "fresh": true})),
+            vec![Out::Message("\n\nMore".into())]
+        );
+    }
+
+    #[test]
+    fn tool_calls_show_and_complete() {
+        let mut t = Turn::new(false);
+        t.taken();
+        assert_eq!(
+            t.hear(&json!({"$": "entry", "kind": "tool", "text": "shell: ls\nmore"})),
+            vec![Out::ToolStart { id: "unii-tool-1".into(), title: "shell: ls".into() }]
+        );
+        assert_eq!(
+            t.hear(&json!({"$": "entry", "kind": "echo", "text": "a b"})),
+            vec![Out::ToolDone { id: "unii-tool-1".into(), text: "a b".into() }]
+        );
+    }
+
+    #[test]
+    fn a_turn_with_only_a_note_fails_with_it() {
+        let mut t = Turn::new(false);
+        t.taken();
+        t.hear(&state(true));
+        t.hear(&json!({"$": "entry", "kind": "note", "text": "out of credit"}));
+        t.hear(&state(false));
+        assert_eq!(t.ended(), Some(Ended::Failed("UniiChat: out of credit".into())));
+    }
+
+    #[test]
+    fn subagent_events_and_a_busy_chat_before_the_message_do_not_end_the_turn() {
+        let mut t = Turn::new(true);
+        assert_eq!(
+            t.hear(&json!({"$": "delta", "agent": "a1", "kind": "unii", "text": "x"})),
+            vec![]
+        );
+        t.hear(&state(false));
+        // Not taken yet: an earlier turn ending is not this one.
+        assert_eq!(t.ended(), None);
+        t.taken();
+        // Taken while idle and nothing ran yet: still waiting.
+        assert_eq!(t.ended(), None);
+        t.hear(&state(true));
+        t.hear(&state(false));
+        assert_eq!(t.ended(), Some(Ended::Done));
+    }
+
+    #[test]
+    fn a_rejoin_sends_only_what_went_past_the_stream() {
+        let mut t = Turn::new(false);
+        t.taken();
+        t.hear(&state(true));
+        t.hear(&json!({"$": "delta", "kind": "unii", "text": "Hel"}));
+        let live = json!({"$": "live", "live": [{"kind": "unii", "text": "Hello"}]});
+        assert_eq!(t.hear(&live), vec![Out::Message("lo".into())]);
+        assert_eq!(t.hear(&live), vec![]);
+    }
+}

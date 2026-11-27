@@ -1,0 +1,13 @@
+{
+  "asset": "cmux-computer-use-dev-macos-arm64.zip",
+  "arch": "arm64",
+  "sha256": "7b5c00bc51ad6e092813ff64bc0763b35a2307f01cd628c23425f447fe414f99",
+  "r2_bucket": "cmux-cef",
+  "r2_key": "cua-helper-dev/7b5c00bc51ad6e092813ff64bc0763b35a2307f01cd628c23425f447fe414f99/cmux-computer-use-dev-macos-arm64.zip",
+  "bundle_id": "com.cmuxterm.cua.dev",
+  "helper_source_tree": "82cdd9b8b74587a9ca6ae7d82913d5b85975d316c3f23fca3b894aee711ff584",
+  "cua_driver_sdk_sha256": "c9ebb6eee8d359bbabc59d8c9775c52c6cf1fcf3f641a35b791ac837437f0c62",
+  "signing": "Apple Development",
+  "team_id": "7WLXT3NR37",
+  "unsigned_sha256": "bdd13dc304e603158217e51f15a00c7ad41f3fd1d7ad3bb5881643f7f7dbe172"
+}

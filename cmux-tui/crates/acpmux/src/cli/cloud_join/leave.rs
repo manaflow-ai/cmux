@@ -209,47 +209,12 @@ fn leave_error(code: &str, exit: i32, message: String) -> anyhow::Error {
         .into()
 }
 
-/// What a leave does once it tried to stop the screen host (review F1 of #45369).
-pub(super) enum HostStep {
-    /// The host is gone: the join's files go.
-    Remove,
-    /// The hub revoked the join but the host may still run: the files go (the host exits by
-    /// itself once its credential is gone), then the leave fails with this.
-    RemoveThenFail(anyhow::Error),
-    /// Neither the hub revoked the join nor is the host gone: nothing is removed.
-    Refuse(anyhow::Error),
-}
-
-/// The join's files go only once the hub revoked the join or the screen host is verified gone,
-/// never when both failed; a host that may still run always fails the leave (exit 5) with how
-/// to stop it, never a success.
-pub(super) fn after_host_stop(stopped: Result<(), String>, revoked: bool) -> HostStep {
-    let Err(why) = stopped else { return HostStep::Remove };
-    if revoked {
-        HostStep::RemoveThenFail(leave_error(
-            "leave.screen_host_running",
-            5,
-            format!(
-                "this machine left: the hub revoked it and its files are removed, but {why}; it exits by itself within seconds now that its credential is gone"
-            ),
-        ))
-    } else {
-        HostStep::Refuse(leave_error(
-            "leave.screen_host_running",
-            5,
-            format!(
-                "{why}. Nothing here changed: the join's files stay until the host is stopped; then run this leave again"
-            ),
-        ))
-    }
-}
-
 pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
-    let _lock = join_lock().map_err(store_error_from)?;
+    let _lock = join_lock().map_err(|_| store_error())?;
     let home = state_dir();
-    let Some(record) = load_at(&home).map_err(store_error_from)? else {
+    let Some(record) = load_at(&home).map_err(|_| store_error())? else {
         // Nothing joined; a stray joined `meshRelay` still goes, as the person asked to leave.
-        let removed = remove_stray_join_relay(&home).map_err(store_error_from)?;
+        let removed = remove_stray_join_relay(&home).map_err(|_| store_error())?;
         let out = json!({"left": false, "joined": false, "removed": removed});
         if json_out {
             crate::cli::output::print_json(&out);
@@ -284,22 +249,7 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     if let Some(refusal) = refusal {
         return Err(refusal);
     }
-    // The screen host the join set up stops now, verified gone, before the join's files go
-    // (share_host/linux.rs).
-    #[cfg(target_os = "linux")]
-    let host_stopped = tokio::task::spawn_blocking(crate::share_host::linux::stop_host)
-        .await
-        .unwrap_or_else(|e| Err(format!("the screen host's stop did not finish ({e})")));
-    // A join sets up no screen host process elsewhere (the Mac's is the daemon itself).
-    #[cfg(not(target_os = "linux"))]
-    let host_stopped: Result<(), String> = Ok(());
-    let screen_host_stopped = cfg!(target_os = "linux") && host_stopped.is_ok();
-    let failure = match after_host_stop(host_stopped, answer.revoked()) {
-        HostStep::Refuse(refusal) => return Err(refusal),
-        HostStep::Remove => None,
-        HostStep::RemoveThenFail(failure) => Some(failure),
-    };
-    let removed = remove_local(&home, copy).map_err(store_error_from)?;
+    let removed = remove_local(&home, copy).map_err(|_| store_error())?;
     let daemon = tokio::time::timeout(
         // timeout: a daemon that never answers is reported not running; the leave is done.
         std::time::Duration::from_secs(2),
@@ -316,7 +266,6 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         "hubRevoked": answer.revoked(),
         "removed": removed,
         "daemonRunning": running,
-        "screenHostStopped": screen_host_stopped,
     });
     let node_key_kept = !removed.contains(&"nodeKey")
         && std::fs::symlink_metadata(cmux_link::key_holder::KeyFile::Node.path_in(&home)).is_ok();
@@ -364,52 +313,17 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         if running {
             println!("the daemon's mesh relay stops at its next hub call");
         }
-        if screen_host_stopped {
-            println!("stopped the screen host (cmux-screen-host.service)");
-        }
         if node_key_kept {
             println!("kept the node key: the cmux link serves it, or a running process holds it");
         }
     }
-    failure.map_or(Ok(()), Err)
+    Ok(())
 }
 
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use cmux_cloud_client::ApiError;
-
-    /// The exit status and message of a leave's error.
-    fn failed(e: &anyhow::Error) -> (i32, String) {
-        let app = e.downcast_ref::<crate::cli::errors::AppError>().expect("a typed leave error");
-        (app.exit_status(), app.message.clone())
-    }
-
-    /// `systemctl` failed and the host may still run (review F1 of #45369): the leave never
-    /// reports success, says how to stop the host, and keeps the join's files unless the hub
-    /// revoked the join.
-    #[test]
-    fn a_screen_host_that_may_still_run_fails_the_leave() {
-        let why = crate::share_host::linux::still_running(Some(4242), false);
-        assert_eq!(
-            why,
-            "the screen host may still be running (pid 4242); systemctl --user disable --now did not finish; stop it with: kill -KILL 4242"
-        );
-        let HostStep::Refuse(e) = after_host_stop(Err(why.clone()), false) else {
-            panic!("the files went with neither the hub's revoke nor the host stopped")
-        };
-        let (exit, message) = failed(&e);
-        assert_eq!(exit, 5);
-        assert!(message.starts_with(&why) && message.contains("Nothing here changed"), "{message}");
-        let HostStep::RemoveThenFail(e) = after_host_stop(Err(why.clone()), true) else {
-            panic!("a leave the hub revoked kept the files or reported success")
-        };
-        let (exit, message) = failed(&e);
-        assert_eq!(exit, 5);
-        assert!(message.contains(&why) && message.contains("this machine left"), "{message}");
-        assert!(matches!(after_host_stop(Ok(()), false), HostStep::Remove));
-        assert!(matches!(after_host_stop(Ok(()), true), HostStep::Remove));
-    }
 
     #[test]
     fn a_refusal_says_whether_the_credential_is_dead_or_the_mac_must_revoke() {

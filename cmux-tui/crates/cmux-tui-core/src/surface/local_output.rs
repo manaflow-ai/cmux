@@ -12,9 +12,6 @@ use std::os::fd::{AsRawFd, OwnedFd};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 
-/// The most one local read parses at once.
-const LOCAL_READ_BYTES: usize = 64 * 1024;
-
 pub(super) struct LocalOutput {
     #[cfg(unix)]
     pub(super) descriptor: Option<OwnedFd>,
@@ -34,6 +31,7 @@ pub(super) struct LocalOutput {
 pub(super) struct ParsedOutput {
     generation: u64,
     title_update: Option<String>,
+    scroll_changed: Option<(u64, bool)>,
     terminal_notifications: Vec<crate::terminal_metadata::TerminalNotification>,
     finished_commands: Vec<crate::shell_history::FinishedCommand>,
 }
@@ -83,16 +81,14 @@ impl LocalOutput {
         if journal_target.is_some() && journal_update.is_none() {
             return Ok(0);
         }
-        // On the heap for this read only, never on the reader's stack: a
-        // 64 KiB stack array stays resident in every reader thread once
-        // zeroed, so 1,000 idle terminals kept 64 MB of it (CMUX-571).
-        let mut buf = vec![0u8; LOCAL_READ_BYTES];
+        let mut buf = [0u8; 64 * 1024];
         let n = read(&mut buf)?;
         let read = buf.get(..n).unwrap_or(&buf);
         let output = self.kitty_media.rewrite_borrowed(read, &mut self.kitty_scratch);
         if output.is_empty() {
             return Ok(n);
         }
+        let mut scroll_changed = None;
         let mut title_update = None;
         let terminal_notifications;
         let finished_commands;
@@ -150,6 +146,7 @@ impl LocalOutput {
             }
             pty.record_terminal_directory(&term);
             if before != after {
+                scroll_changed = Some(after);
                 broadcast_render_scroll_locked(pty, after);
             }
             // Keep the terminal lock scoped to parser and observer work. A
@@ -175,6 +172,7 @@ impl LocalOutput {
         self.pending.push(ParsedOutput {
             generation,
             title_update,
+            scroll_changed,
             terminal_notifications,
             finished_commands,
         });
@@ -226,14 +224,15 @@ impl LocalOutput {
         result
     }
 
-    /// Wake the reader to request a frame after a resize under this parser.
-    /// The resize already recorded the scroll transition under the terminal
-    /// lock; the next publisher flushes it independently of queued metadata.
+    /// Queue the event-bus `scroll-changed` of a viewport move a resize made
+    /// under this parser, for the reader to publish after the output events
+    /// already queued, and wake the reader. The resize sent it to render taps.
     #[cfg(unix)]
-    pub(super) fn queue_scroll_changed(&mut self, generation: u64) {
+    pub(super) fn queue_scroll_changed(&mut self, generation: u64, position: (u64, bool)) {
         self.pending.push(ParsedOutput {
             generation,
             title_update: None,
+            scroll_changed: Some(position),
             terminal_notifications: Vec::new(),
             finished_commands: Vec::new(),
         });
@@ -268,13 +267,22 @@ impl OutputPublisher {
     pub(super) fn publish(&self, surface: &Arc<Surface>, events: Vec<ParsedOutput>) {
         let Some(pty) = surface.as_pty() else { return };
         let mux = &pty.mux;
-        for ParsedOutput { generation, title_update, terminal_notifications, finished_commands } in
-            events
+        for ParsedOutput {
+            generation,
+            title_update,
+            scroll_changed,
+            terminal_notifications,
+            finished_commands,
+        } in events
         {
             // Durable publications commit on the mux's terminal publisher: the
             // next output must not wait for the registry (#35413).
             surface.queue_pending_publications();
             pty.stream_progress.notify();
+            // Published by the frame producer, once per frame (FrameRequests).
+            if let Some((offset, at_bottom)) = scroll_changed {
+                pty.frame_requests.defer_scroll(offset, at_bottom);
+            }
             pty.request_frame_from_reader(generation);
             // Mux events take `Mux::state`; publish them only after
             // the terminal lock is released (see PtyTerminalRuntime).

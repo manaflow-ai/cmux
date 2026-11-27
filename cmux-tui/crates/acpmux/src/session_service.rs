@@ -13,18 +13,6 @@
 //! The grant names the account it was given for: once this machine is joined as another account,
 //! nothing is granted and the person is asked again.
 //!
-//! A machine joined from another device (a join line, a pair code, a fleet or Cloud enrollment:
-//! any join but signing in on it) needs no ask: the join is the consent, as for screen sharing
-//! (hq `docs/design/remote-screen-share-zero-touch.md` Z4, "Joining is the whole consent";
-//! `share_host::helper::share_by_join_here`). Nobody sits at a Cloud VM or a lane VM to click
-//! Allow, and `cmux ssh` to it must work with zero actions on it (Leo, 2026-11-22: "we need to
-//! have these bundled in"). The person's own answer still wins: a Not now or an Off on that
-//! machine refuses as before. A Mac signed in on itself keeps its one ask.
-//!
-//! A machine nobody opened cmux on (a headless box: `CMUX_TUI_SOCKET` unset) still serves the
-//! circuit: once admitted, acpmux finds or starts its local session owner with
-//! `cmux daemon ensure` and reaches that socket.
-//!
 //! What grants what: the carrier's Noise handshake proves the dialer is one of this person's
 //! live machines (the platform's `peers`). That proof plus this consent is the whole grant: the
 //! session daemon then sees a trusted local client, as the app on this machine is.
@@ -55,28 +43,23 @@ pub enum Decision {
 }
 
 /// Whether a circuit from another of the person's machines may open workspaces here, given this
-/// machine's consent status (`_acpmux/machine_consent_get`'s answer) and whether this machine
-/// was joined from another device (`joined_elsewhere`: the join is the consent unless the person
-/// answered here for this account). Otherwise only the word `granted` admits; an unreadable
-/// status refuses. `consentRequired` does not matter: this grant is
+/// machine's consent status (`_acpmux/machine_consent_get`'s answer). Only the word `granted`
+/// admits; an unreadable status refuses. `consentRequired` does not matter: this grant is
 /// always the person's own, joined or not. The grant and the answer hold only for the account
 /// they were given for (`signedInMachinesUser`) while this machine is joined as `account`: after
 /// a switch to another account nothing is granted and it is asked again. A pending ask (the last
 /// refusal is already this surface's) is not recorded again.
-pub fn decide(consent: &Value, account: Option<&str>, joined_elsewhere: bool) -> Decision {
+pub fn decide(consent: &Value, account: Option<&str>) -> Decision {
     let for_account = account.is_some_and(|account| {
         consent.pointer("/consent/signedInMachinesUser").and_then(Value::as_str) == Some(account)
     });
-    if crate::machine_record::signed_in_machines_granted(consent, account) {
+    let granted = for_account
+        && consent.pointer("/consent/signedInMachines").and_then(Value::as_str) == Some("granted");
+    if granted {
         return Decision::Admit;
     }
     let answered = for_account
         && consent.pointer("/consent/signedInMachinesAnsweredAt").is_some_and(|at| !at.is_null());
-    // An unreadable status (no `consent` record) could hide the person's Off: it refuses.
-    let readable = consent.get("consent").is_some_and(Value::is_object);
-    if joined_elsewhere && account.is_some() && readable && !answered {
-        return Decision::Admit;
-    }
     let pending =
         consent.pointer("/lastRefusal/surface").and_then(Value::as_str) == Some(SIGNED_IN_MACHINES);
     if answered {
@@ -132,45 +115,6 @@ fn owned_socket(_path: &Path) -> bool {
     false
 }
 
-/// How long `cmux daemon ensure` may take to start a session owner (it waits until the owner
-/// accepts clients; a cold start is about a second).
-const ENSURE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
-
-/// The socket of this machine's local session owner on a box with no `CMUX_TUI_SOCKET` (no app
-/// started acpmux): found or started by `cmux daemon ensure`, read from its `socket` field. None
-/// when there is no cmux CLI here or it did not answer in time; the gate then refuses as
-/// `service.off`. Blocking: called on the gate's blocking task.
-fn ensure_local_session() -> Option<PathBuf> {
-    let program =
-        crate::agent_tools::project_mcp::cmux_program().unwrap_or_else(|| PathBuf::from("cmux"));
-    let mut child = cmux_process::Command::new(program)
-        .args(["--json", "daemon", "ensure"])
-        .stdin(cmux_process::Stdio::null())
-        .stdout(cmux_process::Stdio::piped())
-        .stderr(cmux_process::Stdio::null())
-        .spawn()
-        .ok()?;
-    // The owner `ensure` starts detaches on its own; `ensure` itself answers and exits. Past the
-    // deadline the child is dropped, which ends it.
-    if child.wait_timeout(ENSURE_DEADLINE).ok().flatten().is_none() {
-        tracing::warn!("cmux daemon ensure did not answer in time");
-        return None;
-    }
-    let mut out = String::new();
-    std::io::Read::read_to_string(child.stdout.as_mut()?, &mut out).ok()?;
-    ensured_socket(&out)
-}
-
-/// The `socket` a `cmux --json daemon ensure` answer names, when it started or found an owner.
-pub fn ensured_socket(answer: &str) -> Option<PathBuf> {
-    let answer: Value = serde_json::from_str(answer.trim()).ok()?;
-    let status = answer.get("status").and_then(Value::as_str)?;
-    if !matches!(status, "started" | "running") {
-        return None;
-    }
-    answer.get("socket").and_then(Value::as_str).filter(|s| !s.is_empty()).map(PathBuf::from)
-}
-
 /// The daemon's gate: the machine's consent record and its own `CMUX_TUI_SOCKET`.
 pub struct ConfiguredSessionGate {
     hub: Weak<Hub>,
@@ -182,9 +126,6 @@ impl ConfiguredSessionGate {
     }
 }
 
-/// How long an admission waits for the hub's book to list the dialer.
-const BOOK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
-
 #[async_trait]
 impl SessionGate for ConfiguredSessionGate {
     async fn admit(&self, from: &str) -> Result<PathBuf, ServiceRefusal> {
@@ -192,36 +133,21 @@ impl SessionGate for ConfiguredSessionGate {
             self.hub.upgrade().ok_or_else(|| ServiceRefusal::new("service.off", "stopping"))?;
         // Defense in depth beside the carrier's handshake (the platform's list of this person's
         // machines): this machine's own read of the hub's book must list the dialer too.
-        // A machine that just joined reaches here before the hub's next book does: wait for
-        // the book a few seconds rather than refuse the dialer.
-        let listed = cmux_tui_util::retry::Patience::new("the hub book", BOOK_WAIT)
-            .quiet()
-            .spaced(std::time::Duration::from_millis(100), std::time::Duration::from_secs(1))
-            .run_async(|| (), {
-                let hub = &hub;
-                move || async move {
-                    hub.mesh_book_machine(from).ok_or(cmux_tui_util::retry::Attempt::Retry(()))
-                }
-            })
-            .await;
-        let Ok(host) = listed else {
+        let Some(host) = hub.mesh_book_machine(from) else {
             return Err(ServiceRefusal::new(
                 "machine.unlisted",
-                "this machine's hub book does not list the asking machine for its account; \
-                 the asking machine is not signed in to this account, or the hub has not \
-                 listed it",
+                "this machine's hub book does not list the asking machine for its account yet; \
+                 try again in a moment",
             ));
         };
         tokio::task::spawn_blocking(move || {
             let consent = crate::cli::cloud_join::consent_status_for(&json!({}));
             let account = crate::cli::cloud_join::machine_user_id();
-            let joined_elsewhere = crate::machine_record::joined_from_another_device();
-            match decide(&consent, account.as_deref(), joined_elsewhere) {
+            match decide(&consent, account.as_deref()) {
                 Decision::Admit => {
                     let socket = std::env::var_os(crate::launch_credential::SESSION_SOCKET_ENV)
                         .filter(|s| !s.is_empty())
-                        .map(PathBuf::from)
-                        .or_else(ensure_local_session);
+                        .map(PathBuf::from);
                     session_socket(socket.as_deref())
                 }
                 Decision::Refuse { refusal, ask } => {

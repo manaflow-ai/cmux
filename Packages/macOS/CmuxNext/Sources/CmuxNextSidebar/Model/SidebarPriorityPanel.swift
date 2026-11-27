@@ -88,73 +88,18 @@ public nonisolated struct SidebarPriorityPanel: Hashable, Sendable {
     public var collapsed: Bool
     /// The toggle action's shortcut as the person sees it ("⌥⌘K"), for the bell's tooltip.
     public var shortcut: String?
-    /// The filter chips under the header (`sidebar.priorityView.filters`), nil while they are off;
-    /// `entries` are then every row, else only the picked filter's.
-    public var filters: SidebarPriorityFilterBar?
-    /// Each row says its state in words beside its status mark (`sidebar.priorityView.statusWords`).
-    public var statusWords: Bool
 
-    /// The Archived fold at the bottom of the rows: archived chats, folded by default.
-    public var archived: SidebarArchivedChats
-
-    public init(entries: [SidebarPriorityEntry], shown: Bool = true, collapsed: Bool = false, shortcut: String? = nil,
-                filters: SidebarPriorityFilterBar? = nil, statusWords: Bool = false,
-                archived: SidebarArchivedChats = SidebarArchivedChats()) {
+    public init(entries: [SidebarPriorityEntry], shown: Bool = true, collapsed: Bool = false, shortcut: String? = nil) {
         self.entries = entries
         self.shown = shown
         self.collapsed = collapsed
         self.shortcut = shortcut
-        self.filters = filters
-        self.statusWords = statusWords
-        self.archived = archived
     }
 
-    /// The rows that need the person (the folded header's count and the bell's dot), the ones a
-    /// filter hides included.
-    public var attentionCount: Int { filters?.attention ?? entries.count(where: \.needsAttention) }
+    /// The rows that need the person (the folded header's count and the bell's dot).
+    public var attentionCount: Int { entries.count(where: \.needsAttention) }
     /// The bell carries a dot while something needs the person and the rows are out of sight.
     public var bellDot: Bool { attentionCount > 0 && (!shown || collapsed) }
-}
-
-/// One archived chat in the Archived fold: its title, its folder's name and when it was archived.
-public nonisolated struct SidebarArchivedChat: Hashable, Sendable, Identifiable {
-    public var id: String
-    public var title: String
-    public var project: String?
-    public var archivedAt: Date?
-
-    public init(id: String, title: String, project: String? = nil, archivedAt: Date? = nil) {
-        self.id = id
-        self.title = title
-        self.project = project
-        self.archivedAt = archivedAt
-    }
-}
-
-/// The Priority view's Archived fold (as the Claude app keeps archived sessions, and as the sidebar's
-/// workspace Archived fold looks): a header "Archived (N)" while any chat is archived, folded by default;
-/// unfolded, the newest archives first, one page at a time. Folded it holds no rows, so it costs one
-/// count however many chats are archived.
-public nonisolated struct SidebarArchivedChats: Hashable, Sendable {
-    /// How many chats are archived (the header's count).
-    public var count: Int
-    /// The rows shown: empty while folded.
-    public var rows: [SidebarArchivedChat]
-    public var folded: Bool
-
-    /// The rows one page adds (Show More).
-    public static let pageSize = 20
-
-    public init(count: Int = 0, rows: [SidebarArchivedChat] = [], folded: Bool = true) {
-        self.count = count
-        self.rows = folded ? [] : rows
-        self.folded = folded
-    }
-
-    /// The fold shows: some chat is archived.
-    public var isVisible: Bool { count > 0 }
-    /// More archived chats wait past the shown rows (the Show More row).
-    public var hiddenCount: Int { folded ? 0 : max(0, count - rows.count) }
 }
 
 /// A choice the person made in the Priority view. The App carries it out.
@@ -174,61 +119,4 @@ public nonisolated enum SidebarPriorityAction: Hashable, Sendable {
     case place(String, order: [String])
     /// The titlebar bell: show or hide the view.
     case toggleShown
-    /// A filter chip: show only that filter's rows (`sidebar.priorityView.filters`).
-    case setFilter(SidebarPriorityFilter)
-    /// Mark every unseen result and failure read, the rows a filter hides included.
-    case markAllRead
-    /// Open an archived chat from the Archived fold (it opens as any chat does; it stays archived).
-    case openArchived(String)
-    /// Restore an archived chat: it leaves the fold and lists again.
-    case restore(String)
-    /// Fold or unfold the Archived fold.
-    case setArchivedFolded(Bool)
-    /// The Archived fold's Show More: one more page of rows.
-    case showMoreArchived
-}
-
-/// The Priority view's filters (`sidebar.priorityView.filters`): every row, or only the chats
-/// waiting on the person, the ones with a result they have not seen, or the ones running a turn.
-/// The tiers are the ranking's (`AgentPriorityRanking`, from acpmux's lane state); a filter only
-/// picks some of them.
-public nonisolated enum SidebarPriorityFilter: String, CaseIterable, Codable, Hashable, Sendable {
-    case all, waiting, unread, running
-
-    /// Whether `entry` shows under this filter. Unread is a finished result or a failure the person
-    /// has not seen; Red CI and idle rows show only under All.
-    public func includes(_ entry: SidebarPriorityEntry) -> Bool {
-        switch (self, entry.state) {
-        case (.all, _), (.waiting, .needsYou), (.unread, .done), (.unread, .failed), (.unread, .lost), (.running, .working): true
-        default: false
-        }
-    }
-}
-
-/// The filter chips' state: which one is picked and how many rows each would show.
-public nonisolated struct SidebarPriorityFilterBar: Hashable, Sendable {
-    public var selected: SidebarPriorityFilter
-    /// Rows under each filter, over every row (not only the picked filter's).
-    public var counts: [SidebarPriorityFilter: Int]
-    /// Every row that needs the person, for the folded header and the bell.
-    public var attention: Int
-    /// Rows Mark All as Read would mark (`SidebarPriorityEntry.canMarkRead`).
-    public var markable: Int
-
-    public init(selected: SidebarPriorityFilter, counts: [SidebarPriorityFilter: Int] = [:], attention: Int = 0, markable: Int = 0) {
-        self.selected = selected
-        self.counts = counts
-        self.attention = attention
-        self.markable = markable
-    }
-
-    /// The bar over `all` (every row) with `selected` picked.
-    public init(selected: SidebarPriorityFilter, all: [SidebarPriorityEntry]) {
-        var counts: [SidebarPriorityFilter: Int] = [:]
-        for filter in SidebarPriorityFilter.allCases { counts[filter] = all.count(where: filter.includes) }
-        self.init(selected: selected, counts: counts, attention: all.count(where: \.needsAttention),
-                  markable: all.count(where: \.canMarkRead))
-    }
-
-    public func count(_ filter: SidebarPriorityFilter) -> Int { counts[filter] ?? 0 }
 }

@@ -47,22 +47,6 @@ struct CloudErrorTextTests {
         #expect(CloudStrings.errorText(error) == "It failed. \(CloudStrings.trace("t-1"))")
     }
 
-    /// The app server's refusal at the team's machine count limit says so, not "Something went wrong": a person
-    /// who reads it can delete a machine and start the chat (cmux#40159, the dev team at 18 of 18).
-    @Test func aCreateAtTheMachineLimitSaysSo() {
-        let refusal = CloudAppOpFailure(code: "cmux.cloud.vm_limit", message: "cloud.quota.vm_limit")
-        #expect(CloudStrings.errorText(refusal) == CloudMoveStrings.machineLimit)
-        #expect(CloudStrings.errorText(refusal) != PlainErrorText.generic)
-        #expect(CloudStrings.errorText(CloudAppOpFailure(code: "cmux.cloud.other", message: "x")) == PlainErrorText.generic)
-    }
-
-    /// A Cloud request the app server refused as sent too often says to wait, not "Something went wrong" (cmux#45774).
-    @Test func aRateLimitedRefusalSaysToWait() {
-        let refusal = CloudAppOpFailure(code: "cmux.cloud.rate_limited", message: "cloud.rate_limited")
-        #expect(CloudStrings.errorText(refusal) != PlainErrorText.generic)
-        #expect(CloudStrings.errorText(refusal).contains("Wait a minute"))
-    }
-
     @Test func aFailedCreationReadsAsTheErrorText() {
         let creation = CloudMachineCreation(windowID: nil)
         creation.fail(CloudAPIError.timedOut("POST /api/vm"))
@@ -133,23 +117,7 @@ struct CloudErrorTextTests {
         }
     }
 
-    /// A machine that never came to the relay names no code: "didn't connect: relay" told a person nothing to do.
-    @Test func aMachineThatNeverCameOnlineNamesNoCode() {
-        #expect(CloudMoveStrings.notConnected("dev", because: "relay") == CloudMoveStrings.notConnected("dev"))
-        #expect(CloudMoveStrings.notConnected("dev", because: "its sign-in expired").contains("its sign-in expired"))
-    }
-
     @Test func anActionFailureReadsAsItsMessage() {
         #expect(CloudStrings.errorText(ActionFailure(message: "No Cloud machine is selected.")) == "No Cloud machine is selected.")
-    }
-
-    /// A create's failure reads as the ensure's or the CLI's own sentence, not "Something went wrong."
-    /// (start-matrix environment and repo rows, 2026-11-24).
-    @Test func aCreateFailureReadsAsItsOwnSentence() {
-        #expect(CloudStrings.errorText(CloudAppOpFailure(code: "cmux.cloud.environment_not_found", message: "No environment named web.")) == "No environment named web.")
-        #expect(CloudStrings.errorText(CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "")) == "cmux.cloud.bad_response")
-        let refused = "backend capability refused: machine_create.bootstrap (backend https://cloud-api.cmux.dev)"
-        #expect(CloudStrings.errorText(CloudEnvironmentBootstrap.CreateRefused(stderr: Data((refused + "\n").utf8))) == refused)
-        #expect(CloudStrings.errorText(CloudEnvironmentBootstrap.CreateRefused(stderr: Data())) != PlainErrorText.generic)
     }
 }

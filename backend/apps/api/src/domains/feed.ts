@@ -1,4 +1,4 @@
-import type { Domain, Principal, ReduceContext, ReduceResult } from "@cmux/ownership"
+import type { Domain, ReduceContext, ReduceResult } from "@cmux/ownership"
 import { checkAnswer, FeedAnswer, FeedArchive, FeedCancel, FeedPrefsSet, FeedRead, FeedSnooze, type FeedItem } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
 import { reduceAdopt, reduceAdoptCancel, reducePost } from "./feed-post.ts"
@@ -250,14 +250,6 @@ const reduceSystem = (state: FeedState, op: string, params: unknown, ctx: Reduce
  * FeedDO's reducer (plans/cmux-next/feed.md sections 3 to 6). Pure: the owner,
  * mirror replay and the local feed server's conformance vectors run it.
  */
-/**
- * A team's SchedulerDO posts a notice to the Feed of an automation's creator when a run fails
- * (domains/scheduler-notice.ts, through its outbox: FeedDO.systemPrincipal names the user). Notices
- * only: a scheduler never asks the person anything here, and no other op is open to it.
- */
-export const schedulerPoster = (p: Principal, op: string, params: unknown): boolean =>
-  p.kind === "system" && Boolean(p.user) && /^system:scheduler:[^:]+$/.test(p.identity) && op === "feed.post" && (params as { type?: unknown } | null)?.type === "notice"
-
 export const feedDomain: Domain<FeedState> = {
   initial: initialFeedState,
 
@@ -267,7 +259,7 @@ export const feedDomain: Domain<FeedState> = {
     // the stream user:<feed user>); no other system source posts, and a system post is no grant.
     if (principal.kind === "system") {
       // A team's ConnectionDO posts approval requests (G8, FeedDO.integrationApproval stamps `user`).
-      const poster = principal.identity === `system:user:${principal.user}` || integrationPoster(principal) !== null || schedulerPoster(principal, op, _params)
+      const poster = principal.identity === `system:user:${principal.user}` || integrationPoster(principal) !== null
       if (op !== "feed.post" || !principal.user || !poster) return { code: "auth.forbidden", message: `${op} is not open to system principals` }
       return state.user && principal.user !== state.user ? { code: "auth.forbidden", message: "not this user's feed" } : undefined
     }

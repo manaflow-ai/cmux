@@ -22,24 +22,6 @@ if [ "$#" -eq 3 ]; then
   fi
 fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# A fleet step builds with its pool's pinned Xcode (scripts/ci/xcode-pins.txt), as
-# package-test-lane.sh does, never the host's xcode-select default. On 2026-11-21
-# aws-m4pro-2 and -4 defaulted to Xcode 26.3 (Swift 6.2.4), whose generated
-# Bundle.module takes CmuxNext's MainActor default isolation, so every nonisolated
-# strings type failed to compile there (FileGridStrings first). The host default
-# stays as it is (CMUX_CI_SKIP_XCODE_SELECT); a caller's DEVELOPER_DIR wins.
-if [ -n "${CMUX_CI_STEP_KEY:-}" ] && [ -z "${DEVELOPER_DIR:-}" ]; then
-  xcode_env="$(mktemp)"
-  GITHUB_ENV="$xcode_env" CMUX_CI_SKIP_XCODE_SELECT=1 \
-    "${CMUX_SELECT_CI_XCODE:-$script_dir/../select-ci-xcode.sh}" >&2 || { status=$?; rm -f "$xcode_env"; exit "$status"; }
-  DEVELOPER_DIR="$(sed -n 's/^DEVELOPER_DIR=//p' "$xcode_env" | tail -n 1)"
-  rm -f "$xcode_env"
-  if [ -z "$DEVELOPER_DIR" ]; then
-    echo "error: select-ci-xcode.sh selected no Xcode for this fleet step" >&2
-    exit 1
-  fi
-  export DEVELOPER_DIR
-fi
 if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
   if [ "$admission" -eq 1 ]; then
     echo "--repeat is for suites, not settings export" >&2
@@ -143,13 +125,6 @@ if [ -n "${CMUX_SWIFT_TEST_SUITES:-}" ]; then
     exit 2
   fi
   IFS=, read -r -a only_suites <<< "$CMUX_SWIFT_TEST_SUITES"
-  # Before the build (11-58 min on the fleet): refuse a name the package's test
-  # sources never mention, a typo or another package's suite. The scan lets
-  # through anything it is unsure of; the check after `swift test list` decides.
-  # Only its exit 2 refuses; a scan that breaks lets the names through.
-  precheck_status=0
-  python3 "$script_dir/swift_suite_names_precheck.py" "$package_path" "${only_suites[@]}" || precheck_status=$?
-  [ "$precheck_status" -ne 2 ] || exit 2
 fi
 # CMUX_SWIFT_TEST_DEBUG_INFO (dwarf|none): every swift call below passes the
 # same debug-info option, so the suites reuse the list build.
@@ -243,19 +218,8 @@ else
 fi
 phase build-and-list
 swiftpm_binary_module_guard "$package_path" || exit $? # 75: fetch failed, no test ran
-list_status=0
-swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" > "$evidence_dir/discovered-tests.txt" || list_status=$?
-if [ "$list_status" -ne 0 ] && swiftpm_unverified_build "$package_path/.build"; then
-  # The build failed on the .build an unfinished step left: once more from clean outputs, as a cold slot would do.
-  echo "::warning title=Unfinished warm build::$package_path: the build failed on the .build an unfinished step left; building again from clean outputs"
-  swiftpm_purge_build_outputs "$package_path/.build"
-  swiftpm_binary_module_guard "$package_path" || exit $? # 75: fetch failed, no test ran
-  list_status=0
-  swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" > "$evidence_dir/discovered-tests.txt" || list_status=$?
-fi
-[ "$list_status" -eq 0 ] || exit "$list_status"
+swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
 [ ! -d "$package_path/.build" ] || git rev-parse HEAD > "$built_ref_file" 2>/dev/null || true
-rm -f "$package_path/.build/.cmux-ci-unverified"
 phase filters
 python3 "$script_dir/require_swift_test_execution.py" \
   --list-filters "$evidence_dir/discovered-tests.txt" > "$evidence_dir/filters.txt"

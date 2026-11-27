@@ -1,4 +1,4 @@
-//! `cmux automation teleport NAME --to cloud|home|ssh:HOST[:DIR]|exec:PROGRAM` and
+//! `cmux automation teleport NAME --to cloud|home|ssh:HOST[:DIR]` and
 //! `cmux automation import --json -` (docs/automations-teleport-teams.md,
 //! section 2).
 //!
@@ -83,20 +83,12 @@ pub(super) fn run(args: &[String], global: &GlobalArgs, out: &Out, cloud_source:
     }
     match dest {
         Some(Destination::Cloud) => to_cloud(&store, &x, global, out),
-        Some(d @ (Destination::Ssh { .. } | Destination::Exec { .. })) => {
-            let to = d.to_string();
+        Some(Destination::Ssh { host, dir }) => {
+            let to = Destination::Ssh { host: host.clone(), dir: dir.clone() }.to_string();
             let h = store.fence(&x.id, &to, now_ms())?;
             let fenced = store.get(&x.id)?;
             let spec = export_spec(&fenced, &h, &cloud::local_zone_name());
-            let delivery = if let Destination::Exec { program } = &d {
-                exec_import(program, &spec, EXEC_TIMEOUT)
-            } else if let Destination::Ssh { host, dir } = &d {
-                ssh_import(host, dir.as_deref(), &spec)
-            } else {
-                store.clear_fence(&x.id)?;
-                return usage(messages().teleport_local_dir);
-            };
-            match delivery {
+            match ssh_import(&host, dir.as_deref(), &spec) {
                 Delivery::Accepted(v) => release(&store, &fenced, &h.id, &to, &v, out),
                 Delivery::Refused(error) => {
                     store.clear_fence(&x.id)?;
@@ -113,12 +105,10 @@ pub(super) fn run(args: &[String], global: &GlobalArgs, out: &Out, cloud_source:
 /// Every Cloud trigger of a local schedule, or why it has none.
 fn cloud_triggers(t: &Trigger) -> Result<Value, Failure> {
     let cron = |expr: String, tz: &str| {
-        // `local` is this machine's zone by name; UTC as UTC; any other name (a spec read from
-        // elsewhere) goes as it is, never as UTC, which would move its hour.
-        let tz = match cmux_automations::Zone::parse(tz) {
-            Ok(cmux_automations::Zone::Local) => cloud::local_zone_name(),
-            Ok(cmux_automations::Zone::Utc) => "UTC".to_string(),
-            Err(_) => tz.to_string(),
+        let tz = if cmux_automations::Zone::parse(tz) == Ok(cmux_automations::Zone::Local) {
+            cloud::local_zone_name()
+        } else {
+            "UTC".to_string()
         };
         json!([{"type": "cron", "expr": expr, "tz": tz}, {"type": "manual"}])
     };
@@ -128,9 +118,6 @@ fn cloud_triggers(t: &Trigger) -> Result<Value, Failure> {
         Trigger::At { .. } => usage(messages().cloud_local_only.replace("{flag}", "at")),
         Trigger::Watch { .. } => usage(messages().cloud_local_only.replace("{flag}", "watch")),
         Trigger::Event { .. } => usage(messages().cloud_local_only.replace("{flag}", "when")),
-        // A local webhook's URL is this machine's loopback; the cloud's GitHub webhooks are
-        // `create --webhook --on cloud`.
-        Trigger::Webhook { .. } => usage(messages().cloud_local_only.replace("{flag}", "webhook")),
         Trigger::Every { seconds, anchor } => match every_as_cron(*seconds, *anchor) {
             Some(expr) => Ok(cron(expr, "UTC")),
             None => usage(messages().teleport_every.replace("{value}", &t.describe())),
@@ -285,99 +272,6 @@ fn pending(out: &Out, name: &str, to: &str, error: &Value) -> Outcome {
         map.insert("message".into(), json!(message));
     }
     Ok(out.error(&error, 3, true))
-}
-
-/// How long an `exec:` program may take before its outcome counts as unknown.
-const EXEC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-
-/// `exec:PROGRAM`: `/bin/sh -c PROGRAM` with the spec on stdin. Exit 0 with `{id}` on stdout
-/// accepts the move; exit 2 refuses it (nothing was made: the source fires again, and the
-/// program's stderr says why); anything else, a timeout, or exit 0 with no id leaves the outcome
-/// unknown, so the fence stays and a re-run sends the same handoff id.
-fn exec_import(program: &str, spec: &ImportSpec, timeout: std::time::Duration) -> Delivery {
-    let body = serde_json::to_vec(spec).unwrap_or_default();
-    // Its answer goes to files, not pipes: nothing has to read while it runs, and a helper it
-    // leaves behind holding stdout cannot keep this command waiting.
-    let stamp = format!("{}-{}", std::process::id(), now_ms());
-    let out_path = std::env::temp_dir().join(format!("cmux-teleport-{stamp}.out"));
-    let err_path = std::env::temp_dir().join(format!("cmux-teleport-{stamp}.err"));
-    let files =
-        std::fs::File::create(&out_path).and_then(|o| Ok((o, std::fs::File::create(&err_path)?)));
-    let (out_file, err_file) = match files {
-        Ok(files) => files,
-        Err(e) => {
-            return Delivery::Refused(
-                json!({"code": "exec.unavailable", "message": format!("{program}: {e}")}),
-            );
-        }
-    };
-    // Its own process group, so a timeout ends the program and everything it started.
-    let spawned = cmux_process::Command::new("/bin/sh")
-        .args(["-c", program])
-        .process_group(0)
-        .stdin(cmux_process::Stdio::piped())
-        .stdout(cmux_process::Stdio::from(out_file))
-        .stderr(cmux_process::Stdio::from(err_file))
-        .spawn();
-    let mut child = match spawned {
-        Ok(child) => child,
-        Err(e) => {
-            let _ = std::fs::remove_file(&out_path);
-            let _ = std::fs::remove_file(&err_path);
-            return Delivery::Refused(
-                json!({"code": "exec.unavailable", "message": format!("{program}: {e}")}),
-            );
-        }
-    };
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(&body);
-    }
-    let deadline = std::time::Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if std::time::Instant::now() < deadline => {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Ok(None) | Err(_) => break None,
-        }
-    };
-    // Past the deadline: dropping it ends its whole group (SIGTERM, then SIGKILL) and reaps it.
-    drop(child);
-    let stdout = std::fs::read(&out_path).unwrap_or_default();
-    let stderr =
-        String::from_utf8_lossy(&std::fs::read(&err_path).unwrap_or_default()).trim().to_string();
-    let _ = std::fs::remove_file(&out_path);
-    let _ = std::fs::remove_file(&err_path);
-    let Some(status) = status else {
-        return Delivery::Unknown(json!({"code": "exec.timeout", "message": messages()
-            .exec_timeout
-            .replace("{program}", program)
-            .replace("{seconds}", &timeout.as_secs().to_string())}));
-    };
-    let answer: Option<Value> = serde_json::from_slice(&stdout).ok();
-    match status.code() {
-        Some(0) => match answer {
-            Some(v) if v.get("id").and_then(Value::as_str).is_some_and(|id| !id.is_empty()) => {
-                Delivery::Accepted(v)
-            }
-            _ => Delivery::Unknown(json!({"code": "exec.bad_reply", "message": messages()
-                .exec_bad_reply
-                .replace("{program}", program)})),
-        },
-        Some(2) => {
-            Delivery::Refused(json!({"code": "exec.refused", "message": if stderr.is_empty() {
-                messages().exec_refused.replace("{program}", program)
-            } else {
-                stderr
-            }}))
-        }
-        code => Delivery::Unknown(json!({"code": "exec.failed", "message": messages()
-            .exec_failed
-            .replace("{program}", program)
-            .replace("{code}", &code.map(|c| c.to_string()).unwrap_or_else(|| "signal".into()))
-            .replace("{why}", &stderr)})),
-    }
 }
 
 /// What the other machine's `import` answered.
@@ -666,5 +560,19 @@ pub(super) fn import(args: &[String], out: &Out) -> Outcome {
 }
 
 #[cfg(test)]
-#[path = "teleport_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn teleport_every_maps_to_cron_only_on_whole_steps() {
+        // 2026-10-30 09:07 UTC.
+        let anchor = 1_793_350_800 - 3_600 + 7 * 60 + 3_600;
+        assert_eq!(every_as_cron(1_800, anchor).as_deref(), Some("7,37 * * * *"));
+        assert_eq!(every_as_cron(3_600, anchor).as_deref(), Some("7 * * * *"));
+        assert_eq!(every_as_cron(6 * 3_600, anchor).as_deref(), Some("7 3,9,15,21 * * *"));
+        assert_eq!(every_as_cron(86_400, anchor).as_deref(), Some("7 9 * * *"));
+        assert_eq!(every_as_cron(7 * 60, anchor), None);
+        assert_eq!(every_as_cron(5 * 3_600, anchor), None);
+        assert_eq!(every_as_cron(1_800, anchor + 30), None);
+    }
+}

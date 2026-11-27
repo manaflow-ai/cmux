@@ -1,5 +1,5 @@
 #![cfg(unix)]
-//! A git request does not hold its connection (the daemon's rule: no child
+//! A git request does not hold its connection (perf-lead.md rule D1: no child
 //! process on a request path). `git.diff` and `git.status` run git as a child
 //! process, which takes seconds in a large repository on a loaded Mac. The
 //! daemon runs them on its git lane (`server/git_lane.rs`):

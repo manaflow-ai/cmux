@@ -15,9 +15,10 @@ use super::Hub;
 use crate::store::EventRecord;
 use serde_json::Value;
 
-/// Longest quote of one steer, in characters. Every unread steer is quoted: each is a message
-/// the person sent into the turn.
+/// Longest quote of one steer, in characters.
 const MAX_QUOTE_CHARS: usize = 4_000;
+/// Most steers one continuation quotes (the newest are kept).
+const MAX_STEERS: usize = 64;
 
 /// The record kinds the scan reads; every other line is passed without parsing.
 const KINDS: [&[u8]; 5] =
@@ -44,7 +45,8 @@ impl Hub {
                     "user_message"
                         if e.msg.get("steer").and_then(Value::as_bool) == Some(true)
                             && field("turnId") == Some(turn_id)
-                            && prompt_id.as_deref().is_some_and(|id| !settled.contains(id)) =>
+                            && prompt_id.as_deref().is_some_and(|id| !settled.contains(id))
+                            && unread.len() < MAX_STEERS =>
                     {
                         let images =
                             e.msg.get("images").and_then(Value::as_array).map_or(0, Vec::len);
@@ -81,5 +83,16 @@ pub(super) fn with_unread(mut text: String, steers: &[String]) -> String {
 }
 
 #[cfg(test)]
-#[path = "unread_steers_tests.rs"]
-mod tests;
+mod tests {
+    use super::with_unread;
+
+    #[test]
+    fn the_continuation_quotes_each_unread_steer_once() {
+        assert_eq!(with_unread("go on".into(), &[]), "go on");
+        let text = with_unread("go on".into(), &["one".into(), "two".into()]);
+        assert!(text.starts_with("go on\n\n"), "{text}");
+        assert_eq!(text.matches("<message>\none\n</message>").count(), 1, "{text}");
+        assert_eq!(text.matches("<message>\ntwo\n</message>").count(), 1, "{text}");
+        assert!(text.find("one").unwrap() < text.find("two").unwrap(), "{text}");
+    }
+}

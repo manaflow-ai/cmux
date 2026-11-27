@@ -44,10 +44,10 @@ pub(super) unsafe extern "C" fn clipboard_read_trampoline(
 ) {
     let callbacks = unsafe { &mut *(userdata as *mut Callbacks) };
     let read = unsafe { &*read };
+    let token_end = std::mem::offset_of!(sys::GhosttyClipboardRead, token) + size_of::<u64>();
     // Only OSC 52 reads carry a token; anything else (Kitty OSC 5522) is
-    // refused by returning without a reply. (libghostty-vt 1.0 froze this
-    // struct with no size field; ghostty-next's token is always there.)
-    if read.token == 0 {
+    // refused by returning without a reply.
+    if read.size < token_end || read.token == 0 {
         return;
     }
     let Some(f) = callbacks.on_clipboard_read.as_mut() else { return };

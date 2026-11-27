@@ -117,11 +117,14 @@ rm -f "$app/Contents/embedded.provisionprofile"
 
 # Whole bundle, inside out, as the nightly-identity copy does (nightly-next-legacy-identity.sh):
 # launchd plists re-stamped from the new bundle id, helpers, SSH payloads, plugins, the Chromium
-# engine, frameworks, then the app.
+# engine, frameworks, then the app. The Computer Use helper keeps its own notarized signature.
 timestamp=()
 [[ "$APPLE_SIGNING_IDENTITY" == "-" ]] && timestamp=(CMUX_TIMESTAMP=none)
-env ${timestamp[@]+"${timestamp[@]}"} CMUX_SIGN_MODE=all \
+env ${timestamp[@]+"${timestamp[@]}"} CMUX_SIGN_MODE=all-except-computer-use \
   "$ROOT_DIR/scripts/sign-cmux-bundle.sh" "$app" "$ENTITLEMENTS" "$APPLE_SIGNING_IDENTITY"
+if [[ "$APPLE_SIGNING_IDENTITY" != "-" ]]; then
+  "$ROOT_DIR/scripts/ci/verify-computer-use-helper.sh" signed "$app"
+fi
 
 [[ "$(plist_get "$app" CFBundleIdentifier)" == "$STABLE_ID" ]] || { echo "signed app has the wrong bundle id" >&2; exit 1; }
 [[ "$(plist_get "$app" CFBundleVersion)" == "$BUILD" ]] || { echo "signed app is not build $BUILD" >&2; exit 1; }

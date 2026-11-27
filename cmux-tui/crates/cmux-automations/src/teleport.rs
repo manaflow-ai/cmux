@@ -26,10 +26,6 @@ pub enum Destination {
     Ssh { host: String, dir: Option<String> },
     /// A folder on this machine (the Chief teleport's form; automations refuse it).
     Local { dir: String },
-    /// A program on this machine that imports the spec somewhere else (`exec:PROGRAM`, run by
-    /// `/bin/sh -c`): the spec on its stdin; exit 0 with `{id}` on stdout accepts the move,
-    /// exit 2 refuses it, anything else leaves its outcome unknown.
-    Exec { program: String },
 }
 
 impl fmt::Display for Destination {
@@ -40,12 +36,11 @@ impl fmt::Display for Destination {
             Destination::Ssh { host, dir: None } => write!(f, "ssh:{host}"),
             Destination::Ssh { host, dir: Some(dir) } => write!(f, "ssh:{host}:{dir}"),
             Destination::Local { dir } => write!(f, "local:{dir}"),
-            Destination::Exec { program } => write!(f, "exec:{program}"),
         }
     }
 }
 
-const DESTINATION_RULE: &str = "--to takes \"cloud\", \"home\", \"ssh:<host>[:<dir>]\", \"exec:<program>\" or \"local:<absolute dir>\": at most 256 characters, no control characters";
+const DESTINATION_RULE: &str = "--to takes \"cloud\", \"home\", \"ssh:<host>[:<dir>]\" or \"local:<absolute dir>\": at most 256 characters, no control characters";
 
 /// Parses a destination the way the Chief teleport checks one
 /// (`destinationError` in `brain-teleport.ts`), plus `cloud`.
@@ -58,13 +53,6 @@ pub fn parse_destination(text: &str) -> Result<Destination, String> {
         "cloud" => return Ok(Destination::Cloud),
         "home" => return Ok(Destination::Home),
         _ => {}
-    }
-    if let Some(program) = text.strip_prefix("exec:") {
-        return if program.trim().is_empty() {
-            bad()
-        } else {
-            Ok(Destination::Exec { program: program.trim().to_string() })
-        };
     }
     if let Some(dir) = text.strip_prefix("local:") {
         return if dir.starts_with('/') {

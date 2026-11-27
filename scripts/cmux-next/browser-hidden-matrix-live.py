@@ -35,9 +35,6 @@ started in the background:
 """
 import argparse, functools, http.server, json, os, socket, socketserver, sys, threading, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from state_wait import wait_stable  # noqa: E402
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
 parser.add_argument("--out", required=True)
@@ -290,16 +287,7 @@ def build(engines, states):
     for engine in engines:
         if tabs.get((engine, "visible")):
             action("tab.focus", target=f"tab:{tabs[(engine, 'visible')]}", focus=True)
-    # The place took once the first window is key on the control workspace with each visible tab shown,
-    # then what the person sees holds still (the cells compare against it).
-    visible = {tabs[(engine, "visible")] for engine in engines if tabs.get((engine, "visible"))}
-    placed = wait(lambda: key_window_id() == home
-                  and next((w.get("workspace") for w in windows() if w.get("id") == home), None) == home_ws
-                  and visible <= shown_tabs(key_only=True), 20)
-    if not placed:
-        print(f"note: the person's place did not take in 20 s; key {key_window_id()}, shown {sorted(shown_tabs(key_only=True))}", flush=True)
-    wait_stable(lambda: json.dumps(focus_signature(), sort_keys=True), "the focus after setup", timeout=10, interval=0.2,
-                reads=5, raise_on_timeout=False)
+    time.sleep(2)
     return tabs
 
 
@@ -378,7 +366,7 @@ def run_tab(engine, state, tab, visible_now):
         mark("screenshot", bool(shot.get("path")) and (shot.get("width") or 0) > 0, {"error": shot.get("error"), "w": shot.get("width")})
     # Throttling: rAF and timers over one second.
     r0, t0 = js(tab, "window.__raf"), js(tab, "window.__ticks")
-    time.sleep(1.0)  # sleep-ok: the one-second window the rAF and timer counts are per
+    time.sleep(1.0)
     r1, t1 = js(tab, "window.__raf"), js(tab, "window.__ticks")
     raf = (r1 - r0) if isinstance(r0, (int, float)) and isinstance(r1, (int, float)) else None
     ticks = (t1 - t0) if isinstance(t0, (int, float)) and isinstance(t1, (int, float)) else None

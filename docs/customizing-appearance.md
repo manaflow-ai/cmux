@@ -107,26 +107,6 @@ split panes and each copy uses its own GPU memory.
 `window-padding-x`, `window-padding-y`, `window-padding-balance`, and
 `window-padding-color` pad each terminal pane.
 
-### Wallpaper that switches by itself
-
-cmux NEXT draws one picture behind the whole window (`appearance.background` in
-`~/.config/cmux/cmux-next.json`), and it can change on its own the way the macOS
-desktop does. One command sets each mode:
-
-```sh
-cmux wallpaper follow-appearance --light ~/Pictures/day.jpg --dark ~/Pictures/night.jpg
-cmux wallpaper schedule 07:00=~/Pictures/day.jpg sunset=~/Pictures/night.jpg
-cmux wallpaper use-macos-dynamic catalina      # follows the sun; no name lists them
-cmux wallpaper rotate ~/Pictures/Walls --every 30m
-cmux wallpaper show                            # the mode and the picture shown now
-cmux wallpaper off
-```
-
-Schedule times are `HH:MM` or `sunrise`, `sunset`, `dawn`, `dusk`, `noon` with an
-optional offset such as `sunset-30m`. Sun times come from your time zone, or from
-`cmux wallpaper location LAT,LON`. `cmux wallpaper --help` lists every option, and
-the cmux-customization skill has the same settings as JSON.
-
 ## Fonts
 
 ```ini

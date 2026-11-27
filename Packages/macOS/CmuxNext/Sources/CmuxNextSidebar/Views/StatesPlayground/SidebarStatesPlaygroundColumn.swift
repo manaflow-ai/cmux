@@ -36,40 +36,40 @@ nonisolated struct SidebarStatesPlaygroundColumn: Hashable, Sendable {
 
     /// The column's caption ("Compact · Large"); a favicon styles sheet names its style in its title.
     var title: String {
-        String(format: String(localized: "sidebar.statesPlayground.column", defaultValue: "%1$@ · %2$@", bundle: .localizedModule),
+        String(format: String(localized: "sidebar.statesPlayground.column", defaultValue: "%1$@ · %2$@", bundle: .module),
                Self.title(density), Self.title(textSize))
     }
 
     static func title(_ density: SidebarDensity) -> String {
         switch density {
-        case .compact: String(localized: "sidebar.statesPlayground.density.compact", defaultValue: "Compact", bundle: .localizedModule)
+        case .compact: String(localized: "sidebar.statesPlayground.density.compact", defaultValue: "Compact", bundle: .module)
         case .comfortable:
-            String(localized: "sidebar.statesPlayground.density.comfortable", defaultValue: "Comfortable", bundle: .localizedModule)
-        case .expanded: String(localized: "sidebar.statesPlayground.density.expanded", defaultValue: "Expanded", bundle: .localizedModule)
+            String(localized: "sidebar.statesPlayground.density.comfortable", defaultValue: "Comfortable", bundle: .module)
+        case .expanded: String(localized: "sidebar.statesPlayground.density.expanded", defaultValue: "Expanded", bundle: .module)
         }
     }
 
     static func title(_ style: SidebarFaviconStyle) -> String {
         switch style {
-        case .current: String(localized: "sidebar.statesPlayground.faviconStyle.current", defaultValue: "Current (as fetched)", bundle: .localizedModule)
+        case .current: String(localized: "sidebar.statesPlayground.faviconStyle.current", defaultValue: "Current (as fetched)", bundle: .module)
         case .adaptive:
-            String(localized: "sidebar.statesPlayground.faviconStyle.adaptive", defaultValue: "Adaptive tint (default)", bundle: .localizedModule)
+            String(localized: "sidebar.statesPlayground.faviconStyle.adaptive", defaultValue: "Adaptive tint (default)", bundle: .module)
         case .invertDark:
-            String(localized: "sidebar.statesPlayground.faviconStyle.invertDark", defaultValue: "Invert dark mono", bundle: .localizedModule)
-        case .plate: String(localized: "sidebar.statesPlayground.faviconStyle.plate", defaultValue: "Rounded plate", bundle: .localizedModule)
+            String(localized: "sidebar.statesPlayground.faviconStyle.invertDark", defaultValue: "Invert dark mono", bundle: .module)
+        case .plate: String(localized: "sidebar.statesPlayground.faviconStyle.plate", defaultValue: "Rounded plate", bundle: .module)
         case .circlePlate:
-            String(localized: "sidebar.statesPlayground.faviconStyle.circlePlate", defaultValue: "Circular plate", bundle: .localizedModule)
+            String(localized: "sidebar.statesPlayground.faviconStyle.circlePlate", defaultValue: "Circular plate", bundle: .module)
         case .monochrome:
-            String(localized: "sidebar.statesPlayground.faviconStyle.monochrome", defaultValue: "All in label colour", bundle: .localizedModule)
-        case .hiRes: String(localized: "sidebar.statesPlayground.faviconStyle.hiRes", defaultValue: "Hi-res, untreated", bundle: .localizedModule)
+            String(localized: "sidebar.statesPlayground.faviconStyle.monochrome", defaultValue: "All in label colour", bundle: .module)
+        case .hiRes: String(localized: "sidebar.statesPlayground.faviconStyle.hiRes", defaultValue: "Hi-res, untreated", bundle: .module)
         }
     }
 
     static func title(_ size: SidebarTextSize) -> String {
         switch size {
-        case .standard: String(localized: "sidebar.statesPlayground.textSize.default", defaultValue: "Default text", bundle: .localizedModule)
-        case .large: String(localized: "sidebar.statesPlayground.textSize.large", defaultValue: "Large text", bundle: .localizedModule)
-        case .larger: String(localized: "sidebar.statesPlayground.textSize.larger", defaultValue: "Larger text", bundle: .localizedModule)
+        case .standard: String(localized: "sidebar.statesPlayground.textSize.default", defaultValue: "Default text", bundle: .module)
+        case .large: String(localized: "sidebar.statesPlayground.textSize.large", defaultValue: "Large text", bundle: .module)
+        case .larger: String(localized: "sidebar.statesPlayground.textSize.larger", defaultValue: "Larger text", bundle: .module)
         }
     }
 }

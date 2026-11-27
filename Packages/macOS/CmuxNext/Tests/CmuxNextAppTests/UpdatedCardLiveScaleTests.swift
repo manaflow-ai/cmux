@@ -21,7 +21,7 @@ struct UpdatedCardLiveScaleTests {
         defer { island.close() }
         var relayouts = 0
         island.onHeightChange = { relayouts += 1 }
-        island.provider.onSize?(PageSurfaceReport(height: 48, overlay: 120))
+        island.provider.onSize?(48, 0, 120, 0)
         #expect(island.contentHeight == 48)
         #expect(island.overlayHeight == 120)
 

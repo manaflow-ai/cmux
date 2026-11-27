@@ -16,6 +16,7 @@ pub(super) use crate::conversation_live::CHIEF_LIVE_CAPABILITY;
 
 /// `conversation-live-publish`: one frame of the bound agent's own running run.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct PublishParams {
     conversation: String,
     frame: Value,
@@ -24,6 +25,7 @@ pub(super) struct PublishParams {
 /// `conversation-live`: the `run.live` snapshot of a conversation (the same
 /// answer as the Cloud owner's `run.live.get`).
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct LiveParams {
     conversation: String,
 }

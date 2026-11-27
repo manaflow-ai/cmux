@@ -14,11 +14,9 @@ extension SidebarViewComponents {
 
     func buildBands() {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
-            // Only the items the band shows get views, as a list block's (a long Pinned band, the remote machines' chats).
-            region.realizesItems(in: scroll)
             scroll.drawsBackground = false
             scroll.hasVerticalScroller = true
-            SystemScrollers.followThin(scroll, scrollOnly: true)
+            SystemScrollers.followThin(scroll)
             scroll.automaticallyAdjustsContentInsets = false
             scroll.contentView.drawsBackground = false
             scroll.verticalScrollElasticity = .none
@@ -55,8 +53,6 @@ extension SidebarViewComponents {
             region.contextMenuProvider = { [weak self] target in self?.list.contextMenuProvider?(target) }
             region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
         }
-        // The launch stops waiting for the document (it came, or never will): the bands lay out again.
-        model.onAwaitsDocumentChange = { [weak self] in self?.bandsDirty = true; self?.needsLayout = true }
         SidebarPinDrops.install(self)
         // A Shift range runs from the tiles pinned above the list into its rows (#27701).
         list.leadingSelectionOrder = { [weak self] in self?.aboveRegion.content?.workspaceOrder ?? [] }
@@ -77,8 +73,6 @@ extension SidebarViewComponents {
     /// A region's item activation and section folding (the bands and the list's blocks).
     private func wireItems(_ region: SidebarRegionView) {
         region.liftHost = self
-        region.workspacePin = { [weak self] in self?.model.workspacePin }
-        region.onCloseWorkspace = { [weak self] id in self?.model.send(.close([id])) }
         region.sectionDropTarget = { [weak self] id, point in
             self.flatMap { SidebarAppSectionDrops.target($0, section: id, at: point) }
         }
@@ -103,8 +97,7 @@ extension SidebarViewComponents {
     /// `reloadsList` false: the caller reloads the list right after (one reload for the rows and the blocks).
     func updateBands(reloadsList: Bool = true) {
         let width = bounds.width
-        bandsFollowHeight = false // `appHeights` sets it for an app section sized from the sidebar's height
-        var hidden = SidebarItemInfo.hiddenItems(in: model.layout.sections, infos: model.resolvedItemInfo)
+        var hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
         // `sidebar.showProfileControl` off (cx-wab7m): the profile button draws in no band.
         if !design.sidebarSections.showProfileControl {
             for section in model.layout.sections { hidden.formUnion(section.items.filter { $0.ref == .builtIn(.account) }.map(\.id)) }
@@ -167,11 +160,9 @@ extension SidebarViewComponents {
         // The bottom slot is reserved for app views. Ordinary item sections
         // remain stored but undrawn, as cx-n0i9 decided.
         let bottomApps = model.layout.appSections(in: .bottom, room: model.activeProfileID?.rawValue)
-            .presenting(hidingItems: hidden, apps: apps) + (appSections?.providedSections ?? [])
+            .presenting(hidingItems: hidden, apps: apps)
         // Without the document the list draws no blocks: the apps after it take the band below it.
-        // A launch whose saved sidebar drew the document waits for its blocks (`awaitsDocument`): the apps after the
-        // list draw once, in the list, rather than in the band and then in the list.
-        let bandApps = (model.docDrag == nil && !model.awaitsDocument ? appsAfterList : []) + bottomApps
+        let bandApps = (model.docDrag == nil ? appsAfterList : []) + bottomApps
         belowRegion.update(content(bandApps), width: width)
         let footer = shownBelow.filter(isFooter)
         // The footer line ends on the bottom margin, not on the section's padding over it.
@@ -202,15 +193,12 @@ extension SidebarViewComponents {
     /// Lays out the bands between `top` and the bottom: the pinned footer
     /// section at the bottom, `footerHeight` (dots, cards) above the band
     /// below the list; returns the list's frame between the bands. Call
-    /// `updateBands()` first. `collapse` of the footer section's height goes to the list and the band
-    /// below it: the footer faded out in Minimal Mode (``SidebarFooterCollapseMotion``); the section keeps its frame.
-    func layoutBands(top y: CGFloat, footerHeight: CGFloat, collapse: CGFloat = 0) -> NSRect {
+    /// `updateBands()` first.
+    func layoutBands(top y: CGFloat, footerHeight: CGFloat) -> NSRect {
         let b = bounds
         // The footer section takes its full height, never capped or scrolled, over the bottom margin.
-        let footerPinned = footerRegion.layoutResult.height, inset = SidebarStyle.bottomInset
-        footerRegion.frame = NSRect(x: 0, y: b.height - inset - footerPinned, width: b.width, height: footerPinned)
-        // What the bands and the list stand on: the footer section, less what Minimal Mode hands them.
-        let pinned = footerPinned - min(max(0, collapse), footerPinned)
+        let pinned = footerRegion.layoutResult.height, inset = SidebarStyle.bottomInset
+        footerRegion.frame = NSRect(x: 0, y: b.height - inset - pinned, width: b.width, height: pinned)
         // Pinned item sections above and below the list, each capped at
         // its share of the height (then it scrolls inside).
         let available = max(0, b.height - y - footerHeight - pinned - inset)
@@ -222,7 +210,7 @@ extension SidebarViewComponents {
         aboveFade.frame = NSRect(x: 0, y: y, width: b.width, height: aboveHeight)
         size(aboveRegion, in: aboveScroll, width: b.width)
         // The band below sits on the footer section; the dots and cards go above it.
-        belowFade.frame = NSRect(x: 0, y: b.height - inset - pinned - belowHeight, width: b.width, height: belowHeight)
+        belowFade.frame = NSRect(x: 0, y: footerRegion.frame.minY - belowHeight, width: b.width, height: belowHeight)
         size(belowRegion, in: belowScroll, width: b.width)
         let listY = y + aboveHeight
         layoutBandLine(aboveY: listY, look: look, showsAbove: aboveHeight > 0)
@@ -243,7 +231,6 @@ extension SidebarViewComponents {
         var heights: [LayoutSectionID: CGFloat] = [:]
         for section in sections where section.content == .app {
             guard let contribution = section.contribution, provider.makeView(for: contribution) != nil else { continue }
-            bandsFollowHeight = true
             heights[section.id] = SidebarAppHeights.height(provider, contribution, width: width, sidebarHeight: bounds.height)
         }
         return heights
@@ -256,7 +243,6 @@ extension SidebarViewComponents {
         guard region.frame.size != NSSize(width: width, height: height) else { return }
         let grew = region.frame.height != height
         region.frame = NSRect(x: 0, y: 0, width: width, height: height)
-        defer { region.realizeItems() } // the items the band's new size shows
         if grew {
             scroll.contentView.scroll(to: .zero)
             scroll.reflectScrolledClipView(scroll.contentView)

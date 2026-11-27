@@ -1,3 +1,48 @@
+/// What an update relaunch would interrupt right now, as reported by the host app.
+public struct UpdateRelaunchBlockers: Equatable, Sendable {
+    /// Coding agents that are mid-turn. They finish on their own, so the gate waits for them.
+    public var busyAgentCount: Int
+    /// Other foreground commands in local terminals (a dev server, a build). They may never
+    /// exit, so the gate holds the relaunch until the user chooses Install Now.
+    public var runningCommandCount: Int
+    /// Hardware input happened during the quiet window. Only automatic installs wait for it to
+    /// clear: an install the user asked for is itself recent input.
+    public var userInputActive: Bool
+    /// The host cannot confirm the daemon/session mirror yet. Only automatic installs wait for
+    /// it, and only for ``UpdateRelaunchGate/daemonUnavailableTimeout``.
+    public var daemonStateUnavailable: Bool
+
+    /// How long hardware input must be quiet before an automatic relaunch, unless the host sets
+    /// its own (`updates.idleInstallQuietSeconds`).
+    public static let quietInputPeriod: Duration = .seconds(60)
+
+    /// Nothing would be interrupted.
+    public static let empty = UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 0)
+    /// A conservative hold used before the host has a trustworthy daemon mirror.
+    public static let daemonUnavailable = UpdateRelaunchBlockers(
+        busyAgentCount: 0, runningCommandCount: 0, daemonStateUnavailable: true)
+
+    /// Creates a blocker report.
+    public init(busyAgentCount: Int, runningCommandCount: Int, userInputActive: Bool = false,
+                daemonStateUnavailable: Bool = false) {
+        self.busyAgentCount = busyAgentCount
+        self.runningCommandCount = runningCommandCount
+        self.userInputActive = userInputActive
+        self.daemonStateUnavailable = daemonStateUnavailable
+    }
+
+    /// Whether the relaunch would interrupt nothing.
+    public var isEmpty: Bool {
+        busyAgentCount == 0 && runningCommandCount == 0 && !userInputActive && !daemonStateUnavailable
+    }
+
+    /// The blockers that hold an install the user asked for (a click, Install Now, Restart Now):
+    /// the quiet-input and daemon-mirror holds apply only to automatic installs.
+    public var forUserInstall: UpdateRelaunchBlockers {
+        UpdateRelaunchBlockers(busyAgentCount: busyAgentCount, runningCommandCount: runningCommandCount)
+    }
+}
+
 /// Holds a ready update's relaunch until nothing would be interrupted by it.
 ///
 /// Automatic updates wait for busy agents to finish instead of interrupting a turn. Explicit
@@ -74,6 +119,32 @@ final class UpdateRelaunchGate {
     /// Whether a relaunch is currently held.
     var isWaiting: Bool { pending != nil }
 
+    /// Whether the relaunch may proceed given `blockers` after waiting `waited`, with the daemon
+    /// mirror unconfirmed for the last `daemonUnavailableFor`. An install the user asked for
+    /// (`automatic == false`) ignores the quiet-input and daemon-mirror holds; an automatic one
+    /// stops waiting for anything once it has waited `automaticWaitCap`.
+    nonisolated static func shouldRelaunch(
+        _ blockers: UpdateRelaunchBlockers,
+        automatic: Bool,
+        waited: Duration,
+        daemonUnavailableFor: Duration,
+        agentTimeout: Duration,
+        daemonUnavailableTimeout: Duration,
+        automaticWaitCap: Duration
+    ) -> Bool {
+        guard automatic else {
+            if blockers.runningCommandCount > 0 { return false }
+            if blockers.busyAgentCount > 0 { return waited >= agentTimeout }
+            return true
+        }
+        if waited >= automaticWaitCap { return true }
+        if blockers.daemonStateUnavailable, daemonUnavailableFor < daemonUnavailableTimeout { return false }
+        if blockers.runningCommandCount > 0 { return false }
+        if blockers.userInputActive { return false }
+        if blockers.busyAgentCount > 0 { return false }
+        return true
+    }
+
     /// Runs `relaunch` now if nothing would be interrupted, otherwise publishes a waiting
     /// state through `publish` and runs it once the blockers clear, the agent timeout
     /// elapses, or the user chooses Install Now. `automatic` marks an install nobody asked for
@@ -129,12 +200,11 @@ final class UpdateRelaunchGate {
         publish: @MainActor (UpdateState) -> Void
     ) -> Bool {
         let current = request.automatic ? reported : reported.forUserInstall
-        if current.permitsRelaunch(
-            automatic: request.automatic, waited: request.waited,
-            daemonUnavailableFor: request.daemonUnavailableFor,
-            agentTimeout: agentTimeout, daemonUnavailableTimeout: daemonUnavailableTimeout,
-            automaticWaitCap: automaticWaitCap
-        ) {
+        if Self.shouldRelaunch(current, automatic: request.automatic, waited: request.waited,
+                               daemonUnavailableFor: request.daemonUnavailableFor,
+                               agentTimeout: agentTimeout,
+                               daemonUnavailableTimeout: daemonUnavailableTimeout,
+                               automaticWaitCap: automaticWaitCap) {
             if request.automatic, !current.isEmpty, request.waited >= automaticWaitCap {
                 log.append("update relaunch gate: automatic install waited its cap; relaunching")
             } else if current.busyAgentCount > 0 {

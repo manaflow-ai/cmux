@@ -4,8 +4,7 @@
   "id": "cmux/agent-status",
   "name": { "en": "Agent Status", "ja": "エージェントの状態" },
   "version": "1.0.0",
-  "description": "A small counter in the title bar: how many of your agents are working and how many are waiting for you. Open its menu to jump to any of them.",
-  "tagline": "See how many agents are working and how many wait for you",
+  "description": "A small status item: how many agents are working and how many wait for you.",
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "GPL-3.0-or-later",
@@ -22,9 +21,9 @@
     }
   },
   "scopes": {
-    "agent:read": "See which coding agents are running in your terminals and whether they wait for you.",
-    "terminal:read": "Find which tab holds an agent's terminal, so the menu can take you there.",
-    "workspace:write": "Switch to an agent's tab when you pick it from the menu."
+    "agent:read": "Count the agents running in your terminals.",
+    "terminal:read": "Find the tab of an agent's terminal.",
+    "workspace:write": "Show an agent's tab from the menu."
   },
   "activation": ["onInterface:cmux.status/1"],
   "files": ["dist/"]

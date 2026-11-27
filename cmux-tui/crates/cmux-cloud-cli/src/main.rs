@@ -1,6 +1,5 @@
-//! Cloud command facade: the guest adapter owns Cloud/session commands and
-//! delegates to cmux-tui. Every spelling runs the adapter with its arguments
-//! unchanged.
+//! Cloud command facade. CodeRouter owns its grammar and presentation; the
+//! guest adapter owns Cloud/session commands and delegates to cmux-tui.
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -8,15 +7,40 @@ use std::process::{Command, ExitCode};
 fn main() -> ExitCode {
     let mut args = std::env::args_os();
     let program = args.next().unwrap_or_default();
-    let tail: Vec<OsString> = args.collect();
-    let path = std::env::var_os("CMUX_CLOUD_ADAPTER")
-        .unwrap_or_else(|| OsString::from("/usr/local/libexec/cmux-cloud-adapter"));
+    let name = Path::new(&program).file_stem().unwrap_or_default();
+    let mut tail: Vec<OsString> = args.collect();
+    let alias = matches!(name.to_str(), Some("cr" | "coderouter"));
+    let router =
+        alias || matches!(tail.first().and_then(|s| s.to_str()), Some("cr" | "coderouter"));
+    if router && !alias {
+        tail.remove(0);
+    }
+    // These Cloud extensions predate the official CLI. Keep their existing
+    // implementation behind the same dispatcher, across all alias spellings.
+    // `use` is machine-only: how Claude Code signs in on this machine.
+    let extension = router
+        && matches!(
+            tail.first().and_then(|s| s.to_str()),
+            Some("status" | "machines" | "models" | "agent" | "run" | "use")
+        );
+    if extension {
+        tail.insert(0, OsString::from("coderouter"));
+    }
+    let (env_name, default) = if router && !extension {
+        ("CMUX_CODEROUTER_BIN", "/usr/local/libexec/cmux-coderouter")
+    } else {
+        ("CMUX_CLOUD_ADAPTER", "/usr/local/libexec/cmux-cloud-adapter")
+    };
+    let path = std::env::var_os(env_name).unwrap_or_else(|| OsString::from(default));
     if same_file(&path, &program) {
         eprintln!("cmux: command adapter resolves to the Cloud CLI itself");
         return ExitCode::from(127);
     }
     let mut command = Command::new(&path);
     command.args(tail);
+    if router && !extension {
+        command.env("CMUX_CODEROUTER_MACHINE", "1");
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -54,7 +78,7 @@ fn same_file(candidate: &OsStr, program: &OsStr) -> bool {
 
 /// `Command::new` searches PATH for a bare executable name. Resolve the same
 /// way before comparing identities so an override cannot recurse through an
-/// alias such as `CMUX_CLOUD_ADAPTER=cmux`.
+/// alias such as `CMUX_CODEROUTER_BIN=cr`.
 fn resolve_command(candidate: &OsStr) -> PathBuf {
     let path = Path::new(candidate);
     if path.is_absolute() || path.components().count() > 1 {

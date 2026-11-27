@@ -184,8 +184,7 @@ describe("TeamHub signaling", () => {
     p.send({ type: "signal", to: mac, from: phone, sessionId, payload: announcement })
     await m.until((s) => s.frames.filter((f) => f.type === "signal").length === 2)
     expect(m.frames.filter((f) => f.type === "signal")[1]).toMatchObject({ from: phone, sessionId, payload: announcement })
-    // `wg-relay` is a kind since 0.17.0 (test/link-relay.test.ts); this one is not.
-    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-teleport" } })
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-relay" } })
     await p.until((s) => s.frames.some((f) => f.type === "error" && f.code === "bad_request"))
     expect(p.frames.find((f) => f.type === "error" && f.code === "bad_request")).toMatchObject({ sessionId })
     for (const s of [p, m]) s.ws.close()

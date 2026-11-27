@@ -41,16 +41,14 @@ impl Mux {
         }) {
             return None;
         }
-        let (surface, terminal_id) = {
+        let terminal_id = {
             let state = self.state.lock().ok()?;
             let runtime =
                 state.surfaces.get(&surface).or_else(|| state.terminal_runtime_by_id(surface))?;
-            let terminal_id = match &runtime.resource_identity()?.content_id {
+            match &runtime.resource_identity()?.content_id {
                 ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
                 _ => return None,
-            };
-            // The surface the registry path's record names (`terminal_view_surface`).
-            (state.terminal_view_surface(&terminal_id).unwrap_or(surface), terminal_id)
+            }
         };
         // A hook projection of the terminal waits for a retry, which the
         // registry path runs after the report.

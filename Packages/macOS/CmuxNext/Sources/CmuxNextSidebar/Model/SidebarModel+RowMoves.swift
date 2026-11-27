@@ -2,12 +2,10 @@ import Foundation
 
 extension SidebarModel {
     /// A content change that changes which rows the list draws: a folder (Group by Folder), Done (the Done fold),
-    /// needing you past the row limit (it keeps a row out of "Show N more"), or, with `settles`
-    /// (`sidebar.settleFinished`), a chat that settles or rises back (the "Settled (N)" fold).
-    static func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace, groupsByFolder: Bool, settles: Bool = false) -> Bool {
+    /// or needing you past the row limit (it keeps a row out of "Show N more").
+    static func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace, groupsByFolder: Bool) -> Bool {
         if groupsByFolder && old.folder != new.folder { return true }
         if (old.taskStatus == .done) != (new.taskStatus == .done) { return true }
-        if settles && settleMoves(from: old, to: new) { return true }
         return SidebarTunables.rowLimit > 0 && (old.agentChip == .needsYou) != (new.agentChip == .needsYou)
     }
 }

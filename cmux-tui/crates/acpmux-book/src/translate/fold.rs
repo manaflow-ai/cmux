@@ -1,7 +1,5 @@
 //! Default worked-for fold. Children never move; the settled group names visible runs.
 use serde::{Deserialize, Serialize};
-/// Narration short enough to fold into the work around it, in UTF-16 units (`SHORT_NOTE_CHARS`).
-const SHORT_NOTE_UNITS: u64 = 160;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Run(pub u64, pub u64);
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,9 +17,6 @@ pub(super) struct Reply {
     trailing_lines: u64,
     pending_takeaway: bool,
     last_newline: bool,
-    /// The text from its first word, kept while it is short enough to be narration.
-    head: String,
-    head_units: u64,
 }
 impl Reply {
     pub fn row(&mut self, id: u64) {
@@ -78,10 +73,6 @@ impl Reply {
                 _ => 3,
             };
         }
-        if (self.nonempty || !ch.is_whitespace()) && self.head_units <= SHORT_NOTE_UNITS {
-            self.head.push(ch);
-            self.head_units = self.head_units.saturating_add(ch.len_utf16() as u64);
-        }
         self.tail.push(ch);
         if self.tail.chars().count() > 8 {
             let n = self.tail.chars().next().map(char::len_utf8).unwrap_or(0);
@@ -90,15 +81,8 @@ impl Reply {
         self.takeaway |= ch == '?'
             || ["```", "~~~", "](", "http://", "https://"].iter().any(|p| self.tail.ends_with(p));
     }
-    /// The source of the takeaway rule (Leo, 2026-10-21): over about three lines, a question, a
-    /// list, a link, a code block, a second paragraph, or anything short that is not progress
-    /// narration (`narration.rs`; Leo, 2026-11-13). The page's `isTakeaway` is its copy.
-    pub(super) fn takeaway(&self) -> bool {
-        self.nonempty
-            && (self.takeaway
-                || self.chars > SHORT_NOTE_UNITS
-                || self.lines >= 3
-                || !super::narration::is_work_narration(self.head.trim_end()))
+    fn takeaway(&self) -> bool {
+        self.nonempty && (self.takeaway || self.chars > 160 || self.lines >= 3)
     }
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -177,5 +161,26 @@ impl Fold {
 }
 
 #[cfg(test)]
-#[path = "fold_tests.rs"]
-mod tests;
+mod tests {
+    use super::Reply;
+    #[test]
+    fn takeaway_matches_trimmed_text_across_streamed_whitespace() {
+        for (text, expected) in [
+            (format!("{}note{}", " ".repeat(200), " ".repeat(200)), false),
+            ("note\n\n".into(), false),
+            ("note\n \nanswer".into(), true),
+            (format!("{}- item", " ".repeat(100)), true),
+            ("-\titem".into(), true),
+            ("1.\titem".into(), true),
+            ("1. ".into(), false),
+            ("one\ntwo\nthree".into(), false),
+            ("one\ntwo\nthree\nfour".into(), true),
+        ] {
+            let mut reply = Reply::default();
+            for ch in text.chars() {
+                reply.push(ch);
+            }
+            assert_eq!(reply.takeaway(), expected, "{text:?}");
+        }
+    }
+}

@@ -12,7 +12,7 @@ import Observation
 @Observable
 public final class QuietStatusGate {
     /// How long a connection is down before its line shows.
-    public nonisolated static let threshold: Duration = .seconds(10)
+    public static let threshold: Duration = .seconds(10)
 
     /// The line may show now (down for at least `delay`).
     public private(set) var isShown = false
@@ -28,12 +28,7 @@ public final class QuietStatusGate {
 
     /// The connection is down (true) or back (false). Repeating `true` keeps
     /// the first instant: a reattach that retries does not restart the wait.
-    public func update(down: Bool) { update(down: down, alreadyDownFor: .zero) }
-
-    /// As ``update(down:)``, for a link that went down `alreadyDownFor` ago (a view that
-    /// appears mid-outage): it waits only what is left of `delay`, and shows at once
-    /// when the outage has already lasted that long.
-    public func update(down: Bool, alreadyDownFor: Duration) {
+    public func update(down: Bool) {
         guard down else {
             self.down = false
             pending?.cancel()
@@ -42,12 +37,12 @@ public final class QuietStatusGate {
             return
         }
         guard pending == nil, !isShown else { return }
-        let delay = delay - max(.zero, alreadyDownFor)
         if delay <= .zero {
             isShown = true
             return
         }
         self.down = true
+        let delay = delay
         let clock = clock
         // An intentional, bounded UI delay on the injected clock (not a sync wait).
         pending = Task { [weak self] in

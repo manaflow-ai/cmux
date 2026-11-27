@@ -223,8 +223,6 @@ mod tests {
             generation: None,
             issued_at_unix: 100,
             expires_at_unix: 200,
-            grant: None,
-            region: None,
         }
     }
 

@@ -27,21 +27,10 @@
 //!   process up.
 //! - Only after `MIN_TURNS` turns, and `TURNS_BETWEEN` more since the last
 //!   recap (Claude Code's own limits), so a short chat gets none.
-//! - Only when a person's own prompt started a turn since the last ask
-//!   (`Hub::recap_turn_started`, `inbox::persons_prompt`): a chat that only
-//!   other agents, notices and triggers drive is the Chief's to report, and its
-//!   recaps were 87% of all recaps on the team gateway (6,202 a day, about
-//!   $0.13 each at list price, mostly cache misses: sr2 audit 2026-11-20).
-//! - `AWAY` after the person left, while the chat is still not shown (or as
-//!   soon as the answer comes, when that is later), the recap is logged as a
-//!   `mux` `recap` record (`{text, awayMs, since}`), which clients draw with
-//!   the "New since you looked" divider at `since` (`seen.rs`). It is in the
-//!   chat before the person looks, so their return draws it in place instead
-//!   of pushing the transcript up a card's height as it lands (Leo wants no
-//!   shift or jump on return, c-b966807d26). One answered only after the
-//!   person is back is logged then, as before. A turn since it was asked
-//!   makes one not logged yet stale: it is dropped. One already logged stays
-//!   where it was written, above the turn that came after it.
+//! - The person shows the chat again after `AWAY` or more: the recap is
+//!   logged as a `mux` `recap` record (`{text, awayMs, since}`), which clients
+//!   draw with the "New since you looked" divider at `since` (`seen.rs`). A
+//!   turn since it was asked makes it stale: it is dropped.
 //!
 //! - One recap per chat (Leo, 2026-11-11, of a chat with eight stacked recaps that all said the
 //!   same thing: "oh shit this is way too much"). The chat's current recap is kept on its
@@ -88,9 +77,6 @@ pub(crate) struct Away {
     asked_at_turns: Option<u64>,
     /// The recap made while the person was away, and the turn count it describes.
     ready: Option<(String, u64)>,
-    /// A person's own prompt started a turn since the last recap was asked
-    /// (`recap_turn_started`); none is asked for without one.
-    person_turn: bool,
 }
 
 /// The saved `sessionRecap` (`chat-settings.json`), on when there is none.
@@ -211,12 +197,6 @@ impl Hub {
         session.away.lock().unwrap_or_else(|e| e.into_inner()).seen = true;
     }
 
-    /// Whether a person has shown `session` since the daemon started (`recap_person_shows`), not
-    /// only an agent's subscription.
-    pub(super) fn person_has_shown(&self, session: &Session) -> bool {
-        session.away.lock().unwrap_or_else(|e| e.into_inner()).seen
-    }
-
     /// Whether a person has shown chat `id` since the daemon started (`recap_person_shows`).
     #[doc(hidden)]
     pub fn recap_person_seen(&self, id: &str) -> bool {
@@ -224,8 +204,7 @@ impl Hub {
     }
 
     /// Whether some client shows `session` changed (`seen.rs`). Leaving it starts the away
-    /// period; showing it again after `AWAY` logs the recap made meanwhile, when it was not
-    /// logged already (`recap_due_now`).
+    /// period; showing it again after `AWAY` logs the recap made meanwhile.
     pub(super) fn recap_visibility(&self, session: &Session) {
         let now = self.clock_now();
         let shown = self.shown(session);
@@ -244,40 +223,12 @@ impl Hub {
         if away_for < AWAY {
             return;
         }
-        let Some(ready) = away.ready.take() else { return };
-        drop(away);
-        self.log_recap(session, ready, away_for);
-    }
-
-    /// The recap of `session` is made, or its log time came: logs it when the person has been
-    /// away `AWAY` and still is; else, while they are away, at `AWAY` (the recap timer).
-    fn recap_due_now(&self, session: &Session) {
-        let now = self.clock_now();
-        let mut away = session.away.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(left_at) = away.left_at else { return };
-        if away.ready.is_none() {
-            return;
-        }
-        let at = left_at + AWAY.as_nanos() as u64;
-        if now < at {
-            drop(away);
-            self.recap_due.lock().unwrap_or_else(|e| e.into_inner()).insert(session.id.clone(), at);
-            self.recap_wake.notify_one();
-            return;
-        }
-        let Some(ready) = away.ready.take() else { return };
-        drop(away);
-        self.log_recap(session, ready, Duration::from_nanos(now.saturating_sub(left_at)));
-    }
-
-    /// Logs `ready` (its text and the turn count it describes) as the chat's recap: none when a
-    /// turn came since, recaps are off, or it names nothing the current recap does not.
-    fn log_recap(&self, session: &Session, ready: (String, u64), away_for: Duration) {
-        let (text, at_turns) = ready;
         let (turns, since) = session.read_meta(|meta| (meta.turn_count, meta.seen_seq));
+        let Some((text, at_turns)) = away.ready.take() else { return };
         if at_turns != turns || !self.recap_applies(session) {
             return;
         }
+        drop(away);
         let facts = facts(&text);
         let current = session.read_meta(|meta| meta.away_recap.clone());
         if nothing_new(current.as_ref(), &facts) {
@@ -358,15 +309,6 @@ impl Hub {
         }
     }
 
-    /// A turn of `session` starts; `by_person`: a person's own prompt started it
-    /// (`inbox::persons_prompt`, not a trigger's delivery). Only such a turn makes a recap
-    /// worth asking for.
-    pub(super) fn recap_turn_started(&self, session: &Session, by_person: bool) {
-        if by_person {
-            session.away.lock().unwrap_or_else(|e| e.into_inner()).person_turn = true;
-        }
-    }
-
     /// A turn of `session` ended: a recap made before it is stale, and one is asked for
     /// `ASK_AFTER` from now if the person is away.
     fn recap_turn_ended(&self, session: &Session) {
@@ -395,7 +337,7 @@ impl Hub {
     }
 
     /// Whether `session` wants a recap now: still away, idle, enough turns since the last one,
-    /// a person's own turn since the last ask, none made or asked for this turn.
+    /// none made or asked for this turn.
     fn wants_recap(&self, session: &Session) -> Option<u64> {
         if !self.recap_applies(session) || self.shown(session) {
             return None;
@@ -415,8 +357,7 @@ impl Hub {
             None => turns >= MIN_TURNS,
         };
         let asked = away.asked_at_turns == Some(turns);
-        (away.left_at.is_some() && enough && away.person_turn && !asked && !away.asking)
-            .then_some(turns)
+        (away.left_at.is_some() && enough && !asked && !away.asking).then_some(turns)
     }
 
     /// The idle reaper is about to stop the process of `session` (`idle.rs`): when it wants a
@@ -441,7 +382,6 @@ impl Hub {
             let mut away = session.away.lock().unwrap_or_else(|e| e.into_inner());
             away.asking = true;
             away.asked_at_turns = Some(turns);
-            away.person_turn = false;
         }
         let answer = child.request_within(crate::claude_stdio::RECAP, json!({}), TIMEOUT).await;
         let text = match answer {
@@ -461,8 +401,6 @@ impl Hub {
         // A turn that began while it was asked makes it stale.
         if let Some(text) = text.filter(|_| now_turns == turns && away.left_at.is_some()) {
             away.ready = Some((text, turns));
-            drop(away);
-            self.recap_due_now(session);
         }
     }
 
@@ -516,11 +454,6 @@ impl Hub {
                     };
                     for id in due {
                         let Ok(session) = hub.resolve(&id) else { continue };
-                        // A recap made and waiting for `AWAY`: logged now, while still away.
-                        if session.away.lock().unwrap_or_else(|e| e.into_inner()).ready.is_some() {
-                            hub.recap_due_now(&session);
-                            continue;
-                        }
                         let Some(turns) = hub.wants_recap(&session) else { continue };
                         let hub = hub.clone();
                         tokio::spawn(async move { hub.ask_recap(&session, turns).await });

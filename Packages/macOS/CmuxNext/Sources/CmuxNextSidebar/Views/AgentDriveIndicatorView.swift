@@ -68,10 +68,8 @@ final class AgentDriveIndicatorView: ClickableButton {
         nameLabel.setString(variant == .capsule ? shown.map { Self.shortName($0.name) } ?? "" : "")
         nameLabel.isHidden = variant != .capsule
         let summary = drivers.map(Strings.presenceLine).joined(separator: "\n")
-        // No tooltip: it sits on a workspace row, whose hover card names who drives what (a1315's cut 3: rows carry
-        // no tooltips). VoiceOver hears who drives and what a click does.
+        themedToolTip = drivers.isEmpty ? nil : summary + "\n" + Strings.driveClickHint
         setAccessibilityLabel(drivers.isEmpty ? nil : summary)
-        setAccessibilityHelp(drivers.isEmpty ? nil : Strings.driveClickHint)
         setAccessibilityRole(.button)
         needsLayout = true
         needsDisplay = true

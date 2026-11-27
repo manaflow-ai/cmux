@@ -4,11 +4,10 @@ import CmuxNextTestSupport
 import Testing
 
 /// A zoom keeps the panes it covers and the unzoom shows them again as they were (RESIZE VIDEOS Z1, 5 of 5 films: one
-/// frame of 42-70 ms when a zoom of 12 panes lands and again when the unzoom starts, with or without load). The zoom
-/// released every covered pane (11 pane controllers torn down in one frame) and the unzoom made each one
-/// again (11 new pane controllers, toolbars and themes in one frame). Now the frame that shows the zoom hides them (a
-/// hidden terminal stops drawing) and the unzoom takes the same hosts back; a pane closed while zoomed is torn down at
-/// the unzoom.
+/// frame of 42-70 ms when a zoom of 12 panes lands and again when the unzoom starts, with or without load). The zoom's
+/// landing released every covered pane (11 pane controllers torn down in one frame) and the unzoom made each one
+/// again (11 new pane controllers, toolbars and themes in one frame). Now the landing hides them (a hidden terminal
+/// stops drawing) and the unzoom takes the same hosts back; a pane closed while zoomed is torn down at the unzoom.
 /// The test is the clock (120 Hz).
 @MainActor
 @Suite(.closesItsWindows)
@@ -77,10 +76,9 @@ struct ZoomKeepsCoveredPanesTests {
         #expect(screen.provider.made.count == made, "the unzoom made panes again: \(screen.provider.made.dropFirst(made))")
         for (pane, host) in zip(covered, hosts) {
             #expect(screen.root.context.hosts[pane] === host, "\(pane.rawValue) came back with a new host")
+            #expect(!host.isHidden, "\(pane.rawValue) shows again")
         }
         screen.land()
-        // They show with the frame that shows the unzoom, at their places: never a frame earlier, beside the zoomed pane.
-        for (pane, host) in zip(covered, hosts) { #expect(!host.isHidden, "\(pane.rawValue) shows again") }
         #expect(screen.provider.released.isEmpty, "the unzoom released a pane that came back: \(screen.provider.released)")
     }
 

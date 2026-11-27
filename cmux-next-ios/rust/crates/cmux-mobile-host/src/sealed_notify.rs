@@ -18,12 +18,6 @@
 //! For a question or permission the box also carries the prompt's acpmux
 //! `decisionNonce` and `personInstance`, so the phone can sign an answer
 //! without its link (the mailbox).
-//!
-//! One request carries at most [`MAX_SEALED_PER_REQUEST`] boxes (the
-//! backend's body bound), never a cap on phones: with more phones the first
-//! request (the lead) carries the first boxes and names the rest in
-//! `batchedPhones`, and each further request (`batch: n`) carries the next
-//! boxes and reaches only those phones (PROTOCOL.md "Sealed notify").
 
 use std::sync::Arc;
 
@@ -97,27 +91,21 @@ pub const ROUTING_FIELDS: &[&str] = &[
     "notificationId",
 ];
 
-/// The most boxes one notify request carries: the backend's
-/// `MAX_SEALED_PHONES`, which bounds a request's body, not the phone count.
-pub const MAX_SEALED_PER_REQUEST: usize = 20;
-
-/// The notify bodies for `event` (the 0.13.0 JSON), sealed for `phones`
-/// (`(phone, push key)`), in the order to post them: the lead first, then
-/// one `batch` request per further [`MAX_SEALED_PER_REQUEST`] boxes.
-/// `all_sealed`: every paired phone is among them, so the content leaves only
-/// in boxes. `ask`: the prompt's decision nonce and daemon run, for a
-/// question or permission.
-pub fn sealed_bodies(
+/// The notify body for `event` (the 0.13.0 JSON), sealed for `phones`
+/// (`(phone, push key)`). `all_sealed`: every paired phone is among them, so
+/// the content leaves only in boxes. `ask`: the prompt's decision nonce and
+/// daemon run, for a question or permission.
+pub fn sealed_body(
     event: &Value,
     mac: &str,
     identity: &MacIdentity,
     phones: &[(String, String)],
     all_sealed: bool,
     ask: Option<(String, String)>,
-) -> Vec<Value> {
-    let Some(fields) = event.as_object() else { return vec![event.clone()] };
+) -> Value {
+    let Some(fields) = event.as_object() else { return event.clone() };
     if phones.is_empty() {
-        return vec![event.clone()];
+        return event.clone();
     }
     let event_id = fields.get("eventId").and_then(Value::as_str).unwrap_or_default();
     let mut content = fields.clone();
@@ -131,7 +119,7 @@ pub fn sealed_bodies(
     }
     fit(&mut content);
     let plaintext = Value::Object(content).to_string();
-    let mut sealed: Vec<(String, Value)> = Vec::with_capacity(phones.len());
+    let mut sealed = Map::new();
     for (phone, push_key) in phones {
         let Ok(key) = crate::seal::public_key_hex(push_key) else { continue };
         let Ok(boxed) =
@@ -152,7 +140,7 @@ pub fn sealed_bodies(
         else {
             continue;
         };
-        sealed.push((phone.clone(), json!({"box": boxed, "sig": sig})));
+        sealed.insert(phone.clone(), json!({"box": boxed, "sig": sig}));
     }
     // Every paired phone has a key: the content never leaves in clear, even
     // when one box failed (that phone gets the fixed banner from the ids).
@@ -165,26 +153,10 @@ pub fn sealed_bodies(
     } else {
         fields.clone()
     };
-    let mut batches = sealed.chunks(MAX_SEALED_PER_REQUEST);
-    let boxes = |chunk: &[(String, Value)]| Value::Object(chunk.iter().cloned().collect());
-    if let Some(first) = batches.next() {
-        body.insert("sealed".into(), boxes(first));
+    if !sealed.is_empty() {
+        body.insert("sealed".into(), Value::Object(sealed));
     }
-    // The phones the batches reach: the lead skips them, so each gets one push.
-    let later: Vec<Value> =
-        sealed.iter().skip(MAX_SEALED_PER_REQUEST).map(|(phone, _)| json!(phone)).collect();
-    if !later.is_empty() {
-        body.insert("batchedPhones".into(), Value::Array(later));
-    }
-    let mut bodies = vec![Value::Object(body)];
-    for (index, chunk) in batches.enumerate() {
-        // A batch's phones all have a box: the ids that route it are enough.
-        let Value::Object(mut batch) = routing_only(event) else { continue };
-        batch.insert("sealed".into(), boxes(chunk));
-        batch.insert("batch".into(), json!(index + 1));
-        bodies.push(Value::Object(batch));
-    }
-    bodies
+    Value::Object(body)
 }
 
 /// Only the fields that route and coalesce `event`.
@@ -209,27 +181,26 @@ pub struct Sealer {
 }
 
 impl Sealer {
-    /// The bodies to post for `event`, lead first (`sealed_bodies`): sealed
-    /// when this Mac has its identity key and some paired phone a push key;
-    /// else `event` as it is.
-    pub async fn bodies(&self, event: Value) -> Vec<Value> {
+    /// The body to post for `event`: sealed when this Mac has its identity key
+    /// and some paired phone a push key; else `event` as it is.
+    pub async fn body(&self, event: Value) -> Value {
         let identity = self.identity.borrow().clone();
         let trust = self.trust.borrow().clone();
-        let Some(trust) = trust else { return vec![event] };
+        let Some(trust) = trust else { return event };
         let phones = self.push_keys.for_paired(&trust);
         if phones.is_empty() {
-            return vec![event];
+            return event;
         }
         let all_sealed = phones.len() == trust.devices.len();
         let Some(identity) = identity else {
             // No key to seal with yet: never the content in clear for phones that expect boxes.
-            return vec![if all_sealed { routing_only(&event) } else { event }];
+            return if all_sealed { routing_only(&event) } else { event };
         };
         let ask = match event.get("kind").and_then(Value::as_str) {
             Some("question" | "permission") => self.ask_secrets(&event).await,
             _ => None,
         };
-        sealed_bodies(&event, &self.mac, &identity, &phones, all_sealed, ask)
+        sealed_body(&event, &self.mac, &identity, &phones, all_sealed, ask)
     }
 
     /// The pending prompt's `decisionNonce` and `personInstance` (`_acpmux/info`).
@@ -276,18 +247,6 @@ pub fn ask_from_info(info: &Value, permission: &str) -> Option<(String, String)>
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The lead body alone (one phone, so no batches).
-    fn sealed_body(
-        event: &Value,
-        mac: &str,
-        identity: &MacIdentity,
-        phones: &[(String, String)],
-        all_sealed: bool,
-        ask: Option<(String, String)>,
-    ) -> Value {
-        sealed_bodies(event, mac, identity, phones, all_sealed, ask).swap_remove(0)
-    }
 
     fn vectors() -> Value {
         serde_json::from_str(include_str!("../tests/fixtures/seal-vectors.json")).unwrap()
@@ -350,7 +309,7 @@ mod tests {
         assert_eq!(body["title"], "Deploy to prod?");
         assert!(body["sealed"]["p1"]["box"].is_string());
         // No push keys at all: exactly the event.
-        assert_eq!(sealed_bodies(&event(), "m", &identity, &[], true, None), vec![event()]);
+        assert_eq!(sealed_body(&event(), "m", &identity, &[], true, None), event());
     }
 
     #[test]
@@ -408,54 +367,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(opened["tail"], json!(["sk-123"]));
-    }
-
-    #[test]
-    fn twenty_five_phones_each_get_their_box_once_in_batches() {
-        // Before batching, all 25 boxes went in one request, which the backend
-        // refuses past 20 phones: none of the 25 phones got the push.
-        let identity = MacIdentity::generate().unwrap();
-        let push = crate::seal::random_secret().unwrap();
-        let key = crate::seal::point_hex(&push.public_key());
-        let phones: Vec<(String, String)> =
-            (0..25).map(|i| (format!("00000000-0000-4000-8000-{i:012}"), key.clone())).collect();
-        let bodies = sealed_bodies(&event(), "m", &identity, &phones, true, None);
-        assert_eq!(bodies.len(), 2);
-        let (lead, batch) = (&bodies[0], &bodies[1]);
-        assert_eq!(lead["sealed"].as_object().unwrap().len(), MAX_SEALED_PER_REQUEST);
-        assert!(lead.get("batch").is_none());
-        assert_eq!(batch["batch"], 1);
-        assert_eq!(batch["sealed"].as_object().unwrap().len(), 5);
-        // The lead names exactly the batch's phones, so the backend skips them there.
-        let mut named: Vec<&str> =
-            lead["batchedPhones"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-        let mut in_batch: Vec<&str> =
-            batch["sealed"].as_object().unwrap().keys().map(String::as_str).collect();
-        named.sort_unstable();
-        in_batch.sort_unstable();
-        assert_eq!(named, in_batch);
-        // Every phone has exactly one box, across the requests.
-        let mut all: Vec<&str> =
-            bodies.iter().flat_map(|b| b["sealed"].as_object().unwrap().keys().map(String::as_str)).collect();
-        all.sort_unstable();
-        all.dedup();
-        assert_eq!(all.len(), 25);
-        // A batch carries the routing ids and boxes only, never content.
-        let text = batch.to_string();
-        assert!(!text.contains("Deploy to prod") && !text.contains("sk-123"), "{text}");
-        assert_eq!(batch["eventId"], "p-perm1");
-        assert_eq!(batch["sessionId"], "s1");
-        // Twenty phones or fewer: one request, as before.
-        let bodies = sealed_bodies(&event(), "m", &identity, &phones[..20], true, None);
-        assert_eq!(bodies.len(), 1);
-        assert!(bodies[0].get("batchedPhones").is_none());
-        // Many phones: one request per twenty.
-        let many: Vec<(String, String)> =
-            (0..101).map(|i| (format!("00000000-0000-4000-8000-{i:012}"), key.clone())).collect();
-        let bodies = sealed_bodies(&event(), "m", &identity, &many, true, None);
-        assert_eq!(bodies.len(), 6);
-        assert_eq!(bodies[5]["batch"], 5);
-        assert_eq!(bodies[0]["batchedPhones"].as_array().unwrap().len(), 81);
     }
 
     #[test]

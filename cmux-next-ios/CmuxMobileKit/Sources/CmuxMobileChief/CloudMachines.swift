@@ -1,20 +1,18 @@
-import CmuxMobileDesign
 import Foundation
-import CmuxMobileModel
 import Observation
 
 /// One of the account's Cloud machines as the phone's Cloud Machines page shows it (the Mac's
 /// Machines section, Cloud rows): a `cloud.machine.list` item (backend/packages/protocol
 /// `CloudMachine`).
-public struct CloudMachine: Codable, Identifiable, Hashable, Sendable {
-    public enum Status: String, Codable, Hashable, Sendable {
+public struct CloudMachine: Identifiable, Hashable, Sendable {
+    public enum Status: String, Hashable, Sendable {
         case provisioning, starting, running, pausing, paused, deleting, failed
 
         /// A change is under way; the next list settles it.
         public var isTransition: Bool { [.provisioning, .starting, .pausing, .deleting].contains(self) }
     }
 
-    public struct Size: Codable, Hashable, Sendable {
+    public struct Size: Hashable, Sendable {
         public var cpu: Int?
         public var memoryMB: Int?
         public var diskMB: Int?
@@ -34,9 +32,8 @@ public struct CloudMachine: Codable, Identifiable, Hashable, Sendable {
             return parts.joined(separator: " · ")
         }
 
-        /// The Mac's new-machine default (`CloudMachineCreateFlow.named`): 2 vCPU, 4 GB, 20 GB disk, the platform's
-        /// spare size (cmux-platform#1756), so a create with the default memory claims a warm spare.
-        public static let newMachine = Size(cpu: 2, memoryMB: 4096, diskMB: 20480)
+        /// The Mac's new-machine default (`CloudMachineCreateFlow.named`): 2 vCPU, 4 GB, 16 GB disk.
+        public static let newMachine = Size(cpu: 2, memoryMB: 4096, diskMB: 16384)
 
         static func gigabytes(_ mb: Int) -> String {
             mb % 1024 == 0 ? "\(mb / 1024) GB" : String(format: "%.1f GB", Double(mb) / 1024)
@@ -70,17 +67,6 @@ public struct CloudMachine: Codable, Identifiable, Hashable, Sendable {
     public var keep: Bool
 
     public var title: String { name ?? id }
-
-    /// What a person's action changes: a held action is done once a read shows these differ.
-    struct Settings: Equatable, Sendable {
-        var status: Status
-        var name: String?
-        var size: Size
-        var idleSeconds: Int
-        var keep: Bool
-    }
-
-    var settings: Settings { Settings(status: status, name: name, size: size, idleSeconds: idleSeconds, keep: keep) }
     public var idlePauseMinutes: Int { idleSeconds / 60 }
 
     /// The Mac's idle auto-pause choices (`CloudMachine.idlePauseChoices`), in minutes; 0 is Off.
@@ -151,7 +137,7 @@ public struct CloudMachine: Codable, Identifiable, Hashable, Sendable {
 }
 
 /// A snapshot of a Cloud machine (`cloud.snapshot.list`), or an archive of a deleted one.
-public struct CloudMachineSnapshot: Codable, Identifiable, Hashable, Sendable {
+public struct CloudMachineSnapshot: Identifiable, Hashable, Sendable {
     public var id: String
     public var machine: String
     public var name: String?
@@ -168,11 +154,7 @@ public struct CloudMachineSnapshot: Codable, Identifiable, Hashable, Sendable {
     public static func list(_ value: Data) -> [CloudMachineSnapshot] {
         guard let root = (try? JSONSerialization.jsonObject(with: value)) as? [String: Any],
               let items = root["snapshots"] as? [[String: Any]] else { return [] }
-        return parse(items)
-    }
-
-    static func parse(_ items: [[String: Any]]) -> [CloudMachineSnapshot] {
-        items.compactMap { item in
+        return items.compactMap { item in
             guard let id = item["id"] as? String, let machine = item["machine"] as? String else { return nil }
             let archive = item["archive_of"] as? [String: Any]
             return CloudMachineSnapshot(id: id, machine: machine, name: item["name"] as? String,
@@ -186,7 +168,7 @@ public struct CloudMachineSnapshot: Codable, Identifiable, Hashable, Sendable {
 }
 
 /// The team's Cloud plan (`cloud.plan.get`): its limits, the sizes it allows and this period's use.
-public struct CloudMachinePlan: Codable, Hashable, Sendable {
+public struct CloudMachinePlan: Hashable, Sendable {
     public var planID: String
     public var maxActive: Int
     public var maxSaved: Int
@@ -240,95 +222,23 @@ public final class CloudMachinesModel {
     public var showsDetail = false
     /// The last action's refusal, for an alert.
     public var failure: String?
-    /// A refresh that could not reach cmux Cloud while the page keeps its rows: said only once the
-    /// outage has lasted ``QuietStatusGate/threshold`` (Leo, 2026-11-16: "obviously if it isn't
-    /// interactive im not connected"). A refusal the person must act on stays in ``failure``, at once.
-    @ObservationIgnored let unreachedQuiet = QuietStatusGate()
-    private var unreached: String?
-    /// The alert's text: an action's refusal at once, a refresh that could not reach the service
-    /// only past the hold.
-    public var shownFailure: String? { failure ?? (unreachedQuiet.isShown ? unreached : nil) }
-    public func dismissFailure() { failure = nil; unreached = nil }
-    /// Actions held for the person's approval in the Feed, by the machine or snapshot they act on
-    /// (`newMachineID` for a machine being made). Its row says "Waiting for approval" in place of
-    /// its status (no alert) until a read shows the change, another action on it starts, or
-    /// `approvalShownFor` passes.
-    public private(set) var awaitingApproval: [String: HeldAction] = [:]
-
-    /// An action held for approval: what it acts on as it was, to see when the change lands.
-    public struct HeldAction: Equatable, Sendable {
-        /// The machine's settings when it was asked (nil: a new machine, or a snapshot's action).
-        var before: CloudMachine.Settings?
-        /// The machines listed when it was asked: one more means a new machine was made.
-        var knownIDs: Set<String>
-        var since: Date
-        /// A held Take Snapshot: the machine's snapshots when it was asked; done once a new one is
-        /// listed (a snapshot changes none of the machine's settings).
-        var knownSnapshots: Set<String>? = nil
-    }
-
-    /// The `awaitingApproval` key of a machine being made.
-    public static let newMachineID = "new"
-    /// How long a held action reads "Waiting for approval" with no change seen.
-    static let approvalShownFor: TimeInterval = 15 * 60
-    @ObservationIgnored var now: () -> Date = Date.init
-
-    /// Whether `id`'s row reads "Waiting for approval".
-    public func isAwaitingApproval(_ id: String) -> Bool { awaitingApproval[id] != nil }
-
-    /// Drops held actions a read shows done (the machine changed or is gone, a new machine came),
-    /// and those older than `approvalShownFor`.
-    private func settleHeldActions() {
-        guard !awaitingApproval.isEmpty else { return }
-        let ids = Set(machines.map(\.id))
-        let now = now()
-        let next = awaitingApproval.filter { id, held in
-            guard now.timeIntervalSince(held.since) < Self.approvalShownFor else { return false }
-            if let known = held.knownSnapshots {
-                guard machine(id) != nil else { return false }
-                return Set(snapshots(of: id).map(\.id)).isSubset(of: known)
-            }
-            if let before = held.before { return machine(id)?.settings == before }
-            return ids.isSubset(of: held.knownIDs)
-        }
-        if next != awaitingApproval { awaitingApproval = next }
-    }
+    /// The last action's note ("Waiting for your approval in the Feed.").
+    public var notice: String?
 
     @ObservationIgnored private let account: @MainActor () -> AccountCloud?
-    @ObservationIgnored private let cache: LastKnownList?
-    @ObservationIgnored private var refreshID = 0
     @ObservationIgnored var newKey: () -> String = { UUID().uuidString.lowercased() }
     /// The DEBUG gallery's fixed page: it never reads the service.
     @ObservationIgnored var skipsLoad = false
 
-    public init(cache: LastKnownList? = nil, account: @escaping @MainActor () -> AccountCloud?) {
+    public init(account: @escaping @MainActor () -> AccountCloud?) {
         self.account = account
-        self.cache = cache
-        restoreCache()
     }
 
     public static func live(_ sources: ChiefSources = .shared) -> CloudMachinesModel {
-        let source = sources.personalListSource("cloud-machines")
-        return CloudMachinesModel(cache: source.cache, account: source.account)
-    }
-
-    private struct Cached: Codable, Sendable {
-        var machines: [CloudMachine]
-        var snapshots: [CloudMachineSnapshot]
-        var plan: CloudMachinePlan?
-    }
-
-    private func restoreCache() {
-        guard let saved = cache?.read(Cached.self) else { return }
-        machines = saved.machines
-        snapshots = saved.snapshots
-        plan = saved.plan
-        phase = .loaded
+        CloudMachinesModel { [weak sources] in sources?.account }
     }
 
     public var canAct: Bool { busyID == nil && account() != nil }
-    /// An account is signed in: a failed load is a read to try again (on its own), not a sign-in.
-    public var isSignedIn: Bool { account() != nil }
 
     public func machine(_ id: String) -> CloudMachine? { machines.first { $0.id == id } }
     public func snapshots(of machine: String) -> [CloudMachineSnapshot] { snapshots.filter { $0.machine == machine && $0.archiveOf == nil } }
@@ -341,17 +251,14 @@ public final class CloudMachinesModel {
         return machines.sorted { (rank($0.status), -($0.createdAt?.timeIntervalSince1970 ?? 0)) < (rank($1.status), -($1.createdAt?.timeIntervalSince1970 ?? 0)) }
     }
 
-    public func load(reportFailure: Bool = false) async {
+    public func load() async {
         if skipsLoad { return }
-        refreshID += 1
-        let current = refreshID
         guard let account = account() else {
             phase = .failed(String(localized: "Sign in to cmux to see your Cloud machines."))
             return
         }
         let before = phase
-        // A failed page stays as it is while it loads again (its screen retries on its own and
-        // shows a spinner until the quiet bound), so it never flickers to "Loading" on each try.
+        if machines.isEmpty, phase != .loaded { phase = .loading }
         do {
             async let planned = account.read("cloud.plan.get")
             async let saved = account.read("cloud.snapshot.list")
@@ -361,36 +268,19 @@ public final class CloudMachinesModel {
                 var params: [String: any Sendable] = ["limit": 100]
                 if let cursor { params["cursor"] = cursor }
                 let page = try await account.read("cloud.machine.list", params: params)
-                rows += try AccountCloud.listItems("machines", in: page).compactMap(CloudMachine.parse)
+                rows += CloudMachine.list(page)
                 cursor = ((try? JSONSerialization.jsonObject(with: page)) as? [String: Any])?["next_cursor"] as? String
             } while cursor != nil && rows.count < 1000
-            let nextPlan = (try? await planned).flatMap(CloudMachinePlan.parse)
-            let nextSnapshots = (try? await saved).flatMap { value in
-                (try? AccountCloud.listItems("snapshots", in: value)).map { CloudMachineSnapshot.parse($0) }
-            }
-            guard current == refreshID, self.account() != nil, !Task.isCancelled else { return }
             machines = rows
-            if let nextPlan { plan = nextPlan }
-            if let nextSnapshots { snapshots = nextSnapshots }
-            settleHeldActions()
+            // A plan or snapshot read that fails keeps the list (the page hides what it lacks).
+            plan = (try? await planned).flatMap(CloudMachinePlan.parse) ?? plan
+            if let value = try? await saved { snapshots = CloudMachineSnapshot.list(value) }
             phase = .loaded
-            cache?.save(Cached(machines: machines, snapshots: snapshots, plan: plan))
-            unreached = nil
-            unreachedQuiet.update(down: false)
         } catch is CancellationError {
-            guard current == refreshID, self.account() != nil else { return }
             phase = before
         } catch {
-            guard current == refreshID, self.account() != nil else { return }
             let message = Self.message(error)
-            if phase != .loaded {
-                phase = .failed(message)
-            } else if AccountCloud.isUnreachable(error), CmuxMobilePreferences.quietCloudConnect() {
-                unreached = message
-                unreachedQuiet.update(down: true)
-            } else if reportFailure {
-                failure = message
-            }
+            if machines.isEmpty { phase = .failed(message) } else { failure = message }
         }
     }
 
@@ -404,11 +294,11 @@ public final class CloudMachinesModel {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { params["name"] = String(trimmed.prefix(80)) }
         if let fromSnapshot { params["from_snapshot"] = fromSnapshot }
-        await act("new", startsMachine: true) { try await $0.mutate("cloud.machine.create", params: params, key: "create-\(self.newKey())") }
+        await act("new") { try await $0.mutate("cloud.machine.create", params: params, key: "create-\(self.newKey())") }
     }
 
     public func start(_ machine: CloudMachine) async {
-        await act(machine.id, startsMachine: true, optimistic: { $0.status = .starting }) {
+        await act(machine.id, optimistic: { $0.status = .starting }) {
             try await $0.mutate("cloud.machine.start", params: ["machine": machine.id], key: "start-\(machine.id)-\(self.newKey())")
         }
     }
@@ -469,12 +359,12 @@ public final class CloudMachinesModel {
         var params: [String: any Sendable] = ["machine": machine.id]
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { params["name"] = String(trimmed.prefix(80)) }
-        await act(machine.id, watchesSnapshots: true) { try await $0.mutate("cloud.snapshot.create", params: params, key: "snapshot-\(machine.id)-\(self.newKey())") }
+        await act(machine.id) { try await $0.mutate("cloud.snapshot.create", params: params, key: "snapshot-\(machine.id)-\(self.newKey())") }
     }
 
     /// A new machine booted from a ready snapshot or archive.
     public func restore(_ snapshot: CloudMachineSnapshot) async {
-        await act(snapshot.id, startsMachine: true) { try await $0.mutate("cloud.snapshot.restore", params: ["snapshot": snapshot.id], key: "restore-\(snapshot.id)-\(self.newKey())") }
+        await act(snapshot.id) { try await $0.mutate("cloud.snapshot.restore", params: ["snapshot": snapshot.id], key: "restore-\(snapshot.id)-\(self.newKey())") }
     }
 
     public func deleteSnapshot(_ snapshot: CloudMachineSnapshot) async {
@@ -487,8 +377,7 @@ public final class CloudMachinesModel {
 
     /// Runs one op: the change shows at once (`optimistic`), the list is read again after, and a
     /// refusal puts the row back and says why. An approval the service holds is a note, not a failure.
-    /// `startsMachine`: the op starts or makes a machine, so the vault seals it its values once it lands.
-    private func act(_ id: String, watchesSnapshots: Bool = false, startsMachine: Bool = false, optimistic: ((inout CloudMachine) -> Void)? = nil, rollback: (() -> Void)? = nil,
+    private func act(_ id: String, optimistic: ((inout CloudMachine) -> Void)? = nil, rollback: (() -> Void)? = nil,
                      _ work: @MainActor (AccountCloud) async throws -> Data) async {
         guard busyID == nil, let account = account() else {
             rollback?()
@@ -501,10 +390,7 @@ public final class CloudMachinesModel {
             rollback?()
         }
         busyID = id
-        if awaitingApproval[id] != nil { awaitingApproval[id] = nil }
-        // As it was before the optimistic change, which a read rolls back while it is held.
-        let held = HeldAction(before: old.first { $0.id == id }?.settings, knownIDs: Set(old.map(\.id)), since: now(),
-                              knownSnapshots: watchesSnapshots ? Set(snapshots(of: id).map(\.id)) : nil)
+        notice = nil
         defer { busyID = nil }
         do {
             let value = try await work(account)
@@ -513,14 +399,12 @@ public final class CloudMachinesModel {
                 if let index = machines.firstIndex(where: { $0.id == answered.id }) { machines[index] = answered } else { machines.append(answered) }
             }
             busyID = nil
-            if startsMachine { VaultTriggers.machineStarted() }
             await load()
         } catch is CancellationError {
             restore()
         } catch let failure as AccountCloud.Failure where failure.code == "approval.pending" {
             restore()
-            // Not a failure: the row says it waits for approval, quietly, with no alert.
-            awaitingApproval[id] = held
+            notice = String(localized: "Approve it in your Feed to finish.")
         } catch {
             restore()
             failure = Self.message(error)
@@ -538,10 +422,8 @@ public final class CloudMachinesModel {
         case "cloud.size.grow_only": return String(localized: "A machine can only grow.")
         case "cloud.spend_cap.reached": return String(localized: "Your team reached its spending cap.")
         case "cloud.member_budget.reached": return String(localized: "You reached your monthly Cloud budget.")
-        // retry-prompt-ok: a machine change is the person's write (costs, approvals); rate-limited, they choose to make it again
         case "cloud.rate_limited": return String(localized: "Too many changes at once. Try again in a minute.")
         case "approval.denied": return String(localized: "The request was denied.")
-        // retry-prompt-ok: the approval itself expired; asking again sends a new approval request, the person's choice
         case "approval.expired": return String(localized: "The approval expired. Try again.")
         default: return failure.description
         }
@@ -552,8 +434,7 @@ public final class CloudMachinesModel {
 extension CloudMachinesModel {
     /// The page with fixed machines, plan and snapshots, for screenshots
     /// (`-cmux-mobile-recovery-gallery cloudmachines`). Its actions go nowhere.
-    /// `held`: "Nightly evals" and a new machine wait for approval in the Feed (their rows say so).
-    public static func gallery(now: Date = .now, held: Bool = false) -> CloudMachinesModel {
+    public static func gallery(now: Date = .now) -> CloudMachinesModel {
         let http = ChiefCloudHTTP(base: URL(fileURLWithPath: "/dev/null"), accessToken: { _ in "" })
         let model = CloudMachinesModel { AccountCloud(http: http) }
         model.skipsLoad = true
@@ -581,13 +462,6 @@ extension CloudMachinesModel {
                                  status: "ready", createdAt: ago(86_400 * 4), archiveOf: "Old staging box", archiveUntil: now.addingTimeInterval(86_400 * 26)),
         ]
         model.phase = .loaded
-        if held {
-            let known = Set(model.machines.map(\.id))
-            model.awaitingApproval = [
-                "vm_gallery0000000000002": HeldAction(before: model.machine("vm_gallery0000000000002")?.settings, knownIDs: known, since: now),
-                newMachineID: HeldAction(before: nil, knownIDs: known, since: now),
-            ]
-        }
         return model
     }
 }

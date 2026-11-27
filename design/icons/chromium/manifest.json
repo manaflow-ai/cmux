@@ -154,10 +154,9 @@
   },
   {
    "name": "browser.omnibox.search",
-   "file": "components/vector_icons/search.icon",
-   "canvas": 24,
-   "revision": "157.0.8103.79",
-   "meaning": "Address bar and suggestion row search: the rounded loupe Helium draws (Chrome kSearchIcon, search.icon at tag 157.0.8103.79)",
+   "file": "components/vector_icons/search_chrome_refresh_old.icon",
+   "canvas": 20,
+   "meaning": "Address bar search (Chrome kSearchChromeRefreshOldIcon)",
    "sf": "magnifyingglass"
   },
   {

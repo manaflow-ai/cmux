@@ -20,7 +20,7 @@
           },
           "help": {
             "key": "settings.appearance.colorTransition.enabled.help",
-            "text": "Old colors blend into new ones on workspace and theme changes."
+            "text": "Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once."
           },
           "kind": "toggle",
           "default": true,
@@ -74,7 +74,7 @@
           },
           "help": {
             "key": "settings.appearance.colorTransition.curve.help",
-            "text": "How a color change moves over its duration."
+            "text": "How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values."
           },
           "kind": "choice",
           "swift_enum": {

@@ -560,21 +560,13 @@ pub(crate) fn act(
                 return Err(super::usage(text.cloud_arguments));
             };
             if chats.is_empty() && valid_share(who) {
-                // A share id names its person's access: revoked as `unshare PERSON` is, under their
-                // lock, re-reading their live share each pass. A share another writer replaced
-                // while the prompt waited (a 404 on the old id) has its replacement revoked.
-                let before = api.list(machine).map_err(failed)?;
-                let Some(named) = before.iter().find(|s| s.id == *who && s.revoked_at.is_none())
-                else {
-                    bail!("{}: {who}", text.share_not_found);
-                };
-                let person = named.person.clone();
                 (hooks.confirm)(&format!(
                     "unshare: {machine}, {who}. {} ",
                     text.cloud_unshare_confirm
                 ))?;
-                let _guard = (hooks.lock)(machine, &person)?;
-                return narrow(api, machine, &person, None, hooks);
+                let share = api.revoke(machine, who).map_err(failed)?;
+                (hooks.audit)(json!({"decision": "unshare", "machine": machine, "share": who}));
+                return Ok(json!({"machine": machine, "revoked": share}));
             }
             let remove =
                 if chats.is_empty() { None } else { Some(sessions_of(chats, target, hooks)?) };
@@ -945,7 +937,6 @@ mod live {
                 platform: None,
                 token_file: flags.value("cloud-token-file").map(std::path::PathBuf::from),
                 token_stdin: flags.has("cloud-token-stdin"),
-                app_session: false,
             };
             let credential =
                 crate::cli::read_platform_credential(&auth, &env, &mut std::io::stdin().lock())

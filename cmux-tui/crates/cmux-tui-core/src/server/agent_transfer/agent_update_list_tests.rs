@@ -1,7 +1,7 @@
 //! The plan's thread counts through the v2 list (row 7c, R4) against v1's whole list, from an
 //! agent service in this process (acpmux's `test-support` daemon), and its gate.
 
-use super::{CALL_TIMEOUT, list_read, list_threads, threads};
+use super::{CALL_TIMEOUT, list_threads, threads};
 use crate::server::agent_session_attach::agent_session_link::AcpmuxLink;
 use acpmux::test_support::list_daemon::{
     self, ListDaemon, Serves, bound_away, emit, emit_with_all, insert, seed_down_peer,
@@ -163,16 +163,10 @@ fn v2_pr07c_update_plan() {
     let run = |proxy: &list_daemon::Counted| {
         let before = proxy.sent();
         let started = Instant::now();
-        let link = AcpmuxLink::connect(&proxy.path, |_| {}).unwrap();
-        let read = list_read(&link, &proxy.path).unwrap();
+        let counts = v2_threads(&proxy.path).expect("the gate's daemon serves the list");
         let wall = started.elapsed().as_nanos();
-        // A timed sample proves it did the work (decision 271): an empty read is idle too.
-        let read = read.expect("the gate's daemon serves the list");
-        assert_eq!((read.live, read.running), (0, 0), "the gate's chats are idle");
-        assert_eq!(read.rows, 20, "the plan read the gate's 20 live chats");
-        // The sample's connections end before its bytes are read (`Counted::settled`), the
-        // sample's own link with them.
-        drop(link);
+        assert_eq!(counts, (0, 0), "the gate's chats are idle");
+        // The sample's connections end before its bytes are read (`Counted::settled`).
         runtime.block_on(proxy.settled()).unwrap();
         (wall, u128::from(proxy.sent() - before))
     };

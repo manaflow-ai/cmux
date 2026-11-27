@@ -27,19 +27,6 @@ struct ToastAppOpsTests {
         #expect(toast.action == nil)
     }
 
-    /// `working` leads with a spinner and waits for the app's next toast (its result, in the same slot);
-    /// the other tones end on their own.
-    @Test func aWorkingToastWaitsForItsResult() async throws {
-        let shown = Shown()
-        let ops = ToastAppOps { toast in shown.toasts.append(toast); return true }
-        _ = try await ops.handle(request(["title": "Running tests…", "tone": "working"]))
-        _ = try await ops.handle(request(["title": "Tests passed", "tone": "success"]))
-        _ = try await ops.handle(request(["title": "2 tests failed", "tone": "danger"]))
-        #expect(shown.toasts.map(\.tone) == [.working, .success, .error])
-        #expect(shown.toasts.map(\.duration) == [CmuxToast.untilClosed, .seconds(6), .seconds(6)])
-        #expect(Set(shown.toasts.map(\.id)).count == 1, "one slot: the result takes the spinner's place")
-    }
-
     @Test func aMissingTitleALongTitleOrAnUnknownToneIsRefused() async {
         let shown = Shown()
         let ops = ToastAppOps { toast in shown.toasts.append(toast); return true }

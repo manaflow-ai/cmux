@@ -157,7 +157,7 @@ impl crate::mux::Mux {
             Ok(Heard::Answered(Err(LinkError::Closed))) => {
                 Handover::Unsettled("acpmux closed the link before accepting the prompt".into())
             }
-            Ok(Heard::Answered(Err(LinkError::Timeout))) | Err(_) => {
+            Ok(Heard::Answered(Err(LinkError::Timeout | LinkError::Busy))) | Err(_) => {
                 Handover::Unsettled("acpmux did not accept the prompt in time".into())
             }
         };
@@ -204,6 +204,7 @@ impl crate::mux::Mux {
                         | LinkError::MethodNotFound(_)
                         | LinkError::Closed
                         | LinkError::Timeout
+                        | LinkError::Busy
                         | LinkError::BadList(_),
                     ) => Err(WithdrawError::Unavailable),
                 }
@@ -226,9 +227,9 @@ impl crate::mux::Mux {
             Err(LinkError::Rpc(message, data)) => withdraw_refusal(&message, &data),
             // An acpmux from before the method refuses it as any other error.
             Err(LinkError::MethodNotFound(message)) => withdraw_refusal(&message, &Value::Null),
-            Err(LinkError::Closed | LinkError::Timeout | LinkError::BadList(_)) => {
-                Err(WithdrawError::Unavailable)
-            }
+            Err(
+                LinkError::Closed | LinkError::Timeout | LinkError::Busy | LinkError::BadList(_),
+            ) => Err(WithdrawError::Unavailable),
         }
     }
 }
@@ -267,5 +268,16 @@ fn withdraw_refusal(message: &str, data: &Value) -> Result<Withdrawn, WithdrawEr
 }
 
 #[cfg(test)]
-#[path = "agent_message_acpmux_tests.rs"]
-mod tests;
+mod tests {
+    use super::session_info;
+    use serde_json::json;
+
+    #[test]
+    fn peer_session_info_is_allowed_only_for_forwarding() {
+        assert!(session_info(&json!({"sessionId": "chat"}), "chat", true));
+        assert!(session_info(&json!({"sessionId": "chat", "peer": null}), "chat", true));
+        assert!(!session_info(&json!({"sessionId": "chat", "peer": "other"}), "chat", true));
+        assert!(!session_info(&json!({"sessionId": "other"}), "chat", true));
+        assert!(session_info(&json!({"sessionId": "chat", "peer": "other"}), "chat", false));
+    }
+}

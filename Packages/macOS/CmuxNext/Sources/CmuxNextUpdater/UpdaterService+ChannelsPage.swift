@@ -3,9 +3,7 @@ public import Foundation
 
 /// The Settings > Updates Channels card (`cmux.settings.channels.state`): every
 /// ring's track as JSON for the page, each text localized here so the page draws no strings of
-/// its own. Each build's PRs (every one, with its title) come from its signed notes (cached once
-/// verified), so the card answers which PRs went into which build (Leo: "hm do we display which prs
-/// go into which nightly maybe that'd be useful per thing?"). `ring` is
+/// its own. Each build's PR numbers come from its signed notes (cached once verified). `ring` is
 /// the Channel row's value, which can move before the setting reaches the updater; its way back
 /// (``ringReturn(to:)``) is the card's `switch`.
 extension UpdaterService {
@@ -15,16 +13,14 @@ extension UpdaterService {
         let tracks = await channelTracks(limit: limit)
         let installed = tracks.lazy.compactMap(\.installed).first
         let builds = tracks.flatMap(\.builds).map(\.build)
-        var prs: [String: [ChannelPR]] = [:]
+        var prs: [String: [Int]] = [:]
         if let store = changelogNotes {
-            // A build whose notes are not loaded stays out of the map, so it shows no count
-            // rather than "PRs (0)".
-            prs = await withTaskGroup(of: (String, [ChannelPR]?).self) { group in
+            prs = await withTaskGroup(of: (String, [Int]).self) { group in
                 for build in builds {
-                    group.addTask { (build, (await store.notes(for: build)?.items).map(ChannelPR.list)) }
+                    group.addTask { (build, Array((await store.notes(for: build)?.items ?? []).compactMap(\.pr).prefix(8))) }
                 }
-                var result: [String: [ChannelPR]] = [:]
-                for await (build, numbers) in group { if let numbers { result[build] = numbers } }
+                var result: [String: [Int]] = [:]
+                for await (build, numbers) in group { result[build] = numbers }
                 return result
             }
         }
@@ -34,7 +30,7 @@ extension UpdaterService {
 
     /// - Parameter switches: this app can switch builds (``switchesBuilds``): every build but the
     ///   installed and pulled ones gets the Switch button.
-    nonisolated static func channelsPage(tracks: [ChannelTrack], installed: ChannelBuild?, prs: [String: [ChannelPR]],
+    nonisolated static func channelsPage(tracks: [ChannelTrack], installed: ChannelBuild?, prs: [String: [Int]],
                                          installedVersion: String, ring: UpdateRing = .nightly,
                                          way: RingReturn = .none, switches: Bool = false) -> [String: Any] {
         [
@@ -62,10 +58,7 @@ extension UpdaterService {
                             "pulled_reason": build.pulledReason ?? NSNull(),
                             "installed": build.isInstalled, "kept": build.isKept,
                             "switch": switches && !build.isInstalled && build.health != .pulled,
-                            "prs": (prs[build.build] ?? []).map {
-                                ["number": $0.number, "title": $0.title, "url": "\(ChannelBuild.repository)/pull/\($0.number)"] as [String: Any]
-                            },
-                            "prs_label": prs[build.build].map { UpdaterStrings.channelsPRs($0.count) } ?? NSNull(),
+                            "prs": (prs[build.build] ?? []).map { ["number": $0, "url": "\(ChannelBuild.repository)/pull/\($0)"] as [String: Any] },
                         ]
                     },
                 ]
@@ -112,23 +105,7 @@ extension UpdaterService {
     }
 }
 
-/// One PR of a build on the Channels card: its number and title from the build's signed notes.
-struct ChannelPR: Equatable, Sendable {
-    let number: Int
-    let title: String
-
-    /// Every PR of the notes once, in their order; items with no PR (direct commits) are left out.
-    nonisolated static func list(_ items: [ReleaseNotes.ChangeItem]) -> [ChannelPR] {
-        var seen = Set<Int>()
-        return items.compactMap { item in
-            guard let number = item.pr, seen.insert(number).inserted else { return nil }
-            return ChannelPR(number: number, title: item.title)
-        }
-    }
-}
-
 nonisolated extension UpdaterStrings {
-    static func channelsPRs(_ count: Int) -> String { format("updater.channels.prs", "PRs (%lld)", count) }
     static var channelsTitle: String { text("updater.channels.title", "Channels") }
     static func channelsInstalled(_ version: String) -> String { format("updater.channels.installed", "This Mac runs %@.", version) }
     static var channelsYouAreHere: String { text("updater.channels.youAreHere", "You Are Here") }

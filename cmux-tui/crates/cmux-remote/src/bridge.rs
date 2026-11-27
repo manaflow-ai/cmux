@@ -4,10 +4,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use cmux_remote_protocol::{
-    MUX_CONTROL_LINE_CODECS, MUX_INPUT_V1_FEATURE, MUX_LINE_CODEC_ZLIB, MUX_LINE_ZLIB_V1_FEATURE,
-    RouteId, Service, ServiceControl,
-};
+use cmux_remote_protocol::{MUX_INPUT_V1_FEATURE, RouteId, Service, ServiceControl};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Mutex, Semaphore, oneshot, watch};
 
@@ -192,14 +189,14 @@ pub async fn serve_mux_bridge(
                 let Ok((socket, _)) = accepted else { break };
                 let multiplexer = multiplexer.clone();
                 connections.spawn(async move {
-                    let Ok(stream) = multiplexer.open(Service::MuxControl, mux_control_open_metadata()).await else { return };
+                    let Ok(stream) = multiplexer.open(Service::MuxControl, BTreeMap::new()).await else { return };
                     let Ok(opened) = await_opened(&stream).await else { return };
                     let (reader, writer) = socket.into_split();
                     let _ = pump_mux_client_buffered(
                         Arc::new(stream),
                         reader,
                         writer,
-                        opened.features,
+                        opened.features.mux_input_v1,
                         opened.buffered,
                     )
                     .await;
@@ -222,7 +219,7 @@ pub struct OpenedMuxControl {
 impl OpenedMuxControl {
     /// Opens a mux control stream and waits for the daemon's answer.
     pub async fn open(multiplexer: &Arc<ServiceMultiplexer>) -> Result<Self, BridgeError> {
-        let stream = multiplexer.open(Service::MuxControl, mux_control_open_metadata()).await?;
+        let stream = multiplexer.open(Service::MuxControl, BTreeMap::new()).await?;
         match await_opened(&stream).await {
             Ok(opened) => Ok(Self { stream, opened }),
             Err(error) => {
@@ -250,7 +247,7 @@ impl OpenedMuxControl {
             Arc::new(self.stream),
             reader,
             writer,
-            self.opened.features,
+            self.opened.features.mux_input_v1,
             self.opened.buffered,
         )
         .await
@@ -260,16 +257,6 @@ impl OpenedMuxControl {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct ServiceOpenFeatures {
     pub(crate) mux_input_v1: bool,
-    /// The daemon compresses this stream's large lines (`CMXZ`), because the
-    /// open asked for it ([`mux_control_open_metadata`]).
-    pub(crate) mux_line_zlib_v1: bool,
-}
-
-/// The open metadata of every `mux-control` stream this client carries: it
-/// reads zlib lines. A daemon from before the key ignores it and sends plain
-/// lines.
-pub(crate) fn mux_control_open_metadata() -> BTreeMap<String, String> {
-    BTreeMap::from([(MUX_CONTROL_LINE_CODECS.to_owned(), MUX_LINE_CODEC_ZLIB.to_owned())])
 }
 
 pub(crate) struct OpenedStream {
@@ -330,17 +317,13 @@ pub(crate) async fn await_opened(stream: &ServiceStream) -> Result<OpenedStream,
 
 fn decode_opened(payload: &[u8], expected: Service) -> Result<ServiceOpenFeatures, BridgeError> {
     let value = serde_json::from_slice::<serde_json::Value>(payload)?;
-    let listed = |name: &str| {
-        value
-            .get("features")
-            .and_then(serde_json::Value::as_array)
-            .is_some_and(|features| features.iter().any(|feature| feature.as_str() == Some(name)))
-    };
-    let mux_input_v1 = listed(MUX_INPUT_V1_FEATURE);
-    let mux_line_zlib_v1 = listed(MUX_LINE_ZLIB_V1_FEATURE);
+    let mux_input_v1 =
+        value.get("features").and_then(serde_json::Value::as_array).is_some_and(|features| {
+            features.iter().any(|feature| feature.as_str() == Some(MUX_INPUT_V1_FEATURE))
+        });
     match serde_json::from_value::<ServiceControl>(value)? {
         ServiceControl::Opened { service } if service == expected => {
-            Ok(ServiceOpenFeatures { mux_input_v1, mux_line_zlib_v1 })
+            Ok(ServiceOpenFeatures { mux_input_v1 })
         }
         ServiceControl::Rejected { message, .. } => Err(BridgeError::Rejected(message)),
         _ => Err(BridgeError::Rejected("invalid service-open response".into())),
@@ -401,7 +384,7 @@ async fn pump_mux_client_buffered<R, W>(
     remote: Arc<ServiceStream>,
     local_reader: R,
     mut local_writer: W,
-    features: ServiceOpenFeatures,
+    mux_input_v1: bool,
     mut initial: VecDeque<crate::service::StreamChunk>,
 ) -> Result<(), BridgeError>
 where
@@ -409,7 +392,6 @@ where
     W: AsyncWrite + Unpin,
 {
     use tokio::io::{AsyncWriteExt, BufReader};
-    let ServiceOpenFeatures { mux_input_v1, mux_line_zlib_v1 } = features;
     let upload = {
         let remote = remote.clone();
         async move {
@@ -441,8 +423,7 @@ where
     let download = async move {
         let mut assembler = crate::mux_codec::MuxLineAssembler::<
             Option<crate::service::StreamBudget>,
-        >::with_maximum(MAX_MUX_DOWNLOAD_LINE_BYTES)
-        .accepting_zlib(mux_line_zlib_v1);
+        >::with_maximum(MAX_MUX_DOWNLOAD_LINE_BYTES);
         loop {
             let chunk = if let Some(chunk) = initial.pop_front() {
                 Some(chunk)
@@ -671,5 +652,177 @@ impl From<crate::mux_input::MuxInputError> for BridgeError {
 }
 
 #[cfg(test)]
-#[path = "bridge_tests.rs"]
-mod tests;
+mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use async_trait::async_trait;
+    use cmux_remote_protocol::{FrameFlags, Lane};
+    use tokio::io::AsyncReadExt;
+    use tokio::sync::{Mutex, mpsc, oneshot, watch};
+
+    use super::*;
+    use crate::service::{EndpointRole, SessionEndpoint};
+    use crate::session::ReceivedFrame;
+
+    struct TestEndpoint {
+        outgoing: mpsc::Sender<ReceivedFrame>,
+        incoming: Mutex<mpsc::Receiver<ReceivedFrame>>,
+        sequence: AtomicU64,
+        generation: watch::Sender<u64>,
+        sent: Mutex<Vec<ReceivedFrame>>,
+    }
+
+    impl TestEndpoint {}
+
+    #[async_trait]
+    impl SessionEndpoint for TestEndpoint {
+        async fn send_frame(
+            &self,
+            expected_generation: Option<u64>,
+            lane: Lane,
+            stream: u64,
+            payload: Bytes,
+            flags: FrameFlags,
+        ) -> Result<u64, ServiceError> {
+            let generation = *self.generation.borrow();
+            if let Some(expected) = expected_generation
+                && expected != generation
+            {
+                return Err(ServiceError::GenerationChanged { expected, actual: generation });
+            }
+            let sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
+            let frame = ReceivedFrame { generation, lane, stream, sequence, flags, payload };
+            self.sent.lock().await.push(frame.clone());
+            self.outgoing
+                .send(frame)
+                .await
+                .map_err(|_| ServiceError::Transport("test endpoint closed".into()))?;
+            Ok(sequence)
+        }
+
+        async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+            Ok(self.incoming.lock().await.recv().await)
+        }
+
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            Ok(())
+        }
+    }
+
+    fn endpoint_pair() -> (Arc<TestEndpoint>, Arc<TestEndpoint>) {
+        let (left_tx, left_rx) = mpsc::channel(32);
+        let (right_tx, right_rx) = mpsc::channel(32);
+        let (left_generation, _) = watch::channel(0);
+        let (right_generation, _) = watch::channel(0);
+        (
+            Arc::new(TestEndpoint {
+                outgoing: left_tx,
+                incoming: Mutex::new(right_rx),
+                sequence: AtomicU64::new(0),
+                generation: left_generation,
+                sent: Mutex::new(Vec::new()),
+            }),
+            Arc::new(TestEndpoint {
+                outgoing: right_tx,
+                incoming: Mutex::new(left_rx),
+                sequence: AtomicU64::new(0),
+                generation: right_generation,
+                sent: Mutex::new(Vec::new()),
+            }),
+        )
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mux_bridge_shutdown_aborts_and_joins_blocked_socket_tasks() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("mux.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let (client_endpoint, _daemon_endpoint) = endpoint_pair();
+        let multiplexer = ServiceMultiplexer::new(client_endpoint.clone(), EndpointRole::Client);
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            serve_mux_bridge(multiplexer, &listener, shutdown_rx).await;
+        });
+        let mut socket = tokio::net::UnixStream::connect(path).await.unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if client_endpoint
+                    .sent
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|frame| frame.flags.contains(FrameFlags::OPEN))
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        shutdown_tx.send(()).unwrap();
+        server.await.unwrap();
+
+        let mut byte = [0_u8; 1];
+        assert_eq!(socket.read(&mut byte).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn forward_connection_limit_defers_additional_tunnel_opens() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let forward = LocalPortForward::bind_with_limit(
+            client,
+            RouteId(11),
+            "127.0.0.1:0".parse().unwrap(),
+            1,
+        )
+        .await
+        .unwrap();
+
+        let first_socket = tokio::net::TcpStream::connect(forward.local_addr()).await.unwrap();
+        let first = tokio::time::timeout(std::time::Duration::from_secs(1), daemon.accept())
+            .await
+            .expect("first tunnel was not admitted")
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.service, Service::TcpTunnel);
+
+        let second_socket = tokio::net::TcpStream::connect(forward.local_addr()).await.unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), daemon.accept())
+                .await
+                .is_err(),
+            "second tunnel exceeded its forward's connection limit"
+        );
+
+        first.stream.reject("test".into(), "release admission permit".into()).await.unwrap();
+        let second = tokio::time::timeout(std::time::Duration::from_secs(1), daemon.accept())
+            .await
+            .expect("second tunnel was not admitted after permit release")
+            .unwrap()
+            .unwrap();
+        second.stream.reject("test".into(), "done".into()).await.unwrap();
+
+        drop(first_socket);
+        drop(second_socket);
+        forward.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn accepted_forward_socket_disables_nagle() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = tokio::spawn(tokio::net::TcpStream::connect(listener.local_addr().unwrap()));
+        let (server, _) = listener.accept().await.unwrap();
+        configure_forward_socket(&server).unwrap();
+        assert!(server.nodelay().unwrap());
+        client.await.unwrap().unwrap();
+    }
+}

@@ -178,7 +178,6 @@ async fn retry_restore_crash_points_keep_the_same_attempt_and_deadline() {
             hub.start_turn(
                 &session,
                 None,
-                None,
                 false,
                 false,
                 TurnInfo::prompted(
@@ -317,7 +316,6 @@ async fn retry_restore_stop_before_failure_is_durable_without_retry_events() {
         hub.start_turn(
             &session,
             None,
-            None,
             false,
             false,
             TurnInfo::prompted("test", "hello", "cut", "original", Control::Local),
@@ -366,7 +364,6 @@ async fn retry_restore_stop_before_failure_is_durable_without_retry_events() {
                 trust_gate: false,
                 error: "stream disconnected",
                 not_before: None,
-                slash: None,
             }),
         );
         let (again, session) = restart(&hub, &session).await;
@@ -480,7 +477,7 @@ async fn replaced_retry_cannot_be_admitted_as_a_new_turn() {
     session.replaced.store(true, std::sync::atomic::Ordering::SeqCst);
     let turn = TurnInfo::prompted("acpmux", "continue", "retry-turn", "retry~1", Control::Local);
     let error = hub
-        .start_turn(&session, Some("cut-turn"), None, false, false, turn)
+        .start_turn(&session, Some("cut-turn"), false, false, turn)
         .expect_err("a replaced retry must not start");
     assert_eq!(
         error.data.as_ref().and_then(|v| v["reason"].as_str()),
@@ -523,11 +520,10 @@ fn finish_auto_resume_and_replacement_share_the_lock_order() {
                 trust_gate: false,
                 error: "stream disconnected",
                 not_before: None,
-                slash: None,
             },
             1,
             &[],
-            (Err(RpcError::invalid_params("folder disappeared")), 0),
+            Err(RpcError::invalid_params("folder disappeared")),
             false,
         );
         finish_done_tx.send(()).unwrap();
@@ -586,18 +582,7 @@ async fn retry_restore_recovers_an_import_replacing_an_already_restored_session(
         hub.kill(&old, false).await.unwrap();
         // Memory-store equivalent of transfer_finish staging the old store aside.
         hub.store.delete(&old.id).unwrap();
-        let imported = hub
-            .import_into(
-                &bundle,
-                None,
-                crate::hub::transfer::Live::Moved(None),
-                None,
-                true,
-                false,
-                None,
-            )
-            .await
-            .unwrap();
+        let imported = hub.import_into(&bundle, None, true, None, true, false).await.unwrap();
         assert_eq!(old.id, imported.id);
         assert!(!Arc::ptr_eq(&old, &imported));
         hub.resume_queues();
@@ -642,18 +627,7 @@ async fn retry_restore_old_task_cannot_consume_a_replacements_retry() {
     old.replaced.store(true, std::sync::atomic::Ordering::SeqCst);
     hub.kill(&old, false).await.unwrap();
     hub.store.delete(&old.id).unwrap();
-    let imported = hub
-        .import_into(
-            &bundle,
-            None,
-            crate::hub::transfer::Live::Moved(None),
-            None,
-            true,
-            false,
-            None,
-        )
-        .await
-        .unwrap();
+    let imported = hub.import_into(&bundle, None, true, None, true, false).await.unwrap();
     hub.restore_auto_resume(&imported);
     let before = hub.session_summary(&imported)["retry"].clone();
     assert!(before.is_object());
@@ -669,7 +643,6 @@ async fn retry_restore_old_task_cannot_consume_a_replacements_retry() {
             trust_gate: false,
             error: "stream disconnected",
             not_before: None,
-            slash: None,
         },
         1,
     )
@@ -687,21 +660,20 @@ async fn retry_restore_old_task_cannot_consume_a_replacements_retry() {
             trust_gate: false,
             error: "stream disconnected",
             not_before: None,
-            slash: None,
         },
         1,
         &[],
-        (Err(RpcError::invalid_params("folder disappeared")), 0),
+        Err(RpcError::invalid_params("folder disappeared")),
         false,
     );
     hub.append_retry(&old, "auto_resume_exhausted", json!({"turnId": "later-turn"}));
     assert_eq!(hub.events(&imported.id, 0, 100).unwrap().len(), records);
     // Off/exhaustion and cleanup paths from old tasks also own only the old mark.
     assert!(!hub.take_pending(&old, "later-turn"));
-    let fired_gen = hub.fire_pending(&imported, "later-turn").unwrap();
-    hub.clear_fired(&old, "later-turn", fired_gen);
+    assert_eq!(hub.fire_pending(&imported, "later-turn"), Ok(()));
+    hub.clear_fired(&old, "later-turn");
     assert_eq!(hub.session_summary(&imported)["retryDeciding"], true);
-    hub.clear_fired(&imported, "later-turn", fired_gen);
+    hub.clear_fired(&imported, "later-turn");
     assert!(hub.session_summary(&imported)["retryDeciding"].is_null());
     std::fs::remove_dir_all(dir).unwrap();
 }

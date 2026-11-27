@@ -14,6 +14,26 @@ import Testing
         return [LayoutScreen(id: "s", name: "s", layout: .columns(columns))]
     }
 
+    /// M1 (PL-burst): a close's lead step (its first frame taken in the change's own turn) is for a close that
+    /// starts from rest. A second close while the first one springs must not step the moving panes again in its
+    /// turn: they keep showing where they were, and the next display frame moves them by one frame's step.
+    @Test func aCloseDuringASpringDoesNotStepTheMovingPanesInItsTurn() async throws {
+        let harness = PaneMotionBench.Harness(Self.row(4), focused: PaneID("p0-0"))
+        _ = await harness.frame()
+        let screen = try #require(harness.root.screenViews.values.first)
+        harness.model.apply(screens: Self.row(4, without: [1]))
+        harness.root.syncWithModel()
+        for _ in 0..<5 { _ = harness.root.advanceFrame(PaneMotionBench.frameBudget) }
+        let pane = PaneID("p3-0")
+        let moving = try #require(screen.paneFrames[pane])
+        #expect(moving.rect != moving.targetRect, "the first close is not springing")
+        let shown = moving.rect
+        harness.model.apply(screens: Self.row(4, without: [1, 2]))
+        harness.root.syncWithModel()
+        let after = try #require(screen.paneFrames[pane]).rect
+        #expect(after == shown, "the second close stepped a moving pane in its own turn: \(shown) -> \(after)")
+    }
+
     /// M4 (PL-burst): a divider released with a velocity seeds only the frames its layout change moves; a pane
     /// already springing for another reason (a column closing elsewhere) keeps its own velocity.
     @Test func aDividerReleaseSeedsOnlyTheFramesItMoves() throws {
@@ -32,6 +52,55 @@ import Testing
                          moved: [PaneID("beside")])
         #expect(frames[PaneID("unrelated")]?.width.velocity == 777, "the release reset a spring it does not move")
         #expect((frames[PaneID("beside")]?.width.velocity ?? 0) > 0, "the pane beside the divider was not seeded")
+    }
+
+    /// M2 (PL-burst): the screen resized while a spring runs (the sidebar sliding, the screen bar toggling) keeps
+    /// the spring going; it does not snap the panes to their end. Since one-motion (a8bcdff6c24, Leo 2026-11-05:
+    /// "everything moves as one") the springing pane rides the resize in its turn (`AnimatedFrame.rebase`): it
+    /// keeps exactly the travel it had left toward its new rest.
+    @Test func aResizeDuringASpringKeepsItGoing() async throws {
+        let harness = PaneMotionBench.Harness(Self.row(4), focused: PaneID("p0-0"))
+        _ = await harness.frame()
+        let screen = try #require(harness.root.screenViews.values.first)
+        harness.model.apply(screens: Self.row(4, without: [1]))
+        harness.root.syncWithModel()
+        for _ in 0..<4 { _ = harness.root.advanceFrame(PaneMotionBench.frameBudget) }
+        let before = try #require(screen.paneFrames[PaneID("p3-0")])
+        screen.setFrameSize(NSSize(width: screen.frame.width - 200, height: screen.frame.height))
+        let frame = try #require(screen.paneFrames[PaneID("p3-0")])
+        let left = { (f: AnimatedFrame) in
+            [f.targetRect.minX - f.rect.minX, f.targetRect.width - f.rect.width]
+        }
+        #expect(frame.targetRect != before.targetRect, "the resize did not move the pane's rest")
+        let kept = zip(left(before), left(frame)).allSatisfy { abs($0 - $1) < 0.001 }
+        #expect(kept, "the resize changed the travel a springing pane had left: \(left(before)) -> \(left(frame))")
+        #expect(screen.hasMotion, "the resize snapped the spring to its end")
+    }
+
+    /// M3 (PL-burst): a divider drag starting while a close springs elsewhere snaps only the frames the drag moves;
+    /// the close keeps springing.
+    @Test func aDragStartLeavesOtherSpringsRunning() async throws {
+        // Column 0 has two rows (split s0-0); columns 1-3 one each.
+        func screens(without closed: Set<Int>) -> [LayoutScreen] {
+            let kept = (0..<4).filter { !closed.contains($0) }
+            let columns = kept.map { PaneMotionBench.column($0, rows: $0 == 0 ? 2 : 1, width: 1.0 / Double(kept.count)) }
+            return [LayoutScreen(id: "s", name: "s", layout: .columns(columns))]
+        }
+        let harness = PaneMotionBench.Harness(screens(without: []), focused: PaneID("p0-0"))
+        _ = await harness.frame()
+        let screen = try #require(harness.root.screenViews.values.first)
+        harness.model.apply(screens: screens(without: [2]))
+        harness.root.syncWithModel()
+        for _ in 0..<4 { _ = harness.root.advanceFrame(PaneMotionBench.frameBudget) }
+        #expect(try #require(screen.paneFrames[PaneID("p3-0")]).rect != screen.paneFrames[PaneID("p3-0")]?.targetRect)
+        harness.model.setGestureActive(true)
+        harness.model.setSplitRatio(SplitID("s0-0"), ratio: 0.3, transaction: .make(), phase: .changed)
+        harness.root.syncWithModel()
+        let closing = try #require(screen.paneFrames[PaneID("p3-0")])
+        #expect(closing.rect != closing.targetRect, "the drag's start snapped the close in another column to its end")
+        let dragged = try #require(screen.paneFrames[PaneID("p0-0")])
+        #expect(dragged.rect == dragged.targetRect, "the dragged pane does not follow the pointer at once")
+        harness.model.setGestureActive(false)
     }
 
     /// M8 (PL-burst, suspected): an animated width change of a column left of the camera (a width preset, an

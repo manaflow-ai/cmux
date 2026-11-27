@@ -27,6 +27,7 @@ use tokio::sync::mpsc;
 use tokio::sync::{Mutex as AsyncMutex, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
+use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as TungsteniteError, Message};
 use tokio_util::sync::CancellationToken;
@@ -606,12 +607,7 @@ async fn relay_session(
     let websocket_config = WebSocketConfig::default()
         .max_message_size(Some(MAX_INBOUND_FRAME_BYTES))
         .max_frame_size(Some(MAX_INBOUND_FRAME_BYTES));
-    let connect = cmux_egress::ws::connect_async_with_config(
-        socket_url.as_str(),
-        Some(websocket_config),
-        true,
-        "chatmux_relay::session",
-    );
+    let connect = connect_async_with_config(socket_url.as_str(), Some(websocket_config), true);
     let (socket, _response) = tokio::select! {
         biased;
         _ = cancellation.cancelled() => return Ok(false),
@@ -1089,7 +1085,7 @@ async fn relay_session(
                                     "actionId": action_id,
                                     "ok": false,
                                     "code": "busy",
-                                    "message": "relay is busy: too many actions are running, so this one was not started",
+                                    "message": "relay is busy; retry this action",
                                 });
                                 let size = serde_json::to_string(&result)
                                     .map(|text| text.len() as u64)
@@ -1200,7 +1196,7 @@ async fn relay_session(
                                             "type": "pty_error",
                                             "ptyId": id,
                                             "code": "busy",
-                                            "message": if is_slow { "relay is busy: too many terminal requests are queued, so this one was not run" } else { "relay is busy: too many terminal commands are queued, so this one was not run" },
+                                            "message": if is_slow { "relay is busy; retry this terminal request" } else { "relay is busy; retry this terminal command" },
                                         }))
                                         .or_else(|| raw.get("requestId").and_then(Value::as_str).map(|id| serde_json::json!({
                                             "version": PTY_PROTOCOL_VERSION,
@@ -1208,7 +1204,7 @@ async fn relay_session(
                                             "requestId": id,
                                             "surfaces": [],
                                             "code": "busy",
-                                            "message": "relay is busy: too many terminal requests are queued, so this one was not run",
+                                            "message": "relay is busy; retry this terminal request",
                                         })));
                                     if let Some(reply) = reply {
                                         // This response is mandatory. Send it directly so a full

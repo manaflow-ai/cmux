@@ -1,5 +1,5 @@
 //! A new chat starts on the catalog's default model and effort (Codex:
-//! GPT-6.2 Sol at high, Claude Code: Opus 5.5 at medium), never on the harness
+//! GPT-6.1 Sol, Claude Code: Opus 5.5, both medium), never on the harness
 //! CLI's own default; the person's pick in a chat is saved in config.json
 //! `defaults` and a new chat after a daemon restart starts on it (cx-qtmy2,
 //! cx-fusxy). With nothing picked, the harness's own config (Codex's
@@ -170,17 +170,17 @@ async fn a_new_chat_starts_on_the_catalog_default_then_on_the_persons_pick_after
 
     // Nothing picked yet: the catalog's defaults, set by acpmux on the new chat.
     let codex = app.new_chat("codex").await;
-    assert_eq!(take_calls(&calls), set("gpt-6.2-sol", "high"));
+    assert_eq!(take_calls(&calls), set("gpt-6.1-sol", "medium"));
     app.new_chat("claude").await;
     assert_eq!(take_calls(&calls), set("claude-opus-5-5", "medium"));
     let harnesses = app.call("_acpmux/harnesses", json!({})).await;
     assert_eq!(
         harnesses["harnesses"]["codex"]["start"],
-        json!({"model": "gpt-6.2-sol", "modelSource": "catalog", "effort": "high", "effortSource": "catalog"})
+        json!({"model": "gpt-6.1-sol", "modelSource": "catalog", "effort": "medium", "effortSource": "catalog"})
     );
 
     // The chip naming the model the chat already runs is no pick and is not sent again.
-    app.call("session/set_model", json!({"sessionId": codex, "modelId": "gpt-6.2-sol"})).await;
+    app.call("session/set_model", json!({"sessionId": codex, "modelId": "gpt-6.1-sol"})).await;
     assert_eq!(take_calls(&calls), vec![]);
     assert_eq!(saved(&dir, "codex"), Value::Null);
 
@@ -353,7 +353,7 @@ async fn a_broken_or_unknown_harness_config_falls_back_to_the_catalog() {
     let daemon = hub(&dir);
     let mut app = client(&daemon);
     app.new_chat("codex").await;
-    assert_eq!(take_calls(&calls), set("gpt-6.2-sol", "high"));
+    assert_eq!(take_calls(&calls), set("gpt-6.1-sol", "medium"));
     app.new_chat("claude").await;
     assert_eq!(take_calls(&calls), set("claude-opus-5-5", "medium"));
     let harnesses = app.call("_acpmux/harnesses", json!({})).await;
@@ -415,7 +415,7 @@ async fn codex_runs_the_model_its_config_names_even_one_the_catalog_does_not_lis
     )
     .unwrap();
     app.new_chat("codex").await;
-    assert_eq!(take_calls(&calls), set("gpt-6.2-sol", "high"));
+    assert_eq!(take_calls(&calls), set("gpt-6.1-sol", "high"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -437,7 +437,7 @@ async fn a_catalog_default_the_harness_does_not_offer_is_not_used() {
 
     // The first chat learns the list; it never sets the model the account lacks.
     app.new_chat("codex").await;
-    assert!(!take_calls(&calls).iter().any(|(k, v)| k == "model" && v == "gpt-6.2-sol"));
+    assert!(!take_calls(&calls).iter().any(|(k, v)| k == "model" && v == "gpt-6.1-sol"));
     // Now the list is known: New Agent Chat says no start model, and none is set.
     let harnesses = app.call("_acpmux/harnesses", json!({})).await;
     assert!(

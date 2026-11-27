@@ -32,19 +32,12 @@ pub struct Harness {
     pub calls: Vec<Call>,
     pub unanswered: Vec<Call>,
     pub logs: Vec<(String, String)>,
-    /// Every `FromHost::State` (`cmux.state`) the VM sent, oldest first.
-    pub kept: Vec<Value>,
     pub done: HashMap<u64, (bool, Value)>,
     pub subscriptions: BTreeMap<u64, (String, Value)>,
     pub fatal: Option<FromHost>,
     pub handlers: HashMap<String, Handler>,
     /// When false, calls stay in `unanswered` until the test answers them.
     pub auto_answer: bool,
-    /// When true, `cmux.watch`'s daemon watches stay open in `watches` (the daemon's signals
-    /// cache serves them); when false each is answered `{fallback: true}`, as a host whose daemon
-    /// does not read the source.
-    pub daemon_watch: bool,
-    pub watches: BTreeMap<u64, (String, Value, Option<String>)>,
 }
 
 pub fn app(body: &str) -> String {
@@ -68,7 +61,7 @@ impl Harness {
         )
     }
 
-    /// `init` may carry `app`, `settings`, `ops`, `knownOps`, `locale`, `strings`, `state`.
+    /// `init` may carry `app`, `settings`, `ops`, `knownOps`, `locale`, `strings`.
     pub fn with(main: &str, init: Value, limits: Limits) -> Self {
         let mut vm = AppVm::new(limits).expect("vm");
         let list = |key: &str| -> Option<Vec<String>> {
@@ -80,26 +73,22 @@ impl Harness {
             .get("app")
             .cloned()
             .unwrap_or_else(|| json!({ "id": "local/test", "version": "1.0.0" }));
-        vm.init_with_state(
-            InitParams {
-                app: AppInfo {
-                    id: app["id"].as_str().unwrap_or("local/test").into(),
-                    version: app["version"].as_str().unwrap_or("1.0.0").into(),
-                },
-                settings: init.get("settings").cloned().unwrap_or_else(|| json!({})),
-                api_version: "1.0.0".into(),
-                ops: list("ops"),
-                known_ops: list("knownOps"),
-                locale: init.get("locale").and_then(Value::as_str).map(str::to_string),
-                strings: init.get("strings").cloned().unwrap_or(Value::Null),
-                main: main.to_string(),
-                main_name: Some("main.js".into()),
+        vm.init(InitParams {
+            app: AppInfo {
+                id: app["id"].as_str().unwrap_or("local/test").into(),
+                version: app["version"].as_str().unwrap_or("1.0.0").into(),
             },
-            init.get("state").cloned(),
-        )
+            settings: init.get("settings").cloned().unwrap_or_else(|| json!({})),
+            api_version: "1.0.0".into(),
+            ops: list("ops"),
+            known_ops: list("knownOps"),
+            locale: init.get("locale").and_then(Value::as_str).map(str::to_string),
+            strings: init.get("strings").cloned().unwrap_or(Value::Null),
+            main: main.to_string(),
+            main_name: Some("main.js".into()),
+        })
         .expect("init");
         let mut harness = Self {
-            kept: Vec::new(),
             vm,
             scenes: HashMap::new(),
             calls: Vec::new(),
@@ -110,8 +99,6 @@ impl Harness {
             fatal: None,
             handlers: HashMap::new(),
             auto_answer: true,
-            daemon_watch: false,
-            watches: BTreeMap::new(),
         };
         harness.pump().expect("pump after init");
         harness
@@ -129,7 +116,6 @@ impl Harness {
                 return Ok(());
             }
             let mut answers = Vec::new();
-            let mut fallbacks = Vec::new();
             for message in outbox {
                 match message {
                     FromHost::Scene { mount, ops } => {
@@ -155,7 +141,6 @@ impl Harness {
                         answers.push((cb, answer));
                     }
                     FromHost::Log { level, message } => self.logs.push((level, message)),
-                    FromHost::State { values } => self.kept.push(values),
                     FromHost::Done { cb, ok, body } => {
                         self.done.insert(cb, (ok, body));
                     }
@@ -165,25 +150,12 @@ impl Harness {
                     FromHost::Unsubscribe { sub } => {
                         self.subscriptions.remove(&sub);
                     }
-                    FromHost::Watch { watch, name, params, mount, .. } => {
-                        if self.daemon_watch {
-                            self.watches.insert(watch, (name, params, mount));
-                        } else {
-                            fallbacks.push(watch);
-                        }
-                    }
-                    FromHost::Unwatch { watch, refresh: false } => {
-                        self.watches.remove(&watch);
-                    }
                     fatal @ FromHost::Fatal { .. } => self.fatal = Some(fatal),
                     _ => {}
                 }
             }
             for (cb, (ok, body)) in answers {
                 self.vm.resolve(cb, ok, &body)?;
-            }
-            for watch in fallbacks {
-                self.vm.watch_state(watch, &json!({ "fallback": true }))?;
             }
         }
         panic!("the app kept calling for 64 rounds");

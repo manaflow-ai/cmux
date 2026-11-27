@@ -919,7 +919,7 @@ impl Hub {
     /// `session` is idle unless it was closed.
     fn idle_unless_closed(&self, session: &Session) {
         if session.status() != SessionStatus::Closed {
-            self.set_status(session, NotWaiting::Idle);
+            self.set_status(session, SessionStatus::Idle);
         }
     }
 }

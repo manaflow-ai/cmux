@@ -49,24 +49,14 @@ fn a_page_hang_round_trips_through_the_c_abi() {
     let id = "page:42";
     let reply =
         m.call("register", json!({"id": id, "kind": "page", "label": "Agent chat", "nowMs": 0}));
-    assert_eq!(reply, json!({"nextTickMs": 5000, "nextTickId": id}));
-    assert_eq!(
-        m.call("beat", json!({"id": id, "nowMs": 0.0})),
-        json!({"nextTickMs": 5000, "nextTickId": id})
-    );
-    assert_eq!(
-        m.call("tick", json!({"nowMs": 5000})),
-        json!({"actions": [], "nextTickMs": 10000, "nextTickId": id})
-    );
+    assert_eq!(reply, json!({"nextTickMs": 5000}));
+    assert_eq!(m.call("beat", json!({"id": id, "nowMs": 0.0})), json!({"nextTickMs": 5000}));
+    assert_eq!(m.call("tick", json!({"nowMs": 5000})), json!({"actions": [], "nextTickMs": 10000}));
     assert_eq!(
         m.call("tick", json!({"nowMs": 10000})),
         json!({
-            "actions": [{
-                "id": id, "kind": "page", "action": "reloadPage", "attempt": 1, "token": 1,
-                "label": "Agent chat", "cause": "Not answering for 10 s."
-            }],
-            "nextTickMs": 40000,
-            "nextTickId": id
+            "actions": [{"id": id, "kind": "page", "action": "reloadPage", "attempt": 1, "token": 1}],
+            "nextTickMs": 40000
         })
     );
     let snap = m.call("snapshot", json!({}));
@@ -88,13 +78,10 @@ fn a_page_hang_round_trips_through_the_c_abi() {
 
     m.call("repairResult", json!({"id": id, "action": "reloadPage", "ok": true, "nowMs": 10500}));
     assert_eq!(m.call("snapshot", json!({}))["parts"][0]["state"], "repairing");
-    assert_eq!(
-        m.call("beat", json!({"id": id, "nowMs": 11000})),
-        json!({"nextTickMs": 16000, "nextTickId": id})
-    );
+    assert_eq!(m.call("beat", json!({"id": id, "nowMs": 11000})), json!({"nextTickMs": 16000}));
     // Swift sends `null` for an absent pid or value.
     let loaded = json!({"id": id, "event": "loaded", "nowMs": 11000, "pid": null, "value": null});
-    assert_eq!(m.call("event", loaded), json!({"nextTickMs": 16000, "nextTickId": id}));
+    assert_eq!(m.call("event", loaded), json!({"nextTickMs": 16000}));
     let snap = m.call("snapshot", json!({}));
     assert_eq!((snap["worst"].clone(), snap["parts"].clone()), (json!("healthy"), json!([])));
     assert_eq!(snap["receipts"][0]["outcome"], "ok");
@@ -111,16 +98,13 @@ fn a_page_hang_round_trips_through_the_c_abi() {
     assert_eq!(m.call("inject", json!({"id": id, "fault": "hang"})), json!({"ok": true}));
     assert_eq!(
         m.call("visibility", json!({"id": id, "visible": false, "nowMs": 12000})),
-        json!({"nextTickMs": null, "nextTickId": null})
+        json!({"nextTickMs": null})
     );
     assert_eq!(
         m.call("repairNow", json!({"id": id, "nowMs": 12000})),
-        json!({"actions": [], "nextTickMs": null, "nextTickId": null})
+        json!({"actions": [], "nextTickMs": null})
     );
-    assert_eq!(
-        m.call("unregister", json!({"id": id})),
-        json!({"nextTickMs": null, "nextTickId": null})
-    );
+    assert_eq!(m.call("unregister", json!({"id": id})), json!({"nextTickMs": null}));
 }
 
 #[test]
@@ -156,22 +140,16 @@ fn a_rest_beat_turns_the_page_timer_off_through_the_c_abi() {
     let m = Model::new();
     let id = "page:7";
     m.call("register", json!({"id": id, "kind": "page", "label": "Sidebar", "nowMs": 0}));
-    assert_eq!(
-        m.call("beat", json!({"id": id, "nowMs": 0})),
-        json!({"nextTickMs": 5000, "nextTickId": id})
-    );
+    assert_eq!(m.call("beat", json!({"id": id, "nowMs": 0})), json!({"nextTickMs": 5000}));
     // `rest: true`: the page beats no more until something happens in it, so nothing is timed.
     assert_eq!(
         m.call("beat", json!({"id": id, "rest": true, "nowMs": 10000})),
-        json!({"nextTickMs": null, "nextTickId": null})
+        json!({"nextTickMs": null})
     );
     assert_eq!(
         m.call("tick", json!({"nowMs": 600000})),
-        json!({"actions": [], "nextTickMs": null, "nextTickId": null})
+        json!({"actions": [], "nextTickMs": null})
     );
     // A plain beat times it again.
-    assert_eq!(
-        m.call("beat", json!({"id": id, "nowMs": 600000})),
-        json!({"nextTickMs": 605000, "nextTickId": id})
-    );
+    assert_eq!(m.call("beat", json!({"id": id, "nowMs": 600000})), json!({"nextTickMs": 605000}));
 }

@@ -7,9 +7,6 @@
 //!   agent author.
 //! - `_acpmux/forum/rules`: the current rules, with deliveries and acks.
 //! - `_acpmux/forum/ack {postId}`: the calling session has read the post.
-//! - `_acpmux/forum/post {space, title, body, kind?, labels?}`,
-//!   `_acpmux/forum/reply {thread, body}`, `_acpmux/forum/search {query, space?}`: the
-//!   team's hosted forum (`hub/forum_hosted.rs`), as the calling session (its caller token).
 //!
 //! Web and peer connections are refused: rules are for this Mac's sessions.
 
@@ -17,7 +14,6 @@ use super::{Conn, str_param};
 use crate::forum::{Author, MAX_KEY_BYTES};
 use crate::hub::Hub;
 use crate::hub::forum::AnnounceRequest;
-use crate::hub::forum_hosted::PostRequest;
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -101,50 +97,6 @@ async fn handle(
             let post_id = str_param(params, "postId")
                 .ok_or_else(|| RpcError::invalid_params("postId is required"))?;
             hub.forum_ack(&session, post_id)
-        }
-        method::MUX_FORUM_POST | method::MUX_FORUM_REPLY | method::MUX_FORUM_SEARCH => {
-            let caller = conn.caller().ok_or_else(|| {
-                RpcError::invalid_params(
-                    "the hosted forum is reached from an agent session (its caller token)",
-                )
-                .with_data(json!({"reason": "forum.caller_required"}))
-            })?;
-            let session = hub.resolve(caller)?;
-            let text = |k: &str| str_param(params, k).unwrap_or_default().to_owned();
-            match m {
-                method::MUX_FORUM_POST => {
-                    let labels = match params.get("labels") {
-                        None | Some(Value::Null) => Vec::new(),
-                        Some(Value::Array(a)) => a
-                            .iter()
-                            .map(|l| l.as_str().map(str::to_owned))
-                            .collect::<Option<Vec<_>>>()
-                            .ok_or_else(|| RpcError::invalid_params("labels must be strings"))?,
-                        Some(_) => {
-                            return Err(RpcError::invalid_params("labels must be a list"));
-                        }
-                    };
-                    let req = PostRequest {
-                        space: text("space"),
-                        title: text("title"),
-                        body: text("body"),
-                        kind: str_param(params, "kind").map(str::to_owned),
-                        labels,
-                    };
-                    hub.forum_post(&session, req).await
-                }
-                method::MUX_FORUM_REPLY => {
-                    let thread = params
-                        .get("thread")
-                        .and_then(Value::as_u64)
-                        .filter(|n| *n > 0)
-                        .ok_or_else(|| {
-                            RpcError::invalid_params("thread must be a thread number")
-                        })?;
-                    hub.forum_reply(&session, thread, &text("body")).await
-                }
-                _ => hub.forum_search(&session, &text("query"), str_param(params, "space")).await,
-            }
         }
         other => Err(RpcError::method_not_found(other)),
     }

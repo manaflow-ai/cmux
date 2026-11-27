@@ -53,33 +53,6 @@ struct DeflatedMessage {
         return .whole(text, used: used)
     }
 
-    /// The first `count` bytes of the text of `bytes`, an envelope's frames joined so far,
-    /// inflated from what is in: nil while more frames are needed for them; empty for a stream
-    /// that is not deflate.
-    static func textPrefix(_ bytes: Data, count: Int) -> Data? {
-        guard bytes.count > headerBytes, bytes.first == marker else { return nil }
-        let body = bytes.subdata(in: (bytes.startIndex + headerBytes)..<bytes.endIndex)
-        let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
-        defer { stream.deallocate() }
-        guard compression_stream_init(stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) == COMPRESSION_STATUS_OK else { return Data() }
-        defer { compression_stream_destroy(stream) }
-        var text = [UInt8](repeating: 0, count: count)
-        let (status, left) = text.withUnsafeMutableBufferPointer { out in
-            body.withUnsafeBytes { input -> (compression_status, Int) in
-                guard let dst = out.baseAddress, let src = input.bindMemory(to: UInt8.self).baseAddress else { return (COMPRESSION_STATUS_ERROR, count) }
-                stream.pointee.dst_ptr = dst
-                stream.pointee.dst_size = count
-                stream.pointee.src_ptr = src
-                stream.pointee.src_size = body.count
-                return (compression_stream_process(stream, 0), stream.pointee.dst_size)
-            }
-        }
-        if status == COMPRESSION_STATUS_ERROR { return Data() }
-        // The prefix is whole once it fills `count` or the stream ended before it.
-        guard left == 0 || status == COMPRESSION_STATUS_END else { return nil }
-        return Data(text[0..<(count - left)])
-    }
-
     /// The text of `body`, the envelope's deflate stream: exactly ``textBytes`` long, else nil.
     func inflate(_ body: Data) -> Data? {
         var text = Data(count: textBytes + 1)

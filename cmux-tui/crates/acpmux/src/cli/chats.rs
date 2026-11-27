@@ -6,9 +6,6 @@
 //! - `search WORDS…`: `_acpmux/chats_search`, the chats whose prompts or
 //!   answers hold every word, each with the newest such message's snippet.
 //! - `roots`: `_acpmux/chat_roots`, with the refused roots and their reasons.
-//! - `warm [--chat ID]`: `_acpmux/chats_warm`, every log segment Compress Long Chats
-//!   (`agents.chats.coldSegments`) compressed, back to a plain file, checked byte for byte.
-//!   Exit 1 when one stays compressed (each is named with why; nothing is removed).
 //! - `open KEY [--cwd DIR]`: `_acpmux/chat_open`. An `adopt` plan creates the
 //!   daemon session (`session/new` with the plan's params) and attaches to
 //!   it. A `terminal` or `readOnly` plan is printed: `cmux chats open`
@@ -78,13 +75,6 @@ pub enum ChatsCmd {
     },
     /// The folders the index reads, and the folders it refuses with the reason.
     Roots,
-    /// Bring back every part of a chat that Compress Long Chats compressed, as plain files.
-    /// Turn the setting off first.
-    Warm {
-        /// Only this chat (its acpmux session id); every chat when left out.
-        #[arg(long)]
-        chat: Option<String>,
-    },
 }
 
 /// What opening a chat comes to, after the daemon planned it.
@@ -242,7 +232,7 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
                 query.as_deref(),
                 limit,
             );
-            let page = ready_page(&client, "_acpmux/chats", params).await?;
+            let page = client.request("_acpmux/chats", params).await?;
             if json_out {
                 print_json(&page);
             } else {
@@ -270,36 +260,11 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
             }
             Ok(())
         }
-        ChatsCmd::Warm { chat } => {
-            let params = match chat {
-                Some(chat) => json!({ "chat": chat }),
-                None => json!({}),
-            };
-            let warmed = client.request("_acpmux/chats_warm", params).await?;
-            if json_out {
-                print_json(&warmed);
-            } else {
-                print!("{}", warm_text(&warmed));
-            }
-            // A chat skipped (busy, or compressed whole) stays compressed too (#43562 review F3).
-            let stays = |key: &str| {
-                warmed.get(key).and_then(Value::as_array).is_some_and(|l| !l.is_empty())
-            };
-            if stays("left") || stays("skipped") {
-                return Err(AppError::new(
-                    Code::Runtime,
-                    "warm_left_compressed",
-                    "some chat history stays compressed (listed above); nothing was removed",
-                )
-                .into());
-            }
-            Ok(())
-        }
         ChatsCmd::Open { key, cwd, cwd_map } => {
             let outcome = resolve(&client, &key, cwd.as_deref(), &cwd_map).await?;
             match outcome {
                 OpenOutcome::Session { session_id } if !json_out => {
-                    crate::tui_entry::run(client, Some(session_id)).await
+                    crate::tui::run(client, Some(session_id)).await
                 }
                 outcome => {
                     if json_out {
@@ -314,79 +279,10 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
     }
 }
 
-/// `chats warm`'s reply as lines: what came back, then each part left compressed and each chat
-/// skipped, with why.
-pub fn warm_text(warmed: &Value) -> String {
-    let n = |key: &str| warmed.get(key).and_then(Value::as_u64).unwrap_or(0);
-    let mut out = if n("segments") == 0 {
-        "No compressed chat history to bring back.\n".to_owned()
-    } else {
-        format!(
-            "Brought back {} compressed parts of {} chats ({:.1} MB on disk now, {:.1} MB before).\n",
-            n("segments"),
-            n("chats"),
-            n("rawBytes") as f64 / 1_048_576.0,
-            n("compressedBytes") as f64 / 1_048_576.0,
-        )
-    };
-    let text = |v: &Value, key: &str| v.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
-    for left in warmed.get("left").and_then(Value::as_array).into_iter().flatten() {
-        let segment = left.get("segment").and_then(Value::as_u64);
-        let at = segment.map(|s| format!(" part {s:06}")).unwrap_or_default();
-        out.push_str(&format!(
-            "Stays compressed: chat {}{at}: {}\n",
-            text(left, "chat"),
-            text(left, "error")
-        ));
-    }
-    for skipped in warmed.get("skipped").and_then(Value::as_array).into_iter().flatten() {
-        out.push_str(&format!(
-            "Skipped chat {}: {}\n",
-            text(skipped, "chat"),
-            text(skipped, "reason")
-        ));
-    }
-    out
-}
-
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
-}
-
-/// How long `chats list` and `chats search` wait for the chat index to finish its scan.
-const INDEX_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// The answer to `m` once the chat index finished scanning (`ready`), asked again while it
-/// scans, up to [`INDEX_WAIT`]; past it, the last (partial) answer. A person never runs the
-/// command again just because the daemon had only now started.
-async fn ready_page(client: &Client, m: &str, params: Value) -> Result<Value> {
-    use cmux_tui_util::retry::{Attempt, Patience};
-    let answer = Patience::new("the chat index to finish scanning", INDEX_WAIT)
-        .spaced(std::time::Duration::from_millis(200), std::time::Duration::from_secs(2))
-        .run_async(
-            || Err(anyhow::anyhow!("{m}: the chat index did not answer in time")),
-            move || {
-                let params = params.clone();
-                async move {
-                    let page =
-                        client.request(m, params).await.map_err(|e| Attempt::Fail(Err(e)))?;
-                    if scanning(&page) { Err(Attempt::Retry(Ok(page))) } else { Ok(page) }
-                }
-            },
-        )
-        .await;
-    match answer {
-        Ok(page) | Err(Ok(page)) => Ok(page),
-        Err(Err(e)) => Err(e),
-    }
-}
-
-/// Whether `page` came from a chat index still scanning (and chats are on).
-fn scanning(page: &Value) -> bool {
-    page.get("ready").and_then(Value::as_bool) == Some(false)
-        && page.get("enabled").and_then(Value::as_bool) != Some(false)
 }
 
 /// The `list` table: key, harness, age, title, folder; one chat per line.
@@ -398,7 +294,7 @@ pub fn list_text(page: &Value, now_ms: i64) -> String {
         return out;
     }
     if page.get("ready").and_then(Value::as_bool) == Some(false) {
-        out.push_str("the chat index is still scanning: chats it has not reached are not listed\n");
+        out.push_str("the chat index is still scanning; try again in a moment\n");
     }
     if chats.is_empty() {
         out.push_str("no chats\n");
@@ -442,7 +338,7 @@ async fn search_all(client: &Client, mut params: Value, limit: usize) -> Result<
     let (mut unreadable, mut scanned) = (0_u64, 0_u64);
     loop {
         params.set("limit", json!(limit.saturating_sub(hits.len())));
-        let mut page = ready_page(client, "_acpmux/chats_search", params.clone()).await?;
+        let mut page = client.request("_acpmux/chats_search", params.clone()).await?;
         let next = page.get("nextCursor").and_then(Value::as_str).map(str::to_owned);
         if let Some(Value::Array(found)) = page.get_mut("hits").map(Value::take) {
             hits.extend(found);
@@ -476,7 +372,7 @@ pub fn search_text(found: &Value) -> String {
         return out;
     }
     if found.get("ready").and_then(Value::as_bool) == Some(false) {
-        out.push_str("the chat index is still scanning: no chat was searched yet\n");
+        out.push_str("the chat index is still scanning; try again in a moment\n");
         return out;
     }
     let hits = found.get("hits").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -588,5 +484,22 @@ fn outcome_text(outcome: &OpenOutcome) -> String {
 }
 
 #[cfg(test)]
-#[path = "chats_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_text_prints_each_chat_with_its_snippet_and_what_was_left_out() {
+        let found = json!({"ready": true, "enabled": true, "unreadable": 1,
+            "nextCursor": "k1.2", "hits": [
+            {"chat": {"key": "codex:a", "title": "Bump\nit"}, "role": "answer", "snippet": "…to 1.2…"},
+            {"chat": {"key": "claude-code:b", "title": null}, "role": "prompt", "snippet": "bump"},
+        ]});
+        assert_eq!(
+            search_text(&found),
+            "codex:a  Bump it\n    answer: …to 1.2…\nclaude-code:b  (untitled)\n    prompt: bump\n\
+             (1 chats could not be read)\n(the first 2 found; raise --limit for more)\n"
+        );
+        let none = json!({"ready": true, "enabled": true, "hits": [], "nextCursor": null});
+        assert_eq!(search_text(&none), "no chat says that\n");
+    }
+}

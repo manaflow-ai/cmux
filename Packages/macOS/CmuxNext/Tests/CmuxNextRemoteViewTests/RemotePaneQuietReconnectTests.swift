@@ -3,15 +3,10 @@ import AppKit
 import Foundation
 import Testing
 
-// The API under test is DEBUG-only, so `swift test -c release` skips this file.
-#if DEBUG
-
 /// conn-quiet (Leo, 2026-11-14: connectivity should "shut the f*** up and load faster"): a
 /// Cloud desktop that reconnects over its last frame says nothing until it has tried for
 /// ``RemotePaneState/reconnectNoticeDelay``, and a path that closed under a live picture comes
-/// back by itself instead of showing "Connection lost" with a Reconnect button. Leo, 2026-11-22: a
-/// Reconnect press is a vacuous decision ("vacuous decisions like that should be just done"), so the
-/// pane keeps trying for as long as it shows, and no lost path ever asks for one.
+/// back by itself instead of showing "Connection lost" with a Reconnect button.
 @MainActor
 @Suite struct RemotePaneQuietReconnectTests {
     private func streamingWithFrame() -> RemotePaneState {
@@ -45,22 +40,9 @@ import Testing
         #expect(!back.reconnectNoticeDue)
     }
 
-    /// A state no reducer stamped (a gallery's or a test's) still draws the connecting card.
     @Test func aFirstConnectStillSaysConnecting() {
         let state = RemotePaneState(hostName: "vm", requestedMode: .view)
         #expect(state.overlay == .connecting)
-    }
-
-    /// The pane stamps its first connect at its start: no card for the coming-up time, then the card with Cancel.
-    @Test func aNewPaneHoldsItsConnectingCardForTheComingUpTime() throws {
-        let source = MockRemoteStreamSource(status: RemoteViewStatus(state: .connecting))
-        let pane = RemoteDesktopPane(hostName: "vm", source: source, inputSink: nil, initialMode: .view)
-        let since = try #require(pane.state.connectingSince)
-        #expect(pane.state.overlay == nil)
-        #expect(pane.view.connectingCard == nil)
-        let due = RemotePaneReducer().reduce(pane.state, .connectNoticeCheck, now: since + RemotePaneState.connectNoticeDelay)
-        #expect(due.overlay == .connecting)
-        #expect(due.connectingSince == since)
     }
 
     /// The path closes under a live picture: the pane reconnects at once, silently.
@@ -68,6 +50,7 @@ import Testing
         let source = MockRemoteStreamSource(status: RemoteViewStatus(state: .streaming))
         let pane = RemoteDesktopPane(hostName: "vm", source: source, inputSink: nil, initialMode: .view, viaCloudTunnel: true,
                                      modeControl: .takeOver)
+        pane.autoReconnectsLost = true
         var reconnects = 0
         pane.handlers.reconnect = { reconnects += 1 }
         pane.apply(.status(RemoteViewStatus(state: .streaming)))
@@ -84,69 +67,25 @@ import Testing
         let source = MockRemoteStreamSource(status: RemoteViewStatus(state: .streaming))
         let pane = RemoteDesktopPane(hostName: "vm", source: source, inputSink: nil, initialMode: .view, viaCloudTunnel: true,
                                      modeControl: .takeOver)
+        pane.autoReconnectsLost = true
         var reconnects = 0
         pane.handlers.reconnect = { reconnects += 1 }
         pane.apply(.status(RemoteViewStatus(state: .streaming)))
         pane.apply(.frameShown)
         pane.apply(.stop)
         pane.apply(.status(RemoteViewStatus(state: .ended(.connectionLost))))
-        #expect(pane.state.sessionState == .ended(.stoppedByViewer), "the card still says Stopped, with its Reconnect")
+        #expect(pane.state.isEnded)
         for _ in 0 ..< 50 { await Task.yield() }
         #expect(reconnects == 0)
     }
 
-    /// A first connect that never showed a frame tries again too, still saying "Connecting".
-    @Test func aLostPathWithNoPictureYetConnectsAgain() async {
+    /// A first connect that never showed a frame keeps its card and Reconnect button.
+    @Test func aLostPathWithNoPictureYetKeepsTheEndedCard() {
         let source = MockRemoteStreamSource(status: RemoteViewStatus(state: .connecting))
         let pane = RemoteDesktopPane(hostName: "vm", source: source, inputSink: nil, initialMode: .view, viaCloudTunnel: true,
                                      modeControl: .takeOver)
-        var reconnects = 0
-        pane.handlers.reconnect = { reconnects += 1 }
+        pane.autoReconnectsLost = true
         pane.apply(.status(RemoteViewStatus(state: .ended(.connectionLost))))
-        #expect(pane.state.overlay == .connecting)
-        for _ in 0 ..< 50 where reconnects == 0 { await Task.yield() }
-        #expect(reconnects == 1)
-    }
-
-    /// No last try: past the backoff's end the pane keeps trying at its last step, and never
-    /// shows the "Connection lost" card.
-    @Test func theTriesNeverRunOut() {
-        let source = MockRemoteStreamSource(status: RemoteViewStatus(state: .streaming))
-        let pane = RemoteDesktopPane(hostName: "vm", source: source, inputSink: nil, initialMode: .view, viaCloudTunnel: true,
-                                     modeControl: .takeOver)
-        pane.apply(.status(RemoteViewStatus(state: .streaming)))
-        pane.apply(.frameShown)
-        for _ in 0 ... RemoteDesktopPane.autoReconnectBackoff.count + 2 {
-            pane.apply(.status(RemoteViewStatus(state: .ended(.connectionLost))))
-            #expect(pane.state.sessionState == .connecting)
-            #expect(pane.state.overlay == nil || pane.state.overlay == .connecting)
-            pane.apply(.status(RemoteViewStatus(state: .connecting)))
-        }
-        #expect(pane.autoReconnects == RemoteDesktopPane.autoReconnectBackoff.count + 3)
-        pane.stop()
-    }
-
-    /// A hide that cut a backoff wait short: showing the pane again (a Cloud desktop's session
-    /// lived through the hide) sends that reconnect instead of leaving "Reconnecting…" stuck.
-    @Test func aHideDuringTheBackoffResumesTheReconnect() async {
-        let source = MockRemoteStreamSource(status: RemoteViewStatus(state: .streaming))
-        let pane = RemoteDesktopPane(hostName: "vm", source: source, inputSink: nil, initialMode: .view, viaCloudTunnel: true,
-                                     modeControl: .takeOver)
-        var reconnects = 0
-        pane.handlers.reconnect = { reconnects += 1 }
-        pane.apply(.status(RemoteViewStatus(state: .streaming)))
-        pane.apply(.frameShown)
-        pane.apply(.status(RemoteViewStatus(state: .ended(.connectionLost))))
-        for _ in 0 ..< 50 where reconnects == 0 { await Task.yield() }
-        #expect(reconnects == 1)
-        // The first try's dial lost the path too: the second waits 1 s, and the hide cuts it short.
-        pane.apply(.status(RemoteViewStatus(state: .connecting)))
-        pane.apply(.status(RemoteViewStatus(state: .ended(.connectionLost))))
-        pane.stop()
-        pane.resumeInterruptedReconnect()
-        pane.resumeInterruptedReconnect()
-        #expect(pane.autoReconnects == 2, "the resumed wait is the same step, once")
-        pane.stop()
+        #expect(pane.state.overlay == .ended(.connectionLost))
     }
 }
-#endif

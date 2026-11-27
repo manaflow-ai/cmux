@@ -1,7 +1,6 @@
 // cmux NEXT action catalog data. Edit by hand: this is the source of truth.
 //! The `AutomationsActionCatalog` actions.
 
-use super::args;
 use crate::model::*;
 use crate::text::t;
 
@@ -19,7 +18,6 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "automation show-page",
-        arguments: &[args::NAME.optional()],
         ..Action::DEFAULT
     },
 ];

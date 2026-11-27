@@ -13,7 +13,7 @@ struct SidebarStatesPlaygroundCard {
     func sizeText(rowHeight: CGFloat) -> String {
         let rows = tabRowHeights.map { SidebarStatesPlaygroundMark.number($0) }.joined(separator: ", ")
         return String(format: String(localized: "sidebar.statesPlayground.card.caption", defaultValue: "Card %1$@ · tab rows %2$@ · row %3$@",
-                                     bundle: .localizedModule),
+                                     bundle: .module),
                       SidebarStatesPlaygroundMark.text(frame.size), rows.isEmpty ? "-" : rows, SidebarStatesPlaygroundMark.number(rowHeight))
     }
 }

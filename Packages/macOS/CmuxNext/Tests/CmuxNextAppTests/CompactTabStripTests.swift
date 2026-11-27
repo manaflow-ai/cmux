@@ -6,19 +6,22 @@ import CmuxNextTestSupport
 import Testing
 
 /// The tab strip follows the density's browser rows (Lawrence 2026-11-13, density thread, 4012bb9f9c935b): at Compact,
-/// the density these tests run at, Default's design scaled by 0.9 on 28 pt rows, a 33 pt strip, and a 6.5 pt title gap.
-/// The Compact tabs option (cx-ag5.12, Leo 2026-10-12; off by default) is
+/// the density these tests run at, Helium's design on 20 pt rows 2 pt apart, a 24 pt strip, the icon as far in as from
+/// the pill's top and 6 pt from the title. The Compact tabs option (cx-ag5.12, Leo 2026-10-12; off by default) is
 /// tighter still and never taller: its icon sits closer to its title, and its close and + buttons keep their targets.
 @MainActor @Suite(.serialized, .closesItsWindows) struct CompactTabStripTests {
     @Test func theDefaultStripFollowsTheDensitysBrowserRows() throws {
         let (strip, window) = Self.strip()
         defer { window.closeAfterTest() }
         let cell = try #require(strip.cells[TabID("tab1")])
-        #expect(Metrics.chromeRowHeight == 28, "Compact's browser row is \(Metrics.chromeRowHeight) pt")
+        #expect(Metrics.chromeRowHeight == 20, "Compact's browser row is \(Metrics.chromeRowHeight) pt")
         #expect(cell.frame.height == Metrics.chromeRowHeight, "a tab is \(cell.frame.height) pt")
-        #expect(strip.bounds.height == 33, "the strip is \(strip.bounds.height) pt: the row and 2.5 pt above and under it")
-        #expect(strip.metrics.contentLeadingInset == 7.5)
-        #expect(strip.metrics.iconTitleSpacing == 6.5, "the title sits \(strip.metrics.iconTitleSpacing) pt after the icon")
+        #expect(strip.bounds.height == 24, "the strip is \(strip.bounds.height) pt: the row and 2 pt above and under it")
+        // As far in as the icon sits from the pill's top, plus the glyphs' optical room (TabIconEvenInsetTests).
+        let iconTop = (cell.frame.height - strip.metrics.iconSize) / 2
+        #expect(strip.metrics.contentLeadingInset > iconTop && strip.metrics.contentLeadingInset <= iconTop + Metrics.space1,
+                "a tab's icon sits \(strip.metrics.contentLeadingInset) pt in, \(iconTop) pt from the top")
+        #expect(strip.metrics.iconTitleSpacing == 6, "the title sits \(strip.metrics.iconTitleSpacing) pt after the icon")
     }
 
     static func strip() -> (TabStripView, NSWindow) {
@@ -56,8 +59,7 @@ import Testing
         #expect(cell.frame.height <= plainTab, "Compact tabs draw a \(cell.frame.height) pt tab, taller than the \(plainTab) pt default")
         #expect(strip.bounds.height <= plainStrip, "Compact tabs draw a \(strip.bounds.height) pt strip, taller than the \(plainStrip) pt default")
         #expect(cell.frame.height <= Metrics.sidebarRowHeight, "a tab (\(cell.frame.height) pt) is taller than a sidebar row")
-        #expect(strip.metrics.iconTitleSpacing == Metrics.space2, "the title sits \(strip.metrics.iconTitleSpacing) pt after the icon")
-        #expect(strip.metrics.iconTitleSpacing < plain.metrics.iconTitleSpacing)
+        #expect(strip.metrics.iconTitleSpacing == 4, "the title sits \(strip.metrics.iconTitleSpacing) pt after the icon")
         #expect(strip.metrics.contentLeadingInset <= plainInset, "a tab's icon sits \(strip.metrics.contentLeadingInset) pt in")
 
         // The close button keeps Apple's 20 x 20 pt target (Helium's 14 pt square drawn) and closes the tab.
@@ -69,10 +71,11 @@ import Testing
         click(strip.convert(strip.convert(CGPoint(x: cell.frame.minX + close.midX, y: cell.frame.minY + close.midY), from: strip.tabsClip), to: nil), in: window)
         #expect(intents.contains { if case .close(TabID("tab1"), _) = $0 { true } else { false } }, "\(intents)")
 
-        // The + keeps its width and opens a tab; it is the pane ⋮'s height in every look (Lawrence 2026-11-20).
+        // The + keeps its width and opens a tab; the split look is a tab's height (#41212).
         let plus = strip.convert(strip.newTabButton.frame, from: strip.contentView)
         #expect(plus.width == strip.metrics.newTabButtonWidth, "the + is \(plus.size)")
-        #expect(plus.height == NewTabButtonView.frameHeight, "the + is \(plus.size)")
+        #expect(plus.height == NewTabButtonView.frameHeight(split: strip.newTabButton.splitSegment, side: plus.width,
+                                                           tabHeight: cell.frame.height), "the + is \(plus.size)")
         click(strip.convert(CGPoint(x: plus.midX, y: plus.midY), to: nil), in: window)
         #expect(intents.contains { if case .newTab = $0 { true } else { false } }, "\(intents)")
     }

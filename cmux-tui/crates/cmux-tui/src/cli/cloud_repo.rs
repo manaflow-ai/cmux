@@ -6,8 +6,6 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
-use cmux_tui_core::retry::{Attempt, Patience};
-
 use super::mcp::{CallFailure, FailureKind};
 use super::{GlobalArgs, UsageError};
 
@@ -142,10 +140,8 @@ pub(super) fn validate(action: &str, fields: &Map<String, Value>) -> Result<(), 
     Ok(())
 }
 
-/// One bounded request on the selected daemon connection. A connection that never took the
-/// request, or a read (list, attached, wait, local) whose connection broke, is tried again
-/// within a short wait; a partially sent add or sync never is: the next explicit call consults
-/// the daemon's ledger.
+/// One bounded request on the selected daemon connection. Never retries a
+/// partially sent add: the next explicit call consults the daemon's ledger.
 pub(super) fn call(global: &GlobalArgs, action: &str, args: Value) -> Result<Value, CallFailure> {
     let fail = |kind, code, message| CallFailure::local(kind, code, message);
     if global.machine.is_some() {
@@ -166,95 +162,207 @@ pub(super) fn call(global: &GlobalArgs, action: &str, args: Value) -> Result<Val
             error: super::wire::resolve_failure(&error),
             idempotency_key: None,
         })?;
-    request.insert("cmd".into(), json!(action));
-    request.insert("id".into(), json!("cloud-repo"));
-    let request = Value::Object(request);
-    Patience::new("the Cloud machine's cmux daemon", CONNECT_PATIENCE)
-        .run(|| exchange(&socket, derived, action, request.clone()))
-}
-
-/// How long a daemon that is not up yet (or a read whose connection broke) is waited for.
-#[cfg(not(test))]
-const CONNECT_PATIENCE: Duration = Duration::from_secs(15);
-#[cfg(test)]
-const CONNECT_PATIENCE: Duration = Duration::from_millis(300);
-
-/// One connection, one request line, one reply line.
-fn exchange(
-    socket: &std::path::Path,
-    derived: bool,
-    action: &str,
-    mut request: Value,
-) -> Result<Value, Attempt<CallFailure>> {
-    let fail = |kind, code, message| CallFailure::local(kind, code, message);
     let stream =
-        cmux_tui_core::server::connect_session_socket(socket, derived).map_err(|error| {
-            // Nothing was sent: a daemon still starting is waited for.
-            Attempt::Retry(fail(
+        cmux_tui_core::server::connect_session_socket(&socket, derived).map_err(|error| {
+            fail(
                 FailureKind::NotRun,
                 "repo.unavailable",
-                format!("The Cloud machine's cmux daemon is not reachable: {error}"),
-            ))
+                format!("Connect to the Cloud machine and retry: {error}"),
+            )
         })?;
     let timeout =
         if action == "cloud.repo.add" { Duration::from_secs(610) } else { Duration::from_secs(70) };
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
     let _ = stream.set_read_timeout(Some(timeout));
+    request.insert("cmd".into(), json!(action));
+    request.insert("id".into(), json!("cloud-repo"));
     let mut reader = BufReader::new(stream);
-    super::launch_credential::attach(&mut reader, socket, &mut request);
+    let mut request = Value::Object(request);
+    super::launch_credential::attach(&mut reader, &socket, &mut request);
     let mut bytes = request.to_string().into_bytes();
     bytes.push(b'\n');
-    let mutation = matches!(action, "cloud.repo.add" | "cloud.repo.sync");
-    let (sent_kind, after_send) = if mutation {
-        let hint = if action == "cloud.repo.add" {
-            " Adding the same repository resumes that clone instead of starting another; `cmux cloud repo attached` lists what is attached."
-        } else {
-            ""
-        };
-        (FailureKind::InProgress, hint)
+    let sent_kind = if matches!(action, "cloud.repo.add" | "cloud.repo.sync") {
+        FailureKind::InProgress
     } else {
-        (FailureKind::NotRun, "")
-    };
-    // A read is sent again; a mutation that may have arrived is not.
-    let broke = |message: String| {
-        let failure = fail(sent_kind, "transport.failed", message);
-        if mutation { Attempt::Fail(failure) } else { Attempt::Retry(failure) }
+        FailureKind::NotRun
     };
     reader.get_mut().write_all(&bytes).map_err(|error| {
-        broke(format!(
-            "The connection to the Cloud machine's cmux daemon broke while sending: {error}.{after_send}"
-        ))
+        fail(
+            sent_kind,
+            "transport.failed",
+            format!("Reconnect to the Cloud machine and retry: {error}"),
+        )
     })?;
     let mut line = String::new();
     reader.take(MAX_REPLY + 1).read_line(&mut line).map_err(|error| {
-        broke(format!("The Cloud machine's cmux daemon did not answer: {error}.{after_send}"))
+        fail(
+            sent_kind,
+            "transport.failed",
+            format!("Read the repository status and retry: {error}"),
+        )
     })?;
     if line.len() as u64 > MAX_REPLY || !line.ends_with('\n') {
-        return Err(broke(format!("The Cloud machine's reply was cut off.{after_send}")));
+        return Err(fail(
+            sent_kind,
+            "transport.failed",
+            "The machine reply was incomplete; reconnect and retry.".into(),
+        ));
     }
-    let reply: Value = serde_json::from_str(&line)
-        .map_err(|_| broke(format!("The Cloud machine's reply was not valid JSON.{after_send}")))?;
+    let reply: Value = serde_json::from_str(&line).map_err(|_| {
+        fail(
+            sent_kind,
+            "transport.failed",
+            "The machine reply was invalid; reconnect and retry.".into(),
+        )
+    })?;
     if reply.get("id").and_then(Value::as_str) != Some("cloud-repo") {
-        return Err(broke(format!("The Cloud machine answered another request.{after_send}")));
+        return Err(fail(
+            sent_kind,
+            "transport.failed",
+            "The machine answered another request; reconnect and retry.".into(),
+        ));
     }
     if reply.get("ok").and_then(Value::as_bool) == Some(true) {
         return reply.get("data").cloned().ok_or_else(|| {
-            broke(format!("The Cloud machine's reply held no repository result.{after_send}"))
+            fail(
+                sent_kind,
+                "transport.failed",
+                "The machine returned no repository result; retry.".into(),
+            )
         });
     }
-    Err(Attempt::Fail(fail(
+    Err(fail(
         FailureKind::Rejected,
         reply.get("error_code").and_then(Value::as_str).unwrap_or("repo.unavailable"),
         reply
             .get("error")
             .and_then(Value::as_str)
-            .unwrap_or(
-                "The Cloud machine's cmux daemon refused the repository action without a reason.",
-            )
+            .unwrap_or("Reconnect to the Cloud machine and retry.")
             .to_owned(),
-    )))
+    ))
 }
 
 #[cfg(test)]
-#[path = "cloud_repo_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn words(words: &[&str]) -> Vec<String> {
+        words.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn cloud_repo_chat_session_is_not_daemon_routing() {
+        let (global, args) = super::super::parse_globals(&words(&[
+            "--socket",
+            "/tmp/repo-test.sock",
+            "cloud",
+            "repo",
+            "add",
+            "--session",
+            "chat-1",
+            "--repo",
+            "cmux-platform",
+            "--ref",
+            "main",
+        ]))
+        .unwrap();
+        assert_eq!(global.socket.unwrap().to_str(), Some("/tmp/repo-test.sock"));
+        assert_eq!(global.session, None);
+        assert_eq!(
+            parse(&args[2..]).unwrap(),
+            ("cloud.repo.add", json!({"session":"chat-1","repo":"cmux-platform","ref":"main"}))
+        );
+    }
+
+    #[test]
+    fn cloud_repo_rejects_mixed_verbs_and_unbounded_waits() {
+        assert!(parse(&words(&["list", "--session", "chat", "--repo", "owner/name"])).is_err());
+        assert!(parse(&words(&["add", "--repo", "name"])).is_err());
+        assert!(
+            parse(&words(&["wait-github", "--session", "chat", "--timeout-ms", "60001"])).is_err()
+        );
+        assert_eq!(
+            parse(&words(&["list", "--session=chat", "--query=name"])).unwrap().1,
+            json!({"session":"chat","query":"name"})
+        );
+    }
+    #[test]
+    fn cloud_repo_socket_sends_shared_action_and_preserves_recovery() {
+        use std::os::unix::net::UnixListener;
+        let scratch = tempfile::tempdir().unwrap();
+        let socket = scratch.path().join("repo.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let result = json!({"code":"repo.needs_github", "message":"Connect GitHub; this add will retry automatically.",
+            "install_url":"https://github.com/apps/cmux/installations/new",
+            "retry":{"action":"cloud.repo.add","args":{"session":"chat","repo":"project"},"wait_action":"cloud.repo.wait_github"}});
+        let response = result.clone();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(
+                request,
+                json!({"id":"cloud-repo","cmd":"cloud.repo.add","session":"chat","repo":"project"})
+            );
+            writeln!(reader.get_mut(), "{}", json!({"id":"cloud-repo","ok":true,"data":response}))
+                .unwrap();
+        });
+        let global = GlobalArgs { socket: Some(socket), ..GlobalArgs::default() };
+        assert_eq!(
+            call(&global, "cloud.repo.add", json!({"session":"chat","repo":"project"})).unwrap(),
+            result
+        );
+        server.join().unwrap();
+    }
+    #[test]
+    fn cloud_repo_catalog_and_attachment_commands_use_the_shared_contract() {
+        assert_eq!(parse(&words(&["local"])).unwrap(), ("cloud.repo.local", json!({})));
+        assert_eq!(
+            parse(&words(&["attached", "--session", "chat"])).unwrap(),
+            ("cloud.repo.attached", json!({"session":"chat"}))
+        );
+        assert_eq!(
+            parse(&words(&[
+                "sync",
+                "--repos-json",
+                "[]",
+                "--complete",
+                "false",
+                "--install-url",
+                "https://github.com/apps/cmux"
+            ]))
+            .unwrap(),
+            (
+                "cloud.repo.sync",
+                json!({"repos":[],"complete":false,"install_url":"https://github.com/apps/cmux"})
+            )
+        );
+        for args in [
+            words(&["local", "--session", "chat"]),
+            words(&["sync", "--repos-json", "{}"]),
+            words(&["sync", "--repos-json", "[]", "--complete", "yes"]),
+        ] {
+            assert!(parse(&args).is_err());
+        }
+    }
+    #[test]
+    fn cloud_repo_sync_accepts_recent_array_and_rejects_other_json() {
+        assert_eq!(
+            parse(&words(&[
+                "sync",
+                "--repos-json",
+                "[]",
+                "--recent-json",
+                r#"[{"fullName":"o/r","private":true,"source":"recent"}]"#
+            ]))
+            .unwrap(),
+            (
+                "cloud.repo.sync",
+                json!({"repos":[],"recent":[{"fullName":"o/r","private":true,"source":"recent"}]})
+            )
+        );
+        assert!(parse(&words(&["sync", "--repos-json", "[]", "--recent-json", "{}"])).is_err());
+    }
+}

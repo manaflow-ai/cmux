@@ -171,9 +171,7 @@ import concurrent.futures
 import dataclasses
 import datetime
 import hashlib
-import importlib.util
 import json
-import os
 import posixpath
 import re
 import sqlite3
@@ -2929,14 +2927,6 @@ def parse_manifest(raw: str) -> Manifest:
         unreadable.setdefault(_normalized(lines[line - 1]), (line, "it reads or changes the manifest after it is built"))
 
     def dependency_names(expr: str, target: ManifestTarget, seen: frozenset[str] = frozenset()) -> None:
-        # `flag ? A : B` on a plain Bool (the Linux shape's `targetsLinux`): both arms' edges (their union), as
-        # for a ternary of products.
-        condition = _split_top(expr, "?")
-        arms = _split_top(condition[1], ":") if len(condition) == 2 else []
-        if len(arms) == 2 and re.fullmatch(r"!?[A-Za-z_]\w*", condition[0]):
-            for arm in arms:
-                dependency_names(arm, target, seen)
-            return
         for part in _split_top(expr, "+"):
             if part.startswith("[") and part.endswith("]"):
                 for element in _split_top(part[1:-1], ","):
@@ -3271,25 +3261,6 @@ def placing_map(repo: Path | str, rev: str, text: str | None) -> str | None:
 # Git
 
 
-# A wt checkout is a worktree of the host's blobless mirror (`.wt-mirrors/.../cmux.git`, `--filter=blob:none`), and
-# `git cat-file --batch` fetches every blob it lacks by itself, one object at a time: one fetch and one promisor pack in
-# the shared mirror per blob. fs-agent-lane-10, 2026-11-24: `arch-ratchet.py --update --rev HEAD --anchor ...` reading
-# each base commit's App files wrote a pack a second into the mirror, 2372 in an hour (git 2.43, which ignores
-# GIT_NO_LAZY_FETCH). So a read first fetches the blobs the clone lacks in one fetch (git_batch.fetch_missing_ids, beside
-# this file here and in the installed checks snapshot), and arch-ratchet's raised_by does that once for a whole range.
-_PROMISOR: dict[str, str | None] = {}
-
-
-def _git_batch():
-    name = "cmux_next_git_batch"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name("git_batch.py"))
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        sys.modules[name] = module
-    return sys.modules[name]
-
-
 class Git:
     """The few git calls the counts make, against one repository."""
 
@@ -3309,9 +3280,6 @@ class Git:
         """{(rev, path): text or None} through one `git cat-file --batch` (BY_ID: REV is an object id)."""
         if not items:
             return {}
-        if self.remote():
-            self.fetch_missing(rev for rev, _ in items) if by_id \
-                else self.fetch_missing(self.ids([f"{rev}:{path}" for rev, path in items]))
         data = "".join(f"{rev}\n" if by_id else f"{rev}:{path}\n" for rev, path in items).encode()
         # Through a file, never `input=`: over a pipe a big answer can deadlock (check-ui-font.py).
         with tempfile.TemporaryFile() as stdin:
@@ -3332,27 +3300,6 @@ class Git:
             else:
                 result[item] = None
         return result
-
-    def ids(self, specs: list[str]) -> set[str]:
-        """The blob ids SPECS (`rev:path`) name, read from trees only (git_batch.blob_ids), so nothing is fetched.
-        `cat-file --batch-check=%(objectname)` is no such probe: git 2.43 fetches each blob it lacks for it too
-        (measured on fs-agent-lane-10)."""
-        return _git_batch().blob_ids(self.repo, specs)
-
-    def fetch_missing(self, oids) -> int:
-        """Fetch the objects of OIDS this clone lacks in one fetch (git_batch.fetch_missing_ids) and return how many;
-        nothing for a whole clone or when none is missing. A failed fetch is left to the read that follows."""
-        oids = {o for o in oids if o and set(o) != {"0"}}
-        remote = self.remote() if oids else None
-        return _git_batch().fetch_missing_ids(self.repo, remote, oids) if remote else 0
-
-    def remote(self) -> str | None:
-        """This clone's promisor remote, or None for a whole clone (asked once per repository and process: a whole
-        clone's reads cost nothing more)."""
-        key = str(self.repo)
-        if key not in _PROMISOR:
-            _PROMISOR[key] = _git_batch().promisor_remote(self.repo)
-        return _PROMISOR[key]
 
     def read_blobs(self, items: list[tuple[str, str]]) -> dict[tuple[str, str], str | None]:
         """{(blob, path): text} for ITEMS through one `git cat-file --batch` (by object id)."""
@@ -3562,9 +3509,6 @@ class _ObjectReader:
         Raises subprocess.TimeoutExpired when git does not answer within the timeout (the ratchet fails open)."""
         if not specs:
             return []
-        git = Git(self.repo)
-        if git.remote():
-            git.fetch_missing(git.ids(specs))  # the round's missing blobs in one fetch, never one lazy fetch each
         with tempfile.TemporaryFile() as stdin:
             stdin.write("".join(f"{s}\n" for s in specs).encode())
             stdin.seek(0)

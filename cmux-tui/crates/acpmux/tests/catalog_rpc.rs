@@ -165,8 +165,7 @@ async fn a_claude_session_offers_every_catalog_claude_model() {
         .filter_map(|choice| choice["value"].as_str().map(str::to_owned))
         .collect();
 
-    let catalog =
-        acpmux::catalog::schema::parse(acpmux::catalog::BUNDLED.inflate().as_bytes()).unwrap();
+    let catalog = acpmux::catalog::schema::parse(acpmux::catalog::BUNDLED.as_bytes()).unwrap();
     let claude = catalog.harnesses.iter().find(|h| h.id == "claude").unwrap();
     for model in &claude.models {
         assert!(offered.contains(&model.id), "{} is not offered: {offered:?} ({new})", model.id);

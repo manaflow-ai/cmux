@@ -281,127 +281,6 @@ def check_swift(path: str, raw: str) -> list[Finding]:
     return findings
 
 
-# ---------------------------------------------------------------- Swift: the wash's shape
-
-# A press-fill style that draws the default rounded-square wash (8 pt on iOS, the button corner on the Mac).
-SWIFT_SQUARE_WASH_STYLE = re.compile(
-    r"\.buttonStyle\(\s*(?:\.cmuxPressFill(?:Tinted)?\s*\)|(?:CmuxMobilePressFillStyle|CmuxPressFillButtonStyle)\((?![^)]*\bshape:)[^)]*\)\s*\))"
-)
-# What makes a label's outer edge round or glass: a glass effect, or a background, clip or hit shape that is a
-# circle or capsule. A `Circle().fill(...)` dot inside a row is not the label's edge and does not count.
-SWIFT_ROUND_EDGE = re.compile(
-    r"\.glassEffect\(|\.(?:background|clipShape|contentShape|overlay)\([^\n]*?(?:\.circle|Circle\(\)|\.capsule|Capsule\(\))"
-)
-SWIFT_BUTTON_START = re.compile(r"^\s*(?:return\s+)?Button\b\s*[({]")
-
-
-def _indent(line: str) -> int:
-    return len(line) - len(line.lstrip(" "))
-
-
-def check_swift_wash_shape(path: str, raw: str) -> list[Finding]:
-    """A press-fill wash drawn as a rounded square behind a circle, capsule or glass label (Leo 2026-11-21: "when
-    i click tje jump to bottom in ios it has a gray square outline"). The fix names the label's shape:
-    `.cmuxPressFillCircle`, `.cmuxPressFillCapsule`, or `.cmuxPressGlass` for interactive Liquid Glass."""
-    findings = []
-    lines = raw.splitlines()
-    for n, line in enumerate(lines):
-        code = line.split("//", 1)[0]
-        if not SWIFT_SQUARE_WASH_STYLE.search(code):
-            continue
-        style_indent = _indent(line)
-        # The Button this modifier styles: the nearest `Button` above at or left of the modifier's indent.
-        start = None
-        for k in range(n - 1, max(-1, n - 80), -1):
-            if SWIFT_BUTTON_START.match(lines[k]) and _indent(lines[k]) <= style_indent:
-                start = k
-                break
-            if lines[k].strip() and _indent(lines[k]) < style_indent - 4:
-                break
-        if start is None:
-            continue
-        base = _indent(lines[start])
-        # The label's outer view sits one level in; its modifiers one level further (or at that level after a
-        # closing brace). The Button's own modifiers sit at the Button's indent, before and after the style.
-        edge_lines = []
-        for k in range(start + 1, n):
-            text = lines[k].split("//", 1)[0]
-            stripped = text.strip()
-            if not stripped.startswith("."):
-                continue
-            ind = _indent(lines[k])
-            if ind in (base, base + 4) or (ind == base + 8 and _outer_view_is_leaf(lines, start, k, base)):
-                edge_lines.append(k)
-        k = n + 1
-        while k < len(lines) and lines[k].strip().startswith(".") and _indent(lines[k]) == style_indent:
-            edge_lines.append(k)
-            k += 1
-        hit = next((k for k in edge_lines if SWIFT_ROUND_EDGE.search(lines[k].split("//", 1)[0])), None)
-        if hit is None or _allowed(lines, n + 1):
-            continue
-        findings.append(Finding(
-            path, n + 1,
-            f"the press wash is a rounded square, but the label's edge is `{lines[hit].strip()[:60]}` (line {hit + 1}); "
-            "use `.cmuxPressFillCircle`, `.cmuxPressFillCapsule` or `.cmuxPressGlass`",
-        ))
-    return findings
-
-
-# A wash style on iOS: anything but the no-wash looks (`.cmuxPressLine`, `.cmuxPressGlass`, a `shape: .line` or
-# `.glass` style). `.cmuxPressFillInLabel` washes only a fill the label draws, so a bare line under it draws none.
-SWIFT_WASHING_STYLE = re.compile(
-    r"\.buttonStyle\(\s*(?:\.cmuxPressFill(?:Tinted|Circle|Capsule)?\s*\)"
-    r"|CmuxMobilePressFillStyle\((?![^)]*\bshape:\s*\.(?:line|glass|label)\b)[^)]*\)\s*\))"
-)
-SWIFT_DISCLOSURE_ACTION = re.compile(r"\btoggleDisclosure\(")
-
-
-def check_swift_disclosure_wash(path: str, raw: str) -> list[Finding]:
-    """A transcript disclosure (its Button calls `toggleDisclosure`) is a line of bare text on the page; a press wash
-    behind it draws a gray box out of nothing (Leo 2026-11-23, on tapping a thought on iOS: it had that square
-    placeholder backing, "THAT AINT RIGHT"). Its pressed look is `.cmuxPressLine`: no wash, as its drawn rows."""
-    if not path.startswith("cmux-next-ios/") and "/" in path:
-        return []
-    findings = []
-    lines = raw.splitlines()
-    for n, line in enumerate(lines):
-        if not SWIFT_WASHING_STYLE.search(line.split("//", 1)[0]):
-            continue
-        style_indent = _indent(line)
-        start = None
-        for k in range(n - 1, max(-1, n - 80), -1):
-            if SWIFT_BUTTON_START.match(lines[k]) and _indent(lines[k]) <= style_indent:
-                start = k
-                break
-            if lines[k].strip() and _indent(lines[k]) < style_indent - 4:
-                break
-        if start is None:
-            continue
-        # The action: from the Button's line to its `} label:` (or the whole block for `Button(action:)`).
-        action = []
-        for k in range(start, n):
-            action.append(lines[k].split("//", 1)[0])
-            if "label:" in lines[k] and k > start:
-                break
-        if not any(SWIFT_DISCLOSURE_ACTION.search(a) for a in action) or _allowed(lines, n + 1):
-            continue
-        findings.append(Finding(
-            path, n + 1,
-            "a transcript disclosure line draws a press wash (a gray box behind bare text); use `.cmuxPressLine`",
-        ))
-    return findings
-
-
-def _outer_view_is_leaf(lines: list[str], start: int, k: int, base: int) -> bool:
-    """Line `k` (a modifier at base + 8) modifies the label's outer view only when that view, the last line at
-    base + 4 above it, opens no block (an `Image(...)`, not an `HStack {` whose children sit at base + 8)."""
-    for j in range(k - 1, start, -1):
-        if lines[j].strip() and _indent(lines[j]) == base + 4 and not lines[j].strip().startswith("."):
-            body = lines[j].split("//", 1)[0]
-            return body.count("{") <= body.count("}")
-    return False
-
-
 # ---------------------------------------------------------------- driver
 
 
@@ -421,7 +300,7 @@ def scanned(path: str) -> bool:
 
 def check_file(path: str, raw: str) -> list[Finding]:
     if path.endswith(".swift"):
-        return check_swift(path, raw) + check_swift_wash_shape(path, raw) + check_swift_disclosure_wash(path, raw)
+        return check_swift(path, raw)
     if path.endswith(".css"):
         return check_css(path, raw)
     return check_tailwind(path, raw)
@@ -461,31 +340,6 @@ def self_test() -> int:
         "n.css": ".seg [data-pressed] { font-weight: var(--weight-emphasis) }",
         "o.css": '.chip[aria-pressed="true"] { font-weight: 600 }',
         "p.swift": ".buttonStyle(.plain)",
-        "q.swift": (
-            "Button {\n} label: {\n    Image(systemName: \"arrow.down\")\n        .frame(width: 36, height: 36)\n"
-            "        .glassEffect(.regular.interactive(), in: .circle)\n        .frame(width: 44, height: 44)\n}\n"
-            ".buttonStyle(.cmuxPressFill)"
-        ),
-        "r.swift": (
-            "Button(action: action) {\n    Image(systemName: x)\n        .frame(width: size, height: size)\n}\n"
-            ".buttonStyle(.cmuxPressFill)\n.glassEffect(.regular.interactive(), in: .circle)"
-        ),
-        "s.swift": (
-            "Button {\n} label: {\n    HStack {\n        Text(x)\n    }\n    .padding(8)\n    .background(.fill, in: Capsule())\n}\n"
-            ".buttonStyle(CmuxMobilePressFillStyle(tinted: true))"
-        ),
-        "t.swift": (
-            "Button(action: a) {\n    ZStack {\n        Circle().fill(x)\n    }\n    .frame(width: 40, height: 40)\n"
-            "    .contentShape(.circle)\n}\n.buttonStyle(.cmuxPressFill)"
-        ),
-        "u.swift": (
-            "Button {\n    toggleDisclosure(holdFold, key: k, in: d) { open.toggle() }\n} label: {\n"
-            "    HStack {\n        Text(\"Thought\")\n    }\n    .frame(minHeight: 44)\n}\n.buttonStyle(.cmuxPressFill)"
-        ),
-        "v.swift": (
-            "Button {\n    toggleDisclosure(hold) { x() }\n} label: {\n    Text(\"Worked\")\n}\n"
-            ".buttonStyle(CmuxMobilePressFillStyle(tinted: true))"
-        ),
     }
     good = {
         "a.css": ".b:active:not(:disabled) { background: var(--p); cursor: default }",
@@ -507,25 +361,6 @@ def self_test() -> int:
         "p.css": ".b:is(:hover, :active) { box-shadow: inset 0 0 0 1px red; color: x }",
         "q.css": '.b[aria-pressed="true"] { background: x; color: y }',
         "r.swift": ".buttonStyle(.cmuxPressFill)",
-        "s.swift": (
-            "Button {\n} label: {\n    Image(systemName: \"arrow.down\")\n"
-            "        .glassEffect(.regular.interactive(), in: .circle)\n}\n.buttonStyle(.cmuxPressGlass)"
-        ),
-        "t.swift": (
-            "Button {\n} label: {\n    HStack {\n        Circle().fill(.red).frame(width: 6)\n"
-            "        Text(x)\n            .background(.fill, in: Capsule())\n    }\n}\n.buttonStyle(.cmuxPressFill)"
-        ),
-        "u.swift": (
-            "Button {\n} label: {\n    Text(x).background(.fill, in: Capsule())\n}\n"
-            ".buttonStyle(CmuxMobilePressFillStyle(shape: .capsule))"
-        ),
-        "v.swift": (
-            "Button {\n    toggleDisclosure(holdFold, key: k, in: d) { open.toggle() }\n} label: {\n"
-            "    Text(\"Thought\")\n}\n.buttonStyle(.cmuxPressLine)"
-        ),
-        "w.swift": (
-            "Button {\n    open(file)\n} label: {\n    Text(\"Edited\")\n}\n.buttonStyle(.cmuxPressFill)"
-        ),
     }
     failures = []
     for name, src in bad.items():

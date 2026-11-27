@@ -213,7 +213,7 @@ struct SidebarUniformRowSpacingTests {
         init() {
             let pinned = LayoutSection(id: SidebarLayoutDocument.pinnedSectionID, showsTitle: false, region: .top, look: .builtIn,
                                        items: SidebarUniformRowSpacingTests.pins.enumerated().map { index, id in
-                                           LayoutItem(id: id, ref: .workspace("pinned-\(index)"), label: "Pinned \(index)")
+                                           LayoutItem(id: id, ref: .workspace("pinned-\(index)"))
                                        })
             model = SidebarModel(sections: [SidebarUniformRowSpacingTests.pinnedBlock(), SidebarUniformRowSpacingTests.machine()],
                                  activeWorkspaceID: nil)
@@ -269,22 +269,31 @@ struct SidebarUniformRowSpacingTests {
         #expect(abs(w4.minY - w3.maxY - spacing) < 0.5)
     }
 
-    @Test(arguments: SidebarDensity.allCases) func aPinnedRowDrawsNoPinAndTakesAnUnpinnedRowsHeight(_ density: SidebarDensity) throws {
+    @Test(arguments: SidebarDensity.allCases) func thePinStartsOnAnUnpinnedRowsIconColumn(_ density: SidebarDensity) throws {
         let (saved, savedMotion) = (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride)
         (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (density, true)
         defer { (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (saved, savedMotion) }
         let h = Harness()
         defer { h.window.close() }
         let pinned = try h.pinnedRow(Self.pins[0])
-        // A pinned row leads as an unpinned one, with no pin (Leo 2026-11-23, ask c-b5d3e0efb6: "it puts a symbol at
-        // the left"), a missing workspace's too.
-        #expect(pinned.pinInkFrame == nil, "the pinned workspace row draws a pin")
+        // The harness's pins answer no workspace: a missing workspace keeps its pin (#38061).
+        let ink = try #require(pinned.pinInkFrame, "the pinned workspace row draws no pin")
+        let pin = h.list.convert(ink, from: pinned)
         let pinnedFrame = h.inList(pinned)
         let unpinned = try h.workspaceRow("w3")
+        // An unpinned row's leading slot: its icon, or where its title starts without one.
+        let content = h.list.convert(unpinned.icon.frame, from: unpinned)
         let unpinnedFrame = h.inList(unpinned)
+        // The pin's ink starts where an unpinned row's icon column (or its text-only title) starts, the row inset
+        // (https://github.com/manaflow-ai/cmux/issues/38061; Lawrence 2026-11-09, "home/pin icons not left aligned").
+        #expect(abs(pin.minX - content.minX) <= 0.5, "the pin's ink starts at \(pin.minX), the icon column at \(content.minX)")
+        #expect(abs((pin.midY - pinnedFrame.midY) - (content.midY - unpinnedFrame.midY)) < 0.5,
+                "the pin sits \(pin.midY - pinnedFrame.midY) pt off its row's middle, an unpinned row's content \(content.midY - unpinnedFrame.midY) pt")
         // A pinned row takes the band's row: an unpinned row's height, except at Expanded, where it is Comfortable's
         // (Lawrence 2026-11-04, pinned rows were too short; 9353f4addd2).
         #expect(abs(pinnedFrame.height - SidebarRowTokens.current.band.rowHeight) < 0.01)
         if density != .expanded { #expect(abs(pinnedFrame.height - unpinnedFrame.height) < 0.01) }
+        // The pinned row's title still starts after its pin.
+        #expect(h.list.convert(pinned.titleFrame, from: pinned).minX >= pin.maxX)
     }
 }

@@ -174,12 +174,6 @@ public nonisolated enum SidebarTunables {
         help: "Gives every workspace row a sample agent chat (needs you, working, done, failed or idle), to see the row states without real sessions.",
         default: false, code: "SidebarTunables.laneFixture")
 
-    /// Sample subagents on rows for captures (`SidebarSubagentFixture`), as `laneFixture` gives sample chats.
-    public static let subagentFixture = Tunable<Bool>.toggle(
-        "sidebar.subagents.fixture", .sidebar, "Sample subagents on rows",
-        help: "Gives workspace rows sample subagents (running, done, failed), to see the hover card's count and the failed mark without real sessions.",
-        default: false, code: "SidebarTunables.subagentFixture")
-
     /// How a remote machine's group shows its free RAM, cores busy and free disk (`RemoteMachinesSidebar`).
     public static let remoteMachineResources = Tunable<RemoteMachineResourcesStyle>.choice(
         "sidebar.remoteMachines.resources", .sidebar, "Remote machines' room",
@@ -304,7 +298,6 @@ public nonisolated enum SidebarTunables {
             SidebarRowBadgeStackCap.tunable.descriptor,
             SidebarRowBadgeStyle.tunable.descriptor,
             simulatePendingUpdate.descriptor,
-            subagentFixture.descriptor,
             updateCardAutomaticControl.descriptor,
             updateCardAutomaticSize.descriptor,
             updateCardButton.descriptor,

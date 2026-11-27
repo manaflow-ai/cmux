@@ -48,13 +48,18 @@ fn find(
     index
 }
 
+/// Index of the first ESC at or after `from`, or `data.len()`.
+#[inline]
+pub(crate) fn find_esc(data: &[u8], from: usize) -> usize {
+    find(data, from, |word| has_byte(word, 0x1b), |byte| byte == 0x1b)
+}
+
 /// Index of the first ESC or byte >= 0x80 at or after `from`, or `data.len()`.
 #[inline]
 pub(crate) fn find_esc_or_high(data: &[u8], from: usize) -> usize {
-    let at = wide::find::<true>(data, from);
     find(
         data,
-        at,
+        from,
         |word| word & HIGH != 0 || has_byte(word, 0x1b),
         |byte| byte == 0x1b || byte >= 0x80,
     )
@@ -63,97 +68,16 @@ pub(crate) fn find_esc_or_high(data: &[u8], from: usize) -> usize {
 /// Index of the first byte >= 0x80 at or after `from`, or `data.len()`.
 #[inline]
 pub(crate) fn find_high(data: &[u8], from: usize) -> usize {
-    let at = wide::find::<false>(data, from);
-    find(data, at, |word| word & HIGH != 0, |byte| byte >= 0x80)
+    find(data, from, |word| word & HIGH != 0, |byte| byte >= 0x80)
 }
 
-/// 16 bytes a step with the target's baseline SIMD (SSE2 on x86_64, NEON on
-/// aarch64): the index of the first byte >= 0x80 (or ESC, with `ESC`) at or
-/// after `from`, or the start of the last block shorter than 16 bytes, which
-/// the word scan above finishes. Every comparison is exact, so the index is
-/// the first match itself, with no byte-by-byte search after a hit.
-mod wide {
-    #[cfg(target_arch = "x86_64")]
-    #[inline(always)]
-    pub(super) fn find<const ESC: bool>(data: &[u8], from: usize) -> usize {
-        use std::arch::x86_64::{
-            _mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_or_si128, _mm_set1_epi8,
-        };
-        let mut at = from;
-        // SAFETY: SSE2 is in the x86_64 baseline, and every load reads the 16
-        // bytes at `at`, which the loop condition keeps inside `data`.
-        unsafe {
-            let esc = _mm_set1_epi8(0x1b);
-            while at + 16 <= data.len() {
-                let block = _mm_loadu_si128(data.as_ptr().add(at).cast());
-                // The movemask takes each byte's top bit: set for >= 0x80, and
-                // for every byte of the all-ones ESC comparison.
-                let hits =
-                    if ESC { _mm_or_si128(block, _mm_cmpeq_epi8(block, esc)) } else { block };
-                let mask = _mm_movemask_epi8(hits) as u32;
-                if mask != 0 {
-                    return at + mask.trailing_zeros() as usize;
-                }
-                at += 16;
-            }
-        }
-        at
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    #[inline(always)]
-    pub(super) fn find<const ESC: bool>(data: &[u8], from: usize) -> usize {
-        use std::arch::aarch64::{
-            vceqq_u8, vcgeq_u8, vdupq_n_u8, vget_lane_u64, vld1q_u8, vorrq_u8, vreinterpret_u64_u8,
-            vreinterpretq_u16_u8, vshrn_n_u16,
-        };
-        let mut at = from;
-        // SAFETY: NEON is in the aarch64 baseline, and every load reads the 16
-        // bytes at `at`, which the loop condition keeps inside `data`.
-        unsafe {
-            let esc = vdupq_n_u8(0x1b);
-            let high = vdupq_n_u8(0x80);
-            while at + 16 <= data.len() {
-                let block = vld1q_u8(data.as_ptr().add(at));
-                let high_bytes = vcgeq_u8(block, high);
-                let hits =
-                    if ESC { vorrq_u8(high_bytes, vceqq_u8(block, esc)) } else { high_bytes };
-                // Narrow each 0x00/0xff byte to a nibble: 4 mask bits a byte,
-                // in byte order.
-                let mask = vget_lane_u64::<0>(vreinterpret_u64_u8(vshrn_n_u16::<4>(
-                    vreinterpretq_u16_u8(hits),
-                )));
-                if mask != 0 {
-                    return at + (mask.trailing_zeros() / 4) as usize;
-                }
-                at += 16;
-            }
-        }
-        at
-    }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    #[inline(always)]
-    pub(super) fn find<const ESC: bool>(_data: &[u8], from: usize) -> usize {
-        from
-    }
-}
-
-/// Whether `byte` is a CSI final no tracker acts on (cursor motion, erase,
-/// insert/delete, scroll, SGR, ...): `@ABCDEFGHIJKLMPSTXZ` and
-/// `` `abdefgm ``. Excluded on purpose: modes (h l), save/restore (s r),
+/// CSI finals no tracker acts on (cursor motion, erase, insert/delete,
+/// scroll, SGR, ...). Excluded on purpose: modes (h l), save/restore (s r),
 /// soft reset and DECRQM (p), DECSCUSR (q), reports and queries (c n t u x).
-/// One range test per CSI; a test holds it equal to that list.
-#[inline(always)]
-fn is_inert_csi_final(byte: u8) -> bool {
-    matches!(
-        byte,
-        b'@'..=b'M' | b'P' | b'S' | b'T' | b'X' | b'Z' | b'`' | b'a' | b'b' | b'd'..=b'g' | b'm'
-    )
-}
+const INERT_CSI_FINALS: &[u8] = b"@ABCDEFGHIJKLMPSTXZ`abdefgm";
 
 /// Length of the complete inert CSI sequence at `data[at..]` (`ESC [`,
-/// parameters from `0-9 ; :` only, then a final [`is_inert_csi_final`] accepts),
+/// parameters from `0-9 ; :` only, then a final in [`INERT_CSI_FINALS`]),
 /// or 0 when the bytes there are not one.
 #[inline]
 fn inert_csi_len(data: &[u8], at: usize) -> usize {
@@ -165,7 +89,7 @@ fn inert_csi_len(data: &[u8], at: usize) -> usize {
         end += 1;
     }
     match data.get(end) {
-        Some(&fin) if is_inert_csi_final(fin) => end + 1 - at,
+        Some(fin) if INERT_CSI_FINALS.contains(fin) => end + 1 - at,
         _ => 0,
     }
 }
@@ -198,9 +122,6 @@ fn utf8_len(data: &[u8], at: usize) -> usize {
 /// than LF, VT, FF unless `line_ends_neutral`), complete valid UTF-8 code
 /// points, and complete inert CSI sequences.
 pub(crate) fn neutral_run_end(data: &[u8], from: usize, line_ends_neutral: bool) -> usize {
-    if line_ends_neutral {
-        return neutral_run_end_by_escape(data, from);
-    }
     let mut at = from;
     loop {
         at = if line_ends_neutral {
@@ -227,41 +148,3 @@ pub(crate) fn neutral_run_end(data: &[u8], from: usize, line_ends_neutral: bool)
         at += step;
     }
 }
-
-/// [`neutral_run_end`] with line ends neutral: one pass that stops only at
-/// ESC and bytes >= 0x80 (16 bytes a step, [`find_esc_or_high`]), steps over
-/// a complete inert CSI there, and ends at the first ESC that is not one. A
-/// frame of SGR-colored text has an ESC every few bytes, so the walk makes no
-/// call per ESC-to-ESC segment.
-///
-/// From a byte >= 0x80 the bytes up to the next ESC are neutral exactly when
-/// they are valid UTF-8 (`simdutf8` accepts the same code points as
-/// [`utf8_len`]: no overlong forms, surrogates or values past U+10FFFF), and
-/// its `valid_up_to` stops before an invalid or incomplete code point, where
-/// the byte walk stops too. Non-ASCII text (CJK, box drawing, emoji) is then
-/// validated 16-64 bytes a step instead of one code point at a time.
-fn neutral_run_end_by_escape(data: &[u8], from: usize) -> usize {
-    let mut at = from;
-    loop {
-        at = find_esc_or_high(data, at);
-        let Some(&byte) = data.get(at) else { return at };
-        if byte == 0x1b {
-            let csi = inert_csi_len(data, at);
-            if csi == 0 {
-                return at;
-            }
-            at += csi;
-            continue;
-        }
-        let rest = data.get(at..).unwrap_or_default();
-        let esc = memchr::memchr(0x1b, rest).map_or(data.len(), |offset| at + offset);
-        if let Err(error) = simdutf8::compat::from_utf8(data.get(at..esc).unwrap_or_default()) {
-            return at + error.valid_up_to();
-        }
-        at = esc;
-    }
-}
-
-#[cfg(test)]
-#[path = "byte_scan_tests.rs"]
-mod tests;

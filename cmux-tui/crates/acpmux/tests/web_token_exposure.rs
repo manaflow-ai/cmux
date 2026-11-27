@@ -44,7 +44,6 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
             peer_token: Some(PEER_TOKEN.into()),
             vm_boundary: false,
             github_broker: false,
-            group: None,
         },
     );
     cfg.peers.insert(
@@ -57,7 +56,6 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
-            group: None,
         },
     );
     cfg.store.mode = StoreMode::Memory;
@@ -345,17 +343,6 @@ fn web_no_open_prints_the_link_without_its_token_unless_asked() {
     assert!(!plain.contains(&token), "web --no-open printed the token: {plain}");
     assert!(plain.contains("http://127.0.0.1:"), "{plain}");
     assert!(plain.contains("--show-token"), "{plain}");
-    let app_plain = cli(&["web", "--app", "--no-open"]);
-    assert!(app_plain.contains("/app/"), "{app_plain}");
-    assert!(!app_plain.contains(&token), "{app_plain}");
-    let app_token = acpmux::ws_auth::browser_app_token(&token);
-    assert!(!app_plain.contains(&app_token), "{app_plain}");
-    let app_shown = cli(&["web", "--app", "--no-open", "--show-token"]);
-    assert!(!app_shown.contains(&token), "{app_shown}");
-    assert!(app_shown.contains(&format!("/app/#token={app_token}")), "{app_shown}");
-    let app_json: Value = serde_json::from_str(&cli(&["--json", "web", "--app"])).unwrap();
-    assert!(app_json["url"].as_str().unwrap().contains(&format!("/app/#token={app_token}")));
-
     let shown = cli(&["web", "--no-open", "--show-token"]);
     assert!(shown.contains(&format!("/#token={token}")), "{shown}");
     let json: Value = serde_json::from_str(&cli(&["--json", "web"])).unwrap();

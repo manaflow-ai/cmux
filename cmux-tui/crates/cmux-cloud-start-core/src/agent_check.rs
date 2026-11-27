@@ -3,7 +3,7 @@
 //! "You've hit your weekly limit · resets Nov 14, 1pm (UTC)", so every start paid for a machine its
 //! agent could not use). Leo, 2026-11-10: "i already told you to test these".
 //!
-//! The app gives a Claude start the person's own Claude login. Before the lease it
+//! The app gives a Claude start the person's own Claude login (`harness_login`). Before the lease it
 //! asks Anthropic once with that login for the cheapest possible answer (one token of the smallest
 //! model) and hands this module the reply's status and its `anthropic-ratelimit-unified-*` headers,
 //! the same headers Claude Code turns into its `rate_limit_event`. [`check`] reads them: a login
@@ -144,7 +144,7 @@ pub fn limit(probe: &Probe) -> Option<Limit> {
     Some(Limit { window, resets_at })
 }
 
-/// What [`check`] reads: the start's agent (as [`probes`] reads it) and model
+/// What [`check`] reads: the start's agent (as `harness_login::login_provider` reads it) and model
 /// (None: the harness default), the probe's reply when the app made one, and the time now (unix
 /// seconds).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,17 +179,8 @@ pub struct Answer {
 }
 
 /// Whether a start of `harness` asks Anthropic before its lease: a Claude start only.
-/// No agent named is Claude (acpmux's default); otherwise the name's family (`claude-code-acp`,
-/// `/usr/bin/claude`) decides.
 pub fn probes(harness: Option<&str>) -> bool {
-    let Some(harness) = harness.filter(|h| !h.is_empty()) else { return true };
-    harness
-        .rsplit('/')
-        .next()
-        .and_then(|name| {
-            name.split(|c: char| c == '-' || c == '_' || c.is_whitespace()).find(|p| !p.is_empty())
-        })
-        .is_some_and(|family| family.eq_ignore_ascii_case("claude"))
+    crate::harness_login::login_provider(harness) == Some(crate::harness_login::Provider::Claude)
 }
 
 /// The start's answer. A Claude start whose probe reports a used-up limit that has not reset yet,

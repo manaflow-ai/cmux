@@ -292,7 +292,7 @@ import CmuxNextTestSupport
                 #expect(highlighted && cleared, "\(container) \(place): the drop highlight showed \(highlighted), stayed \(!cleared)")
                 #expect(dropped, "\(container) \(place): \(batch.count) files were not taken")
                 #expect(h.drafted.count == batch.count, "\(container) \(place): \(batch.count) files, the draft holds \(h.drafted)")
-                h.transcript.removeDraftAttachments(h.transcript.draftAttachmentIDs)
+                h.transcript.removeDraftAttachments(h.transcript.draftAttachmentHashes)
             }
         }
     }

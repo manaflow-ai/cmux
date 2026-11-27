@@ -1,5 +1,4 @@
 @testable import CmuxNextApp
-import CmuxNextControl
 import Foundation
 import Testing
 
@@ -45,20 +44,6 @@ struct CrashNoticeTests {
         #expect(LaunchRecovery.decide(previous: plain).crashedPages.isEmpty)
         let old = try Self.previous(signal: "\(SIGSEGV)\n", recovery: true, survived: false)
         #expect(LaunchRecovery.decide(previous: old).crashedPages.isEmpty, "a marker without started pages holds none")
-    }
-
-    /// A build that keeps ending soon after launch (a restart loop: two quick ends in a row) starts
-    /// the updater before it builds or restores a window, so it can still find and download the
-    /// build that fixes it. Any other launch starts it after the first frame, as before.
-    @Test func aRestartLoopStartsTheUpdaterBeforeTheWindows() throws {
-        let loop = try Self.previous(signal: "\(SIGSEGV)\n", recovery: true, survived: false)
-        #expect(LaunchRecovery.decide(previous: loop).startsUpdaterBeforeWindows)
-        let hangLoop = try Self.previous(signal: nil, recovery: true, survived: false)
-        #expect(LaunchRecovery.decide(previous: hangLoop).startsUpdaterBeforeWindows, "a restore that hangs twice is a loop too")
-        let once = try Self.previous(signal: "\(SIGSEGV)\n")
-        #expect(!LaunchRecovery.decide(previous: once).startsUpdaterBeforeWindows, "one crash restores as before")
-        #expect(!LaunchRecovery.decide(previous: nil).startsUpdaterBeforeWindows, "a clean launch starts it after the first frame")
-        #expect(!LaunchRecovery.decide(previous: try Self.previous(signal: nil)).startsUpdaterBeforeWindows)
     }
 
     /// What the next launch reads from the files a previous run left:

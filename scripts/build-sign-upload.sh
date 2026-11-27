@@ -62,8 +62,6 @@ echo "Pre-flight checks passed"
 # --- Build GhosttyKit ---
 echo "Building GhosttyKit..."
 rm -rf GhosttyKit.xcframework ghostty/macos/GhosttyKit.xcframework
-# Ghostty's packages from our mirror, with bounded retries, before the build.
-scripts/cmux-next/zig-fetch-all.sh ghostty || echo "warning: Ghostty Zig package prefetch failed; the build fetches what it lacks" >&2
 (
   cd ghostty
   zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Dsentry=false -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
@@ -96,7 +94,7 @@ if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
   scripts/cmux-next/build-web-bundles.sh --force
 fi
 # The Bundle cmux-tui phase bundles none (deferred); this tree's client is installed below.
-CMUX_NEXT_TUI_MODE=deferred xcodebuild -skipPackagePluginValidation -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
+CMUX_NEXT_TUI_MODE=deferred xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
 echo "Build succeeded"
 if [ ! -d "$APP_PATH/Contents/Frameworks/Chromium Embedded Framework.framework" ]; then
   echo "WARNING: no Chromium engine embedded; this release ships the browser as unavailable" >&2

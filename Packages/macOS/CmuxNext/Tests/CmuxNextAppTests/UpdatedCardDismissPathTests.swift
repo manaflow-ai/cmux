@@ -56,7 +56,7 @@ struct UpdatedCardDismissPathTests {
         host.setHovered(true)
         #expect(host.closeShown, "the pointer on the card shows the x")
         #expect(host.closeButton.accessibilityLabel() == "Close")
-        #expect(host.closeButton.frame.maxX == 200 - host.closeInset, "the x sits at the card's top right")
+        #expect(host.closeButton.frame.maxX == 200 - SidebarUpdatedCardHost.closeInset.width, "the x sits at the card's top right")
         #expect(host.subviews.last === host.closeButton, "the page never covers the x")
         // Leo 2026-11-07: the card wears the composer's material, which its page paints (no native veil
         // of its own under the page any more).

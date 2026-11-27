@@ -1,6 +1,5 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextRemote
 @testable import CmuxNextServer
@@ -168,29 +167,23 @@ import Testing
         #expect(host.opened == ["ssh-leo@huge-blue.ts.net"])
     }
 
-    /// The native card (Lawrence 2026-11-17: "most dialogs should have 0 react involved"): every phase has words and a
-    /// way out, the steps fill in from the run, and Open Workspace opens the added machine and closes the card.
-    @Test func theCardIsNativeWithWordsInEveryPhaseAndOpensTheWorkspace() async throws {
-        _ = NSApplication.shared
-        let card = AddMachineCard(services: host.services())
-        card.open(over: nil)
-        let panel = card.dialog.panel
-        #expect(panel.dialogView?.spec.title == AddMachineStrings.title, "pick: the host field on the first frame")
-        #expect(panel.dialogView?.buttonView("add")?.isEnabled == false, "Add waits for a host ssh takes")
+    @Test func openWorkspaceFromTheCardTakesOnlyThePersonsOwnClick() async throws {
         host.scripts = [[Self.report("huge-blue", "leo@huge-blue.ts.net", ok: true, Self.okSteps)]]
-        panel.dialogView?.dialog.setValue(.text("leo@huge-blue.ts.net"), for: "destination")
-        panel.dialogView?.dialog.handle(.return, modifiers: [])
-        #expect(await runs(card).finished() == nil)
-        let ready = try #require(panel.dialogView?.spec)
-        #expect(ready.title == AddMachineStrings.ready("huge-blue"))
-        #expect(ready.fields.contains { if case let .steps(steps) = $0 { steps.allSatisfy { $0.state == .done } } else { false } })
-        #expect(CmuxFloatingDialogPanel.hasContent(ready))
-        panel.dialogView?.dialog.handle(.return, modifiers: [])
+        runs.begin()
+        runs.add(destination: "leo@huge-blue.ts.net", name: "")
+        #expect(await runs.finished() == nil)
+        let provider = AddMachineCardProvider(runs: runs)
+        // A page script (no gesture) never opens a workspace on the machine.
+        do {
+            _ = try await provider.call(AddMachineCardProvider.openWorkspaceOp, params: .object([:]),
+                                        context: PageCallContext(page: PageDescriptor.serverCards.id))
+            Issue.record("openWorkspace ran without the person's click")
+        } catch let error as PageError { #expect(error.code == PageNativeOp.userOnlyCode) }
+        #expect(host.opened.isEmpty)
+        _ = try await provider.call(AddMachineCardProvider.openWorkspaceOp, params: .object([:]),
+                                    context: PageCallContext(page: PageDescriptor.serverCards.id, userGesture: true, gestureEvent: 1))
         #expect(host.opened == ["ssh-leo@huge-blue.ts.net"])
-        #expect(!panel.isVisible, "Open Workspace closes the card")
     }
-
-    private func runs(_ card: AddMachineCard) -> AddMachineRuns { card.runs }
 
     @Test func theNameFieldNamesTheMachine() async {
         host.scripts = [[Self.report("lab", "huge-blue", ok: true, Self.okSteps)]]
@@ -462,7 +455,8 @@ import Testing
         let offline = HostCandidate(name: "c", dnsName: "", ip: "", os: "", online: false, alreadyPeer: false)
         let unprobed = HostCandidate(name: "d", dnsName: "", ip: "", os: "", online: true, alreadyPeer: false)
         #expect(!added.isPickable && !off.isPickable && !offline.isPickable && unprobed.isPickable)
-        #expect(AddMachineCardSpec.badge(off) == AddMachineStrings.sshOff && off.destination == "b")
+        let wire = AddMachineCardProvider.candidate(off)
+        #expect(wire["pickable"] == .bool(false) && wire["sshOK"] == .bool(false) && wire["destination"] == .string("b"))
     }
 
     /// Leo's ask-2971491c27: huge-blue, cmux16, air-blue and big-red were acpmux peers but not in the

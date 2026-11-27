@@ -43,7 +43,6 @@ public nonisolated enum SidebarSectionsSetting {
         }
         result.minimalMode = ColumnLayoutSettings.choice(root, minimalModePath, fallback: minimalModeDefault, diagnostics: &diagnostics)
         result.sessionTree = flag(root, sessionTreePath, fallback: sessionTreeDefault, &diagnostics)
-        result.workspaceListApp = workspaceListApp(root, &diagnostics)
         result.showsTips = flag(root, tipsPath, fallback: tipsDefault, &diagnostics)
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
@@ -51,8 +50,6 @@ public nonisolated enum SidebarSectionsSetting {
         result.showSpaces = flag(root, showSpacesPath, fallback: showSpacesDefault, &diagnostics)
         result.showProfileControl = flag(root, showProfileControlPath, fallback: showProfileControlDefault, &diagnostics)
         result.showSearchButton = flag(root, showSearchButtonPath, fallback: showSearchButtonDefault, &diagnostics)
-        result.showLiveToggle = flag(root, showLiveTogglePath, fallback: showLiveToggleDefault, &diagnostics)
-        result.presenceLive = flag(root, presenceLivePath, fallback: presenceLiveDefault, &diagnostics)
         result.showNewWorkspaceChooser = flag(root, showNewWorkspaceChooserPath, fallback: showNewWorkspaceChooserDefault, &diagnostics)
         result.workspacesAsTabs = flag(root, workspacesAsTabsPath, fallback: workspacesAsTabsDefault, &diagnostics)
         result.chromeGroups = flag(root, chromeGroupsPath, fallback: chromeGroupsDefault, &diagnostics)
@@ -63,9 +60,6 @@ public nonisolated enum SidebarSectionsSetting {
         result.minimal = flag(root, minimalPath, fallback: minimalDefault, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: detailedStatusIconsDefault, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: showTimestampsDefault, &diagnostics)
-        result.relativeTimestamps = flag(root, relativeTimestampsPath, fallback: relativeTimestampsDefault, &diagnostics)
-        result.settleFinished = flag(root, settleFinishedPath, fallback: settleFinishedDefault, &diagnostics)
-        result.showAgentSessions = flag(root, showAgentSessionsPath, fallback: showAgentSessionsDefault, &diagnostics)
         result.showColors = flag(root, showColorsPath, fallback: showColorsDefault, &diagnostics)
         result.workspaceColorIndicator = WorkspaceColorsSetting.parseIndicatorStyle(root, fallback: WorkspaceColorsSetting.indicatorStyleDefault, &diagnostics)
         result.showLocalMachine = flag(root, showLocalMachinePath, fallback: showLocalMachineDefault, &diagnostics)
@@ -78,31 +72,13 @@ public nonisolated enum SidebarSectionsSetting {
         let priority = SidebarPriorityViewSetting.self
         result.priorityViewEnabled = flag(root, priority.enabledPath, fallback: priority.enabledDefault, &diagnostics)
         result.priorityViewShown = flag(root, priority.shownPath, fallback: priority.shownDefault, &diagnostics)
-        result.priorityViewFilters = flag(root, priority.filtersPath, fallback: priority.filtersDefault, &diagnostics)
-        result.priorityViewShowIdle = flag(root, priority.showIdlePath, fallback: priority.showIdleDefault, &diagnostics)
-        result.priorityViewStatusWords = flag(root, priority.statusWordsPath, fallback: priority.statusWordsDefault, &diagnostics)
         result.groupBy = ColumnLayoutSettings.choice(root, groupByPath, fallback: groupByDefault, diagnostics: &diagnostics)
-        result.folderlessUngrouped = flag(root, folderlessUngroupedPath, fallback: folderlessUngroupedDefault, &diagnostics)
         result.density = ColumnLayoutSettings.choice(root, densityPath, fallback: densityDefault, diagnostics: &diagnostics)
         result.textSize = ColumnLayoutSettings.choice(root, textSizePath, fallback: textSizeDefault, diagnostics: &diagnostics)
-        result.profileMenuStyle = ColumnLayoutSettings.choice(root, profileMenuStylePath, fallback: profileMenuStyleDefault,
-                                                              diagnostics: &diagnostics)
         result.style = ColumnLayoutSettings.choice(root, stylePath, fallback: styleDefault, diagnostics: &diagnostics)
         result.showChats = flag(root, showChatsPath, fallback: showChatsDefault, &diagnostics)
         result.projection = SidebarProjectionCustomizationResolver.parse(root, diagnostics: &diagnostics)
-        result.nav = SidebarNavResolver.parse(root, diagnostics: &diagnostics)
         return result
-    }
-
-    /// `sidebar.workspaceListApp`: an app id, or nil for the built-in list (absent, null or empty).
-    static func workspaceListApp(_ root: JSONValue, _ diagnostics: inout [SettingsDiagnostic]) -> String? {
-        guard let value = root.value(at: workspaceListAppPath) else { return nil }
-        if case .null = value { return nil }
-        guard let text = value.stringValue else {
-            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.workspaceListApp", message: "expected an app id such as \"local/workspace-list\""))
-            return nil
-        }
-        return text.allSatisfy(\.isWhitespace) ? nil : text
     }
 
     private static func flag(_ root: JSONValue, _ path: [String], fallback: Bool, _ diagnostics: inout [SettingsDiagnostic]) -> Bool {

@@ -10,14 +10,10 @@
 //! never a path. `from_image` takes decoded pixels, at most
 //! [`MAX_IMAGE_PIXELS`] (the caller downsamples; the palette samples a
 //! 64 x 64 grid anyway), so the daemon decodes no image format.
-//!
-//! `theme.slots.resolve` (read, `theme-slots-v1`) is stateless the same way:
-//! a theme file's text in, the slot variants it picks out.
 
 use std::sync::Arc;
 
 use base64::Engine as _;
-use cmux_config::theme_file::{self, ThemeDiagnosticKind, ThemeFile};
 use cmux_theme_tokens::{
     Appearance, Env, Pixels, Rgb, Scheme, SchemeFormat, find_theme_file, palette_from_image,
 };
@@ -29,8 +25,6 @@ use crate::resource::{ResourceError, ResourceOperation};
 
 /// Advertised in identify: the daemon answers `theme.scheme.*`.
 pub(crate) const CAPABILITY: &str = "theme-scheme-v1";
-/// Advertised in identify: the daemon answers `theme.slots.resolve`.
-pub(crate) const SLOTS_CAPABILITY: &str = "theme-slots-v1";
 
 /// Most pixels `from_image` takes (256 x 256).
 pub(crate) const MAX_IMAGE_PIXELS: u64 = 256 * 256;
@@ -46,7 +40,6 @@ pub(super) fn dispatch(
         ResourceOperation::ThemeSchemeConvert => convert(&fields),
         ResourceOperation::ThemeSchemeExport => export(&fields, &Env::current()),
         ResourceOperation::ThemeSchemeFromImage => from_image(&fields),
-        ResourceOperation::ThemeSlotsResolve => resolve_slots(&fields),
         other => Err(ResourceError::validation_invalid(
             None,
             format!("{} is not a theme.scheme operation", other.wire_name()),
@@ -203,42 +196,67 @@ pub(crate) fn from_image(fields: &Map<String, Value>) -> Result<Value, ResourceE
     }))
 }
 
-/// `{text, name?}` (`theme.slots.resolve`): the slot variants a theme file's
-/// text picks (`slots`), checked against schemas/theme/slots.json by
-/// cmux-config's theme file reader, and what it refused there. The app passes
-/// `slots` to its web views as is; nothing is written. The same read answers the
-/// look's `motion` block (named `{duration, bounce}` spring presets and
-/// design-token spring and fade overrides, clamped to `cmux.motion/1`; all empty
-/// when the file has none), so a theme file edit reaches the chrome's motion on
-/// the path that already re-asks on every change.
-pub(crate) fn resolve_slots(fields: &Map<String, Value>) -> Result<Value, ResourceError> {
-    let text = string(fields, "text")
-        .ok_or_else(|| ResourceError::validation_invalid(Some("text"), "text is required"))?;
-    let name =
-        string(fields, "name").filter(|name| theme_file::is_valid_name(name)).unwrap_or("theme");
-    let file = ThemeFile::read(
-        name,
-        Some(Ok(text)),
-        &Value::Object(Map::new()),
-        None,
-        cmux_config::schema::Schema::embedded(),
-        &cmux_config::domains::Domains::default(),
-    );
-    let diagnostics: Vec<Value> = file
-        .diagnostics
-        .iter()
-        .filter(|d| {
-            d.kind == ThemeDiagnosticKind::UnreadableFile
-                || d.path == theme_file::slots::KEY
-                || d.path.starts_with(&format!("{}.", theme_file::slots::KEY))
-                || d.path == theme_file::motion::KEY
-                || d.path.starts_with(&format!("{}.", theme_file::motion::KEY))
-        })
-        .map(|d| json!({ "kind": d.kind, "path": d.path, "message": d.display(), "line": d.line }))
-        .collect();
-    Ok(json!({ "slots": file.slots, "motion": file.motion.to_json(), "diagnostics": diagnostics }))
-}
-
 #[cfg(test)]
-#[path = "theme_scheme_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn fields(value: Value) -> Map<String, Value> {
+        value.as_object().cloned().unwrap_or_default()
+    }
+
+    const BASE16: &str = "scheme: \"T\"\nbase00: \"1d1f21\"\nbase01: \"282a2e\"\nbase02: \"373b41\"\nbase03: \"969896\"\nbase04: \"b4b7b4\"\nbase05: \"c5c8c6\"\nbase06: \"e0e0e0\"\nbase07: \"ffffff\"\nbase08: \"cc6666\"\nbase09: \"de935f\"\nbase0A: \"f0c674\"\nbase0B: \"b5bd68\"\nbase0C: \"8abeb7\"\nbase0D: \"81a2be\"\nbase0E: \"b294bb\"\nbase0F: \"a3685a\"\n";
+
+    #[test]
+    fn convert_reads_base16_and_writes_ghostty() {
+        let out = convert(&fields(json!({ "text": BASE16, "file": "t.yaml" }))).unwrap();
+        assert_eq!(out["from"], "base16");
+        assert_eq!(out["format"], "ghostty");
+        assert_eq!(out["scheme"]["background"], "#1d1f21");
+        assert_eq!(out["scheme"]["palette"][4], "#81a2be");
+        assert!(out["text"].as_str().unwrap().contains("palette = 4=#81a2be"));
+    }
+
+    #[test]
+    fn convert_names_the_file_and_line_of_a_bad_color() {
+        let bad = BASE16.replace("\"b294bb\"", "\"b294zz\"");
+        let error = convert(&fields(json!({ "text": bad, "file": "t.yaml" }))).unwrap_err();
+        assert_eq!(error.code, "validation.invalid");
+        // BASE16 is `scheme:` on line 1, then base00..base0F on lines 2..17 (1-based),
+        // so the bad base0E is on line 16.
+        assert!(error.message.starts_with("t.yaml:16: base0E"), "{}", error.message);
+    }
+
+    #[test]
+    fn export_reads_an_installed_theme_by_name() {
+        let home =
+            std::env::temp_dir().join(format!("cmux-core-theme-export-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let env =
+            Env { home: Some(home.clone()), xdg_data_dirs: Some(String::new()), ..Env::default() };
+        let scheme = Scheme::parse(BASE16, "t.yaml", None).unwrap();
+        cmux_theme_tokens::install_scheme(&env, "Mine", &scheme, false).unwrap();
+        let out = export(&fields(json!({ "name": "Mine", "format": "base16" })), &env).unwrap();
+        assert!(out["text"].as_str().unwrap().contains("base0D: \"#81a2be\""), "{out}");
+        assert!(export(&fields(json!({ "name": "../etc/passwd" })), &env).is_err());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn from_image_gives_a_readable_scheme() {
+        let mut data = Vec::new();
+        for i in 0..64u32 {
+            data.extend_from_slice(if i < 40 { &[16, 24, 48] } else { &[120, 60, 20] });
+        }
+        let pixels = base64::engine::general_purpose::STANDARD.encode(&data);
+        let out = from_image(&fields(json!({
+            "width": 8, "height": 8, "channels": 3, "pixels": pixels,
+        })))
+        .unwrap();
+        assert_eq!(out["appearance"], "dark");
+        assert!(out["accent"].as_str().unwrap().starts_with('#'));
+        let too_big = from_image(&fields(json!({
+            "width": 1000, "height": 1000, "channels": 3, "pixels": "",
+        })));
+        assert!(too_big.is_err());
+    }
+}

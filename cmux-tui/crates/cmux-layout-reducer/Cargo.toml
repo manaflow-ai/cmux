@@ -8,13 +8,10 @@ publish.workspace = true
 description = "Pure layout reducer and tab-conservation invariants for the cmux workspace store"
 
 [dependencies]
-# sidebar.nav validates its ids against the action catalog (sidebar_nav.rs).
-cmux-action-catalog = { path = "../cmux-action-catalog" }
 serde = { workspace = true, features = ["derive"] }
 # float_roundtrip: a split ratio or column width crosses the app FFI and comes back bit for bit
-# (the app compares the columns it gets to the ones it holds). unbounded_depth: the optimistic
-# rules parse deep split chains under their own nesting bound (optimistic::MAX_NESTING).
-serde_json = { workspace = true, features = ["float_roundtrip", "unbounded_depth"] }
+# (the app compares the columns it gets to the ones it holds).
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 # Swift String and Character semantics for the group hover summary (canonical equality, grapheme
 # clusters). Both are already in the app FFI through cmux-palette-ranker and cmux-focus-core.
 unicode-normalization = { workspace = true }

@@ -176,9 +176,6 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws {
         try await backend(workspace.macID).moveTab(tab, toPane: pane, in: workspace)
     }
-    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, before anchor: WorkspaceTab?, in workspace: Workspace) async throws {
-        try await backend(workspace.macID).moveTab(tab, toPane: pane, before: anchor, in: workspace)
-    }
     public func setSplitRatio(_ split: Int, to ratio: Double, in workspace: Workspace) async throws {
         try await backend(workspace.macID).setSplitRatio(split, to: ratio, in: workspace)
     }
@@ -259,28 +256,6 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func openTerminalChat(harness: String, session: String, terminalTabID: String, on macID: String) async throws -> TerminalChatOpen {
         try await backend(macID).openTerminalChat(harness: harness, session: session, terminalTabID: terminalTabID, on: macID)
     }
-    public func terminalChatListedWhole(on macID: String) -> Bool { linked(macID)?.terminalChatListedWhole(on: macID) ?? false }
-
-    /// The pairings and faces this account keeps beside its transcripts (none without an account or cache).
-    private var keptTerminalChats: AccountKeptTerminalChats? {
-        guard let coordinator, let cache = coordinator.transcriptCache, !coordinator.userID.isEmpty else { return nil }
-        return AccountKeptTerminalChats(kept: cache.terminalChats, account: coordinator.userID)
-    }
-    public func keptTerminalChat(harness: String, session: String, on macID: String) -> String? {
-        keptTerminalChats?.keptTerminalChat(harness: harness, session: session, on: macID)
-    }
-    public func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String) {
-        keptTerminalChats?.keepTerminalChat(chat, harness: harness, session: session, on: macID)
-    }
-    public func keptTerminalChatFace(tabID: String, on macID: String) -> Bool? {
-        keptTerminalChats?.keptTerminalChatFace(tabID: tabID, on: macID)
-    }
-    public func keepTerminalChatFace(_ showsChat: Bool, tabID: String, on macID: String) {
-        keptTerminalChats?.keepTerminalChatFace(showsChat, tabID: tabID, on: macID)
-    }
-    /// True with no account or cache: there is nothing to read.
-    public var keptTerminalChatsLoaded: Bool { keptTerminalChats?.keptTerminalChatsLoaded ?? true }
-    public func loadKeptTerminalChats() async { await keptTerminalChats?.loadKeptTerminalChats() }
 
     // MARK: WorkspaceGroupBackend
 

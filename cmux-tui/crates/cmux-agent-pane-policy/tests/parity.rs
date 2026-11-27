@@ -94,7 +94,7 @@ fn frames() {
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 80, "check.json: the full order's 80 cases");
+    assert_eq!(all.as_array().unwrap().len(), 76, "check.json: the full order's 76 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
@@ -294,25 +294,6 @@ fn trust_peer_selector_requires_a_nonempty_string() {
             });
             assert!(breaks_params_rule(&object(&frame), None), "{method} must refuse peer {peer}");
         }
-    }
-}
-
-#[test]
-fn harnesses_peer_selector_requires_a_nonempty_string() {
-    let frame = |peer: Value| {
-        serde_json::json!({
-            "jsonrpc": "2.0", "id": 1, "method": "_acpmux/harnesses",
-            "params": {"cwd": "/x", "_meta": {"acpmux": {"peer": peer}}}
-        })
-    };
-    assert!(!breaks_params_rule(&object(&frame(serde_json::json!("dev-box"))), None));
-    for peer in [
-        Value::Null,
-        serde_json::json!(""),
-        serde_json::json!(42),
-        serde_json::json!({"name": "dev-box"}),
-    ] {
-        assert!(breaks_params_rule(&object(&frame(peer.clone())), None), "must refuse peer {peer}");
     }
 }
 

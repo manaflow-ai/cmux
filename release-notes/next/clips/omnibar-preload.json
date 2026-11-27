@@ -3,9 +3,7 @@
   "frameInterval": 0.25,
   "steps": [
     {"title": "Launch", "wait": 2},
-    {"title": "A fixed window", "rpc": {"method": "debug.window_frame", "params": {"frame": [80, 80, 1200, 800]}}, "wait": 0.5},
-    {"title": "A browser workspace, shown and focused", "rpc": {"method": "action.run", "params": {"action": "newBrowserWorkspace", "focus": true}}, "wait": 4},
-    {"title": "A first page from the address bar", "rpc": {"method": "debug.omnibar_type", "params": {"text": "https://example.com/", "commit": true}}, "wait": 4},
+    {"title": "A browser tab", "cmux": ["tab", "new-browser", "--url", "https://example.com"], "wait": 3},
     {"title": "Open a page from the address bar", "rpc": {"method": "debug.omnibar_type", "params": {"text": "iana.org/domains/reserved", "commit": true}}, "wait": 2, "clip": true},
     {"title": "Back to the first page", "rpc": {"method": "debug.omnibar_type", "params": {"text": "example.com", "commit": true}}, "wait": 2, "clip": true},
     {"title": "End", "wait": 0.3}

@@ -79,12 +79,11 @@ struct PaletteAgentIDSearchTests {
         #expect(await Self.search(palette, "162").first == "workspace:w162")
     }
 
-    /// Cmd-Shift-P lists commands only (msg 34162): the id finds the workspace on Cmd-P, not there.
-    @Test func theCommandPaletteListsNoWorkspace() async {
+    @Test func theCommandPaletteFindsItToo() async {
         let palette = Self.palette()
         defer { palette.closeForTest() }
         palette.show(.commands)
-        #expect(!(await Self.search(palette, "a612")).contains { $0.hasPrefix("workspace:") })
+        #expect(await Self.search(palette, "a612").first == "workspace:w612")
     }
 
     @Test func theRowNamesTheIDBeforeItsGroup() {

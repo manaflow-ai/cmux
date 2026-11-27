@@ -65,7 +65,8 @@ pub(super) fn pending_session_reset_dirs(
 
     let root_device = reset_root_device(root)?;
     let storage_component = session_storage_component(session_name);
-    let prefix = format!("{RESET_DIR_HEAD}{storage_component}-");
+    let prefix = format!(".reset-{storage_component}-");
+    let suffix = ".deleting";
     let mut reset_dirs = Vec::new();
     for entry in fs::read_dir(root)
         .with_context(|| format!("read workspace state root {}", root.display()))?
@@ -75,10 +76,10 @@ pub(super) fn pending_session_reset_dirs(
         let Some(file_name) = file_name.to_str() else {
             continue;
         };
-        if !file_name.starts_with(&prefix) || !file_name.ends_with(RESET_DIR_TAIL) {
+        if !file_name.starts_with(&prefix) || !file_name.ends_with(suffix) {
             continue;
         }
-        let rest = &file_name[prefix.len()..file_name.len() - RESET_DIR_TAIL.len()];
+        let rest = &file_name[prefix.len()..file_name.len() - suffix.len()];
         let Some(kind) = pending_session_reset_kind(rest) else {
             continue;
         };
@@ -177,10 +178,9 @@ pub(super) fn rename_reset_dir_for_deletion(
 ) -> anyhow::Result<PathBuf> {
     let storage_component = session_storage_component(session_name);
     for _ in 0..16 {
-        let candidate = platform::normalize_filesystem_path(root.join(format!(
-            "{RESET_DIR_HEAD}{storage_component}-{kind}-{}{RESET_DIR_TAIL}",
-            try_new_uuid_v4()?
-        )));
+        let candidate = platform::normalize_filesystem_path(
+            root.join(format!(".reset-{storage_component}-{kind}-{}.deleting", try_new_uuid_v4()?)),
+        );
         ensure_reset_dir_fingerprint(source, kind, expected_fingerprint)?;
         match fs::rename(source, &candidate) {
             Ok(()) => {

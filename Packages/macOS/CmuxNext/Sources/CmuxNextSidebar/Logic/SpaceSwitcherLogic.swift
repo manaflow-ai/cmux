@@ -43,13 +43,9 @@ public nonisolated struct SpaceSwitcherLogic {
     public static func click(_ space: ProfileKey, active: ProfileKey?, elsewhere: SpaceElsewhere?, hereIsIncognito: Bool,
                              style: SpaceSwitcherStyle, option: Bool) -> SpaceClick {
         if space == active, style == .menu { return .spaceMenu }
-        // This window already shows its own space: a click on it asks nothing, also when another window shows it too
-        // (Leo 2026-11-16: "What is go to window and move here?").
-        if space == active { return .none }
-        guard style.marksOtherWindows, let elsewhere else { return .switchHere }
+        // This window's own space is ringed too when another window also shows it: the same choices.
+        guard style.marksOtherWindows, let elsewhere else { return space == active ? .none : .switchHere }
         if option { return .goToWindow }
-        // A menu only when there is a choice to make: with one, the click does it.
-        let choices = choices(for: elsewhere, hereIsIncognito: hereIsIncognito)
-        return choices == [.goToWindow] ? .goToWindow : .offer(choices)
+        return .offer(choices(for: elsewhere, hereIsIncognito: hereIsIncognito))
     }
 }

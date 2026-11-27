@@ -5,12 +5,8 @@
   "name": { "en": "cmux Docs", "ja": "cmux ドキュメント" },
   "version": "1.0.0",
   "description": {
-    "en": "The cmux docs, pinned to your sidebar. Click to read them in a tab right next to your work.",
-    "ja": "cmux のドキュメントをサイドバーに固定します。クリックすると、作業のすぐ隣のタブで読めます。"
-  },
-  "tagline": {
-    "en": "The cmux docs one click away in your sidebar",
-    "ja": "cmux のドキュメントを、サイドバーからワンクリックで"
+    "en": "A web app: the cmux docs pinned in the sidebar, opening as a tab in your workspace. The whole app is this manifest.",
+    "ja": "Web アプリ: cmux のドキュメントをサイドバーに固定し、ワークスペースのタブとして開きます。アプリはこのマニフェストだけです。"
   },
   "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
   "repository": "https://github.com/manaflow-ai/cmux",

@@ -10,14 +10,8 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AcpmuxRefusedRestartTests {
-    private struct UnexpectedHandshakeError: Error, Sendable {}
-
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
-    }
-
-    private actor UnclassifiedHost: AgentPaneHostProviding {
-        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw UnexpectedHandshakeError() }
     }
 
     /// A host whose every handshake is refused with `error`, and that records each restart it is asked for.
@@ -55,11 +49,10 @@ struct AcpmuxRefusedRestartTests {
     }
 
     /// A daemon's start or restart ends without the person, so the page shows nothing while it
-    /// lasts, and so does this app's daemon stopped (a reconnect starts it); acpmux missing and
-    /// another build's daemon do not, and are said at once.
+    /// lasts; acpmux missing and another build's daemon do not, and are said at once.
     @Test func onlyARecoveryIsAReconnectingHandshake() async throws {
         let recovering: [AgentPaneHostError] = [
-            .daemonRestarting, .daemonStopped, .timedOut, .chiefStopped, .chiefStarting,
+            .daemonRestarting, .timedOut, .daemonStopped, .chiefStopped, .chiefStarting,
             .daemonFailed(logPath: "/l", cause: .exited),
             .daemonRefused(holder: nil, socketPath: "/s", reason: "the socket's peer process is unknown"),
         ]
@@ -75,15 +68,6 @@ struct AcpmuxRefusedRestartTests {
             let details = error["details"] as? [String: Any]
             #expect((details?["reconnecting"] as? Bool == true) == recovering.contains(cause), "\(cause)")
         }
-    }
-
-    /// A bridge failure that is not an owned refusal is still recoverable during a relaunch.
-    @Test func anUnclassifiedHandshakeIsReconnecting() async throws {
-        let model = AgentPaneModel(host: UnclassifiedHost())
-        let reply = await model.respond(to: .reconnect)
-        let error = try #require(reply["error"] as? [String: Any])
-        let details = try #require(error["details"] as? [String: Any])
-        #expect(details["reconnecting"] as? Bool == true)
     }
 
     /// Without a refusal that offered it, or without the person's click, the page cannot stop a daemon.

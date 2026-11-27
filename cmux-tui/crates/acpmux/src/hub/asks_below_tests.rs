@@ -50,12 +50,12 @@ async fn a_waiting_child_or_grandchild_makes_its_ancestors_read_input() {
     let (hub, parent) = hub_with_parent().await;
     let child = child_of(&hub, &parent, "tests", 1).await;
     let grandchild = child_of(&hub, &child, "lint", 2).await;
-    hub.set_status(&parent, NotWaiting::Running);
-    hub.set_status(&child, NotWaiting::Running);
+    hub.set_status(&parent, SessionStatus::Running);
+    hub.set_status(&child, SessionStatus::Running);
     assert_eq!(hub.session_summary(&parent)["indicator"], "working");
 
     // The child asks to run a command: its parent's row says the person is needed.
-    hub.set_waiting(&child, crate::store::WaitReason::Permission);
+    hub.set_status(&child, SessionStatus::Waiting);
     let summary = hub.session_summary(&parent);
     assert_eq!(summary["subsessionsWaiting"], 1, "{summary}");
     assert!(summary["subsessionsWaitingSince"].is_u64(), "{summary}");
@@ -65,7 +65,7 @@ async fn a_waiting_child_or_grandchild_makes_its_ancestors_read_input() {
 
     // A grandchild asks too: both count on the root, the child counts its own one.
     let since = summary["subsessionsWaitingSince"].clone();
-    hub.set_waiting(&grandchild, crate::store::WaitReason::Permission);
+    hub.set_status(&grandchild, SessionStatus::Waiting);
     assert_eq!(hub.session_summary(&parent)["subsessionsWaiting"], 2);
     assert_eq!(
         hub.session_summary(&parent)["subsessionsWaitingSince"],
@@ -75,8 +75,8 @@ async fn a_waiting_child_or_grandchild_makes_its_ancestors_read_input() {
     assert_eq!(hub.session_summary(&child)["subsessionsWaiting"], 1);
 
     // Answered: the child runs again, then the grandchild; the parent works, never stuck on input.
-    hub.set_status(&child, NotWaiting::Running);
-    hub.set_status(&grandchild, NotWaiting::Running);
+    hub.set_status(&child, SessionStatus::Running);
+    hub.set_status(&grandchild, SessionStatus::Running);
     let summary = hub.session_summary(&parent);
     assert_eq!(summary["subsessionsWaiting"], 0, "{summary}");
     assert!(summary["subsessionsWaitingSince"].is_null(), "{summary}");
@@ -90,9 +90,9 @@ async fn a_waiting_child_or_grandchild_makes_its_ancestors_read_input() {
 async fn closing_a_waiting_child_clears_its_parent() {
     let (hub, parent) = hub_with_parent().await;
     let child = child_of(&hub, &parent, "tests", 1).await;
-    hub.set_waiting(&child, crate::store::WaitReason::Permission);
+    hub.set_status(&child, SessionStatus::Waiting);
     assert_eq!(hub.session_summary(&parent)["subsessionsWaiting"], 1);
-    hub.set_status(&child, NotWaiting::Closed);
+    hub.set_status(&child, SessionStatus::Closed);
     assert_eq!(hub.session_summary(&parent)["subsessionsWaiting"], 0);
     assert_ne!(hub.session_summary(&parent)["indicator"], "input");
     hub.shutdown_all().await;

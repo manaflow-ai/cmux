@@ -41,7 +41,7 @@ import Testing
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         // (name, spaces, current, plus rides the dots)
         let variants: [(String, Int, Int, Bool)] = [
-            ("two-spaces-plus-right", 2, 0, false), ("four-spaces-plus-right", 4, 1, false),
+            ("one-space-plus-right", 1, 0, false), ("four-spaces-plus-right", 4, 1, false),
             ("overflow-plus-pinned-chosen", 40, 20, false), ("overflow-plus-rides-dots", 40, 20, true),
         ]
         var html = "<meta charset='utf-8'><title>Sidebar space controls</title><style>body{font:16px system-ui;background:#ddd}section{display:inline-block;vertical-align:top;margin:12px}img{width:300px}</style>"
@@ -57,8 +57,7 @@ import Testing
             h.sidebar.renderNow()
             let names = ["Personal", "Work", "Research", "Cloud"]
             h.sidebar.layoutSubtreeIfNeeded()
-            // Spaces stay hidden until a second one (Lawrence 2026-11-20: "hide spaces by default").
-            #expect(h.sidebar.profileBar.isHidden, "a lone space shows the strip in the real sidebar")
+            #expect(!h.sidebar.profileBar.isHidden, "one space must remain mounted in the real sidebar")
             h.window.appearance = NSAppearance(named: appearance)
             let input = try AANestedGroupsGalleryTests.input(theme)
             _ = ThemeScope.app.store.apply(input)

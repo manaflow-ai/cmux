@@ -74,18 +74,6 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         }
     }
 
-    /// Gives the workspace row at `position` new content of a new height (a row update that changed its height) and moves
-    /// every row after it by the difference: one vector add of their y, as a fold; no row is built again and no key is
-    /// hashed again, so the cost is the same at 100 rows as at 10,000.
-    mutating func resizeRow(at position: Int, to height: CGFloat, content: WorkspaceRowContent) {
-        let dy = height - rows[position].height
-        rows[position].height = height
-        rows[position].content = content
-        guard dy != 0 else { return }
-        Self.shiftY(of: &rows, from: position + 1, by: dy)
-        totalHeight += dy
-    }
-
     /// Replaces the row at `position` with `row` of the same key and frame (a header's fold flag).
     mutating func setRow(_ row: SidebarRow, at position: Int) {
         rows[position] = row
@@ -158,11 +146,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         if o.hidesWorkspaces { return .empty }
         // A row per key: a workspace id two machines list draws once (`listingEachWorkspaceOnce`).
         let once = Self.listingEachWorkspaceOnce(sections)
-        // Archived rows leave the lists: Settings > Sidebar > Archived Workspaces lists them (cmux#51635).
-        let live = Self.hidesArchived(o) ? Self.withoutArchived(once, keeping: o.activeWorkspaceID) : once
+        // The Archive section takes the archived rows out of the lists; they draw under its row at the end.
+        let archive = Self.drawsArchiveSection(o) ? Self.splittingArchive(once, keeping: o.activeWorkspaceID) : nil
         // Projects and Recents takes the loose rows out of the computers' lists; they draw under "Recents" after them.
-        let recents = Self.drawsRecents(o) ? Self.splittingRecents(live, options: o) : nil
-        let sections = recents?.sections ?? live
+        let recents = Self.drawsRecents(o) ? Self.splittingRecents(archive?.live ?? once, options: o) : nil
+        let sections = recents?.sections ?? archive?.live ?? once
         var rows: [SidebarRow] = []
         var y = m.topPadding
         var gapY: CGFloat?
@@ -355,15 +343,12 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
             // One node at its model index (drops resolve by it, whatever the drawn order).
             // `tree`: the session tree's depth, chevron and roll-up (`treeRows`).
-            // `opensGap` false: the list placed its drop gap by drawn order (`gapEntry`).
-            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace]), tree: TreeRow = TreeRow(),
-                      opensGap: Bool = true) {
-                if opensGap { openGapIfNeeded(section: section.id, group: nil, index: index) }
+            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace]), tree: TreeRow = TreeRow()) {
+                openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
                     var content = o.rowContent(ws, machine: machineLabel)
-                    // A parent of subagents only keeps the chevron `rowContent` gave it.
-                    (content.treeDepth, content.treeFold, content.rollUp) = (tree.depth, tree.fold ?? content.treeFold, tree.rollUp)
+                    (content.treeDepth, content.treeFold, content.rollUp) = (tree.depth, tree.fold, tree.rollUp)
                     let h = m.height(for: content)
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
@@ -402,50 +387,30 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 let foldedGap = Self.gapEntry(drawn, gap: o.gap, section: section.id, group: nil, count: nodes.count)
                 for (index, depth) in drawn {
                     if index == foldedGap, let gap = o.gap { openGapIfNeeded(section: section.id, group: nil, index: gap.index) }
-                    guard index < 0 else {
-                        emit(index, nodes[index], tree: treeRow[index] ?? TreeRow(index: index, depth: depth), opensGap: foldedGap == nil)
-                        continue
-                    }
+                    guard index < 0 else { emit(index, nodes[index], tree: treeRow[index] ?? TreeRow(index: index, depth: depth)); continue }
                     Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, options: o, to: &rows, y: &y, metrics: m)
                 }
-                if foldedGap == Self.gapAtEnd, let gap = o.gap { openGapIfNeeded(section: section.id, group: nil, index: gap.index) }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
                 continue
             }
             // Group by Folder: groups as they were, then a header per folder
-            // over its loose rows, folders in first-seen order, "no folder" last. With
-            // `sidebar.folderlessUngrouped` the "no folder" rows draw with no header.
+            // over its loose rows, folders in first-seen order, "no folder" last.
             for (index, entry) in nodes.enumerated() where isGroup(entry) { emit(index, entry) }
             let (folders, members) = Self.folderBuckets(nodes.map(\.node))
             for folder in folders {
                 let indices = members[folder] ?? []
-                if !(folder.isEmpty && o.grouping.folderlessUngrouped) {
-                    rows.append(SidebarRow(
-                        key: .folder(section.id, folder), y: y, height: m.groupHeaderHeight, section: section.id,
-                        group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
-                        isCollapsed: false, childCount: indices.count, groupColor: nil
-                    ))
-                    y += m.groupHeaderHeight + m.rowSpacing
-                }
-                guard !o.settled.isEmpty else {
-                    for index in indices { emit(index, nodes[index]) }
-                    continue
-                }
-                // Settled chats (`sidebar.settleFinished`) fold at the end of their project's rows. Only them: a
-                // folder keeps its Done and archived rows, and every row, as it always did.
-                var settling = o
-                (settling.foldsDone, settling.foldsArchived, settling.rowLimit) = (false, false, 0)
-                let fold = SidebarDoneFoldID(section: section.id, group: nil, kind: .settled, folder: folder)
-                let drawn = Self.foldingDone(indices.map { ($0, 0) }, workspace: { if case let .workspace(ws) = nodes[$0].node { ws } else { nil } },
-                                             fold: fold, options: settling)
-                for (index, depth) in drawn {
-                    guard index < 0 else { emit(index, nodes[index]); continue }
-                    Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, options: o, to: &rows, y: &y, metrics: m)
-                }
+                rows.append(SidebarRow(
+                    key: .folder(section.id, folder), y: y, height: m.groupHeaderHeight, section: section.id,
+                    group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
+                    isCollapsed: false, childCount: indices.count, groupColor: nil
+                ))
+                y += m.groupHeaderHeight + m.rowSpacing
+                for index in indices { emit(index, nodes[index]) }
             }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
         placeRecents()
+        if let archive { Self.appendArchive(archive, firstRow: rows.isEmpty, options: o, base: base, metrics: m, to: &rows, y: &y) }
         chats.placeEarlier(&y)
         y += m.bottomPadding
         var layout = SidebarLayout(

@@ -18,7 +18,7 @@
           },
           "help": {
             "key": "settings.markdown.remoteImages.help",
-            "text": "Image sites can see your address and when you open a document."
+            "text": "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images."
           },
           "kind": "toggle",
           "default": false,
@@ -44,7 +44,7 @@
           },
           "help": {
             "key": "settings.markdown.width.help",
-            "text": "The widest a line gets, in characters."
+            "text": "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box."
           },
           "kind": "number",
           "range": {
@@ -100,7 +100,7 @@
           },
           "help": {
             "key": "settings.markdown.fontSize.help",
-            "text": "The size viewers open at. Cmd-= and Cmd-- change one viewer."
+            "text": "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size."
           },
           "kind": "number",
           "range": {
@@ -229,7 +229,7 @@
           },
           "help": {
             "key": "settings.markdown.codeScale.help",
-            "text": "Code size as a share of the text size."
+            "text": "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."
           },
           "kind": "number",
           "range": {
@@ -260,7 +260,7 @@
           },
           "help": {
             "key": "settings.markdown.codeFont.help",
-            "text": "Empty uses the terminal font."
+            "text": "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own."
           },
           "kind": "font_family",
           "default": null,

@@ -44,6 +44,7 @@ pub(crate) const MAX_FOLDERS: usize = 200;
 const MAX_ENTRIES: usize = 4096;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct FoldersParams {
     surface: SurfaceId,
 }
@@ -80,68 +81,13 @@ pub(crate) fn own_work_folder(make: bool) -> Option<PathBuf> {
     crate::platform::home_dir().and_then(|home| work_folder(&home, make))
 }
 
-/// The fresh folder for a Cloud chat with no selected repository under `home`: the machine's
-/// reserved warm folder when one is waiting (its session already runs there, so the first
-/// message goes to a warm agent), else `~/chats/<chat_id>`, made. The tab's surface id is
-/// stable before the acp session exists, so retries reuse the same folder without making
-/// Swift choose a path. Surface ids come from the mux's persisted `next_id` snapshot and are
-/// never reset during restore.
-pub(crate) fn own_chat_folder(home: &Path, chat_id: u64) -> Option<PathBuf> {
-    reserved_chat_folder(home, chat_id).or_else(|| chat_folder(home, chat_id, true))
-}
-
-/// The ticket the machine's acpmux writes for its reserved first home-chat folder
-/// (`acpmux` `hub/pool/reserved.rs`): a regular file in `~/chats` holding the folder's name,
-/// whose session is already warm.
-pub(crate) const RESERVED_TICKET: &str = ".reserved";
-/// What a chat renames the ticket to when it takes the folder, so a retry of the same chat
-/// finds it again and no other chat can take it.
-const CLAIMED_PREFIX: &str = ".claimed-";
-
-/// A reserved folder name: `r` and 32 lowercase hex digits, never a surface id.
-fn reserved_name(name: &str) -> bool {
-    name.strip_prefix('r').is_some_and(|hex| {
-        hex.len() == 32 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    })
-}
-
-/// The folder a ticket file names; None unless it is a small regular file this user owns.
-fn ticket_folder(ticket: &Path) -> Option<String> {
-    let metadata = std::fs::symlink_metadata(ticket).ok()?;
-    if !metadata.is_file() || metadata.len() > 64 {
-        return None;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt as _;
-        if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o022 != 0 {
-            return None;
-        }
-    }
-    let name = std::fs::read_to_string(ticket).ok()?.trim().to_owned();
-    reserved_name(&name).then_some(name)
-}
-
-/// The reserved folder `chat_id` owns: the one it already took (a retry or a reopen), else the
-/// machine's unclaimed one, taken by one atomic rename of the ticket, so exactly one chat
-/// gets it. None when `~/chats/<chat_id>` already exists (the chat started there before), when
-/// nothing is reserved, or when the reserved folder is not this user's private folder; the
-/// caller then makes `~/chats/<chat_id>` as before.
-pub(crate) fn reserved_chat_folder(home: &Path, chat_id: u64) -> Option<PathBuf> {
-    let chats = home.join(CHAT_FOLDER);
-    if !private_owned_dir(&chats)
-        || std::fs::symlink_metadata(chats.join(chat_id.to_string())).is_ok()
-    {
-        return None;
-    }
-    let claimed = chats.join(format!("{CLAIMED_PREFIX}{chat_id}"));
-    if ticket_folder(&claimed).is_none() {
-        // Only one racer's rename finds the ticket; the others fail and read the winner's mark.
-        ticket_folder(&chats.join(RESERVED_TICKET))?;
-        let _ = std::fs::rename(chats.join(RESERVED_TICKET), &claimed);
-    }
-    let dir = chats.join(ticket_folder(&claimed)?);
-    private_owned_dir(&dir).then(|| std::fs::canonicalize(dir).ok()).flatten()
+/// The fresh folder for a Cloud chat with no selected repository. The tab's
+/// surface id is stable before the acp session exists, so retries reuse the
+/// same folder without making Swift choose a path. Surface ids come from the
+/// mux's persisted `next_id` snapshot and are never reset during restore.
+pub(crate) fn own_chat_folder(chat_id: u64, make: bool) -> Option<PathBuf> {
+    let home = crate::platform::home_dir()?;
+    chat_folder(&home, chat_id, make)
 }
 
 /// Resolve a per-chat folder under `home`, refusing symlinks and creating the
@@ -246,5 +192,94 @@ fn list(work: &Path) -> Vec<String> {
 }
 
 #[cfg(test)]
-#[path = "agent_session_folders_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn temp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("cmux-folders-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::canonicalize(dir).unwrap()
+    }
+
+    #[test]
+    fn no_home_or_no_work_folder_has_no_default() {
+        assert_eq!(answer(None, true), json!({"default": null, "folders": []}));
+        let home = temp("nowork");
+        assert_eq!(answer(Some(&home), false), json!({"default": null, "folders": []}));
+        assert!(!home.join("work").exists(), "nothing is made off a Cloud VM");
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn a_cloud_vm_makes_its_missing_work_folder() {
+        let home = temp("make");
+        let got = answer(Some(&home), true);
+        let work = home.join("work");
+        assert!(work.is_dir());
+        assert_eq!(
+            got,
+            json!({"default": work.to_string_lossy(), "folders": [work.to_string_lossy()]})
+        );
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn folders_list_repositories_first_and_skip_files_hidden_and_links() {
+        let home = temp("list");
+        let work = home.join("work");
+        for dir in ["zeta", "Alpha", ".hidden", "repo/.git", "beta"] {
+            std::fs::create_dir_all(work.join(dir)).unwrap();
+        }
+        std::fs::write(work.join("notes.txt"), "x").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&home, work.join("link")).unwrap();
+        let got = answer(Some(&home), false);
+        let path = |name: &str| work.join(name).to_string_lossy().into_owned();
+        assert_eq!(got["default"], json!(work.to_string_lossy()));
+        assert_eq!(
+            got["folders"],
+            json!([
+                work.to_string_lossy(),
+                path("repo"),
+                path("Alpha"),
+                path("beta"),
+                path("zeta")
+            ])
+        );
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_work_symlink_is_never_the_default() {
+        let home = temp("worklink");
+        let elsewhere = temp("elsewhere");
+        std::os::unix::fs::symlink(&elsewhere, home.join("work")).unwrap();
+        assert_eq!(answer(Some(&home), true), json!({"default": null, "folders": []}));
+        let _ = std::fs::remove_dir_all(home);
+        let _ = std::fs::remove_dir_all(elsewhere);
+    }
+
+    #[test]
+    fn a_cloud_chat_folder_is_private_and_stable() {
+        let home = temp("chat");
+        let first = chat_folder(&home, 42, true).expect("chat folder");
+        assert_eq!(first, std::fs::canonicalize(home.join("chats/42")).unwrap());
+        assert!(home.join("chats").metadata().unwrap().is_dir());
+        assert!(private_owned_dir(&home.join("chats")));
+        assert!(private_owned_dir(&first));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(home.join("chats")).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+            assert_eq!(std::fs::metadata(&first).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+        assert_eq!(chat_folder(&home, 42, false), Some(first));
+        assert!(chat_folder(&home, 43, false).is_none());
+        let _ = std::fs::remove_dir_all(home);
+    }
+}

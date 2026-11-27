@@ -2,12 +2,11 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
-import CmuxNextTestSupport
 import Testing
 
 /// The workspace and group menus open as Chrome's tab-group menu does (Leo 2026-10-20): the name
 /// in an editable field and the colors as swatches, in place of Rename… and the color submenu.
-@MainActor @Suite(.closesItsWindows)
+@MainActor
 struct MenuIdentityHeaderTests {
     private let target = ActionTargetRef(kind: .workspace, id: "ws")
 
@@ -110,7 +109,6 @@ struct MenuIdentityHeaderTests {
         let header = try #require(menu.items.first?.view as? MenuIdentityHeaderView)
         let strip = try #require(header.strip)
         let window = NSWindow(contentRect: header.frame, styleMask: .borderless, backing: .buffered, defer: true)
-        defer { window.closeAfterTest() }
         window.contentView = header
         let menuTracking = PressRecorder()
         strip.nextResponder = menuTracking

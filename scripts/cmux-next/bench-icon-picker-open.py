@@ -26,7 +26,7 @@ The HEADLINE is the WORST arm (a missed run first, else the highest p95, then th
 
 With `--socket` it never launches, quits or activates an app; it only talks to the socket it is given. With `--app`
 it launches the app with the bench env (no activation) and quits it and its tag's daemons at the end; with
-`--app`, the warm and quick arms run in a last launch once its warm-up ended (the app idles).
+`--app`, the warm and quick arms run in a last launch after `--warm-up-wait` (5 s).
 """
 import argparse
 import json
@@ -39,7 +39,6 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # bench_arms, bench_launch, also under `python3 -I`
 import bench_arms  # noqa: E402
-from state_wait import wait_until  # noqa: E402
 
 
 def call(cli, socket, method, params):
@@ -86,26 +85,6 @@ def recorded(cli, socket_path):
     return len((call(cli, socket_path, "debug.timings", {}) or {}).get("icon_picker_opens") or [])
 
 
-def warm_up_done(pid, timeout, limit_pct=10.0):
-    """Until the app's main process idles (two 0.5 s windows in a row under `limit_pct` CPU): its launch warm-up
-    ended. Best effort: past `timeout` it says so and the warm arm runs anyway."""
-    import bench_memory
-
-    quiet = [0]
-
-    def idle():
-        before = bench_memory.usage(pid)
-        time.sleep(0.5)  # sleep-ok: the CPU sampling window between the two rusage reads
-        after = bench_memory.usage(pid)
-        cpu = None if before is None or after is None else 100 * (after[3] - before[3]) / 1e9 / 0.5
-        quiet[0] = quiet[0] + 1 if cpu is not None and cpu < limit_pct else 0
-        return quiet[0] >= 2
-
-    if not wait_until(idle, "the launch warm-up to end (the app idle)", timeout=timeout, interval=0.0,
-                      raise_on_timeout=False):
-        print(f"warning: the app never idled in {timeout:g} s after launch; the warm arm may not be warm", flush=True)
-
-
 def launched(app_path):
     """A BenchApp of `app_path`, launched (bench env, no activation); its socket answers with a window."""
     from bench_launch import BenchApp
@@ -148,7 +127,7 @@ def main():
     parser.add_argument("--arms", default="warm,quick,cold", help="the arms to time (bench_arms.py)")
     parser.add_argument("--quick-runs", type=int, default=4, help="quick arm: pairs of opens at once")
     parser.add_argument("--cold-launches", type=int, default=3, help="cold arm (--app): launches, each timing its first open")
-    parser.add_argument("--warm-up-wait", type=float, default=5.0, help="--app: the last launch's warm-up ends (the app idles) before the warm arm; waits up to max(30, 6 x this) s")
+    parser.add_argument("--warm-up-wait", type=float, default=5.0, help="--app: seconds after the last launch before the warm arm")
     parser.add_argument("--json")
     opts = parser.parse_args()
     if bool(opts.socket) == bool(opts.app):
@@ -172,8 +151,7 @@ def main():
     if opts.app:
         bench = launched(opts.app)
         opts.socket = bench.socket
-        # The launch warm-up makes the picker (the warm arm's premise): wait until the app idles, its warm-up done.
-        warm_up_done(bench.process.pid, max(30.0, opts.warm_up_wait * 6))
+        time.sleep(opts.warm_up_wait)  # test harness: the launch warm-up makes the picker (the warm arm's premise)
     try:
         summary = measure(opts, arms, samples)
     finally:

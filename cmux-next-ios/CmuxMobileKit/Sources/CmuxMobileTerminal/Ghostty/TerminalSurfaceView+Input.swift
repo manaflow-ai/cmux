@@ -13,12 +13,7 @@ extension TerminalSurfaceView {
         // Something the person typed, pressed or pasted (not a key release
         // or preedit). Ghostty's own replies to terminal queries also reach
         // `onInput`, but never pass through here.
-        if actions.contains(where: \.isUserInput) {
-            onUserInput?()
-            // Anything but a plain keyboard insert (which clears this after) moves the
-            // prompt under the keyboard's context.
-            keyboardContextStale = true
-        }
+        if actions.contains(where: \.isUserInput) { onUserInput?() }
         let wasEncodingUserInput = isEncodingUserInput
         let wasPerformingInput = isPerformingInput
         isPerformingInput = true

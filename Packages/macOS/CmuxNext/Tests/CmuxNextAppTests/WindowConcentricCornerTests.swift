@@ -94,10 +94,9 @@ import Testing
         #expect(Metrics.tabCornerRadius == min(max(0, card - Metrics.tabStripCardInset), Metrics.tabHeight / 2))
     }
 
-    /// The default top row starts its strip under the window's rim (user 2026-11-19: "top padding is not equal to left
-    /// padding for the tab"): the card's top is the rim, not the side gutter, so the one strip padding inside the strip is
-    /// the whole gap above the tabs, as it is beside the first and under them, and the controls center on the pills' line.
-    @Test func theTopRowStripStartsUnderTheWindowsRim() throws {
+    /// The default top row keeps the gutter at the card's top as at its sides (an even inset), and
+    /// the controls center on the pills' line there.
+    @Test func theCardsTopInsetEqualsItsSideInset() throws {
         defer { load() }
         load()
         #expect(TopRowLineLook.tunable.defaultValue == .concentric)
@@ -115,13 +114,11 @@ import Testing
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 640))
         window.contentView = root
         let gutter = Metrics.mainPaneGutter
-        let rim = WindowTitlebar.topRowRim(in: window)
+        let side = Metrics.windowEdgeInset(gutter, in: window)
         let top = WindowTitlebar.cardTopInset(of: root, minimal: true, gutter: gutter)
-        #expect(top == rim, "the card is \(top) pt below the window's top, its rim is \(rim)")
+        #expect(top == side, "the card is \(top) pt below the window's top, \(side) pt from its side")
         let line = try #require(WindowTitlebar.topRowLine(in: window, look: .concentric))
-        // The pills keep the strip padding above them (from under the rim) as below them, and the controls center on them.
-        let row = PaneChromeMetrics.current, scale = window.backingScaleFactor
-        #expect(line.centerY == rim + row.tabGap(scale: scale) + row.tabHeight / 2,
-                "the controls center on the pills, one strip padding under the window's rim")
+        #expect(line.centerY == side + TopRowLine.tabsCenterY(.current, scale: window.backingScaleFactor),
+                "the controls center on the pills, which sit in their strip as in every row")
     }
 }

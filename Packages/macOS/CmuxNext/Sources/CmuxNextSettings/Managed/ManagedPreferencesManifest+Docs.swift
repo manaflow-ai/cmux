@@ -1,29 +1,12 @@
 public import Foundation
 
 extension ManagedPreferencesManifest {
-    /// Every file of docs/mdm, by name: what CmuxNextSettingsExport writes and
-    /// ManagedPreferencesManifestTests compares, so the two cannot list different files.
-    public static func exportFiles() throws -> [(String, Data)] {
-        [
-            ("com.manaflow.cmux.plist", try profileManifest()),
-            ("com.manaflow.cmux.json", try jamfSchema() + Data("\n".utf8)),
-            ("cmux-example.mobileconfig", try exampleMobileconfig()),
-            ("com.manaflow.cmux.intune.plist", Data(try intunePreferenceFile().utf8)),
-            ("managed-preferences.md", Data(markdown().utf8)),
-        ]
-    }
-
-    /// Keys the example profile sets: the first three catalog entries and the
-    /// App Store toggle, each at its default, so installing the example as-is
-    /// locks those settings without changing them.
+    /// Keys the example profile sets: each at its default, so installing
+    /// the example as-is locks those settings without changing them.
     static var exampleKeys: [String: Any] {
         var keys: [String: Any] = [:]
         for e in entries.prefix(3) {
             if let value = e.defaultValue.flatMap(propertyList) { keys[e.name] = value }
-        }
-        if let appStore = entries.first(where: { $0.name == "labs.appStore" }),
-           let value = appStore.defaultValue.flatMap(propertyList) {
-            keys[appStore.name] = value
         }
         keys["DisabledFeatures"] = [String]()
         return keys

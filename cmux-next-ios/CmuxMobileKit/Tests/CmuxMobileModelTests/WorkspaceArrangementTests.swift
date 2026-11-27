@@ -69,8 +69,6 @@ import Testing
     }
 
     /// Move Workspace Up / Down: the Mac's `movePersonalWorkspace` index.
-    // Its rule is Rust (cmux-mobile-link-ffi), linked on iOS only.
-    #if os(iOS)
     @Test func personalIndexNextToTheNeighbour() {
         let rows: [SidebarArrangement.Row] = [
             .init(session: "reg", key: "a", index: 0), .init(session: "reg", key: "b", index: 1),
@@ -85,7 +83,6 @@ import Testing
         #expect(arrangement.personalIndex(moving: visible[2], by: 1, among: visible, registryID: "reg") == nil)
         #expect(SidebarArrangement().personalIndex(moving: visible[1], by: -1, among: visible, registryID: "reg") == nil)
     }
-    #endif
 
     @Test func bulkCloseTargets() {
         let order = workspaces(["a", "b", "c", "d"])
@@ -122,8 +119,6 @@ import Testing
 
     /// Move Workspace to Top / to Bottom and Sort: the index right before or after the anchor
     /// in the person's order without the moved workspace.
-    // Its rule is Rust (cmux-mobile-link-ffi), linked on iOS only.
-    #if os(iOS)
     @Test func personalIndexNextToAnAnchor() {
         let arrangement = SidebarArrangement(rows: [
             .init(session: "reg", key: "a", index: 0), .init(session: "x", key: "z", index: 1),
@@ -141,7 +136,6 @@ import Testing
         #expect(arrangement.personalIndex(placing: fresh, next: list[0], after: false, registryID: "reg") == 0)
         #expect(SidebarArrangement().personalIndex(placing: list[1], next: list[0], after: false, registryID: "reg") == nil)
     }
-    #endif
 
     @Test func edgesOfTheContainer() {
         let order = workspaces(["a", "b", "c"])
@@ -165,15 +159,12 @@ import Testing
     }
 
     /// One row at a time: the first before the container's first row, each next after the one before.
-    // Its rule is Rust (cmux-mobile-link-ffi), linked on iOS only.
-    #if os(iOS)
     @Test func sortStepsMoveOnlyWhatIsOutOfPlace() {
         let list = workspaces(["c", "a", "b"])
         let steps = WorkspaceSortKey.steps(from: list, to: WorkspaceSortKey.name.sorted(list))
         #expect(steps.map { "\($0.workspace.id) \($0.after ? "after" : "before") \($0.anchor.id)" } == ["a before c", "b after a"])
         #expect(WorkspaceSortKey.steps(from: list, to: list).isEmpty)
     }
-    #endif
 
     @Test func colorsAreTheMacPalette() {
         #expect(WorkspaceColor.allCases.map(\.title) == ["Grey", "Blue", "Red", "Yellow", "Green", "Pink", "Purple", "Cyan", "Orange"])
@@ -328,8 +319,6 @@ import Testing
         #expect(store.workspaces.sorted { $0.sidebarIndex! < $1.sidebarIndex! }.map(\.id) == ["c", "b", "a"])
     }
 
-    // Its rule is Rust (cmux-mobile-link-ffi), linked on iOS only.
-    #if os(iOS)
     @Test func sortEachContainerOnTheMac() async {
         let (store, creator, recorder) = setup()
         let mac = store.workspaces[0].macID
@@ -343,7 +332,6 @@ import Testing
         await creator.settle()
         #expect(recorder.calls.count == 2)
     }
-    #endif
 
     @Test func removeAllColorsOnOneMac() async {
         let (store, creator, recorder) = setup()

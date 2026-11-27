@@ -1,7 +1,7 @@
 import Foundation
 
 /// A member of a team as Settings lists it (Stack `team-member-profiles`).
-public struct TeamMember: Identifiable, Hashable, Sendable, Codable {
+public struct TeamMember: Identifiable, Hashable, Sendable {
     public let id: String
     public let name: String
     public let isYou: Bool

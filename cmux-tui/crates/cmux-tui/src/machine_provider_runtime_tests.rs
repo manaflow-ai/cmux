@@ -3483,10 +3483,8 @@ fn runtime_identity_lease_blocks_a_second_cursor_and_reuses_it_after_release() {
             })
             .unwrap();
     });
-    // The blocked runtime waits out a lease that is about to be dropped
-    // (NOTICE_IDENTITY_LEASE_PATIENCE) before it refuses.
     let blocked_error = blocked_outcome
-        .recv_timeout(Duration::from_secs(6))
+        .recv_timeout(Duration::from_secs(2))
         .expect("second runtime did not fail before subscribing")
         .expect_err("second runtime unexpectedly acquired the shared notice cursor");
     assert_eq!(blocked_error, localization::catalog().sidebar.provider_connection_already_running);
@@ -4010,15 +4008,15 @@ fn answer_create(
     (params.scope_id, params.mutation_id)
 }
 
-/// The ledger of unanswered creates is not capped by count: past the 32 it once
-/// refused at, a new create still reaches the provider with its own id, and a
-/// retry of the oldest still replays its mutation_id, so it cannot make a
-/// second machine.
+/// A full ledger of unanswered creates never forgets one: the next new create
+/// is refused before it reaches the provider, and a retry of the oldest still
+/// replays its mutation_id, so it cannot make a second machine. Its answer
+/// frees one slot for the refused create.
 #[test]
-fn an_unsettled_ledger_past_the_old_cap_admits_new_creates_and_still_replays_the_oldest() {
+fn a_full_unsettled_ledger_refuses_new_creates_and_still_replays_the_oldest() {
     use crate::machine_provider_client::ProviderRequestDeadlines;
 
-    let pending = 40;
+    let pending = MAX_UNSETTLED_MUTATIONS;
     let socket = TestProviderSocket::bind();
     let listener = socket.listener();
     let catalog = provider_managed_snapshot(1);
@@ -4039,12 +4037,12 @@ fn an_unsettled_ledger_past_the_old_cap_admits_new_creates_and_still_replays_the
         let unique: HashSet<_> = sent.iter().collect();
         assert_eq!(unique.len(), pending, "each distinct create mints its own id");
 
-        // The oldest's retry replays its id.
+        // The refused create never arrives: the next frame is the oldest's retry.
         let (scope, retry_id) = answer_create(&mut stream, &mut reader, "machine-0");
-        assert_eq!(scope, id("scope-0"));
+        assert_eq!(scope, id("scope-0"), "the refused create reached the provider");
         assert_eq!(retry_id, sent[0], "the oldest create's retry minted a new mutation_id");
 
-        // A new create past the old cap goes through with an id of its own.
+        // The settled slot admits the create that was refused.
         let (scope, admitted_id) = answer_create(&mut stream, &mut reader, "machine-new");
         assert_eq!(scope, id(&format!("scope-{pending}")));
         assert!(!sent.contains(&admitted_id), "a new create needs a new mutation_id");
@@ -4070,6 +4068,16 @@ fn an_unsettled_ledger_past_the_old_cap_admits_new_creates_and_still_replays_the
         );
     }
 
+    for _ in 0..2 {
+        let refused = runtime
+            .send_mutation::<protocol::CreateMachineResult>(create_in_scope(pending))
+            .expect_err("a new create past the ledger's capacity must be refused");
+        let full = refused
+            .downcast_ref::<UnsettledMutationsFull>()
+            .unwrap_or_else(|| panic!("refused with {refused:#} instead of a full ledger"));
+        assert_eq!(full.pending, pending);
+        assert!(refused.to_string().contains("still waiting for an answer"));
+    }
     assert_eq!(runtime.unsettled_mutations.entries.len(), pending);
 
     runtime.client.set_request_deadlines(ProviderRequestDeadlines::PRODUCTION);
@@ -4079,7 +4087,7 @@ fn an_unsettled_ledger_past_the_old_cap_admits_new_creates_and_still_replays_the
     assert_eq!(runtime.unsettled_mutations.entries.len(), pending - 1);
 
     let created: protocol::CreateMachineResult =
-        runtime.send_mutation(create_in_scope(pending)).expect("a new create past the old cap");
+        runtime.send_mutation(create_in_scope(pending)).expect("a freed slot admits a new create");
     assert_eq!(created.machine_id, id("machine-new"));
     assert_eq!(runtime.unsettled_mutations.entries.len(), pending - 1);
 
@@ -4088,7 +4096,8 @@ fn an_unsettled_ledger_past_the_old_cap_admits_new_creates_and_still_replays_the
 }
 
 /// A mutation refused before its frame was written left nothing on the
-/// provider, so it must not hold a ledger slot.
+/// provider, so it must not hold a ledger slot. Forty refused connects in
+/// forty scopes would otherwise fill all 32 slots and block every create.
 #[test]
 fn mutations_refused_before_sending_leave_no_slot_and_a_create_still_goes_through() {
     const REFUSED: usize = 40;
@@ -4141,13 +4150,13 @@ fn mutations_refused_before_sending_leave_no_slot_and_a_create_still_goes_throug
 }
 
 /// An external connect goes through the one ledger: its unanswered attempt
-/// takes a slot, more unanswered creates than the 32 the ledger once refused at
-/// leave it there, and its retry replays the id the first attempt sent.
+/// takes a slot (so 31 more fill the ledger and refuse a new create) and its
+/// retry replays the id the first attempt sent.
 #[test]
 fn an_unanswered_external_connect_holds_a_ledger_slot_and_its_retry_replays_its_id() {
     use crate::machine_provider_client::ProviderRequestDeadlines;
 
-    let others = 40;
+    let others = MAX_UNSETTLED_MUTATIONS - 1;
     let socket = TestProviderSocket::bind();
     let listener = socket.listener();
     let mut catalog = snapshot(1, "Existing", protocol::MachineStatus::Running);
@@ -4175,7 +4184,7 @@ fn an_unanswered_external_connect_holds_a_ledger_slot_and_its_retry_replays_its_
                 create.request
             );
         }
-        // The next frame is the retry.
+        // Neither refused request arrives; the next frame is the retry.
         let retry: protocol::RequestEnvelope = read_frame(&mut reader);
         let protocol::ProviderRequest::ConnectExternalMachine(retry_params) = retry.request else {
             panic!("retry request was not external connect: {:?}", retry.request);
@@ -4218,8 +4227,18 @@ fn an_unanswered_external_connect_holds_a_ledger_slot_and_its_retry_replays_its_
             .send_mutation::<protocol::CreateMachineResult>(create_in_scope(scope))
             .expect_err("the provider never answers these creates");
     }
-    assert_eq!(runtime.unsettled_mutations.entries.len(), others + 1);
-    assert!(runtime.pending_external_connect.is_some());
+    let refused = runtime
+        .send_mutation::<protocol::CreateMachineResult>(create_in_scope(others))
+        .expect_err("the connect's slot fills the ledger");
+    assert!(refused.downcast_ref::<UnsettledMutationsFull>().is_some(), "{refused:#}");
+    let Err(refused) = runtime.connect_external_after_refresh("PAIR OTHER".into()) else {
+        panic!("a new connect must be refused by the full ledger too");
+    };
+    assert!(refused.downcast_ref::<UnsettledMutationsFull>().is_some(), "{refused:#}");
+    assert!(
+        runtime.pending_external_connect.is_some(),
+        "a refused connect cleared the ambiguous one"
+    );
 
     runtime.client.set_request_deadlines(ProviderRequestDeadlines::PRODUCTION);
     runtime.connect_external_after_refresh("PAIR 4J7K".into()).expect("the connect's retry");

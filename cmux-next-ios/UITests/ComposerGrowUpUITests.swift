@@ -34,7 +34,7 @@ final class ComposerGrowUpUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
         let field = app.textViews["chat.composer.field"]
-        if !field.waitForExistence(timeout: 30) { app.buttons["agentChat.composer.collapsed"].firstMatch.tap() }
+        if !field.waitForExistence(timeout: 30) { app.buttons["Reply to Claude"].firstMatch.tap() }
         XCTAssertTrue(field.waitForExistence(timeout: 10), "chat composer field\n\(app.debugDescription)")
         if !app.keyboards.firstMatch.exists { field.tap() }
         try grow(app, field, "chat")
@@ -72,11 +72,6 @@ final class ComposerGrowUpUITests: XCTestCase {
         field.typeText("y")
         let afterKey = field.frame
         attach(app, "\(name)-9-lines-plus-y")
-        // Scroll the draft by hand, as in the 2026-11-16 report: UIKit shows
-        // its scroll bar while a drag scrolls, so this frame is where a bar
-        // along the field's right edge would show.
-        field.swipeDown(velocity: .slow)
-        attach(app, "\(name)-9-lines-dragged")
         for (count, frame) in frames.sorted(by: { $0.key < $1.key }) {
             print("composer-grow \(name) lines=\(count) frame=\(frame)")
             XCTAssertEqual(frame.maxY, oneLine.maxY, accuracy: 1, "\(name): the bottom edge stays put at \(count) lines")

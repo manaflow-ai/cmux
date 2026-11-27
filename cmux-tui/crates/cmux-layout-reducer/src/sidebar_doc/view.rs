@@ -121,12 +121,6 @@ impl Context<'_> {
         self.needle.as_ref().is_none_or(|needle| text.to_lowercase().contains(needle))
     }
 
-    /// Whether `item` passes the text filter. With no filter (every view
-    /// but a search) it builds no title: that was a string per row per view.
-    fn shows(&self, item: &Item) -> bool {
-        self.needle.is_none() || self.matches(&self.title_of(item))
-    }
-
     fn is_collapsed(&self, id: &str, stored: bool) -> bool {
         if self.needle.is_some() {
             return false;
@@ -169,7 +163,7 @@ fn group_rows(
 ) -> Vec<Row> {
     let Body::Group { collapsed, .. } = &group.body else { return Vec::new() };
     let archived = archived || group.archived();
-    let name_matches = shown || context.shows(group);
+    let name_matches = shown || context.matches(&context.title_of(group));
     let mut inner = Vec::new();
     // A valid document has at most MAX_GROUP_DEPTH levels; the bound keeps a
     // corrupt one finite.
@@ -191,7 +185,7 @@ fn group_rows(
             if !live && !section.keeps_closed {
                 continue;
             }
-            if name_matches || context.shows(child) {
+            if name_matches || context.matches(&context.title_of(child)) {
                 inner.push(item_row(child, depth + 1, !live, false, archived));
             }
         }
@@ -271,7 +265,7 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
             match &item.body {
                 Body::Workspace { reference } => {
                     let live = context.is_live(reference);
-                    if (live || section.keeps_closed) && context.shows(item) {
+                    if (live || section.keeps_closed) && context.matches(&context.title_of(item)) {
                         body.push(item_row(item, 0, !live, false, false));
                     }
                 }
@@ -279,7 +273,7 @@ pub fn view(doc: &Doc, request: &ViewRequest) -> Vec<Row> {
                     body.extend(group_rows(doc, &context, section, item, 0, false, false));
                 }
                 _ => {
-                    if context.shows(item) {
+                    if context.matches(&context.title_of(item)) {
                         body.push(item_row(item, 0, false, false, false));
                     }
                 }

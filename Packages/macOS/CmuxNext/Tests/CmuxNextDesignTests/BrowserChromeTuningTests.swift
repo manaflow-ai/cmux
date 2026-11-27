@@ -23,25 +23,20 @@ import Testing
         #expect(BrowserChromeTuning.override(.closeSize, tokens: DensityPreset.ultraCompact.tokens, store: store) == nil)
     }
 
-    @Test(arguments: [DensityPreset.compact, .cozy, .comfortable, .spacious])
-    func defaultsFollowTheReference(preset: DensityPreset) {
-        func derived(_ metric: BrowserChromeMetric) -> Double? {
-            BrowserChromeTuning.all.first { $0.descriptor.key == BrowserChromeTuning.key(metric, density: preset) }.map { Double($0.derive()) }
+    /// The defaults the descriptors show are each density's own: Helium's 28 pt row, 3 pt gap and 14 pt x at
+    /// Default; Chrome's 34 pt row and 6 pt gap at Spacious.
+    @Test func defaultsAreEachDensitysOwn() {
+        func derived(_ metric: BrowserChromeMetric, _ density: DensityPreset) -> CGFloat? {
+            BrowserChromeTuning.all.first { $0.descriptor.key == BrowserChromeTuning.key(metric, density: density) }?.derive()
         }
-        func half(_ value: Double) -> Double { (value * 2).rounded() / 2 }
-        #expect(derived(.rowHeight) == preset.tokens.tokens["browserRowHeight"])
-        // Default's own 5 (`defaultStripPadding`) times the factor from Default up (Spacious a half point more,
-        // `spaciousGapNudge`); below Default, Default's 3 times it.
-        let nudge = preset == .spacious ? DensityPreset.spaciousGapNudge : 0
-        let rowGap: Double = preset.scaleFactor >= 1 ? half(DensityPreset.defaultStripPadding * preset.scaleFactor) + nudge : half(3 * preset.scaleFactor)
-        #expect(derived(.rowGap) == rowGap)
-        #expect(derived(.closeSize) == half(15 * preset.scaleFactor))
-        #expect(derived(.closeCorner) == half(4.5 * preset.scaleFactor))
-        #expect(derived(.closeInk) == half(8.5 * preset.scaleFactor))
-        #expect(derived(.closeTrailing) == half(6.5 * preset.scaleFactor))
-        let o = preset.omnibarScaleFactor // Default's omnibar is Compact's
-        #expect(derived(.chipLeading) == half(2 * o))
-        let bar = preset == .cozy ? 34 : half(28 / 0.9 * o) // Default: Chrome's 34 pt bar
-        #expect(derived(.textOrigin) == half(2 * o) + min(half(25 * o), bar - 2 * half(2 * o)) + half(5 * o))
+        #expect(derived(.rowHeight, .cozy) == 28)
+        #expect(derived(.rowGap, .cozy) == 3)
+        #expect(derived(.closeSize, .cozy) == 14)
+        #expect(derived(.closeCorner, .cozy) == 4)
+        #expect(derived(.chipLeading, .cozy) == 2)
+        #expect(derived(.textOrigin, .cozy) == 31)
+        #expect(derived(.rowHeight, .compact) == 20)
+        #expect(derived(.rowHeight, .spacious) == 34)
+        #expect(derived(.rowGap, .spacious) == 6)
     }
 }

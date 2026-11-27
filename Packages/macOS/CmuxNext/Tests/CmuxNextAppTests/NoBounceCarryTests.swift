@@ -127,35 +127,3 @@ import Testing
         }
     }
 }
-
-/// instant-splits gap row 4: a released divider lands on the fixed motion length D (`split`), not on `move`'s 166 ms.
-@MainActor
-@Suite struct ReleaseLandsOnDTests {
-    /// Seconds of 120 Hz frames until a released pane and divider come within a quarter point of rest.
-    static func landing(_ token: MotionSpring, velocity: CGFloat) -> Double {
-        let policy = MotionPolicy(speed: .fast, reduceMotion: false)
-        var pane = AnimatedFrame(CGRect(x: 0, y: 0, width: 200, height: 100))
-        pane.setTarget(CGRect(x: 0, y: 0, width: 260, height: 100))
-        var divider = AnimatedFrame(CGRect(x: 200, y: 0, width: 4, height: 100))
-        divider.setTarget(CGRect(x: 260, y: 0, width: 4, height: 100))
-        var frames: [PaneID: AnimatedFrame] = [PaneID("beside"): pane]
-        var dividers: [DividerHandleView.Kind: AnimatedFrame] = [.split(SplitID("d")): divider]
-        SplitMotion.seed(velocity: velocity, along: .horizontal, divider: divider, panes: &frames, dividers: &dividers)
-        var p = frames[PaneID("beside")] ?? pane, d = dividers[.split(SplitID("d"))] ?? divider
-        for frame in 1...240 {
-            _ = p.advanceUnsettled(1.0 / 120, parameters: policy.spring(token))
-            _ = d.advanceUnsettled(1.0 / 120, parameters: policy.spring(token))
-            if p.geometryNearRest, d.geometryNearRest { return Double(frame) / 120 }
-        }
-        return 2
-    }
-
-    @Test(arguments: [0, 600, 6000] as [CGFloat])
-    func aReleaseLandsWithinD(_ velocity: CGFloat) {
-        #expect(ScreenContentView.releaseSpring == .split)
-        let release = Self.landing(ScreenContentView.releaseSpring, velocity: velocity)
-        let before = Self.landing(ScreenContentView.frameSpring, velocity: velocity)
-        #expect(release <= 0.11, "release at \(velocity) pt/s lands in \(release * 1000) ms, past D")
-        #expect(release < before, "the release spring (\(release * 1000) ms) is no faster than move (\(before * 1000) ms)")
-    }
-}

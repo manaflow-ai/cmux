@@ -15,7 +15,7 @@ import Testing
     typealias Reference = ListViewportReference<SidebarRowKey>
 
     /// A seeded list: `count` nodes, each a loose workspace or a group of 1 to 4 members (some folded).
-    static func nodes(_ random: inout SeededRandom, count: Int, tag: String) -> [SidebarNode] {
+    static func nodes(_ random: inout ClosingPanesRandom, count: Int, tag: String) -> [SidebarNode] {
         (0..<count).map { index in
             guard random.chance(0.15) else {
                 return .workspace(SidebarWorkspace(id: WorkspaceID("\(tag)-w\(index)"), title: "workspace \(index)"))
@@ -26,10 +26,10 @@ import Testing
     }
 
     /// A random index below `count`.
-    static func index(_ random: inout SeededRandom, _ count: Int) -> Int { Int(random.int(0...UInt64(max(count, 1) - 1))) }
+    static func index(_ random: inout ClosingPanesRandom, _ count: Int) -> Int { Int(random.int(0...UInt64(max(count, 1) - 1))) }
 
     /// One random change of `nodes`, by name.
-    static func change(_ random: inout SeededRandom, _ nodes: [SidebarNode], seed: UInt64) -> (name: String, nodes: [SidebarNode]) {
+    static func change(_ random: inout ClosingPanesRandom, _ nodes: [SidebarNode], seed: UInt64) -> (name: String, nodes: [SidebarNode]) {
         var next = nodes
         switch random.int(0...6) {
         case 0:
@@ -75,7 +75,7 @@ import Testing
     @Test func theRuleOfTheRowsInViewEqualsTheRuleOfEveryRow() {
         var compared = 0, anchors = 0, shifts = 0, reveals = 0
         for seed in UInt64(1)...600 {
-            var random = SeededRandom(seed: seed)
+            var random = ClosingPanesRandom(seed: seed)
             let nodes = Self.nodes(&random, count: Int(random.int(1...120)), tag: "s\(seed)")
             let (name, changed) = Self.change(&random, nodes, seed: seed)
             let old = Self.layout(nodes), new = Self.layout(changed)
@@ -134,7 +134,7 @@ import Testing
         var compared = 0, outOfOrder = 0
         let spacing: CGFloat = 4
         for seed in UInt64(1)...300 {
-            var random = SeededRandom(seed: seed)
+            var random = ClosingPanesRandom(seed: seed)
             // The base (the list without the dragged group): loose rows of three heights.
             var baseRows: [SidebarRow] = []
             var y: CGFloat = 0
@@ -205,22 +205,4 @@ import Testing
         // The case the search cannot take is there: many drag layouts have a row that starts above the row before it.
         #expect(outOfOrder > 30, "the drag layouts do not cover rows out of order: \(outOfOrder) of 300")
     }
-}
-
-/// A seeded SplitMix64: the same seed gives the same lists and changes on every run.
-nonisolated struct SeededRandom: RandomNumberGenerator {
-    private var state: UInt64
-    init(seed: UInt64) { state = seed }
-
-    mutating func next() -> UInt64 {
-        state &+= 0x9E37_79B9_7F4A_7C15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-        return z ^ (z >> 31)
-    }
-
-    mutating func int(_ range: ClosedRange<UInt64>) -> UInt64 { range.lowerBound + next() % (range.upperBound - range.lowerBound + 1) }
-    mutating func chance(_ p: Double) -> Bool { Double(next() >> 11) / Double(1 << 53) < p }
-    mutating func pick<T>(_ values: [T]) -> T { values[Int(next() % UInt64(values.count))] }
 }

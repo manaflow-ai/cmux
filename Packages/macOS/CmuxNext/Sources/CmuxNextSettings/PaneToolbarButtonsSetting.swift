@@ -1,13 +1,13 @@
-/// The buttons a pane's tab bar shows at its trailing end, in cmux.json (Lawrence 2026-10-12; the
+/// The buttons a pane's tab bar shows next to its "…", in cmux.json (Lawrence 2026-10-12; the
 /// same shape as `browser.toolbarButtons`):
 ///
 /// ```jsonc
 /// "tabs": { "toolbarButtons": ["splitRight", "splitDown"] }
 /// ```
 ///
-/// By default the list is empty and the tab bar's trailing end shows nothing (no "…" More menu,
-/// https://github.com/manaflow-ai/cmux/issues/53356). A listed action shows as its own button while
-/// the shown tab can run it; the palette's Pin or Unpin Tab Bar Button… adds or removes one. The buttons fade in while
+/// By default the tab bar's trailing end is only "…" (More), which is never in the list. A listed
+/// action shows as its own button before "…" while the shown tab can run it; every other action
+/// stays a row of "…", whose Show in Tab Bar items pin it back. The buttons and "…" fade in while
 /// the pointer is over the tab bar, like its "+". A bad or unknown item is dropped with a
 /// diagnostic. The app reads the effective root (``current(_:)``), so the snapshot type does not
 /// grow. Replaces `tabs.hiddenButtons` (``SettingsController/migrateLegacyPaneToolbarButtons()``).

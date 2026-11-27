@@ -200,7 +200,7 @@ struct SubagentTabTitleTests {
         titles.name("s/t2", of: "s", title: "Review", tone: 2, mark: "codex")
         titles.bind("s/t2", of: "s", toTab: "tab2")
         #expect(titles.icon(ofTab: "tab2") == .harness("codex"))
-        #expect(TabItemMapping.subagentIcon(harness: "codex") == .agentMark("openai"), "Codex draws the OpenAI mark, as AgentBrandCatalog maps it")
+        #expect(TabItemMapping.subagentIcon(harness: "codex") == .agentMark("codex"))
         // A harness cmux lists no mark for draws the subagent mark, as the row's fallback does.
         #expect(TabItemMapping.subagentIcon(harness: "no-such-harness") == .icon(.taskAi))
 

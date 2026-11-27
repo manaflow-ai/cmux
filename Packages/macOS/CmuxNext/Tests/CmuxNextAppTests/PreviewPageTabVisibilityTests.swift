@@ -26,7 +26,7 @@ struct PreviewPageTabVisibilityTests {
         try Data(#"{"labs":{"previewFeatures":true}}"#.utf8).write(to: config)
 
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: config,
+        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: config,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         services.settings = settings
         await settings.reload()

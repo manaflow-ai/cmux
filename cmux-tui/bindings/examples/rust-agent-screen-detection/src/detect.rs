@@ -61,9 +61,7 @@ pub(crate) const RESIZE_REDRAW_GRACE_MS: u64 = 1_000;
 /// through [`QUIESCENCE_DEBOUNCE_MS`]: the prompt with no spinner is positive
 /// evidence, so an interrupted turn shows idle within a second of its last
 /// redraw (manaflow-ai/cmux#36529), not 1.5 s after it. A working agent's
-/// spinner redraws far more often than that. On that prompt the output only
-/// holds a state: it does not start work for an agent that reads idle
-/// ([`ScreenDetectTracker::apply_output_activity`]).
+/// spinner redraws far more often than that.
 pub(crate) const WORKING_ACTIVITY_WINDOW_MS: u64 = 1_500;
 
 /// Whether output last seen at `at` still counts as activity at `now`, for an
@@ -418,20 +416,6 @@ impl ScreenDetectTracker {
     /// ([`WORKING_ACTIVITY_WINDOW_MS`]) becomes working, and the tracker then
     /// owes one expiry re-evaluation. Hooks still win in the core roster
     /// reducer.
-    ///
-    /// A read of the agent's own idle prompt (`visible_idle`) is a fact of
-    /// the screen, so output on it does not start work: when the last
-    /// reported state is idle, or there is none, the read stays idle. One
-    /// redraw of a prompt at rest (a clock in a status line, a notice) is
-    /// then no `working` report and no `idle` report after it. After a
-    /// working or blocked report the output still holds the read, because a
-    /// read can land between two parts of a redraw and see the prompt with
-    /// no spinner.
-    ///
-    /// One exception: a read whose matched idle rule has no working rule of
-    /// its manifest above it ([`Detection::idle_above_working`]). A working
-    /// rule can win on that prompt only at a tie of priorities, so output is
-    /// the fact of work there and still starts it.
     pub fn apply_output_activity(
         &mut self,
         terminal_id: &str,
@@ -443,10 +427,6 @@ impl ScreenDetectTracker {
         }
         let Some(entry) = self.terminals.get_mut(terminal_id) else { return };
         if !entry.last_output_at.is_some_and(|at| output_within(at, now, detection.visible_idle)) {
-            return;
-        }
-        let at_rest = entry.emitted.as_ref().is_none_or(|(_, state)| *state == AgentState::Idle);
-        if detection.visible_idle && at_rest && !detection.idle_above_working {
             return;
         }
         detection.state = ScreenState::Working;
@@ -471,11 +451,6 @@ impl ScreenDetectTracker {
         // have emitted its OSC title or progress before the process probe
         // caught up, so do not discard that evidence on the first edge.
         entry.osc_metadata_state.is_fresh(stream_revision)
-    }
-
-    /// The tracker holds an entry for `terminal_id`.
-    pub(crate) fn tracks(&self, terminal_id: &str) -> bool {
-        self.terminals.contains_key(terminal_id)
     }
 
     /// True when this terminal previously journaled a screen-derived state

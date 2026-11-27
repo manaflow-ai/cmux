@@ -36,9 +36,6 @@ extension SidebarListViewComponents {
             if let oldKey { rowViews[oldKey]?.isSelected = false }
             if let newKey { rowViews[newKey]?.isSelected = true }
         }
-        // One row draws the selection: a row still on its way out (a close's fade, a drop's adopt) is in no `rowViews`
-        // entry, so the old key above misses it and it would draw a second fill beside the new one.
-        clearStraySelection(keeping: newKey)
         // The secondary fill: rows that joined or left the multi-selection, and the old and new primary rows.
         var touched = oldSelection.symmetricDifference(model.selection)
         for key in [oldKey, newKey] { if case let .workspace(id)? = key { touched.insert(id) } }
@@ -47,16 +44,7 @@ extension SidebarListViewComponents {
             paintSecondaryFills(view, id)
         }
         revealPatchedSelection()
-        // The flare moves with the selection in this same pass (`flush-goo`, ``CornerFlush/sidebarRowFlows``).
-        reportGooeySelection()
         return true
-    }
-
-    /// Takes the selection fill off every drawn row but `key`'s: the realized rows and the ones still leaving (they
-    /// stay in the list until their fade ends). O(row views), which are the realized rows only.
-    func clearStraySelection(keeping key: SidebarRowKey?) {
-        let kept = key.flatMap { rowViews[$0] }
-        for case let view as SidebarRowView in subviews where view.isSelected && view !== kept { view.isSelected = false }
     }
 
     /// `applyKeepingViewport`'s reveal for a change that moved no row: a new

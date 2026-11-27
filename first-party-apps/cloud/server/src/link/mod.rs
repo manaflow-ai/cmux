@@ -80,9 +80,6 @@ pub struct Attach {
     pub(crate) parked: Option<(String, u64)>,
     /// The machine a connect just parked on until it runs, for the loop.
     pub(crate) parked_machine: Option<String>,
-    /// The machine whose start (inside a connect) just failed, for the loop
-    /// to retry or answer by crate::ops::start_retry.
-    pub(crate) start_failed: Option<String>,
     /// Ops of the serve loop that wait for a link or a running machine
     /// (bounded).
     pub(crate) parked_ops: Vec<park::Parked>,
@@ -127,7 +124,6 @@ impl Attach {
             park_link_waits: false,
             parked: None,
             parked_machine: None,
-            start_failed: None,
             parked_ops: Vec::new(),
             wait_clock: std::sync::Arc::new(crate::clock::SystemClock),
             wake: None,

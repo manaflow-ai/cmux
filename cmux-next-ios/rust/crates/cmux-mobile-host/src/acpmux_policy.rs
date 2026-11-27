@@ -313,7 +313,7 @@ pub fn filter_response(message: &str, state: &SessionExposure, bound: &HashSet<S
     Some(value.to_string())
 }
 
-pub(crate) fn daemon_chat_blocked(value: &Value, state: &SessionExposure, trusted_response: bool) -> bool {
+fn daemon_chat_blocked(value: &Value, state: &SessionExposure, trusted_response: bool) -> bool {
     // Phone-supplied conversation aliases require canonical authorization;
     // trusted daemon rows already name their actual chat, including valid
     // short IDs. Bare daemon `session`/`session_id` fields instead name a

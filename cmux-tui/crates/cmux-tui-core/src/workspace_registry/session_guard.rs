@@ -85,47 +85,6 @@ pub(crate) enum SessionOwnerProbe {
 /// [`SessionOwnerProbe::Owned`]. Whoever holds the lease checks
 /// [`SessionLease::still_guards`] before each step that ends a host.
 pub(crate) fn probe_session_owner(root: &Path, component: &str) -> SessionOwnerProbe {
-    match lock_free_session_guard(root, component) {
-        // The coordinator goes as this returns; the lease stays.
-        Ok((lease, _coordinator)) => SessionOwnerProbe::Unowned(lease),
-        Err(probe) => probe,
-    }
-}
-
-/// What [`peek_session_owner`] saw.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SessionOwnerPeek {
-    /// No daemon held the guard.
-    Unowned,
-    /// A daemon holds the guard, or the peek could not tell.
-    Owned,
-    /// The session has no guard file in `root`.
-    NoGuard,
-}
-
-/// [`probe_session_owner`] that keeps nothing, for `cmux ps` and a `cmux gc`
-/// dry run: the guard's lock is taken and let go while the coordinator is
-/// held. A daemon starts a session by taking the coordinator first, so one
-/// starting meanwhile waits on the coordinator for that instant instead of
-/// failing on a guard held here.
-pub(crate) fn peek_session_owner(root: &Path, component: &str) -> SessionOwnerPeek {
-    match lock_free_session_guard(root, component) {
-        Ok((lease, coordinator)) => {
-            drop(lease);
-            drop(coordinator);
-            SessionOwnerPeek::Unowned
-        }
-        Err(SessionOwnerProbe::NoGuard) => SessionOwnerPeek::NoGuard,
-        Err(_) => SessionOwnerPeek::Owned,
-    }
-}
-
-/// The free guard of `component` locked here, with the coordinator still
-/// held; `Err` with what the probe found otherwise.
-fn lock_free_session_guard(
-    root: &Path,
-    component: &str,
-) -> Result<(SessionLease, SessionLease), SessionOwnerProbe> {
     let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
     let lock_path = session_guard_lock_component_path(&lock_dir, component);
     let mut options = OpenOptions::new();
@@ -138,61 +97,39 @@ fn lock_free_session_guard(
     let file = match options.open(&lock_path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Err(SessionOwnerProbe::NoGuard);
+            return SessionOwnerProbe::NoGuard;
         }
-        Err(_) => return Err(SessionOwnerProbe::Owned),
+        Err(_) => return SessionOwnerProbe::Owned,
     };
-    let Ok(coordinator) =
+    let Ok(_coordinator) =
         SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir))
     else {
-        return Err(SessionOwnerProbe::Owned);
+        return SessionOwnerProbe::Owned;
     };
     // Locked first, then checked: the path must still name the locked file.
     let lock = match FileLock::try_take(file, Kind::Exclusive) {
         Ok(lock) => lock,
-        Err(LockError::Busy(_) | LockError::Io(_)) => return Err(SessionOwnerProbe::Owned),
+        Err(LockError::Busy(_) | LockError::Io(_)) => return SessionOwnerProbe::Owned,
     };
     if validate_session_lock_file(&lock_path, lock.file()).is_err() {
-        return Err(SessionOwnerProbe::Owned);
+        return SessionOwnerProbe::Owned;
     }
-    Ok((SessionLease { lock, path: lock_path, coordinator_waiter_dir: None }, coordinator))
-}
-
-/// The top-level files of the session `component` of `root` that only an
-/// owner run writes, with their metadata. SQLite's reader side files are left
-/// out: the registry is in WAL mode, and a read-only open (`cmux ps`, `cmux
-/// gc`, [`stored_terminal_references`]) leaves a `-shm` and an empty `-wal`
-/// behind and writes the `-shm` on each read. A reader never writes the main
-/// database or appends to the WAL; an owner's commit appends to the WAL (so
-/// it is no longer empty) and its checkpoint writes the main database, so the
-/// main database and a nonempty `-wal` still show every owner write.
-fn owner_written_files(root: &Path, component: &str) -> Vec<fs::Metadata> {
-    let dir = platform::normalize_filesystem_path(root.join(component));
-    fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            let metadata = entry.metadata().ok()?;
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            let reader_side_file =
-                name.ends_with("-shm") || (name.ends_with("-wal") && metadata.len() == 0);
-            (metadata.is_file() && !reader_side_file).then_some(metadata)
-        })
-        .collect()
+    SessionOwnerProbe::Unowned(SessionLease { lock, path: lock_path, coordinator_waiter_dir: None })
 }
 
 /// What the last owner run of the session `component` of `root` left in its
-/// session directory: the newest modification time, the total size and the
-/// count of the files only an owner writes ([`owner_written_files`]: the
-/// registry, a nonempty WAL, `startup-timings.jsonl`). Every owner start and
-/// every adoption commits there, so a change means an owner ran in between;
-/// nothing else writes them while its guard is free, and reading the
-/// registry leaves the mark as it was.
+/// session directory: the newest modification time and the total size of
+/// its top-level files (registry, its WAL, `startup-timings.jsonl`). Every
+/// owner start and every adoption commits there, so a change means an owner
+/// ran in between; nothing else writes there while its guard is free.
 pub(crate) fn session_owner_mark(root: &Path, component: &str) -> String {
+    let dir = platform::normalize_filesystem_path(root.join(component));
     let (mut newest, mut size, mut files) = (0_u128, 0_u64, 0_usize);
-    for metadata in owner_written_files(root, component) {
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let Ok(metadata) = entry.metadata() else { continue };
+        if !metadata.is_file() {
+            continue;
+        }
         files += 1;
         size = size.saturating_add(metadata.len());
         let modified = metadata
@@ -203,49 +140,6 @@ pub(crate) fn session_owner_mark(root: &Path, component: &str) -> String {
         newest = newest.max(modified);
     }
     format!("{newest}:{size}:{files}")
-}
-
-/// When the last owner run of the session `component` of `root` last wrote
-/// its session directory (the newest modification time of the files only an
-/// owner writes, as [`session_owner_mark`] reads them); `None` when the
-/// directory has no such file or its times cannot be read.
-pub(crate) fn session_owner_last_active(
-    root: &Path,
-    component: &str,
-) -> Option<std::time::SystemTime> {
-    owner_written_files(root, component)
-        .iter()
-        .filter_map(|metadata| metadata.modified().ok())
-        .max()
-}
-
-/// The terminals the workspace registry of the session `component` of
-/// `root` still references (every row not tombstoned): what its next start
-/// restores. `Ok(None)`: the session keeps no registry. Read-only, without
-/// the session's locks.
-pub(crate) fn stored_terminal_references(
-    root: &Path,
-    component: &str,
-) -> anyhow::Result<Option<std::collections::HashSet<String>>> {
-    let database = platform::normalize_filesystem_path(
-        root.join(component).join(super::WORKSPACE_REGISTRY_FILE),
-    );
-    match fs::symlink_metadata(&database) {
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(error).with_context(|| format!("stat {}", database.display()));
-        }
-    }
-    let connection = super::open_registry_database_read_only(&database)
-        .with_context(|| format!("open {}", database.display()))?;
-    connection.busy_timeout(std::time::Duration::from_millis(500))?;
-    let mut statement = connection
-        .prepare("SELECT terminal_id FROM terminal_hosts WHERE lifecycle != 'tombstoned'")?;
-    let ids = statement
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<Result<std::collections::HashSet<_>, _>>()?;
-    Ok(Some(ids))
 }
 
 /// The guard file stems in `root` (`session-locks/<stem>.lock`), sorted.

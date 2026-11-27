@@ -7,7 +7,7 @@
 //! the source address it was sent from. A link (an unordered pair of
 //! addresses) can add one-way latency, drop everything, or be a bottleneck:
 //! a rate in datagrams per second with a drop-tail queue, like a router
-//! interface, or have a path MTU that silently drops longer datagrams. A socket can have a send buffer drained at a rate, which
+//! interface. A socket can have a send buffer drained at a rate, which
 //! answers `WouldBlock` when full and signals readiness when a slot frees,
 //! like a kernel UDP socket. Latency is applied by one FIFO delay line per
 //! direction, so a link never reorders; a path change between two links with
@@ -38,9 +38,6 @@ pub struct LinkProfile {
     pub rate_pps: u32,
     /// Datagrams the bottleneck queues before it drops (drop-tail).
     pub queue: u32,
-    /// Drop every datagram (UDP payload) longer than this, silently, like a
-    /// path whose MTU is below the sender's that sends no ICMP; 0 is no limit.
-    pub max_datagram: usize,
 }
 
 /// A socket's send buffer, drained toward the network at a rate.
@@ -109,8 +106,6 @@ struct Inner {
     pipes: HashMap<(SocketAddr, SocketAddr), (u32, u32, Pacer)>,
     /// Datagrams each address handed to the network.
     sent: HashMap<SocketAddr, u64>,
-    /// Bytes in those datagrams.
-    sent_bytes: HashMap<SocketAddr, u64>,
 }
 
 /// The network. Cheap to clone; every clone is the same network.
@@ -171,12 +166,6 @@ impl SimNet {
         self.lock().sent.get(&addr).copied().unwrap_or(0)
     }
 
-    /// Bytes in the datagrams the socket at `addr` handed to the network so
-    /// far (WireGuard datagrams, without IP and UDP headers).
-    pub fn sent_bytes_from(&self, addr: SocketAddr) -> u64 {
-        self.lock().sent_bytes.get(&addr).copied().unwrap_or(0)
-    }
-
     /// Datagrams dropped so far (cut links, full bottleneck queues and
     /// unbound destinations).
     pub fn dropped(&self) -> u64 {
@@ -197,14 +186,13 @@ impl SimNet {
     fn send(&self, from: SocketAddr, to: SocketAddr, datagram: &[u8], release: Instant) {
         let mut inner = self.lock();
         *inner.sent.entry(from).or_default() += 1;
-        *inner.sent_bytes.entry(from).or_default() += datagram.len() as u64;
         let profile = inner.links.get(&link_key(from, to)).copied().unwrap_or_default();
         let Some((_, endpoint)) = inner.endpoints.get(&to).cloned() else {
             drop(inner);
             self.drop_one();
             return;
         };
-        if profile.cut || (profile.max_datagram > 0 && datagram.len() > profile.max_datagram) {
+        if profile.cut {
             drop(inner);
             self.drop_one();
             return;

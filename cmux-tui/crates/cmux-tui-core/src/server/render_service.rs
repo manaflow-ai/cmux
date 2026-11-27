@@ -9,7 +9,6 @@ use super::OUTBOUND_GLOBAL_CONTROL_BYTE_CAPACITY;
 use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES;
 use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES;
 use super::VtStateMessage;
-use super::render_messages::close_with_stamp;
 use super::terminal_colors_json;
 use super::tree_reply_text::TreeText;
 use super::write_pending_sequence_json;
@@ -156,63 +155,6 @@ impl Drop for BudgetedText {
     fn drop(&mut self) {
         self.budget.release(self.retained_bytes);
     }
-}
-
-/// One binary message of `attach-frames-v1` (app-daemon-connection-DESIGN.md 3.2): the 16-byte
-/// header and its payload, charged to the same outbound budget as a JSON line and queued in the
-/// same FIFO as the stream's lines. Written with no newline.
-pub(super) struct BudgetedFrame {
-    pub(super) header: [u8; ATTACH_FRAME_HEADER_LEN],
-    pub(super) payload: Vec<u8>,
-    retained_bytes: usize,
-    budget: Arc<OutboundByteBudget>,
-}
-
-/// A Unix connection that declares this in `set-client-info` reads each plain `output` of its
-/// byte and snapshot attaches as binary OUTPUT frames instead of base64 JSON lines
-/// (app-daemon-connection-DESIGN.md 3.2). Every other event stays a JSON line. Refused on a
-/// WebSocket (text messages only) and on the remote entry (its bridges cut lines).
-pub const ATTACH_FRAMES_CAPABILITY: &str = "attach-frames-v1";
-
-/// Bytes in an `attach-frames-v1` header.
-pub(super) const ATTACH_FRAME_HEADER_LEN: usize = 16;
-/// The first byte of every frame; never the first byte of a JSON line.
-pub(super) const ATTACH_FRAME_MAGIC: u8 = 0xFF;
-/// Frame kind 1: raw PTY bytes; the header's offset is that of the first payload byte.
-pub(super) const ATTACH_FRAME_KIND_OUTPUT: u8 = 1;
-/// The most payload bytes one frame carries (the server message budget, DESIGN 3.2).
-pub(super) const ATTACH_FRAME_PAYLOAD_MAX: usize = 33_554_432;
-
-impl BudgetedFrame {
-    /// Header and payload bytes: what the frame costs in its queue.
-    pub(super) fn len(&self) -> usize {
-        ATTACH_FRAME_HEADER_LEN + self.payload.len()
-    }
-}
-
-impl Drop for BudgetedFrame {
-    fn drop(&mut self) {
-        self.budget.release(self.retained_bytes);
-    }
-}
-
-/// The header of one frame, little endian: magic, kind, stream, payload length, offset.
-pub(super) fn attach_frame_header(
-    kind: u8,
-    stream: u16,
-    len: u32,
-    offset: u64,
-) -> [u8; ATTACH_FRAME_HEADER_LEN] {
-    let mut header = [0_u8; ATTACH_FRAME_HEADER_LEN];
-    let fields = [ATTACH_FRAME_MAGIC, kind]
-        .into_iter()
-        .chain(stream.to_le_bytes())
-        .chain(len.to_le_bytes())
-        .chain(offset.to_le_bytes());
-    for (slot, byte) in header.iter_mut().zip(fields) {
-        *slot = byte;
-    }
-    header
 }
 
 pub(super) struct BudgetedJsonWriter {
@@ -403,36 +345,6 @@ impl RenderService {
         Ok(writer.finish())
     }
 
-    /// An `attach-frames-v1` OUTPUT frame of `payload` (at most [`ATTACH_FRAME_PAYLOAD_MAX`]
-    /// bytes) whose first byte is at stream `offset`, charged to the outbound budget like the
-    /// `output` line it replaces (about 3/4 of that line's bytes: no base64, no JSON).
-    pub(super) fn output_frame(
-        &self,
-        stream: u16,
-        offset: u64,
-        payload: &[u8],
-    ) -> std::io::Result<Arc<BudgetedFrame>> {
-        let len = u32::try_from(payload.len())
-            .ok()
-            .filter(|len| *len as usize <= ATTACH_FRAME_PAYLOAD_MAX)
-            .ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "frame payload is too large")
-            })?;
-        let retained_bytes = ATTACH_FRAME_HEADER_LEN + payload.len();
-        if !self.outbound_budget.try_retain(retained_bytes) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::WouldBlock,
-                "global outbound byte budget overflowed",
-            ));
-        }
-        Ok(Arc::new(BudgetedFrame {
-            header: attach_frame_header(ATTACH_FRAME_KIND_OUTPUT, stream, len, offset),
-            payload: payload.to_vec(),
-            retained_bytes,
-            budget: self.outbound_budget.clone(),
-        }))
-    }
-
     pub(super) fn serialize_control<T: Serialize + ?Sized>(
         &self,
         value: &T,
@@ -498,10 +410,7 @@ impl RenderService {
         if let Some(skipped) = value.history_rows_skipped {
             write!(writer, ",\"history_rows_skipped\":{skipped}")?;
         }
-        if let Some(resume) = value.resume {
-            write!(writer, ",\"resume\":\"{resume}\"")?;
-        }
-        close_with_stamp(&mut writer, value.stamp)?;
+        writer.write_all(b"}")?;
         Ok(writer.finish())
     }
 
@@ -517,8 +426,7 @@ impl RenderService {
             AttachFrame::Output(output) => {
                 write!(writer, "{{\"event\":\"output\",\"surface\":{surface},\"data\":\"")?;
                 write_base64_json_string(&mut writer, output)?;
-                writer.write_all(b"\"")?;
-                close_with_stamp(&mut writer, shape.stamp)?;
+                writer.write_all(b"\"}")?;
             }
             AttachFrame::OutputWithColors { output, colors } => {
                 write!(writer, "{{\"event\":\"output\",\"surface\":{surface},\"data\":\"")?;
@@ -529,7 +437,7 @@ impl RenderService {
                     &terminal_colors_json(**colors, include_color_overrides),
                 )
                 .map_err(json_error_to_io)?;
-                close_with_stamp(&mut writer, shape.stamp)?;
+                writer.write_all(b"}")?;
             }
             AttachFrame::Resized {
                 cols,
@@ -551,7 +459,7 @@ impl RenderService {
                 if shape.pending_sequence {
                     write_pending_sequence_json(&mut writer, pending_sequence)?;
                 }
-                close_with_stamp(&mut writer, shape.stamp)?;
+                writer.write_all(b"}")?;
             }
             AttachFrame::ResizedWithColors {
                 cols,
@@ -585,16 +493,12 @@ impl RenderService {
                 if let Some(omitted) = history_rows_omitted {
                     write!(writer, ",\"history_rows_omitted\":{omitted}")?;
                 }
-                close_with_stamp(&mut writer, shape.stamp)?;
+                writer.write_all(b"}")?;
             }
             AttachFrame::ColorsChanged(colors) => {
                 let mut value = terminal_colors_json(**colors, include_color_overrides);
                 value.insert("event", json!("colors-changed"));
                 value.insert("surface", json!(surface));
-                if let Some(stamp) = shape.stamp {
-                    value.insert("offset", json!(stamp.offset));
-                    value.insert("generation", json!(stamp.generation()));
-                }
                 serde_json::to_writer(&mut writer, &value).map_err(json_error_to_io)?;
             }
         }

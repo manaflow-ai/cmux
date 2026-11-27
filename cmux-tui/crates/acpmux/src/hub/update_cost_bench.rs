@@ -94,12 +94,12 @@ fn update_cost_usage_pass_prune() {
             // One more tracked chat than listed: it goes.
             let mut trackers: HashMap<String, u64> =
                 (0..=n).map(|i| (format!("s-{i:05}"), 0)).collect();
-            let stats: std::collections::HashSet<String> = trackers.keys().cloned().collect();
+            let mut stats = trackers.clone();
             let started = Instant::now();
-            let gone = super::usage_view::prune_unlisted(&mut trackers, &stats, &sources);
+            let gone = super::usage_view::prune_unlisted(&mut trackers, &mut stats, &sources);
             took += started.elapsed();
             assert_eq!(gone.len(), 1);
-            assert_eq!(trackers.len(), n);
+            assert_eq!(stats.len(), n);
         }
         report("usage_pass_prune", n, rounds, took);
     }

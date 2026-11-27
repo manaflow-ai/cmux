@@ -103,11 +103,9 @@ impl Publication {
                 .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(&b))
     }
 
-    /// Serializes only the rows `keep` admits, so reading one machine costs one row.
-    fn snapshots(&self, keep: impl Fn(&str, &str) -> bool) -> Vec<Value> {
+    fn snapshots(&self) -> Vec<Value> {
         self.machines
             .iter()
-            .filter(|machine| keep(&machine.id, &machine.name))
             .filter_map(|machine| {
                 let mut value = serde_json::to_value(machine).ok()?;
                 value.insert(
@@ -162,11 +160,7 @@ impl ClientRegistry {
     }
 
     /// A copy under the same lock that removes connections; no disconnected lease survives.
-    /// `keep(id, name)` picks the rows to copy; the rest are never serialized.
-    pub(crate) fn remote_machine_catalog(
-        &self,
-        keep: impl Fn(&str, &str) -> bool,
-    ) -> Option<(u64, Vec<Value>)> {
+    pub(crate) fn remote_machine_catalog(&self) -> Option<(u64, Vec<Value>)> {
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.clients.iter().find_map(|(client, record)| {
             if !matches!(record.transport, ClientTransport::Unix)
@@ -174,10 +168,7 @@ impl ClientRegistry {
             {
                 return None;
             }
-            record
-                .machine_catalog
-                .as_ref()
-                .map(|publication| (*client, publication.snapshots(&keep)))
+            record.machine_catalog.as_ref().map(|publication| (*client, publication.snapshots()))
         })
     }
 }

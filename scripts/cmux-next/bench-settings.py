@@ -34,8 +34,6 @@ bench = importlib.util.module_from_spec(spec)
 sys.argv, argv = sys.argv[:1], sys.argv
 spec.loader.exec_module(bench)
 sys.argv = argv
-sys.path.insert(0, HERE)
-from state_wait import wait_until  # noqa: E402
 
 TYPED = "fontsize"
 
@@ -62,20 +60,13 @@ def poll(predicate, seconds=20, step=0.01):
     return None
 
 
-def search_focused(run):
-    page = run.call("debug.page", {"page": "cmux.settings"}).get("result") or {}
-    active = page.get("active") if isinstance(page, dict) else None
-    return isinstance(active, dict) and active.get("tag") in ("input", "textarea")
-
-
 def timed_open(run, label):
     run.result("debug.hangs", {"clear": True})
     started = time.monotonic()
     response = run.call("action.run", {"action": "openSettings", "focus": True})
     shown = poll(lambda: settings_view(run))
     ms = round((time.monotonic() - started) * 1000, 1) if shown else None
-    # The first frames have drawn once debug.hangs records nothing new for 1 s.
-    run.wait_quiet(1.0, timeout=10)
+    time.sleep(1.0)  # let the first frames settle before reading the gap
     hangs = run.result("debug.hangs")
     return {f"{label}_ms": ms, f"{label}_max_gap_ms": round(hangs.get("max_gap_ms", 0), 1),
             "ui": shown[0] if shown else None, "ok": bool(response.get("ok", True))}
@@ -83,12 +74,7 @@ def timed_open(run, label):
 
 def typing(run):
     run.call("debug.key", {"key": "f", "modifiers": ["cmd"]})
-    # Cmd-F took once the React page's focused element is the search field; the Swift view reports no focus,
-    # so there it waits for the main thread to go quiet.
-    if not wait_until(lambda: search_focused(run), "the Settings search field focused", timeout=5, raise_on_timeout=False):
-        if (settings_view(run) or ("", ""))[0] == "react":
-            print("warning: the Settings search field never took focus after Cmd-F", file=sys.stderr, flush=True)
-        run.wait_quiet(0.3, timeout=5)
+    time.sleep(0.3)
     latencies, gaps, typed = [], [], ""
     for character in TYPED:
         typed += character
@@ -136,9 +122,7 @@ def one_run(tag, threshold_ms):
         metrics.update(typing(run))
         run.call("debug.key", {"key": "escape"})
         run.call("debug.key", {"key": "w", "modifiers": ["cmd"]})
-        # open2 times a fresh open: wait until Settings no longer shows, then for the close's frames to draw.
-        wait_until(lambda: settings_view(run) is None, "Settings closed after Cmd-W", timeout=10)
-        run.wait_quiet(0.5, timeout=10)
+        time.sleep(1.0)
         metrics.update({k: v for k, v in timed_open(run, "open2").items() if k.startswith("open2")})
         return metrics
     finally:

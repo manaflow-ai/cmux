@@ -109,65 +109,6 @@ fn an_agent_or_script_create_goes_first_by_default() {
     mux.shutdown();
 }
 
-fn group_of(mux: &Arc<Mux>, id: &str) -> Value {
-    read(mux, "workspace.placement.list", json!({}))
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|row| row["workspace"]["workspace_id"] == id)
-        .map(|row| row["group_id"].clone())
-        .unwrap_or(Value::Null)
-}
-
-/// A new workspace made while the person is in a group stays in that group,
-/// first in it, under the default (Leo 2026-11-16, workspace-420 in "Leads":
-/// "I make a new space. Getting sent out of the group that I'm"). Each next
-/// one, made from the new one, stays in the group too. An agent's create
-/// from there still goes first in the section, outside the group.
-#[test]
-fn a_new_workspace_made_in_a_group_stays_in_that_group() {
-    let session = Session::new("new-default-top-in-group");
-    let mux = session.open();
-    let home = home(&mux);
-    let bottom = NewWorkspacePlacement::Bottom.set_for_test();
-    let loose = empty_workspace(&mux, "loose");
-    let a = empty_workspace(&mux, "a");
-    let b = empty_workspace(&mux, "b");
-    drop(bottom);
-    let leads =
-        mutate(&mux, "workspace_group.create", json!({"name": "Leads"}), "group-leads")["id"]
-            .as_str()
-            .unwrap()
-            .to_string();
-    mutate(&mux, "workspace.place", json!({"workspace": a, "group": leads}), "a-in-leads");
-    mutate(&mux, "workspace.place", json!({"workspace": b, "group": leads}), "b-in-leads");
-    mutate(&mux, "workspace.focus", json!({"workspace": b}), "focus-b");
-    let c = empty_workspace(&mux, "c");
-    assert_eq!(group_of(&mux, &c), json!(leads), "the new workspace left the group");
-    mutate(&mux, "workspace.focus", json!({"workspace": c}), "focus-c");
-    let d = empty_workspace(&mux, "d");
-    assert_eq!(group_of(&mux, &d), json!(leads), "the next new workspace left the group");
-    let x = created(&mux, "x", json!({"kind": "agent", "session": "s-1"}));
-    assert_eq!(group_of(&mux, &x), Value::Null, "an agent's workspace went into the group");
-    let ids = [&home, &loose, &a, &b, &c, &d, &x].map(String::as_str);
-    let [home, loose, a, b, c, d, x] = ids;
-    let order = listed(&mux, &ids);
-    let at = |id: &str| order.iter().position(|listed| listed == id).unwrap();
-    assert_eq!(at(home), 0, "Home stays first: {order:?}");
-    assert!(at(x) < at(d), "the agent's workspace goes first in the section: {order:?}");
-    // Each new one goes first in the group: d, c, then the group's older rows.
-    assert_eq!(at(c), at(d) + 1, "{order:?}");
-    assert!(at(c) < at(a) && at(c) < at(b), "{order:?}");
-    assert!(
-        at(loose) < at(d) || at(loose) > at(a).max(at(b)),
-        "a loose row inside the group: {order:?}"
-    );
-    drop(mux);
-    let mux = session.open();
-    assert_eq!(group_of(&mux, c), json!(leads), "a reopened workspace keeps its group");
-    mux.shutdown();
-}
-
 /// Under `afterCurrent` an agent's create with no live creator has no row to
 /// follow: it goes first, never the sidebar's end.
 #[test]

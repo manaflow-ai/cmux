@@ -115,8 +115,6 @@ pub(super) async fn open(
         let revision = windows.by_name.get(&window).map_or(0, WindowState::revision);
         windows.by_name.insert(window.clone(), WindowState::new(spec, revision));
     }
-    // A window shows every chat's activity (`chats::push_activity`), attached or not.
-    conn.interest.hear_activity();
     let Some(service) = service else {
         // The index has not started (the app connects at launch): the window fills when it does.
         let (owner, conn) = (hub.clone(), conn.clone());

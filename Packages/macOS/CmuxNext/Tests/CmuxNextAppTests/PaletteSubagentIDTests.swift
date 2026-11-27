@@ -1,5 +1,4 @@
 import CmuxNextAgentActivity
-import CmuxNextAgentLanes
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextPalette

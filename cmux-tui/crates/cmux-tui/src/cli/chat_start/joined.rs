@@ -11,28 +11,19 @@
 //!   which name a machine by its id, label or hostname and say when it is offline or revoked.
 //!   Read with `CMUX_CLOUD_ACCESS_TOKEN`, else a token the cmux app mints (`cmux auth token`).
 //!
-//! A machine acpmux reaches itself (`acpmux machine add HOST`: an ssh or direct peer, a row of
-//! `cmux acp host ls` with no `via: "hub"`) is a target too, by its acpmux name, with no account
-//! check: the person's own acpmux reaches it, as `acpmux new --machine HOST` would (hq#11835:
-//! `cmux chat --on gcp-agent-lane-3` was refused while `acpmux ls` listed sessions there).
-//!
-//! The start on a joined machine is acpmux's mesh control start (`acpmux session start NAME
-//! --machine HOST`), whose receipt is read until the machine answers (the session runs there)
-//! or refuses; on a peer it is `acpmux new --machine HOST -n NAME -d`, which answers once the
-//! session runs there. A first prompt then goes as `acpmux send HOST/NAME --no-wait`, and so
-//! does `cmux chat send HOST/NAME` (chat_send.rs), after the same check ([`resolve`]). The start,
-//! its receipt and the first prompt share one deadline ([`START_DEADLINE`]). `--wait` then waits
-//! for the turn with `acpmux wait HOST/NAME` and prints its reply ([`wait_turn`]), as a chat here
-//! or in Cloud does.
+//! The start is acpmux's mesh control start (`acpmux session start NAME --machine HOST`), whose
+//! receipt is read until the machine answers (the session runs there) or refuses. A first
+//! prompt then goes as `acpmux send HOST/NAME --no-wait`, the hub's send, and so does `cmux chat
+//! send HOST/NAME` (chat_send.rs), after the same account check ([`resolve`]). The start, its
+//! receipt and the first prompt share one deadline ([`START_DEADLINE`]).
 
 use std::io::Write as _;
 use std::time::{Duration, Instant};
 
-use cmux_json::{JsonGet as _, JsonSet as _};
+use cmux_json::JsonGet as _;
 use cmux_process::{Command, Stdio};
 use serde_json::{Value, json};
 
-use super::super::agents::turn::Outcome;
 use super::{GlobalArgs, OutputMode, Start, UsageError};
 
 /// The prefix that names a joined machine by its account id.
@@ -47,37 +38,15 @@ const RECEIPT_POLL: Duration = Duration::from_secs(1);
 /// What a refusal says to run next.
 const LIST: &str = "run `cmux machine list` for your machines and their ids";
 
-/// How acpmux reaches a machine a chat starts on.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(in crate::cli) enum Carrier {
-    /// Only the mesh hub: a machine joined to the account (`cmux machine add`).
-    #[default]
-    Hub,
-    /// acpmux's own link to it (`acpmux machine add HOST`: ssh or direct).
-    Peer,
-}
-
-/// A joined machine, or one of acpmux's peers, a chat starts on.
+/// A joined machine a chat starts on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) struct JoinedMachine {
-    /// The account's id for it, when the account's list was read (None for a peer).
+    /// The account's id for it, when the account's list was read.
     pub id: Option<String>,
     /// Its name as `cmux machine list` shows it.
     pub name: String,
-    /// The host name acpmux reaches it by (`acpmux --machine`, `HOST/NAME`).
+    /// The mesh host name the hub reaches it by (`acpmux --machine`).
     pub host: String,
-    pub carrier: Carrier,
-}
-
-impl JoinedMachine {
-    /// The answer's `placement`: `joined:ID`, `peer:HOST`, or `hub:HOST` with no id.
-    pub(in crate::cli) fn placement(&self) -> String {
-        match (self.carrier, &self.id) {
-            (Carrier::Peer, _) => format!("peer:{}", self.host),
-            (Carrier::Hub, Some(id)) => format!("{PREFIX}{id}"),
-            (Carrier::Hub, None) => format!("hub:{}", self.host),
-        }
-    }
 }
 
 /// The two lists, each read at most once and only when the selector needs it.
@@ -113,14 +82,7 @@ where
             json!({}),
         )));
     }
-    let peers = (sources.hub)();
-    // A machine acpmux reaches itself needs no account: the person's acpmux added it.
-    if by_id.is_none()
-        && let Some(found) = direct_peer(selector, &peers)
-    {
-        return Some(found);
-    }
-    let hub_hosts: Vec<String> = peers
+    let hub_hosts: Vec<String> = (sources.hub)()
         .iter()
         .filter(|peer| peer.get_str("via") == Some("hub"))
         .filter_map(|peer| peer.get_str("name").map(str::to_owned))
@@ -178,46 +140,13 @@ where
             )));
         }
     };
-    Some(machine(row, &rows, &on_hub).map(|mut found| {
+    Some(machine(row, &on_hub).map(|mut found| {
         // The host as the hub spells it, when the hub lists it in another case.
         if let Some(host) = listed(&found.host) {
             found.host.clone_from(host);
         }
         found
     }))
-}
-
-/// The peer acpmux reaches itself (a `host ls` row with no `via: "hub"`) named `selector`,
-/// matched without regard to case and carried on in acpmux's own spelling. A peer acpmux lists
-/// but cannot reach now is refused as retryable, with the command that says why.
-fn direct_peer(selector: &str, peers: &[Value]) -> Option<Result<JoinedMachine, Value>> {
-    let peer = peers.iter().find(|peer| {
-        peer.get_str("via") != Some("hub")
-            && peer.get_str("name").is_some_and(|name| name.eq_ignore_ascii_case(selector))
-    })?;
-    let host = peer.get_str("name").unwrap_or(selector).to_owned();
-    if peer.get("connected").and_then(Value::as_bool) == Some(true) {
-        return Some(Ok(JoinedMachine {
-            id: None,
-            name: host.clone(),
-            host,
-            carrier: Carrier::Peer,
-        }));
-    }
-    let why = peer.get_str("error").filter(|error| !error.is_empty());
-    let mut error = refusal(
-        "chat_target.unavailable",
-        format!(
-            "acpmux cannot reach {host} now{}",
-            why.map(|why| format!(" ({why})")).unwrap_or_default()
-        ),
-        &format!("`cmux acp machine status {host}` says why; run this again once it connects"),
-        json!({"host": host}),
-    );
-    if let Some(map) = error.as_object_mut() {
-        map.insert("retryable".to_owned(), json!(true));
-    }
-    Some(Err(error))
 }
 
 /// The row `key` names: by id, or (`by_id` false) by id, name or hostname, a live one first;
@@ -254,25 +183,11 @@ fn find<'a>(key: &str, by_id: bool, rows: &'a [Value]) -> Result<Option<&'a Valu
 }
 
 /// `row` as the machine a chat starts on, or why it cannot take one now.
-fn machine(
-    row: &Value,
-    rows: &[Value],
-    on_hub: &dyn Fn(&str) -> bool,
-) -> Result<JoinedMachine, Value> {
+fn machine(row: &Value, on_hub: &dyn Fn(&str) -> bool) -> Result<JoinedMachine, Value> {
     let id = row.get_str("id").unwrap_or_default().to_owned();
     let name = row.get_str("name").unwrap_or(&id).to_owned();
-    // The hub knows it by the host name it heartbeats with: the name it joined with
-    // (`cmux device add HOST --name NAME`, a pasted line's CMUX_JOIN_NAME) on a current acpmux,
-    // which the hub lists, else its host name, as an older acpmux heartbeats. A host name
-    // another of the person's live machines also has names neither of them (two Macs or VMs
-    // from one image, two builds signed in on one Mac): the name it joined with does.
-    let hostname = row.get_str("hostname").filter(|host| !host.is_empty());
-    let shared = hostname.is_some_and(|host| hostname_shared(host, rows));
-    let host = if on_hub(&name) || hostname.is_none() || shared {
-        name.clone()
-    } else {
-        hostname.unwrap_or(&name).to_owned()
-    };
+    // The hub knows it by the host name it heartbeats with; a label is only the list's.
+    let host = row.get_str("hostname").filter(|host| !host.is_empty()).unwrap_or(&name).to_owned();
     let details = json!({"device": format!("{PREFIX}{id}"), "name": name, "host": host});
     match row.get_str("state") {
         Some("revoked") => Err(refusal(
@@ -282,8 +197,8 @@ fn machine(
             details,
         )),
         // The hub's own list is newer than the account's heartbeat age.
-        _ if on_hub(&host) => Ok(JoinedMachine { id: Some(id), name, host, carrier: Carrier::Hub }),
-        Some("online") => Ok(JoinedMachine { id: Some(id), name, host, carrier: Carrier::Hub }),
+        _ if on_hub(&host) => Ok(JoinedMachine { id: Some(id), name, host }),
+        Some("online") => Ok(JoinedMachine { id: Some(id), name, host }),
         state => {
             let mut error = refusal(
                 "chat_target.unavailable",
@@ -301,95 +216,26 @@ fn machine(
     }
 }
 
-/// Whether more than one live joined machine in `rows` has the host name `host`.
-fn hostname_shared(host: &str, rows: &[Value]) -> bool {
-    rows.iter()
-        .filter(|row| row.get_str("kind").is_none_or(|kind| kind == "joined"))
-        .filter(|row| row.get_str("state") != Some("revoked"))
-        .filter(|row| row.get_str("hostname").is_some_and(|other| other.eq_ignore_ascii_case(host)))
-        .count()
-        > 1
-}
-
-/// acpmux's machines (`acp host ls --json`'s `peers`: its own peers and the hub's); none when
-/// acpmux does not answer.
+/// The hub's machines (`acp host ls --json`'s `peers`); none when acpmux does not answer.
 pub(in crate::cli) fn hub_peers() -> Vec<Value> {
-    peers_within(START_DEADLINE).unwrap_or_default()
+    acp_json(&["host", "ls", "--json"], None, START_DEADLINE)
+        .ok()
+        .and_then(|listed| listed.get("peers").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
 }
 
-/// [`hub_peers`] read for at most `limit`, or why acpmux did not answer.
-pub(in crate::cli) fn peers_within(limit: Duration) -> Result<Vec<Value>, String> {
-    let listed = acp_json(&["host", "ls", "--json"], None, limit)
-        .map_err(|error| error.get_str("message").unwrap_or("acpmux did not answer").to_owned())?;
-    Ok(listed.get("peers").and_then(Value::as_array).cloned().unwrap_or_default())
-}
-
-/// The account's joined machines: with `CMUX_CLOUD_ACCESS_TOKEN`, else the joined machines the
-/// cmux app's own Machines list shows ([`app_joined_rows`]), else a token the app mints.
-///
-/// The app's list comes first without the variable: the app read the account with its own
-/// sign-in and its own backend, so it lists a machine the person sees there (and clicks) even
-/// when this process's environment names no backend, or another one (a tagged build on the
-/// development backend run from a plain shell, own-machine-parity run 45367945285: the app
-/// listed B joined and connected, the minted token read the production list and failed, and
-/// `cmux chat --on B` was refused as `chat_target.unknown_device`).
+/// The account's joined machines: with `CMUX_CLOUD_ACCESS_TOKEN`, else a token the app mints.
 pub(in crate::cli) fn account_rows(global: &GlobalArgs) -> Result<Vec<Value>, String> {
-    if let Some(credential) = crate::cli::joined_machine_credential(None, false)? {
-        return crate::cli::joined_machine_rows(None, Some(credential))
-            .unwrap_or_else(|| Err("not signed in".to_owned()));
-    }
-    if let Ok(rows) = app_joined_rows(global)
-        && !rows.is_empty()
-    {
-        return Ok(rows);
-    }
-    let credential = app_token(global)?;
+    let credential = match crate::cli::joined_machine_credential(None, false)? {
+        Some(credential) => credential,
+        None => app_token(global)?,
+    };
     crate::cli::joined_machine_rows(None, Some(credential))
         .unwrap_or_else(|| Err("not signed in".to_owned()))
 }
 
-/// The joined machines in the cmux app's Machines list (`machine.list`, `cmux app machines`),
-/// as account rows ([`rows_from_app_list`]).
-fn app_joined_rows(global: &GlobalArgs) -> Result<Vec<Value>, String> {
-    const TIMEOUT: Duration = Duration::from_secs(50);
-    let mut stream = super::super::app::connect_command(global)
-        .map_err(|_| "no cmux app to read the machines from".to_owned())?;
-    let answer = super::super::app::request(
-        &mut stream,
-        super::super::app::MACHINES_METHOD,
-        json!({}),
-        TIMEOUT,
-    )?
-    .map_err(|error| {
-        error.get("message").and_then(Value::as_str).unwrap_or("no machine list").to_owned()
-    })?;
-    Ok(rows_from_app_list(&answer))
-}
-
-/// The account rows (`id`, `name`, `hostname`, `state`, as `cmux machine list`'s joined rows)
-/// of the joined machines in the app's `machine.list` answer: each row of kind `joined`
-/// carries the account's row as `joined`.
-pub(in crate::cli) fn rows_from_app_list(listed: &Value) -> Vec<Value> {
-    let rows = match listed {
-        Value::Array(rows) => rows.as_slice(),
-        _ => listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice),
-    };
-    rows.iter()
-        .filter(|row| row.get_str("kind") == Some("joined"))
-        .filter_map(|row| row.get("joined").filter(|joined| joined.get_str("id").is_some()))
-        .map(|joined| {
-            let mut joined = joined.clone();
-            if let Some(map) = joined.as_object_mut() {
-                map.insert("kind".to_owned(), json!("joined"));
-            }
-            joined
-        })
-        .collect()
-}
-
-/// A short-lived token from the cmux app's sign-in (`auth.token`, as `cmux auth token`); also
-/// `automation create --webhook --on cloud`.
-pub(in crate::cli) fn app_token(global: &GlobalArgs) -> Result<String, String> {
+/// A short-lived token from the cmux app's sign-in (`auth.token`, as `cmux auth token`).
+fn app_token(global: &GlobalArgs) -> Result<String, String> {
     const TIMEOUT: Duration = Duration::from_secs(30);
     let mut stream = super::super::app::connect_command(global)
         .map_err(|_| "not signed in: no CMUX_CLOUD_ACCESS_TOKEN and no cmux app".to_owned())?;
@@ -432,30 +278,19 @@ fn letters() -> String {
     bytes.iter().map(|byte| char::from(b'a' + byte % 26)).collect()
 }
 
-/// `acp session start …`'s words for this start on a joined machine, `acp new --machine …`'s on
-/// a peer. A bad `--wait`/`--timeout` is refused here, before anything starts.
+/// `acp session start …`'s words for this start on `machine`.
 pub(in crate::cli) fn start_words(
     start: &Start,
     machine: &JoinedMachine,
     name: &str,
 ) -> Result<Vec<String>, UsageError> {
-    super::here_wait(start)?;
-    // Refused, never dropped: a joined machine's start takes a harness, model and folder only.
-    if start.effort.is_some() || start.mode.is_some() {
-        return Err(UsageError::new(format!(
-            "--effort and --mode pick a chat here or in Cloud; on {} start it, then set them with \
-             cmux acp session set SESSION effort=EFFORT",
-            machine.host
-        )));
+    if start.wait || start.timeout.is_some() {
+        return Err(UsageError::new(
+            "--wait and --timeout wait for a chat here or in Cloud; a joined machine's reply is `cmux acp last HOST/NAME`",
+        ));
     }
-    let mut words: Vec<String> = match machine.carrier {
-        Carrier::Hub => {
-            ["session", "start", name, "--machine", &machine.host].map(str::to_owned).to_vec()
-        }
-        Carrier::Peer => {
-            ["new", "--machine", &machine.host, "-n", name, "-d"].map(str::to_owned).to_vec()
-        }
-    };
+    let mut words: Vec<String> =
+        ["session", "start", name, "--machine", &machine.host].map(str::to_owned).to_vec();
     let harness = match (&start.agent, &start.model) {
         (Some(agent), Some(model)) => Some(format!("{agent}/{model}")),
         (Some(agent), None) => Some(agent.clone()),
@@ -506,27 +341,30 @@ pub(in crate::cli) fn run(global: &GlobalArgs, start: &Start, machine: &JoinedMa
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
     let target = format!("{}/{name}", machine.host);
     let prompt = prompt.filter(|prompt| !prompt.trim().is_empty());
-    let receipt = machine.carrier == Carrier::Hub;
     let started = start_chat(
-        &Steps { words: &words, target: &target, prompt: prompt.as_deref(), receipt },
+        &Steps { words: &words, target: &target, prompt: prompt.as_deref() },
         START_DEADLINE,
         RECEIPT_POLL,
         acp_json,
     );
-    let (started, sent) = match started {
+    let (receipt, sent) = match started {
         Ok(started) => started,
         Err(error) => return fail(global, error),
     };
     // `cmux chat send TEXT` (no SESSION) goes on with this chat, as after a start here.
     super::super::last_chat::remember(&target, None);
-    let answer = start_answer(machine, &target, started, sent);
-    // `--wait`: the turn the first prompt started, its reply printed as a chat here prints it.
-    if let Ok(Some(timeout)) = super::here_wait(start)
-        && answer.get("prompt").is_some_and(|sent| !sent.is_null())
-    {
-        let outcome = wait_turn(&target, Some(0), timeout, acp_json);
-        return super::super::agents::turn::report(&with_answer(outcome, answer), global.output);
-    }
+    let answer = json!({
+        "session_id": target,
+        "machine": {"id": machine.id, "name": machine.name, "host": machine.host},
+        "placement": machine.id.as_ref().map_or_else(|| format!("hub:{}", machine.host), |id| format!("{PREFIX}{id}")),
+        "remote_session_id": receipt.get_str("detail"),
+        "start": receipt,
+        "prompt": sent,
+        "next": {
+            "send": format!("cmux chat send {target} 'TEXT'"),
+            "read": format!("cmux acp last {target}"),
+        },
+    });
     match global.output {
         OutputMode::Human => {
             let mut out = std::io::stdout().lock();
@@ -540,200 +378,12 @@ pub(in crate::cli) fn run(global: &GlobalArgs, start: &Start, machine: &JoinedMa
     }
 }
 
-/// The start's answer: the chat (`HOST/NAME`), its machine and placement, the start's receipt
-/// (a peer's: only the id and name of the session record `acp new` answers) and the prompt's.
-pub(in crate::cli) fn start_answer(
-    machine: &JoinedMachine,
-    target: &str,
-    started: Value,
-    sent: Option<Value>,
-) -> Value {
-    let (remote_session_id, started) = match machine.carrier {
-        Carrier::Hub => (started.get_str("detail").map(str::to_owned), started),
-        Carrier::Peer => {
-            let id = started.get_str("sessionId").map(str::to_owned);
-            let name = started.get_str("name").map(str::to_owned);
-            (id.clone(), json!({"sessionId": id, "name": name}))
-        }
-    };
-    json!({
-        "session_id": target,
-        "machine": {"id": machine.id, "name": machine.name, "host": machine.host},
-        "placement": machine.placement(),
-        "remote_session_id": remote_session_id,
-        "start": started,
-        "prompt": sent,
-        "next": {
-            "send": format!("cmux chat send {target} 'TEXT'"),
-            "wait": format!("cmux chat wait {target}"),
-            "read": format!("cmux acp last {target}"),
-        },
-    })
-}
-
-/// `outcome` (a [`wait_turn`]) with `answer`'s fields under its own: the start's or the send's
-/// ids stay in the answer `--wait` prints, as they do for a chat here.
-pub(in crate::cli) fn with_answer(outcome: Outcome, answer: Value) -> Outcome {
-    let merge = |turn: &mut Value| {
-        if let (Some(turn), Value::Object(answer)) = (turn.as_object_mut(), &answer) {
-            for (key, value) in answer {
-                turn.entry(key.clone()).or_insert_with(|| value.clone());
-            }
-        }
-    };
-    match outcome {
-        Outcome::Done(mut turn) => {
-            merge(&mut turn);
-            Outcome::Done(turn)
-        }
-        Outcome::Failed { mut error, exit } => {
-            if let Some(turn) = error.pointer_mut("/details/answer") {
-                merge(turn);
-            }
-            Outcome::Failed { error, exit }
-        }
-    }
-}
-
-/// How long one `acp wait` call may run past the wait it asks for (acpmux answering).
-const WAIT_SLACK: Duration = Duration::from_secs(30);
-
-/// How long a wait that came back before the prompt's turn began pauses before it waits again.
-const NOT_STARTED_PAUSE: Duration = Duration::from_millis(500);
-
-/// Waits at most `timeout` for chat `target`'s (`HOST/NAME`) turn to end through acpmux (`acp
-/// wait`), and answers its reply as `cmux chat --wait` does here (agents/turn.rs): exit 2 when
-/// the agent waits on a permission, 3 (`chat.wait_timeout`) when the turn still runs.
-///
-/// `baseline`: the chat's turn count before the prompt went (`Some(0)` for a new chat). A send
-/// queued on another machine may not have begun its turn when the wait first reads the chat,
-/// which is still idle from the turn before; the wait is over only once the chat ran more turns
-/// than `baseline` and is idle again (`acp session info`'s `turnCount` and `status`). None (`chat
-/// wait`): the turn running now, or the last one.
-pub(in crate::cli) fn wait_turn<A>(
-    target: &str,
-    baseline: Option<u64>,
-    timeout: Duration,
-    mut acp: A,
-) -> Outcome
-where
-    A: FnMut(&[&str], Option<&str>, Duration) -> Result<Value, Value>,
-{
-    let deadline = Instant::now() + timeout;
-    let answer = json!({"session_id": target, "follow_up": {
-        "send": format!("cmux chat send {target} 'PROMPT' --wait"),
-        "wait": format!("cmux chat wait {target}"),
-        "read": format!("cmux acp last {target}"),
-    }});
-    let failed = |code: &str, message: String, mut answer: Value, exit: i32| {
-        if code == "chat.wait_timeout" {
-            answer.set("timed_out", json!(true));
-        }
-        Outcome::Failed {
-            error: json!({"code": code, "message": message, "details": {"answer": answer},
-                          "retryable": false}),
-            exit,
-        }
-    };
-    let timed_out = |answer: Value| {
-        failed(
-            "chat.wait_timeout",
-            format!(
-                "the turn is still running after {}s; wait on with: cmux chat wait {target}",
-                timeout.as_secs()
-            ),
-            answer,
-            3,
-        )
-    };
-    loop {
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return timed_out(answer);
-        }
-        let secs = left.as_secs().max(1).to_string();
-        let words = ["wait", target, "--timeout", &secs, "--json"];
-        // acpmux's wait exits 2 on a permission and 3 at its timeout; both still print the answer.
-        let waited = match acp(&words, None, left + WAIT_SLACK) {
-            Ok(waited) => waited,
-            Err(error) => match error.pointer("/details/answer") {
-                Some(waited) if waited.get("sessions").is_some() => waited.clone(),
-                _ => {
-                    return failed(
-                        "chat.lost",
-                        format!("acpmux could not wait on {target}"),
-                        json!({"session_id": target, "error": error}),
-                        1,
-                    );
-                }
-            },
-        };
-        let session = waited.pointer("/sessions/0").cloned().unwrap_or(Value::Null);
-        if waited.get("timedOut") == Some(&json!(true)) || session.is_null() {
-            return timed_out(answer);
-        }
-        if session.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0
-            || session.get("status").and_then(Value::as_str) == Some("permission")
-        {
-            return failed(
-                "chat.permission_waiting",
-                format!(
-                    "the agent asks for a permission: answer it in the cmux app or with `cmux acp pending`, then: cmux chat wait {target}"
-                ),
-                answer,
-                2,
-            );
-        }
-        if let Some(baseline) = baseline {
-            let info = acp(&["session", "info", target, "--json"], None, WAIT_SLACK);
-            let ran = info.as_ref().ok().and_then(|info| info.get("turnCount")?.as_u64());
-            let idle = info.as_ref().ok().and_then(|info| info.get_str("status")) == Some("ready");
-            // An info that cannot be read leaves the wait's word: never a wait with no end.
-            if ran.is_some_and(|ran| ran <= baseline || !idle) {
-                let left = deadline.saturating_duration_since(Instant::now());
-                std::thread::sleep(left.min(NOT_STARTED_PAUSE));
-                continue;
-            }
-        }
-        let mut answer = answer;
-        answer.set("status", session.get("status").cloned().unwrap_or(Value::Null));
-        answer.set("reply", session.get("reply").cloned().unwrap_or(Value::Null));
-        if let Some(error) = session.get("error").filter(|error| !error.is_null()) {
-            answer.set("error", error.clone());
-            let said =
-                error.as_str().or_else(|| error.get_str("message")).unwrap_or_default().to_owned();
-            let harness = session.get_str("harness").unwrap_or_default().to_owned();
-            let mut error = json!({"code": "chat.turn_failed",
-                                   "message": format!("the turn on {target} ended with an error"),
-                                   "details": answer, "retryable": false});
-            // An account out of usage says so, with the way on (cmux#55066).
-            super::super::account_limit::explain(&mut error, &said, &harness);
-            return Outcome::Failed { error, exit: 1 };
-        }
-        return Outcome::Done(answer);
-    }
-}
-
-/// Chat `target`'s turn count now (`acp session info`'s `turnCount`); None when acpmux cannot
-/// say (then a wait takes `acp wait`'s word alone).
-pub(in crate::cli) fn turn_count(target: &str) -> Option<u64> {
-    let info = acp_json(&["session", "info", target, "--json"], None, WAIT_SLACK).ok()?;
-    info.get("turnCount")?.as_u64()
-}
-
-/// [`wait_turn`] through this binary's acpmux.
-pub(in crate::cli) fn wait(target: &str, baseline: Option<u64>, timeout: Duration) -> Outcome {
-    wait_turn(target, baseline, timeout, acp_json)
-}
-
-/// What a start runs: `acp session start …`'s (or `acp new …`'s) words, the chat it names
-/// (`HOST/NAME`) and its first prompt. `receipt`: the start answers a mesh receipt to read until
-/// the machine takes the chat (a joined machine's); a peer's `new` answers once it runs.
+/// What a start runs: `acp session start …`'s words, the chat it names (`HOST/NAME`) and its
+/// first prompt.
 pub(in crate::cli) struct Steps<'a> {
     pub words: &'a [&'a str],
     pub target: &'a str,
     pub prompt: Option<&'a str>,
-    pub receipt: bool,
 }
 
 /// Runs `steps` through `acp` (`cmux acp WORDS` with a stdin, for at most a limit: [`acp_json`]
@@ -760,11 +410,7 @@ where
         None => Err(error("acpmux.timeout", "the start's deadline passed", true)),
     };
     let enqueued = call(steps.words, None).map_err(|e| late(e, || not_taken(limit, None)))?;
-    let receipt = if steps.receipt {
-        wait_started(&enqueued, deadline, limit, poll, &mut call)?
-    } else {
-        enqueued
-    };
+    let receipt = wait_started(&enqueued, deadline, limit, poll, &mut call)?;
     let Some(prompt) = steps.prompt else { return Ok((receipt, None)) };
     let id = prompt_id();
     let words = send_words(steps.target, &id);
@@ -890,11 +536,7 @@ pub(in crate::cli) fn fail(global: &GlobalArgs, error: Value) -> i32 {
 
 /// `cmux acp WORDS` (this binary's acpmux) for at most `limit`: its stdout's last JSON line, or
 /// the failure.
-pub(in crate::cli) fn acp_json(
-    words: &[&str],
-    stdin: Option<&str>,
-    limit: Duration,
-) -> Result<Value, Value> {
+fn acp_json(words: &[&str], stdin: Option<&str>, limit: Duration) -> Result<Value, Value> {
     let exe = std::env::current_exe()
         .map_err(|e| error("acpmux.unreachable", &format!("cannot find cmux: {e}"), true))?;
     let mut command = Command::new(exe);
@@ -990,11 +632,8 @@ pub(in crate::cli) fn run_acp(
         }
     };
     let stdout = String::from_utf8_lossy(&out_bytes);
-    // A whole pretty-printed answer, else its last line: an exit 2 or 3 (`acp wait`) still
-    // prints the whole answer.
-    let parsed = serde_json::from_str::<Value>(stdout.trim()).ok().or_else(|| {
-        stdout.lines().rev().find_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
-    });
+    let parsed =
+        stdout.lines().rev().find_map(|line| serde_json::from_str::<Value>(line.trim()).ok());
     if let Err(err_bytes) = err_bytes {
         let stderr = String::from_utf8_lossy(&err_bytes).trim().to_owned();
         let message = if stderr.is_empty() { stdout.trim().to_owned() } else { stderr };
@@ -1005,7 +644,8 @@ pub(in crate::cli) fn run_acp(
         }
         return Err(failure);
     }
-    parsed.ok_or_else(|| {
+    // A whole pretty-printed answer, else its last line.
+    serde_json::from_str::<Value>(stdout.trim()).ok().or(parsed).ok_or_else(|| {
         error(
             "acpmux.invalid_response",
             &format!("cmux acp {} printed no JSON", words.join(" ")),

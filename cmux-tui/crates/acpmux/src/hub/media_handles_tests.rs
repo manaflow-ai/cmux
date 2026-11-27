@@ -1,4 +1,4 @@
-//! Unit tests of `media_handles.rs`: the daemon's cap, a gone chat's handles, and
+//! Unit tests of `media_handles.rs`: the caps (a peer link's included), a gone chat's handles, and
 //! the table closed at the connection's end.
 
 use super::*;
@@ -43,17 +43,18 @@ fn sweeping<O>(handles: &Handles<O>) -> bool {
 }
 
 #[tokio::test]
-async fn handles_are_capped_per_daemon_only() {
+async fn handles_are_capped_per_connection_and_per_daemon() {
     let _turn = SERIAL.lock().await;
     let folder = Folder::new("caps");
     let (handles, chat) = (Handles::default(), Arc::new(Chat(0)));
-    // Past the old per-connection limit of 8: one connection holds as many as it opens.
-    let held: Vec<String> =
-        (0..20).map(|_| handles.insert(&chat, folder.open()).unwrap()).collect();
-    assert_eq!(OPEN.load(Ordering::SeqCst), 20);
-    for handle in &held {
-        handles.close(&chat, handle);
+    let first = handles.insert(&chat, folder.open()).unwrap();
+    for _ in 1..MAX_HANDLES {
+        handles.insert(&chat, folder.open()).unwrap();
     }
+    assert_eq!(reason(handles.insert(&chat, folder.open()).unwrap_err()), "media.handles");
+    handles.close(&chat, &first);
+    let last = handles.insert(&chat, folder.open()).unwrap();
+    handles.close(&chat, &last);
     // The daemon's places are taken by other connections.
     let taken: Vec<Slot> = std::iter::from_fn(Slot::take).collect();
     assert_eq!(OPEN.load(Ordering::SeqCst), MAX_OPEN);
@@ -63,6 +64,12 @@ async fn handles_are_capped_per_daemon_only() {
     // Closing the table gives every place back.
     handles.close_all();
     assert_eq!(OPEN.load(Ordering::SeqCst), 0);
+    // A peer link carries all its daemon's clients, each capped there: only MAX_OPEN caps it.
+    let link = Handles::for_peer_link();
+    for _ in 0..=MAX_HANDLES {
+        link.insert(&chat, folder.open()).unwrap();
+    }
+    link.close_all();
 }
 
 /// A chat that went away leaves its handles counting toward no cap. `forget_orphan` closes a
@@ -72,7 +79,7 @@ async fn a_gone_chats_handles_give_their_places_back() {
     let _turn = SERIAL.lock().await;
     let folder = Folder::new("gone");
     let (handles, chat) = (Handles::default(), Arc::new(Chat(0)));
-    for _ in 0..8 {
+    for _ in 0..MAX_HANDLES {
         handles.insert(&chat, folder.open()).unwrap();
     }
     drop(chat);

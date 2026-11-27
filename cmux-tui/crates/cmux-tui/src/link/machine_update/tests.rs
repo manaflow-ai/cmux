@@ -2,10 +2,7 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-use super::{
-    AfterLostStart, Failed, Request, apply, ended, install_target, lost_start_began,
-    machine_is_older, parse, retry_busy, route_args,
-};
+use super::{AfterLostStart, Request, ended, lost_start_began, machine_is_older, parse};
 
 fn args(line: &str) -> Vec<String> {
     line.split_whitespace().map(str::to_owned).collect()
@@ -98,67 +95,4 @@ fn a_daemon_on_someone_elses_build_is_its_own_quiet_code_not_a_failure() {
     assert_eq!(code("rolled_back"), Err("machine_update_rolled_back"));
     assert_eq!(code("updated"), Ok("own".to_owned()));
     assert_eq!(code("failed"), Err("machine_update_failed"));
-}
-
-/// A daemon run from the work user's own file is updated in place; one run from the
-/// self-updating image's store (its link resolved) goes through the store, so acpmux
-/// and `cmux host` run the new build too; any other place is refused.
-#[test]
-fn the_install_route_follows_where_the_daemon_runs_from() {
-    let target = |path: &str| install_target(&json!({"cli_path": path}));
-    assert_eq!(
-        target("/home/cmux/.cmux/bin/cmux-tui"),
-        Some(("/home/cmux/.cmux/bin/cmux-tui".to_owned(), apply::Route::Work))
-    );
-    let store = format!("/opt/cmux/store/{}/cmux-tui", "a".repeat(64));
-    assert_eq!(
-        target(&store),
-        Some(("/home/cmux/.cmux/bin/cmux-tui".to_owned(), apply::Route::Store))
-    );
-    let climbs = format!("/opt/cmux/store/{}/../x/cmux-tui", "a".repeat(64));
-    let acpmux = format!("/opt/cmux/store/{}/acpmux", "a".repeat(64));
-    for other in [
-        "/usr/local/bin/cmux-tui",
-        "/opt/cmux/store/notasha/cmux-tui",
-        climbs.as_str(),
-        acpmux.as_str(),
-        "relative/.cmux/bin/cmux-tui",
-    ] {
-        assert_eq!(target(other), None, "{other}");
-    }
-}
-
-/// Only the explicit ask (`--to-bundled` without `--if-older`) lets the apply step install
-/// in place when the store refuses the build as older; the work route takes no flags.
-#[test]
-fn the_in_place_flag_goes_only_with_the_explicit_ask_on_the_store_route() {
-    let request =
-        |to_bundled, if_older| Request { socket: PathBuf::from("/s"), to_bundled, if_older };
-    let store =
-        |to_bundled, if_older| route_args(apply::Route::Store, &request(to_bundled, if_older));
-    assert_eq!(store(true, false), ["--route", "store", apply::IN_PLACE_FLAG]);
-    assert_eq!(store(true, true), ["--route", "store"]);
-    assert_eq!(store(false, false), ["--route", "store"]);
-    for (to_bundled, if_older) in [(true, false), (true, true), (false, false)] {
-        assert!(route_args(apply::Route::Work, &request(to_bundled, if_older)).is_empty());
-    }
-}
-
-#[test]
-fn a_busy_machine_is_waited_for_and_other_failures_end_at_once() {
-    let mut tries = 0;
-    let out = retry_busy(std::time::Duration::from_secs(30), || {
-        tries += 1;
-        if tries < 2 { Err(Failed::new("machine_update_busy", "another update")) } else { Ok(7) }
-    });
-    assert_eq!(out.ok(), Some(7));
-    assert_eq!(tries, 2);
-
-    let mut tries = 0;
-    let out: Result<(), Failed> = retry_busy(std::time::Duration::from_secs(30), || {
-        tries += 1;
-        Err(Failed::new("machine_update_failed", "no"))
-    });
-    assert_eq!(out.err().map(|failed| failed.code), Some("machine_update_failed"));
-    assert_eq!(tries, 1);
 }

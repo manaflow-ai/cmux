@@ -13,8 +13,6 @@ pub(crate) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "titled"
         | "forked"
         | "imported"
-        // The chat moved to another machine: the row's `movedTo` (`hub/transfer_out.rs`).
-        | "transferred"
         | "permission_request"
         | "permission_decision"
         | "permission_group"
@@ -55,9 +53,7 @@ pub(crate) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "harness_sandbox_failed"
         | "harness_sandbox_recovered"
         // What its harness spent and holds, read after a turn (`hub/usage_view.rs`).
-        | "usage_stats"
-        // The person approved a plan (`hub/plan_build.rs`): the row's `approvedPlan`.
-        | "approved_plan" => record_kind,
+        | "usage_stats" => record_kind,
         // A Stop's turn reads `stopping`, or a stuck chat works again: the row's `state`.
         "stopping" | "stop_escalated" | "stop_restarted" | "unstuck" => "status",
         k if k == "dequeued" || k.starts_with("queue") => "queue",

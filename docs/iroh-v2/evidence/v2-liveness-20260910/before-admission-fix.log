@@ -1,0 +1,118 @@
+[0/1] Planning build
+Building for debugging...
+[0/3] Write sources
+[1/3] Write swift-version--58304C5D6DBC2206.txt
+[3/5] Emitting module CmuxIrxTransport
+[4/5] Compiling CmuxIrxTransport IrxPeerEngine.swift
+[4/6] Write Objects.LinkFileList
+[5/6] Linking CmuxIrxTransportPackageTests
+Build complete! (1.99s)
+Test Suite 'Selected tests' started at 2026-09-10 22:23:35.318.
+Test Suite 'CmuxIrxTransportPackageTests.xctest' started at 2026-09-10 22:23:35.319.
+Test Suite 'CmuxIrxTransportPackageTests.xctest' passed at 2026-09-10 22:23:35.319.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-09-10 22:23:35.319.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite V2ControlServiceTests started.
+◇ Suite IrxLivenessTests started.
+◇ Suite IrxDirectOnlyEndpointTests started.
+◇ Suite V2FileStateStoreTests started.
+◇ Test enrollmentThenResumeUsesOneRegistrationAndSignedTicket() started.
+◇ Test relayOnlyTargetIsRejectedBeforeAnyEndpointOpens() started.
+◇ Test renewalsAndForegroundKeepTheSameSocket() started.
+◇ Test directConnectionNeedsNoCredentialAndCannotAcquireARelay() started.
+◇ Test deliveryCheckpointIsEchoedWithoutWaitingForAnApplicationObserverOrReply() started.
+◇ Test replacesOneFilePerScopeAndIgnoresLegacyState() started.
+◇ Suite V2WireSigningTests started.
+◇ Suite "live QUIC" started.
+◇ Test stopInvalidatesAnOutstandingReplyBeforeItCanChangeCache() started.
+◇ Test unavailableSocketUsesOnlyTheVersionedHTTPRecoveryRoutes() started.
+◇ Test knownRevocationClearsAuthorityInTheCompleteSnapshot() started.
+◇ Suite V2InboundAdmissionAuthorityTests started.
+◇ Test delayedFirstProbeRetriesOnALiveStreamWithoutReplacingQUIC() started.
+◇ Test paginationPinsRevisionAndRestartsAfterConcurrentChange() started.
+◇ Test uncertainSocketMutationKeepsItsRequestIDWhenRecoveringThroughHTTP() started.
+◇ Test matchesWorkerCanonicalBytesAndEd25519Signatures() started.
+◇ Test rateLimitPreservesCredentialsAndOnlyBlocksItsOperation() started.
+◇ Test "closing a control transport releases its owner without closing the session" started.
+◇ Suite "control plane list-auth wire" started.
+◇ Test distinctFreshKeysNeverAdoptOneAnother() started.
+◇ Test anotherCacheFormatCannotEstablishOrPreserveAuthority() started.
+◇ Test retiredSchemaWaitsAnHourButAllowsAnExplicitRetry() started.
+◇ Test wrongLocalTupleKeyOrGenerationInvalidatesTheOwner() started.
+◇ Test deadlinesUseTheEarlierPeerOrDirectoryExpiryWithoutWallClockResurrection() started.
+◇ Test missingInboundFieldNeverUsesTheOutboundDirectory() started.
+◇ Test protocolCloseCodesPreserveBoundedRetryPolicy() started.
+◇ Test permanentClosesStopWhileCapacityClosesBackOff() started.
+◇ Test restoredAuthoritySurvivesOnlyTheInitialEmptyPublication() started.
+◇ Test partialDirectoryAndDuplicateKeyOrTupleNeverGrantAccess() started.
+◇ Test ownRevocationAndConcurrentInvalidationArePermanent() started.
+◇ Test foreignTeamProjectEnvironmentAndRevokedPeersAreDenied() started.
+◇ Test replacementGenerationCannotReuseAnOldAdmissionReceipt() started.
+◇ Test staleSnapshotsAndFreshRestampsCannotUndoKnownRevocation() started.
+◇ Test freshSnapshotAfterWallRollbackDoesNotExtendAnUnchangedExpiry() started.
+◇ Test onlyInboundPermissionsGrantAccessToTheTLSKey() started.
+◇ Test helloV2CarriesClientInfoAndOmitsItWhenAbsent() started.
+✔ Test distinctFreshKeysNeverAdoptOneAnother() passed after 0.002 seconds.
+✔ Test helloV2CarriesClientInfoAndOmitsItWhenAbsent() passed after 0.003 seconds.
+✔ Test permanentClosesStopWhileCapacityClosesBackOff() passed after 0.005 seconds.
+✔ Test foreignTeamProjectEnvironmentAndRevokedPeersAreDenied() passed after 0.005 seconds.
+✔ Test onlyInboundPermissionsGrantAccessToTheTLSKey() passed after 0.005 seconds.
+✔ Test partialDirectoryAndDuplicateKeyOrTupleNeverGrantAccess() passed after 0.005 seconds.
+✔ Test restoredAuthoritySurvivesOnlyTheInitialEmptyPublication() passed after 0.005 seconds.
+✔ Test protocolCloseCodesPreserveBoundedRetryPolicy() passed after 0.005 seconds.
+✔ Test staleSnapshotsAndFreshRestampsCannotUndoKnownRevocation() passed after 0.005 seconds.
+✔ Test anotherCacheFormatCannotEstablishOrPreserveAuthority() passed after 0.005 seconds.
+✔ Suite "control plane list-auth wire" passed after 0.005 seconds.
+✔ Test replacementGenerationCannotReuseAnOldAdmissionReceipt() passed after 0.005 seconds.
+✔ Test missingInboundFieldNeverUsesTheOutboundDirectory() passed after 0.005 seconds.
+✔ Test deadlinesUseTheEarlierPeerOrDirectoryExpiryWithoutWallClockResurrection() passed after 0.006 seconds.
+✔ Test freshSnapshotAfterWallRollbackDoesNotExtendAnUnchangedExpiry() passed after 0.006 seconds.
+✔ Test wrongLocalTupleKeyOrGenerationInvalidatesTheOwner() passed after 0.006 seconds.
+✔ Test relayOnlyTargetIsRejectedBeforeAnyEndpointOpens() passed after 0.007 seconds.
+✔ Test ownRevocationAndConcurrentInvalidationArePermanent() passed after 0.006 seconds.
+✔ Suite V2InboundAdmissionAuthorityTests passed after 0.007 seconds.
+✔ Test matchesWorkerCanonicalBytesAndEd25519Signatures() passed after 0.007 seconds.
+✔ Suite V2WireSigningTests passed after 0.008 seconds.
+✔ Test knownRevocationClearsAuthorityInTheCompleteSnapshot() passed after 0.008 seconds.
+✔ Test deliveryCheckpointIsEchoedWithoutWaitingForAnApplicationObserverOrReply() passed after 0.008 seconds.
+✔ Test stopInvalidatesAnOutstandingReplyBeforeItCanChangeCache() passed after 0.008 seconds.
+✔ Test renewalsAndForegroundKeepTheSameSocket() passed after 0.008 seconds.
+✔ Test rateLimitPreservesCredentialsAndOnlyBlocksItsOperation() passed after 0.008 seconds.
+✔ Test paginationPinsRevisionAndRestartsAfterConcurrentChange() passed after 0.009 seconds.
+✔ Test retiredSchemaWaitsAnHourButAllowsAnExplicitRetry() passed after 0.009 seconds.
+✔ Test uncertainSocketMutationKeepsItsRequestIDWhenRecoveringThroughHTTP() passed after 0.009 seconds.
+✔ Test enrollmentThenResumeUsesOneRegistrationAndSignedTicket() passed after 0.009 seconds.
+✔ Test replacesOneFilePerScopeAndIgnoresLegacyState() passed after 0.010 seconds.
+✔ Suite V2FileStateStoreTests passed after 0.010 seconds.
+✔ Test unavailableSocketUsesOnlyTheVersionedHTTPRecoveryRoutes() passed after 0.011 seconds.
+✔ Suite V2ControlServiceTests passed after 0.011 seconds.
+✔ Test directConnectionNeedsNoCredentialAndCannotAcquireARelay() passed after 0.021 seconds.
+✔ Suite IrxDirectOnlyEndpointTests passed after 0.021 seconds.
+✔ Test "closing a control transport releases its owner without closing the session" passed after 0.021 seconds.
+◇ Test "closing while establishment is in flight releases the owner once" started.
+✔ Test "closing while establishment is in flight releases the owner once" passed after 0.007 seconds.
+◇ Test "admission admits a valid grant in one round trip and lanes carry raw bytes" started.
+✔ Test "admission admits a valid grant in one round trip and lanes carry raw bytes" passed after 0.006 seconds.
+◇ Test "a denied grant surfaces its machine-readable code via the termination" started.
+✘ Test "a denied grant surfaces its machine-readable code via the termination" recorded an issue at IrxLiveQUICTests.swift:241:6: Caught error: IrohError { e: ConnectionLost(ApplicationClosed(ApplicationClose { error_code: 1, reason: b"irx:invalid-grant" })) }
+✘ Test "a denied grant surfaces its machine-readable code via the termination" failed after 0.006 seconds with 1 issue.
+◇ Test "keepalive ping/pong flows and death triggers the engine's instant redial" started.
+✔ Test delayedFirstProbeRetriesOnALiveStreamWithoutReplacingQUIC() passed after 0.192 seconds.
+◇ Test suspensionDuringAProbeCannotAccumulateStrikes() started.
+✔ Test suspensionDuringAProbeCannotAccumulateStrikes() passed after 0.299 seconds.
+◇ Test foregroundChecksAnOldHealthySessionAndCoalescesTriggers() started.
+✔ Test foregroundChecksAnOldHealthySessionAndCoalescesTriggers() passed after 0.048 seconds.
+◇ Test nativePeerDeathIsDeferredInBackgroundAndRecoveredOnForeground() started.
+✔ Test nativePeerDeathIsDeferredInBackgroundAndRecoveredOnForeground() passed after 0.036 seconds.
+◇ Test silentPeerGetsBoundedFreshProbesBeforeForegroundReplacement() started.
+✔ Test silentPeerGetsBoundedFreshProbesBeforeForegroundReplacement() passed after 0.831 seconds.
+◇ Test deferredWarmupResumesWithoutAUserAction() started.
+✔ Test deferredWarmupResumesWithoutAUserAction() passed after 0.023 seconds.
+✔ Suite IrxLivenessTests passed after 1.431 seconds.
+✔ Test "keepalive ping/pong flows and death triggers the engine's instant redial" passed after 5.266 seconds.
+✘ Suite "live QUIC" failed after 5.308 seconds with 1 issue.
+✘ Test run with 41 tests in 8 suites failed after 5.308 seconds with 1 issue.

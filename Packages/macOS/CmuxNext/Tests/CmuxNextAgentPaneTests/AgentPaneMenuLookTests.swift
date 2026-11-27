@@ -49,12 +49,7 @@ struct AgentPaneMenuLookTests {
         #expect(header.action == nil)
         #expect(!header.isEnabled)
         #expect(header.image == nil)
-        // A view row, so AppKit does not dim it as it dims a disabled row's title: the time draws in
-        // the rows' label color (Leo, 2026-11-16: "why is the time still gray").
-        let view = try #require(header.view as? AgentPaneMenuTimeHeader.View)
-        #expect(view.label.stringValue == "Today, 5:29 PM")
-        #expect(view.label.textColor == .labelColor)
-        #expect(view.label.font == NSFont.menuFont(ofSize: 0))
+        #expect(header.view == nil)
         #expect(menu.items[1].isSeparatorItem)
         #expect(menu.items.contains { $0.title == AgentPaneMenuStrings.copyMessage })
     }

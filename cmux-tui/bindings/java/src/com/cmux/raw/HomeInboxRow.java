@@ -15,7 +15,6 @@ public final class HomeInboxRow implements WireValue {
     private final Field<String> chief;
     private final Field<HomeChiefState> chiefState;
     private final String id;
-    private final Field<UInt64> index;
     private final HomeInboxKind kind;
     private final Field<String> lastAuthor;
     private final boolean markedUnread;
@@ -34,7 +33,6 @@ public final class HomeInboxRow implements WireValue {
         this.chiefState = builder.chiefState;
         if (!builder.idSet) throw new IllegalArgumentException("id is required");
         this.id = Wire.nonNull(builder.id, "id");
-        this.index = builder.index;
         if (!builder.kindSet) throw new IllegalArgumentException("kind is required");
         this.kind = Wire.nonNull(builder.kind, "kind");
         this.lastAuthor = builder.lastAuthor;
@@ -60,7 +58,6 @@ public final class HomeInboxRow implements WireValue {
     public Field<String> chief() { return chief; }
     public Field<HomeChiefState> chiefState() { return chiefState; }
     public String id() { return id; }
-    public Field<UInt64> index() { return index; }
     public HomeInboxKind kind() { return kind; }
     public Field<String> lastAuthor() { return lastAuthor; }
     public boolean markedUnread() { return markedUnread; }
@@ -87,10 +84,6 @@ public final class HomeInboxRow implements WireValue {
         }
         Object rawId = Wire.required(object, "id");
         builder.id(Wire.string(rawId, "HomeInboxRow.id"));
-        Object rawIndex = Wire.optional(object, "index");
-        if (!Wire.isMissing(rawIndex)) {
-            builder.index(Wire.uint64(rawIndex, "HomeInboxRow.index"));
-        }
         Object rawKind = Wire.required(object, "kind");
         builder.kind(HomeInboxKind.fromWire(rawKind));
         Object rawLastAuthor = Wire.optional(object, "last_author");
@@ -127,7 +120,6 @@ public final class HomeInboxRow implements WireValue {
         Wire.put(object, "chief", chief);
         Wire.put(object, "chief_state", chiefState);
         Wire.put(object, "id", id);
-        Wire.put(object, "index", index);
         Wire.put(object, "kind", kind);
         Wire.put(object, "last_author", lastAuthor);
         Wire.put(object, "marked_unread", markedUnread);
@@ -144,11 +136,11 @@ public final class HomeInboxRow implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof HomeInboxRow that)) return false;
-        return Objects.equals(activityAt, that.activityAt) && Objects.equals(chief, that.chief) && Objects.equals(chiefState, that.chiefState) && Objects.equals(id, that.id) && Objects.equals(index, that.index) && Objects.equals(kind, that.kind) && Objects.equals(lastAuthor, that.lastAuthor) && Objects.equals(markedUnread, that.markedUnread) && Objects.equals(muted, that.muted) && Objects.equals(name, that.name) && Objects.equals(owner, that.owner) && Objects.equals(pinPosition, that.pinPosition) && Objects.equals(pinned, that.pinned) && Objects.equals(preview, that.preview) && Objects.equals(unread, that.unread);
+        return Objects.equals(activityAt, that.activityAt) && Objects.equals(chief, that.chief) && Objects.equals(chiefState, that.chiefState) && Objects.equals(id, that.id) && Objects.equals(kind, that.kind) && Objects.equals(lastAuthor, that.lastAuthor) && Objects.equals(markedUnread, that.markedUnread) && Objects.equals(muted, that.muted) && Objects.equals(name, that.name) && Objects.equals(owner, that.owner) && Objects.equals(pinPosition, that.pinPosition) && Objects.equals(pinned, that.pinned) && Objects.equals(preview, that.preview) && Objects.equals(unread, that.unread);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(activityAt, chief, chiefState, id, index, kind, lastAuthor, markedUnread, muted, name, owner, pinPosition, pinned, preview, unread); }
+    public int hashCode() { return Objects.hash(activityAt, chief, chiefState, id, kind, lastAuthor, markedUnread, muted, name, owner, pinPosition, pinned, preview, unread); }
 
     @Override
     public String toString() { return "HomeInboxRow" + toWire(); }
@@ -160,7 +152,6 @@ public final class HomeInboxRow implements WireValue {
         private Field<HomeChiefState> chiefState = Field.omitted();
         private String id;
         private boolean idSet;
-        private Field<UInt64> index = Field.omitted();
         private HomeInboxKind kind;
         private boolean kindSet;
         private Field<String> lastAuthor = Field.omitted();
@@ -195,10 +186,6 @@ public final class HomeInboxRow implements WireValue {
         public Builder id(String value) {
             this.id = value;
             this.idSet = true;
-            return this;
-        }
-        public Builder index(UInt64 value) {
-            this.index = Field.of(value);
             return this;
         }
         public Builder kind(HomeInboxKind value) {

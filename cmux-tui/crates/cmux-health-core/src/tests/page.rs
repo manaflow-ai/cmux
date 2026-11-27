@@ -49,8 +49,7 @@ fn silent_page_climbs_the_ladder_then_fails_and_the_click_restarts_it() {
     assert_eq!(failed.action, RestartRenderer);
     assert!(failed.detail.contains("Tried 3 repairs"), "{}", failed.detail);
     assert_eq!(h.snapshot().worst, State::Failed);
-    // One deadline: when the first attempt (10 s) leaves the cap's 10 min window, it tries again by itself.
-    assert_eq!(h.next_tick_ms(), Some(610_000), "a failed part tries again once the cap allows");
+    assert_eq!(h.next_tick_ms(), None, "a failed part waits for the click, no timer");
     assert_eq!(
         receipts(&h, ID),
         vec![
@@ -121,45 +120,6 @@ fn a_failed_result_advances_the_ladder_at_once_and_ok_alone_never_heals() {
 
     h.beat(ID, 11_000);
     assert_eq!(part(&h, ID), None);
-}
-
-/// David Beyer, 2026-11-20 call: "Agent chat needs a repair" asked for a click that does what the app can do
-/// itself. The cap is 3 repairs in 10 min, not 3 for good: once its oldest attempt leaves the window, a part that
-/// is still stuck tries again by itself from step 1, and the page's load drops the alert. No click.
-#[test]
-fn a_failed_part_tries_again_by_itself_once_the_cap_window_allows() {
-    let mut h = model();
-    register(&mut h, ID, Kind::Page, "Agent chat", 0);
-    h.beat(ID, 0);
-    assert_eq!(
-        run(&mut h, 129_999),
-        vec![(10_000, ReloadPage, 1), (40_000, RestartRenderer, 2), (70_000, RestartRenderer, 3)]
-    );
-    assert!(h.tick(130_000).is_empty());
-    let failed = part(&h, ID).expect("listed");
-    assert_eq!(failed.state, State::Failed);
-    assert!(failed.detail.contains("tries again by itself"), "{}", failed.detail);
-    assert_eq!(
-        h.next_tick_ms(),
-        Some(610_000),
-        "one deadline: the first attempt leaves the window"
-    );
-
-    // Input and ticks before then repair nothing: still failed until the window frees an attempt.
-    h.input(ID, 1, 0, 300_000);
-    assert!(run(&mut h, 609_999).is_empty());
-    assert_eq!(part(&h, ID).map(|p| p.state), Some(State::Failed));
-    assert_eq!(h.next_tick_ms(), Some(610_000));
-
-    // The window lets one go: step 1 again, by itself.
-    assert_eq!(run(&mut h, 610_000), vec![(610_000, ReloadPage, 1)]);
-    assert_eq!(part(&h, ID).map(|p| p.state), Some(State::Repairing));
-    assert_eq!(receipts(&h, ID).last(), Some(&(ReloadPage, Outcome::Started)));
-
-    // The reloaded page loads: healthy, the alert drops.
-    h.event(ID, "loaded", 611_000, None);
-    assert_eq!(part(&h, ID), None);
-    assert_eq!(h.snapshot().worst, State::Healthy);
 }
 
 #[test]

@@ -44,55 +44,6 @@ import Testing
         #expect(body["platform"] as? String == "macos")
         #expect(body["signingKey"] as? String == identity.signingKey)
         #expect(body["agreementKey"] as? String == identity.agreementKey)
-        // No machine fields unless asked: an older hub never sees them from a caller that has none.
-        #expect(body["machineKey"] == nil && body["appId"] == nil)
-    }
-
-    /// Every build on a Mac registers with one `machineKey` (and its own bundle id), so the hub lists
-    /// NIGHTLY and DEV as one machine and retires only this install's renewal leftovers.
-    @Test func registrationSendsThisMacsMachineKeyAndAppId() async throws {
-        let identity = DeviceIdentity.software()
-        let hub = StubHub.routes(["POST /v1/devices": (200, #"{"device":{"id":"x","name":"Studio","machineId":"m1","appId":"com.example.nightly"}}"#)])
-        let key = DeviceIdentity.machineKey(platformUUID: "0a1b2c3d-0000-1111-2222-333344445555")
-        let device = try await makeClient(hub, identity: identity)
-            .registerDevice(name: "Studio", platform: .macos, machineKey: key, appId: "com.example.nightly")
-        #expect(device.machineId == "m1" && device.appId == "com.example.nightly")
-        let body = try #require(hub.requests.last?.jsonBody)
-        #expect(body["machineKey"] as? String == key)
-        #expect(body["appId"] as? String == "com.example.nightly")
-        // The key is a lowercase 64-hex digest, the same for any case of the UUID, never the UUID itself.
-        #expect(key.count == 64 && key.allSatisfy { "0123456789abcdef".contains($0) })
-        #expect(key == DeviceIdentity.machineKey(platformUUID: "0A1B2C3D-0000-1111-2222-333344445555"))
-        #expect(DeviceIdentity.machineKey.map { $0.count == 64 } ?? true)
-        // The Mac it runs on, the same for every build: the hub reads an Always answer about this Mac across its device ids.
-        #expect(body["machine"] as? String == DeviceMachine.current.id)
-        #expect((body["machine"] as? String).map { $0.count == 64 && $0.allSatisfy(\.isHexDigit) && $0 == $0.lowercased() } ?? true)
-    }
-
-    /// The hub matches answers by this value: every build keys the same hardware UUID with the same secret to the same id,
-    /// only an HMAC leaves the Mac, and without the secret another device cannot name this Mac.
-    @Test func theMachineIsAKeyedHashOfTheHardwareUUID() {
-        let key = Data(repeating: 7, count: 32)
-        let a = DeviceMachine(hardwareUUID: "8A1C3F2E-0D4B-4C5A-9E7F-112233445566", secret: key)
-        #expect(a.id == DeviceMachine(hardwareUUID: " 8a1c3f2e-0d4b-4c5a-9e7f-112233445566\n", secret: key).id)
-        #expect(a.id?.count == 64 && a.id?.contains("8A1C") == false && a.id?.contains("8a1c") == false)
-        #expect(a.id != DeviceMachine(hardwareUUID: "8A1C3F2E-0D4B-4C5A-9E7F-112233445567", secret: key).id)
-        #expect(a.id != DeviceMachine(hardwareUUID: "8A1C3F2E-0D4B-4C5A-9E7F-112233445566", secret: Data(repeating: 8, count: 32)).id)
-        #expect(DeviceMachine(hardwareUUID: nil, secret: key).id == nil && DeviceMachine(hardwareUUID: "", secret: key).id == nil)
-        #expect(DeviceMachine(hardwareUUID: "8A1C3F2E-0D4B-4C5A-9E7F-112233445566", secret: nil).id == nil)
-    }
-
-    /// The secret is made once, only this user can read it, and every later load (another build, cmux Remote) reads the same one.
-    @Test func theMachineSecretIsMadeOnceAndKeptPrivate() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("device-machine-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let url = dir.appendingPathComponent("machine.key")
-        let first = try #require(DeviceMachineSecret.load(at: url))
-        #expect(first.count == 32)
-        #expect(DeviceMachineSecret.load(at: url) == first)
-        let mode = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
-        #expect(mode == 0o600)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == ["machine.key"])
     }
 
     /// Sign-out ends this device's sessions on the hub (reason `signed_out`) before the account session goes.

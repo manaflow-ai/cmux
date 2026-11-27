@@ -124,17 +124,14 @@ impl VisitStores {
         now_ms: i64,
         local_day_start_ms: i64,
     ) -> Result<Vec<HistoryEntry>, HistoryError> {
-        let mut filter = query.filter(now_ms, local_day_start_ms);
-        if !query.wants(HistoryKind::Page) || !filter.wants(&HistoryKind::Page) {
+        if !query.wants(HistoryKind::Page) {
             return Ok(Vec::new());
         }
-        if let Some(since) = query.range.start(now_ms, local_day_start_ms) {
-            filter.after_ms = Some(filter.after_ms.map_or(since, |after| after.max(since)));
-        }
+        let since = query.range.start(now_ms, local_day_start_ms);
         let limit = query.limit.unwrap_or(DEFAULT_PAGE_LIMIT);
         let mut entries = Vec::new();
         for profile in self.profiles()? {
-            entries.extend(self.store(&profile)?.entries(&profile, &filter, limit, query.actor)?);
+            entries.extend(self.store(&profile)?.entries(&profile, &query.text, since, limit)?);
         }
         Ok(entries)
     }
@@ -313,7 +310,7 @@ pub fn profile_from_file_name(name: &str) -> Option<String> {
         if byte == b'_' {
             let hex = std::str::from_utf8(tail.get(..2)?).ok()?;
             bytes.push(u8::from_str_radix(hex, 16).ok()?);
-            rest = tail.get(2..)?;
+            rest = &tail[2..];
         } else {
             bytes.push(byte);
             rest = tail;

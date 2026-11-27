@@ -1,11 +1,8 @@
 //! `fs-v1`: file ops of the session daemon (request file
-//! `daemon-fs-for-cloud.md`). Served on Linux hosts (decision D4, widened
-//! 2026-11-19): the daemon binary installs an [`FsService`] over the home
-//! on a cmux Cloud host ([`Scope::Cloud`]) and on a Linux machine of the
-//! person's own, a lane VM or a CI machine ([`Scope::Owner`]: only the
-//! machine owner's connections may use it, `server::fs_wire`), and only
-//! then advertises [`FS_CAPABILITY`]. A Mac installs none: every `fs.*` op
-//! there answers `fs.unavailable`.
+//! `daemon-fs-for-cloud.md`). Served on cmux Cloud hosts only (decision
+//! D4): the daemon binary installs an [`FsService`] over the VM home when
+//! it runs on a Cloud host, and only then advertises [`FS_CAPABILITY`].
+//! Everywhere else every `fs.*` op answers `fs.unavailable`.
 //!
 //! Every path goes through the descriptor-relative sandbox in [`resolve`]
 //! (no symlink is followed by the kernel; none leaves the roots), writes are
@@ -25,9 +22,7 @@ mod write;
 
 use std::sync::OnceLock;
 
-pub use encoding::{
-    DEFLATE, FS_WRITE_DEFLATE_CAPABILITY, FS_WRITE_ZSTD_CAPABILITY, ZSTD, ZSTD_WINDOW_LOG_MAX,
-};
+pub use encoding::{DEFLATE, FS_WRITE_DEFLATE_CAPABILITY};
 pub use entry::{Entry, EntryKind, StatResult, revision};
 pub use error::FsError;
 pub use listing::Page;
@@ -68,42 +63,11 @@ pub const FS_WRITE_NOFOLLOW_CAPABILITY: &str = "fs-write-nofollow-v1";
 pub const FS_READ_NOFOLLOW_CAPABILITY: &str = "fs-read-nofollow-v1";
 
 static SERVICE: OnceLock<FsService> = OnceLock::new();
-static SCOPE: OnceLock<Scope> = OnceLock::new();
 
-/// Who may use the installed file owner.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Scope {
-    /// A cmux Cloud host: every peer the link's team policy let reach the daemon.
-    Cloud,
-    /// A machine of the person's own (not a Cloud host): the owner's connections only, the
-    /// local socket (unstamped or stamped owner) and a Native dial signed for the owner. A
-    /// classic paired peer, which has no shell there, never reads or writes its files.
-    Owner,
-}
-
-/// Installs the daemon's file owner for a Cloud host (once per process; a
-/// second call is ignored and returns false).
+/// Installs the daemon's file owner (once per process; a second call is
+/// ignored and returns false).
 pub fn install(service: FsService) -> bool {
-    install_scoped(service, Scope::Cloud)
-}
-
-/// Installs the daemon's file owner for `scope` (once per process; a second
-/// call is ignored and returns false). The scope is published before the
-/// service, so whoever sees the service ([`installed`]) also sees its final
-/// scope: a handler reads the service once, then checks the connection, and
-/// answers from that same read (never a service under a looser policy).
-pub fn install_scoped(service: FsService, scope: Scope) -> bool {
-    if SCOPE.set(scope).is_err() || SERVICE.set(service).is_err() {
-        return false;
-    }
-    true
-}
-
-/// True when the installed file owner serves the machine owner's connections only
-/// ([`Scope::Owner`]).
-#[must_use]
-pub fn owner_only() -> bool {
-    SCOPE.get() == Some(&Scope::Owner)
+    SERVICE.set(service).is_ok()
 }
 
 /// The installed owner, when this daemon serves `fs-v1`.
@@ -113,8 +77,8 @@ pub fn installed() -> Option<&'static FsService> {
 }
 
 /// The capabilities to advertise in `identify`, when served: `fs-v1`,
-/// `fs-symlink-v1`, `fs-write-deflate-v1` and `fs-write-zstd-v1` (compressed
-/// `fs.write` bytes, [`encoding`]), [`FS_WRITE_NOFOLLOW_CAPABILITY`] and
+/// `fs-symlink-v1`, `fs-write-deflate-v1` (compressed `fs.write` bytes,
+/// [`encoding`]), [`FS_WRITE_NOFOLLOW_CAPABILITY`] and
 /// [`FS_READ_NOFOLLOW_CAPABILITY`].
 #[must_use]
 pub fn advertised() -> Vec<&'static str> {
@@ -123,7 +87,6 @@ pub fn advertised() -> Vec<&'static str> {
             FS_CAPABILITY,
             FS_SYMLINK_CAPABILITY,
             FS_WRITE_DEFLATE_CAPABILITY,
-            FS_WRITE_ZSTD_CAPABILITY,
             FS_WRITE_NOFOLLOW_CAPABILITY,
             FS_READ_NOFOLLOW_CAPABILITY,
         ]

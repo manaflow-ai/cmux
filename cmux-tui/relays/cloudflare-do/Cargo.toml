@@ -38,11 +38,6 @@ lto = true
 opt-level = "s"
 strip = true
 
-# Proc-macro dylibs stay unstripped: Xcode 27's strip breaks them on a Mac build (rustc E0463);
-# see cmux-tui/crates/cmux-app-ffi/Cargo.toml.
-[profile.release.build-override]
-strip = false
-
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 

@@ -17,20 +17,20 @@ import Testing
         for field in ["ok", "lease_bound", "verified_absent", "worker_quiescent", "worker_pid_exited", "descendants_exited"] {
             var incomplete = valid
             incomplete[field] = .bool(false)
-            #expect(CmuxRemoteService.captureResult(phase: "cleanup", raw: .object(incomplete))["ok"] == .bool(false))
+            #expect(CmuxRemoteService.strictCaptureResult(.object(incomplete))["ok"] == .bool(false))
         }
     }
 
     @Test func runningHostOrWrongPhaseCannotProveCompletion() {
         for code in ["remote_exit_unverified", "remote_cleanup_unverified", "ok", "no_remote_started"] {
-            #expect(CmuxRemoteService.captureResult(phase: "cleanup", raw: result(code: code))["ok"] == .bool(false))
+            #expect(CmuxRemoteService.strictCaptureResult(result(code: code))["ok"] == .bool(false))
         }
-        #expect(CmuxRemoteService.captureResult(phase: "prepare", raw: result())["ok"] == .bool(false))
+        #expect(CmuxRemoteService.strictCaptureResult(result(), phase: "prepare")["ok"] == .bool(false))
     }
 
     @Test func prepareAndUnusedCleanupPreservePristineDisposition() {
-        let prepare = CmuxRemoteService.captureResult(phase: "prepare", raw: result(code: "no_remote_started", started: false))
-        let cleanup = CmuxRemoteService.captureResult(phase: "cleanup", raw: result(started: false))
+        let prepare = CmuxRemoteService.strictCaptureResult(result(code: "no_remote_started", started: false), phase: "prepare")
+        let cleanup = CmuxRemoteService.strictCaptureResult(result(started: false))
         for proof in [prepare, cleanup] {
             #expect(proof["ok"] == .bool(true))
             #expect(proof["code"] == .string("no_remote_started"))
@@ -40,7 +40,7 @@ import Testing
     }
 
     @Test func completeDaemonCleanupMapsToPublicOK() {
-        let proof = CmuxRemoteService.captureResult(phase: "cleanup", raw: result())
+        let proof = CmuxRemoteService.strictCaptureResult(result())
         #expect(proof["ok"] == .bool(true))
         #expect(proof["code"] == .string("ok"))
     }
@@ -51,19 +51,19 @@ import Testing
                       "verified_absent", "worker_quiescent", "worker_pid_exited", "descendants_exited"] {
             var missing = valid
             missing[field] = nil
-            #expect(CmuxRemoteService.captureResult(phase: "cleanup", raw: .object(missing))["ok"] == .bool(false))
+            #expect(CmuxRemoteService.strictCaptureResult(.object(missing))["ok"] == .bool(false))
         }
         let invalidCounts: [JSONValue] = [.number(-1), .number(0.5), .number(.infinity), .string("0"), .bool(false), .null]
         for field in ["identity_removed", "relays_removed"] {
             for invalid in invalidCounts {
                 var malformed = valid
                 malformed[field] = invalid
-                #expect(CmuxRemoteService.captureResult(phase: "cleanup", raw: .object(malformed))["ok"] == .bool(false))
+                #expect(CmuxRemoteService.strictCaptureResult(.object(malformed))["ok"] == .bool(false))
             }
         }
         var malformed = valid
         malformed["worker_started"] = .string("false")
-        #expect(CmuxRemoteService.captureResult(phase: "cleanup", raw: .object(malformed))["ok"] == .bool(false))
+        #expect(CmuxRemoteService.strictCaptureResult(.object(malformed))["ok"] == .bool(false))
     }
 
     @Test func pristineProofRejectsStartedWorkerOrRemovalCounts() {
@@ -75,27 +75,27 @@ import Testing
         for (field, value) in changes {
             var nonPristine = valid
             nonPristine[field] = value
-            #expect(CmuxRemoteService.captureResult(phase: "prepare", raw: .object(nonPristine))["ok"] == .bool(false))
+            #expect(CmuxRemoteService.strictCaptureResult(.object(nonPristine), phase: "prepare")["ok"] == .bool(false))
         }
         var discrepancy = valid
         discrepancy["code"] = .string("remote_cleaned")
         discrepancy["identity_removed"] = .number(1)
-        #expect(CmuxRemoteService.captureResult(phase: "cleanup", raw: .object(discrepancy))["ok"] == .bool(false))
+        #expect(CmuxRemoteService.strictCaptureResult(.object(discrepancy))["ok"] == .bool(false))
     }
 
     @Test func resumeRequiresExactBoundFreshProcessReceipt() {
         let valid: [String: JSONValue] = ["ok": .bool(true), "code": .string("remote_capture_resumed"), "lease_bound": .bool(true)]
-        #expect(CmuxRemoteService.captureResult(phase: "resume", raw: .object(valid)) == .object(valid))
+        #expect(CmuxRemoteService.strictCaptureResumeResult(.object(valid)) == .object(valid))
         for field in ["ok", "code", "lease_bound"] {
             var missing = valid
             missing[field] = nil
-            #expect(CmuxRemoteService.captureResult(phase: "resume", raw: .object(missing))["ok"] == .bool(false))
+            #expect(CmuxRemoteService.strictCaptureResumeResult(.object(missing))["ok"] == .bool(false))
         }
         for (field, value) in [("ok", JSONValue.bool(false)), ("lease_bound", .bool(false)),
                                ("code", .string("remote_cleaned")), ("unexpected", .bool(true))] {
             var malformed = valid
             malformed[field] = value
-            #expect(CmuxRemoteService.captureResult(phase: "resume", raw: .object(malformed))["ok"] == .bool(false))
+            #expect(CmuxRemoteService.strictCaptureResumeResult(.object(malformed))["ok"] == .bool(false))
         }
     }
 }

@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(UserNotifications)
 import UserNotifications
-#endif
 
 /// The notification categories (PROTOCOL.md "Push notifications", `category`).
 public enum PushCategory: String, CaseIterable, Sendable {
@@ -124,7 +122,6 @@ public struct PushActions: Sendable {
         button.opensApp || (requireFaceID && (button == .deny || button == .reply || button == .terminalReply))
     }
 
-    #if canImport(UserNotifications)
     /// The buttons the content extension sets: the payload's own, or nil to
     /// keep the static buttons, as with Show previews off (their titles never
     /// name an option on the lock screen; PR #24156 review L1). With
@@ -171,7 +168,6 @@ public struct PushActions: Sendable {
     public func actions(for payload: PushPayload) -> [UNNotificationAction] {
         plan(for: payload).map { action($0.action, title: $0.title) }
     }
-    #endif
 
     /// The buttons as data: what `actions(for:)` builds.
     public func plan(for payload: PushPayload) -> [(action: PushAction, title: String)] {
@@ -213,12 +209,10 @@ public struct PushActions: Sendable {
         case .allowAlways: String(localized: "Always allow")
         case .deny: String(localized: "Deny")
         case .reply, .terminalReply: String(localized: "Reply")
-        // retry-prompt-ok: resends a reply the person wrote from a notification (it may have landed); sending again is theirs
         case .retry: String(localized: "Retry")
         }
     }
 
-    #if canImport(UserNotifications)
     func action(_ action: PushAction, title: String? = nil) -> UNNotificationAction {
         let title = title ?? self.title(action)
         switch action {
@@ -236,7 +230,6 @@ public struct PushActions: Sendable {
             )
         }
     }
-    #endif
 }
 
 /// Settings → Require Face ID, shared with the content extension. The push

@@ -21,14 +21,11 @@ import Testing
 struct ColdFocusedTerminalTypeAheadTests {
     private typealias Terminal = (pane: String, tab: String, surface: SurfaceID)
 
-    /// A pane that spends the frame's one new surface (``ContentPresentationScheduler``). `spends`: its show makes one, so
-    /// the frame's budget is spent whatever came before it.
+    /// A pane that spends the frame's one new surface (``ContentPresentationScheduler``).
     @MainActor private final class BudgetSpender: PresentablePane {
-        var spends = false
-        private var made = false
-        var selectedContentIsAlive: Bool { made }
+        var selectedContentIsAlive: Bool { false }
         var isFocusedInWorkspace: Bool { false }
-        func showSelected() { made = spends }
+        func showSelected() {}
         func showWhileWaiting() {}
     }
 
@@ -49,18 +46,9 @@ struct ColdFocusedTerminalTypeAheadTests {
         try await Self.typeAsTheWorkspaceShowsCold(clearingFirst: false, afterLeavingANewWorkspace: true)
     }
 
-    /// hq#22681: at launch the restored window's pane shows its selected terminal under a selection's hold
-    /// (`holdUntilShown`, PaneSelectionPresenter) before that terminal's surface exists, and the keys typed then (the
-    /// launch probe's, the person's) waited with no terminal of their own: at the hold's bound they ran into a window with
-    /// no surface and were lost. The surface here never comes before the bound: the keys still reach the focused terminal.
-    @Test func aLineTypedUnderASelectionHoldBeforeTheSurfaceReachesTheFocusedTerminalAtTheBound() async throws {
-        try await Self.typeAsTheWorkspaceShowsCold(clearingFirst: false, underASelectionHold: true)
-    }
-
     /// `clearingFirst`: Ctrl-L before the line. `afterLeavingANewWorkspace`: a person's new workspace's hold is open, and
-    /// their click ended its claim, as the cold workspace shows. `underASelectionHold`: a selection's hold is open as the
-    /// line is typed, and no frame shows a surface before its bound.
-    private static func typeAsTheWorkspaceShowsCold(clearingFirst: Bool, afterLeavingANewWorkspace: Bool = false, underASelectionHold: Bool = false) async throws {
+    /// their click ended its claim, as the cold workspace shows.
+    private static func typeAsTheWorkspaceShowsCold(clearingFirst: Bool, afterLeavingANewWorkspace: Bool = false) async throws {
         try await PinnedPageTests.withApp(heldKeyReplay: { event, window, router in
             if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
         }) { services, connection in
@@ -93,8 +81,8 @@ struct ColdFocusedTerminalTypeAheadTests {
             #expect(services.registry.perform("splitRight", invocation: terminal))
             try await PinnedPageTests.until({ terminals().count == 2 }, report: { "waiting for the split's terminal: \(describe())" })
             let content = try #require(controller.workspaceContent)
-            let paneX = Dictionary(uniqueKeysWithValues: terminals().map { ($0.pane, content.paneController(key: $0.pane)?.view.frame.minX ?? 0) })
-            let ordered = terminals().sorted { paneX[$0.pane, default: 0] < paneX[$1.pane, default: 0] }
+            let frames = Dictionary(uniqueKeysWithValues: terminals().map { ($0.pane, content.paneController(key: $0.pane)?.view.frame.minX ?? 0) })
+            let ordered = terminals().sorted { frames[$0.pane, default: 0] < frames[$1.pane, default: 0] }
             let left = ordered[0], right = ordered[1]
             PaneHandlers.focus(try #require(content.paneController(key: right.pane)).layoutPaneID, in: content)
             try await PinnedPageTests.until({ controller.focus.state.resolved == .terminal(pane: right.pane, tab: right.tab)
@@ -119,14 +107,6 @@ struct ColdFocusedTerminalTypeAheadTests {
             try await PinnedPageTests.until({ !services.cache.hasContent(for: left.tab) && !services.cache.hasContent(for: right.tab) },
                                             report: { "the hibernated workspace kept a surface: \(describe())" })
 
-            // The test is the presentation's clock: no frame shows the cold workspace's surfaces before the hold's bound.
-            let frames = PaneDropRig.Frames(), clock = services.presentation.frames
-            if underASelectionHold {
-                services.presentation.frames = frames
-                try await Task.sleep(for: .milliseconds(200)) // a frame the app's clock had asked for runs first
-                coordinator.holdLimit = .milliseconds(500)
-            }
-
             // In one turn: the frame's surface budget is spent, the workspace shows cold, and the line is typed.
             let nonce = String(UInt32.random(in: 100_000...999_999))
             if afterLeavingANewWorkspace {
@@ -139,15 +119,9 @@ struct ColdFocusedTerminalTypeAheadTests {
                 coordinator.personActed(in: window, event: click)
                 #expect(coordinator.isHolding(in: window), "the test needs the new workspace's hold still open as the line is typed")
             }
-            let spender = BudgetSpender()
-            spender.spends = underASelectionHold
-            _ = services.presentation.showNow(spender) // false: another pane spent it already
+            _ = services.presentation.showNow(BudgetSpender()) // false: another pane spent it already
             services.windows.show(workspaceID: id, in: controller.state)
             #expect(controller.workspaceContent?.workspace.id == id, "the window did not show the workspace in this turn")
-            if underASelectionHold {
-                coordinator.holdUntilShown(in: window) // the pane's selection shows a terminal whose surface comes later (PaneSelectionPresenter)
-                #expect(coordinator.isHolding(in: window), "the test needs the selection's hold open as the line is typed")
-            }
             #expect(controller.focus.currentState().resolved == .terminal(pane: right.pane, tab: right.tab),
                     "the cold workspace's focus is not its remembered terminal: \(controller.focus.state.resolved)")
             #expect(!services.cache.hasContent(for: right.tab), "the focused terminal's surface already shows: the test types too late")
@@ -168,11 +142,6 @@ struct ColdFocusedTerminalTypeAheadTests {
 
             let ran = try? await connection.request(WaitForTextRequest(surface: right.surface, pattern: "f4\(nonce)x42", timeoutMs: 15_000),
                                                     timeout: .seconds(20))
-            if underASelectionHold {
-                #expect(!services.cache.hasContent(for: right.tab), "the focused terminal's surface showed before the bound: the test did not hold its frames")
-                services.presentation.frames = clock
-                frames.fire()
-            }
             let rightScreen = (try? await connection.request(ReadScreenRequest(surface: right.surface), timeout: .seconds(5)))?.text ?? "unreadable"
             let leftScreen = (try? await connection.request(ReadScreenRequest(surface: left.surface), timeout: .seconds(5)))?.text ?? "unreadable"
             #expect(ran?.matched == true, "the line typed as the workspace showed never ran whole in its focused terminal: \(rightScreen)\n\(describe())")

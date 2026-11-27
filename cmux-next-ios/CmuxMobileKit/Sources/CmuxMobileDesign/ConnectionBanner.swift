@@ -11,59 +11,28 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public let text: String
     /// A second line, smaller, for what to do next (pairing: where the Mac asks).
     public var detail: String? = nil
-    /// The banner offers its one action (signed out: Sign in). A dropped link has none: the
-    /// link redials on its own (its backoff, a network change, the foreground), so a Retry
-    /// would only ask the person to say yes to what already happens.
     public var offersRetry = false
-    /// The action button's title (signed out: "Sign in"); a banner without one offers nothing.
+    /// The action button's title when it is not "Retry" (signed out: "Sign in").
     public var actionTitle: String? = nil
     /// Stable identity so two Macs with the same state still refresh the banner.
     public var identity: String? = nil
-    /// A link state (reconnecting, offline): drawn as a ``ConnectionChip`` of this kind, not as
-    /// the banner. Nil for states with a sentence the person must read (signed out, pairing, a
-    /// failure).
-    public var chipKind: ConnectionChip.Kind? = nil
-    /// The Mac a link state is about, for the chip's VoiceOver sentence.
-    public var macName: String? = nil
 
-    /// The chip for a link state; nil draws the banner.
-    public var chip: ConnectionChip.Content? {
-        chipKind.map { ConnectionChip.Content($0, sentence: sentence) }
-    }
-
-    /// Whether the state is drawn (and announced) at all: a link still trying is not
-    /// (``ConnectionChip/Kind/paints``); a banner with a sentence to read always is.
-    public var paints: Bool { chip?.paints ?? true }
-
-    /// What VoiceOver reads for the chip: the words plus the Mac, when the state names one.
-    var sentence: String {
-        guard let macName, !macName.isEmpty else { return chipKind == .cantReach ? String(localized: "Can't reach your Mac") : text }
-        return showsSpinner ? String(localized: "Reconnecting to \(macName)…") : String(localized: "\(macName) is offline")
-    }
-
-    /// A redial past the quiet bound. No link path posts it any more (the chip waits out the bound and
-    /// then says Offline); it stays for the flap-dismissal rule's spinner window and its tests.
-    public static func reconnecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac, chipKind: .reconnecting, macName: mac) }
-    /// This iPhone has no network. No Retry: there is nothing to retry until the network comes
-    /// back, and then the links redial by themselves (`LiveCoordinator.networkPathChanged`).
-    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline", chipKind: .offline)
-    /// Presence says the Mac is offline (asleep, cmux quit): known, so it shows at once.
-    public static func macOffline(_ mac: String, identity: String? = nil) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", identity: identity ?? mac, chipKind: .macOffline, macName: mac) }
+    public static func reconnecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
+    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline", offersRetry: true)
+    public static func macOffline(_ mac: String, identity: String? = nil) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true, identity: identity ?? mac) }
+    public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")
+    public static func connecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
     /// The account's session was revoked: nothing reconnects until the person
     /// signs in again, which the banner's one button starts.
-    // retry-prompt-ok: signing in again is the person's step; nothing reconnects without it
     public static let signedOut = Self(symbol: "person.crop.circle.badge.exclamationmark", showsSpinner: false,
                                        text: String(localized: "This device was signed out. Sign in again"),
                                        offersRetry: true, actionTitle: String(localized: "Sign in"))
-    /// The Mac is connected but a list did not load (Home's last read failed); Home reads it
-    /// again on its own.
+    /// The Mac is connected but a list did not load (Home's last read failed): Retry reads again.
     public static func refreshFailed(identity: String? = nil) -> Self {
         Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: String(localized: "Couldn't refresh"),
-             identity: identity)
+             offersRetry: true, identity: identity)
     }
-    /// The link to the Mac is down (dialing, redialing, waiting out a backoff). The coordinator
-    /// holds it for the shared quiet bound; before that the screen keeps its rows and says nothing.
-    public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline", chipKind: .cantReach)
+    public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline", offersRetry: true)
     /// An application failure distinct from connection state.
     public static func failed(_ text: String, identity: String? = nil) -> Self {
         Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text, identity: identity)
@@ -122,7 +91,7 @@ public struct ConnectionBanner: View {
         .accessibilityAddTraits(.updatesFrequently)
     }
 
-    private var action: (() -> Void)? { state.offersRetry && state.actionTitle != nil ? retry : nil }
+    private var action: (() -> Void)? { state.offersRetry ? retry : nil }
 
     private var oneLine: some View {
         HStack(spacing: 8) {
@@ -136,7 +105,7 @@ public struct ConnectionBanner: View {
         .fixedSize()
         .padding(.horizontal, 14)
         .frame(minHeight: 36)
-        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 18, style: .continuous))
+        .glassEffect(.regular, in: .rect(cornerRadius: 18, style: .continuous))
     }
 
     private var wrapped: some View {
@@ -165,7 +134,7 @@ public struct ConnectionBanner: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .frame(minHeight: 36)
-        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: theme.metrics.cardRadius, style: .continuous))
+        .glassEffect(.regular, in: .rect(cornerRadius: theme.metrics.cardRadius, style: .continuous))
     }
 
     @ViewBuilder private var leading: some View {
@@ -177,9 +146,9 @@ public struct ConnectionBanner: View {
     }
 
     private func actionButton(_ action: @escaping () -> Void) -> some View {
-        Button(state.actionTitle ?? "", action: action)
+        Button(state.actionTitle ?? String(localized: "Retry"), action: action)
             .buttonStyle(.cmuxPressFill)
-            .accessibilityIdentifier("connection.action")
+            .accessibilityIdentifier(state.actionTitle == nil ? "connection.retry" : "connection.action")
     }
 }
 #endif

@@ -1,1 +1,0 @@
-- 2026-11-27 (lane/goof-spaces-button): Sidebar-Look: Leo: "spaces button, get rid of it". The footer's Spaces visibility icon beside the avatar (added 2026-11-25, #56627) is removed, with its strings, binding and tests. Spaces stay reachable through `sidebar.showSpaces` and the `sidebar.spaces.show` / `sidebar.spaces.hide` actions, as before #56627.

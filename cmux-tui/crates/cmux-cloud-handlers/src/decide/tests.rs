@@ -63,10 +63,7 @@ fn setup_readiness_ends_on_teardown_even_after_a_workspace() {
 
 #[test]
 fn a_creation_settles() {
-    // A failed creation that already left the list (a windowless create ends as it fails)
-    // still answers its failure.
-    assert_eq!(creation(false, false, true), Creation::Failed);
-    assert_eq!(creation(false, false, false), Creation::Gone);
+    assert_eq!(creation(false, false, true), Creation::Gone);
     assert_eq!(creation(false, true, false), Creation::Created);
     assert_eq!(creation(true, true, true), Creation::Created);
     assert_eq!(creation(true, false, true), Creation::Failed);
@@ -90,43 +87,6 @@ fn a_create_answers_its_machine_or_pending() {
     assert_eq!(
         Value::Object(waited),
         json!({"pending": true, "status": "creating", "creation_id": "c-1"})
-    );
-}
-
-#[test]
-fn a_machine_made_before_the_request_is_answered_as_reused() {
-    // 2026-11-25: `cmux vm new --json` answered vm_57a7e6bc0337b978d609, made 7 minutes before
-    // the call, as a new machine. 1_764_000_000 is the request; the server's clock may lead or
-    // lag by seconds.
-    let asked = 1_764_000_000.0;
-    let answer = |created: f64| {
-        run(json!({"state": "created", "creationId": "c-1", "askedAt": asked,
-            "machine": {"id": "vm-1", "title": "box", "status": "running", "createdAt": created}}))
-        .unwrap()
-    };
-    let spare = answer(asked - 7.0 * 60.0);
-    assert_eq!(spare["reused"], json!(true));
-    assert_eq!(spare["created_at"], json!(crate::time::iso8601(asked - 420.0)));
-    for own in [asked + 25.0, asked - 5.0, asked - fields::REUSE_SLACK_SECONDS + 1.0] {
-        assert_eq!(answer(own)["reused"], json!(false), "{own}");
-    }
-    assert_eq!(answer(asked - fields::REUSE_SLACK_SECONDS - 1.0)["reused"], json!(true));
-    // No request time (an older app): the machine's age alone, no claim either way.
-    let unknown = run(json!({"state": "created", "creationId": "c-1",
-        "machine": {"id": "vm-1", "title": "box", "status": "running", "createdAt": asked}}))
-    .unwrap();
-    assert!(!unknown.contains_key("reused"));
-    assert!(unknown.contains_key("created_at"));
-}
-
-#[test]
-fn a_failed_create_that_left_the_list_answers_its_failure() {
-    let failed = run(json!({"state": "failed", "reason": "cloud.machine.create answered cloud.machine.not_found"}))
-        .unwrap_err();
-    assert!(!failed.refusal);
-    assert_eq!(
-        failed.reason,
-        Said::text("new Cloud machine: cloud.machine.create answered cloud.machine.not_found")
     );
 }
 
@@ -380,39 +340,4 @@ fn palette_targets_keep_generic_machine_rows_actionable_and_offer_create_when_em
             intent: Some(PaletteTargetIntent::CreateDesktop)
         }]
     );
-}
-
-fn prewarm_facts(value: Value) -> Prewarm {
-    prewarm(&serde_json::from_value(value).unwrap())
-}
-
-#[test]
-fn a_typing_prewarm_resumes_only_a_loaded_paused_machine() {
-    let paused = json!({"allowed": true, "loaded": true, "status": "paused"});
-    assert_eq!(prewarm_facts(paused), Prewarm::Resume);
-    for status in ["running", "pausing", "starting", "unknown"] {
-        let facts = json!({"allowed": true, "loaded": true, "status": status});
-        assert_eq!(prewarm_facts(facts), Prewarm::Skip("notPaused"), "{status}");
-    }
-    assert_eq!(prewarm_facts(json!({"allowed": true, "loaded": true})), Prewarm::Skip("notListed"));
-    assert_eq!(
-        prewarm_facts(json!({"allowed": true, "loaded": false, "status": "paused"})),
-        Prewarm::Skip("notLoaded")
-    );
-    assert_eq!(
-        prewarm_facts(json!({"allowed": false, "loaded": true, "status": "paused"})),
-        Prewarm::Skip("notAllowed")
-    );
-}
-
-#[test]
-fn a_failed_prewarm_resume_is_not_asked_again_on_every_keystroke() {
-    let after = |ms: u64| {
-        prewarm_facts(
-            json!({"allowed": true, "loaded": true, "status": "paused", "sinceFailureMs": ms}),
-        )
-    };
-    assert_eq!(after(0), Prewarm::Skip("coolingDown"));
-    assert_eq!(after(PREWARM_RETRY_AFTER_MS - 1), Prewarm::Skip("coolingDown"));
-    assert_eq!(after(PREWARM_RETRY_AFTER_MS), Prewarm::Resume);
 }

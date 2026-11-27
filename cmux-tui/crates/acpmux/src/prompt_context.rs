@@ -11,13 +11,6 @@
 //! another device cannot hide text from the person. A block that a client marks by itself
 //! loses the mark: the one way in is this field. An edit of a waiting prompt
 //! (`_acpmux/queue_edit`) keeps no context: its new blocks lose any mark.
-//!
-//! One context block comes from acpmux itself, for every origin, a remote web client and a
-//! relaying peer included: the tools note (`tool_mentions.rs`) for an `@computer-use` or
-//! `@browser-use` the person wrote. Its text is fixed by acpmux and follows from the person's
-//! visible words, so it hides nothing a client chose. `session/prompt` adds it after this
-//! field's context, unless that context already holds it; a queue edit adds it again from the
-//! edited words.
 
 use serde_json::{Value, json};
 

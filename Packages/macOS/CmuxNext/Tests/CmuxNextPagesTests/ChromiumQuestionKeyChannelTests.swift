@@ -507,27 +507,6 @@ struct ChromiumQuestionKeyChannelTests {
         channel.invalidate()
     }
 
-    /// The page host's session has its Runtime domain off between navigations
-    /// (``ChromiumPageHostBridge``), so no `Runtime.executionContextsCleared` comes when the main frame
-    /// commits a new document: the commit itself (``ChromiumQuestionKeyChannel/documentReplaced()``)
-    /// refuses the old world's proofs and tells the owner, which installs again for the new document.
-    @Test func aCommittedDocumentRefusesOldProofsAndAsksTheOwnerToInstallAgain() async throws {
-        let page = page()
-        let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
-        var told = 0
-        channel.onInvalidated = { told += 1 }
-        var accepted = false
-        let installed = try await install(channel, page: page) { _ in accepted = true }
-        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource)
-        isolated.evaluateScript("press()")
-        let nonce = try #require(isolated.evaluateScript("reports[0]").toString())
-        channel.documentReplaced()
-        #expect(told == 1)
-        #expect(!channel.hasTargets([Self.target]))
-        #expect(!channel.receive(try Self.event(binding: installed.binding, payload: nonce)))
-        #expect(!accepted)
-    }
-
     @Test func anExistingDocumentWithoutTheEarlyGuardAndADocumentOpenResetFailClosed() async throws {
         let page = page()
         let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
@@ -577,56 +556,6 @@ struct ChromiumQuestionKeyChannelTests {
         #expect(view.chromiumSession?.questionKeys?.documentGuardPrepared == true)
         #expect(hosting.made.first?.loaded == [descriptor.url()])
         view.close()
-    }
-
-    /// The agent page's setup calls and its focus guard all go out before the first answer is
-    /// awaited, in order: one round trip, not one per call (about 50 ms one at a time).
-    @Test func theAgentHostSendsEverySetupCallBeforeAwaitingAnyAnswer() async throws {
-        let (root, descriptor) = try Self.agentRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, testRoot: true, routes: [],
-                                           options: PageEngineOptions(chromiumAgentChat: true), chromium: hosting))
-        view.chromiumClock = PageTestClock.never
-        await view.chromiumStart?.value
-        let page = try #require(hosting.made.first)
-        let methods = page.calls.map(\.method)
-        let setup = try #require(methods.firstIndex(of: "Page.enable"))
-        let guardCall = try #require(page.calls.firstIndex { $0.params["worldName"] is String })
-        #expect(guardCall > setup)
-        #expect(page.sentBeforeFirstAwait == guardCall + 1)
-        #expect(view.chromiumSession?.questionKeys?.documentGuardPrepared == true)
-        #expect(page.loaded == [descriptor.url()])
-        view.close()
-    }
-
-    /// A focus guard Chromium did not register still fails the setup, though it was sent with the
-    /// other setup calls: the page reopens in WebKit and never loads in Chromium.
-    @Test func anUnregisteredFocusGuardStillFailsTheSetup() async throws {
-        let (root, descriptor) = try Self.agentRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let hosting = FakeChromiumHosting()
-        hosting.onMade = { page in
-            page.answer = { method, params in
-                method == "Page.addScriptToEvaluateOnNewDocument" && params["worldName"] is String ? "{}" : nil
-            }
-        }
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, testRoot: true, routes: [],
-                                           options: PageEngineOptions(chromiumAgentChat: true), chromium: hosting))
-        view.chromiumClock = PageTestClock.never
-        await view.chromiumStart?.value
-        #expect(view.engineDecision == .webKit(.chromiumFailed))
-        #expect(hosting.made.first?.loaded.isEmpty == true)
-        #expect(hosting.made.first?.closed == true)
-        #expect(view.chromiumSession == nil)
-        view.close()
-    }
-
-    private static func agentRoot() throws -> (URL, PageDescriptor) {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("question-setup-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try Data("<!doctype html><title>Agent</title>".utf8).write(to: root.appendingPathComponent("index.html"))
-        return (root, PageDescriptor(id: "cmux.agent", resource: "agent", namespaces: []))
     }
 
     @Test func visibilityOwnerRebindsTheSamePendingQuestionAfterHideAndWindowReattachment() async throws {

@@ -4,7 +4,8 @@
 //!
 //! The request thread validates the record and renders its canonical JSON
 //! while it holds the registry; the CAS on the terminal revision and every
-//! write run inside a request-side commit transaction.
+//! write run inside the commit transaction (the writer's SAVEPOINT, or a
+//! request-side transaction when the writer does not run).
 
 use super::*;
 
@@ -39,6 +40,7 @@ impl WorkspaceRegistry {
         terminal: &RegistryTerminal,
         result: &Value,
     ) -> anyhow::Result<TerminalCommitIntent> {
+        self.connection.drain_unsettled()?;
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("terminal event kind", event_kind)?;
@@ -76,17 +78,12 @@ impl WorkspaceRegistry {
         let tx = db.unchecked_transaction()?;
         let mut commits = Vec::with_capacity(intents.len());
         for intent in intents {
-            tx.execute_batch("SAVEPOINT terminal_commit")?;
-            match intent.apply(&tx) {
-                Ok(commit) => {
-                    tx.execute_batch("RELEASE terminal_commit")?;
-                    commits.push(Ok(commit));
-                }
-                Err(error) => {
-                    tx.execute_batch("ROLLBACK TO terminal_commit; RELEASE terminal_commit")?;
-                    commits.push(Err(format!("{error:#}")));
-                }
-            }
+            let commit = RegistryIntent::Terminal(intent).apply_in_savepoint(&tx)?;
+            commits.push(
+                commit.and_then(|receipt| {
+                    receipt.into_terminal().map_err(|error| format!("{error:#}"))
+                }),
+            );
         }
         tx.commit()?;
         drop(db);
@@ -96,6 +93,16 @@ impl WorkspaceRegistry {
 }
 
 impl TerminalCommitIntent {
+    /// Resident size for the writer's durable batch byte cap.
+    pub(crate) fn estimated_bytes(&self) -> usize {
+        self.fingerprint
+            .len()
+            .saturating_add(self.result_json.len().saturating_mul(2))
+            .saturating_add(self.launch_spec_json.len().saturating_mul(2))
+            .saturating_add(self.exit_json.as_ref().map_or(0, String::len))
+            .saturating_add(1024)
+    }
+
     /// The body of `commit_terminal` inside the caller's transaction.
     pub(super) fn apply(&self, tx: &Transaction<'_>) -> anyhow::Result<TerminalRegistryCommit> {
         let (mutation, terminal) = (&self.mutation, &self.terminal);

@@ -12,6 +12,7 @@ use super::ClientScope;
 
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 const RESOLVE_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_ROUTES: usize = 1_024;
 
 #[derive(Debug, Clone)]
 struct Route {
@@ -48,8 +49,13 @@ impl RouteManager {
             return Err(RpcError::new("invalid-route", "route port cannot be zero"));
         }
         resolve_allowed(&host, port, policy).await?;
-        // A route is a dial target (a host and a port); it holds no socket until a dial.
         let mut routes = self.routes.write().await;
+        if routes.len() >= MAX_ROUTES {
+            return Err(RpcError::new(
+                "resource-exhausted",
+                format!("route limit of {MAX_ROUTES} reached"),
+            ));
+        }
         let id = RouteId(self.next_id.fetch_add(1, Ordering::Relaxed));
         routes.insert(id, Arc::new(Route { owner, workspace, host: host.clone(), port, policy }));
         Ok(WorkspaceResponse::RouteCreated { route: id, host, port })
@@ -164,5 +170,39 @@ fn address_allowed(address: IpAddr, policy: RoutePolicy) -> bool {
 }
 
 #[cfg(test)]
-#[path = "route_tests.rs"]
-mod tests;
+mod tests {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn loopback_route_dials_and_forwards_bytes() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut byte = [0u8; 1];
+            stream.read_exact(&mut byte).await.unwrap();
+            stream.write_all(&byte).await.unwrap();
+        });
+        let routes = RouteManager::default();
+        let response = routes
+            .create(
+                ClientScope::local(),
+                WorkspaceId("workspace".into()),
+                "127.0.0.1".into(),
+                port,
+                RoutePolicy::LoopbackOnly,
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::RouteCreated { route, .. } = response else { panic!() };
+        let mut stream = routes.dial(route).await.unwrap();
+        stream.write_all(b"x").await.unwrap();
+        let mut byte = [0u8; 1];
+        stream.read_exact(&mut byte).await.unwrap();
+        assert_eq!(&byte, b"x");
+        server.await.unwrap();
+    }
+}

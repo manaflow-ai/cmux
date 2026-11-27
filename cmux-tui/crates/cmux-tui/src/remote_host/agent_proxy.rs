@@ -10,36 +10,10 @@ use super::{audit, config, grant, shares::Role, tailnet::Identity};
 
 const MAX_FRAME: usize = 128 * 1024;
 
-/// The Labs switch `labs.chatMultiplayer` (design chat-multiplayer phase 1b): on, a member may
-/// also send `agent-session-typing` and `agent-session-view`, and a guest `agent-session-view`, so
-/// the owner and the teammate see each other's face and typing row. Off (the default, and when
-/// the settings file cannot be read), a teammate gets exactly the 1a verbs.
-#[cfg(not(test))]
-fn chat_multiplayer() -> bool {
-    use acpmux::user_settings::{self, Settings};
-    match user_settings::read() {
-        Settings::Parsed(doc) => {
-            user_settings::value(&doc, "labs.chatMultiplayer") == Some(Value::Bool(true))
-        }
-        Settings::Missing | Settings::Unreadable(_) => false,
-    }
-}
-
-/// The presence verbs `labs.chatMultiplayer` adds, by role: a guest is seen viewing (design
-/// section 7) and never types.
-fn presence_verb(cmd: &str, role: Role) -> bool {
-    match role {
-        Role::Guest => cmd == "agent-session-view",
-        // Named, not `_`: a new role decides its presence here before it compiles.
-        Role::Member => matches!(cmd, "agent-session-typing" | "agent-session-view"),
-    }
-}
-
 pub(super) fn filter(
     config: &config::Config,
     author: &Value,
     generation: &str,
-    presence: bool,
     mut frame: Value,
 ) -> Result<Value, &'static str> {
     let login = author["login"].as_str().ok_or("scope_not_granted")?;
@@ -52,7 +26,7 @@ pub(super) fn filter(
     let cmd = frame["cmd"].as_str().ok_or("scope_not_granted")?;
     // No `agent-session-permission`: answering the host's tool asks stays the owner's until
     // acpmux refuses a teammate's allow itself (`permission.owner_only`, design section 7).
-    let base = matches!(
+    if !matches!(
         cmd,
         "agent-session-attach"
             | "agent-session-observe"
@@ -60,9 +34,9 @@ pub(super) fn filter(
             | "agent-session-prompt"
             | "agent-session-cancel"
             | "agent-session-detach"
-    );
-    let presence_cmd = presence && matches!(cmd, "agent-session-typing" | "agent-session-view");
-    if !(base || presence_cmd) || frame.get("protocol").is_some() || frame.get("method").is_some() {
+    ) || frame.get("protocol").is_some()
+        || frame.get("method").is_some()
+    {
         return Err("scope_not_granted");
     }
     let surface = frame["surface"].as_u64().ok_or("agent_session.not_shared")?;
@@ -79,7 +53,6 @@ pub(super) fn filter(
         .ok_or("agent_session.not_shared")?;
     if share.role == Role::Guest
         && !matches!(cmd, "agent-session-observe" | "agent-session-events" | "agent-session-detach")
-        && !(presence_cmd && presence_verb(cmd, share.role))
     {
         return Err("scope_not_granted");
     }
@@ -91,17 +64,6 @@ pub(super) fn filter(
     // surface shows another chat now.
     object.insert("_host_session".into(), Value::String(share.session.clone()));
     Ok(frame)
-}
-
-#[cfg(not(test))]
-fn chat_multiplayer_now() -> bool {
-    chat_multiplayer()
-}
-
-/// Tests never read the person's settings file: the switch is off, as by default.
-#[cfg(test)]
-fn chat_multiplayer_now() -> bool {
-    false
 }
 
 fn line(reader: &mut impl BufRead, limit: usize) -> io::Result<Option<Vec<u8>>> {
@@ -146,14 +108,10 @@ fn run_with_config(
     // The same-user socket attests this preface. No peer bytes precede it.
     daemon.set_read_timeout(Some(Duration::from_secs(5)))?;
     daemon.set_write_timeout(Some(Duration::from_secs(5)))?;
-    // With `labs.chatMultiplayer` on, the bind asks the daemon for presence: its ack then lists
-    // `agent-session-presence-v1` (the teammate's app sends view and typing, and hears who is
-    // here). Off, the bind is byte-for-byte today's.
-    let mut bind = json!({"cmd": "agent-session-proxy-bind", "id": "host-bind", "author": author});
-    if chat_multiplayer_now() {
-        bind["presence"] = Value::Bool(true);
-    }
-    send(&mut daemon, &bind)?;
+    send(
+        &mut daemon,
+        &json!({"cmd": "agent-session-proxy-bind", "id": "host-bind", "author": author}),
+    )?;
     let mut daemon_read = BufReader::new(daemon.try_clone_box()?);
     let ack = line(&mut daemon_read, MAX_FRAME)?
         .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))?;
@@ -214,17 +172,10 @@ fn run_with_config(
                 )?;
                 continue;
             }
-            // Read on each frame, like the config: turning the switch off stops a live
-            // teammate's presence frames at once.
-            let presence = matches!(
-                frame["cmd"].as_str(),
-                Some("agent-session-typing" | "agent-session-view")
-            ) && chat_multiplayer_now();
             match filter(
                 &config,
                 &author,
                 ack["data"]["generation"].as_str().unwrap_or_default(),
-                presence,
                 frame.clone(),
             ) {
                 Ok(frame) => send(&mut daemon, &frame)?,

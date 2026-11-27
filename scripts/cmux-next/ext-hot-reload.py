@@ -40,7 +40,6 @@ import time
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "cmux-next"))
 from bench_launch import BenchApp  # noqa: E402
-from state_wait import wait_until  # noqa: E402
 
 APP = "local/customize"
 SECTION = "cmux.section/1"
@@ -93,7 +92,6 @@ def write_two_chunks(path, text):
     with open(path, "w") as f:
         f.write(text[:half])
         f.flush()
-        # sleep-ok: the gap between the two writes is the pattern under test (a save in two chunks).
         time.sleep(0.4)
         f.write(text[half:])
 
@@ -152,11 +150,7 @@ def run_root(opts, label, customize):
     manifest_path = os.path.join(customize, "cmux-app.json")
     try:
         app.launch()
-        # The app's extension host answers apps.views (a views list, empty before the install).
-        if wait_until(lambda: section_views(app)[0] is not None, "apps.views to answer after launch", timeout=20,
-                      interval=0.1, raise_on_timeout=False) is None:
-            print(f"ext-hot-reload: {label}: apps.views gave no views list 20 s after launch: "
-                  f"{json.dumps(section_views(app)[1])[:300]}", flush=True)
+        time.sleep(3)
         # Install: the script first, then the manifest (its appearing installs the app).
         write_in_place(main_path, main_js("token-install"))
         write_in_place(manifest_path, json.dumps(manifest("Probe title 0"), indent=2))

@@ -1,6 +1,6 @@
 //! The whole-session snapshot read holds no writer lock.
 //!
-//! A large session, 2026-11-10 (826 workspaces, 2 h): the snapshot read
+//! Lawrence's daemon, 2026-11-10 (826 workspaces, 2 h): the snapshot read
 //! (`resource_api::session_snapshot_with_journal_head`) took the workspace
 //! registry lock and the state lock 434 times, mean 105 ms, max 262 ms,
 //! 45.4 s in total. It was the top stall maker: a split waited behind it.
@@ -33,7 +33,7 @@ use crate::resource_api::{public_session_snapshot, public_session_snapshot_with_
 const READS: u64 = 5;
 
 /// The session sizes of each guard whose result can depend on the size:
-/// light, 60 workspaces, and the 826 workspaces of a large session.
+/// light, 60 workspaces, and the 826 workspaces of Lawrence's daemon.
 const ARMS: [usize; 3] = [1, 60, 826];
 
 fn temp_root(name: &str) -> PathBuf {
@@ -566,6 +566,94 @@ fn a_snapshot_read_answers_when_two_in_process_terminals_close_under_it() {
     public_session_snapshot(&mux).expect("the next snapshot read answers too");
 }
 
+/// The answer of an indeterminate registry commit that arrives late owes a
+/// state update (cx-g1fa.3). The old snapshot read settled it, because it
+/// pinned the state. A session that only reads snapshots must still settle
+/// it: the rows of the late commit are in the snapshot, so its state update
+/// and its journal event must not wait for some later mutation.
+#[test]
+fn a_snapshot_read_settles_the_answer_of_a_late_registry_commit() {
+    let root = temp_root("settle");
+    let mux = session_at_rest("snapshot-settle", &root);
+    public_session_snapshot(&mux).unwrap();
+    let (answer, pending) = crate::journal_ingress::PendingRegistryReceipt::for_test();
+    let settled = Arc::new(AtomicBool::new(false));
+    let settled_by = settled.clone();
+    mux.workspace_registry.lock().unwrap().connection.hold_unsettled_for_test(
+        pending,
+        Some(Box::new(move |_state, _receipt| {
+            settled_by.store(true, Ordering::SeqCst);
+        })),
+    );
+    answer
+        .send(Ok(crate::workspace_registry::RegistryReceipt::Terminal(
+            crate::workspace_registry::TerminalRegistryCommit {
+                revision: 1,
+                result: json!({}),
+                replayed: false,
+            },
+        )))
+        .unwrap();
+
+    public_session_snapshot(&mux).unwrap();
+    let settled = settled.load(Ordering::SeqCst);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(settled, "a snapshot read did not settle the answer of a late registry commit");
+}
+
+/// Another thread can hold the list of late answers when a snapshot read
+/// starts: a drain of a prepare path (it gets the answers, it does not settle
+/// them) or a second reader. The read must still settle the late answer: a
+/// busy list does not mean that another thread settles it.
+#[test]
+fn a_snapshot_read_settles_a_late_answer_while_another_thread_holds_the_list() {
+    let root = temp_root("settle-held");
+    let mux = session_at_rest("snapshot-settle-held", &root);
+    public_session_snapshot(&mux).unwrap();
+    let (answer, pending) = crate::journal_ingress::PendingRegistryReceipt::for_test();
+    let settled = Arc::new(AtomicBool::new(false));
+    let settled_by = settled.clone();
+    mux.workspace_registry.lock().unwrap().connection.hold_unsettled_for_test(
+        pending,
+        Some(Box::new(move |_state, _receipt| {
+            settled_by.store(true, Ordering::SeqCst);
+        })),
+    );
+    answer
+        .send(Ok(crate::workspace_registry::RegistryReceipt::Terminal(
+            crate::workspace_registry::TerminalRegistryCommit {
+                revision: 1,
+                result: json!({}),
+                replayed: false,
+            },
+        )))
+        .unwrap();
+
+    let (answered, answered_receiver) = std::sync::mpsc::channel();
+    let reader = mux.registry_connection.with_unsettled_list_held_for_test(|| {
+        let reader = {
+            let mux = mux.clone();
+            std::thread::spawn(move || {
+                public_session_snapshot(&mux).unwrap();
+                let _ = answered.send(());
+            })
+        };
+        // A read that knows it owes the settlement waits for the list, so it
+        // does not answer here. A read that answers here did not settle.
+        let _ = answered_receiver.recv_timeout(Duration::from_millis(500));
+        reader
+    });
+    reader.join().unwrap();
+    let settled = settled.load(Ordering::SeqCst);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        settled,
+        "a snapshot read that started while another thread held the list of late answers did not settle the late answer"
+    );
+}
+
 /// A mutator that changes a route table and commits in one hold of the
 /// pinned state publishes its routes only when its state guard drops, after
 /// its COMMIT (a terminal respawn, `mux/terminal_respawn.rs`
@@ -687,7 +775,6 @@ fn a_snapshot_read_between_a_commit_and_its_route_publish_shows_the_routes_of_th
     );
 }
 
-mod compact;
 mod route_wait;
 #[cfg(unix)]
 mod window;

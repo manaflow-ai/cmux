@@ -1,33 +1,54 @@
-import CmuxNextCompat
 import Foundation
 import GhosttyNextKit
 
 extension GhosttyRuntime {
-    /// The consented import publishes this file beside NEXT's settings. It is also a
-    /// reload candidate so terminals already open pick it up when the import finishes.
-    nonisolated static var importedClassicConfig: URL {
-        let override = ProcessInfo.processInfo.environment[BuildStatePaths.settingsFileKey]
-        let settings = override.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-            ?? BuildStatePaths.current.settingsFile
-        return settings.deletingLastPathComponent().appending(path: "classic-ghostty/config.ghostty")
-    }
+    /// Classic cmux's stable bundle identifier. Each classic channel kept its
+    /// cmux-only Ghostty layer under Application Support/<bundle id>, and the
+    /// others fell back to stable's; next ships under the same identifiers.
+    static let classicStableBundleIdentifier = "com.cmuxterm.app"
 
-    static func loadDefaultFiles(into config: ghostty_config_t, importedLayer: URL = importedClassicConfig) {
+    /// The Ghostty config files cmux reads when `CMUX_NEXT_GHOSTTY_CONFIG`
+    /// doesn't name one: Ghostty's own default files, then classic cmux's
+    /// cmux-only layer, which its Settings wrote terminal settings to, so
+    /// they still apply after the update (hq#1870 parity audit). It loads
+    /// after the person's files, as in classic.
+    static func loadDefaultFiles(
+        into config: ghostty_config_t,
+        applicationSupportDirectory: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) {
         ghostty_config_load_default_files(config)
-        // Ghostty resolves optional includes with the other config files. A fresh
-        // install has no imported layer. Keep the path on a single config line.
-        let path = importedLayer.path
-        guard path.rangeOfCharacter(from: .newlines) == nil else { return }
-        let include = "config-file = ?\(path)"
-        include.withCString { ghostty_config_load_string(config, $0, UInt(include.utf8.count), "cmux-next") }
+        if let directory = applicationSupportDirectory,
+           let path = classicConfigPath(applicationSupportDirectory: directory, bundleIdentifier: bundleIdentifier) {
+            ghostty_config_load_file(config, path)
+        }
     }
 
-    static func defaultFilesFontSize(importedLayer: URL) -> Float? {
+    /// Classic's resolution (`CmuxGhosttyConfigPathResolver`): this channel's
+    /// layer, else stable's for any other channel. A layer is its non-empty
+    /// `config.ghostty`, else its non-empty legacy `config` (never both),
+    /// loaded by its own path so a symlink's includes resolve as in classic.
+    static func classicConfigPath(applicationSupportDirectory: URL, bundleIdentifier: String?) -> String? {
+        let stable = classicStableBundleIdentifier
+        let own = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? stable
+        for identifier in own == stable ? [stable] : [own, stable] {
+            let directory = applicationSupportDirectory.appendingPathComponent(identifier, isDirectory: true)
+            for name in ["config.ghostty", "config"] {
+                let url = directory.appending(path: name)
+                let values = try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+                if values?.isRegularFile == true, (values?.fileSize ?? 0) > 0 { return url.path }
+            }
+        }
+        return nil
+    }
+
+    /// `font-size` after the default files with `applicationSupportDirectory`, for tests.
+    static func defaultFilesFontSize(applicationSupportDirectory: URL, bundleIdentifier: String? = nil) -> Float? {
         _ = shared // runs ghostty_init, which config_new needs
         guard let config = ghostty_config_new() else { return nil }
         defer { ghostty_config_free(config) }
-        loadDefaultFiles(into: config, importedLayer: importedLayer)
-        ghostty_config_load_recursive_files(config)
+        loadDefaultFiles(into: config, applicationSupportDirectory: applicationSupportDirectory,
+                         bundleIdentifier: bundleIdentifier)
         ghostty_config_finalize(config)
         var size: Float = 0
         return configGet(config, &size, key: "font-size") ? size : nil

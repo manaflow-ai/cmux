@@ -2,157 +2,119 @@ import AppKit
 @testable import CmuxNextDesign
 import Testing
 
-/// Built-ins scale Default; custom densities keep their interpolation and overrides.
+/// Density from first principles (Lawrence 2026-10-20: "we need more options, and for font size
+/// to scale with it as well, i really like how compact looks today though so let's not mess with
+/// that"). plans/cmux-next/density-DESIGN.md.
+///
+/// Every test draws through `DensityTokens.$scoped`, so it never changes the app-wide
+/// `DesignSettings.shared` other suites read in parallel.
 @MainActor @Suite struct DensityTokensTests {
+    /// Compact's chrome, value by value: the guard that keeps the Compact look pixel-identical. Change a number here only
+    /// with Lawrence's OK (2026-11-13: Compact is 20 pt tall everywhere, rows and tabs).
+    private static let compactMetrics: [(String, CGFloat)] = [
+        ("sidebarWidth", 208), ("titlebarHeight", 32), ("sidebarRowHeight", 20), ("sidebarRowHeightWithSubtitle", 36),
+        ("sidebarHeaderHeight", 22), ("roomDotDiameter", 8), ("roomDotSlot", 24), ("tabHeight", 24), ("controlHeight", 24),
+        ("tabMaxWidth", 200), ("tabMinWidth", 32), ("paletteRowHeight", 28), ("paletteSearchHeight", 44), ("paletteWidth", 640),
+        ("panelInset", 6), ("columnGap", 6), ("densityPaneCornerRadius", 8),
+        ("iconSize", 14), ("smallIconSize", 12), ("scrollEdgeFade", 18),
+    ]
+
+    private static func live(_ name: String) -> CGFloat? {
+        MetricTunables.metrics.first { $0.name == name }?.value
+    }
+
     private static func typeSizes() -> [CGFloat] {
         [Typography.body, Typography.bodyEmphasized, Typography.caption, Typography.header, Typography.search,
          Typography.shortcut, Typography.title, Typography.subtitle].map(\.pointSize)
     }
 
-    @Test func defaultKeepsItsReferenceGeometry() {
-        DensityTokens.$scoped.withValue(DensityPreset.cozy.tokens) {
-            #expect(Metrics.chromeRowHeight == 30)
-            #expect(Metrics.sidebarRowHeight == 28)
-            #expect(Typography.tabTitle.pointSize == 14)
-            #expect(Metrics.tabIconSize == 16.5)
-            // Its 30 pt tabs with its 5 pt strip padding above and below (`defaultStripPadding`).
-            #expect(Metrics.tabStripHeight == 40)
-            #expect(Metrics.space1 == 2)
+    @Test func compactIsExactlyTodaysCompact() throws {
+        try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
+            for (name, expected) in Self.compactMetrics {
+                let value = try #require(Self.live(name), "no metric \(name)")
+                #expect(value == expected, "\(name) at Compact is \(value), was \(expected)")
+            }
+            #expect(Metrics.tabStripHeight == 24, "Compact's 20 pt pill with its 2 pt gap above and below (Helium's design on 20 pt rows)")
+            // Panels and items are levels of the one corner radius now (`Metrics.corners`), not tunables of their own.
+            // Lawrence 2026-11-05: the one radius defaults to the omnibar's 8 pt, so panels are 8 pt and items 4 pt.
+            // Compact's 20 pt tab rounds at 5 (8 on 30), so its items, nested from it, are concentric levels of it.
+            #expect(Metrics.panelCornerRadius == 8, "Compact's 8 pt panels")
+            #expect(Metrics.itemCornerRadius == Metrics.corners.radius(depth: 2), "Compact's items nest in the one corner")
+            #expect(Self.typeSizes() == [12, 12, 10.5, 11, 16, 10.5, 20, 13])
+            #expect(Metrics.tokens.resolve(compact: 2, comfortable: 4, token: "panePadding") == 2, "the density's pane padding")
+            #expect(Metrics.space1 == ChromeTunables.space1.value && Metrics.space3 == ChromeTunables.space3.value
+                && Metrics.space6 == ChromeTunables.space6.value, "Compact keeps every padding step")
+            #expect(Metrics.density == .compact)
         }
     }
 
-    /// Lucas 2026-11-17: "the default omnibar should be the same as compact omnibar, we should match them exactly".
-    /// Every `omnibar*` size of Default is Compact's, and its toolbar glyphs resolve alike. Only the bar's height, its
-    /// corner, the URL text, the search glyph and the star differ (`defaultsOmnibarIsChromes`).
-    @Test func defaultsOmnibarIsCompacts() {
-        let cozy = DensityPreset.cozy.tokens, compact = DensityPreset.compact.tokens
-        let keys = compact.tokens.keys.filter { $0.hasPrefix("omnibar") && !["omnibarHeight", "omnibarCornerRadius", "omnibarFontSize", "omnibarIconSize", "omnibarStarGlyphSize"].contains($0) }
-            + ["toolbarGlyphSize"]
-        #expect(keys.count > 10)
-        for key in keys { #expect(cozy.tokens[key] == compact.tokens[key], "omnibar token \(key)") }
-        #expect(cozy.toolbarGlyphSize == compact.toolbarGlyphSize)
-    }
-
-    /// Lucas 2026-11-17: "for chrome the omnibar should be 34px tall (chrome = default, but still same font size)".
-    /// Default's bar is Chrome's 34 pt with Helium's roundness (8 on 28: 9.5 pt), and the toolbar buttons are as tall.
-    /// Lucas 2026-11-17: "for default our font size has to be 1px taller in height": the URL's capitals are 11 pt, a
-    /// point over Compact's 10 (`HeliumToolbarSizeTests.theURLsCapitalsFillWholeRowsWithSmoothing`).
-    @Test func defaultsOmnibarIsChromes() {
-        let tokens = DensityPreset.cozy.tokens
-        #expect(tokens.tokens["omnibarHeight"] == 34)
-        #expect(tokens.tokens["omnibarCornerRadius"] == 9.5)
-        #expect(tokens.toolbarButtonSize == 34)
-        #expect(tokens.tokens["omnibarFontSize"] == (11 - 0.31) / 0.70459)
-        // Its search glyph is a little taller than Compact's too (`OmnibarCapitalsCenterTests.defaultsSearchGlyphIsALittleTaller`).
-        #expect((tokens.tokens["omnibarIconSize"] ?? 0) > (DensityPreset.compact.tokens.tokens["omnibarIconSize"] ?? 0))
-    }
-
-    /// Lucas 2026-11-17: Helium's location bar is 28 pt tall and ours was 26. Compact's bar is Helium's 28 pt with its
-    /// 8 pt corners, and the toolbar buttons beside it are as tall.
-    @Test func compactsOmnibarIsHeliums() {
-        let tokens = DensityPreset.compact.tokens
-        #expect(tokens.tokens["omnibarHeight"] == 28)
-        #expect(tokens.tokens["omnibarCornerRadius"] == 8)
-        #expect(tokens.toolbarButtonSize == 28)
-    }
-
-    @Test func theInitialDensityIsCompact() {
+    @Test func theDefaultDensityIsCompact() {
         #expect(DesignSettings().densityTokens == DensityPreset.compact.tokens)
+        #expect(DensityPreset.compact.tokens.level == 0 && DensityPreset.compact.tokens.spacing == 1)
+        #expect(DensityPreset.compact.tokens.tokens == ["sidebarRowHeight": 20, "browserRowHeight": 20, "browserRowGap": 2, "panePadding": 2])
+        #expect(DensityPreset.compact.tokens.fontSize == nil)
     }
 
-    @Test(arguments: DensityPreset.allCases)
-    func everySizeKeepsDefaultsProportions(preset: DensityPreset) throws {
-        let reference = DensityPreset.cozy.tokens
-        let tokens = preset.tokens
-        let t = preset.scaleFactor
-        func half(_ value: Double) -> Double { (value * 2).rounded() / 2 }
-        // Default alone sets its toolbar buttons' and star plate's sides (Compact's padding on its 34 pt bar); Default and the
-        // densities above it Chrome's omnibar row gap (`chromeToolbarGap`); Compact alone its gap from the tabs to the omnibar
-        // (`tabToOmnibarGap`, its strip padding and 1 pt).
-        let defaultOnly: Set = ["omnibarButtonSize", "omnibarStarPlateSize", "omnibarRowGap", "tabToOmnibarGap"]
-        #expect(Set(tokens.tokens.keys).subtracting(defaultOnly) == Set(reference.tokens.keys).subtracting(defaultOnly))
-        let rows: [DensityPreset: Double] = [.ultraCompact: 24, .compact: 28, .cozy: 30, .comfortable: 32, .spacious: 36]
-        let row = try #require(rows[preset])
-        #expect(tokens.tokens["browserRowHeight"] == row)
-        #expect(try #require(tokens.tokens["sidebarRowHeight"]) + half(2 * t) == row)
-        // The strip padding is 3 pt times t below Default; Default's 5 (`defaultStripPadding`, Lucas 2026-11-20) times t from it up,
-        // and Spacious's half point more (`spaciousGapNudge`) for its half-point bar.
-        let nudge = preset == .spacious ? DensityPreset.spaciousGapNudge : 0
-        let gap = t >= 1 ? half(DensityPreset.defaultStripPadding * t) + nudge : half(3 * t)
-        #expect(tokens.tokens["omnibarRowGap"] == (t >= 1 ? half(DensityPreset.chromeToolbarGap * t) + nudge : nil))
-        #expect(tokens.tokens["browserRowGap"] == gap)
-        #expect(tokens.tokens["tabStripHeight"] == row + 2 * gap)
-        #expect(tokens.spacing == t)
-        #expect(tokens.fontSize == 14 * t)
-        let ratios = ["sidebarLineBoxBaseline", "omnibarLineBoxBaseline", "densityScale", "composerZoom"]
-        let fonts = ["tabTitleSize", "sidebarTitleSize", "omnibarFontSize"]
-        let exceptions = ratios + ["sidebarRowHeight", "browserRowHeight", "browserRowGap", "tabStripHeight"]
-        // Default's omnibar is Compact's (`defaultsOmnibarIsCompacts`); everything else is Default's reference times t.
-        let omnibarT = preset.omnibarScaleFactor
-        func factor(_ key: String) -> Double { DensityPreset.isOmnibarToken(key) ? omnibarT : t }
-        // Default's bar is Chrome's 34 pt, its corner Helium's ratio on it (`defaultsOmnibarIsChromes`).
-        let chromeBar: [String: Double] = preset == .cozy
-            ? ["omnibarHeight": 34, "omnibarCornerRadius": 9.5, "omnibarFontSize": (11 - 0.31) / 0.70459,
-               "omnibarIconSize": DensityPreset.cozy.tokens.tokens["omnibarIconSize"] ?? 0,
-               "omnibarStarGlyphSize": DensityPreset.cozy.tokens.tokens["omnibarStarGlyphSize"] ?? 0] : [:]
-        for (key, unscaled) in DensityPreset.referenceTokens.tokens where !exceptions.contains(key) {
-            let value = try #require(tokens.tokens[key])
-            let expected = chromeBar[key] ?? (fonts.contains(key) ? unscaled * factor(key) : half(unscaled * factor(key)))
-            #expect(value == expected, "\(preset): \(key)")
-            if !fonts.contains(key) { #expect(value * 2 == (value * 2).rounded()) }
-        }
-        for key in ["sidebarLineBoxBaseline", "omnibarLineBoxBaseline"] { #expect(tokens.tokens[key] == reference.tokens[key]) }
-        for key in ["densityScale", "composerZoom"] { #expect(tokens.tokens[key] == t) }
-
-        let defaultMetrics = DensityTokens.$scoped.withValue(reference) { MetricTunables.metrics.map { $0.value } }
-        let defaultText = DensityTokens.$scoped.withValue(reference) { Self.typeSizes() }
-        try DensityTokens.$scoped.withValue(tokens) {
-            for (metric, base) in zip(MetricTunables.metrics, defaultMetrics)
-                where !["sidebarRowHeight", "tabStripHeight"].contains(metric.name) {
-                #expect(metric.value == CGFloat(half(Double(base) * t)), "\(preset): \(metric.name)")
+    /// Level 1 is the tunables' comfortable pair. The Comfortable preset sits above it since
+    /// Default took the middle (Austin 2026-11-05), so this pins the level, not the preset.
+    @Test func levelOneIsTheComfortablePair() {
+        DensityTokens.$scoped.withValue(DensityTokens(id: "comfortable", name: "Comfortable", level: 1)) {
+            for metric in MetricTunables.metrics {
+                #expect(metric.value == metric.comfortable, "\(metric.name) at Comfortable")
             }
-            for (size, base) in zip(Self.typeSizes(), defaultText) {
-                #expect(abs(size - base * t) < 0.0001)
-            }
-            #expect(abs(Metrics.chromeRowHeight - row) < 0.0001)
-            #expect(abs(SidebarRowTokens.current.listRowHeight - row) < 0.0001)
-            #expect(Metrics.space1 == CGFloat(half(2 * t)))
-            #expect(abs(Typography.sidebarTitle.pointSize / 14 - t) < 0.0001)
-            #expect(Metrics.tabIconSize == CGFloat(half(16.5 * t)))
-            let omnibarHeight = try #require(tokens.tokens["omnibarHeight"])
-            let omnibarFont = try #require(tokens.tokens["omnibarFontSize"])
-            #expect(omnibarHeight == (chromeBar["omnibarHeight"] ?? half(28 / 0.9 * omnibarT)))
-            // Helium's 10 px capitals at Compact; 11 at Default.
-            #expect(abs(omnibarFont / (chromeBar["omnibarFontSize"].map { $0 / omnibarT } ?? (10 - 0.31) / 0.70459 / 0.9) - omnibarT) < 0.0001)
-            for key in ["tabIconTitleGap", "sidebarIconGap", "omnibarTextGap"] {
-                let value = try #require(tokens.tokens[key])
-                let base = try #require(DensityPreset.referenceTokens.tokens[key])
-                #expect(value == half(base * factor(key)), "\(preset): \(key)")
-            }
+            #expect(Self.typeSizes() == [13, 13, 11, 12, 18, 11, 22, 14])
         }
     }
 
-    @Test func customGlyphsStillUseTheIconGrid() {
+    @Test func fiveBuiltInsDensestFirst() {
+        #expect(DensityPreset.allCases.map(\.rawValue) == ["ultraCompact", "compact", "cozy", "comfortable", "spacious"])
+        let levels = DensityPreset.allCases.map(\.tokens.level)
+        #expect(levels == levels.sorted() && Set(levels).count == levels.count)
+    }
+
+    @Test func textAndRowsGrowWithDensity() {
+        var bodies: [CGFloat] = [], rows: [CGFloat] = [], tabs: [CGFloat] = [], radii: [CGFloat] = []
+        for preset in DensityPreset.allCases {
+            DensityTokens.$scoped.withValue(preset.tokens) {
+                bodies.append(Typography.body.pointSize)
+                rows.append(Metrics.sidebarRowHeight)
+                tabs.append(MetricTunables.tabHeight.value)
+                radii.append(Metrics.itemCornerRadius)
+                // Items are concentric: the one corner radius less twice the corner padding (Lawrence 2026-11-04),
+                // so a density that pads more may round its items less.
+                #expect(Metrics.itemCornerRadius == Metrics.corners.radius(depth: 2), "\(preset): the item corner is not concentric")
+            }
+        }
+        // Ultra-compact and Compact share 20 pt rows; Default and Comfortable share 14 pt text (Lucas 2026-11-13).
+        for series in [bodies, rows, tabs] {
+            #expect(zip(series, series.dropFirst()).allSatisfy { $0 <= $1 }, "never smaller at a step: \(series)")
+        }
+        #expect(radii.allSatisfy { $0 >= 0 }, "corner radii are never negative: \(radii)")
+        // Default is the ChatGPT app's 14 pt on 30 pt rows (its 28 pt token and the Codex fill), Lucas 2026-11-13;
+        // Comfortable keeps Default's text, Spacious is bigger.
+        #expect(bodies == [11, 12, 14, 14, 16])
+        #expect(rows == [20, 20, 28, 34, 42])
+    }
+
+    /// Leo 2026-11-04: "ofc we'll want to be doing proportion/scales per compact/comfortable/whatever
+    /// ui scaling modes too". Before, Ultra-compact drew 13 and 11 pt glyphs, Cozy 15 and 13, Spacious 18.
+    @Test func everyDensityDrawsGlyphsOnTheIconScale() {
+        var icons: [CGFloat] = [], small: [CGFloat] = []
+        for preset in DensityPreset.allCases {
+            DensityTokens.$scoped.withValue(preset.tokens) {
+                icons.append(Metrics.iconSize)
+                small.append(Metrics.smallIconSize)
+            }
+        }
+        // Comfortable and Spacious step their icons too (Lucas 2026-11-12: "Try text size and icon size").
+        #expect(icons == [12, 14, 16, 20, 24])
+        #expect(small == [12, 12, 14, 16, 20])
         for level in stride(from: DensityTokens.levelRange.lowerBound, through: DensityTokens.levelRange.upperBound, by: 0.25) {
-            let tokens = DensityTokens(id: "custom", name: "Custom", level: level)
-            #expect(DensityTokens.iconScale.contains(tokens.resolveGlyph(compact: 14, comfortable: 16)))
+            let tokens = DensityTokens(id: "l", name: "L", level: level)
+            #expect(DensityTokens.iconScale.contains(tokens.resolveGlyph(compact: 14, comfortable: 16)), "level \(level)")
         }
-    }
-
-    /// A custom density made from a built-in grows its exact title and URL sizes with its own body size: a Default
-    /// copy at 20 pt kept 14 pt tab and sidebar titles (review 2026-11-16).
-    @Test(arguments: DensityPreset.allCases)
-    func aCustomBodySizeScalesTheExactFontTokens(preset: DensityPreset) {
-        let base = preset.tokens
-        let custom = DensityTokens(id: "big", name: "Big", basedOn: preset.rawValue, level: base.level,
-                                   spacing: base.spacing, fontSize: 20, tokens: base.tokens)
-        let ratio = 20 / base.bodySize
-        #expect(abs(Typography.tabTitleSize(custom) - Typography.tabTitleSize(base) * ratio) < 0.01)
-        #expect(abs(Typography.sidebarTitleSize(custom) - Typography.sidebarTitleSize(base) * ratio) < 0.01)
-        let omnibar = CGFloat(base.tokens["omnibarFontSize"] ?? 0)
-        #expect(abs((custom.fontToken("omnibarFontSize") ?? 0) - omnibar * ratio) < 0.01)
-        // The built-in keeps its exact sizes.
-        #expect(Typography.tabTitleSize(base) == CGFloat(base.tokens["tabTitleSize"] ?? -1))
+        let exact = DensityTokens(id: "x", name: "X", level: 0.5, tokens: ["iconSize": 15])
+        DensityTokens.$scoped.withValue(exact) { #expect(Metrics.iconSize == 15, "an exact token stays exact") }
     }
 
     @Test func aCustomFontSizeSetsTheBodyAndKeepsTheRatios() {

@@ -448,16 +448,9 @@ pub fn row_line(r: &Value) -> String {
     if r.get("sameBranch").and_then(Value::as_bool) == Some(true) {
         what.push("on this branch".to_owned());
     }
-    // A topic match says what the session works on, never the matched words (Leo, 2026-11-21, on
-    // "topic: above, background, message, rows, summary, tasks, wait": "we cannot afford to have
-    // this kind of formatting").
-    if r.get("topicWords").and_then(Value::as_array).is_some_and(|w| !w.is_empty()) {
-        let title = s("title").trim();
-        what.push(if title.is_empty() {
-            "working on something similar".to_owned()
-        } else {
-            format!("working on \"{title}\"")
-        });
+    if let Some(words) = r.get("topicWords").and_then(Value::as_array).filter(|w| !w.is_empty()) {
+        let words: Vec<&str> = words.iter().filter_map(Value::as_str).collect();
+        what.push(format!("topic: {}", words.join(", ")));
     }
     let ago = r.get("agoMs").and_then(Value::as_u64).unwrap_or(0);
     format!("{} ({}): {}; {}", s("name"), about.join(", "), what.join("; "), ago_text(ago))

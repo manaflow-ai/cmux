@@ -431,7 +431,6 @@ fn card_row(card: &Card) -> OwnedRow {
         group: None,
         at: card.at,
         open: false,
-        entering: false,
         bytes: 0,
         lines: 0,
         fields,

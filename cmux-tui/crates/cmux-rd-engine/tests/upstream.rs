@@ -14,7 +14,6 @@ fn frames(p: &mut Packetizer, frame: u32, len: usize, parity: usize) -> Vec<Vec<
     let body = FrameBody {
         t_capture_us: u64::from(frame),
         ref_frame: REF_NONE,
-        ltr_token: None,
         access_unit: vec![frame as u8; len],
     };
     p.packetize(frame, 0, &body, parity).expect("packetize").datagrams
@@ -130,16 +129,15 @@ fn the_viewer_sender_recovers_a_lost_shard_through_the_hosts_nack() {
 
 #[test]
 fn an_upstream_cannot_reuse_a_display_stream_id() {
-    use cmux_rd_engine::StreamError;
+    use cmux_rd_engine::{MAX_UPSTREAMS, StreamError};
     let mut e = MediaEngine::new(EngineConfig::default(), 0);
     // Stream 0 is the main display: the viewer routes feedback by id.
     assert_eq!(e.add_upstream(0), Err(StreamError::Exists(0)));
     assert_eq!(StreamError::Exists(0).reason(), "in_use");
-    // Any number of upstreams, past the old cap of 4.
-    for s in 0..20u16 {
+    for s in 0..MAX_UPSTREAMS as u16 {
         e.add_upstream(MIC + s).expect("upstream");
     }
-    assert_eq!(e.add_upstream(MIC + 3), Err(StreamError::Exists(MIC + 3)));
+    assert_eq!(e.add_upstream(MIC + 10), Err(StreamError::TooMany));
     assert_eq!(StreamError::TooMany.reason(), "too_many");
     // A display or tile stream cannot take an upstream's id either.
     assert_eq!(e.add_stream(MIC, 64, 64), Err(StreamError::Exists(MIC)));

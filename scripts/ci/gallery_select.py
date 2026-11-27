@@ -9,18 +9,13 @@ names the changed component, importers by hops, the same folder, a host styleshe
 change); `select` keeps that order. A `Gallery: id, id` line in the pull request body (entry ids,
 or `entry/variant`) replaces the ranking.
 
-A `Visual-change: <state id or *>: <why>` line (one or more; a bare entry id covers its variants)
-says a difference is wanted. `section` gives each changed, new or removed state a verdict,
-"justified: <why>" or "unjustified", and a summary line above the table, so a reviewer can
-see which differences nobody explained. It warns only; nothing fails on it.
-
   select   --touched T --head-all H --base-all B [--cap 16] --out-dir D   (PR_BODY in the env)
            -> D/head.json, D/base.json (the cases each side renders), D/selection.json
   entries  --touched T                                                   (PR_BODY in the env)
            -> the comma list of entries the manifests need (touched plus the override)
   review   --selection S --outcomes O --pr N --head-sha S --base-sha S --repo R --run-id N --out F
            -> gallery-review.json, the machine-readable receipt (schema cmux.gallery-review.v1)
-  section  --review F --out F     the PR status comment's `gallery` section     (PR_BODY in the env)
+  section  --review F --out F     the PR status comment's `gallery` section
   stale    --current F --head S   a `gallery` section for a head that moved, or nothing
 
 `review` and `section` run in the trusted comment job on data the pull request's code wrote, so
@@ -266,49 +261,11 @@ def clean(doc: dict) -> dict:
     }
 
 
-VISUAL_CHANGE_LINE = re.compile(r"^[ \t]*visual-change:[ \t]*(?P<ids>[^:\n]+?)[ \t]*:[ \t]*(?P<why>[^\n]*)$",
-                                re.I | re.M)
-DIFFERING = ("changed", "new", "removed")
-WHY_LIMIT = 140
-
-
-def visual_changes(body: str | None) -> dict[str, str]:
-    """Each `Visual-change: <state id or *>: <why>` line of a PR body: id (or `*`, or a bare entry for all its
-    variants) -> why. A line with no reason justifies nothing. The reason is the PR author's free text, so it is
-    reduced to characters that cannot break the table or open markup."""
-    found: dict[str, str] = {}
-    for match in VISUAL_CHANGE_LINE.finditer(body or ""):
-        why = re.sub(r"[^A-Za-z0-9 .,;:'()/+=%#&!?_-]", "", match["why"].replace("|", "/"))
-        why = " ".join(why.split())[:WHY_LIMIT].strip()
-        if not why:
-            continue
-        for raw in re.split(r"[,\s]+", match["ids"]):
-            token = raw.strip("`'\"")
-            if (token == "*" or OVERRIDE_ID.fullmatch(token)) and token not in found:
-                found[token] = why
-    return found
-
-
-def verdict(state: str, status: str, justified: dict[str, str]) -> str:
-    """"justified: <why>" or "unjustified" for a changed, new or removed state; "" for any other status."""
-    if status not in DIFFERING:
-        return ""
-    why = justified.get(state) or justified.get(state.split("/", 1)[0]) or justified.get("*")
-    return f"justified: {why}" if why else "unjustified"
-
-
-def section(doc: dict, body: str | None = None) -> str:
-    """The `gallery` section of the PR status comment: what was rendered, why, and how to fetch it.
-
-    `body` is the PR body: its `Visual-change:` lines give each differing state its verdict. Warn only."""
+def section(doc: dict) -> str:
+    """The `gallery` section of the PR status comment: what was rendered, why, and how to fetch it."""
     doc = clean(doc)
     head = doc["head_sha"]
     changed = [i for i in doc["images"] if i["status"] in ("changed", "new", "removed", "broken")]
-    justified = visual_changes(body)
-    differing = list(dict.fromkeys(i["state"] for i in doc["images"] if i["status"] in DIFFERING))
-    open_states = [s for s in differing if verdict(s, "changed", justified) == "unjustified"]
-    summary = (f"**{len(open_states)} of {len(differing)} differing states have no Visual-change line: is each wanted?**"
-               if open_states else "Verdict: every visual difference is justified.")
     lines = [
         f"<!-- gallery-head: {head} -->" if head else "",
         f"Gallery before/after for `{head[:7]}`: {len(doc['states'])} states rendered, "
@@ -320,24 +277,21 @@ def section(doc: dict, body: str | None = None) -> str:
         "",
         f"`{doc['download']}` (then read `gallery-review.json`)",
         "",
-        summary,
-        "",
         "<details><summary>States</summary>",
         "",
-        "| State | Theme | Status | Diff | Picked by | Verdict |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| State | Theme | Status | Diff | Picked by |",
+        "| --- | --- | --- | --- | --- |",
     ]
     for image in doc["images"][:SHOWN_IN_SECTION]:
         picked = image["selected_by"]
         why = picked["why"] + (f" `{Path(picked['file']).name}`" if picked["file"] else "") + \
             (f" ({picked['distance']} hops)" if picked["distance"] else "")
         lines.append(f"| `{image['state']}` | {image['theme'].replace('|', ' ')} | {image['status']} | "
-                     f"{image['diff_percent']:.3g}% | {why} | {verdict(image['state'], image['status'], justified)} |")
+                     f"{image['diff_percent']:.3g}% | {why} |")
     if len(doc["images"]) > SHOWN_IN_SECTION:
-        lines.append(f"| {len(doc['images']) - SHOWN_IN_SECTION} more images in gallery-review.json | | | | | |")
+        lines.append(f"| {len(doc['images']) - SHOWN_IN_SECTION} more images in gallery-review.json | | | | |")
     lines += ["", "</details>", "",
-              "<sub>Pick other states with a `Gallery: entry.id, entry.id/variant` line in the PR body. Say why a "
-              "state differs with `Visual-change: entry.id/variant: why` (or `*` for all), one line each.</sub>"]
+              "<sub>Pick other states with a `Gallery: entry.id, entry.id/variant` line in the PR body.</sub>"]
     return "\n".join(line for i, line in enumerate(lines) if line or i) + "\n"
 
 
@@ -410,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.previews_out:
             Path(args.previews_out).write_text(json.dumps(previews(doc), indent=2) + "\n")
     elif args.command == "section":
-        Path(args.out).write_text(section(read_json(args.review), body=body))
+        Path(args.out).write_text(section(read_json(args.review)))
     else:
         current = Path(args.current).read_text() if Path(args.current).exists() else None
         text = stale(current, args.head)

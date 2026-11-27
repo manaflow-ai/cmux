@@ -55,7 +55,7 @@ import Testing
         let host = IPhoneHostService(loginKeychain: LoginKeychain(), pairedStore: MobileHostPairedStore(seal: MobileHostMemoryPairingSeal()))
         host.identityRetryClock = clock
         host.dependencies = .init(executable: URL(fileURLWithPath: "/nonexistent/cmux-mobile-host"),
-                                  baseURL: URL(string: "https://mobile.invalid")!, stackProjectID: "test", buildSpace: .nightly,
+                                  baseURL: URL(string: "https://mobile.invalid")!, stackProjectID: "test",
                                   stateDirectory: directory, accessToken: { _ in throw CancellationError() },
                                   daemonSocket: { try socket.ask() }, acpmux: { nil }, fileRoots: { [] },
                                   computerName: { "Mac" }, macIdentity: { _ in try reads.read() })
@@ -63,9 +63,6 @@ import Testing
     }
 
     static let account = IPhoneHostService.Account(userID: "user", teamID: "team", teamName: nil, email: nil)
-    nonisolated static let phone = MobileHostPairRequest(phoneDeviceID: "phone-a", name: "iPhone",
-                                                         identityKey: "04" + String(repeating: "aa", count: 64),
-                                                         approvalKey: "04" + String(repeating: "bb", count: 64))
 
     static func until(_ condition: @MainActor () -> Bool) async {
         while !condition() { await Task.yield() }
@@ -112,25 +109,6 @@ import Testing
         #expect(socket.asks == 1)
     }
 
-    /// A start that stopped without serving (the endpoint blocked) keeps the Mac free to sleep when the
-    /// paired list changes afterwards (review of #48532: the paired list's didSet held it awake again).
-    @Test func aPairedListChangeAfterABlockedStartDoesNotHoldTheMacAwake() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let socket = Socket(failures: .max, blocked: true), reads = Reads(), clock = ManualClock(), toggle = Toggle()
-        let host = Self.host(socket: socket, reads: reads, clock: clock, directory: directory)
-        var holds: [Bool] = []
-        host.setKeepAwake = { holds.append($0) }
-        defer { host.stop() }
-        host.follow(allowed: { toggle.on })
-        host.accountChanged(Self.account)
-        await Self.until { host.phase == .unavailable("turned off by your organization") && host.paired != nil }
-        try await host.pairedStore.change(for: Self.account.userID) { $0.approve(Self.phone, at: Date(timeIntervalSince1970: 5)) }
-        await Self.until { !(host.paired?.hostdDevices.isEmpty ?? true) }
-        for _ in 0..<50 { await Task.yield() }
-        #expect(holds.last == false, "nothing is served: the Mac must not stay awake")
-    }
-
     /// Policy turned cmux-tui's endpoint off: that does not pass by itself, so the host shows it and
     /// does not retry (review of #36099: a retry loop there only spun).
     @Test func aBlockedDaemonEndpointIsNotRetried() async throws {
@@ -153,54 +131,6 @@ import Testing
         // And back on asks for the socket again.
         toggle.on = true
         await Self.until { socket.asks == 2 }
-    }
-
-    /// A start that fails past the socket (here this Mac's identity read) for a reason that may pass
-    /// tries again on its own backoff, and goes on once the read works. Before, it waited for an
-    /// account or toggle change; 2026-11-25 a relaunched NIGHTLY served no phone from 14:06 to 14:51Z.
-    @Test func aFailedStartIsTriedAgainOnTheBackoff() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let socket = Socket(failures: 0), reads = FailingReads(failures: 3), clock = ManualClock(), toggle = Toggle()
-        let host = IPhoneHostService(loginKeychain: LoginKeychain(), pairedStore: MobileHostPairedStore(seal: MobileHostMemoryPairingSeal()))
-        host.identityRetryClock = clock
-        host.dependencies = .init(executable: URL(fileURLWithPath: "/nonexistent/cmux-mobile-host"),
-                                  baseURL: URL(string: "https://mobile.invalid")!, stackProjectID: "test", buildSpace: .nightly,
-                                  stateDirectory: directory, accessToken: { _ in throw CancellationError() },
-                                  daemonSocket: { try socket.ask() }, acpmux: { nil }, fileRoots: { [] },
-                                  computerName: { "Mac" }, macIdentity: { _ in try reads.read() })
-        defer { host.stop() }
-        host.follow(allowed: { toggle.on })
-        host.accountChanged(Self.account)
-        for (attempt, base) in [1.0, 2, 4].enumerated() {
-            try await clock.waitForSleeper()
-            #expect(reads.reads == attempt + 1)
-            let wait = try #require(clock.sleeperDeadlines.first).offset - clock.now.offset
-            #expect(wait >= .seconds(base * 0.8) && wait <= .seconds(base * 1.2))
-            clock.advance(by: wait)
-        }
-        // The fourth read gets past the failure (it stops the start there, as ``Reads`` does).
-        await Self.until { reads.reads == 4 }
-        for _ in 0..<50 { await Task.yield() }
-        #expect(reads.reads == 4)
-        #expect(clock.sleeperCount == 0, "a cancelled start schedules no retry")
-    }
-
-    /// Identity reads whose first `failures` fail with an error that may pass; later ones cancel the
-    /// start (as ``Reads`` does), so this suite starts no hostd.
-    nonisolated final class FailingReads: Sendable {
-        struct Transient: Error {}
-        private let state = Mutex<(reads: Int, failures: Int)>((0, 0))
-        init(failures: Int) { state.withLock { $0.failures = failures } }
-        var reads: Int { state.withLock { $0.reads } }
-        func read() throws -> MobileHostMacIdentity {
-            let fail = state.withLock { state in
-                state.reads += 1
-                return state.reads <= state.failures
-            }
-            if fail { throw Transient() }
-            throw CancellationError()
-        }
     }
 
     /// The first socket ask waits on the clock and then finds the endpoint blocked; later asks find it.
@@ -232,19 +162,13 @@ import Testing
         host.setKeepAwake = { holds.append($0) }
         host.identityRetryClock = clock
         host.dependencies = .init(executable: URL(fileURLWithPath: "/nonexistent/cmux-mobile-host"),
-                                  baseURL: URL(string: "https://mobile.invalid")!, stackProjectID: "test", buildSpace: .nightly,
+                                  baseURL: URL(string: "https://mobile.invalid")!, stackProjectID: "test",
                                   stateDirectory: directory, accessToken: { _ in throw CancellationError() },
                                   daemonSocket: { try await socket.ask() }, acpmux: { nil }, fileRoots: { [] },
                                   computerName: { "Mac" }, macIdentity: { _ in try reads.read() })
         defer { host.stop() }
         host.follow(allowed: { toggle.on })
         host.accountChanged(Self.account)
-        // Phone access is on by default (cmux#13742): with no phone allowed yet the Mac sleeps as usual;
-        // the first phone the person allows starts the hold.
-        await Self.until { host.paired != nil }
-        #expect(holds.last != true, "no phone allowed: the Mac must not stay awake")
-        try await host.pairedStore.change(for: Self.account.userID) { $0.approve(Self.phone, at: Date(timeIntervalSince1970: 5)) }
-        await Self.until { holds.last == true }
         // The first start waits on the socket.
         try await clock.waitForSleeper()
         #expect(socket.asks == 1)

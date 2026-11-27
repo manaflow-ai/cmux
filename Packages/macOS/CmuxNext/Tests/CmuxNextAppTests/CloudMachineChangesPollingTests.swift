@@ -1,5 +1,4 @@
 import CmuxNextCloud
-import CmuxNextDaemon
 import Foundation
 import Testing
 
@@ -195,93 +194,4 @@ struct CloudMachineChangesPollingTests {
         #expect(!changes.isSettling)
     }
 
-    /// An `apps-cloud-machine` event as the daemon sends it.
-    private static func push(_ json: String) throws -> DaemonEvent {
-        .unknown(name: "apps-cloud-machine", payload: try JSONDecoder().decode(JSONValue.self, from: Data(json.utf8)))
-    }
-
-    @Test
-    func aPushedRecordReadsTheCratesEpochMillisecondTimestamps() throws {
-        let changes = CloudMachineChanges(sleep: { _ in })
-        var shown: CloudMachine?
-        changes.startPush({ _ in }) { shown = $0 }
-        changes.machineState(try Self.push("""
-        {"machine":"vm-ms","kind":"record","record":{"id":"vm-ms","provider":"freestyle","status":"running",
-         "servesDesktop":false,"createdAt":1700000000000,"updatedAt":1700000123456,"runningSince":1700000100000}}
-        """))
-        let record = try #require(shown, "a record whose timestamps are epoch milliseconds must decode")
-        #expect(record.updatedAt == Date(timeIntervalSince1970: 1_700_000_123.456))
-        #expect(record.createdAt == Date(timeIntervalSince1970: 1_700_000_000))
-        #expect(record.runningSince == Date(timeIntervalSince1970: 1_700_000_100))
-    }
-
-    /// The watches sent to the daemon; the first one waits until the test releases it.
-    @MainActor private final class Watches {
-        var sent: [[String]] = []
-        var gate: CheckedContinuation<Void, Never>?
-        var started: CheckedContinuation<Void, Never>?
-        var emptied: CheckedContinuation<Void, Never>?
-
-        func watch(_ machines: [CloudMachine]) async {
-            sent.append(machines.map(\.id))
-            if sent.count == 1 {
-                await withCheckedContinuation { continuation in
-                    gate = continuation
-                    started?.resume()
-                    started = nil
-                }
-            }
-            if machines.isEmpty {
-                emptied?.resume()
-                emptied = nil
-            }
-        }
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func stopDropsTheWatchesStillQueuedBehindASlowOne() async {
-        let changes = CloudMachineChanges(sleep: { _ in })
-        let watches = Watches()
-        changes.startPush({ await watches.watch($0) }) { _ in }
-        await withCheckedContinuation { continuation in
-            watches.started = continuation
-            changes.listed([CloudMachine(id: "a")]) {}
-        }
-        // A list queued behind the slow watch, then Cloud is turned off.
-        changes.listed([CloudMachine(id: "b")]) {}
-        changes.stop()
-        await withCheckedContinuation { continuation in
-            watches.emptied = continuation
-            watches.gate?.resume()
-            watches.gate = nil
-        }
-        #expect(watches.sent == [["a"], []], "a watch queued before stop must not open sockets after it")
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func aPushTheDaemonDroppedWithoutLostIsNoLongerLive() async throws {
-        let sleeper = Sleeper()
-        let changes = CloudMachineChanges(sleep: { try await sleeper.sleep($0) })
-        changes.startPush({ _ in }) { _ in }
-        var reads = 0
-        changes.listed([CloudMachine(id: "kept"), CloudMachine(id: "dropped")]) { reads += 1 }
-        changes.machineState(try Self.push(#"{"machine":"kept","kind":"live"}"#))
-        changes.machineState(try Self.push(#"{"machine":"dropped","kind":"live"}"#))
-        #expect(changes.isPushed("kept") && changes.isPushed("dropped"))
-        // A list without the machine: the daemon closes its socket and sends no `lost`.
-        changes.listed([CloudMachine(id: "kept")]) { reads += 1 }
-        #expect(!changes.isPushed("dropped"))
-        #expect(changes.isPushed("kept"))
-        #expect(!changes.isSettling)
-        // The daemon's connection closed: every socket of it is gone, again without a `lost`; reads come back.
-        changes.daemonDisconnected()
-        #expect(changes.live.isEmpty)
-        #expect(changes.isSettling, "a machine whose push ended falls back to a read")
-        #expect(await sleeper.next() == .seconds(3))
-        sleeper.advance()
-        _ = await sleeper.next()
-        #expect(reads == 1)
-        changes.stop()
-        sleeper.advance()
-    }
 }

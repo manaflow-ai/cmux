@@ -147,16 +147,3 @@ fn whoami_adds_the_signed_in_email_from_auth_status() {
     );
     assert_eq!(identity(None, Some(&status))["email"], json!("person@example.com"));
 }
-
-/// `cmux login --help` names `login` before `vm sign-in`'s help (the Cloud and remote command
-/// matrix); without a help flag there is no note.
-#[test]
-fn login_help_names_the_alias() {
-    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-    let note = account_alias_help_note(&words("login --help")).expect("a note");
-    assert!(note.contains("`cmux login`") && note.contains("`cmux vm sign-in`"), "{note}");
-    let note = account_alias_help_note(&words("--json logout -h")).expect("a note");
-    assert!(note.contains("`cmux logout`") && note.contains("sign-out"), "{note}");
-    assert_eq!(account_alias_help_note(&words("login")), None);
-    assert_eq!(account_alias_help_note(&words("whoami --help")), None);
-}

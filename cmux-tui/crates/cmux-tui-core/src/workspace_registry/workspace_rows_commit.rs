@@ -45,11 +45,17 @@ pub(super) fn commit_workspace_rows_in_transaction(
     validate_identifier("mutation id", &mutation.id)?;
     validate_identifier("mutation origin", &mutation.origin)?;
     validate_workspace_key(workspace_key)?;
-    // `validate_registry`, `desired_rows` and `live_rows` (a row read for each live workspace).
-    #[cfg(test)]
-    crate::walk_counters::workspace_list_walked(workspaces.len());
     validate_registry(workspaces)?;
-    let (revision, sqlite_revision) = next_registry_revision(transaction, expected_revision)?;
+    let current = transaction_revision(transaction)?;
+    if let Some(expected) = expected_revision
+        && expected != current
+    {
+        anyhow::bail!("workspace revision conflict: expected {expected}, current {current}");
+    }
+    let revision =
+        current.checked_add(1).ok_or_else(|| anyhow::anyhow!("workspace revision exhausted"))?;
+    let sqlite_revision =
+        i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
 
     // Terminals are session-owned. Their workspace_key records their latest
     // canonical placement but is intentionally allowed to outlive that
@@ -87,50 +93,6 @@ pub(super) fn commit_workspace_rows_in_transaction(
         }
         None => write_changed_rows(transaction, &stored, &desired, workspaces, sqlite_revision)?,
     };
-    record_workspace_event(
-        transaction,
-        mutation,
-        fingerprint,
-        event_kind,
-        workspace_key,
-        result_json,
-        revision,
-    )?;
-    Ok((revision, terminal_batch, written))
-}
-
-/// The registry revision after the stored one, checked against `expected_revision`, and that
-/// revision as SQLite stores it.
-fn next_registry_revision(
-    transaction: &Transaction<'_>,
-    expected_revision: Option<u64>,
-) -> anyhow::Result<(u64, i64)> {
-    let current = transaction_revision(transaction)?;
-    if let Some(expected) = expected_revision
-        && expected != current
-    {
-        anyhow::bail!("workspace revision conflict: expected {expected}, current {current}");
-    }
-    let revision =
-        current.checked_add(1).ok_or_else(|| anyhow::anyhow!("workspace revision exhausted"))?;
-    let sqlite_revision =
-        i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
-    Ok((revision, sqlite_revision))
-}
-
-/// Stores `revision` as the registry's, the mutation in the ledger and the commit's workspace
-/// event.
-fn record_workspace_event(
-    transaction: &Transaction<'_>,
-    mutation: &WorkspaceMutation,
-    fingerprint: &str,
-    event_kind: &str,
-    workspace_key: &str,
-    result_json: &str,
-    revision: u64,
-) -> anyhow::Result<()> {
-    let sqlite_revision =
-        i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
     transaction
         .execute("UPDATE meta SET value = ?1 WHERE key = 'revision'", [revision.to_string()])?;
     let ledger = mutation_ledger::KeyedLedger::Workspace;
@@ -149,219 +111,7 @@ fn record_workspace_event(
             result_json
         ],
     )?;
-    Ok(())
-}
-
-/// A live workspace that an insert moves one place later: its row as stored, with the public id
-/// of its live resource row (`None` without one: the journal cannot state it), and its new
-/// position.
-#[derive(Debug, Clone)]
-pub(super) struct MovedWorkspace {
-    pub(super) workspace: Option<RegistryWorkspace>,
-    pub(super) position: usize,
-}
-
-/// [`commit_workspace_rows_in_transaction`] for a commit that adds exactly one workspace,
-/// `workspace`, at `position` and changes no other workspace: it writes the new row, moves each
-/// live row at or after `position` one place later (none for an append), and records the
-/// event. Its work follows the rows after `position`, not the count of workspaces: no other
-/// row is read. Returns the new revision and the moved workspaces, in their new order.
-///
-/// The positions stay contiguous: a live row must hold `position - 1` (the new row then goes
-/// right after the last row before it), and the rows at or after it take one more each.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn insert_workspace_row_in_transaction(
-    transaction: &Transaction<'_>,
-    mutation: &WorkspaceMutation,
-    fingerprint: &str,
-    expected_revision: Option<u64>,
-    event_kind: &str,
-    workspace: &RegistryWorkspace,
-    position: usize,
-    result_json: &str,
-) -> anyhow::Result<(u64, Vec<MovedWorkspace>)> {
-    validate_identifier("mutation id", &mutation.id)?;
-    validate_identifier("mutation origin", &mutation.origin)?;
-    validate_registry(std::slice::from_ref(workspace))?;
-    let (revision, sqlite_revision) = next_registry_revision(transaction, expected_revision)?;
-    let stored = transaction
-        .query_row(
-            "SELECT tombstoned FROM workspaces WHERE workspace_key = ?1",
-            [&workspace.key],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()?;
-    match stored {
-        Some(1) => anyhow::bail!("tombstoned workspace key cannot be reused: {}", workspace.key),
-        Some(_) => anyhow::bail!("workspace key already exists: {}", workspace.key),
-        None => {}
-    }
-    let live_public_id = transaction
-        .query_row(
-            "SELECT 1 FROM resource_workspaces
-             WHERE public_id = ?1 AND deleted_revision IS NULL",
-            [workspace.public_id.as_str()],
-            |_| Ok(()),
-        )
-        .optional()?;
-    anyhow::ensure!(
-        live_public_id.is_none(),
-        "workspace public id already exists: {}",
-        workspace.public_id
-    );
-    let sqlite_position =
-        i64::try_from(position).context("workspace position exceeds SQLite range")?;
-    if position > 0 {
-        let before = transaction
-            .query_row(
-                "SELECT 1 FROM workspaces WHERE tombstoned = 0 AND position = ?1",
-                [sqlite_position - 1],
-                |_| Ok(()),
-            )
-            .optional()?;
-        anyhow::ensure!(
-            before.is_some(),
-            "workspace position {position} is past the end of the workspace order"
-        );
-    }
-    let moved = later_workspace_rows(transaction, sqlite_position)?;
-    if !moved.is_empty() {
-        // Two statements whatever the number of rows, as `move_later_rows_one_down`: each
-        // later row parks at the negative of its position minus one (below zero, distinct,
-        // and no live row is below zero), then takes its old position plus one.
-        let parked = transaction.execute(
-            "UPDATE workspaces SET position = -position - 1, updated_revision = ?1
-             WHERE tombstoned = 0 AND position >= ?2",
-            params![sqlite_revision, sqlite_position],
-        )?;
-        let placed = transaction.execute(
-            "UPDATE workspaces SET position = -position
-             WHERE tombstoned = 0 AND position < 0",
-            [],
-        )?;
-        anyhow::ensure!(
-            parked == moved.len() && placed == moved.len(),
-            "the insert of {} moved {parked} then {placed} workspace rows, not the {} after it",
-            workspace.key,
-            moved.len()
-        );
-    }
-    let (name_source, name_revision) =
-        workspace_name_store::sql_name_provenance(workspace.name_source, workspace.name_revision)?;
-    transaction.execute(
-        "INSERT INTO workspaces(
-           workspace_key, numeric_id, name, group_key, position, tombstoned,
-           created_revision, updated_revision, deleted_revision,
-           name_source, name_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, NULL, ?7, ?8)",
-        params![
-            workspace.key,
-            i64::try_from(workspace.id).context("workspace id exceeds SQLite range")?,
-            workspace.name,
-            workspace.group_key,
-            sqlite_position,
-            sqlite_revision,
-            name_source,
-            name_revision
-        ],
-    )?;
-    record_workspace_event(
-        transaction,
-        mutation,
-        fingerprint,
-        event_kind,
-        &workspace.key,
-        result_json,
-        revision,
-    )?;
-    Ok((revision, moved))
-}
-
-/// The live rows at or after `position`, in order, each with the position it takes when a
-/// workspace is inserted at `position`.
-pub(super) fn later_workspace_rows(
-    connection: &Connection,
-    position: i64,
-) -> anyhow::Result<Vec<MovedWorkspace>> {
-    let mut statement = connection.prepare(&format!(
-        "{STORED_WORKSPACE_SELECT} WHERE w.tombstoned = 0 AND w.position >= ?1
-         ORDER BY w.position ASC"
-    ))?;
-    let rows = statement.query_map([position], stored_workspace_columns)?;
-    let mut moved = Vec::new();
-    for row in rows {
-        let (stored_position, workspace) = stored_workspace(row?)?;
-        moved.push(MovedWorkspace {
-            workspace,
-            position: stored_position.checked_add(1).context("workspace position exhausted")?,
-        });
-    }
-    Ok(moved)
-}
-
-/// The live workspace whose live resource row has `public_id`, with its stored position, or
-/// `None` when there is none: one indexed read, not a walk of the list.
-pub(super) fn stored_live_workspace(
-    connection: &Connection,
-    public_id: &WorkspacePublicId,
-) -> anyhow::Result<Option<(usize, RegistryWorkspace)>> {
-    let row = connection
-        .query_row(
-            &format!("{STORED_WORKSPACE_SELECT} WHERE w.tombstoned = 0 AND rw.public_id = ?1"),
-            [public_id.as_str()],
-            stored_workspace_columns,
-        )
-        .optional()?;
-    let Some(row) = row else { return Ok(None) };
-    let (position, workspace) = stored_workspace(row)?;
-    Ok(workspace.map(|workspace| (position, workspace)))
-}
-
-/// A live `workspaces` row with the public id of its live resource row, if any.
-const STORED_WORKSPACE_SELECT: &str = "SELECT w.workspace_key, w.numeric_id, w.name, w.group_key,
-        w.position, w.name_source, w.name_revision, rw.public_id
-     FROM workspaces w
-     LEFT JOIN resource_workspaces rw
-       ON rw.workspace_key = w.workspace_key AND rw.deleted_revision IS NULL";
-
-/// The columns of [`STORED_WORKSPACE_SELECT`].
-type StoredWorkspaceColumns = (String, i64, String, String, i64, (String, i64), Option<String>);
-
-fn stored_workspace_columns(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredWorkspaceColumns> {
-    Ok((
-        row.get(0)?,
-        row.get(1)?,
-        row.get(2)?,
-        row.get(3)?,
-        row.get(4)?,
-        (row.get(5)?, row.get(6)?),
-        row.get(7)?,
-    ))
-}
-
-/// A row of [`STORED_WORKSPACE_SELECT`] as its position and workspace (`None` without a live
-/// resource row: it has no public id).
-fn stored_workspace(
-    (key, numeric_id, name, group_key, position, (source, revision), public_id): StoredWorkspaceColumns,
-) -> anyhow::Result<(usize, Option<RegistryWorkspace>)> {
-    let (name_source, name_revision) =
-        workspace_name_store::stored_name_provenance(&source, revision)?;
-    let id = u64::try_from(numeric_id).context("stored workspace id is negative")?;
-    let workspace = public_id
-        .map(|public_id| -> anyhow::Result<RegistryWorkspace> {
-            Ok(RegistryWorkspace {
-                id,
-                public_id: WorkspacePublicId::parse(public_id)?,
-                key,
-                name,
-                name_source,
-                name_revision,
-                group_key,
-            })
-        })
-        .transpose()?;
-    let position = usize::try_from(position).context("stored workspace position is negative")?;
-    Ok((position, workspace))
+    Ok((revision, terminal_batch, written))
 }
 
 /// A live `workspaces` row as stored: numeric id, name, group key, position, name provenance

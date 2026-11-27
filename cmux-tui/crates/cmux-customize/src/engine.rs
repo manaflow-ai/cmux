@@ -180,14 +180,12 @@ impl Customize {
         let mut draft = existing.unwrap_or(Draft {
             base: index.current,
             started_ms: now_ms,
-            absent_dirs: tree::absent_dirs(&self.roots),
             ..Draft::default()
         });
         draft.asks.push(Ask {
             text: ask.trim().to_owned(),
             at_ms: now_ms,
             origin: origin.to_owned(),
-            description: None,
         });
         self.store.put_draft(Some(&draft))?;
         Ok(Begun { draft: DraftInfo::from(&draft), baseline, by_hand, refined })
@@ -232,17 +230,11 @@ impl Customize {
         let mut index = self.store.index()?;
         let draft = self.store.draft()?;
         let scan = tree::scan(&self.roots)?;
-        let base = self.current_tree(&index)?;
-        // A refused value the applied generation already held, unchanged, is
-        // the person's own (one an older build wrote): it stays as written
-        // and status lists it, but only what this change brings stops it.
-        let problems = validate::introduced(
-            validate::problems(&self.live_bytes(&scan.tree)?),
-            &self.settings_problems_in(&base)?,
-        );
+        let problems = validate::problems(&self.live_bytes(&scan.tree)?);
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }
+        let base = self.current_tree(&index)?;
         let changed = changes(&base, &scan.tree, draft.as_ref());
         if let Some(current) = index.current().filter(|_| changed.is_empty()).cloned() {
             self.store.put_draft(None)?;
@@ -334,39 +326,6 @@ impl Customize {
         }
     }
 
-    /// What is wrong with the settings files and stylesheets of a recorded
-    /// generation, as stored (the bytes the person had when it was recorded).
-    /// An object it cannot read counts as holding nothing, so its problems
-    /// stop the apply as before.
-    pub(crate) fn settings_problems_in(&self, tree: &Tree) -> io::Result<Vec<validate::Problem>> {
-        let mut files = BTreeMap::new();
-        // Stylesheets too: one that would load something by address, held
-        // unchanged, is the person's own (validate::introduced).
-        for (path, entry) in
-            tree.iter().filter(|(path, _)| matches!(Part::of(path), Part::Settings | Part::Styles))
-        {
-            if let Ok(bytes) = self.store.object(&entry.sha) {
-                files.insert(path.clone(), bytes);
-            }
-        }
-        Ok(validate::problems(&files))
-    }
-
-    /// What is wrong with the live versions of `paths` now, before anything
-    /// writes over them: the person's own, to tell from what a change brings.
-    pub(crate) fn live_problems<'a>(
-        &self,
-        paths: impl IntoIterator<Item = &'a String>,
-    ) -> io::Result<Vec<validate::Problem>> {
-        let mut files = BTreeMap::new();
-        for path in paths {
-            if let Some(bytes) = tree::read(&self.roots, path)? {
-                files.insert(path.clone(), bytes);
-            }
-        }
-        Ok(validate::problems(&files))
-    }
-
     fn live_bytes(&self, tree: &Tree) -> io::Result<BTreeMap<String, Vec<u8>>> {
         let mut files = BTreeMap::new();
         for path in tree.keys() {
@@ -430,9 +389,6 @@ impl Customize {
             parent: index.current,
             changed: changed.len() as u32,
             parts,
-            // A library that cannot be read records no on-state, and a
-            // restore to this generation leaves the library as it is.
-            library_on: self.library_mark().map(|mark| mark.on),
         };
         self.store.put_tree(n, tree)?;
         index.version = 1;
@@ -524,12 +480,6 @@ impl Customize {
         self.store.put_index(index)?;
         self.store.put_draft(None)?;
         self.store.prune(index)?;
-        // The library says on for what is live again: an entry whose change
-        // this took away is off, one it brought back is on. A library that
-        // cannot be written never fails the restore it follows.
-        if let Some(on) = &target.library_on {
-            let _ = self.library_follow_locked(on, None, now_ms);
-        }
         Ok(Restored { generation: target, kept_as, changes: changes(&live, &target_tree, None) })
     }
 }

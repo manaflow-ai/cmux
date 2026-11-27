@@ -137,11 +137,6 @@ impl Index {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Whether any chat's `gh` merged or closed the pull request at `url`.
-    pub(crate) fn pr_closed(&self, url: &str) -> bool {
-        self.lock().closed.contains(url)
-    }
-
     /// A `permission_request` (or `permission_reissued`) record of `session`.
     pub(crate) fn note_ask(&self, session: &str, msg: &Value, at: u64) {
         let Some(id) = msg.get("permissionId").and_then(Value::as_str) else { return };
@@ -445,7 +440,8 @@ impl Hub {
         };
         let mut items = Vec::new();
         let mut visited = 0;
-        let lookup = |id: &str| self.session_get(id);
+        let lookup =
+            |id: &str| self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         for id in asking {
             visited += 1;
             let Some(session) = lookup(&id) else {

@@ -70,7 +70,8 @@
       "target": "Cloudflare Worker iroh-v2 (relay); no auto-deploy, listed, not guarded",
       "guarded": false,
       "paths": [
-        "workers/iroh-v2/**"
+        "workers/iroh-v2/**",
+        "Packages/Shared/CmuxIrxTransport/**"
       ]
     },
     {

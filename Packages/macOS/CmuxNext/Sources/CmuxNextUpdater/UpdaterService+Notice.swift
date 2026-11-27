@@ -25,7 +25,7 @@ extension UpdaterService {
             if transfer.stage == .downloading, let bytes = shown.detail, let rate = transferRate.text(expected: transfer.expectedBytes) {
                 shown.detail = bytes + "\n" + rate
             }
-        case .checking, .installing, .note, .gettingNewest, .healthFailed:
+        case .checking, .installing, .note, .gettingNewest:
             break
         }
         return shown
@@ -38,7 +38,7 @@ extension UpdaterService {
         switch card {
         case .available(let found): version = found
         case .note(.found(let found)): version = found
-        case .checking, .downloading, .installing, .note, .gettingNewest, .healthFailed, nil: return nil
+        case .checking, .downloading, .installing, .note, .gettingNewest, nil: return nil
         }
         return version.flatMap { UpdateState.ReleaseNotes(displayVersionString: $0)?.url }
             ?? URL(string: "https://github.com/manaflow-ai/cmux/releases")
@@ -52,7 +52,6 @@ extension UpdaterService {
         case .retry: checkForUpdates()
         case .details: presentUpdateUI?()
         case .cancelDownload: cancelDownloadClicked()
-        case .goBack: Task { await goBackAfterHealthFailure() }
         case .releaseNotes: break
         }
     }
@@ -60,15 +59,11 @@ extension UpdaterService {
     /// The notice's x without its menu: a found update hides until a newer
     /// one (``closeUpdateCard(_:)``); a result clears (as when it times out).
     public func dismissCard() {
-        // A going back that failed shows on this card; its x clears it.
-        if revert?.step == .failed { revert = nil }
         switch card {
         case .available:
             closeUpdateCard(.hideVersion)
         case .note:
             dismissIndicatorNote()
-        case .healthFailed:
-            healthFailure = nil
         case .installing:
             // Only the card of an install that never relaunched has an x.
             if installStatus?.stage == .stalled { installCardDismissed = true }

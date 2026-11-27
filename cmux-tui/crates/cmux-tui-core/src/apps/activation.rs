@@ -26,27 +26,18 @@ use super::grants::{Decision, ScopeTable};
 use super::supervisor::{HostKey, HostState, Inner, Out, Supervisor};
 use crate::panic_free::RecoverPoison;
 
-/// The background part of a manifest's `activation` (`onInterface:`,
-/// `onOp:` and `onKeybinding` start a host on demand already: a mount, a
-/// run, a contributed key's `apps-run`).
+/// The background part of a manifest's `activation` (`onInterface:` and
+/// `onOp:` start a host on demand already: a mount, a run).
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct Activation {
     pub on_startup: bool,
     /// The streams of `onEvent:<stream>`.
     pub on_event: BTreeSet<String>,
-    /// A `js` server with `lifecycle.start: always` (servers.rs): resident
-    /// like `onStartup` while the person's approval holds.
-    pub server_always: bool,
 }
 
 impl Activation {
     pub(super) fn of(package: &Package) -> Self {
-        let mut activation = Self {
-            server_always: super::servers::kind(package) == Some("js")
-                && package.manifest.pointer("/server/lifecycle/start").and_then(Value::as_str)
-                    == Some("always"),
-            ..Self::default()
-        };
+        let mut activation = Self::default();
         let entries = package.manifest.get("activation").and_then(Value::as_array);
         for entry in entries.into_iter().flatten().filter_map(Value::as_str) {
             if entry == "onStartup" {
@@ -59,14 +50,7 @@ impl Activation {
     }
 
     fn background(&self) -> bool {
-        self.on_startup || self.server_always || !self.on_event.is_empty()
-    }
-
-    /// Resident with no view and no subscription: `onStartup`, or an
-    /// approved `js` server that runs always.
-    fn always(&self, inner: &Inner, app: &str) -> bool {
-        self.on_startup
-            || (self.server_always && Supervisor::server_approved_locked(inner, app).is_ok())
+        self.on_startup || !self.on_event.is_empty()
     }
 }
 
@@ -79,7 +63,7 @@ impl Supervisor {
         if !activation.background()
             || !package.has_runtime()
             || self.config.host_binary.is_none()
-            || super::safe_mode_bisect::held_off(inner, app)
+            || inner.safe_mode.is_some()
             || !inner.mirror.apps.get(app).is_some_and(|r| r.installed && r.enabled)
             || inner.ladders.get(app).is_some_and(|ladder| ladder.paused.is_some())
             || (!retry && inner.failed.contains_key(app))
@@ -87,8 +71,7 @@ impl Supervisor {
             return false;
         }
         let key = HostKey { app: app.to_string(), preview: false };
-        activation.always(inner, app)
-            || activation.on_event.iter().any(|s| grant_reads(inner, &key, s))
+        activation.on_startup || activation.on_event.iter().any(|s| grant_reads(inner, &key, s))
     }
 
     /// Whether `key`'s host stays up with nothing mounted and nothing running.
@@ -98,7 +81,7 @@ impl Supervisor {
         }
         let Some(package) = inner.catalog.packages.get(&key.app) else { return false };
         let activation = Activation::of(package);
-        activation.always(inner, &key.app)
+        activation.on_startup
             || inner
                 .hosts
                 .get(key)
@@ -173,5 +156,34 @@ fn grant_reads(inner: &Inner, key: &HostKey, stream: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "activation_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn package(activation: Value) -> Package {
+        Package {
+            id: "local/a".into(),
+            version: "1.0.0".into(),
+            tier: super::super::mirror::Tier::Unverified,
+            source: super::super::mirror::Source::Local,
+            dir: std::path::PathBuf::new(),
+            manifest: json!({ "activation": activation }),
+        }
+    }
+
+    #[test]
+    fn reads_on_startup_and_on_event_streams_and_ignores_the_rest() {
+        let parsed = Activation::of(&package(json!([
+            "onStartup",
+            "onEvent:workspace.changed",
+            "onEvent:",
+            "onInterface:cmux.section/1",
+            "onOp:a.go",
+            7
+        ])));
+        assert!(parsed.on_startup);
+        assert_eq!(parsed.on_event, BTreeSet::from(["workspace.changed".to_string()]));
+        assert!(!Activation::of(&package(Value::Null)).background());
+        assert!(!Activation::of(&package(json!(["onInterface:cmux.section/1"]))).background());
+    }
+}

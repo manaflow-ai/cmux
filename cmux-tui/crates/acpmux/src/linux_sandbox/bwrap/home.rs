@@ -1,6 +1,5 @@
 //! HOME snapshots for the staged bubblewrap plan. Collection loops exhaust
-//! supplied paths or directory entries; descriptor collection refuses over 512
-//! per rebuild, and the plan caps all views together (`MAX_REBUILD_FDS`).
+//! supplied paths or directory entries; descriptor collection refuses over 512.
 use super::*;
 use crate::linux_sandbox::lookup;
 use std::collections::{BTreeMap, BTreeSet};
@@ -182,21 +181,8 @@ pub(super) fn home_view_pinned(
     denied: &BTreeSet<PathBuf>,
     snapshot: Option<&DeniedSnapshot>,
 ) -> Result<BwrapPlan, String> {
-    home_view_pinned_at(home, home, denied, snapshot)
-}
-
-/// The same rebuild of HOME, mounted at `view`: another mount point that
-/// shows the whole HOME (`aliases::home_views`). Sources are still opened
-/// under HOME, so the view holds exactly what the HOME view holds.
-pub(super) fn home_view_pinned_at(
-    home: &Path,
-    view: &Path,
-    denied: &BTreeSet<PathBuf>,
-    snapshot: Option<&DeniedSnapshot>,
-) -> Result<BwrapPlan, String> {
-    rebuild_at(
+    rebuild(
         home,
-        view,
         denied,
         snapshot,
         #[cfg(test)]
@@ -204,32 +190,13 @@ pub(super) fn home_view_pinned_at(
     )
 }
 
-/// Rebuild HOME at HOME itself.
-#[cfg(test)]
+/// Enumeration and mount loops end after the finite HOME snapshot.
 pub(super) fn rebuild(
     home: &Path,
     denied: &BTreeSet<PathBuf>,
     snapshot: Option<&DeniedSnapshot>,
-    hook: &mut dyn FnMut(&Path, bool),
-) -> Result<BwrapPlan, String> {
-    rebuild_at(home, home, denied, snapshot, hook)
-}
-
-/// Enumeration and mount loops end after the finite HOME snapshot. Every
-/// decision is made on HOME paths; only the argv names are moved to `view`.
-fn rebuild_at(
-    home: &Path,
-    view: &Path,
-    denied: &BTreeSet<PathBuf>,
-    snapshot: Option<&DeniedSnapshot>,
     #[cfg(test)] hook: &mut dyn FnMut(&Path, bool),
 ) -> Result<BwrapPlan, String> {
-    let at = |path: &Path| -> Result<String, String> {
-        let rest = path
-            .strip_prefix(home)
-            .map_err(|_| format!("HOME rebuild path outside HOME: {}", path.display()))?;
-        if rest.as_os_str().is_empty() { path_arg(view) } else { path_arg(&view.join(rest)) }
-    };
     if let Some(snapshot) = snapshot {
         verify_snapshot(snapshot)?;
     }
@@ -262,7 +229,7 @@ fn rebuild_at(
     // obtained from its enumerated parent and retained until final validation.
     let mut parents = BTreeMap::from([(home.to_owned(), open_bind_source(home)?)]);
     for dir in &dirs {
-        out.extend(["--tmpfs".into(), at(dir)?]);
+        out.extend(["--tmpfs".into(), path_arg(dir)?]);
         let Some(parent) = parents.get(dir) else {
             continue; // An absent ancestor contributes only an empty tmpfs.
         };
@@ -307,9 +274,9 @@ fn rebuild_at(
                 }
                 let target = read_link_at(parent_fd, name)?;
                 let target = target.to_str().ok_or("symlink target must be UTF-8")?;
-                out.extend(["--symlink".into(), target.into(), at(&child)?]);
+                out.extend(["--symlink".into(), target.into(), path_arg(&child)?]);
             } else {
-                let child_text = at(&child)?;
+                let child_text = path_arg(&child)?;
                 #[cfg(test)]
                 hook(&child, true);
                 let opened = open_child(parent_fd, name, &meta);
@@ -333,7 +300,7 @@ fn rebuild_at(
     }
     // Seal only after every descendant mountpoint and symlink exists.
     for dir in dirs.iter().rev() {
-        out.extend(["--remount-ro".into(), at(dir)?]);
+        out.extend(["--remount-ro".into(), path_arg(dir)?]);
     }
     if let Some(snapshot) = snapshot {
         verify_snapshot(snapshot)?;

@@ -36,9 +36,9 @@ struct CloudStartChatMachineTests {
     /// reaches them and throws or answers in its own terms.
     @Test func theStartsChecksComeFromTheRustRules() throws {
         let teamA: [String?] = [Self.me, "team-a"], teamB: [String?] = [Self.me, "team-b"]
-        #expect(CloudStartCore().refusal(cloudDisabled: false, signedIn: true) == nil)
-        #expect(CloudStartCore().refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
-        #expect(CloudStartCore().refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
+        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true) == nil)
+        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
+        #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
         #expect(CloudStartCore().accountText([Self.me, nil]) == "user-leo/")
         try CloudStartChat.checkAccount(teamA, now: teamA, listCurrent: true)
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: teamB, listCurrent: true) }

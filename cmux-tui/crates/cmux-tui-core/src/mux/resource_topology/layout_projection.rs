@@ -29,16 +29,8 @@ pub(super) fn sync_layout_column_projection(layout: &mut ScreenLayoutSnapshot) {
 
 /// Removes `pane` from `layout`. An emptied row or column goes in the same
 /// step, and a screen left with one column without rows becomes a split
-/// tree. False when the screen has no pane left. The floating panes follow
-/// the tree: the entry of `pane` goes, and when `pane` was the last tiled
-/// pane, the front floating pane becomes tiled (`floating-panes-v1`).
+/// tree. False when the screen has no pane left.
 pub(super) fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> bool {
-    let remains = remove_pane_from_layout_tree(layout, pane);
-    layout.settle_floating_panes();
-    remains
-}
-
-fn remove_pane_from_layout_tree(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> bool {
     layout.creation_order_auto_layout = None;
     if layout.layout_columns.is_empty() {
         let root = std::mem::replace(&mut layout.root, Node::Leaf(0));

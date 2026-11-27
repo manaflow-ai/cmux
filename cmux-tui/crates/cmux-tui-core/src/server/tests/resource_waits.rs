@@ -2,11 +2,6 @@
 
 use super::*;
 
-/// One past the old per-connection cap of detached waits (8); no count bounds them now.
-const WAITS_PAST_OLD_CAP: usize = 9;
-/// Past the old caps of resource streams (64 per connection, 256 per daemon).
-const STREAMS_PAST_OLD_CAP: usize = 300;
-
 #[test]
 fn browser_provider_clients_share_one_process_without_sharing_client_state() {
     let mux = test_mux();
@@ -824,7 +819,7 @@ fn idle_wait_exit_workers_do_not_poll_the_terminal_registry() {
             .unwrap();
     mux.reset_terminal_exit_state_query_count_for_test();
 
-    for index in 0..WAITS_PAST_OLD_CAP {
+    for index in 0..RESOURCE_WAITS_PER_CLIENT_CAPACITY {
         let wait = resource_request(
             &format!("idle-exit-wait-{index}"),
             "terminal.wait_exit",
@@ -838,8 +833,10 @@ fn idle_wait_exit_workers_do_not_poll_the_terminal_registry() {
         assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
     }
     let admission_deadline = Instant::now() + Duration::from_secs(2);
-    while mux.terminal_exit_waiter_count_for_test(&terminal_id) != WAITS_PAST_OLD_CAP
-        || mux.terminal_exit_state_query_count_for_test() != WAITS_PAST_OLD_CAP as u64
+    while mux.terminal_exit_waiter_count_for_test(&terminal_id)
+        != RESOURCE_WAITS_PER_CLIENT_CAPACITY
+        || mux.terminal_exit_state_query_count_for_test()
+            != RESOURCE_WAITS_PER_CLIENT_CAPACITY as u64
     {
         assert!(Instant::now() < admission_deadline, "exit waits did not become idle");
         std::thread::yield_now();
@@ -847,7 +844,7 @@ fn idle_wait_exit_workers_do_not_poll_the_terminal_registry() {
     std::thread::sleep(Duration::from_millis(350));
     assert_eq!(
         mux.terminal_exit_state_query_count_for_test(),
-        WAITS_PAST_OLD_CAP as u64,
+        RESOURCE_WAITS_PER_CLIENT_CAPACITY as u64,
         "idle wait_exit workers polled the registry"
     );
 
@@ -860,7 +857,7 @@ fn idle_wait_exit_workers_do_not_poll_the_terminal_registry() {
     assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 0);
     assert_eq!(
         mux.terminal_exit_state_query_count_for_test(),
-        WAITS_PAST_OLD_CAP as u64,
+        RESOURCE_WAITS_PER_CLIENT_CAPACITY as u64,
         "cancellation performed a redundant terminal query"
     );
 }
@@ -1016,7 +1013,7 @@ fn disconnect_cancels_unbounded_terminal_waits_and_releases_worker_capacity() {
     let terminal_id =
         created["result"]["value"]["terminal_id"].as_str().expect("created terminal ID");
 
-    for index in 0..WAITS_PAST_OLD_CAP {
+    for index in 0..RESOURCE_WAITS_PER_CLIENT_CAPACITY {
         let wait = resource_request(
             &format!("unbounded-wait-{index}"),
             "terminal.wait",
@@ -1031,10 +1028,29 @@ fn disconnect_cancels_unbounded_terminal_waits_and_releases_worker_capacity() {
         assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
     }
     let admission_deadline = Instant::now() + Duration::from_secs(2);
-    while mux.control_clients.resource_wait_admission.active() != WAITS_PAST_OLD_CAP {
+    while mux.control_clients.resource_wait_admission.active() != RESOURCE_WAITS_PER_CLIENT_CAPACITY
+    {
         assert!(Instant::now() < admission_deadline, "wait workers did not start");
         std::thread::sleep(Duration::from_millis(2));
     }
+
+    let rejected = resource_request(
+        "unbounded-wait-rejected",
+        "terminal.wait",
+        json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal_id,
+            "pattern":"cmux-pattern-that-never-matches-rejected",
+        }),
+        None,
+    );
+    assert!(handle_connection_message(&mux, client, &rejected, &writer, &scheduler));
+    let rejection = pop_json(&outbound);
+    assert_eq!(rejection["id"], "unbounded-wait-rejected");
+    assert_eq!(rejection["error"]["code"], "operation.failed");
+    assert_eq!(rejection["error"]["details"]["extra"]["reason_code"], "terminal_wait_capacity");
+    assert_eq!(rejection["error"]["details"]["extra"]["scope"], "client");
 
     assert!(disconnect_client(&mux, client, false));
     let cleanup_deadline = Instant::now() + Duration::from_secs(2);
@@ -1168,38 +1184,160 @@ fn zero_timeout_terminal_waits_complete_once_and_release_worker_capacity() {
     assert!(disconnect_client(&mux, client, false));
 }
 
-/// No count refuses a resource stream (the old caps were 64 per connection and
-/// 256 per daemon): one connection holds 300 and still opens one more by
-/// request. A disconnect keeps counting the permits its workers hold until they
-/// exit, so a drain waits for them.
 #[test]
-fn resource_streams_are_not_capped_by_count() {
+fn resource_stream_capacity_is_stable_and_reused_after_worker_exit() {
     let mux = test_mux();
     let (writer, outbound) = captured_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    let mut permits = Vec::new();
-    for index in 0..STREAMS_PAST_OLD_CAP as u64 {
-        let stream_id = test_stream_id(index + 1);
+    let mut installed = Vec::new();
+    for index in 0..RESOURCE_STREAMS_PER_CLIENT_CAPACITY {
+        let stream_id = test_stream_id(index as u64 + 1);
         let stream = writer.start_stream(&json!({})).unwrap();
-        let (_, permit) = mux
+        let (canceled, worker_permit) = mux
             .control_clients
             .install_resource_stream(client, &stream_id, stream)
-            .expect("no stream count refuses a stream");
-        permits.push(permit);
+            .expect("stream below the per-client capacity");
+        installed.push((stream_id, canceled, worker_permit));
     }
-    assert_eq!(mux.control_clients.resource_stream_admission.active(), STREAMS_PAST_OLD_CAP);
-    let duplicate = mux.control_clients.install_resource_stream(
-        client,
-        &test_stream_id(1),
-        writer.start_stream(&json!({})).unwrap(),
+    assert_eq!(
+        mux.control_clients.resource_stream_admission.active(),
+        RESOURCE_STREAMS_PER_CLIENT_CAPACITY
     );
-    assert!(matches!(duplicate, Err(ResourceStreamInstallError::Duplicate)));
 
-    let extra_id = test_stream_id(10_000);
+    let overflow_id = test_stream_id(10_000);
+    let denied_outbound = writer.start_stream(&json!({})).unwrap();
+    let denied =
+        register_resource_outbound(&mux, client, &overflow_id, &denied_outbound, "session.events");
+    let Err(denied) = denied else { panic!("stream above capacity was admitted") };
+    assert_eq!(denied.code, "operation.failed");
+    assert!(!denied_outbound.is_open(), "denied stream retained an open outbound handle");
+    assert_eq!(
+        mux.control_clients.resource_stream_admission.active(),
+        RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
+        "denied stream consumed admission capacity"
+    );
+    let open_overflow = |request_id: &str| {
+        resource_request(
+            request_id,
+            "session.events",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":overflow_id,
+            }),
+            None,
+        )
+    };
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    assert!(handle_connection_message(
+        &mux,
+        client,
+        &open_overflow("stream-overflow-first"),
+        &writer,
+        &scheduler,
+    ));
+    let first_rejection = pop_json(&outbound);
+    assert_eq!(first_rejection["error"]["code"], "operation.failed");
+    assert_eq!(
+        first_rejection["error"]["details"]["extra"]["reason_code"],
+        "resource_stream_capacity"
+    );
+    assert_eq!(first_rejection["error"]["details"]["extra"]["scope"], "client");
+    assert_eq!(
+        first_rejection["error"]["details"]["extra"]["limit"],
+        RESOURCE_STREAMS_PER_CLIENT_CAPACITY
+    );
+
+    let (first_id, first_canceled, first_worker_permit) = installed.remove(0);
+    drop(
+        mux.control_clients
+            .take_resource_stream(client, &first_id)
+            .expect("installed stream remains registered"),
+    );
+    assert!(first_canceled.load(Ordering::Acquire));
+    assert!(handle_connection_message(
+        &mux,
+        client,
+        &open_overflow("stream-overflow-worker-still-live"),
+        &writer,
+        &scheduler,
+    ));
+    assert_eq!(pop_json(&outbound)["error"]["code"], "operation.failed");
+
+    drop(first_worker_permit);
+    assert!(handle_connection_message(
+        &mux,
+        client,
+        &open_overflow("stream-overflow-reused"),
+        &writer,
+        &scheduler,
+    ));
+    assert_eq!(pop_json(&outbound)["id"], "stream-overflow-reused");
+    assert_eq!(pop_json(&outbound)["type"], "stream_item");
+    let cancel = resource_request(
+        "stream-overflow-cancel",
+        "stream.cancel",
+        json!({
+            "machine":"current",
+            "session":"current",
+            "stream":overflow_id,
+        }),
+        None,
+    );
+    assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+    assert_eq!(pop_json(&outbound)["reason"], "canceled");
+    assert_eq!(pop_json(&outbound)["id"], "stream-overflow-cancel");
+
+    for (stream_id, _, worker_permit) in installed {
+        drop(mux.control_clients.take_resource_stream(client, &stream_id));
+        drop(worker_permit);
+    }
+    assert!(disconnect_client(&mux, client, false));
+    assert!(
+        mux.control_clients
+            .resource_stream_admission
+            .wait_until_idle(Instant::now() + Duration::from_secs(2)),
+        "ended streams retained server worker capacity"
+    );
+}
+
+#[test]
+fn resource_stream_server_capacity_survives_disconnect_until_workers_exit() {
+    let mux = test_mux();
+    let writer = test_writer();
+    let mut clients = Vec::new();
+    let mut worker_permits = Vec::new();
+    for client_index in 0..(RESOURCE_STREAMS_SERVER_CAPACITY / RESOURCE_STREAMS_PER_CLIENT_CAPACITY)
+    {
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let mut client_permits = Vec::new();
+        for stream_index in 0..RESOURCE_STREAMS_PER_CLIENT_CAPACITY {
+            let id = test_stream_id(
+                (client_index * RESOURCE_STREAMS_PER_CLIENT_CAPACITY + stream_index + 1) as u64,
+            );
+            let stream = writer.start_stream(&json!({})).unwrap();
+            let (_, permit) = mux
+                .control_clients
+                .install_resource_stream(client, &id, stream)
+                .expect("stream below the server capacity");
+            client_permits.push(permit);
+        }
+        clients.push(client);
+        worker_permits.push(client_permits);
+    }
+    assert_eq!(
+        mux.control_clients.resource_stream_admission.active(),
+        RESOURCE_STREAMS_SERVER_CAPACITY
+    );
+
+    let (extra_writer, extra_outbound) = captured_writer();
+    let extra = mux.control_clients.register(ClientTransport::Unix, extra_writer.clone());
+    let extra_id = test_stream_id(20_000);
     let scheduler =
         Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
     let open = resource_request(
-        "stream-past-old-cap",
+        "server-stream-overflow",
         "session.events",
         json!({
             "machine":"current",
@@ -1208,35 +1346,34 @@ fn resource_streams_are_not_capped_by_count() {
         }),
         None,
     );
-    assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
-    assert_eq!(pop_json(&outbound)["id"], "stream-past-old-cap");
-    assert_eq!(pop_json(&outbound)["type"], "stream_item");
-    let cancel = resource_request(
-        "stream-past-old-cap-cancel",
-        "stream.cancel",
-        json!({
-            "machine":"current",
-            "session":"current",
-            "stream":extra_id,
-        }),
-        None,
-    );
-    assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
-    assert_eq!(pop_json(&outbound)["reason"], "canceled");
-    assert_eq!(pop_json(&outbound)["id"], "stream-past-old-cap-cancel");
+    assert!(handle_connection_message(&mux, extra, &open, &extra_writer, &scheduler,));
+    let rejection = pop_json(&extra_outbound);
+    assert_eq!(rejection["error"]["code"], "operation.failed");
+    assert_eq!(rejection["error"]["details"]["extra"]["reason_code"], "resource_stream_capacity");
+    assert_eq!(rejection["error"]["details"]["extra"]["scope"], "server");
+    assert_eq!(rejection["error"]["details"]["extra"]["limit"], RESOURCE_STREAMS_SERVER_CAPACITY);
 
-    assert!(disconnect_client(&mux, client, false));
-    assert!(
-        mux.control_clients.resource_stream_admission.active() >= STREAMS_PAST_OLD_CAP,
-        "a disconnect dropped the permits its workers still hold"
+    assert!(disconnect_client(&mux, clients[0], false));
+    let still_rejected = mux.control_clients.install_resource_stream(
+        extra,
+        &extra_id,
+        extra_writer.start_stream(&json!({})).unwrap(),
     );
-    drop(permits);
-    assert!(
-        mux.control_clients
-            .resource_stream_admission
-            .wait_until_idle(Instant::now() + Duration::from_secs(2)),
-        "ended streams kept their permits"
-    );
+    assert!(matches!(still_rejected, Err(ResourceStreamInstallError::ServerCapacity)));
+    drop(worker_permits.remove(0));
+    let (_, extra_permit) = mux
+        .control_clients
+        .install_resource_stream(extra, &extra_id, extra_writer.start_stream(&json!({})).unwrap())
+        .expect("disconnect cleanup is reusable after its workers exit");
+
+    for client in clients.into_iter().skip(1) {
+        assert!(disconnect_client(&mux, client, false));
+    }
+    drop(worker_permits);
+    drop(mux.control_clients.take_resource_stream(extra, &extra_id));
+    drop(extra_permit);
+    assert!(disconnect_client(&mux, extra, false));
+    assert_eq!(mux.control_clients.resource_stream_admission.active(), 0);
 }
 
 /// `screen wait --pattern '^READY$'` (bench round 3, T2): a wait pattern is

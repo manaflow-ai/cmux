@@ -44,7 +44,7 @@ fn answer(msgs: &[Message], want: i64) -> Option<Value> {
 async fn lines(t: &Translator, m: &Message) -> Vec<Value> {
     match t.outbound(m).await {
         Outbound::Lines(lines) => lines,
-        Outbound::Reply(r) | Outbound::LinesThenReply(_, r) => panic!("answered at once: {r:?}"),
+        Outbound::Reply(r) => panic!("answered at once: {r:?}"),
     }
 }
 

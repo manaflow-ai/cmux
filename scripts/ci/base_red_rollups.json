@@ -45,10 +45,6 @@
   "run": {
     "ci-status": {
       "job": "ci-status",
-      "reports": [
-        "Check platform workflow routing",
-        "Check routed CI jobs"
-      ],
       "under": {
         "browser": {
           "exact": [],
@@ -98,6 +94,12 @@
           ],
           "prefixes": []
         },
+        "portable-placement": {
+          "exact": [
+            "portable light placement"
+          ],
+          "prefixes": []
+        },
         "remote-daemon": {
           "exact": [],
           "prefixes": [
@@ -121,19 +123,10 @@
     },
     "ios-e2e-status": {
       "job": "ios-e2e-status",
-      "reports": [
-        "Aggregate"
-      ],
       "under": {
         "backend": {
           "exact": [
             "backend"
-          ],
-          "prefixes": []
-        },
-        "full-carry": {
-          "exact": [
-            "full-ci base merge carry"
           ],
           "prefixes": []
         },
@@ -154,31 +147,23 @@
     },
     "web / Web status": {
       "job": "web-status",
-      "reports": [
-        "Check routed web jobs"
-      ],
       "under": {
-        "agent-pane-real-acpmux": {
-          "exact": [
-            "web / Agent pane on real acpmux"
-          ],
-          "prefixes": []
-        },
         "diff-sidecar-check": {
           "exact": [
             "web / diff-sidecar-check"
           ],
           "prefixes": []
         },
-        "react-apps-base-bundles": {
-          "exact": [],
-          "prefixes": [
-            "web / react-apps-base-bundles / "
-          ]
-        },
         "react-apps-base-check": {
           "exact": [
             "web / react-apps-base-check"
+          ],
+          "prefixes": []
+        },
+        "react-apps-base-early": {
+          "exact": [
+            "web / react-apps-base-early (1)",
+            "web / react-apps-base-early (2)"
           ],
           "prefixes": []
         },
@@ -189,15 +174,32 @@
           "prefixes": []
         },
         "react-apps-check-shard": {
-          "exact": [],
-          "prefixes": [
-            "web / react-apps-check ("
-          ]
+          "exact": [
+            "web / react-apps-check (1)",
+            "web / react-apps-check (2)",
+            "web / react-apps-check (3)",
+            "web / react-apps-check (4)",
+            "web / react-apps-check (5)",
+            "web / react-apps-check (6)",
+            "web / react-apps-check (7)",
+            "web / react-apps-check (8)",
+            "web / react-apps-check (9)",
+            "web / react-apps-check (10)",
+            "web / react-apps-check (11)",
+            "web / react-apps-check (12)"
+          ],
+          "prefixes": []
         },
-        "react-apps-head-bundles": {
+        "react-doctor": {
+          "exact": [
+            "web / react-doctor"
+          ],
+          "prefixes": []
+        },
+        "runners": {
           "exact": [],
           "prefixes": [
-            "web / react-apps-head-bundles / "
+            "web / runners / "
           ]
         },
         "web-db-migrations": {
@@ -236,12 +238,6 @@
         "web-typecheck": {
           "exact": [
             "web / web-typecheck"
-          ],
-          "prefixes": []
-        },
-        "webviews-typecheck": {
-          "exact": [
-            "web / webviews-typecheck"
           ],
           "prefixes": []
         }

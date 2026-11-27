@@ -88,8 +88,7 @@ impl Part {
 /// The settings file's logical path, whatever the file is called on disk.
 pub const SETTINGS: &str = "settings.json";
 /// Surfaces with a user stylesheet (`<config dir>/<surface>/theme.css`).
-pub(crate) const STYLE_SURFACES: &[&str] =
-    &["agent-pane", "markdown", "diff", "picker", "fileViewer"];
+const STYLE_SURFACES: &[&str] = &["agent-pane", "markdown", "diff", "picker", "fileViewer"];
 
 /// One file of a tree, by content.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,7 +149,7 @@ pub fn locate(roots: &Roots, path: &str) -> Option<PathBuf> {
         ("automations", rest)
             if rest.ends_with("/automation.json") && rest.matches('/').count() == 1 =>
         {
-            Some(roots.automations_dir.join(rest))
+            Some(roots.config_dir.join("automations").join(rest))
         }
         (surface, "theme.css") if STYLE_SURFACES.contains(&surface) => {
             Some(roots.config_dir.join(surface).join("theme.css"))
@@ -236,51 +235,6 @@ pub fn not_kept(files: &BTreeMap<String, Vec<u8>>, live: &Tree) -> Vec<Skipped> 
     out
 }
 
-/// Every folder a part writes into (the config folder, the customize
-/// folder, each part's own folder) and the folders above them, that is not
-/// on disk now: what a write would make. Nearest the root last.
-pub fn absent_dirs(roots: &Roots) -> Vec<PathBuf> {
-    let mut leaves = vec![
-        roots.config_dir.clone(),
-        roots.customize_dir.clone(),
-        roots.config_dir.join("themes"),
-        roots.automations_dir.clone(),
-    ];
-    leaves.extend(STYLE_SURFACES.iter().map(|surface| roots.config_dir.join(surface)));
-    let mut out: Vec<PathBuf> = Vec::new();
-    for leaf in leaves {
-        let mut dir = Some(leaf.as_path());
-        while let Some(folder) = dir {
-            if folder.as_os_str().is_empty() || fs::symlink_metadata(folder).is_ok() {
-                break;
-            }
-            if !out.iter().any(|have| have == folder) {
-                out.push(folder.to_path_buf());
-            }
-            dir = folder.parent();
-        }
-    }
-    // Deepest first, so taking them away empties a parent before it is tried.
-    out.sort_by_key(|dir| std::cmp::Reverse(dir.components().count()));
-    out
-}
-
-/// Takes away each of `dirs` (deepest first) that is an empty real folder
-/// now; returns the ones still there.
-pub fn remove_empty_dirs(dirs: &[PathBuf]) -> Vec<PathBuf> {
-    let mut sorted = dirs.to_vec();
-    sorted.sort_by_key(|dir| std::cmp::Reverse(dir.components().count()));
-    sorted.dedup();
-    sorted
-        .into_iter()
-        .filter(|dir| {
-            let real = fs::symlink_metadata(dir).is_ok_and(|metadata| metadata.is_dir());
-            // `remove_dir` takes only an empty folder.
-            real && fs::remove_dir(dir).is_err()
-        })
-        .collect()
-}
-
 /// A name the scan steps over.
 fn hidden_name(name: &str) -> bool {
     name.starts_with('.') || name.ends_with('~') || name == "node_modules"
@@ -302,7 +256,7 @@ pub fn scan(roots: &Roots) -> io::Result<Scan> {
             &roots.config_dir.join(surface).join("theme.css"),
         )?;
     }
-    let automations = roots.automations_dir.clone();
+    let automations = roots.config_dir.join("automations");
     for name in sorted_names(&automations)? {
         if name.starts_with('.') {
             continue;
@@ -482,5 +436,40 @@ fn add_dir(
 }
 
 #[cfg(test)]
-#[path = "tree_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_path_outside_every_part_is_never_located() {
+        let roots = Roots::under(Path::new("/r"));
+        for path in [
+            "",
+            "../x",
+            "customize/../../x",
+            "/etc/passwd",
+            "cloud-secrets.json",
+            "automations/a/state.json",
+            "automations/a/b/automation.json",
+            "themes",
+            "customize",
+            "agent-pane/registry.js",
+            "customize\\x",
+        ] {
+            assert_eq!(locate(&roots, path), None, "{path}");
+        }
+        assert_eq!(locate(&roots, SETTINGS), Some(PathBuf::from("/r/config/cmux-next.json")));
+        assert_eq!(
+            locate(&roots, "automations/auto_1/automation.json"),
+            Some(PathBuf::from("/r/config/automations/auto_1/automation.json"))
+        );
+    }
+
+    #[test]
+    fn every_located_path_names_its_part() {
+        assert_eq!(Part::of(SETTINGS), Part::Settings);
+        assert_eq!(Part::of("themes/night.json"), Part::Themes);
+        assert_eq!(Part::of("customize/main.js"), Part::Views);
+        assert_eq!(Part::of("agent-pane/theme.css"), Part::Styles);
+        assert_eq!(Part::of("automations/auto_1/automation.json"), Part::Automations);
+    }
+}

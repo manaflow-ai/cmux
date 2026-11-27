@@ -225,70 +225,11 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
 }
 
 pub(crate) fn which(bin: &str) -> Option<String> {
-    which_in(&crate::login_env::path().unwrap_or_default(), bin)
-        .or_else(|| native_install(bin))
-        .or_else(|| image_install(bin))
-}
-
-/// Where a Cloud machine's image puts its harnesses (`claude`, `codex`, ...): only a login shell
-/// lists it on PATH, and the daemon's unit PATH does not. When the 3 s login-shell read timed out
-/// on a just-booted machine, the daemon found no `claude`, and the start was refused as
-/// `agent_session.harness_missing`: "Claude (`claude`) isn't installed on that machine"
-/// (production probe 2026-11-26T15:20:44Z, vm_a6cbc8f2cc82f6433bcc). Checking the image's own
-/// directory makes discovery stop depending on that read.
-const IMAGE_BIN_DIR: &str = "/opt/cmux/current/bin";
-
-/// `bin` in the Cloud image's harness directory ([`IMAGE_BIN_DIR`]), if it can run there.
-fn image_install(bin: &str) -> Option<String> {
-    image_install_in(std::path::Path::new(IMAGE_BIN_DIR), bin)
-}
-
-/// [`image_install`] under `dir`.
-fn image_install_in(dir: &std::path::Path, bin: &str) -> Option<String> {
-    if bin.is_empty() || bin.contains('/') {
-        return None;
-    }
-    let candidate = dir.join(bin);
-    crate::harness_install::is_executable(&candidate)
-        .then(|| candidate.to_string_lossy().into_owned())
-}
-
-/// A program the daemon runs from config or a fleet tool by bare name (`sendRelay.argv`'s
-/// `lane-gh`, `peerWake`, `cmux-ci`), as a path it can spawn. A systemd user daemon starts with
-/// the system PATH, which lists no `~/.local/bin`, where lane VMs install those tools: every MCP
-/// `send` on a lane VM failed with "cannot run the send relay \"lane-gh\": No such file or
-/// directory" (gcp-agent-lane-13, 2026-11-21) while the same `lane-gh` ran from a shell. Looks in
-/// the login PATH (or this process's), then `~/.local/bin` and `~/.cmux/bin`. A name with a `/`,
-/// or one found nowhere, comes back as given, so the spawn's own error still names it.
-pub(crate) fn user_program(program: &str) -> std::path::PathBuf {
-    if program.contains('/') {
-        return program.into();
-    }
-    let path = crate::login_env::path().unwrap_or_default();
-    user_program_in(&path, dirs::home_dir().as_deref(), program)
-}
-
-/// [`user_program`] with its PATH and home given.
-fn user_program_in(
-    path: &std::ffi::OsStr,
-    home: Option<&std::path::Path>,
-    program: &str,
-) -> std::path::PathBuf {
-    if let Some(found) = which_in(path, program) {
-        return found.into();
-    }
-    for dir in [".local/bin", ".cmux/bin"] {
-        if let Some(candidate) = home.map(|h| h.join(dir).join(program))
-            && crate::harness_install::is_executable(&candidate)
-        {
-            return candidate;
-        }
-    }
-    program.into()
+    which_in(&crate::login_env::path().unwrap_or_default(), bin).or_else(|| native_install(bin))
 }
 
 /// `bin` in the directories of `path`, in order.
-pub(crate) fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
+fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
     for dir in std::env::split_paths(path) {
         let candidate = dir.join(bin);
         // As a shell's lookup: a file it could not run does not hide a runnable one later on PATH.
@@ -299,21 +240,14 @@ pub(crate) fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
     None
 }
 
-/// Claude Code's and Codex's own installers put `claude` and `codex` in `~/.local/bin`, which a login
-/// PATH may not list (the installers only ask the person to add it), and a daemon read that PATH when
-/// it started: so one installed there (`acpmux harness install`, the Harnesses page's Install on a Mac
-/// with no npm) is found on the next look. Without it a fresh Mac's Codex install ended in "cmux can't
-/// run it yet" (first-run findings row 3).
+/// Claude Code's native installer puts `claude` in `~/.local/bin`, which a login PATH may not list
+/// (the installer only asks the person to add it), and a daemon read that PATH when it started: so a
+/// `claude` installed there (`acpmux harness install claude`) is found on the next reload.
 fn native_install(bin: &str) -> Option<String> {
-    native_install_in(&dirs::home_dir()?, bin)
-}
-
-/// [`native_install`] under `home`.
-fn native_install_in(home: &std::path::Path, bin: &str) -> Option<String> {
-    if !matches!(bin, "claude" | "codex") {
+    if bin != "claude" {
         return None;
     }
-    let candidate = home.join(".local/bin").join(bin);
+    let candidate = dirs::home_dir()?.join(".local/bin").join(bin);
     // A stale or non-executable file there is no installed CLI (as `harness install` checks).
     crate::harness_install::is_executable(&candidate)
         .then(|| candidate.to_string_lossy().into_owned())
@@ -338,53 +272,45 @@ mod tests {
         assert_eq!(which_in(&path, "claude"), Some(runnable.to_string_lossy().into_owned()));
         assert_eq!(which_in(&path, "codex"), None);
     }
-
-    /// Codex's own installer (`chatgpt.com/codex/install.sh`, what the Harnesses page's Install runs
-    /// on a Mac with no npm) puts `codex` in `~/.local/bin`, as Claude Code's does, and a fresh Mac's
-    /// login PATH does not list it: after Install the row said "Finished, but cmux can't run it yet"
-    /// (first-run findings row 3). Both are found there; a file that cannot run is no install.
-    #[test]
-    fn codex_and_claude_from_their_own_installers_are_found_in_local_bin() {
-        let home = tempfile::tempdir().unwrap();
-        let bin = home.path().join(".local/bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        for name in ["codex", "claude"] {
-            let file = bin.join(name);
-            std::fs::write(&file, "#!/bin/sh\n").unwrap();
-            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
-            assert_eq!(
-                super::native_install_in(home.path(), name),
-                Some(file.to_string_lossy().into_owned()),
-                "{name}"
-            );
-        }
-        std::fs::write(bin.join("opencode"), "").unwrap();
-        assert_eq!(super::native_install_in(home.path(), "opencode"), None);
-        let empty = tempfile::tempdir().unwrap();
-        assert_eq!(super::native_install_in(empty.path(), "codex"), None);
-    }
-
-    /// A Cloud image keeps `claude` in `/opt/cmux/current/bin`, which only a login shell lists on
-    /// PATH: with the login-shell read timed out, a just-booted machine refused the start as "Claude
-    /// (`claude`) isn't installed on that machine" (production probe 2026-11-26T15:20:44Z). The
-    /// image directory finds it; a file that cannot run, or a name with a slash, does not.
-    #[test]
-    fn a_harness_in_the_cloud_image_dir_is_found_without_the_login_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("claude");
-        std::fs::write(&file, "#!/bin/sh\n").unwrap();
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(
-            super::image_install_in(dir.path(), "claude"),
-            Some(file.to_string_lossy().into_owned())
-        );
-        std::fs::write(dir.path().join("codex"), "").unwrap();
-        assert_eq!(super::image_install_in(dir.path(), "codex"), None);
-        assert_eq!(super::image_install_in(dir.path(), "../claude"), None);
-        assert_eq!(super::image_install_in(dir.path(), "opencode"), None);
-    }
 }
 
 #[cfg(test)]
-#[path = "launchers_cache_tests.rs"]
-mod cache_tests;
+mod cache_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn launcher_cache_keeps_parallel_successes_and_only_current_versions() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("checks.json");
+        let mut cfg = Config::default();
+        cfg.harnesses.clear();
+        for name in ["first", "second"] {
+            let binary = dir.path().join(name);
+            std::fs::write(&binary, "version one").unwrap();
+            let profile = serde_json::from_value(serde_json::json!({
+                "argv": [binary, "claude", "proxy"]
+            }))
+            .unwrap();
+            cfg.harnesses.insert(name.into(), profile);
+        }
+        let calls = AtomicUsize::new(0);
+        let probe = |_: &[String]| {
+            calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        };
+        verify_launchers_cached(&mut cfg, None, &cache, &probe);
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+        verify_launchers_cached(&mut cfg, None, &cache, &probe);
+        assert_eq!(calls.load(Ordering::Relaxed), 2, "warm launch reran a successful probe");
+        std::fs::write(dir.path().join("first"), "version two is a different size").unwrap();
+        verify_launchers_cached(&mut cfg, None, &cache, &probe);
+        assert_eq!(calls.load(Ordering::Relaxed), 3, "only the changed binary is reprobed");
+        cfg.harnesses.remove("second");
+        verify_launchers_cached(&mut cfg, None, &cache, &probe);
+        let keys: std::collections::BTreeSet<String> =
+            serde_json::from_slice(&std::fs::read(cache).unwrap()).unwrap();
+        assert_eq!(keys.len(), 1, "old versions and removed launchers grew the cache");
+        assert_eq!(calls.load(Ordering::Relaxed), 3);
+    }
+}

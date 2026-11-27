@@ -12,15 +12,9 @@ import Foundation
 ///   can't be shared (not shared, offline, blocked), whose taps show the alert.
 /// The clock starts when the page appears (`start()`), and Try Again or pull to
 /// refresh replays it.
-///
-/// Mock mode with no demo named (`useMock`): the mock account's Macs, the ones Settings ›
-/// Devices lists, so the two pages agree. Mock mode has no account token, so the real hub said
-/// "Your Macs can't be reached · not signed in" next to Devices' Macs (iOS release bar read-back).
 extension ScreenSharingService {
     enum DemoMode: String, CaseIterable, Sendable {
         case finding, found, empty, failed, unavailable
-        /// The mock account's Macs (`useMock`), listed at once.
-        case mock
     }
 
     /// How long a demo stays in "finding" before its answer.
@@ -41,21 +35,9 @@ extension ScreenSharingService {
         demoMacs = []
     }
 
-    /// Mock mode: lists `macs()` (read on every start and refresh) instead of opening the hub.
-    public func useMock(_ macs: @escaping @MainActor () -> [HubDevice]) {
-        mockMacs = macs
-        demoMode = .mock
-        runDemo(.mock)
-    }
-
     func runDemo(_ mode: DemoMode) {
         demoTask?.cancel()
         demoMacs = []
-        if mode == .mock {
-            demoMacs = Self.hosts(mockMacs?() ?? [])
-            demoDiscovery = .listed
-            return
-        }
         if mode == .failed {
             demoDiscovery = .failed(String(localized: "The network connection was lost."))
             return

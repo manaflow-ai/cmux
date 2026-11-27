@@ -15,9 +15,6 @@ Inputs, from the workflow's expression context (no token can read variables):
   CMUX_CI_XCODE_APP_PR      pairs a class entry in the slots with an Xcode
   CI_CLOUD_OVERFLOW_SAVED   the cloud overflow switch's record, present while
                             Blacksmith overflow is off (cloud_overflow_switch.py)
-  RUNNER_POOLS              the pool labels runs-on reads; only a pool
-                            .github/runners.json declares hosted may name a
-                            GitHub-hosted runner
 
 While that record exists, a runner variable holding exactly the failover the
 switch wrote there is expected, not drift: an owned pool label in
@@ -38,8 +35,6 @@ from cloud_overflow_switch import RECORD_VARIABLE, parse_record  # noqa: E402
 from signing_runner_variables import allowed_value  # noqa: E402
 
 RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
-# The JSON every `fromJSON(vars.RUNNER_POOLS).<pool>` reads, passed on its own (one line, not NAME=value).
-POOLS_VARIABLE = "RUNNER_POOLS"
 # Blacksmith's 12 vCPU macOS 26 label stalls for hours at a time (2026-10-20, -26, -28: no job started from
 # about 02:11Z with 61 queued). These variables are a job's last resort after its picker, so one naming that
 # label strands every job whose picker answered nothing. MACOS_RUNNER_26_LARGE names it on purpose and is read
@@ -90,12 +85,6 @@ def problems(env: dict[str, str]) -> list[str]:
                                  "stalls for hours. Fix: gh variable set " + name + " --body blacksmith-6vcpu-macos-26")
         except (ValueError, PolicyUnreadable) as error:
             found.append(str(error))
-    pools = env.get(POOLS_VARIABLE, "")
-    if not pools.strip():
-        found.append(f"{POOLS_VARIABLE} is empty: the workflow passed no runner pools to check")
-    else:
-        for name, value, reason in drifted_runner_variables({POOLS_VARIABLE: pools}):
-            found.append(f"{name}: {reason}. Fix: the pool writer, never a hand edit")
     for problem in slot_problems(env.get(SLOTS_VARIABLE), env.get(PR_XCODE_VARIABLE)):
         found.append(
             f"{problem}. The picker counts that as no owned machines. "

@@ -5,10 +5,6 @@
 //! ScreenCast interface and a PipeWire stream. The choice is a pure function of the
 //! session's environment and an explicit `--capture x11|portal` override, so it is the
 //! same in `cmux-rd serve` and in the Linux screen host that starts it.
-//!
-//! Within a Wayland session ([`WaylandCapture`]), GNOME is cast through mutter's own
-//! ScreenCast and RemoteDesktop interfaces (`mutter.rs`) when mutter is on the session bus:
-//! they need no grant and show no dialog. Every other compositor uses the portal.
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 /// The capture backend of one session.
@@ -52,20 +48,10 @@ impl CaptureBackend {
     }
 
     /// Whether a viewer's input reaches this desktop with the backend: XTest on X11; the
-    /// portal through its RemoteDesktop session, once that grant is saved (`portal.rs`) in a
-    /// build with portal capture. Without it a portal session is view only.
+    /// portal backend drops every input event (`portal.rs`), so its sessions are view only.
     #[cfg(feature = "link")]
     pub fn applies_input(self) -> bool {
-        self.applies_input_with(portal_control_granted())
-    }
-
-    /// [`CaptureBackend::applies_input`] with the RemoteDesktop grant given.
-    #[cfg(feature = "link")]
-    pub fn applies_input_with(self, remote_desktop_granted: bool) -> bool {
-        match self {
-            CaptureBackend::X11 => true,
-            CaptureBackend::Portal => remote_desktop_granted,
-        }
+        matches!(self, CaptureBackend::X11)
     }
 
     /// The `--capture` word for the backend.
@@ -89,103 +75,6 @@ impl CaptureBackend {
             CaptureBackend::Portal => Err(PORTAL_NOT_BUILT_IN.to_owned()),
         }
     }
-}
-
-/// How a Wayland session (`CaptureBackend::Portal`) reaches the screen.
-#[cfg_attr(not(all(feature = "link", feature = "portal")), allow(dead_code))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WaylandCapture {
-    /// mutter's own ScreenCast and RemoteDesktop (GNOME): no grant, no dialog.
-    Mutter,
-    /// xdg-desktop-portal: a grant saved once, at enable.
-    Portal,
-}
-
-#[cfg_attr(not(all(feature = "link", feature = "portal")), allow(dead_code))]
-impl WaylandCapture {
-    /// mutter directly when `org.gnome.Mutter.ScreenCast` has an owner on the session bus,
-    /// else the portal.
-    pub fn choose(mutter_screen_cast: bool) -> Self {
-        if mutter_screen_cast {
-            WaylandCapture::Mutter
-        } else {
-            WaylandCapture::Portal
-        }
-    }
-
-    /// Whether this capture needs the portal's grant before shares start without a dialog.
-    pub fn needs_grant(self) -> bool {
-        self == WaylandCapture::Portal
-    }
-}
-
-/// Starts a Wayland capture: through mutter when `mutter` is given, falling back to the portal
-/// when mutter fails (remote access inhibited, a refused call, no PipeWire node), so a share
-/// that mutter will not start still starts the way it did before mutter was tried.
-#[cfg_attr(not(all(feature = "portal", target_os = "linux")), allow(dead_code))]
-pub fn mutter_else_portal<T, E: std::fmt::Display>(
-    mutter: Option<impl FnOnce() -> Result<T, E>>,
-    portal: impl FnOnce() -> Result<T, E>,
-) -> Result<T, E> {
-    if let Some(mutter) = mutter {
-        match mutter() {
-            Ok(t) => return Ok(t),
-            Err(e) => {
-                eprintln!("cmux-rd: mutter's screen cast did not start ({e}); asking the portal")
-            }
-        }
-    }
-    portal()
-}
-
-/// Which of mutter's interfaces this session bus has: (ScreenCast, RemoteDesktop). Both
-/// false in a build without the D-Bus half or with no session bus.
-#[cfg_attr(not(all(feature = "link", feature = "portal")), allow(dead_code))]
-pub fn mutter_on_bus() -> (bool, bool) {
-    #[cfg(all(feature = "portal-dbus", target_os = "linux"))]
-    return {
-        let p = crate::mutter::MutterPresence::detect();
-        (p.screen_cast, p.remote_desktop)
-    };
-    #[cfg(not(all(feature = "portal-dbus", target_os = "linux")))]
-    (false, false)
-}
-
-/// This Wayland session's [`WaylandCapture`] (asks the session bus).
-#[cfg_attr(not(all(feature = "link", feature = "portal")), allow(dead_code))]
-pub fn wayland_capture() -> WaylandCapture {
-    WaylandCapture::choose(mutter_on_bus().0)
-}
-
-/// Whether a Wayland capture applies input: through mutter, when it has RemoteDesktop; through
-/// the portal, with a saved RemoteDesktop grant.
-#[cfg_attr(not(all(feature = "link", feature = "portal")), allow(dead_code))]
-pub fn wayland_control_with(
-    capture: WaylandCapture,
-    mutter_remote_desktop: bool,
-    portal_granted: bool,
-) -> bool {
-    match capture {
-        WaylandCapture::Mutter => mutter_remote_desktop,
-        WaylandCapture::Portal => portal_granted,
-    }
-}
-
-/// Whether this desktop's Wayland sessions can apply input: a build with portal capture, and
-/// either mutter's RemoteDesktop on the session bus (no grant) or a saved portal RemoteDesktop
-/// grant (`linux-host enable --allow-control` or `linux-host grant --control` made it).
-#[cfg(feature = "link")]
-pub fn portal_control_granted() -> bool {
-    #[cfg(all(feature = "portal", target_os = "linux"))]
-    return {
-        let (screen_cast, remote_desktop) = mutter_on_bus();
-        let capture = WaylandCapture::choose(screen_cast);
-        let portal_granted =
-            capture == WaylandCapture::Portal && crate::portal::remote_desktop_granted();
-        wayland_control_with(capture, remote_desktop, portal_granted)
-    };
-    #[cfg(not(all(feature = "portal", target_os = "linux")))]
-    false
 }
 
 /// The reason a Wayland session cannot be shared by this build (shown to the viewer; the
@@ -214,5 +103,69 @@ pub fn x_display(
 }
 
 #[cfg(test)]
-#[path = "capture_backend_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_option_names_x11_or_portal() {
+        assert_eq!(CaptureBackend::parse("x11"), Ok(CaptureBackend::X11));
+        assert_eq!(CaptureBackend::parse(" portal "), Ok(CaptureBackend::Portal));
+        assert!(CaptureBackend::parse("vnc").is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "link")]
+    fn wayland_session_picks_portal_and_x11_otherwise() {
+        assert_eq!(CaptureBackend::choose(None, Some("wayland")), Ok(CaptureBackend::Portal));
+        assert_eq!(CaptureBackend::choose(None, Some("Wayland")), Ok(CaptureBackend::Portal));
+        assert_eq!(CaptureBackend::choose(None, Some("x11")), Ok(CaptureBackend::X11));
+        assert_eq!(CaptureBackend::choose(None, Some("tty")), Ok(CaptureBackend::X11));
+        assert_eq!(CaptureBackend::choose(None, None), Ok(CaptureBackend::X11));
+    }
+
+    #[test]
+    #[cfg(feature = "link")]
+    fn only_x11_applies_input() {
+        // XTest injects input; the portal backend drops it (portal.rs).
+        assert!(CaptureBackend::X11.applies_input());
+        assert!(!CaptureBackend::Portal.applies_input());
+        for backend in [CaptureBackend::X11, CaptureBackend::Portal] {
+            assert_eq!(CaptureBackend::parse(backend.name()), Ok(backend));
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "link")]
+    fn explicit_override_wins() {
+        assert_eq!(CaptureBackend::choose(Some("x11"), Some("wayland")), Ok(CaptureBackend::X11));
+        assert_eq!(CaptureBackend::choose(Some("portal"), Some("x11")), Ok(CaptureBackend::Portal));
+        assert_eq!(CaptureBackend::choose(Some(""), Some("wayland")), Ok(CaptureBackend::Portal));
+        assert!(CaptureBackend::choose(Some("vnc"), None).is_err());
+    }
+
+    #[test]
+    #[cfg(not(all(feature = "portal", target_os = "linux")))]
+    fn portal_is_refused_with_a_clear_reason_until_built_in() {
+        assert_eq!(CaptureBackend::X11.available(), Ok(()));
+        let reason = CaptureBackend::Portal.available().unwrap_err();
+        assert!(reason.starts_with("portal capture not built in"), "{reason}");
+    }
+
+    #[test]
+    #[cfg(all(feature = "portal", target_os = "linux", feature = "link"))]
+    fn portal_is_available_when_built_in() {
+        assert_eq!(CaptureBackend::X11.available(), Ok(()));
+        assert_eq!(CaptureBackend::Portal.available(), Ok(()));
+    }
+
+    #[test]
+    #[cfg(feature = "link")]
+    fn display_defaults_to_the_session_then_display_then_zero() {
+        assert_eq!(x_display(Some(":5"), Some(":99"), Some(":1")), ":5");
+        assert_eq!(x_display(Some("main"), Some(":99"), Some(":1")), ":99");
+        assert_eq!(x_display(Some("0"), None, Some(":1")), ":1");
+        assert_eq!(x_display(None, None, Some("localhost:10.0")), "localhost:10.0");
+        assert_eq!(x_display(None, None, Some("")), ":0");
+        assert_eq!(x_display(None, None, None), ":0");
+    }
+}

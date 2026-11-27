@@ -181,6 +181,7 @@ async fn a_digest_steers_once_into_the_running_turn_of_an_agent_that_steers() {
     let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
     let mut agents = connect(&hub).await;
     let (id, turn) = busy(&mut c).await;
+    queue(&mut c, prompt(&id, "mine", Some("p-me"))).await;
     let a = queue(&mut agents, from_agent(&id, "p-a", "lane-a", "first from a")).await;
     let b = queue(&mut agents, from_agent(&id, "p-b", "lane-b", "second from b")).await;
 
@@ -195,7 +196,7 @@ async fn a_digest_steers_once_into_the_running_turn_of_an_agent_that_steers() {
     let text = steered["update"]["content"]["text"].as_str().unwrap();
     assert!(text.starts_with("steer: [inbox digest] 2 messages"), "{text}");
     assert!(text.contains("first from a") && text.contains("second from b"), "{text}");
-    assert!(queue_order(&mut c, &id).await.is_empty(), "the digest left the queue");
+    assert_eq!(queue_order(&mut c, &id).await, ["p-me"], "the person's prompt still waits");
 
     // Answered as the steer was; nothing else steers into the turn.
     let answered = answers(&mut agents, &[a, b]).await;
@@ -227,44 +228,6 @@ async fn a_digest_steers_once_into_the_running_turn_of_an_agent_that_steers() {
         .filter(|e| e.msg["promptId"] == *digest && e.msg["steer"] == true)
         .count();
     assert_eq!(steer, 1);
-}
-
-/// A digest never steers into the running turn while one of the person's prompts waits behind
-/// it: it would keep that turn going past the person's prompt, as no other agent's steer may
-/// (`turns.rs` `prompt_held`). It waits behind the person's prompt and runs as its own turn
-/// (Leo, 2026-11-21: "They have tons of helpers and they're not really responding to my
-/// messages").
-#[tokio::test]
-async fn a_digest_waits_behind_the_persons_prompt_instead_of_steering() {
-    let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
-    let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
-    let mut agents = connect(&hub).await;
-    let (id, turn) = busy(&mut c).await;
-    queue(&mut c, prompt(&id, "mine", Some("p-me"))).await;
-    queue(&mut agents, from_agent(&id, "p-a", "lane-a", "first from a")).await;
-    queue(&mut agents, from_agent(&id, "p-b", "lane-b", "second from b")).await;
-
-    let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(made["digested"], 2, "{made}");
-    assert_eq!(made["delivery"], "queued", "the digest steered past the person's prompt: {made}");
-    let digest = made["promptId"].as_str().unwrap().to_owned();
-    assert_eq!(queue_order(&mut c, &id).await, ["p-me", digest.as_str()]);
-
-    // The running turn ends with nothing steered into it; the person's prompt runs next.
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
-    let (_, seen) = c.response(turn).await;
-    let steers: Vec<&str> = seen
-        .iter()
-        .filter_map(|(_, p)| p["update"]["content"]["text"].as_str())
-        .filter(|t| t.starts_with("steer: "))
-        .collect();
-    assert!(steers.is_empty(), "steered into the running turn: {steers:?}");
-    let events = hub.events(&id, 0, 1000).unwrap();
-    let steered = find(&events, "user_message")
-        .into_iter()
-        .any(|e| e.msg["promptId"] == *digest && e.msg["steer"] == true);
-    assert!(!steered, "the digest went in as a steer");
-    hub.shutdown_all().await;
 }
 
 /// A turn past its cap (`turn_cap.rs`) takes no digest: the digest waits for the next turn, as

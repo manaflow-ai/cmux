@@ -1,5 +1,4 @@
 #if os(iOS) && DEBUG
-import CmuxMobileDesign
 import SwiftUI
 
 /// DEBUG only (the terminal demo): workspace tabs host terminals through
@@ -27,13 +26,9 @@ public struct TerminalScreen: View {
             .ignoresSafeArea()
             .background(Color.black)
             .overlay {
-                // A live surface (warm, or fed its kept rows) has nothing over it; only a page with
-                // no rows yet shows the Mac's text or a skeleton, never a still picture.
-                if !model.connectionState.isAttached, !model.seeded, !model.drewLiveOutput,
-                   !model.connectionState.keepsWarmFrame {
-                    TerminalConnectingView(screenText: model.cardScreenText)
+                if !model.connectionState.isAttached {
+                    TerminalConnectingView(lastFrame: model.coldFrame, showsPlaceholder: !model.connectionState.keepsWarmFrame)
                         .transition(.opacity)
-                        .placeholderBound("terminal.connecting", .milliseconds(2000))
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -93,13 +88,6 @@ public struct TerminalScreen: View {
             }
             Section {
                 Button("Scroll to bottom", systemImage: "arrow.down.to.line") { model.scrollToBottom() }
-            }
-            if let fits = model.session.fitsToPhone {
-                Section {
-                    Button(fits ? "Keep the Mac's Size" : "Fit to Phone", systemImage: fits ? "macbook" : "iphone") {
-                        model.session.toggleFitToPhone()
-                    }
-                }
             }
         } label: {
             Image(systemName: "ellipsis")

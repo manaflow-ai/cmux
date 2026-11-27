@@ -97,6 +97,12 @@ pub(super) fn judge_daemon(
         };
         return (Verdict::Done(result), port);
     }
+    // Linux reports a running executable that was replaced in place as
+    // `PATH (deleted)`.  The installed binary probe has the real path, so
+    // compare normalized paths before deciding whether a safe restart can
+    // use the current-target binary.
+    let used_path =
+        used.as_ref().map(|u| u.path.strip_suffix(" (deleted)").unwrap_or(&u.path).to_owned());
     let verdict = match listening {
         // A daemon bound on another port than the peer's (run with
         // `--listen` and `--token`, its config lacking one): refused before
@@ -112,20 +118,35 @@ pub(super) fn judge_daemon(
         Ok(_) => match used.and_then(|u| u.pid.map(|pid| (pid, u.build))) {
             None => Verdict::Repair("the daemon is not running".into()),
             Some((_, Some(b))) if b != build => {
-                let result = StepResult::new(
-                    Step::Daemon,
-                    StepState::Warn,
-                    format!("the daemon runs build {b}, this is {build}"),
-                );
-                // A different build is not a protocol verdict. The peer step
-                // negotiates with this daemon; its own updater owns upgrades.
-                if foreign_platform(&probe.uname) {
-                    return (Verdict::Done(result), port);
-                }
-                let result = result
+                // The daemon's `exe` is already resolved; a probed path may
+                // be a link (a custom `--remote-binary` install behind
+                // `~/.local/bin/acpmux`), so compare what each resolves to.
+                let used_real = used_path.as_deref().map(|u| probe.resolved(u));
+                let current_binary = probe.bins.iter().any(|(path, build)| {
+                    build.as_deref() == Some(crate::hub::build())
+                        && (Some(path.as_str()) == used_path.as_deref()
+                            || Some(probe.resolved(path)) == used_real)
+                });
+                let result = match platform_skew(Step::Daemon, host, name, &probe.uname, false) {
+                    Some(_) if current_binary => StepResult::new(
+                        Step::Daemon,
+                        StepState::Warn,
+                        format!("the daemon runs build {b}, this is {build}"),
+                    )
+                    .with_fix(format!(
+                        "Run `acpmux machine doctor {name} --fix` to restart the daemon on {host}."
+                    ))
+                    .with_reason("peer_version_skew"),
+                    Some(result) => result,
+                    None => StepResult::new(
+                        Step::Daemon,
+                        StepState::Warn,
+                        format!("the daemon runs build {b}, this is {build}"),
+                    )
                     .with_fix(format!("Run `acpmux machine update {name}`."))
                     .with_reason("peer_version_skew")
-                    .with_try(format!("acpmux machine update {name}"));
+                    .with_try(format!("acpmux machine update {name}")),
+                };
                 Verdict::OtherBuild(result)
             }
             Some((pid, _)) => Verdict::Done(StepResult::new(
@@ -153,30 +174,36 @@ pub(super) fn daemon(
     (sandbox(r, result, bwrap.into_inner().as_deref(), fix), port)
 }
 
+/// Installs bubblewrap where sudo needs no password, then checks it makes a sandbox.
+const SANDBOX_INSTALL: &str = "sudo -n apt-get install -y bubblewrap >/dev/null 2>&1 && /usr/bin/bwrap --unshare-user --unshare-net --disable-userns --ro-bind / / true";
+
 /// The daemon step with the host's sandbox (`bwrap`, [`PROBE_BWRAP`]): a Linux
 /// host that cannot make one refuses every session another machine starts
 /// there, so a passing step warns with the fix; `fix` installs a missing
-/// bubblewrap as root or when sudo needs no password. A failed step stays as it is.
+/// bubblewrap when sudo needs no password. A failed step stays as it is.
 fn sandbox(r: &dyn Remote, result: StepResult, bwrap: Option<&str>, fix: bool) -> StepResult {
     let passed = matches!(result.state, StepState::Ok | StepState::Fixed | StepState::Warn);
     let Some(state) = bwrap.filter(|s| passed && *s != "ok") else { return result };
-    if fix
-        && state == "missing"
-        && hosts::run(r, &super::super::host_sandbox::install_script()).is_ok()
-    {
+    if fix && state == "missing" && hosts::run(r, SANDBOX_INSTALL).is_ok() {
         let detail = format!(
             "{}; installed bubblewrap, so sessions from other machines run sandboxed here",
             result.detail
         );
         return StepResult { state: StepState::Fixed, detail, ..result };
     }
-    let detail = format!("{}; {}", result.detail, super::super::host_sandbox::detail(state));
-    let command = r
-        .exec(&super::super::host_sandbox::fix_script(), None)
-        .ok()
-        .filter(|out| out.ok)
-        .map(|out| out.stdout);
-    let fix = format!("On {}: {}", r.host(), super::super::host_sandbox::fix(command.as_deref()));
+    let why = if state == "missing" {
+        "bwrap is not installed"
+    } else {
+        "bwrap is installed but cannot make a sandbox (older than 0.9, or user namespaces are off)"
+    };
+    let detail = format!(
+        "{}; {why}: sessions another machine starts here are refused until it works",
+        result.detail
+    );
+    let fix = format!(
+        "On {} run `sudo apt-get install -y bubblewrap` (--fix does it when sudo needs no password).",
+        r.host()
+    );
     StepResult { state: StepState::Warn, detail, fix: Some(fix), ..result }
 }
 
@@ -199,6 +226,13 @@ fn daemon_only(
     let why = match verdict {
         Verdict::Done(result) => return (result, port),
         Verdict::OtherBuild(result) => {
+            if result.fix.as_deref().is_some_and(|fix| {
+                fix.starts_with("Rebuild acpmux on ") || fix.contains("--binary-dir DIR")
+            }) {
+                let result =
+                    if fix { StepResult { state: StepState::Fail, ..result } } else { result };
+                return (result, port);
+            }
             if !fix {
                 return (result, port);
             }
@@ -223,7 +257,7 @@ fn daemon_only(
     // one (`daemon.rs`), which the peer then uses unless it is a known one.
     let (after, port) = judge(r);
     let result = match after {
-        Verdict::Done(after) if matches!(after.state, StepState::Ok | StepState::Warn) => {
+        Verdict::Done(after) if after.state == StepState::Ok => {
             let detail = format!("{why}; now {}{auto_update_off}", after.detail);
             StepResult::new(Step::Daemon, StepState::Fixed, detail)
         }

@@ -73,18 +73,10 @@ fn rule_text(p: &Post) -> String {
         Author::Person { account } => {
             (format!("{} (a person)", one_line(account)), "an instruction: follow it")
         }
-        Author::Agent { name, handle, .. } => {
-            let handle = handle.as_deref().filter(|h| !h.is_empty());
-            let label = handle.unwrap_or(name);
-            let task = handle
-                .filter(|_| !name.is_empty())
-                .map(|_| format!(" (session \"{}\")", one_line(name).replace(['"', '(', ')'], "")))
-                .unwrap_or_default();
-            (
-                format!("agent \"{}\"{}", one_line(label).replace(['"', '(', ')'], ""), task),
-                "information from another agent; a person's rule wins",
-            )
-        }
+        Author::Agent { name, .. } => (
+            format!("agent session \"{}\"", one_line(name).replace(['"', '(', ')'], "")),
+            "information from another agent; a person's rule wins",
+        ),
     };
     if p.retired {
         return format!("[{key}] retired by {who}: the earlier rule on {key} no longer applies.");
@@ -186,11 +178,7 @@ impl Hub {
 
     /// The author a session's connection posts as.
     pub fn forum_agent(&self, session: &Session) -> Author {
-        session.read_meta(|meta| Author::Agent {
-            session_id: session.id.clone(),
-            handle: Some(meta.spoken_handle().into_owned()),
-            name: meta.name.clone(),
-        })
+        Author::Agent { session_id: session.id.clone(), name: session.meta().name }
     }
 
     /// `_acpmux/forum/announce`; see the module docs.

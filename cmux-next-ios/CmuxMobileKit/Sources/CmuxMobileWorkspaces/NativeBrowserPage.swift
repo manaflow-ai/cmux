@@ -1,7 +1,5 @@
 #if os(iOS)
 import CmuxMobileDesign
-import CmuxMobileModel
-import Observation
 import SwiftUI
 
 /// A Mac's browser tab opened on this iPhone: the phone's own web view, a small
@@ -16,18 +14,12 @@ struct NativeBrowserPage: View {
     /// Linked to the Mac: the page can go back to its mirror.
     var canMirror: Bool
     var mirror: @MainActor () -> Void
-    /// A page the phone couldn't reach is loaded again on its own (no button: reloading a
-    /// page that never arrived has only one answer); the card says so past the quiet bound.
-    @State private var autoRetry = AutoRetry()
-    /// The card a retry is answering, kept on screen while the page loads again (the load
-    /// clears `model.problem`), so the card does not blink away and back.
-    @State private var retrying: BrowserTabModel.Problem?
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             BrowserPage(model: model, insets: insets, isZoomGestureActive: isZoomGestureActive, reportScroll: reportScroll)
                 .accessibilityIdentifier("browser.native")
-            if let problem = model.problem ?? retrying {
+            if let problem = model.problem {
                 card(problem)
                     .padding(.top, insets.top)
                     .padding(.bottom, insets.bottom)
@@ -38,7 +30,7 @@ struct NativeBrowserPage: View {
                         .font(.system(size: 15, weight: .medium))
                         .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.cmuxPressGlass)
+                .buttonStyle(.cmuxPressFill)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .padding(12)
                 .padding(.bottom, insets.bottom)
@@ -49,30 +41,6 @@ struct NativeBrowserPage: View {
         }
         // Another tab or the workspace list: the page's sound and video stop.
         .onDisappear { model.webView.pauseAllMediaPlayback() }
-        .autoRetry(autoRetry, failing: model.problem.map(Self.retries) ?? false || retrying != nil) { await retry() }
-    }
-
-    /// Only a page the phone could not reach is loaded again; a Mac-only or insecure page
-    /// would fail the same way every time.
-    static func retries(_ problem: BrowserTabModel.Problem) -> Bool {
-        !problem.isMacOnly && !problem.isInsecure
-    }
-
-    /// Loads the failed address again and returns once it answered (loaded, or failed again).
-    private func retry() async {
-        guard let problem = model.problem ?? retrying, Self.retries(problem), !model.isLoading else { return }
-        retrying = problem
-        defer { retrying = nil }
-        model.reloadOrStop()
-        let model = model
-        // The load starts at once (or fails at once), then answers within WebKit's own timeout.
-        await BoundedWait(.seconds(2)).run { @MainActor in await Self.until(model) { $0.isLoading || $0.problem != nil } }
-        await BoundedWait(.seconds(60)).run { @MainActor in await Self.until(model) { !$0.isLoading || $0.problem != nil } }
-    }
-
-    /// Waits until `done` reads true (Observation wakes it; no polling); cancelling it ends it.
-    private static func until(_ model: BrowserTabModel, _ done: @escaping @MainActor (BrowserTabModel) -> Bool) async {
-        await BoundedWait.observing { !done(model) }
     }
 
     private func card(_ problem: BrowserTabModel.Problem) -> some View {
@@ -89,17 +57,15 @@ struct NativeBrowserPage: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            if Self.retries(problem) {
-                AutoRetryQuietLine(autoRetry)
-            }
             HStack(spacing: 10) {
+                if !problem.isMacOnly, !problem.isInsecure {
+                    Button("Try Again") { model.reloadOrStop() }
+                        .buttonStyle(.glass)
+                        .accessibilityIdentifier("browser.native.retry")
+                }
                 if canMirror {
                     Button("Mirror from \(macName)", action: mirror)
                         .buttonStyle(.glassProminent)
-                        // One plain element framed by layout: the prominent glass
-                        // style's own reported an unconverted frame in the iPhone
-                        // app's scaled window on iPad (as Welcome's sign-in row).
-                        .accessibilityRepresentation { Button("Mirror from \(macName)", action: mirror) }
                         .accessibilityIdentifier("browser.native.mirror")
                 }
             }

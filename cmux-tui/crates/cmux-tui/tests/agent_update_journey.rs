@@ -13,7 +13,7 @@
 //! comes from its saved health check (`harness-health.json`).
 #![cfg(unix)]
 
-use crate::journey_support;
+mod journey_support;
 
 use std::fs;
 use std::io::{BufRead as _, BufReader, Write as _};
@@ -75,12 +75,6 @@ fn machine_with(root: &Path, before_update: &str) -> Machine {
     let config = json!({"harnesses": {"fake": {"argv": [claude], "family": "fake"}},
                         "defaultHarness": "fake"});
     fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
-    // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-    fs::set_permissions(
-        dir.join("acpmux/config.json"),
-        <fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
-    )
-    .unwrap();
     // The newest version as the last check read it, fresh: no registry is asked.
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
     let saved = json!([{

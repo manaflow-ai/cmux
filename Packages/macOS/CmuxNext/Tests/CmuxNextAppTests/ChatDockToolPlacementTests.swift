@@ -82,7 +82,7 @@ import Testing
         })
         #expect(made == [shown.upper.layoutPaneID])
         #expect(moves, "a dock tool must split below the existing pane, not become a tab above")
-        #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true, opening: .tool) == .splitBelow(of: shown.upper.layoutPaneID))
+        #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true) == .splitBelow(of: shown.upper.layoutPaneID))
         #expect(!shown.services.linkOpener.turns.isBusy(beside: shown.chat.layoutPaneID))
     }
 
@@ -90,8 +90,8 @@ import Testing
     func dockToolsReuseTheirKindAndSplitForTheOtherKind() throws {
         let shown = try Shown(lower: false)
         defer { shown.close() }
-        #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true, kind: .browser, opening: .tool) == .pane(shown.upper.layoutPaneID))
-        #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true, kind: .terminal, opening: .tool) == .splitBelow(of: shown.upper.layoutPaneID))
+        #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true, kind: .browser) == .pane(shown.upper.layoutPaneID))
+        #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true, kind: .terminal) == .splitBelow(of: shown.upper.layoutPaneID))
         var moves = true
         let opened = ChatColumnPlacement.openTool(from: shown.chat, services: shown.services, kind: .browser) { pane, placed in
             #expect(pane === shown.upper)

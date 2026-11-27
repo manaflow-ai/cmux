@@ -5,12 +5,8 @@ bun=$(command -v bun || true)
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 if [ -f "$root/cmux-tui/bindings/typescript/code-mode/mcp.mjs" ]; then
   script="$root/cmux-tui/bindings/typescript/code-mode/mcp.mjs"
-elif [ -f "$root/Resources/code-mode/mcp.mjs" ] || [ -f "$root/Resources/code-mode.tar.xz" ]; then
-  # Packed in the app (code-mode.tar.xz); mcp.mjs then runs from the unpacked copy in the
-  # user's cache and finds the runner beside this script, not beside itself.
-  here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-  script="$("$here/cmux-code-mode-unpack" "$root/Resources")/mcp.mjs"
-  export CMUX_CODE_MODE_RUNNER="$here/cmux-code-mode-runner"
+elif [ -f "$root/Resources/code-mode/mcp.mjs" ]; then
+  script="$root/Resources/code-mode/mcp.mjs"
 else
   script="$root/code-mode/mcp.mjs"
 fi

@@ -49,25 +49,16 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
     let after = look(&opts);
     // A new attachment counts as hidden first when its person is away, so it sees nothing.
     let count_new = |hub: &Hub| {
-        hub.attach_count_from(s, 1, after == Look::Attending, a_person(conn));
+        hub.attach_count(s, 1, after == Look::Attending);
         if after == Look::Idle {
             hub.look_changed(s, Look::Hidden, Look::Idle, None);
         }
     };
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
-    // The client starts this chat over: its next chunk goes whole (`chunk_deltas.rs`).
-    conn.chunk_deltas.forget(&s.id);
-    conn.interest.attach(&s.id);
-    // Its live stream starts after the chat's last record now; read under the subscriptions'
-    // lock, so a lap's catch-up never reads from before it (`stream_cursor.rs`).
-    conn.stream_cursors.start(&s.id, s.meta().last_seq);
     match subs.insert(s.id.clone(), opts) {
         // A peer's chat of the same raw id counted nothing here: this attachment is new.
         None => count_new(hub),
-        Some(before) if before.remote => {
-            conn.outgoing_presence.detach(hub, &s.id);
-            count_new(hub);
-        }
+        Some(before) if before.remote => count_new(hub),
         // Attaching again starts the look over: an idle one that shows attends again.
         Some(before) => {
             hub.look_changed(s, look(&before), after, None);
@@ -82,13 +73,9 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
 /// Whether presence may still change for `conn`; read under its subscriptions' lock, as every
 /// presence change of a connection is made. The connection's end is marked before
 /// `release_all` takes that lock, so a request still running then (an attach in flight) adds no
-/// entry that nothing would remove. Authored teammate entries may also arrive over a peer link.
+/// entry that nothing would remove. A peer daemon's link never makes an entry ([`a_link`]).
 fn open(conn: &Conn) -> bool {
     !a_link(conn) && !*conn.ended.borrow()
-}
-
-fn presence_open(conn: &Conn, author: Option<&crate::author::Author>) -> bool {
-    !*conn.ended.borrow() && (author.is_some() || !a_link(conn))
 }
 
 /// Whether `conn` is another daemon's link, which stands for none of its clients
@@ -99,55 +86,27 @@ pub(super) fn a_link(conn: &Conn) -> bool {
     conn.origin == Origin::Peer || *conn.name.lock_or_recover() == crate::peer::CLIENT_NAME
 }
 
-/// Whether `conn` is a person's client, whose showing a chat or letting go of it starts its idle
-/// period again (`hub/seen.rs` `attach_count_from`): not another daemon's link ([`a_link`]) and
-/// not an agent's CLI or tool, one that runs in an acpmux session (proven, named or declared,
-/// `cli_caller.rs`). An agent reading a chat (`acpmux last`, `wait`, `tail`) is no use of it.
-pub(super) fn a_person(conn: &Conn) -> bool {
-    !a_link(conn)
-        && conn.caller().is_none()
-        && conn.unproven_caller.get().is_none()
-        && !matches!(conn.declared(), Some(crate::cli_caller::Declared::Agent))
-}
-
 /// Subscribe `conn` to a peer's chat `id` (`peer_forward.rs`), marked remote under the same lock
 /// so this daemon's presence for that raw id never reaches it (`hub/presence.rs`); it counts no
 /// attachment here. `opts` replaces the options (an attach); None keeps them (a prompt, load,
 /// resume or fork). One raw id holds one subscription per connection: an attachment this
 /// connection held to this daemon's own chat of that id ends first, as a detach would.
-pub(super) fn subscribe_remote(
-    hub: &Hub,
-    conn: &Conn,
-    id: &str,
-    peer: &str,
-    opts: Option<SubOpts>,
-) {
+pub(super) fn subscribe_remote(hub: &Hub, conn: &Conn, id: &str, opts: Option<SubOpts>) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     let before = subs.get(id).cloned();
-    if before.as_ref().is_some_and(|sub| sub.remote && sub.remote_peer.as_deref() != Some(peer)) {
-        conn.outgoing_presence.detach(hub, id);
-    }
     if let Some(local) = before.as_ref().filter(|b| !b.remote) {
         conn.unbind_mailbox_receipt(id);
         if let Ok(s) = hub.resolve(id) {
             let mut local = local.clone();
             settle_idle(hub, &s, &mut local);
-            hub.attach_count_from(&s, -1, !local.hidden, a_person(conn));
+            hub.attach_count(&s, -1, !local.hidden);
         }
-        conn.incoming_presence.detach(hub, id);
         hub.presence.leave(id, &conn.id);
         conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, id);
-        conn.stream_cursors.forget(id);
-    }
-    if opts.is_some() {
-        conn.chunk_deltas.forget(id);
     }
     let mut next = opts.or(before).unwrap_or_default();
     next.remote = true;
-    next.remote_peer = Some(peer.to_owned());
-    next.remote_presence = Some(hub.presence.watch_remote(peer, id));
     next.idle = false;
-    conn.interest.attach(id);
     subs.insert(id.to_owned(), next);
 }
 
@@ -156,25 +115,14 @@ pub(super) fn subscribe_remote(
 /// peer's chat of the same raw id becomes this one.
 pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
-    conn.interest.attach(&s.id);
     match subs.get_mut(&s.id) {
         None => {
-            // A lap catches this ACP subscription up from here too (`stream_cursor.rs`); a
-            // later prompt keeps the cursor where its stream stands.
-            conn.stream_cursors.start(&s.id, s.meta().last_seq);
             subs.insert(s.id.clone(), SubOpts::default());
-            hub.attach_count_from(s, 1, true, a_person(conn));
+            hub.attach_count(s, 1, true);
         }
         Some(opts) if opts.remote => {
-            conn.outgoing_presence.detach(hub, &s.id);
-            // A chat that came back from the peer it moved to goes on from the last record of
-            // it sent (`follow.rs`), not from the log's end.
-            let at = conn.follows.to_local(&s.id).unwrap_or_else(|| s.meta().last_seq);
-            conn.stream_cursors.start(&s.id, at);
             opts.remote = false;
-            opts.remote_peer = None;
-            opts.remote_presence = None;
-            hub.attach_count_from(s, 1, !opts.hidden, a_person(conn));
+            hub.attach_count(s, 1, !opts.hidden);
             conn.message_notices
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -184,46 +132,25 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     }
 }
 
-/// A remote attachment belongs to this client; the shared peer link stays attached for others.
-pub(super) fn detach_remote(hub: &Hub, conn: &Conn, id: &str) {
-    let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
-    if subs.get(id).is_some_and(|sub| sub.remote) {
-        subs.remove(id);
-        conn.interest.detach(id);
-        conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, id);
-        conn.chunk_deltas.forget(id);
-        conn.stream_cursors.forget(id);
-        conn.follows.forget(id);
-        conn.unbind_mailbox_receipt(id);
-    }
-    conn.outgoing_presence.detach(hub, id);
-}
-
 /// `_acpmux/detach`.
 pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, &s.id);
-    conn.chunk_deltas.forget(&s.id);
-    conn.stream_cursors.forget(&s.id);
-    conn.follows.forget(&s.id);
     if let Some(mut before) = subs.remove(&s.id) {
-        conn.interest.detach(&s.id);
         conn.unbind_mailbox_receipt(&s.id);
         if !before.remote {
             settle_idle(hub, s, &mut before);
-            hub.attach_count_from(s, -1, !before.hidden, a_person(conn));
+            hub.attach_count(s, -1, !before.hidden);
         }
     }
-    conn.incoming_presence.detach(hub, &s.id);
     hub.presence.leave(&s.id, &conn.id);
 }
 
-/// `_acpmux/view {sessionId, visible, attending?, seenSeq?, cutoverSeq?}`: whether this attached client shows
+/// `_acpmux/view {sessionId, visible, attending?, seenSeq?}`: whether this attached client shows
 /// the chat, and whether its person attends it (default true: a client that never says counts as
 /// watched, as before). `seenSeq` is the log seq the client had at its person's last input, where
-/// a chat they stopped attending was left off (`hub/seen.rs`). `cutoverSeq` is a transient recap
-/// pin for the visible, attending pane. Answers `{lastReturn}` when the person's return put
-/// "New since you looked" on the chat.
+/// a chat they stopped attending was left off (`hub/seen.rs`). Answers `{lastReturn}` when the
+/// person's return put "New since you looked" on the chat.
 pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let s = hub.resolve(session_key(params)?)?;
     let visible = params
@@ -242,32 +169,18 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
             Some(v.as_u64().ok_or_else(|| RpcError::invalid_params("seenSeq must be a log seq"))?)
         }
     };
-    let cutover = match params.get("cutoverSeq") {
-        None | Some(Value::Null) => None,
-        Some(v) => Some(
-            v.as_u64().ok_or_else(|| RpcError::invalid_params("cutoverSeq must be a log seq"))?,
-        ),
-    };
     let author = crate::author::author(params)?;
+    if author.is_some() && a_link(conn) {
+        return Err(crate::hub::presence::peer_unsupported());
+    }
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     // A peer's chat of the same raw id is not this one: its visibility is the peer's to count.
     let sub = subs
         .get_mut(&s.id)
         .filter(|sub| !sub.remote)
         .ok_or_else(|| RpcError::invalid_params("attach to the session before _acpmux/view"))?;
-    if conn.incoming_presence.leave(hub, conn, params, &s.id)? {
-        return Ok(json!({}));
-    }
-    if presence_open(conn, author.as_ref()) {
-        let key = conn.incoming_presence.key(conn, params, &s.id)?;
-        hub.presence.view_with_cutover(
-            &s.id,
-            &key,
-            &Who::of(author.as_ref()),
-            visible,
-            attending,
-            cutover,
-        )?;
+    if open(conn) {
+        hub.presence.view(&s.id, &conn.id, &Who::of(author.as_ref()), visible)?;
     }
     if author.is_none() && visible {
         hub.recap_person_shows(&s);
@@ -277,27 +190,6 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
         let before = look(sub);
         sub.hidden = !visible;
         sub.idle = visible && !attending;
-        // Shown again after its stream was left out (`SubOpts::quiet_hidden`): one lag notice,
-        // queued under this lock so it goes before any record the show lets through. It names the
-        // cursor before the first record left out (`afterSeq`): the turn ends and status that
-        // still went out moved the client's own cursor past it, and a read from there would skip
-        // every chunk left out (direct.ts `lagCursor` reads from the older of the two).
-        // Other chats' rows left out while every chat here was hidden (`Conn::leaves_out_row`) are
-        // in the same notice, as `watch: true`: the page reads the list and its asks again.
-        let rows = if visible { conn.rows_left_out.swap(0, Ordering::SeqCst) } else { 0 };
-        if visible && (sub.left_out > 0 || rows > 0) {
-            let stream = std::mem::take(&mut sub.left_out);
-            let after_seq = std::mem::take(&mut sub.left_from);
-            let mut notice = json!({"dropped": stream + rows, "reason": "hidden",
-                "sessionIds": if stream > 0 { json!([s.id]) } else { json!([]) }});
-            if stream > 0 {
-                notice.set("afterSeq", json!(after_seq));
-            }
-            if rows > 0 {
-                notice.set("watch", Value::Bool(true));
-            }
-            conn.send(&Message::notification("_acpmux/lagged", notice));
-        }
         // Under the lock, so a detach racing this one counts the same look.
         back = hub.look_changed(&s, before, look(sub), seen_through);
     }
@@ -316,78 +208,15 @@ pub(super) fn typing(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
         .and_then(Value::as_bool)
         .ok_or_else(|| RpcError::invalid_params("on must be true or false"))?;
     let author = crate::author::author(params)?;
+    if a_link(conn) {
+        return Err(crate::hub::presence::peer_unsupported());
+    }
     let subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
-    if subs.get(&s.id).is_none_or(|opts| opts.remote) || !presence_open(conn, author.as_ref()) {
+    if subs.get(&s.id).is_none_or(|opts| opts.remote) || !open(conn) {
         return Err(RpcError::invalid_params("attach to the session before _acpmux/typing"));
     }
-    let key = conn.incoming_presence.key(conn, params, &s.id)?;
-    hub.presence.typing(&s.id, &key, &Who::of(author.as_ref()), on)?;
+    hub.presence.typing(&s.id, &conn.id, &Who::of(author.as_ref()), on)?;
     Ok(json!({}))
-}
-
-/// `_acpmux/follow {target}` (RFD 0141 phase 3): the caller's author (or the owner) follows the
-/// person `target` live in a chat here, or stops (`null`). Its rooms hear it as the record's
-/// `following` (`hub/presence.rs`). A peer daemon's link follows nobody.
-pub(super) fn follow(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
-    let target = match params.get("target") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(id)) if !id.is_empty() => Some(id.as_str()),
-        Some(_) => return Err(RpcError::invalid_params("target must be a presence id or null")),
-    };
-    let author = crate::author::author(params)?;
-    if a_link(conn) {
-        return Err(crate::hub::presence::peer_unsupported());
-    }
-    let who = Who::of(author.as_ref());
-    hub.presence.follow(&conn.id, &who.id, target)?;
-    Ok(json!({"following": target}))
-}
-
-/// `_acpmux/rooms {chats?, workspaces?}` (RFD 0141 phase 2): the rooms this connection shows
-/// now, replacing the set it named before (`hub/presence.rs`). Each chat must be attached here,
-/// as for `_acpmux/typing`: a room shows who has the chat open, which only its attached
-/// connections hear. A peer daemon's link watches none.
-pub(super) fn rooms(hub: &Hub, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
-    use crate::hub::presence::{Room, Sink};
-    if a_link(conn) {
-        return Err(crate::hub::presence::peer_unsupported());
-    }
-    let ids = |key: &str| -> Result<Vec<String>, RpcError> {
-        match params.get(key) {
-            None | Some(Value::Null) => Ok(Vec::new()),
-            Some(Value::Array(ids)) => ids
-                .iter()
-                .map(|id| {
-                    id.as_str()
-                        .map(str::to_owned)
-                        .ok_or_else(|| RpcError::invalid_params(format!("{key} must be strings")))
-                })
-                .collect(),
-            Some(_) => Err(RpcError::invalid_params(format!("{key} must be a list of ids"))),
-        }
-    };
-    let mut rooms = Vec::new();
-    {
-        let subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
-        for key in ids("chats")? {
-            let id = hub.resolve(&key)?.id.clone();
-            if subs.get(&id).is_none_or(|opts| opts.remote) || !open(conn) {
-                return Err(RpcError::invalid_params(format!(
-                    "attach to {key} before watching its room"
-                )));
-            }
-            rooms.push(Room::Chat(id));
-        }
-    }
-    rooms.extend(ids("workspaces")?.into_iter().map(Room::Workspace));
-    let weak = Arc::downgrade(conn);
-    let sink: Sink = Arc::new(move |note| {
-        if let Some(conn) = weak.upgrade() {
-            conn.send(&Message::notification(crate::rpc::method::MUX_ROOM, note));
-        }
-    });
-    let watched = hub.presence.rooms(&conn.id, sink, rooms)?;
-    Ok(json!({"rooms": watched}))
 }
 
 /// `_acpmux/markUnread {sessionId, readThrough?}` (cx-ncc.78): the person marks a chat unread; it
@@ -436,7 +265,6 @@ pub(super) fn release_all(hub: &Hub, conn: &Conn) {
     let mut held = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     let subs: Vec<(String, SubOpts)> = held.drain().collect();
     hub.presence.close(&conn.id);
-    conn.incoming_presence.close(hub);
     drop(held);
     for (id, opts) in subs {
         conn.unbind_mailbox_receipt(&id);
@@ -446,7 +274,7 @@ pub(super) fn release_all(hub: &Hub, conn: &Conn) {
         {
             let mut opts = opts;
             settle_idle(hub, &s, &mut opts);
-            hub.attach_count_from(&s, -1, !opts.hidden, a_person(conn));
+            hub.attach_count(&s, -1, !opts.hidden);
         }
     }
 }

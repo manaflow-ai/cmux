@@ -216,12 +216,12 @@ pub(super) fn print_installed(installed: bool) {
     if installed {
         println!("installed: it shows where cmux places it (the sidebar for a section)");
     } else {
-        println!("not installed: it keeps loading as a preview (`cmux apps install` installs it)");
+        println!("not installed: it keeps loading as a preview (`cmux apps install` to try again)");
     }
 }
 
 /// A reply's data, or its error as `code: message`.
-pub(super) fn answer(value: &Value) -> Result<Value, String> {
+fn answer(value: &Value) -> Result<Value, String> {
     if value.get("ok").and_then(Value::as_bool) == Some(true) {
         return Ok(value.get("data").cloned().unwrap_or(Value::Null));
     }

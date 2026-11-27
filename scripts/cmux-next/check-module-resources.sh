@@ -26,19 +26,11 @@ for m in re.finditer(r'\.(target|testTarget)\(\s*name:\s*"([^"]+)"(.*?)\n       
     if not src.is_dir() or "resources:" in body:
         continue
     files = [p for p in src.rglob("*") if p.is_file()]
-    # A target on StringCatalogsPlugin builds each `<Table>.xcstrings.d/` (one file per key,
-    # scripts/cmux-next/string_catalogs.py) into a table SwiftPM processes as the module's resource:
-    # its entry files are plugin inputs, and the plugin's table gives it a module bundle.
-    plugin_built = "StringCatalogsPlugin" in body
-    def plugin_input(p):
-        return plugin_built and any(part.endswith(".xcstrings.d") for part in p.relative_to(src).parts[:-1])
-    resources = [p for p in files if (p.suffix == ".xcstrings" and not plugin_input(p))
-                 or "Resources" in p.relative_to(src).parts[:-1]]
+    resources = [p for p in files if p.suffix == ".xcstrings" or "Resources" in p.relative_to(src).parts[:-1]]
     swift = [p for p in files if p.suffix == ".swift"]
     users = [p for p in swift if uses_module.search(code(p))]
     testable = kind == "testTarget" and any("@testable import" in code(p) for p in users)
-    bundled = plugin_built and any(plugin_input(p) for p in files)
-    if resources or (users and not testable and not bundled):
+    if resources or (users and not testable):
         what = ", ".join(sorted({str(p.relative_to(src)) for p in (resources or users)})[:4])
         failures.append(f"{name}: declares no resources: but has {what}")
 for f in failures:

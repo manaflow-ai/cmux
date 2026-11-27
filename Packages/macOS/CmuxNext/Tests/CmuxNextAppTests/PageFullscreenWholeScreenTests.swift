@@ -105,7 +105,6 @@ struct PageFullscreenWholeScreenTests {
         #expect(content.panes[beside.layoutPaneID]?.isVisible != true, "the pane beside the page steps aside")
         let presented = try #require(content.layoutModel.screens.first { $0.layout.panes.contains(pane.layoutPaneID) })
         #expect(presented.layout.panes == [pane.layoutPaneID] && presented.zoomed, "the page's pane alone fills its screen")
-        #expect(presented.presented, "the layout does not know that this zoom is a page's: it would dim the other panes for it")
         #expect(content.workspace.screens.map(\.zoomedPane) == zoomBefore, "nothing of it reaches the daemon's tree")
 
         tab.simulate(.contentFullscreenChanged(false))

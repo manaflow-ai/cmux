@@ -23,7 +23,6 @@ use rusqlite::types::Value as Sql;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, params_from_iter};
 
 use crate::error::HistoryError;
-use crate::search_syntax::SearchFilter;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS docs(
@@ -39,11 +38,6 @@ PRAGMA user_version=1;
 
 /// The shortest word the trigram index can find.
 const MIN_TEXT_WORD: usize = 3;
-
-/// The most of one doc's text the index holds: its first this many bytes. A query's snippet reads
-/// the whole text of each hit, so one 50 MB message (a pasted log) made every query that found it
-/// take seconds (`tests/search_index_scale.rs`).
-pub const MAX_TEXT_BYTES: usize = 256 * 1024;
 
 /// What a hit is, and so where it jumps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -76,19 +70,6 @@ impl SearchKind {
 
     pub fn parse(value: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|kind| kind.as_str() == value)
-    }
-
-    /// The kind a search's `is:` names: the wire name or its plural
-    /// (`agent` and `agents` are chats too).
-    pub fn named(name: &str) -> Option<Self> {
-        match name {
-            "chats" | "agent" | "agents" => Some(Self::Chat),
-            "commands" => Some(Self::Command),
-            "scrollbacks" => Some(Self::Scrollback),
-            "tabs" => Some(Self::Tab),
-            "workspaces" => Some(Self::Workspace),
-            _ => Self::parse(name),
-        }
     }
 
     /// Names, which short queries match too.
@@ -218,89 +199,40 @@ impl SearchIndex {
             .optional()?)
     }
 
-    /// [`SearchIndex::search_at`] now, with today starting at UTC midnight.
+    /// Hits for every word of `query`, newest first, of `kinds` (every kind
+    /// when empty). Words of three letters or more search the text; a query
+    /// of only shorter words matches tab and workspace names.
     pub fn search(
         &self,
         query: &str,
         kinds: &[SearchKind],
         limit: usize,
     ) -> Result<Vec<SearchHit>, HistoryError> {
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX));
-        self.search_at(query, kinds, limit, now_ms, now_ms - now_ms.rem_euclid(86_400_000))
-    }
-
-    /// Hits for every word of `query`, newest first, of `kinds` (every kind
-    /// when empty). Words of three letters or more search the text; a query
-    /// of only shorter words matches tab and workspace names. The search
-    /// operators ([`SearchFilter`]) narrow by kind and time and leave words
-    /// out; a query of operators alone lists the newest docs they pass.
-    pub fn search_at(
-        &self,
-        query: &str,
-        kinds: &[SearchKind],
-        limit: usize,
-        now_ms: i64,
-        local_day_start_ms: i64,
-    ) -> Result<Vec<SearchHit>, HistoryError> {
-        let filter = SearchFilter::parse(query, now_ms, local_day_start_ms, SearchKind::named);
-        let kinds: Vec<SearchKind> = match (kinds.is_empty(), filter.kinds.is_empty()) {
-            (_, true) => kinds.to_vec(),
-            (true, false) => filter.kinds.clone(),
-            (false, false) => {
-                let both: Vec<SearchKind> =
-                    kinds.iter().copied().filter(|kind| filter.wants(kind)).collect();
-                if both.is_empty() {
-                    return Ok(Vec::new());
-                }
-                both
-            }
-        };
-        let names_only = filter.words.is_empty() && filter.excluded.is_empty();
-        let operators = filter.kinds.len()
-            + usize::from(filter.after_ms.is_some())
-            + usize::from(filter.before_ms.is_some());
-        if limit == 0 || (names_only && operators == 0) {
+        let words: Vec<&str> = query.split_whitespace().collect();
+        if words.is_empty() || limit == 0 {
             return Ok(Vec::new());
         }
-        let words: Vec<&str> = filter.words.iter().map(String::as_str).collect();
         let long: Vec<&str> =
             words.iter().copied().filter(|word| word.chars().count() >= MIN_TEXT_WORD).collect();
         if long.is_empty() {
-            return self.search_names(&words, &kinds, &filter, limit);
+            return self.search_names(&words, kinds, limit);
         }
-        let quote = |word: &&str| format!("\"{}\"", word.replace('"', "\"\""));
-        let mut expression = long.iter().map(quote).collect::<Vec<_>>().join(" AND ");
-        // The trigram index cannot find a word shorter than three letters:
-        // those exclusions test the matched rows' text instead.
-        let (long_out, short_out): (Vec<&String>, Vec<&String>) =
-            filter.excluded.iter().partition(|word| word.chars().count() >= MIN_TEXT_WORD);
-        for word in long_out {
-            expression.push_str(" NOT ");
-            expression.push_str(&quote(&word.as_str()));
-        }
+        let expression = long
+            .iter()
+            .map(|word| format!("\"{}\"", word.replace('"', "\"\"")))
+            .collect::<Vec<_>>()
+            .join(" AND ");
         // The trigram tokenizer counts characters, so the snippet keeps 64 of them.
         let mut values = vec![Sql::Text(expression)];
         // `+d.kind` keeps SQLite off the kind index: the text match, newest first, drives the
         // query, so a rare kind does not test the match row by row over the whole index.
-        let mut sql_filter = kind_filter("+d.kind", &kinds, &mut values);
-        sql_filter.push_str(&time_filter("+d.at_ms", &filter, &mut values));
-        // Both columns, as the FTS `NOT` above tests both.
-        for word in short_out {
-            sql_filter.push_str(
-                " AND docs_text.text NOT LIKE ? ESCAPE '\\' AND d.title NOT LIKE ? ESCAPE '\\'",
-            );
-            let pattern = format!("%{}%", escape_like(word));
-            values.push(Sql::Text(pattern.clone()));
-            values.push(Sql::Text(pattern));
-        }
+        let filter = kind_filter("+d.kind", kinds, &mut values);
         values.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
         let sql = format!(
             "SELECT d.key, d.kind, d.target, d.position, d.title, d.at_ms, \
              snippet(docs_text, 0, '', '', '…', 64) \
              FROM docs_text JOIN docs d ON d.id = docs_text.rowid \
-             WHERE docs_text MATCH ?{sql_filter} ORDER BY docs_text.rowid DESC LIMIT ?"
+             WHERE docs_text MATCH ?{filter} ORDER BY docs_text.rowid DESC LIMIT ?"
         );
         let mut statement = self.connection.prepare(&sql)?;
         let rows = statement.query_map(params_from_iter(values), |row| {
@@ -310,44 +242,29 @@ impl SearchIndex {
         Ok(rows.filter_map(Result::transpose).collect::<Result<_, _>>()?)
     }
 
-    /// Tab and workspace names containing every word and no excluded one
-    /// (ASCII case folded). With no word at all, the newest docs of every
-    /// kind asked, labeled by their titles.
+    /// Tab and workspace names containing every word (ASCII case folded).
     fn search_names(
         &self,
         words: &[&str],
         kinds: &[SearchKind],
-        filter: &SearchFilter<SearchKind>,
         limit: usize,
     ) -> Result<Vec<SearchHit>, HistoryError> {
         let names: Vec<SearchKind> = SearchKind::ALL
             .into_iter()
-            .filter(|kind| {
-                (words.is_empty() || kind.is_name()) && (kinds.is_empty() || kinds.contains(kind))
-            })
+            .filter(|kind| kind.is_name() && (kinds.is_empty() || kinds.contains(kind)))
             .collect();
         if names.is_empty() {
             return Ok(Vec::new());
         }
         let mut values = Vec::new();
-        let mut sql_filter = kind_filter("d.kind", &names, &mut values);
-        sql_filter.push_str(&time_filter("d.at_ms", filter, &mut values));
+        let filter = kind_filter("d.kind", &names, &mut values);
         let mut sql = format!(
             "SELECT d.key, d.kind, d.target, d.position, d.title, d.at_ms \
-             FROM docs d LEFT JOIN docs_text t ON t.rowid = d.id WHERE 1{sql_filter}"
+             FROM docs d WHERE 1{filter}"
         );
         for word in words {
             sql.push_str(" AND instr(lower(d.title), lower(?)) > 0");
             values.push(Sql::Text((*word).to_owned()));
-        }
-        // An exclusion leaves out a doc whose name or text has it.
-        for word in &filter.excluded {
-            sql.push_str(
-                " AND instr(lower(d.title), lower(?)) = 0 \
-                 AND (t.text IS NULL OR t.text NOT LIKE ? ESCAPE '\\')",
-            );
-            values.push(Sql::Text(word.clone()));
-            values.push(Sql::Text(format!("%{}%", escape_like(word))));
         }
         sql.push_str(" ORDER BY d.id DESC LIMIT ?");
         values.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
@@ -427,18 +344,9 @@ fn put(transaction: &Transaction<'_>, doc: &SearchDoc) -> Result<(), HistoryErro
     let id = transaction.last_insert_rowid();
     transaction.execute(
         "INSERT INTO docs_text(rowid, text, title) VALUES (?1, ?2, ?3)",
-        params![id, bounded(&doc.text), doc.title],
+        params![id, doc.text, doc.title],
     )?;
     Ok(())
-}
-
-/// The first [`MAX_TEXT_BYTES`] of `text`, cut on a character boundary.
-fn bounded(text: &str) -> &str {
-    let end = (0..=text.len().min(MAX_TEXT_BYTES))
-        .rev()
-        .find(|&at| text.is_char_boundary(at))
-        .unwrap_or_default();
-    text.get(..end).unwrap_or_default()
 }
 
 /// ` AND d.kind IN (?, …)` for `kinds`, binding them; empty for every kind.
@@ -449,25 +357,6 @@ fn kind_filter(column: &str, kinds: &[SearchKind], values: &mut Vec<Sql>) -> Str
     }
     values.extend(kinds.iter().map(|kind| Sql::Text(kind.as_str().to_owned())));
     format!(" AND {column} IN ({})", vec!["?"; kinds.len()].join(", "))
-}
-
-/// `text` as a literal inside a `LIKE ... ESCAPE '\'` pattern.
-fn escape_like(text: &str) -> String {
-    text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
-}
-
-/// ` AND` clauses bounding `column` to `filter`'s time window.
-fn time_filter(column: &str, filter: &SearchFilter<SearchKind>, values: &mut Vec<Sql>) -> String {
-    let mut sql = String::new();
-    if let Some(after) = filter.after_ms {
-        sql.push_str(&format!(" AND {column} >= ?"));
-        values.push(Sql::Integer(after));
-    }
-    if let Some(before) = filter.before_ms {
-        sql.push_str(&format!(" AND {column} < ?"));
-        values.push(Sql::Integer(before));
-    }
-    sql
 }
 
 /// The hit of a row (`key, kind, target, position, title, at_ms`) with its

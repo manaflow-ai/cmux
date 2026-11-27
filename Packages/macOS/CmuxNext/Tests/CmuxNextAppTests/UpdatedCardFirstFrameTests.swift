@@ -318,12 +318,11 @@ struct UpdatedCardFirstFrameTests {
         #expect(island.view.alphaValue == 0, "the page drew before it had its words")
         #expect(!card.covers(windowPoint: middle), "an undrawn card took the pointer from the rows")
 
-        // The page reports with its title: the page shows, at the same height, on no native frost at rest
-        // (Leo 2026-11-27, ask-d2dd4431bf: "there's a glass back that shouldnt be there").
+        // The page reports with its title: the glass and the page show together, at the same height.
         island.report(48)
         sidebar.layoutSubtreeIfNeeded()
         #expect(card.drawn)
-        #expect(card.glass.isHidden)
+        #expect(!card.glass.isHidden)
         #expect(island.view.alphaValue == 1)
         #expect(card.height == 48, "the card moved when its words came")
         #expect(card.covers(windowPoint: card.convert(NSPoint(x: card.bounds.midX, y: card.bounds.midY), to: nil)))

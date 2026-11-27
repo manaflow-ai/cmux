@@ -23,8 +23,7 @@ const PROJECTION_FLOOR_BYTES: usize = 1024 * 1024;
 /// floor applies. A realistic window state is about 30 KB. A larger
 /// projection is refused with an error that names its size; nothing is cut.
 pub(super) const MAX_PROJECTION_BYTES: usize = {
-    let share = (crate::server_protocol::MAX_LAUNCH_SNAPSHOT_BYTES
-        - LAUNCH_SNAPSHOT_TREE_RESERVE_BYTES)
+    let share = (crate::server::MAX_LAUNCH_SNAPSHOT_BYTES - LAUNCH_SNAPSHOT_TREE_RESERVE_BYTES)
         / LAUNCH_SNAPSHOT_PROJECTION_SLOTS;
     if share > PROJECTION_FLOOR_BYTES { share } else { PROJECTION_FLOOR_BYTES }
 };

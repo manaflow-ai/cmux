@@ -97,7 +97,7 @@ URL.
 
 - `browser.omnibar.sources`: ordered list of enabled sources, default
   `["history", "tabs", "bookmarks", "search"]` (`"calculator"` opt-in).
-- `browser.omnibar.maxRows`: default 6 (3...15).
+- `browser.omnibar.maxRows`: default 8 (3...15).
 - `browser.omnibar.remoteSuggestions`: default true; always off in
   incognito and for input that looks like a URL, a file path, an IP or a
   localhost host (no leaking of private URLs to the search engine).

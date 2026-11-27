@@ -18,10 +18,10 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux.json")
         try Data(#"{"computerUse":{"enabled":true}}"#.utf8).write(to: url)
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
-        #expect(settings.snapshot.computerUse.mode != .off)
+        #expect(settings.snapshot.computerUse.enabled)
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.settings = settings
@@ -39,8 +39,7 @@ import Testing
         }
         let phase = object["phase"]?.stringValue
         #expect(phase != "off", "Computer Use is on, but the first read said off: \(status)")
-        // A test bundle embeds no cmux Remote: on, its grants are unknown and nothing can start.
-        #expect(phase == "unavailable", "\(status)")
+        #expect(phase == "starting", "\(status)")
         #expect(object["accessibility"] == .null, "\(status)")
         #expect(object["screen_recording"] == .null, "\(status)")
         // Read-only: the status read did not change cmux.json.

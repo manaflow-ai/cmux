@@ -119,14 +119,11 @@ struct SidebarFirstItemInItsWindowTests {
             }
             let shownB = windowB.state.workspaceID
             #expect(shownB.flatMap(services.workspace(id:))?.isAnyHome != true, "window B shows a Home before the input")
-            // Window A's own workspaces: since #44275 two windows on one space list each other's as guests
-            // (spaces-overhaul-DESIGN.md rule 6), so on the same space A also lists B's Home, by design.
-            let ownedA = { services.windows.registry.value.window(windowA.state.id)?.ownedIDs ?? [] }
-            let (shownA, pageA, membersA) = (windowA.state.workspaceID, windowA.state.page, ownedA())
+            let (shownA, pageA, membersA) = (windowA.state.workspaceID, windowA.state.page, services.windows.registry.members(of: windowA.state.id))
             @MainActor func report() -> String {
                 let owner = { (id: String?) in id.flatMap { services.windows.registry.value.owner(of: $0) } ?? "none" }
                 return "window A shows \(windowA.state.workspaceID ?? "nil") (was \(shownA ?? "nil")), page \(String(describing: windowA.state.page)), "
-                    + "owns \(ownedA()) (owned \(membersA)), lists \(services.windows.registry.members(of: windowA.state.id)); "
+                    + "members \(services.windows.registry.members(of: windowA.state.id)) (were \(membersA)); "
                     + "window B shows \(windowB.state.workspaceID ?? "nil") (was \(shownB ?? "nil"), owner \(owner(windowB.state.workspaceID))), "
                     + "B selects \(String(describing: SidebarNavigation.current(in: windowB, services))); store Home \(homeA.id) in \(owner(homeA.id)); "
                     + "window Homes \(services.daemon.store.workspaces.filter(\.isWindowHome).map { "\($0.id) in \(owner($0.id))" })"
@@ -172,7 +169,7 @@ struct SidebarFirstItemInItsWindowTests {
             #expect(services.windows.registry.value.owner(of: homeB) == idB, "window B's Home is not in window B: \(report())")
             #expect(windowB.state.profileID == roomB, "Home moved window B off its space \(roomB): \(report())")
             #expect(windowA.state.workspaceID == shownA && windowA.state.page == pageA, "\(entry) in window B changed window A: \(report())")
-            #expect(ownedA() == membersA, "window A's own workspaces changed: \(report())")
+            #expect(services.windows.registry.members(of: windowA.state.id) == membersA, "window A's workspaces changed: \(report())")
         }
     }
     /// cmux#37371: a tab row clicked in window B's sidebar (or in a workspace row's hover card) for a workspace window
@@ -196,9 +193,7 @@ struct SidebarFirstItemInItsWindowTests {
             try await PinnedPageTests.until({ opened()?.state.workspaceID != nil }, within: .seconds(60))
             let windowB = try #require(opened())
             let tab = try #require(firstTab())
-            // Window A's own workspaces (its guests from window B, on the same space since #44275, are not counted).
-            let ownedA = { services.windows.registry.value.window(windowA.state.id)?.ownedIDs ?? [] }
-            let membersA = ownedA()
+            let membersA = services.windows.registry.members(of: windowA.state.id)
 
             windowB.sidebar.handle(.selectTab(workspace: CmuxNextSidebar.WorkspaceID(ownA), tab: CmuxNextSidebar.TabID(tab)))
 
@@ -207,10 +202,8 @@ struct SidebarFirstItemInItsWindowTests {
                     + "\(ownA) in \(services.windows.registry.value.owner(of: ownA) ?? "none")"
             })
             #expect(services.windows.registry.value.owner(of: ownA) == windowB.state.id, "the tab's workspace stayed in window A")
-            // Window A, on the same space, keeps showing it as a guest view: the click did not act in window A.
-            #expect(services.windows.registry.value.window(windowA.state.id)?.guests.contains(ownA) == true,
-                    "window A does not list the moved workspace as a guest")
-            #expect(ownedA() == membersA.filter { $0 != ownA }, "window A still owns the workspace whose tab was clicked in window B")
+            #expect(windowA.state.workspaceID != ownA, "window A shows the workspace whose tab was clicked in window B")
+            #expect(services.windows.registry.members(of: windowA.state.id) == membersA.filter { $0 != ownA })
         }
     }
 }

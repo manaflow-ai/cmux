@@ -24,12 +24,6 @@
 //! (cmuxterm-hq `cloud_carrier_failover_probe.py`). Exit 2 for every refusal. A drill that reached
 //! the turn's last event answers the same record under `drill` (exit 0): the judge, not this
 //! command, says whether it lost, repeated or resumed from the wrong seq.
-//!
-//! No answer after step 4 hides where the drill stopped: a failure of the start, the credential or the dial (a
-//! `--timeout` that ran out included) carries the partial record as `details.drill` beside the start's own
-//! `stages_ms`: the empty record, `steps` (`start`, `credential`, `dial`, each `{step, ms, ok}`), `stopped_in`,
-//! `elapsed_ms` and `timeout_ms`; the turn's record adds `turn_ms`, `timeout_ms` and, when it did not finish,
-//! `stopped_in` (`relay connect`, `relay events`, `ssh resume`, `ssh events`; [`turn_step`]).
 
 use serde_json::{Value, json};
 
@@ -132,198 +126,40 @@ pub(super) fn drill_source(
         request.prompt.clone().unwrap_or_default()
     };
     // The start's own steps are bounded by the drill's deadline, prompt or not (`Request::until`).
-    let mut trail = Trail::new(runner.now());
-    // Every answer from here on names the step it stopped in and what each step took (`details.drill`).
-    let stopped =
-        |trail: &Trail, outcome: Outcome| trail.stopped(outcome, plan.spec, caps, request.timeout);
     let bounded = Request { prompt: None, wait: false, until: Some(until), ..request.clone() };
     let started = match run(runner, &bounded) {
         Outcome::Done(answer) => answer,
-        refused => {
-            trail.ended(STEP_START, runner.now(), false);
-            return Err(stopped(&trail, refused));
-        }
+        refused => return Err(refused),
     };
-    trail.ended(STEP_START, runner.now(), true);
     let left = |runner: &mut dyn Runner| until.saturating_duration_since(runner.now());
     if left(runner).is_zero() {
-        trail.stop_at(STEP_CREDENTIAL);
-        return Err(stopped(&trail, out_of_time()));
+        return Err(out_of_time());
     }
-    // The credential is minted for the team the machine is in, as the app's own dial sends that machine's
-    // record team (`CloudCarrierDial`, `session.machine.team`), never the app's active team: the app makes and
-    // lists its Cloud machines in the install's team, so a sign-up team active in the app asked the ticket in a
-    // team with no such machine (404 cloud.machine.not_found; cmuxterm-hq run 44086216741, 2026-11-17).
-    let machine = started.get("machine_id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let asked = left(runner).min(TOKEN_TIMEOUT);
-    let params = match machine_team(runner, &machine, asked) {
-        Some(team) => json!({"team": team}),
-        None => json!({}),
+    let token = match runner.app("auth.token", json!({}), asked) {
+        Some(Ok(token)) => token,
+        Some(Err(error)) => {
+            return Err(refuse(
+                "carrier_fault.no_credential",
+                format!("the app gave no cmux credential: {error}"),
+            ));
+        }
+        None => {
+            return Err(refuse("carrier_fault.no_credential", "no app answered auth.token".into()));
+        }
     };
-    let asked = left(runner).min(TOKEN_TIMEOUT);
-    let token = credential(runner.app("auth.token", params, asked));
-    trail.ended(STEP_CREDENTIAL, runner.now(), token.is_ok());
-    let token = token.map_err(|why| stopped(&trail, refuse("carrier_fault.no_credential", why)))?;
     let left = left(runner);
     if left.is_zero() {
-        trail.stop_at(STEP_DIAL);
-        return Err(stopped(&trail, out_of_time()));
+        return Err(out_of_time());
     }
     let text = |key: &str| started.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
-    let send = prompt_send(
-        SelfRunner::new(global),
-        request,
-        prompt,
-        (text("machine_id"), text("session_id")),
-        until,
-    );
+    let runner = SelfRunner::new(global);
+    let send =
+        prompt_send(runner, request, prompt, (text("machine_id"), text("session_id")), until);
     let dial_deadline = tokio::time::Instant::now() + left;
-    let routes = fault_routes::cloud_routes(&started, &token, dial_deadline, send);
-    trail.ended(STEP_DIAL, runner.now(), routes.is_ok());
-    match routes {
+    match fault_routes::cloud_routes(&started, &token, dial_deadline, send) {
         Ok(routes) => Ok(Box::new(routes)),
-        Err(why) => Err(stopped(&trail, refuse("carrier_fault.no_event_source", why))),
-    }
-}
-
-/// The team `machine` is in, as the app's `cloud.machines` row for it says (`team`, the machine record's own);
-/// `None` when the app has no row for it or the row names no team (an app from before the row had it), and the
-/// credential is then the app's own team's, as before.
-fn machine_team(runner: &mut dyn Runner, machine: &str, timeout: Duration) -> Option<String> {
-    if machine.is_empty() {
-        return None;
-    }
-    let listed = runner.app("cloud.machines", json!({}), timeout)?.ok()?;
-    machine_team_in(&listed, machine)
-}
-
-/// [`machine_team`]'s read of one `cloud.machines` answer.
-pub(super) fn machine_team_in(listed: &Value, machine: &str) -> Option<String> {
-    listed
-        .get("machines")?
-        .as_array()?
-        .iter()
-        .find(|row| {
-            row.get("id").and_then(Value::as_str).is_some_and(|id| id.eq_ignore_ascii_case(machine))
-        })?
-        .get("team")?
-        .as_str()
-        .map(str::trim)
-        .filter(|team| !team.is_empty())
-        .map(str::to_owned)
-}
-
-/// The app's `auth.token` answer as the drill's credential, or why there is none.
-fn credential(answer: Option<Result<Value, Value>>) -> Result<Value, String> {
-    match answer {
-        Some(Ok(token)) => Ok(token),
-        Some(Err(error)) => Err(format!("the app gave no cmux credential: {error}")),
-        None => Err("no app answered auth.token".into()),
-    }
-}
-
-/// The drill's steps before its turn, as the partial record names them.
-const STEP_START: &str = "start";
-const STEP_CREDENTIAL: &str = "credential";
-const STEP_DIAL: &str = "dial";
-
-/// Where a drill got to before its turn: each step it ended (`{step, ms, ok}`, in order) and the one it stopped in.
-/// A drill that stops there, a timeout most of all, answers this beside the start's own `stages_ms` as
-/// `details.drill`, so its record says where it stopped and how long each step took, never only "--timeout ran out".
-pub(super) struct Trail {
-    began: Instant,
-    last: Instant,
-    steps: Vec<Value>,
-    stopped_in: Option<&'static str>,
-}
-
-impl Trail {
-    fn new(began: Instant) -> Self {
-        Self { began, last: began, steps: Vec::new(), stopped_in: None }
-    }
-
-    /// `step` ended at `now`; one that failed is the step the drill stopped in.
-    fn ended(&mut self, step: &'static str, now: Instant, ok: bool) {
-        let ms = now.saturating_duration_since(self.last).as_millis();
-        self.steps.push(json!({"step": step, "ms": ms, "ok": ok}));
-        self.last = now;
-        if !ok {
-            self.stopped_in = Some(step);
-        }
-    }
-
-    /// The drill stopped before `step` started (no time was left for it).
-    fn stop_at(&mut self, step: &'static str) {
-        self.stopped_in = Some(step);
-    }
-
-    /// `outcome` (a failure) with this trail as `details.drill`: the empty drill record (`events` and `resumes`
-    /// none, the judge's shape), the steps, the step it stopped in, the time since the source began and the
-    /// `--timeout` it had. An outcome without a `details` object gets one.
-    fn stopped(
-        &self,
-        outcome: Outcome,
-        spec: FaultSpec,
-        caps: &Value,
-        timeout: Duration,
-    ) -> Outcome {
-        let Outcome::Failed { mut error, exit } = outcome else { return outcome };
-        let mut record = Drill::new(spec, caps.clone()).json();
-        if let Some(object) = record.as_object_mut() {
-            object.insert("steps".into(), json!(self.steps));
-            object.insert("stopped_in".into(), json!(self.stopped_in.unwrap_or(STEP_START)));
-            object.insert(
-                "elapsed_ms".into(),
-                json!(self.last.duration_since(self.began).as_millis()),
-            );
-            object.insert("timeout_ms".into(), json!(timeout.as_millis()));
-        }
-        if let Some(error) = error.as_object_mut() {
-            let details = error.entry("details").or_insert_with(|| json!({}));
-            if !details.is_object() {
-                *details = json!({"was": details.clone()});
-            }
-            if let Some(details) = details.as_object_mut() {
-                details.insert("drill".into(), record);
-            }
-        }
-        Outcome::Failed { error, exit }
-    }
-}
-
-/// The step of the turn the drill stopped in, from its record: the first carrier's connect, its events before the
-/// kill, the next carrier's resume, or that carrier's events (`relay connect`, `relay events`, `ssh resume`,
-/// `ssh events`). The record names each carrier as it went.
-pub(super) fn turn_step(record: &Value, plan: &FaultPlan) -> String {
-    let name = |index: usize| plan.candidates.get(index).map_or("carrier", |route| route.name());
-    let resumes = record.get("resumes").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
-    let failed = |row: &Value| row.get("outcome").and_then(Value::as_str) == Some("error");
-    let killed = record.get("kill").is_some_and(|kill| !kill.is_null());
-    match (resumes, killed) {
-        ([], _) => format!("{} connect", name(0)),
-        ([first], _) if failed(first) => format!("{} connect", name(0)),
-        ([_], false) => format!("{} events", name(0)),
-        ([_], true) => format!("{} resume", name(1)),
-        ([_, second, ..], _) if failed(second) => format!("{} resume", name(1)),
-        _ => format!("{} events", name(1)),
-    }
-}
-
-/// The turn's record (a finished drill's answer, or a failed one's `details`) with the turn's step beside the
-/// source's: `turn_ms`, `timeout_ms` and, when it did not finish, `stopped_in` ([`turn_step`]).
-fn with_turn(
-    record: &mut Value,
-    plan: &FaultPlan,
-    took: Duration,
-    finished: bool,
-    timeout: Duration,
-) {
-    let step = turn_step(record, plan);
-    let Some(object) = record.as_object_mut() else { return };
-    object.insert("turn_ms".into(), json!(took.as_millis()));
-    object.insert("timeout_ms".into(), json!(timeout.as_millis()));
-    if !finished {
-        object.insert("stopped_in".into(), json!(step));
+        Err(why) => Err(refuse("carrier_fault.no_event_source", why)),
     }
 }
 
@@ -461,20 +297,12 @@ pub(super) fn start(
             2,
         );
     };
-    let turn_began = runner.now();
     let drilled = runtime.block_on(run_drill(&plan, events.as_mut(), caps, deadline));
-    let took = runner.now().saturating_duration_since(turn_began);
     // The session's streams end with the routes, inside the runtime.
     runtime.block_on(async move { drop(events) });
     match drilled {
-        Ok(mut record) => {
-            with_turn(&mut record, &plan, took, true, request.timeout);
-            Outcome::Done(json!({"drill": record}))
-        }
-        Err(mut error) => {
-            with_turn(&mut error.record, &plan, took, false, request.timeout);
-            failed(error.code, error.message, error.record, 2)
-        }
+        Ok(record) => Outcome::Done(json!({"drill": record})),
+        Err(error) => failed(error.code, error.message, error.record, 2),
     }
 }
 

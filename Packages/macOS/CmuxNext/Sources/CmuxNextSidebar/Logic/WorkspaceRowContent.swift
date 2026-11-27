@@ -19,12 +19,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var rowColor: GroupColor?
     /// How `rowColor` draws: `.leftRail` or `.fill` (`.dot` draws it as the icon instead).
     public var colorStyle: WorkspaceColorIndicatorStyle = .dot
-    /// How a `.leftRail` row draws `rowColor`: its bar, wash and title tint (``WorkspaceRailLook/standard`` in the app).
-    public var railLook = WorkspaceRailLook.standard
     /// The second line: the shown second-line elements in order, joined.
     public var detail: String?
-    /// The normalized custom title; nil retains every legacy row behavior.
-    public var titleParts: [TitlePart]?
     /// The tab count, when that element is on.
     public var tabCount: Int?
     /// The pull request / CI badge text, when that element is on.
@@ -43,9 +39,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The row badge draws each state apart (`sidebar.detailedStatusIcons`): working, waiting,
     /// error, done. Off (the default), it draws Working or Ready only (`WorkspaceRowBadges`).
     public var detailedStatus = false
-    /// The status mark draws in the leading icon slot, before the title (`sidebar.workspaceRow.statusPlacement`
-    /// `leading`); the row keeps that slot while idle so the title never moves. Off, it draws on the trailing column.
-    public var statusLeads = false
     /// An expanded row (`sidebar.density`): its trailing marks sit on the title's line.
     public var expanded = false
     /// Expanded rows: the time since the last change, on the title's line.
@@ -87,17 +80,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var treeFold: SidebarTreeFold?
     /// The session tree: a folded parent's descendants by state, drawn as chips.
     public var rollUp: SidebarTreeRollUp?
-    /// Failed subagents of its chats: counted in the title line's failed chip (`SidebarTreeRollUpView`), the row's
-    /// one failed mark.
-    public var subagentsFailed = 0
-    /// What the title line's roll-up draws: the tree's hidden sessions with the failed subagents added to its failed
-    /// count, so a failed session or subagent reads as one mark; nil with neither.
-    public var drawnRollUp: SidebarTreeRollUp? {
-        guard subagentsFailed > 0 else { return rollUp }
-        var drawn = rollUp ?? SidebarTreeRollUp()
-        drawn.failed += subagentsFailed
-        return drawn
-    }
     /// The Priority view's chip (`SidebarWorkspace.agentChip`) when it asks for something
     /// (`rowChip`), for the row's accessibility label. Never drawn: a row shows no status words
     /// (Leo 2026-10-21); needs you is the badge's yellow dot.
@@ -130,21 +112,15 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// "remove the second line"). The computer stays in the row's machine mark,
     /// its hover card and its accessibility label; the description in its hover
     /// card; an expanded row (`init(expanded:...)`) keeps its own meta line.
-    init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil, ages: AgeTextCache,
-         relative: Bool = false) {
-        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: ages, relative: relative)
+    init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil, ages: AgeTextCache) {
+        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: ages)
     }
 
     public init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil) {
-        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: AgeTextCache(), relative: false)
+        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: AgeTextCache())
     }
 
-    private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache,
-                 relative: Bool) {
-        if let layout = preferences.layouts.layout(for: ws.rowKind, agent: ws.kindBrand) {
-            self.init(ws, layout: layout, now: now)
-            return
-        }
+    private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache) {
         let set = preferences.resolved(for: ws.rowKind)
         let secondLine = set.secondLine.compactMap { element in Self.text(of: element, in: ws, now: now).map { (element, $0) } }
         var items = secondLine.map(\.1)
@@ -173,7 +149,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             status: status
         )
         trailingStatus = trailing
-        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.rowAge.map { Self.ageText($0, now: now, ages: ages, relative: relative) }
+        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.lastActivity.map { Self.ageText($0, now: now, ages: ages) }
     }
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
@@ -190,7 +166,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     }
 
     init(expanded ws: SidebarWorkspace, now: Date, machine: String?, showsNotification: Bool, showsPullRequest: Bool,
-         ages: AgeTextCache, relative: Bool = false) {
+         ages: AgeTextCache) {
         let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
         let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
@@ -205,27 +181,13 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             showsWorking: ws.agentWorking
         )
         expanded = true
-        time = ws.rowAge.map { Self.ageText($0, now: now, ages: ages, relative: relative) }
+        time = ws.lastActivity.map { Self.ageText($0, now: now, ages: ages) }
         self.meta = meta.isEmpty ? nil : meta.joined(separator: Self.separator)
     }
 
     /// The age of a change, short: a time today, else days (`3d`), weeks
     /// (`3w`) or months (`5mo`), as T3 Code and Codex label chats.
-    /// `relative` (`sidebar.relativeTimestamps`): a change under a day old reads as its age from
-    /// `now` (`1m` at least, `5m`, `2h`) instead of its time.
-    static func ageText(_ date: Date, now: Date, calendar: Calendar = .current, ages: AgeTextCache = AgeTextCache(),
-                        relative: Bool = false) -> String {
-        if relative, case let elapsed = now.timeIntervalSince(date), elapsed < 86_400 {
-            // Whole minutes, at least one (a change this minute reads `1m`, never `0m`), then whole hours.
-            let minutes = max(1, Int(elapsed / 60))
-            let shown = minutes < 60 ? minutes : minutes / 60 * 60
-            return ages.label(elapsedMinutes: shown, locale: .current) {
-                let formatter = DateComponentsFormatter()
-                formatter.unitsStyle = .abbreviated
-                formatter.allowedUnits = shown < 60 ? [.minute] : [.hour]
-                return formatter.string(from: TimeInterval(shown) * 60) ?? ""
-            }
-        }
+    static func ageText(_ date: Date, now: Date, calendar: Calendar = .current, ages: AgeTextCache = AgeTextCache()) -> String {
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
         let minute = Int(date.timeIntervalSince1970 / 60)
         return ages.label(days: days <= 0 ? nil : days, minute: minute, locale: .current, timeZone: calendar.timeZone) {
@@ -275,7 +237,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         // The status block draws the reported entries; the line repeats none.
         case .agentStatus: ws.reported?.entries.isEmpty == false ? nil : nonEmpty(ws.status)
         case .ports: nonEmpty(ws.ports)
-        case .lastActivity: ws.rowAge.map { activityText($0, now: now) }
+        case .lastActivity: ws.lastActivity.map { activityText($0, now: now) }
         case .notification: nonEmpty(ws.notificationText)
         case .icon, .tabCount, .pullRequest, .progress, .working, .log: nil
         }

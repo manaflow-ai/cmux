@@ -1,12 +1,8 @@
-import { cloudflareTest } from "@cloudflare/vitest-plugin"
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers"
 import { exportJWK, exportPKCS8, generateKeyPair } from "jose"
 import { createHash } from "node:crypto"
 import { defineConfig } from "vitest/config"
 import { cloudAllowedTeams } from "./test/setup/cloud-teams.ts"
-import { writeChiefVmSource } from "./scripts/gen-chief-vm-source.ts"
-
-// The turn machine's chief-vm, as the Worker embeds it (build output, not in git).
-writeChiefVmSource()
 
 // Test-only keys: a fake Stack signing key (its JWKS replaces Stack's published
 // keys only when ENVIRONMENT=test) and the API's token signing key.
@@ -47,22 +43,8 @@ export default defineConfig({
     // over 3x headroom over the slowest case without its own timeout. It hides nothing: the slow-tests reporter lists
     // every case over 2 s, and a case over 2 s alone has a slow part to fix (fixed waits, serial setup, big fixtures).
     testTimeout: 20_000,
-    // A Durable Object's background work (the owner outbox's delivery retries, a signup Chief's provision) can still
-    // run when vitest closes a finished file's worker. Its next console line or module resolve then rejects with
-    // vitest's own EnvironmentTeardownError ("Closing rpc while \"resolve\" was pending"), which vitest counted as an
-    // unhandled error and failed a run whose every test passed (backend jobs 134087878865, 134224548433,
-    // 134263123253 on 2026-11-17: 220/220 files passed, exit 1). It is raised by the pool's teardown, after the
-    // file's last test, so it can never be a test's result; every other unhandled error still fails the run.
-    onUnhandledError: (error) => error.name !== "EnvironmentTeardownError",
     // An explicit list drops the reporter vitest adds on GitHub Actions (failure annotations), so it is named here.
-    // VITEST_JSON_OUT names a JSON report of every file's result: CI's shard retry reads its failed files from it.
-    reporters: [
-      "default",
-      "./test/setup/slow-tests-reporter.ts",
-      ...(process.env.GITHUB_ACTIONS === "true" ? ["github-actions"] : []),
-      ...(process.env.VITEST_JSON_OUT ? ["json"] : [])
-    ],
-    ...(process.env.VITEST_JSON_OUT ? { outputFile: { json: process.env.VITEST_JSON_OUT } } : {})
+    reporters: ["default", "./test/setup/slow-tests-reporter.ts", ...(process.env.GITHUB_ACTIONS === "true" ? ["github-actions"] : [])]
   },
   plugins: [
     cloudflareTest({
@@ -150,7 +132,6 @@ export default defineConfig({
           CLOUD_ADMIN_USERS: "user_6412abe5b2830d00012b",
           CLOUD_NAME_PREFIX: "cmuxnp-test-cld-",
           PLATFORM_AGENT_GATEWAY: "on",
-          PLATFORM_MACHINE_GITHUB: "on",
           // Only these teams get the stub plan and provider calls (P1-1); test/setup/cloud-teams.ts.
           CLOUD_ALLOWED_TEAMS: cloudAllowedTeams().join(","),
           GOOGLE_PUBSUB_TOPIC: "projects/cmux-integrations-dev/topics/gmail-push",

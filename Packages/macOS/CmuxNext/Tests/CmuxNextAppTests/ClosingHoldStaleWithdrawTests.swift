@@ -11,10 +11,8 @@ import Testing
 /// (`TabContentCache.release` -> `PaneController.surfaceWasDisplaced` -> `TerminalEntry.close`), while a pane
 /// still presented it. `release` asked the pane that last withdrew the tab before the pane that presents it, and
 /// `withdraw` recorded a pane even when the ledger ignored its withdraw (it did not own the tab: a pane that showed
-/// the tab earlier, before another took it). That pane is not closing, so the release ran at once, in the turns that
-/// show the close. The presenter decides first; a withdraw counts only from the pane that owned the tab. A closing pane
-/// holds the release until it is torn down, after the commit of the frame that shows the close
-/// (`LayoutViewContext.afterClosing`).
+/// the tab earlier, before another took it). That pane is not closing, so the release ran at once, in the motion.
+/// The presenter decides first; a withdraw counts only from the pane that owned the tab.
 @Suite(.closesItsWindows)
 @MainActor struct ClosingHoldStaleWithdrawTests {
     private static func drainMain() async {
@@ -31,24 +29,17 @@ import Testing
         app.cache.withdraw(tab, by: other)
         try #require(app.cache.presenter(of: tab) === closing, "fixture: the ledger still has pane 2 as the tab's presenter")
 
-        // Cmd-W on pane 2's last tab: the pane leaves the layout in this turn (a close is one commit), and its host stays
-        // until the close shows and is torn down after that. Then the tree drops it (the gone-tab watch releases).
+        // Cmd-W on pane 2's last tab: the pane leaves in a spring, then the tree drops it (the gone-tab watch releases).
         let prepared = try #require(closing.prepareClose(closing.stripModel.orderedTabs.map(\.id)), "fixture: the close has a daemon tab")
-        let screen = try #require(app.root.screenViews.values.first { !$0.isHidden }, "fixture: no screen shows")
-        try #require(app.root.context.isClosing(closing.layoutPaneID), "fixture: the layout does not keep the closing pane's host")
+        try #require(app.root.screenViews.values.contains { !$0.isHidden && $0.hasMotion }, "fixture: the close springs")
         app.cache.release(tab)
         #expect(app.cache.existingTerminal(tab) != nil,
                 "the release ran in the close's key turn: it asked a pane that does not present the tab, not the closing one")
         await prepared.finish(false, false)
-        #expect(app.cache.existingTerminal(tab) != nil, "the reply's release ran before the closed pane was torn down")
-        // The frame tick that shows the close (a close that resizes no pane showed in its own turn): it carries no teardown.
-        _ = app.root.advanceFrame(ClosedPaneContentStaysUntilLandingTests.dt)
-        #expect(!screen.frameInput.snapWaitsForContent, "the close did not show at its first frame tick")
-        #expect(app.cache.existingTerminal(tab) != nil, "the frame that shows the close tore the terminal down, before its commit")
-        // That frame's commit tears the closed pane down, and the releases held for the pane run after that turn's commit.
-        app.committed.run()
+        #expect(app.cache.existingTerminal(tab) != nil, "the reply's release ran in the motion")
+        app.settle()
         app.committed.run()
         await Self.drainMain()
-        #expect(app.cache.existingTerminal(tab) == nil, "the closed terminal stayed after the close showed and its pane was torn down")
+        #expect(app.cache.existingTerminal(tab) == nil, "the closed terminal stayed after the landing")
     }
 }

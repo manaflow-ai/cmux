@@ -25,7 +25,8 @@ import Testing
     private static let tolerance: CGFloat = 0.5
 
     /// One workspace of each kind, each showing a status mark, so each row has a last trailing ink to measure.
-    private static func sidebar(machine: SidebarMachine = SidebarMachine(id: MachineID("even-ssh"), name: "Remote", kind: .ssh)) -> SidebarView {
+    private static func sidebar() -> SidebarView {
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         func workspace(_ id: WorkspaceID, _ title: String, _ activity: StatusIndicatorState = .success) -> SidebarWorkspace {
             SidebarWorkspace(id: id, title: title, activity: activity)
         }
@@ -86,14 +87,10 @@ import Testing
                         "hovered: the last control (\(type(of: last)) \(last.frame)) centers at \(last.frame.midX), the column at \(column)")
                 continue
             }
-            if Metrics.densityToken("sidebarContentInset") != nil {
-                #expect(abs(last.frame.midX - SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)) <= Self.tolerance,
-                        "\(name): the last mark stays on the shared trailing column")
-            } else {
-                let trailing = row.bounds.width - last.frame.maxX
-                #expect(abs(trailing - leading) <= Self.tolerance,
-                        "\(name): the leading box starts \(leading) pt inside the fill, the last mark (\(type(of: last)) \(last.frame)) ends \(trailing) pt before its end")
-            }
+            // The trailing glyph's box (the status mark, sized to the glyph) ends that inset before the fill's end.
+            let trailing = row.bounds.width - last.frame.maxX
+            #expect(abs(trailing - leading) <= Self.tolerance,
+                    "\(name): the leading box starts \(leading) pt inside the fill, the last mark (\(type(of: last)) \(last.frame)) ends \(trailing) pt before its end")
         }
     }
 
@@ -141,17 +138,10 @@ import Testing
                 let right = id == Self.hoveredID
                     ? row.bounds.width - SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width) - SidebarStyle.statusGlyphSize / 2
                     : row.bounds.width - last.frame.maxX
-                if let inset = Metrics.densityToken("sidebarContentInset") {
-                    #expect(abs(left - inset) <= 0.75, "the title keeps its density's leading inset")
-                    #expect(abs(top - bottom) <= 0.75, "the title's capitals stay vertically centered")
-                    #expect(abs(last.frame.midX - SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)) <= Self.tolerance,
-                            "\(density.rawValue) \(name): the trailing content stays on the shared column")
-                } else {
-                    let sides = [("top", top), ("bottom", bottom), ("right", right)]
-                    for (side, value) in sides {
-                        #expect(abs(value - left) <= 0.75,
-                                "\(density.rawValue) \(name): the content starts \(left) pt inside the fill's left edge, \(value) pt inside its \(side) edge")
-                    }
+                let sides = [("top", top), ("bottom", bottom), ("right", right)]
+                for (side, value) in sides {
+                    #expect(abs(value - left) <= 0.75,
+                            "\(density.rawValue) \(name): the content starts \(left) pt inside the fill's left edge, \(value) pt inside its \(side) edge")
                 }
             }
         }
@@ -164,12 +154,7 @@ import Testing
             let row = try Self.row(sidebar, Self.looseID)
             let last = try #require(Self.lastTrailingView(row, excluding: [row.title, row.icon, row.subtitle]), "no trailing view")
             let left = row.title.frame.minX, right = row.bounds.width - last.frame.maxX
-            if let inset = Metrics.densityToken("sidebarContentInset") {
-                #expect(abs(left - inset) <= Self.tolerance)
-                #expect(abs(last.frame.midX - SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)) <= Self.tolerance)
-            } else {
-                #expect(abs(left - right) <= Self.tolerance, "expanded: the content starts \(left) pt inside the left edge, ends \(right) before the right")
-            }
+            #expect(abs(left - right) <= Self.tolerance, "expanded: the content starts \(left) pt inside the left edge, ends \(right) before the right")
         }
     }
 }

@@ -54,12 +54,6 @@ pub fn fits(path: &Path) -> bool {
     path.as_os_str().as_bytes().len() <= MAX_PATH_BYTES
 }
 
-/// True when `path` fits the portable socket path limit (no `sun_path` to measure here).
-#[cfg(not(unix))]
-pub fn fits(path: &Path) -> bool {
-    path.as_os_str().len() <= PORTABLE_MAX_PATH_BYTES
-}
-
 /// `Ok` when `path` fits `sun_path`; otherwise an `InvalidInput` error that
 /// names the path, its length and the limit. Call it before `bind` and
 /// `connect` on a path that came from configuration or arguments.

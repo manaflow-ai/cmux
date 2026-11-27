@@ -41,14 +41,6 @@ every run restores the same pages with no server (like for like across runs). Pe
 visible terminal's saved frame) are reported when the build has them: a run that
 showed a saved frame waits up to VISIBLE_GRACE_S more for it.
 
---fresh-copy (cold mode, --app only) deletes the staged bundle before each measured
-launch and copies it again (ditto) from a copy kept at the start: every measured launch is
-the first exec of new files at the same path with the same signature, as an update in place
-or a first launch after a build leaves it, so the system's check of a new copy before main
-is in every run (launch-ready.sh copy=fresh). --ready-mark MARK also waits, within the
-launch's --timeout, for MARK after the first content (reveal.home: Home on screen, the mark
-the 600 ms launch goal reads), so a mark that lands after the first content is in the run.
-
 --time-profile records each measured launch with Instruments' Time Profiler
 (launch_time_profile.py) and prints, per run and as the median over runs, the
 main thread's time up to the first window frame by frame of ours, by leaf
@@ -111,7 +103,6 @@ MARKS = [
     ("services.windows", "services: window manager"),
     ("services.palette_updater", "services: palette, update sheet"),
     ("dfl.services", "dfl: services"),
-    ("dfl.app_actions", "dfl: AppActions.bind"),
     ("dfl.bind", "dfl: actions bound"),
     ("dfl.settings", "dfl: settings and control"),
     ("dfl.menu", "dfl: main menu"),
@@ -127,10 +118,7 @@ MARKS = [
     ("first_window_frame_committed", "first window frame committed"),
     ("launch.non_paint_services", "non-paint services started (updater, ssh, reach)"),
     ("launch.post_frame_feeds", "acpmux-backed feeds started"),
-    ("launch.post_window_warmups", "warm-ups started (Chromium, agent tab import)"),
-    ("launch.background_released", "background work released: the open workspace is live"),
-    ("launch.background_released_by_backstop", "background work released by its backstop"),
-    ("launch.background_released_by_input", "background work released by a key or click"),
+    ("launch.post_window_warmups", "warm-ups started (Chromium, spares, page hosts)"),
     ("launch.agent_page_warmup", "agent page WebKit warm-up started"),
     ("daemon.connect_start", "first connect attempt"),
     ("daemon.status_start", "server status spawn"),
@@ -644,11 +632,6 @@ TIME_PROFILE = False
 WINDOW_PLACEMENT = "test"
 # --new-session-each-run: STRESS builds a new session before every measured launch (the first relaunch after it).
 NEW_SESSION_EACH_RUN = False
-# --fresh-copy: before each measured cold launch, the --app bundle is deleted and copied again from PRISTINE[tag].
-FRESH_COPY = False
-PRISTINE = {}
-# --ready-mark: marks waited for (up to the launch's timeout) after the first content mark.
-READY_MARKS = []
 # --activation: "active" launches the measured app through LaunchServices, frontmost and active as a person's launch;
 # "inactive" spawns it with no activation (behind, not key).
 ACTIVATION = "inactive"
@@ -1221,8 +1204,6 @@ def one_run(tag, mode, timeout, profile=None):
             stop_for_arm(other)
         if tag_daemon_pids(tag):
             raise SystemExit(f"tag {tag}: daemon processes did not exit")
-        if FRESH_COPY:
-            fresh_copy(tag)
     elif mode == "restart":
         if not owner_pids(app_session(tag)):
             prime = Launch(tag, scratch)
@@ -1246,10 +1227,6 @@ def one_run(tag, mode, timeout, profile=None):
         reached = launch.wait_for(final, timeout, any_of=any_of)
         if recorder is not None:
             recorder.interrupt()  # the window ends at the first window frame, long before this mark
-        if reached and READY_MARKS:
-            # Kept whatever else lands meanwhile: the rows read only their own marks. A ready mark that never comes is
-            # missing from the run (the cron's missing_runs row), not a failed run.
-            launch.wait_for(READY_MARKS, timeout)
         if reached and "terminal.launch_frame_shown" in launch.marks:
             # The last visible terminal's saved frame can land after the first live frame: wait briefly for it, so a
             # run never drops the reopen number (a build without the per-pane mark waits this long and has none).
@@ -1307,20 +1284,6 @@ def one_run(tag, mode, timeout, profile=None):
     print("BENCH-CLOCK " + json.dumps({"mode": mode, **marks["bench_clock"],
                                        "app_main_start_ms": launch.marks.get("main_start")}), flush=True)
     return marks
-
-
-def fresh_copy(tag):
-    """--fresh-copy: the tag's bundle deleted and copied again (ditto) from the copy kept at the first run, so the
-    launch is the first exec of new files at the same path, with the same signature (launch-ready.sh copy=fresh). The
-    kept copy is made once, before any launch of this step, from the bundle as staged."""
-    app = APPS[tag]
-    if tag not in PRISTINE:
-        PRISTINE[tag] = os.path.join(tempfile.mkdtemp(prefix=f"bench-startup-pristine-{tag}-"), "pristine.app")
-        subprocess.run(["ditto", app, PRISTINE[tag]], check=True)
-    started = time.monotonic()
-    shutil.rmtree(app)
-    subprocess.run(["ditto", PRISTINE[tag], app], check=True)
-    print(f"  {tag}: fresh copy in {time.monotonic() - started:.1f} s", flush=True)
 
 
 def time_profile(recorder, pid, marks, scratch):
@@ -1506,11 +1469,6 @@ def main():
                              "frontmost, active app as after a Dock click, checked with lsappinfo front at the measured "
                              "point (front_at_measure); inactive: spawned with no activation, behind and not key "
                              "(default: active for --profile stress with restore placement, else inactive)")
-    parser.add_argument("--fresh-copy", action="store_true",
-                        help="cold mode with --app: before each measured launch, delete the bundle and copy it again "
-                             "from a copy kept at the start (the first exec of new files, as after an update or a build)")
-    parser.add_argument("--ready-mark", action="append", default=[], metavar="MARK",
-                        help="after the first content mark, also wait (within --timeout) for MARK, e.g. reveal.home")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     parser.add_argument("--time-profile", action="store_true",
@@ -1544,11 +1502,6 @@ def main():
         parser.error("give at least one --tag or --app")
     RUN_TAGS.extend(args.tag)
     modes = args.mode or ["cold", "warm"]
-    global FRESH_COPY
-    FRESH_COPY = args.fresh_copy
-    READY_MARKS.extend(args.ready_mark)
-    if FRESH_COPY and (modes != ["cold"] or len(args.app) != len(args.tag)):
-        parser.error("--fresh-copy takes --mode cold alone and only --app bundles (it replaces the bundle it launches)")
     if "daemon" in modes:
         modes.remove("daemon")
         for tag in args.tag:
@@ -1574,8 +1527,6 @@ def main():
     finally:
         for tag in args.tag:
             stop(tag_pids(tag))
-        for kept in PRISTINE.values():
-            shutil.rmtree(os.path.dirname(kept), ignore_errors=True)
     print(f"load average: {' '.join(f'{x:.0f}' for x in os.getloadavg())}")
     counted = {tag: {mode: [r for r in runs if counts(r)] for mode, runs in modes_.items()}
                for tag, modes_ in results.items()}

@@ -37,9 +37,6 @@ import tempfile
 import threading
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from state_wait import wait_stable  # noqa: E402
-
 LINUX = platform.system() == "Linux"
 HZ = os.sysconf("SC_CLK_TCK") if LINUX else 100
 
@@ -282,13 +279,6 @@ class Daemon:
     def hosts(self):
         return children(self.pid)
 
-    def settled(self, what, extra=lambda: None):
-        """Until the daemon's hosts and thread counts (and `extra`) read the same for about a second."""
-        def read():
-            hosts = sorted(self.hosts())
-            return hosts, ps_threads(self.pid), [ps_threads(pid) for pid in hosts], extra()
-        wait_stable(read, what, timeout=30, interval=0.2, reads=5)
-
     def snapshot(self):
         hosts = self.hosts()
         return {
@@ -351,10 +341,10 @@ def scenario_s0(binary, terminals, attach, idle):
         events = Drain(daemon.socket, {"id": 1, "cmd": "subscribe"})
         streams = [Drain(daemon.socket, {"id": 2, "cmd": "attach-surface", "surface": surface,
                                          "cols": 120, "rows": 40}) for surface in surfaces[:attach]]
-        daemon.settled(f"{terminals} idle terminals and {attach} attaches", lambda: [stream.bytes for stream in streams])
+        time.sleep(3)  # bench settle; not product synchronization
         loaded = daemon.snapshot()
         before = daemon.usage()
-        time.sleep(idle)  # sleep-ok: the measured idle window (--idle s of CPU between two usage reads)
+        time.sleep(idle)
         after = daemon.usage()
         result = {"startup_s": round(daemon.startup_s, 3), "empty": empty, "loaded": loaded,
                   "idle_window_s": idle, "idle": delta(before, after),
@@ -387,8 +377,7 @@ def flood(daemon, count, flood_bytes, timeout):
             surfaces.append(surface)
     streams = [Drain(daemon.socket, {"id": 2, "cmd": "attach-surface", "surface": surface, "cols": 120,
                                      "rows": 40}) for surface in surfaces]
-    # Until the attaches are in place: hosts, threads and each stream's first bytes stop changing.
-    daemon.settled(f"{count} gated flood terminals", lambda: [stream.bytes for stream in streams])
+    time.sleep(1)  # bench settle
     before = daemon.usage()
     sent_before = sum(stream.bytes for stream in streams)
     started = time.monotonic()
@@ -447,10 +436,10 @@ def scenario_s3(binary, terminals, workspaces):
                 else:
                     daemon.run_terminal(["/bin/cat"], f"scale-{index}", workspace=target)
         create_s = time.monotonic() - started
-        daemon.settled(f"{terminals} terminals in {workspaces} workspaces")
+        time.sleep(3)  # bench settle
         loaded = daemon.snapshot()
         before = daemon.usage()
-        time.sleep(10)  # sleep-ok: the measured 10 s idle window (reported as idle_10s)
+        time.sleep(10)
         after = daemon.usage()
         return {"terminals": terminals, "workspaces": workspaces, "create_s": round(create_s, 3),
                 "empty": empty, "loaded": loaded, "idle_10s": delta(before, after),

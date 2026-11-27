@@ -108,67 +108,6 @@ fn linux_reads_desktop_chassis_and_virtualization() {
     assert_eq!(linux_facts(Path::new("/nonexistent-root")).kind(), DeviceKind::LinuxServer);
 }
 
-/// Leo, 2026-11-16: "i wanna see all of ur screens from my nightly app lol". A headless VM with
-/// `cmux-rd linux-host enable` run has no X socket until a share starts its virtual display, so
-/// its screen host's user unit is what makes it a desktop the hub shares; the same VM without
-/// one stays a server with nothing to press.
-#[test]
-fn a_screen_host_makes_a_headless_vm_a_desktop() {
-    use crate::screen::{NoScreen, Screen, ScreenRoute, offer};
-    let vm: &[(&str, &str)] = &[
-        ("sys/class/dmi/id/sys_vendor", "Google\n"),
-        ("sys/class/dmi/id/product_name", "Google Compute Engine\n"),
-        ("proc/cpuinfo", "flags\t: fpu vme hypervisor\n"),
-    ];
-    let root = fixture(vm);
-    let config = fixture(&[("systemd/user/cmux-screen-host.service", "[Unit]\n")]);
-    let bare = fixture(&[("systemd/user/other.service", "")]);
-
-    let with_host = linux_facts_for(&root.0, Some(&config.0));
-    assert!(with_host.screen_host);
-    assert_eq!(with_host.kind(), DeviceKind::LinuxDesktop);
-    assert_eq!(
-        offer(with_host.kind(), Some("linux"), true),
-        Screen::View { route: ScreenRoute::Hub }
-    );
-    assert_eq!(
-        offer(with_host.kind(), Some("linux"), false),
-        Screen::None { reason: NoScreen::Offline }
-    );
-
-    for facts in [linux_facts_for(&root.0, Some(&bare.0)), linux_facts(&root.0)] {
-        assert!(!facts.screen_host);
-        assert_eq!(facts.kind(), DeviceKind::LinuxServer);
-        assert_eq!(
-            offer(facts.kind(), Some("linux"), true),
-            Screen::None { reason: NoScreen::NoDesktop }
-        );
-    }
-}
-
-/// A host enabled after the process first asked is seen on the next ask: the unit is checked
-/// each time, not cached for the life of the process.
-#[test]
-fn a_screen_host_enabled_later_is_seen_without_a_restart() {
-    let config = tempdir::Dir::new();
-    assert!(!screen_host_installed(&config.0));
-    let unit = config.0.join("systemd/user").join(SCREEN_HOST_UNIT);
-    std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
-    std::fs::write(&unit, "[Unit]\n").unwrap();
-    assert!(screen_host_installed(&config.0));
-    std::fs::remove_file(&unit).unwrap();
-    assert!(!screen_host_installed(&config.0));
-}
-
-/// The unit name is the one `cmux-rd linux-host enable` writes (`cmux-rd-host`'s unit file).
-#[test]
-fn the_screen_host_unit_is_the_one_cmux_rd_writes() {
-    let unit = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../cmux-rd-host/systemd")
-        .join(SCREEN_HOST_UNIT);
-    assert!(unit.is_file(), "{} is missing", unit.display());
-}
-
 /// A scratch directory removed when dropped (no tempfile dependency).
 mod tempdir {
     use std::path::PathBuf;

@@ -7,17 +7,15 @@ Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--simulator-id <i
        ios/scripts/reload.sh --tag <tag> --device [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device-only [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --simulator-only
-       ios/scripts/reload.sh --tag <tag> --review [--device-id <id>] [--workspace <pr-url>] [--wait <seconds>] [--no-auth] [--manual-pairing]
+       ios/scripts/reload.sh --tag <tag> --review [--device-id <id>] [--workspace <pr-url>]
 
 Build, install, and launch the cmux iOS app with an isolated tag.
 
 --review is the end-of-task hand-off (AGENTS.md "Finishing a task"). One
 command builds the same-tag Mac app and the iOS app on the build fleet, installs
-the iOS app on EVERY connected iPhone of this Mac's person (not only the configured
-default) through the authenticated install (scripts/verify-iphone-auth.sh must pass),
-and registers a newly connected USB phone in ~/.config/cmux/iphone-device-ids. A phone
-this Mac does not know that it reaches only over Wi-Fi (a teammate's) is skipped
-(scripts/lib/iphone-review-targets.sh). It never
+the iOS app on EVERY connected iPhone (not only the configured default) through
+the authenticated install (scripts/verify-iphone-auth.sh must pass), and
+registers a newly connected phone in ~/.config/cmux/iphone-device-ids. It never
 boots or installs a simulator on this Mac: the simulator check runs on a fleet
 simulator worker (hq scripts/verify-remote.sh, signed in with the agent
 account), whose screenshot and recording land locally. It ends with a "Review
@@ -29,24 +27,6 @@ phone, or a phone that fails its install or auth gate, fails the command (exit
 non-zero): it is a blocker to report, never something to skip. A fleet-built
 dev app talks to hq's tailnet-only dev backend, so a phone off the tailnet
 installs it but fails the auth gate; the app itself does not need Tailscale.
-
---review waits at most --wait seconds (default 1800) for the fleet jobs. Past
-that it prints each job's state, its place in the queue and why it waits, and
-the command that resumes it, then exits 75: the jobs keep their place, and the
-rerun waits on the same jobs (it never resubmits). It also exits 75 when
-cmux-ci status did not answer and a job has no terminal receipt (unread, not
-failed). Another run already waiting on the tag's jobs exits 76. A branch with no pull request yet builds under the
-task workspace ios-review/<tag>. --review refuses to run until this clone has
-cmux's git hooks (scripts/install-git-hooks.sh), so its pushes run the checks.
-
---review --no-auth installs and launches with no sign-in, clearing the tag's stored
-session on the phone first (the app's CMUX_UITEST_CLEAR_AUTH), to check the
-never-signed-in experience. The flag itself is the explicit opt-out the
-unauthenticated-install gate asks for; nothing else turns it on. hq's fleet
-installer has no unauthenticated install, so it builds locally only (no cmux-ci);
-with the fleet it stops and says so. --review --manual-pairing is accepted and
-ignored: the classic app does not pair with a Mac by a code (it is for
-cmux-next-ios/scripts/review.sh).
 
 Verification default is simulator + iPhone: when a default iPhone is configured
 (CMUX_IPHONE_DEVICE_ID or ~/.config/cmux/iphone-device-id), the device leg is
@@ -175,24 +155,6 @@ for source_raw, destination_raw in zip(sys.argv[1::2], sys.argv[2::2]):
 PY
 }
 
-# cmux's git hooks are per clone (scripts/install-git-hooks.sh points core.hooksPath at the clone's
-# cmux-git-hooks/), so a clone that never ran it pushes from every worktree with no checks (2026-11-16: a
-# worktree's push returned in 3 s with no "pre-push: hook times" line). Refuse the hand-off until they run.
-review_require_hooks() {
-  local repo hooks common
-  repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-  hooks="$(git -C "$repo" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)" || hooks=""
-  common="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || common=""
-  if [[ -n "$hooks" && -x "$hooks/pre-push" ]] \
-      && { [[ "$hooks" == "$common/cmux-git-hooks" ]] || grep -q 'cmux-git-hooks/pre-push' "$hooks/pre-push"; }; then
-    return 0
-  fi
-  echo "error: this clone does not run cmux's git hooks (pre-push: ${hooks:-?}/pre-push), so a push from it skips the checks." >&2
-  echo "error: install them once per clone (every worktree of the clone then runs them), then rerun:" >&2
-  echo "error:   $repo/scripts/install-git-hooks.sh" >&2
-  return 1
-}
-
 TAG=""
 SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 17}"
 SIMULATOR_ID="${IOS_SIMULATOR_ID:-}"
@@ -232,12 +194,6 @@ PROD_AUTH=0
 # fleet simulator check; nothing runs in a simulator on this Mac (see usage).
 REVIEW=0
 REVIEW_WORKSPACE=""
-# --review --no-auth: the explicit, per-run unauthenticated install (see usage).
-REVIEW_NO_AUTH=0
-REVIEW_MANUAL_PAIRING=0
-# --review: seconds to wait for the fleet jobs before reporting them and exiting 75 (they keep their place).
-REVIEW_WAIT=1800
-REVIEW_WAIT_SET=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -324,23 +280,9 @@ while [[ $# -gt 0 ]]; do
       REVIEW=1
       shift
       ;;
-    --no-auth)
-      REVIEW_NO_AUTH=1
-      shift
-      ;;
-    --manual-pairing)
-      REVIEW_MANUAL_PAIRING=1
-      shift
-      ;;
     --workspace)
       require_option_value "$1" "${2:-}"
       REVIEW_WORKSPACE="${2:-}"
-      shift 2
-      ;;
-    --wait)
-      require_option_value "$1" "${2:-}"
-      REVIEW_WAIT="${2:-}"
-      REVIEW_WAIT_SET=1
       shift 2
       ;;
     -h|--help)
@@ -384,20 +326,8 @@ if [[ "$REVIEW" -eq 1 ]]; then
       || "$NO_SIGN_IN" -eq 1 || "$NO_ATTACH" -eq 1 || "$NO_SETUP" -eq 1 \
       || "$PROD_AUTH" -eq 1 || "$SIMULATOR_EXPLICIT" -eq 1 || -n "$DEVICE_NAME" ]]; then
     echo "error: --review always installs on every connected iPhone (authenticated) and checks the simulator on the fleet;" >&2
-    echo "error: it takes only --tag, --device-id, --team, --workspace, --wait, --no-auth and --manual-pairing" >&2
+    echo "error: it takes only --tag, --device-id, --team and --workspace" >&2
     exit 2
-  fi
-  if [[ ! "$REVIEW_WAIT" =~ ^[1-9][0-9]*$ ]]; then
-    echo "error: --wait takes a positive number of seconds (got $REVIEW_WAIT)" >&2
-    exit 2
-  fi
-  review_require_hooks || exit 2
-  if [[ "$REVIEW_MANUAL_PAIRING" -eq 1 ]]; then
-    echo "==> --manual-pairing: ignored; the classic app does not pair with a Mac by a code (cmux-next-ios/scripts/review.sh uses it)"
-  fi
-  if [[ "$REVIEW_NO_AUTH" -eq 1 ]]; then
-    # Set after the check above, which refuses a plain --no-sign-in on --review.
-    NO_SIGN_IN=1
   fi
   RELOAD_DEVICE=1
   # Nothing boots or installs in a simulator on this Mac: the simulator check runs on the fleet.
@@ -409,12 +339,6 @@ if [[ "$REVIEW" -eq 1 ]]; then
   fi
 elif [[ -n "$REVIEW_WORKSPACE" ]]; then
   echo "error: --workspace applies only to --review" >&2
-  exit 2
-elif [[ "$REVIEW_NO_AUTH" -eq 1 || "$REVIEW_MANUAL_PAIRING" -eq 1 ]]; then
-  echo "error: --no-auth and --manual-pairing apply only to --review" >&2
-  exit 2
-elif [[ "$REVIEW_WAIT_SET" -eq 1 ]]; then
-  echo "error: --wait applies only to --review" >&2
   exit 2
 fi
 
@@ -591,7 +515,7 @@ fi
 # sign-in is inherently manual and announced above.
 if [[ "$RELOAD_DEVICE" -eq 1 && "$PROD_AUTH" -eq 0 ]] \
     && [[ "$NO_SIGN_IN" -eq 1 || "$NO_SETUP" -eq 1 || "$NO_ATTACH" -eq 1 ]] \
-    && [[ "${CMUX_ALLOW_UNAUTHENTICATED_INSTALL:-0}" != "1" && "$REVIEW_NO_AUTH" -ne 1 ]]; then
+    && [[ "${CMUX_ALLOW_UNAUTHENTICATED_INSTALL:-0}" != "1" ]]; then
   echo "error: refusing an unauthenticated iPhone install: --no-sign-in/--no-setup/--no-attach skip the signed-in+paired auth gate" >&2
   echo "error: retry without the opt-out flag(s): ios/scripts/reload.sh --tag $TAG --device${DEVICE_ID:+ --device-id $DEVICE_ID}  (humans only: CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 to skip)" >&2
   exit 2
@@ -698,20 +622,94 @@ REVIEW_SIM_STATUS=""
 REVIEW_PHONE_STATUS=""
 REVIEW_MAC_STATUS=""
 
-# The phones (review_phone_result, review_connected_phones, review_register_phone,
-# review_resolve_phones): scripts/lib/iphone-review-targets.sh, shared with cmux-next-ios/scripts/review.sh.
+# One line per phone for the report.
+review_phone_result() {
+  REVIEW_PHONE_STATUS+="${REVIEW_PHONE_STATUS:+$'\n  '}$1"
+}
+
+# Every connected, paired, booted iPhone/iPad: "<udid>\t<name>\t<model>".
+# Same reachability rule as scripts/iphone-install-queue.sh probe.
+review_connected_phones() {
+  local json
+  json="$(mktemp "${TMPDIR:-/tmp}/cmux-review-devices.XXXXXX")" || return 1
+  xcrun devicectl list devices --json-output "$json" >/dev/null 2>&1 || { rm -f "$json"; return 1; }
+  /usr/bin/python3 - "$json" <<'PYDEV'
+import json, sys
+for d in json.load(open(sys.argv[1])).get("result", {}).get("devices", []):
+    hw, conn, props = d.get("hardwareProperties", {}), d.get("connectionProperties", {}), d.get("deviceProperties", {})
+    if hw.get("platform") != "iOS" or hw.get("reality") != "physical" or conn.get("pairingState") != "paired":
+        continue
+    reachable = str(props.get("bootState") or "").lower() == "booted" or (
+        conn.get("transportType") == "localNetwork" and conn.get("tunnelState") != "unavailable"
+        and props.get("developerModeStatus"))
+    udid = hw.get("udid") or d.get("identifier")
+    if reachable and udid:
+        print(f"{udid}\t{props.get('name') or udid}\t{hw.get('marketingName') or hw.get('productType') or ''}")
+PYDEV
+  local rc=$?
+  rm -f "$json"
+  return "$rc"
+}
+
+# Known phones live in ~/.config/cmux/iphone-device-ids (one "<udid>\t<name>\t<model>"
+# per line). A connected phone that is not listed yet is a new phone: it is added
+# there, and becomes the default (~/.config/cmux/iphone-device-id) when none is set.
 REVIEW_PHONES_FILE="${CMUX_CONFIG_DIR:-$HOME/.config/cmux}/iphone-device-ids"
+review_register_phone() {
+  local udid="$1" name="$2" model="$3" default_file
+  default_file="$(dirname "$REVIEW_PHONES_FILE")/iphone-device-id"
+  mkdir -p "$(dirname "$REVIEW_PHONES_FILE")"
+  if ! grep -qi "^$udid" "$REVIEW_PHONES_FILE" 2>/dev/null; then
+    printf '%s\t%s\t%s\n' "$udid" "$name" "$model" >> "$REVIEW_PHONES_FILE"
+    echo "==> new iPhone registered: $name ($model, $udid) in $REVIEW_PHONES_FILE"
+    echo "==> note: a fleet-built dev app reaches hq's dev backend only on the tailnet; if this phone's auth gate fails, check that it is on the tailnet"
+  fi
+  if [[ ! -s "$default_file" ]]; then
+    printf '%s\n' "$udid" > "$default_file"
+    echo "==> default iPhone set to $name ($udid)"
+  fi
+}
+
+# The phones this review installs on: every connected phone. A --device-id or
+# default phone that is not connected is reported (the explicit one fails).
 REVIEW_TARGETS=()
 REVIEW_FAILED=0
-# shellcheck source=scripts/lib/iphone-review-targets.sh
-source "$IOS_DIR/../scripts/lib/iphone-review-targets.sh"
+review_resolve_phones() {
+  local udid name model line wanted
+  local connected=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && connected+=("$line")
+  done < <(review_connected_phones || true)
+  for line in ${connected[@]+"${connected[@]}"}; do
+    IFS=$'\t' read -r udid name model <<<"$line"
+    review_register_phone "$udid" "$name" "$model"
+    REVIEW_TARGETS+=("$udid"$'\t'"$name ($model, $udid)")
+  done
+  local seen=""
+  for wanted in "${REQUESTED_DEVICE_ID:-}" "$DEFAULT_DEVICE_ID"; do
+    [[ -n "$wanted" ]] || continue
+    [[ "$seen" == *"|$wanted|"* ]] && continue
+    seen+="|$wanted|"
+    if ! printf '%s\n' ${connected[@]+"${connected[@]}"} | grep -qi "^$wanted"; then
+      if [[ "$wanted" == "${REQUESTED_DEVICE_ID:-}" ]]; then
+        echo "error: --device-id $wanted is not connected" >&2
+        review_phone_result "$wanted: BLOCKED, requested with --device-id but not connected (unlock it and connect it by USB or Wi-Fi)"
+        REVIEW_FAILED=1
+      else
+        echo "warning: the default iPhone $wanted is not connected" >&2
+        review_phone_result "$wanted (default): not connected, nothing installed"
+      fi
+    fi
+  done
+  if [[ "${#REVIEW_TARGETS[@]}" -eq 0 ]]; then
+    echo "error: --review found no connected iPhone; connect and unlock one (a missing phone is a blocker to report)" >&2
+    return 1
+  fi
+}
 
 review_report() {
   cat <<EOF
 ==> Review ready (tag: $TAG)
-Fleet jobs:
-  Mac build: $REVIEW_CMUX_LINE
-  iOS build: $REVIEW_IOS_LINE
 Mac dev build:
   http://127.0.0.1:17320/$TAG  ($REVIEW_MAC_STATUS)
 Simulator:
@@ -719,146 +717,28 @@ Simulator:
 iPhone:
   $REVIEW_PHONE_STATUS
 EOF
-  if [[ "$REVIEW_WAITING" -eq 1 ]]; then
-    printf 'Resume (waits on the same jobs, never resubmits):\n  %s\n' "$(review_resume_command)"
-  fi
 }
 
-# The exact command that resumes this hand-off: the same tag, phone, workspace and wait.
-review_resume_command() {
-  local command
-  command="ios/scripts/reload.sh --review --tag $(printf '%q' "$TAG")"
-  [[ -n "${REQUESTED_DEVICE_ID:-}" ]] && command+=" --device-id $(printf '%q' "$REQUESTED_DEVICE_ID")"
-  [[ -n "$REVIEW_WORKSPACE" ]] && command+=" --workspace $(printf '%q' "$REVIEW_WORKSPACE")"
-  [[ "$REVIEW_WAIT_SET" -eq 1 ]] && command+=" --wait $REVIEW_WAIT"
-  printf '%s' "$command"
-}
-
-# The workspace the fleet builds go under: --workspace, else the branch's PR, else this task's own name. A branch
-# without a PR is the normal state before review (2026-11-16: `gh pr view` failing on one ended the hand-off).
-review_default_workspace() {
-  local url=""
-  url="$(cd "$IOS_DIR/.." && gh pr view --json url --jq .url 2>/dev/null </dev/null || true)"
-  printf '%s' "${url:-ios-review/$TAG}"
-}
-
-# The fleet installer's saved jobs for this head (build-fleet/ios-reload.py writes <kind>-submit.json before it
-# waits, and <kind>-terminal.json when the job ends).
-review_state_dir() {
-  printf '%s' "$HOME/Library/Application Support/cmux-dev/ios-builds/$TAG/$(git -C "$IOS_DIR/.." rev-parse HEAD)"
-}
-
-# The real state of both fleet jobs: a live one from one `cmux-ci status --ids` read, else its terminal receipt.
-# Sets REVIEW_<KIND>_JOB, _STATE (none, queued, leased, running, artifact_pending, done, failed, cancelled,
-# unread: `cmux-ci status` failed and the job has no terminal receipt, unknown: status answered without the job)
-# and _LINE ("job <id>: <state>[ on <worker>]; place in queue: N ...; waiting because: ...").
-REVIEW_CMUX_JOB="" REVIEW_CMUX_STATE="none" REVIEW_CMUX_LINE="not submitted"
-REVIEW_IOS_JOB="" REVIEW_IOS_STATE="none" REVIEW_IOS_LINE="not submitted"
-REVIEW_JOBS_PY='
-import json, os, re, subprocess, sys
-state, ci = sys.argv[1], sys.argv[2]
-jobs = {}
-for kind in ("cmux", "ios"):
-    try:
-        jobs[kind] = json.load(open(os.path.join(state, kind + "-submit.json")))["id"]
-    except (OSError, ValueError, KeyError):
-        pass
-live = {}
-read = False
-if ci and jobs:
-    try:
-        result = subprocess.run([ci, "status", "--ids", ",".join(jobs.values())], capture_output=True, text=True,
-                                timeout=60, stdin=subprocess.DEVNULL)
-        listed = json.loads(result.stdout or "[]") if result.returncode == 0 else None
-        if isinstance(listed, (list, dict)):
-            live = {j.get("id"): j for j in (listed if isinstance(listed, list) else listed.get("jobs", []))
-                    if isinstance(j, dict)}
-            read = True
-    except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
-        live = {}
-for kind in ("cmux", "ios"):
-    job_id = jobs.get(kind)
-    if not job_id:
-        print(kind + "\t-\tnone\tnot submitted")
-        continue
-    job = live.get(job_id)
-    if job is None:
-        try:
-            job = json.load(open(os.path.join(state, kind + "-terminal.json")))
-        except (OSError, ValueError):
-            # No answer from cmux-ci status (a transient failure) is not a state: resume and ask again.
-            job = {"state": "unknown" if read else "unread"}
-    status = job.get("state") or "unknown"
-    line = "job " + job_id + ": " + status
-    if job.get("worker"):
-        line += " on " + job["worker"]
-    if status == "queued":
-        why = job.get("placement_wait") or ""
-        ahead = re.search(r"(\d+) older queued job\(s\) ask for the same labels", why)
-        line += "; place in queue: %d among jobs for the same labels" % ((int(ahead.group(1)) + 1) if ahead else 1)
-        if why:
-            line += "; waiting because: " + why
-    elif status in ("failed", "cancelled"):
-        line += "; see cmux-ci log " + job_id
-    elif status == "unknown":
-        line += " (cmux-ci status " + job_id + ")"
-    elif status == "unread":
-        line += ": cmux-ci status did not answer; not failed, resume to read it again"
-    print(kind + "\t" + job_id + "\t" + status + "\t" + line.replace("\t", " ").replace("\n", " "))
-'
-review_read_jobs() {
-  local rows kind job_id job_state line
-  rows="$(/usr/bin/python3 -c "$REVIEW_JOBS_PY" "$(review_state_dir)" "$(review_cmux_ci)" 2>/dev/null)" || rows=""
-  while IFS=$'\t' read -r kind job_id job_state line; do
-    [[ "$job_id" == - ]] && job_id=""
-    case "$kind" in
-      cmux) REVIEW_CMUX_JOB="$job_id"; REVIEW_CMUX_STATE="$job_state"; REVIEW_CMUX_LINE="$line" ;;
-      ios) REVIEW_IOS_JOB="$job_id"; REVIEW_IOS_STATE="$job_state"; REVIEW_IOS_LINE="$line" ;;
-    esac
-  done <<<"$rows"
-}
-
-# The Mac line from the Mac job's real state. ios-reload.py publishes the Mac build after a phone passes; when no
-# phone did, a finished Mac job is published here (its phones may still be waiting on the iOS job).
-review_mac_status() {
-  local sha cmux_ci
+# Finish after every phone's install: launch the simulator, re-verify each phone
+# that installed, print the report, and fail when any phone failed.
+# Publish the fleet Mac build of this head when no phone run published it.
+review_publish_mac() {
+  local sha state receipt job_id cmux_ci
   sha="$(git -C "$IOS_DIR/.." rev-parse HEAD)"
-  case "$REVIEW_CMUX_STATE" in
-    done)
-      if [[ "${#REVIEW_INSTALLED[@]}" -gt 0 ]]; then
-        REVIEW_MAC_STATUS="fleet job $REVIEW_CMUX_JOB, head ${sha:0:12}, published to HQ"
-        return 0
-      fi
-      cmux_ci="$(review_cmux_ci)"
-      if [[ -n "$cmux_ci" ]] && "$cmux_ci" publish-hq "$REVIEW_CMUX_JOB" >/dev/null; then
-        REVIEW_MAC_STATUS="fleet job $REVIEW_CMUX_JOB, head ${sha:0:12}, published to HQ"
-      else
-        REVIEW_MAC_STATUS="BLOCKED: fleet job $REVIEW_CMUX_JOB is done, but cmux-ci publish-hq $REVIEW_CMUX_JOB failed"
-        return 1
-      fi
-      ;;
-    queued|leased|running|artifact_pending)
-      REVIEW_MAC_STATUS="in progress: fleet job $REVIEW_CMUX_JOB is $REVIEW_CMUX_STATE; published when it is done"
-      ;;
-    failed|cancelled)
-      REVIEW_MAC_STATUS="BLOCKED: fleet job $REVIEW_CMUX_JOB $REVIEW_CMUX_STATE; see cmux-ci log $REVIEW_CMUX_JOB"
-      return 1
-      ;;
-    none)
-      REVIEW_MAC_STATUS="not submitted: the hand-off stopped before it submitted the fleet jobs (see the error above)"
-      return 1
-      ;;
-    unread)
-      # cmux-ci status failed (a controller restart, a network blip) and the job left no terminal receipt: its
-      # state is unread, not failed. Resumable (75), like a deadline.
-      REVIEW_WAITING=1
-      REVIEW_MAC_STATUS="state not read: cmux-ci status did not answer for fleet job $REVIEW_CMUX_JOB; not failed, resume to read it again"
-      ;;
-    *)
-      REVIEW_MAC_STATUS="state unknown: fleet job $REVIEW_CMUX_JOB (cmux-ci status $REVIEW_CMUX_JOB)"
-      return 1
-      ;;
-  esac
+  state="$HOME/Library/Application Support/cmux-dev/ios-builds/$TAG/$sha"
+  receipt="$state/cmux-terminal.json"
+  cmux_ci="${CMUX_CI:-$(command -v cmux-ci || echo "$HOME/.local/bin/cmux-ci")}"
+  if [[ ! -f "$receipt" || ! -f "$state/mac-installed.json" ]]; then
+    REVIEW_MAC_STATUS="BLOCKED: the fleet Mac build did not finish; see the error above"
+    return 1
+  fi
+  job_id="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$receipt")"
+  if "$cmux_ci" publish-hq "$job_id" >/dev/null; then
+    REVIEW_MAC_STATUS="fleet job $job_id, head ${sha:0:12}, published to HQ"
+  else
+    REVIEW_MAC_STATUS="BLOCKED: fleet job $job_id built, but cmux-ci publish-hq failed"
+    return 1
+  fi
 }
 
 # The simulator check of this tag's fleet iOS build, on a fleet simulator worker
@@ -879,125 +759,58 @@ review_fleet_simulator() {
   REVIEW_SIM_STATUS="fleet simulator, signed in (agent account): $evidence (screenshot.png and the recording)"
 }
 
-# What one phone's fleet run ended in, by ios-reload.py's exit code: 0 ready, 2 installation pending (the phone
-# was offline or locked: the signed build is queued for it), 75 the --wait deadline passed with a job still queued
-# or running, 76 another run of this tag holds its jobs. Only a real failure is "failed".
-REVIEW_WAITING=0
-REVIEW_OBSERVED=0
-review_phone_outcome() {
-  local label="$1" rc="$2"
-  case "$rc" in
-    0)
-      REVIEW_INSTALLED+=("$label")
-      review_phone_result "$label: installed, signed in (verify-iphone-auth PASS)"
-      ;;
-    2)
-      review_phone_result "$label: BLOCKED, installation pending: the signed build is queued for this phone (unlock and connect it; scripts/iphone-install-queue.sh list); resume: $(review_resume_command)"
-      REVIEW_FAILED=1
-      ;;
-    75)
-      REVIEW_WAITING=1
-      review_phone_result "$label: waiting, not failed: the fleet jobs are still queued or running after ${REVIEW_WAIT}s (see Fleet jobs); resume: $(review_resume_command)"
-      ;;
-    76)
-      REVIEW_WAITING=1
-      REVIEW_OBSERVED=1
-      review_phone_result "$label: in progress: another run is waiting on this tag's fleet jobs (see Fleet jobs); resume after it exits: $(review_resume_command)"
-      ;;
-    *)
-      echo "error: $label: the fleet hand-off failed (exit $rc); this is a blocker to report" >&2
-      review_phone_result "$label: BLOCKED, the fleet hand-off failed (exit $rc; see the error above); resume: $(review_resume_command)"
-      REVIEW_FAILED=1
-      ;;
-  esac
-}
-
-# The installed cmux-ios-dev predates hq's self-refresh when its ios-reload.py has none: it keeps the checks it was
-# installed with (2026-11-16: a copy from before hq#11064 failed every feat-cmux-next preflight).
-review_warn_stale_ios_dev() {
-  local program target
-  program="${REVIEW_IOS_RELOAD[0]:-}"
-  [[ "$(basename "$program")" == cmux-ios-dev && -f "$program" ]] || return 0
-  target="$(grep -o "[^' ]*/build-fleet/ios-reload\.py" "$program" | head -n 1)"
-  [[ -n "$target" && -f "$target" ]] || return 0
-  grep -q 'def refresh_installed_workflow' "$target" && return 0
-  echo "warning: $program runs an iOS workflow installed before hq's self-refresh ($target)." >&2
-  echo "warning: refresh it once from an hq checkout on main: python3 <cmuxterm-hq>/scripts/install-ios-workflow.py" >&2
+# "fleet job <id>, head <sha>, published to HQ" from the installer's saved receipt.
+review_mac_job_status() {
+  local sha receipt job_id
+  sha="$(git -C "$IOS_DIR/.." rev-parse HEAD)"
+  receipt="$HOME/Library/Application Support/cmux-dev/ios-builds/$TAG/$sha/cmux-terminal.json"
+  job_id="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$receipt" 2>/dev/null || true)"
+  printf 'fleet job %s, head %s, published to HQ' "${job_id:-unknown}" "${sha:0:12}"
 }
 
 REVIEW_INSTALLED=()
 review_finish() {
-  if [[ "${#REVIEW_IOS_RELOAD[@]}" -eq 0 ]]; then
-    REVIEW_SIM_STATUS="not run: no build fleet (cmux-ci is not installed)"
-  elif [[ "$REVIEW_IOS_STATE" == done ]]; then
+  if [[ "${#REVIEW_IOS_RELOAD[@]}" -gt 0 ]]; then
     review_fleet_simulator || REVIEW_FAILED=1
-  elif [[ "$REVIEW_IOS_STATE" == none ]]; then
-    REVIEW_SIM_STATUS="not run: no iOS fleet build of this head was submitted (see the error above)"
-    REVIEW_FAILED=1
-  elif [[ "$REVIEW_IOS_STATE" == failed || "$REVIEW_IOS_STATE" == cancelled ]]; then
-    REVIEW_SIM_STATUS="BLOCKED: the iOS fleet build (job $REVIEW_IOS_JOB) $REVIEW_IOS_STATE; see cmux-ci log $REVIEW_IOS_JOB"
-    REVIEW_FAILED=1
-  elif [[ "$REVIEW_IOS_STATE" == unread ]]; then
-    REVIEW_WAITING=1
-    REVIEW_SIM_STATUS="not run yet: cmux-ci status did not answer for the iOS fleet build (job $REVIEW_IOS_JOB); it runs on resume"
   else
-    REVIEW_SIM_STATUS="not run yet: the iOS fleet build (job $REVIEW_IOS_JOB) is $REVIEW_IOS_STATE; it runs on resume"
+    REVIEW_SIM_STATUS="not run: no build fleet (cmux-ci is not installed)"
   fi
   review_report
-}
-
-# The fleet hand-off: every phone through the fleet installer, then the real state of each job, the Mac build,
-# the fleet simulator and the report. Returns 0 ready, 1 a blocker, 75 still waiting on the fleet, 76 another run
-# is waiting on the same jobs.
-REVIEW_WORKSPACE_USED=""
-review_fleet_handoff() {
-  local target udid label fleet_rc
-  local fleet_args=()
-  [[ -n "$REVIEW_WORKSPACE" ]] || REVIEW_WORKSPACE_USED="$(review_default_workspace)"
-  echo "==> --review: building on the fleet through ${REVIEW_IOS_RELOAD[*]} (workspace ${REVIEW_WORKSPACE:-$REVIEW_WORKSPACE_USED}; waits up to ${REVIEW_WAIT}s)"
-  review_warn_stale_ios_dev
-  # The first phone's run waits for the fleet jobs; later runs reuse the same saved jobs and the installed Mac
-  # app, and only sign and install. A deadline or another run's wait stops the loop: the later phones would wait
-  # on the same jobs.
-  for target in "${REVIEW_TARGETS[@]}"; do
-    udid="${target%%$'\t'*}"; label="${target#*$'\t'}"
-    if [[ "$REVIEW_WAITING" -eq 1 ]]; then
-      review_phone_result "$label: not started: waiting on the same fleet jobs; resume: $(review_resume_command)"
-      continue
-    fi
-    echo "==> --review: iPhone $label"
-    fleet_args=(--tag "$TAG" --checkout "$(cd "$IOS_DIR/.." && pwd)" --device-id "$udid" --device-only
-                --workspace "${REVIEW_WORKSPACE:-$REVIEW_WORKSPACE_USED}" --wait "$REVIEW_WAIT")
-    fleet_rc=0
-    CMUX_IOS_RELOAD_RESUME="$(review_resume_command)" "${REVIEW_IOS_RELOAD[@]}" "${fleet_args[@]}" || fleet_rc=$?
-    review_phone_outcome "$label" "$fleet_rc"
-  done
-  review_read_jobs
-  review_mac_status || REVIEW_FAILED=1
-  review_finish
-  if [[ "$REVIEW_FAILED" -ne 0 ]]; then
-    return 1
-  elif [[ "$REVIEW_OBSERVED" -eq 1 ]]; then
-    return 76
-  elif [[ "$REVIEW_WAITING" -eq 1 ]]; then
-    return 75
-  fi
-  return 0
+  [[ "$REVIEW_FAILED" -eq 0 ]]
 }
 
 if [[ "$REVIEW" -eq 1 ]]; then
   review_resolve_phones || exit 1
   echo "==> --review: installing on ${#REVIEW_TARGETS[@]} connected iPhone(s)"
-  if [[ "$REVIEW_NO_AUTH" -eq 1 ]] && review_resolve_fleet_tools; then
-    # ios-reload.py always signs the phone in (its install ends in verify-iphone-auth.sh).
-    echo "error: --review --no-auth: hq's fleet iOS installer (${REVIEW_IOS_RELOAD[*]}) has no unauthenticated install," >&2
-    echo "error: and agents never build on this Mac; the classic app's --no-auth runs only where cmux-ci is not installed" >&2
-    exit 2
-  fi
   if review_resolve_fleet_tools; then
-    review_rc=0
-    review_fleet_handoff || review_rc=$?
-    exit "$review_rc"
+    echo "==> --review: building on the fleet through ${REVIEW_IOS_RELOAD[*]}"
+    # The first phone's run waits for the fleet jobs; later runs reuse the
+    # same saved jobs and the installed Mac app, and only sign and install.
+    REVIEW_MAC_STATUS="not built; see the error above"
+    for target in "${REVIEW_TARGETS[@]}"; do
+      udid="${target%%$'\t'*}"; label="${target#*$'\t'}"
+      echo "==> --review: iPhone $label"
+      fleet_args=(--tag "$TAG" --checkout "$(cd "$IOS_DIR/.." && pwd)" --device-id "$udid" --device-only)
+      [[ -n "$REVIEW_WORKSPACE" ]] && fleet_args+=(--workspace "$REVIEW_WORKSPACE")
+      fleet_rc=0
+      "${REVIEW_IOS_RELOAD[@]}" "${fleet_args[@]}" || fleet_rc=$?
+      if [[ "$fleet_rc" -eq 0 ]]; then
+        REVIEW_MAC_STATUS="$(review_mac_job_status)"
+        REVIEW_INSTALLED+=("$target")
+        review_phone_result "$label: installed, signed in (verify-iphone-auth PASS)"
+      else
+        echo "error: $label: fleet build or install failed (exit $fleet_rc); this is a blocker to report" >&2
+        review_phone_result "$label: BLOCKED, fleet build or install failed (exit $fleet_rc); rerun this command to resume the saved fleet jobs"
+        REVIEW_FAILED=1
+      fi
+    done
+    if [[ "${#REVIEW_INSTALLED[@]}" -eq 0 ]]; then
+      # ios-reload.py publishes the Mac build only after a phone passes. The
+      # Mac build is still the hand-off's first line, so publish it here.
+      review_publish_mac || REVIEW_FAILED=1
+    fi
+    review_finish || exit 1
+    exit 0
   fi
   if [[ -n "$(review_cmux_ci)" ]]; then
     # A team machine: builds run on the fleet only, never on this Mac.
@@ -1656,10 +1469,7 @@ reload_device() {
       # Plain launch (no sign-in / no pair); reachable only via --prod-auth or
       # the human-only CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1. A launch failure
       # (most commonly a LOCKED device) must not fail the whole reload here.
-      # --review --no-auth: the first launch also drops the tag's stored session (CMUX_UITEST_CLEAR_AUTH).
-      local clear_auth=()
-      [[ "$REVIEW_NO_AUTH" -eq 1 ]] && clear_auth=(env DEVICECTL_CHILD_CMUX_UITEST_CLEAR_AUTH=1)
-      if ! ${clear_auth[@]+"${clear_auth[@]}"} xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null 2>&1; then
+      if ! xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null 2>&1; then
         echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
       fi
       if [[ "$PROD_AUTH" -eq 1 ]]; then
@@ -1752,8 +1562,6 @@ fi
 
 if [[ "$REVIEW" -eq 1 ]]; then
   REVIEW_MAC_STATUS="local build"
-  REVIEW_CMUX_LINE="not used: built on this Mac (no build fleet)"
-  REVIEW_IOS_LINE="$REVIEW_CMUX_LINE"
   for target in "${REVIEW_TARGETS[@]}"; do
     DEVICE_ID="${target%%$'\t'*}"
     # `( f ) || rc=$?` would run f with set -e off, so a failed install could fall
@@ -1764,18 +1572,13 @@ if [[ "$REVIEW" -eq 1 ]]; then
     set -e
     if [[ "$device_rc" -eq 0 ]]; then
       REVIEW_INSTALLED+=("$target")
-      if [[ "$REVIEW_NO_AUTH" -eq 1 ]]; then
-        review_phone_result "${target#*$'\t'}: installed, not signed in (--no-auth)"
-      else
-        review_phone_result "${target#*$'\t'}: installed, signed in (iPhone auth gate PASS)"
-      fi
+      review_phone_result "${target#*$'\t'}: installed, signed in (iPhone auth gate PASS)"
     else
       review_phone_result "${target#*$'\t'}: BLOCKED, install or auth gate failed (exit $device_rc)"
       REVIEW_FAILED=1
     fi
   done
-  review_finish
-  [[ "$REVIEW_FAILED" -eq 0 ]] || exit 1
+  review_finish || exit 1
 elif [[ "$RELOAD_DEVICE" -eq 1 ]]; then
   reload_device
 fi

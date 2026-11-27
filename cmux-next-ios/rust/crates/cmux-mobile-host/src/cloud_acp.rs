@@ -9,7 +9,6 @@
 //! machine makes the chat's own folder) and policy `ask`. The phone names no
 //! folder, harness other than Claude, model, MCP server, mode or policy.
 
-use cmux_deadline::IdleDeadline;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -23,12 +22,6 @@ const START_DEADLINE: Duration = Duration::from_secs(90);
 /// `agent_session_attach.rs` PROMPT_ACCEPT_TIMEOUT: a chat started a moment before is slow to
 /// accept its first prompt), so the phone waits past that, never giving up on a prompt the
 /// machine still takes.
-///
-/// It is a silence bound, not a total: every update the chat streams on the prompt's tab
-/// restarts it, so a prompt whose chat keeps moving is never failed. Leo, 2026-11-24: "10s
-/// timeout for messages being sendsble is a shame. if it's making good progress, it shiukd be
-/// allowed to keep going?" No total cap: the pending slot is bounded by [`MAX_PENDING`] and
-/// freed when the channel ends ([`Adapter::abandon`]).
 const PROMPT_DEADLINE: Duration = Duration::from_secs(35);
 /// The only agent a phone starts on a Cloud machine: its default mode asks before acting,
 /// so the prompt preflight below admits the new chat.
@@ -85,8 +78,8 @@ enum Simple {
 struct Pending {
     phone_id: Option<Value>,
     reply: Reply,
-    /// Ends this long after the call, or after the last update on the prompt's tab.
-    deadline: IdleDeadline<Instant>,
+    at: Instant,
+    deadline: Duration,
 }
 
 pub(crate) struct Adapter {
@@ -110,17 +103,7 @@ impl Adapter {
         }
     }
 
-    fn call(&mut self, command: Value, phone_id: Option<Value>, reply: Reply) -> Effects {
-        self.call_at(Instant::now(), command, phone_id, reply)
-    }
-
-    fn call_at(
-        &mut self,
-        now: Instant,
-        mut command: Value,
-        phone_id: Option<Value>,
-        reply: Reply,
-    ) -> Effects {
+    fn call(&mut self, mut command: Value, phone_id: Option<Value>, reply: Reply) -> Effects {
         if self.pending.len() >= MAX_PENDING {
             return error(phone_id, -32000, "Too many Cloud chat requests");
         }
@@ -134,8 +117,7 @@ impl Adapter {
         };
         self.next += 1;
         command["id"] = json!(self.next);
-        let deadline = IdleDeadline::new_at(now, deadline, None);
-        self.pending.insert(self.next, Pending { phone_id, reply, deadline });
+        self.pending.insert(self.next, Pending { phone_id, reply, at: Instant::now(), deadline });
         Effects { to_native: vec![command], ..Effects::default() }
     }
 
@@ -251,12 +233,8 @@ impl Adapter {
     }
 
     pub(crate) fn native(&mut self, response: Value) -> Result<Effects, String> {
-        self.native_at(Instant::now(), response)
-    }
-
-    fn native_at(&mut self, now: Instant, response: Value) -> Result<Effects, String> {
         if response.get("event").is_some() {
-            return self.event(now, response);
+            return self.event(response);
         }
         let Some(id) = response.get("id").and_then(Value::as_u64) else {
             return Ok(Effects::default());
@@ -323,7 +301,7 @@ impl Adapter {
                         "Cloud phone prompts require an asking agent mode and permission policy",
                     ));
                 }
-                Ok(self.call_at(now, command, phone, Reply::Simple { session, surface, kind }))
+                Ok(self.call(command, phone, Reply::Simple { session, surface, kind }))
             }
             Reply::NewTree => {
                 let Some(registry) =
@@ -397,22 +375,13 @@ impl Adapter {
         }
     }
 
-    fn event(&mut self, now: Instant, event: Value) -> Result<Effects, String> {
+    fn event(&mut self, event: Value) -> Result<Effects, String> {
         let Some(surface) = event.get("surface").and_then(Value::as_u64) else {
             return Ok(Effects::default());
         };
         let Some(session) = self.surface_sessions.get(&surface) else {
             return Ok(Effects::default());
         };
-        // The chat on this tab moved: a prompt waiting on it is making progress, so its silence
-        // bound starts again.
-        for pending in self.pending.values_mut() {
-            if let Reply::Simple { surface: waiting, kind: Simple::Prompt, .. } = pending.reply
-                && waiting == surface
-            {
-                pending.deadline.progressed_at(now);
-            }
-        }
         let (method, field) = match event.get("event").and_then(Value::as_str) {
             Some("agent-session-record") => ("_acpmux/event", "record"),
             Some("agent-session-permission") => ("_acpmux/permission_pending", "request"),
@@ -452,14 +421,11 @@ impl Adapter {
     }
 
     pub(crate) fn expire(&mut self) -> Effects {
-        self.expire_at(Instant::now())
-    }
-
-    fn expire_at(&mut self, now: Instant) -> Effects {
+        let now = Instant::now();
         let expired = self
             .pending
             .iter()
-            .filter(|(_, p)| p.deadline.stalled_at(now).is_some())
+            .filter(|(_, p)| now.duration_since(p.at) >= p.deadline)
             .map(|(id, _)| *id)
             .collect::<Vec<_>>();
         let mut out = Effects::default();
@@ -850,7 +816,7 @@ mod tests {
         }
         assert!(phone(&mut a, 99, "_acpmux/sessions", json!({})).to_native.is_empty());
         for p in a.pending.values_mut() {
-            p.deadline = IdleDeadline::new_at(Instant::now() - DEADLINE, DEADLINE, None);
+            p.at = Instant::now() - DEADLINE;
         }
         assert_eq!(a.expire().to_phone.len(), MAX_PENDING);
         assert!(respond(&mut a, &first.to_native[0], json!({"workspaces":[]})).to_phone.is_empty());
@@ -898,7 +864,7 @@ mod tests {
             json!({"cmd":"agent-session-start","id":start["id"],"surface":31,
             "harness":"claude","vm_kind":"owner"})
         );
-        assert_eq!(a.pending.values().next().unwrap().deadline.idle(), START_DEADLINE);
+        assert_eq!(a.pending.values().next().unwrap().deadline, START_DEADLINE);
         let started =
             respond(&mut a, &start, json!({"surface":31,"session":"sess_new","conversation":"conv_1"}));
         assert_eq!(started.to_phone[0]["method"], "_acpmux/session_changed");
@@ -930,7 +896,7 @@ mod tests {
             json!({"sessionId":"sess_new",
             "prompt":[{"type":"text","text":"hi"}],"_meta":{"acpmux":{"promptId":"p-1"}}}),
         );
-        assert_eq!(a.pending.values().next().unwrap().deadline.idle(), DEADLINE, "the attach before it");
+        assert_eq!(a.pending.values().next().unwrap().deadline, DEADLINE, "the attach before it");
         let prompt = respond(
             &mut a,
             &asked.to_native[0],
@@ -938,85 +904,8 @@ mod tests {
                               "enforcement":{"policy":"ask"}},"events":[],"hasMore":false}),
         );
         assert_eq!(prompt.to_native[0]["cmd"], "agent-session-prompt", "{:?}", prompt.to_native);
-        assert_eq!(a.pending.values().next().unwrap().deadline.idle(), PROMPT_DEADLINE);
+        assert_eq!(a.pending.values().next().unwrap().deadline, PROMPT_DEADLINE);
         assert!(PROMPT_DEADLINE > Duration::from_secs(30));
-    }
-
-    /// A prompt sent and a chat on its tab: the prompt's pending call and when it was made.
-    fn prompt_pending(a: &mut Adapter) -> (Value, Instant) {
-        let start = start_chat(a, 2);
-        let _ = respond(a, &start, json!({"surface":31,"session":"sess_new","conversation":"conv_1"}));
-        let asked = phone(
-            a,
-            3,
-            "session/prompt",
-            json!({"sessionId":"sess_new",
-            "prompt":[{"type":"text","text":"hi"}],"_meta":{"acpmux":{"promptId":"p-1"}}}),
-        );
-        let at = Instant::now();
-        let prompt = a
-            .native_at(
-                at,
-                json!({"id":asked.to_native[0]["id"],"ok":true,"data":{"session":{"sessionId":"sess_new",
-                    "family":"claude","currentModeId":"default","enforcement":{"policy":"ask"}},
-                    "events":[],"hasMore":false}}),
-            )
-            .unwrap();
-        assert_eq!(prompt.to_native[0]["cmd"], "agent-session-prompt", "{:?}", prompt.to_native);
-        (prompt.to_native[0].clone(), at)
-    }
-
-    #[test]
-    fn a_prompt_whose_chat_keeps_streaming_is_never_timed_out() {
-        // Leo, 2026-11-24: "if it's making good progress, it shiukd be allowed to keep going?"
-        // An update every 20 s for 2 minutes, against a 35 s bound that used to count from the
-        // call: the prompt is still waiting, then answered.
-        let mut a = adapter();
-        let (prompt, at) = prompt_pending(&mut a);
-        let step = Duration::from_secs(20);
-        for beat in 1..=6u32 {
-            let now = at + step * beat;
-            let record = json!({"event":"agent-session-record","surface":31,
-                "record":{"sessionId":"sess_new","seq":beat}});
-            let streamed = a.native_at(now, record).unwrap();
-            assert_eq!(streamed.to_phone[0]["method"], "_acpmux/event");
-            let expired = a.expire_at(now + PROMPT_DEADLINE - Duration::from_secs(1));
-            assert!(expired.to_phone.is_empty(), "beat {beat}: {:?}", expired.to_phone);
-        }
-        let now = at + step * 6 + Duration::from_secs(5);
-        let accepted = a
-            .native_at(now, json!({"id":prompt["id"],"ok":true,"data":{"prompt_id":"p-1","turn_id":"t-1"}}))
-            .unwrap();
-        assert_eq!(accepted.to_phone[0]["method"], "_acpmux/prompt_accepted");
-        assert_eq!(accepted.to_phone[1], json!({"jsonrpc":"2.0","id":3,"result":{}}));
-    }
-
-    #[test]
-    fn a_silent_prompt_still_times_out_at_its_silence_bound() {
-        let mut a = adapter();
-        let (_prompt, at) = prompt_pending(&mut a);
-        // An update on another tab is not this prompt's progress.
-        let _ = a.native_at(
-            at + Duration::from_secs(20),
-            json!({"event":"agent-session-record","surface":99,"record":{"sessionId":"sess_x","seq":1}}),
-        );
-        assert!(a.expire_at(at + PROMPT_DEADLINE - Duration::from_secs(1)).to_phone.is_empty());
-        let expired = a.expire_at(at + PROMPT_DEADLINE);
-        assert_eq!(expired.to_phone[0]["error"]["message"], "Cloud chat request timed out");
-        assert!(a.pending.is_empty());
-    }
-
-    #[test]
-    fn a_prompt_that_streamed_then_went_silent_times_out_one_bound_after_its_last_update() {
-        let mut a = adapter();
-        let (_prompt, at) = prompt_pending(&mut a);
-        let last = at + Duration::from_secs(100);
-        let _ = a.native_at(
-            last,
-            json!({"event":"agent-session-record","surface":31,"record":{"sessionId":"sess_new","seq":1}}),
-        );
-        assert!(a.expire_at(last + PROMPT_DEADLINE - Duration::from_secs(1)).to_phone.is_empty());
-        assert_eq!(a.expire_at(last + PROMPT_DEADLINE).to_phone.len(), 1);
     }
 
     #[test]
@@ -1071,7 +960,7 @@ mod tests {
         let mut a = adapter();
         start_chat(&mut a, 2);
         for p in a.pending.values_mut() {
-            p.deadline = IdleDeadline::new_at(Instant::now() - START_DEADLINE, START_DEADLINE, None);
+            p.at = Instant::now() - START_DEADLINE;
         }
         let out = a.expire();
         assert_eq!(out.to_phone[0]["id"], 2);

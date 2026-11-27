@@ -20,13 +20,6 @@
 //! repository's, so a `!` line takes one back. Both are read from the main
 //! checkout, as it is now.
 //!
-//! A command the repository's files give runs only once the person has
-//! seen it and said yes ([`Resolved::consent`], kept by
-//! `worktree_setup::approvals`): a clone can carry any script. The user's
-//! own saved commands need no such answer, and nor do the include lines
-//! alone (they copy files of this machine's main checkout into this
-//! machine's worktree, and run nothing).
-//!
 //! The two files are the repository's own: each is read through the real
 //! folders of the main checkout ([`super::work_tree_entry`]). A file that is
 //! a link, or that is below a link in the main checkout, is not read, and the
@@ -81,39 +74,6 @@ pub(crate) struct Resolved {
 }
 
 impl Resolved {
-    /// The fingerprint of what the repository's own files make this recipe
-    /// run (a setup or teardown that no saved command replaces) and copy,
-    /// when they make it run anything: the answer a person gives after
-    /// reading the recipe is kept by it, so a changed script asks again.
-    /// `None`: nothing of the repository's runs, so nothing waits for one.
-    pub(crate) fn consent(&self) -> Option<String> {
-        use sha2::{Digest as _, Sha256};
-        let saved = self.saved.clone().unwrap_or_default();
-        let from_repository = |saved: &Option<String>, repository: &Option<String>| {
-            if saved.is_some() {
-                return None;
-            }
-            repository.clone().filter(|text| !text.trim().is_empty())
-        };
-        let setup = from_repository(&saved.setup, &self.repository.setup);
-        let teardown = from_repository(&saved.teardown, &self.repository.teardown);
-        if setup.is_none() && teardown.is_none() {
-            return None;
-        }
-        let mut hash = Sha256::new();
-        for part in [setup.as_deref(), teardown.as_deref()] {
-            hash.update(part.map_or(0_u8, |_| 1_u8).to_le_bytes());
-            hash.update((part.unwrap_or_default().len() as u64).to_le_bytes());
-            hash.update(part.unwrap_or_default().as_bytes());
-        }
-        for line in &self.repository.include {
-            hash.update((line.len() as u64).to_le_bytes());
-            hash.update(line.as_bytes());
-        }
-        let digest = hash.finalize();
-        Some(digest.iter().take(16).map(|byte| format!("{byte:02x}")).collect())
-    }
-
     pub(crate) fn value(&self) -> Value {
         let mut value = json!({
             "setup": self.recipe.setup,
@@ -250,5 +210,39 @@ fn saved(mux: &Mux, project: &Path) -> Option<WorktreeRecipe> {
 }
 
 #[cfg(test)]
-#[path = "worktree_recipe_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_repository_files() {
+        let mut bytes = [0_u8; 6];
+        getrandom::fill(&mut bytes).unwrap();
+        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        let root = std::env::temp_dir().join(format!("cmux-recipe-{hex}"));
+        std::fs::create_dir_all(&root).unwrap();
+        // The path of a main checkout, as the caller gives it, has real folders only.
+        let root = std::fs::canonicalize(root).unwrap();
+        std::fs::create_dir_all(root.join(PROJECT_FILE).parent().unwrap()).unwrap();
+        std::fs::write(root.join(".worktreeinclude"), ".env\n").unwrap();
+        std::fs::write(
+            root.join(PROJECT_FILE),
+            "setup = \"npm ci\"\nrun = \"npm run dev\"\nteardown = \"make down\"\ninclude = [\"config/local.json\"]\nports = 3\n",
+        )
+        .unwrap();
+        let mut resolved = Resolved {
+            recipe: Recipe::default(),
+            repository: Recipe::default(),
+            saved: None,
+            files: Vec::new(),
+            problems: Vec::new(),
+        };
+        read_repository(&root, &mut resolved);
+        assert_eq!(resolved.repository.setup.as_deref(), Some("npm ci"));
+        assert_eq!(resolved.repository.teardown.as_deref(), Some("make down"));
+        assert_eq!(resolved.repository.include, [".env", "config/local.json"]);
+        assert_eq!(resolved.files, [".worktreeinclude", PROJECT_FILE]);
+        assert_eq!(resolved.repository.run.as_deref(), Some("npm run dev"));
+        assert_eq!(resolved.problems, [format!("{PROJECT_FILE}: ports is not read")]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}

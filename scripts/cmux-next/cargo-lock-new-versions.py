@@ -21,7 +21,6 @@ import argparse
 import re
 import subprocess
 import sys
-import tempfile
 
 ALLOW_KEY = "Cargo-Lock-New-Versions:"
 ALLOW_LINE = re.compile(r"^[ \t]*" + re.escape(ALLOW_KEY) + r"[ \t]*(\S[^\n]*?)[ \t]*$", re.MULTILINE)
@@ -76,29 +75,6 @@ def git(repo: str, *args: str) -> str:
         "utf-8", "surrogateescape")
 
 
-def show_many(repo: str, specs: list[str]) -> list[str]:
-    """The text of each `<rev>:<path>` blob of SPECS, in order, from one `cat-file --batch` (a `git show` a lock cost
-    about 0.5 s on a Linux workstation's cmux mirror, 2026-11-21). Like `git show`, a spec that names no blob raises
-    CalledProcessError. The request goes through a file, never a pipe (git_batch.py: a big piped stdin can hang)."""
-    if not specs:
-        return []
-    with tempfile.TemporaryFile() as stdin:
-        stdin.write("".join(f"{spec}\n" for spec in specs).encode("utf-8", "surrogateescape"))
-        stdin.seek(0)
-        out = subprocess.run(["git", "-C", repo, "cat-file", "--batch"], stdin=stdin, check=True,
-                             capture_output=True).stdout
-    texts, pos = [], 0
-    for spec in specs:
-        end = out.find(b"\n", pos)
-        header = out[pos:end].split() if end >= 0 else []
-        if len(header) != 3 or header[1] != b"blob":
-            raise subprocess.CalledProcessError(128, ["git", "cat-file", "--batch"], stderr=f"{spec}: no blob".encode())
-        size = int(header[2])
-        texts.append(out[end + 1:end + 1 + size].decode("utf-8", "surrogateescape"))
-        pos = end + 1 + size + 1
-    return texts
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=".")
@@ -112,8 +88,8 @@ def main(argv: list[str] | None = None) -> int:
     if not changed_paths:
         return 0
     base_paths = [p for p in git(repo, "ls-tree", "-r", "--name-only", base).splitlines() if is_lock(p)]
-    known = base_set(show_many(repo, [f"{base}:{p}" for p in base_paths]))
-    findings = new_versions(known, list(zip(changed_paths, show_many(repo, [f"{head}:{p}" for p in changed_paths]))))
+    known = base_set([git(repo, "show", f"{base}:{p}") for p in base_paths])
+    findings = new_versions(known, [(p, git(repo, "show", f"{head}:{p}")) for p in changed_paths])
     if not findings:
         return 0
     reason = allowed(git(repo, "log", "--format=%B", f"{base}..{head}"))

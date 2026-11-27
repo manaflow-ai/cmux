@@ -40,9 +40,7 @@ daemon, and every remote daemon. Today the matching features just disappear with
    a240 owns the update card and loading flow.
 2. **Never auto-restart a server when a restart loses anything.** The existing lossless handoffs stay
    automatic (local daemon at launch: terminals survive; acpmux with agent hosts: agents survive).
-   Everything else asks once: a toast, whose button restarts at once when nothing would be lost (no
-   agent mid-turn, no running command, the daemon mirror confirmed), else opens one confirm
-   (`ServerRestartAsk`; design audit 2026-11-18 #20, Leo: "All 4 do em these didn't need my addl input").
+   Everything else asks: a toast, then a confirm.
 3. **Capabilities, not versions.** The gate is "the server advertises X". The app keeps working on
    the older protocol: every optional capability already has a fallback (the feature is hidden).
 4. **Name what you gain.** The toast lists the user-visible features the restart turns on (the
@@ -101,8 +99,7 @@ One toast per server and host, shown once per app launch per server build:
 
 - It stays until acted on (no timeout); x snoozes that server build for 24 hours. A new server
   build (or a new app build with more capabilities) is a new notice.
-- The button restarts at once when nothing would be lost; otherwise it opens the confirm, and
-  nothing restarts without it. A run no person started (agent, script, page, socket) always confirms.
+- The button opens the confirm; nothing restarts without the confirm.
 - After a restart the app re-reads the handshake: the new capabilities turn on and the notice ends.
   A restart that still lacks them (an external binary) says so in a toast and does not loop.
 - Motion: the toast's appear and slide go through the shared motion path (`CmuxToastMotion`);

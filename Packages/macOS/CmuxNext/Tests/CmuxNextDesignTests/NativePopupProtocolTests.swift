@@ -66,17 +66,6 @@ import Testing
         #expect(!model.isValid)
     }
 
-    @Test func loadingRoundTripsAndIsOnlyValidOnInteractiveRows() throws {
-        var model = Self.model()
-        model.rows = [NativePopupRow(id: "run", kind: .action, label: "Run", disabled: true, disabledReason: "Sign in first", loading: true)]
-        #expect(model.isValid)
-        let data = try JSONEncoder().encode(model)
-        let params = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(NativePopupModel.decode(params) == model)
-        model.rows[0].kind = .section
-        #expect(!model.isValid)
-    }
-
     @Test func hugeAnchorsAndNonNumericPlainSliderValuesAreRejected() {
         var model = Self.model()
         model.anchor = NativePopupAnchor(left: -Double.greatestFiniteMagnitude, top: 0,

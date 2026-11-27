@@ -335,16 +335,11 @@ impl LineAdmission for RemoteAdmission {
 
     fn refusal(&self, line: &str) -> Option<Value> {
         // A Native dial that is not the owner's never sends a file, seed or repo frame
-        // (`fs_wire::native_dial_admits`), whatever the entry's gate admits; on a machine of the
-        // person's own, neither does a classic dial (`fs_wire::remote_dial_admits`).
+        // (`fs_wire::native_dial_admits`), whatever the entry's gate admits.
         if (self.gate.admit(&self.peer, line)
-            && fs_wire::remote_dial_admits(self.native_vm_kind, line))
+            && fs_wire::native_dial_admits(self.native_vm_kind, line))
             || (self.native_vm_kind == Some(Some(cmux_link::token::VmKind::Owner))
                 && self.gate.admit_native_owner(line))
-            // A Cloud team member's signed dial: its chat verbs only (agent_session_member.rs).
-            || (self.native_vm_kind == Some(Some(cmux_link::token::VmKind::Team))
-                && self.gate.admit_native_owner(line)
-                && agent_session_attach::member::admits(&self.peer, line))
         {
             return None;
         }

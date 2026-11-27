@@ -4,13 +4,12 @@
 //! gets the stored answer.
 
 use cmux_app_host::ToHost;
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::time::Instant;
 
 use super::host::HostProcess;
 use super::mirror::Origin;
 use super::supervisor::{ApiError, Host, HostKey, HostState, Inner, Out, Responder, Supervisor};
-use crate::panic_free::RecoverPoison;
 
 /// Answered runs kept for replay.
 const RUN_KEYS: usize = 256;
@@ -78,7 +77,7 @@ impl Supervisor {
     pub fn run(&self, request: RunRequest, respond: Responder) {
         let RunRequest { app, op, args, idempotency_key, origin, gesture, caller } = request;
         let outs = {
-            let mut inner = self.inner.lock().recover_poison();
+            let mut inner = self.inner.lock().unwrap();
             // Full names (`cmux.cloud.machine.list`) and short names run the
             // same op and share its idempotency keys.
             let op = match inner.catalog.packages.get(&app) {
@@ -158,7 +157,7 @@ impl Supervisor {
                 Ok(Box::new(move |result: Result<Value, ApiError>| {
                     let Some(me) = me.upgrade() else { return };
                     let waiters = {
-                        let mut inner = me.inner.lock().recover_poison();
+                        let mut inner = me.inner.lock().unwrap();
                         // Only an answer is stored; after a failure a retry runs again.
                         let previous = if result.is_ok() {
                             inner.run_keys.insert(key, RunKey::Done(result.clone()))
@@ -178,35 +177,6 @@ impl Supervisor {
         }
     }
 
-    /// `apps.unknown` for a run of an app the catalog does not hold, with
-    /// what the catalog does hold in `details` and on stderr: the first-party
-    /// folder it read (null when none was found), the package ids it loaded,
-    /// and the folders it refused with why. So a missing `cmux/cloud` says
-    /// whether it was refused (its folder and reason) or never found.
-    pub(super) fn unknown_app(&self, inner: &Inner, app: &str) -> ApiError {
-        let first_party = self.config.sources.first_party.as_ref().map(|d| d.display().to_string());
-        let packages: Vec<&String> = inner.catalog.packages.keys().collect();
-        let rejected: Vec<Value> = inner
-            .catalog
-            .rejected
-            .iter()
-            .map(|(dir, issue)| json!({ "dir": dir.display().to_string(), "issue": issue }))
-            .collect();
-        eprintln!(
-            "cmux-tui: apps-run of unknown app {app}: first_party={} packages={packages:?} rejected={}",
-            first_party.as_deref().unwrap_or("none"),
-            Value::Array(rejected.clone()),
-        );
-        let mut error = ApiError::new("apps.unknown", "no such app");
-        error.details = Some(json!({
-            "app": app,
-            "first_party": first_party,
-            "packages": packages,
-            "rejected": rejected,
-        }));
-        error
-    }
-
     fn prepare_run(
         &self,
         inner: &Inner,
@@ -214,8 +184,11 @@ impl Supervisor {
         op: &str,
         origin: Origin,
     ) -> Result<Target, ApiError> {
-        let package =
-            inner.catalog.packages.get(app).ok_or_else(|| self.unknown_app(inner, app))?;
+        let package = inner
+            .catalog
+            .packages
+            .get(app)
+            .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
         // A catalog op of an app with a server runs in that server.
         let server = Self::server_op_locked(inner, app, op);
         let export = if server {
@@ -251,27 +224,11 @@ impl Supervisor {
         if !reachable {
             return Err(ApiError::new("apps.hidden", "the app is hidden from this surface"));
         }
-        // An agent runs only the ops the app's catalog offers to agents
-        // (`mcp.expose: "default"`, apps/mcp_tools.rs). Server ops keep the
-        // backend catalog's policy (`admit_server_op`).
-        if origin == Origin::Mcp
-            && export.is_some()
-            && !package.catalog_op(op).is_some_and(|(_, entry)| super::mcp_tools::offered(&entry))
-        {
-            return Err(super::mcp_tools::not_offered(app, op));
-        }
         let Some(export) = export else {
-            Self::server_approved_locked(inner, app)?;
             Self::admit_server_op(inner, app, op, origin)?;
             return Ok(Target::Server);
         };
-        // A `js` server's op runs in the app host, behind the same gates as
-        // a server op (servers.rs).
-        if super::servers::kind(package) == Some("js") {
-            Self::server_approved_locked(inner, app)?;
-            Self::admit_server_op(inner, app, op, origin)?;
-        }
-        if super::safe_mode_bisect::held_off(inner, app) {
+        if inner.safe_mode.is_some() {
             return Err(ApiError::new("apps.safe_mode", super::safe_mode::OFF));
         }
         if self.config.host_binary.is_none() {

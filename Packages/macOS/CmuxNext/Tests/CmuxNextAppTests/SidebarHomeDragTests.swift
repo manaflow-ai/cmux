@@ -53,7 +53,7 @@ struct SidebarHomeDragTests {
     /// Nothing lands above Home: a pinned row dragged up over Home's top half goes nowhere before it.
     @Test func nothingDropsAboveHome() throws {
         defer { Motion.reduceMotionOverride = nil }
-        let h = Harness(pinsAreLinks: true) // a pinned workspace never drags
+        let h = Harness()
         defer { h.close() }
         let pin = try h.item(Harness.pins[0].id), home = try h.item(Harness.home.id)
         let start = pin.convert(NSPoint(x: pin.bounds.midX, y: pin.bounds.midY), to: nil)
@@ -77,7 +77,7 @@ struct SidebarHomeDragTests {
     /// take it as a change that shows nothing, and the card would wait on it), and every row is at rest.
     @Test func aDragReleasedWhereItStartedSendsNoMove() throws {
         defer { Motion.reduceMotionOverride = nil }
-        let h = Harness(pinsAreLinks: true) // a pinned workspace never drags
+        let h = Harness()
         defer { h.close() }
         // The middle pinned row: its own slot is between two pinned rows (below the last one, the list's top is the same place).
         let chief = try h.item(Harness.pins[1].id)

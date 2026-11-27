@@ -11,6 +11,7 @@ import Testing
     @Test func aDroppedLinkMarksTheKeptRowsAsWorkspacesDoes() throws {
         let status = try #require(HomeConnectionStatus.make(linkDown: true, macOnline: true, failed: false, retrying: false, macName: "Studio"))
         #expect(status.kind == .unreachable)
+        #expect(status.detail == "Offline · last known")
         let empty = try #require(status.empty)
         #expect(empty.title == "Can't connect to Studio")
         #expect(empty.message == "Studio is online, but this iPhone can't reach it.")
@@ -30,9 +31,10 @@ import Testing
     @Test func aFailedReadSaysItInWorkspacesWords() throws {
         let status = try #require(HomeConnectionStatus.make(linkDown: false, macOnline: true, failed: true, retrying: false, macName: "Studio"))
         #expect(status.kind == .failed)
+        #expect(status.detail == "Couldn't refresh · last known")
         let empty = try #require(status.empty)
         #expect(empty.title == "Couldn't load conversations")
-        #expect(empty.message == "Can't reach Studio right now. It reconnects on its own.")
+        #expect(empty.message == "Studio didn't answer. It tries again on its own.")
     }
 
     @Test func anUnnamedMacStartsASentenceCapitalized() throws {
@@ -43,11 +45,12 @@ import Testing
         #expect(unreachable.empty?.message == "Your Mac is online, but this iPhone can't reach it.")
     }
 
-    @Test func aRetryKeepsItsState() throws {
+    @Test func aRetryKeepsItsStateAndSaysUpdating() throws {
         // The state under the retry stays (no flash to another empty state); Retry spins.
         let status = try #require(HomeConnectionStatus.make(linkDown: true, macOnline: true, failed: false, retrying: true, macName: "Studio"))
         #expect(status.kind == .unreachable)
         #expect(status.isRetrying)
+        #expect(status.detail == "Updating…")
     }
 
     @Test func aRetryAfterTheLinkCameBackConnects() throws {
@@ -55,5 +58,6 @@ import Testing
         let status = try #require(HomeConnectionStatus.make(linkDown: false, macOnline: true, failed: false, retrying: true, macName: "Studio"))
         #expect(status.kind == .connecting)
         #expect(status.empty == nil)
+        #expect(HomeConnectionStatus.connectingTitle(macName: "Studio") == "Connecting to Studio…")
     }
 }

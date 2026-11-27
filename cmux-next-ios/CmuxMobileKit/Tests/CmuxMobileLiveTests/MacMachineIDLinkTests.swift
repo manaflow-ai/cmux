@@ -42,45 +42,65 @@ import Testing
         for _ in 0..<50 { try? await Task.sleep(for: .milliseconds(2)) }
     }
 
-    /// Two builds on one computer (Stable and NIGHTLY) are two Macs: Workspaces and the Feed
-    /// show both, and the phone links both, as it would two computers.
-    @Test func twoBuildsOnOneMacAreBothLinked() async {
+    @Test func twoBuildsOnOneMacAreLinkedOnce() async {
         let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
         let macs = [
             MacDevice(id: "m1", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
-            MacDevice(id: "m2", name: "cmux mini (NIGHTLY)", isOnline: true, ownerUserID: userID, machineID: machine),
+            MacDevice(id: "m2", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
         ]
         let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
         let dialer = PerMacDialer()
         let live = coordinator(store: store, dialer: dialer, macs: macs)
         defer { live.stop() }
         live.showing(macIDs: nil)
-        await settle { store.macConnection["m1"] == .connected && store.macConnection["m2"] == .connected }
+        await settle { store.macConnection["m1"] == .connected }
+        await drain()
         #expect(store.macConnection["m1"] == .connected)
-        #expect(store.macConnection["m2"] == .connected)
-        #expect(MacRoster(store.activeTeam?.macs ?? []).visible.map(\.id) == ["m1", "m2"])
+        #expect(dialer.dialCount("m2") == 0)
+        #expect(MacRoster(store.activeTeam?.macs ?? []).visible.map(\.id) == ["m1"])
     }
 
-    /// The phone remembers the build it picked (the per-team pick in UserDefaults): the focus
-    /// goes to that build, and the other build of the computer stays listed (2026-11-18,
-    /// review.sh on a real iPhone focused the other build).
-    @Test func theRememberedBuildIsFocusedAndBothAreListed() async {
+    /// A Feed answer or notification of the other build names it: its link opens
+    /// (the ask is answered on that build), and the focus stays on the listed one.
+    @Test func theOtherBuildLinksWhenSomethingNamesIt() async {
         let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
         let macs = [
             MacDevice(id: "m1", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
-            MacDevice(id: "m2", name: "cmux mini (NIGHTLY)", isOnline: true, ownerUserID: userID, machineID: machine),
+            MacDevice(id: "m2", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
         ]
-        let pick = "cmuxMobile.live.mac.\(teamID)"
-        UserDefaults.standard.set("m2", forKey: pick)
-        defer { UserDefaults.standard.removeObject(forKey: pick) }
         let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
         let dialer = PerMacDialer()
         let live = coordinator(store: store, dialer: dialer, macs: macs)
         defer { live.stop() }
-        live.showing(macIDs: nil)
+        await settle { store.macConnection["m1"] == .connected }
+        live.touch("m2")
         await settle { store.macConnection["m2"] == .connected }
-        #expect(live.focusedMacID == "m2")
-        #expect(store.activeTeam?.listedMacs.map(\.id) == ["m1", "m2"])
+        #expect(store.macConnection["m2"] == .connected)
+        #expect(live.focusedMacID == "m1")
+    }
+
+    /// Workspaces and the Feed show every listed Mac (`showing(nil)`): the other build
+    /// named once closes after the idle window instead of staying linked.
+    @Test func theOtherBuildIdlesOutWhileWorkspacesShows() async {
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        let macs = [
+            MacDevice(id: "m1", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+            MacDevice(id: "m2", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+        ]
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer, macs: macs)
+        defer { live.stop() }
+        live.linkPolicy = MacLinkPolicy(idleAfter: .milliseconds(200))
+        live.showing(macIDs: nil)
+        await settle { store.macConnection["m1"] == .connected }
+        live.touch("m2")
+        await settle { store.macConnection["m2"] == .connected }
+        #expect(store.macConnection["m2"] == .connected)
+        live.showing(macIDs: nil)
+        await settle { store.macConnection["m2"] == nil }
+        #expect(store.macConnection["m2"] == nil)
+        #expect(store.macConnection["m1"] == .connected)
     }
 
     @Test func sameNamedMacsOnTwoComputersAreBothLinked() async {

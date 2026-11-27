@@ -132,7 +132,7 @@ struct ImportCardDeckTests {
         let deck = Self.deck([Self.classicAllHere], jobs: ledger)
         let settings = deck.cards().first
         #expect(settings?.state == .done && settings?.primary?.action == .start && settings?.primary?.title == "Import Again")
-        #expect(settings?.status == ImportSuggestionStrings.done)
+        #expect(settings?.status == ImportSuggestionStrings.importedSessions(0))
         job.importedClassic(2, now: Self.now)
         ledger.put(job)
         let again = try #require(Self.deck([Self.classicAllHere], jobs: ledger).cards().first)
@@ -159,27 +159,6 @@ struct ImportCardDeckTests {
         let done = try #require(Self.deck([finding], jobs: ledger).cards().first)
         #expect(done.state == .done && done.status == ImportSuggestionStrings.doneConductor)
         #expect(done.primary?.action == .start && done.primary?.title == "Import Again")
-    }
-
-    /// The AutoCloud card counts projects, asks through its own preview (Review), and once done
-    /// says how many moved and offers nothing to run again.
-    @Test func autoCloudCardReviewsThenSaysHowManyMoved() throws {
-        let finding = ImportFinding(id: "cloud.moveThisMac", kind: .autoCloud, name: ImportSuggestionStrings.moveToAutoCloud, count: 4)
-        let card = try #require(Self.deck([finding]).cards().first)
-        #expect(card.kind == .autoCloud && card.state == .ready && card.title == "Move This Mac to AutoCloud")
-        #expect(card.primary?.action == .start && card.primary?.title == ImportSuggestionStrings.review)
-        #expect(card.facts == ImportSuggestionStrings.checkouts(4))
-        #expect(card.benefit == ImportSuggestionStrings.autoCloud)
-        #expect(card.secondary.map(\.action) == [.dismiss])
-        #expect(!ImportSourceKind.autoCloud.startReadsAnotherApp)
-
-        var job = ImportJob(finding: finding, now: Self.now)
-        job.importedClassic(4, now: Self.now)
-        var ledger = ImportJobLedger()
-        ledger.put(job)
-        let done = try #require(Self.deck([finding], jobs: ledger).cards().first)
-        #expect(done.state == .done && done.status == ImportSuggestionStrings.movedProjects(4) && done.primary == nil)
-        #expect(Self.deck([], jobs: ledger).cards().first?.title == "AutoCloud")
     }
 
     @Test func aResumedClassicJobStartsAtZeroProgress() {

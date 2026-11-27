@@ -426,29 +426,6 @@
       }
     },
     {
-      "id": "github",
-      "name": "GitHub",
-      "owner": "GitHub",
-      "kind": "mark",
-      "color": {
-        "tone": [
-          "#FFFFFF",
-          "#000000"
-        ]
-      },
-      "source": {
-        "url": "https://primer.style/foundations/icons/mark-github-16",
-        "file": "primer/octicons icons/mark-github-16.svg",
-        "license": "Primer Octicons are MIT; the mark is a trademark of GitHub."
-      },
-      "import": {
-        "fetch": {
-          "url": "https://raw.githubusercontent.com/primer/octicons/main/icons/mark-github-16.svg"
-        },
-        "precision": 2
-      }
-    },
-    {
       "id": "grok",
       "name": "Grok",
       "owner": "xAI",
@@ -905,48 +882,6 @@
         },
         "precision": 2
       }
-    },
-    {
-      "id": "vercel",
-      "name": "Vercel",
-      "owner": "Vercel",
-      "kind": "mark",
-      "color": {
-        "tone": ["#FFFFFF", "#000000"]
-      },
-      "source": {
-        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/vercel.svg",
-        "file": "simple-icons 16.34.0 icons/vercel.svg (source https://vercel.com/geist/brands)",
-        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Vercel."
-      },
-      "import": {
-        "fetch": {
-          "npm": "simple-icons@16.34.0",
-          "member": "package/icons/vercel.svg"
-        },
-        "precision": 2
-      }
-    },
-    {
-      "id": "prime",
-      "name": "Prime Intellect",
-      "owner": "Prime Intellect",
-      "kind": "mark",
-      "color": {
-        "tone": ["#FFFFFF", "#000000"]
-      },
-      "source": {
-        "url": "https://github.com/PrimeIntellect-ai/prime-rl/blob/HEAD/src/prime_rl/dashboard/static/butterfly-white.svg",
-        "file": "repo src/prime_rl/dashboard/static/butterfly-white.svg, the butterfly primeintellect.ai uses as its icon; its stroke is dropped and the view box squared around the mark",
-        "license": "Repository artwork; trademark of Prime Intellect."
-      },
-      "import": {
-        "fetch": {
-          "url": "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-rl/HEAD/src/prime_rl/dashboard/static/butterfly-white.svg"
-        },
-        "viewBox": "0 -172 944 944",
-        "precision": 1
-      }
     }
   ],
   "agents": [
@@ -1152,17 +1087,12 @@
     },
     {
       "id": "prime",
-      "name": "Prime Intellect",
-      "brand": "prime",
+      "name": "Prime",
+      "brand": null,
       "aliases": [
         "prime-agent"
-      ]
-    },
-    {
-      "id": "vercel-ai-gateway",
-      "name": "Vercel AI Gateway",
-      "brand": "vercel",
-      "aliases": []
+      ],
+      "note": "Pi fork with no published mark; draws the generic agent glyph."
     },
     {
       "id": "mux",
@@ -1284,8 +1214,8 @@
     ],
     ["github-copilot-cli", "copilot"], ["Muse Code", "meta"], ["acp:muse", "meta"], ["grok-build", "grok"], ["factory-droid", "factory"], ["qwen-code", "qwen"], ["antigravity-acp", "antigravity"], ["amp-acp", "amp"], ["codebuddy-code", "codebuddy"], [
       "prime-agent",
-      "prime"
-    ], ["vercel-ai-gateway", "vercel"],
+      null
+    ],
     [
       "campfire",
       null

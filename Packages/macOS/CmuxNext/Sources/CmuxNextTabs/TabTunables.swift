@@ -24,50 +24,6 @@ public nonisolated enum TabLoadingAnimation: String, Sendable, CaseIterable, Tun
     }
 }
 
-/// Where a titled tab's trailing status mark sits (the spinner, the unread or status dot), `TabTunables.statusMarkPlacement`;
-/// the tab bar playground's Status Spacing page compares them. Leo 2026-10-22 (ask-a8b97f1201): "... + the spacing is off".
-public nonisolated enum TabStatusMarkPlacement: String, Sendable, CaseIterable, TunableChoice {
-    /// Before: centered in the x's slot, 13 pt from the pill's end at Default, nearer the edge than the icon is to the start.
-    case closeSlot
-    /// The mark mirrors the icon: its center as far from the trailing edge as the icon's from the leading one. The
-    /// hovered x keeps its own place.
-    case mirrorIcon
-    /// The mark and the hovered x both mirror the icon.
-    case mirrorAll
-
-    public var tunableTitle: String {
-        switch self {
-        case .closeSlot: "Before: in the close button's slot"
-        case .mirrorIcon: "Mirrors the icon"
-        case .mirrorAll: "Mark and close button mirror the icon"
-        }
-    }
-}
-
-/// How a busy tab with unread output draws its two states (`TabTunables.busyUnreadMark`; the tab bar playground's
-/// Busy + Unread page compares them). Leo 2026-10-22 (ask-a8b97f1201): "the tab unread + simultaneous ongoing thing
-/// feels weird idk if there is a way to combine + the spacing is off". Every look but `pair` draws one mark in the
-/// status slot (the x's), so the unread dot takes the spinner's place when the work ends and nothing moves.
-public nonisolated enum TabBusyUnreadMark: String, Sendable, CaseIterable, TunableChoice {
-    /// The spinner alone in the status slot while the work runs; the unread dot takes its place when it ends.
-    case spinner
-    /// The spinner in the status slot, drawn in the unread dot's blue while the tab has unread output.
-    case tintedSpinner
-    /// The spinner in the status slot ringing a small unread dot at its center.
-    case dotInRing
-    /// Before: the unread dot in the status slot and the spinner beside it.
-    case pair
-
-    public var tunableTitle: String {
-        switch self {
-        case .spinner: "Spinner, then the dot in its place"
-        case .tintedSpinner: "Spinner in the unread blue"
-        case .dotInRing: "Spinner ringing the unread dot"
-        case .pair: "Before: dot and spinner side by side"
-        }
-    }
-}
-
 /// How a hovered tab's x takes its status's slot (`TabStripMetrics.hoverCloseSwap`; the tab bar
 /// playground's Hover Close page compares them). In every treatment but `beside` only the x shows on
 /// hover, in the slot the spinner or status mark holds at rest (Leo 2026-11-05).
@@ -137,7 +93,7 @@ public nonisolated enum TabTunables {
         BrowserChromeTuning.value(.closeInk)
     }
     public static let iconTitleSpacing = points("iconTitleSpacing", "Icon to title", help: "Gap between a tab's icon and its title.") {
-        Metrics.compactTabs ? Metrics.space2 : (Metrics.densityToken("tabIconTitleGap") ?? Metrics.space3)
+        Metrics.compactTabs ? Metrics.space2 : Metrics.space3
     }
     public static let titleCloseSpacing = points("titleCloseSpacing", "Title to close", help: "Gap between a tab's title and its close button.") { Metrics.space2 }
     public static let titleFadeWidth = points("titleFadeWidth", "Title fade", help: "Length of the fade that clips a long title.") { Metrics.space6 + Metrics.space2 }
@@ -226,21 +182,11 @@ public nonisolated enum TabTunables {
         default: .full, code: "TabTunables.hoverPreviews")
     // @intent Leo 2026-11-07 asked whether the card should "morph together with the tab" ("goo ...
     // that water surface tension thing"): the three entrances side by side in the tab bar
-    // playground's Hover Card page. The card fades in where it rests by default: grown out of its tab
-    // it first drew a sliver over the tab's lower edge, then dropped and widened to its size, which
-    // read as a bounce (Leo 2026-11-18, a recording of the pointer resting on a tab: "the hover
-    // preview bounces for some reason"). Growing out of the tab stays an arm here.
+    // playground's Hover Card page; the card grows out of its tab by default.
     public static let hoverCardEntrance = Tunable<HoverCardEntrance>.choice(
         "tabs.hoverCardEntrance", .tabs, "Tab hover card entrance",
         help: "How a tab's hover card first shows: a fade, a fade and slide, or growing out of its tab.",
-        default: .fade, code: "TabTunables.hoverCardEntrance")
-    // @intent Leo 2026-11-18, "the hover preview bounces for some reason": the card slid and eased from tab
-    // to tab (the glide, Lawrence 2026-11-15 msg 34360). It switches in place by default; the three moves
-    // side by side in the tab bar playground's Hover Card page.
-    public static let hoverCardRetarget = Tunable<HoverCardRetarget>.choice(
-        "tabs.hoverCardRetarget", .tabs, "Tab hover card retarget",
-        help: "How a tab's hover card moves to the next tab: switched in place, switched with its content crossfading, or gliding.",
-        default: .jump, code: "TabTunables.hoverCardRetarget")
+        default: .morph, code: "TabTunables.hoverCardEntrance")
     /// Debug-only loading transition prototypes. Instant is the production
     /// default until one of the variants is selected for dogfood.
     public static let loadingAnimation = Tunable<TabLoadingAnimation>.choice(
@@ -254,30 +200,12 @@ public nonisolated enum TabTunables {
         "tabs.trailingButtons", .tabs, "Tab bar buttons",
         help: "How the tab bar's plus, pane-type chevron and More look and show hover.",
         default: .split, code: "TabTunables.trailingButtons")
-    /// The trailing controls' look in use: the tunable's, unless `appearance.toolbarButtonStyle` asks for bare glyphs
-    /// (plain) or for the pane's pill (grouped, glass), where a fill per button would stack on the pill.
-    @MainActor public static var effectiveTrailingButtons: TabTrailingButtons {
-        DesignSettings.shared.toolbarButtonStyle == .standard ? trailingButtons.value : .glyphs
-    }
-    // @intent Leo 2026-10-22 (ask-a8b97f1201): one mark for a busy tab with unread output, not the dot and the
-    // spinner side by side; the tab bar playground's Busy + Unread page compares the looks.
-    public static let busyUnreadMark = Tunable<TabBusyUnreadMark>.choice(
-        "tabs.busyUnreadMark", .tabs, "Busy and unread tab mark",
-        help: "How a busy tab with unread output draws: one mark in the status slot, or the old dot and spinner side by side.",
-        default: .spinner, code: "TabTunables.busyUnreadMark")
-    // @intent Leo 2026-10-22 (ask-a8b97f1201): "the spacing is off"; the trailing mark mirrors the icon's inset. The
-    // tab bar playground's Status Spacing page compares the placements.
-    public static let statusMarkPlacement = Tunable<TabStatusMarkPlacement>.choice(
-        "tabs.statusMarkPlacement", .tabs, "Tab status mark placement",
-        help: "Where a tab's trailing spinner or unread dot sits: mirroring the icon, or in the close button's slot.",
-        default: .mirrorIcon, code: "TabTunables.statusMarkPlacement")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, hoverCardEntrance.descriptor, hoverCardRetarget.descriptor, loadingAnimation.descriptor, busyUnreadMark.descriptor, statusMarkPlacement.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
-            + GooTunables.all // the gooey tabs' knobs, a section per level (plans/cmux-next/gooey-tabs.md, "Knobs")
+               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
     }
 }

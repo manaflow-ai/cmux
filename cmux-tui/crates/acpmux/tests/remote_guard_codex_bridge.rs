@@ -750,50 +750,6 @@ async fn a_peer_deny_all_bridge_start_settles_in_read_only_and_the_web_in_ask() 
     let _ = std::fs::remove_dir_all(&d);
 }
 
-/// A Codex lane the owner's peer daemon starts on one of its own lane VMs, at the VM boundary
-/// with approve-all, settles in full access on a Linux machine that takes the boundary: in `ask`,
-/// Codex's workspace-write sandbox kept the host's wt mirrors, `~/.local/state` and the daemon's
-/// socket out of reach, so the lane could not run `wt new` or `acpmux send`. The same start
-/// without the boundary, or with a narrower policy, still settles in `ask`, and so does one a
-/// peer forwards for a Web client.
-#[tokio::test]
-async fn the_owners_peer_at_its_vm_boundary_starts_the_codex_bridge_in_full_access() {
-    let d = dir("vm-boundary");
-    let hub = hub(&d);
-    let start = |policy: &str, vm: bool| {
-        let mut meta = json!({"harness": "bridge"});
-        if vm {
-            meta["vmBoundary"] = json!(true);
-        }
-        json!({"cwd": d.join("work"), "mcpServers": [], "policy": policy,
-            "_meta": {"acpmux": meta}})
-    };
-    let mut peer = Client::new(&hub, Origin::Peer, ConnAuth::PeerToken);
-    let created = peer.call("session/new", start("approve-all", true)).await;
-    let s = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
-    let want = if cfg!(target_os = "linux") { "agent-full-access" } else { "ask" };
-    assert_eq!(mode_now(&hub, s), want, "{created}");
-    // No policy asked: the vmHost approve-all grant comes first, so it settles the same way.
-    let mut unasked = start("approve-all", true);
-    unasked.as_object_mut().unwrap().remove("policy");
-    let created = peer.call("session/new", unasked).await;
-    let s = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
-    assert_eq!(mode_now(&hub, s), want, "no policy asked: {created}");
-    for (who, params) in
-        [("no boundary", start("approve-all", false)), ("policy ask", start("ask", true))]
-    {
-        let created = peer.call("session/new", params).await;
-        let s = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
-        assert_eq!(mode_now(&hub, s), "ask", "{who}: {created}");
-    }
-    let mut for_web = Client::new(&hub, Origin::Peer, ConnAuth::PeerToken);
-    for_web.3 = Some("web");
-    let created = for_web.call("session/new", start("ask", true)).await;
-    let s = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
-    assert_eq!(mode_now(&hub, s), "ask", "peer via web: {created}");
-    let _ = std::fs::remove_dir_all(&d);
-}
-
 /// What a remote connection could already do before a peer's deny-all start settled in
 /// `read-only` (the reviewer of cmux#25311, 2026-10-26, on a peer that sets policy `ask` on such
 /// a chat): the Web, with the shared token, moves its own bridge chat from `ask` to `read-only`

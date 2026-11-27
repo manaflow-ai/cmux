@@ -53,16 +53,11 @@ import Testing
     /// room its title has above its capitals (`SidebarStyle.contentInset`, from the title font), not the gap again.
     static func lead(_ comfortable: Bool) -> CGFloat { (comfortable ? 8 : 6) + SidebarStyle.contentInset }
     static func text(_ comfortable: Bool) -> CGFloat { lead(comfortable) + (comfortable ? 20 : 16) + 8 }
-    /// A trailing control's side: Default's 20 pt square on its 30 pt row, scaled with the row (#44449, every density
-    /// is Default scaled by one factor), so 16 on the grid's 24 pt compact row and 18.67 on its 28 pt comfortable row.
-    static func control(_ comfortable: Bool) -> CGFloat { (comfortable ? 28 : 24) * 2 / 3 }
-    /// The trailing column's center inside the row's fill: Default's 3 pt inset on its 20 pt control plus half the
-    /// control, both scaled with it (#44449; until then half the 10 pt status glyph plus the row's content inset).
-    static func trailingInset(_ comfortable: Bool) -> CGFloat { control(comfortable) * (3.0 / 20 + 0.5) }
-    /// Trailing column `index`'s center in a 304 pt row: ``trailingInset(_:)`` in from the row's end, then one pitch a
-    /// column, the control plus a tenth of it between adjacent squares (#44449; until then a fixed 20 pt).
-    static func column304(_ index: Int, comfortable: Bool) -> CGFloat {
-        304 - trailingInset(comfortable) - CGFloat(index) * control(comfortable) * 11 / 10
+    /// Trailing column `index`'s center in a 304 pt row: half the 10 pt status glyph plus the row inset (11 compact, 13
+    /// comfortable; plus 20 a column) in from the row's end (Lawrence 2026-11-05: "padding on left/right of every
+    /// workspace needs to be even").
+    static func column304(_ index: Int) -> CGFloat {
+        304 - (SidebarStyle.contentInset + 5) - CGFloat(index) * 20
     }
 
     /// Existing APIs only: this test compiles on the pre-fix stack and fails on its old insets,
@@ -249,22 +244,6 @@ extension SidebarGridAlignmentTests {
         #expect(abs(next.midY - badge.midY) <= 0.5)
     }
 
-    /// The next mark takes the very next column at every pitch, whole or not (#44449 made the pitch the control plus a
-    /// tenth of it: 17.6 pt on the grid's compact row, 20.53 on its comfortable one). One pitch measured back from the
-    /// trailing edge is one slot, never two, even when `17.6 / 17.6` comes out a hair over 1 in floating point.
-    @Test(arguments: [20, 17.6, 16 * 1.1, 28 * 2 / 3 * 1.1, 18.4, 22.55] as [CGFloat])
-    func theNextMarkTakesTheNextColumnAtAnyPitch(pitch: CGFloat) {
-        var columns = SidebarColumns(rowWidth: 304, comfortable: false)
-        columns.trailingPitch = pitch
-        for side in [CGFloat(8), 10, 12, 14, 16] where side <= pitch {
-            let first = columns.trailingFrame(index: 0, centerY: 12, side: side)
-            let edge = columns.trailingEdge(before: first)
-            let next = columns.trailingFrame(before: edge, centerY: 12, size: CGSize(width: side, height: side))
-            #expect(abs(next.midX - columns.trailingCenter(index: 1)) <= 0.001,
-                    "pitch \(pitch), side \(side): the next mark sits at \(next.midX), not column 1 at \(columns.trailingCenter(index: 1))")
-        }
-    }
-
     @Test(arguments: [false, true], [1, 2])
     func workspaceStatusAndUnreadUseTheFirstTwoColumns(comfortable: Bool, marks: Int) throws {
         try Self.withDensity(comfortable) {
@@ -273,11 +252,11 @@ extension SidebarGridAlignmentTests {
             let workspace = try #require(Self.view(c, width: 304, height: height) as? WorkspaceRowView)
             workspace.layout()
             let unread = try #require(workspace.subviews.compactMap { $0 as? UnreadBadgeView }.first { $0.state.isUnread })
-            #expect(abs(unread.frame.midX - Self.column304(marks == 1 ? 0 : 1, comfortable: comfortable)) <= 0.5)
+            #expect(abs(unread.frame.midX - Self.column304(marks == 1 ? 0 : 1)) <= 0.5)
             #expect(abs(unread.frame.midY - height / 2) <= 0.5)
             if marks == 2 {
                 let status = try #require(workspace.subviews.compactMap { $0 as? StatusIndicatorView }.first { $0.showsGlyph })
-                #expect(abs(status.frame.midX - Self.column304(0, comfortable: comfortable)) <= 0.5)
+                #expect(abs(status.frame.midX - Self.column304(0)) <= 0.5)
                 #expect(abs(status.frame.midY - height / 2) <= 0.5)
                 #expect(unread.frame.maxX <= status.frame.minX)
             }
@@ -293,16 +272,15 @@ extension SidebarGridAlignmentTests {
             section.layout()
             // Without the add button the fold takes the column; with it, the add button takes the column and the
             // fold steps one pitch left (base #27954, as a group header's + ⋮ ⌄ do). This Mac's header also shows
-            // its Share Screen button (#42824) one pitch past the +, and the fold steps past it too. The button draws on
-            // hover only but keeps its slot at rest, so the fold's column follows the action, not the drawn button.
+            // its Share Screen button (#42824) one pitch past the +, and the fold steps past it too.
             let fold = try #require(section.subviews.compactMap { $0 as? DecorativeImageView }.first { !$0.isHidden })
-            let screen = section.screenAction != nil ? 1 : 0
-            #expect(abs(fold.frame.midX - Self.column304((marks == 1 ? 0 : 1) + screen, comfortable: comfortable)) <= 0.5,
+            let screen = section.showsScreenButton ? 1 : 0
+            #expect(abs(fold.frame.midX - Self.column304((marks == 1 ? 0 : 1) + screen)) <= 0.5,
                     "the fold sits at \(fold.frame.midX), not column \((marks == 1 ? 0 : 1) + screen)")
             #expect(abs(fold.frame.midY - height / 2) <= 0.5)
             #expect(section.addButton.isHidden == (marks == 1))
             if marks == 2 {
-                #expect(abs(section.addButton.frame.midX - Self.column304(0, comfortable: comfortable)) <= 0.5)
+                #expect(abs(section.addButton.frame.midX - Self.column304(0)) <= 0.5)
                 #expect(abs(section.addButton.frame.midY - height / 2) <= 0.5)
                 #expect(fold.frame.maxX <= section.addButton.frame.minX)
             }
@@ -334,7 +312,7 @@ extension SidebarGridAlignmentTests {
                 #expect(abs(frame.maxX - (320 - SidebarStyle.rowEdgeGap)) <= 0.5)
                 let columns = SidebarStyle.columns(rowWidth: frame.width, leadingOffset: reach)
                 #expect(abs(frame.minX + columns.lead - Self.lead(comfortable) - CGFloat(depth * 7)) <= 0.5)
-                #expect(abs(frame.minX + columns.trailingCenter() - (320 - SidebarStyle.rowEdgeGap - Self.trailingInset(comfortable))) <= 0.5)
+                #expect(abs(frame.minX + columns.trailingCenter() - (320 - SidebarStyle.rowEdgeGap - SidebarStyle.contentInset - 5)) <= 0.5)
             }
         }
     }
@@ -351,7 +329,7 @@ extension SidebarGridAlignmentTests {
             #expect(SidebarDensityTokens.rowHeight == height)
             #expect(SidebarDensityTokens.headerHeight == (comfortable ? 26 : 22))
             #expect(SidebarStyle.rowEdgeGap == (comfortable ? 8 : 6))
-            #expect(abs(SidebarStyle.controlSize - Self.control(comfortable)) <= 0.001)
+            #expect(SidebarStyle.controlSize == Metrics.iconSize + Metrics.space2)
             #expect(SidebarStyle.trailingSlotSide == SidebarStyle.controlSize)
             #expect(SidebarStyle.titleFont == Typography.body)
             #expect(SidebarStyle.subtitleFont == Typography.caption)

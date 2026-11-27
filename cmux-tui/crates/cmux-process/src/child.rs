@@ -233,12 +233,7 @@ impl Child {
                 if status.is_some() {
                     return Ok(true);
                 }
-                // `NOTE_EXIT` (and ESRCH) come while the child is still on its way to a zombie, before `waitid`
-                // can see it: a `WNOHANG` check then would read a child that exited as running. Once the exit was
-                // seen, wait (unreaped) for the zombie, which is already on its way.
-                if exit_seen_within(*pid, limit)? {
-                    return exited_unreaped_after_exit(*pid);
-                }
+                exit_event_within(*pid, limit)?;
                 exited_unreaped(*pid)
             }
             #[cfg(target_os = "linux")]
@@ -253,10 +248,6 @@ impl Child {
     /// Wait at most `limit` for the child to end: its status, or `None` when
     /// it still runs. The wait is an event (macOS: kqueue `EVFILT_PROC`
     /// `NOTE_EXIT`; Linux: a pidfd), not a poll; `limit` only bounds it.
-    #[cfg_attr(
-        windows,
-        allow(unreachable_code, reason = "Windows' one arm returns wait-timeout's own answer")
-    )]
     pub fn wait_timeout(&mut self, limit: Duration) -> io::Result<Option<ExitStatus>> {
         drop(self.stdin.take());
         if let Some(status) = self.try_wait()? {
@@ -265,13 +256,7 @@ impl Child {
         match &mut self.inner {
             #[cfg(target_vendor = "apple")]
             Inner::Pid { pid, .. } => {
-                let pid = *pid;
-                // As `exited_unreaped_within`: an exit seen is reaped, never read as still running.
-                if exit_seen_within(pid, limit)? {
-                    let status = self.wait_inner()?;
-                    self.ended = true;
-                    return Ok(Some(status));
-                }
+                exit_event_within(*pid, limit)?;
             }
             #[cfg(target_os = "linux")]
             Inner::Std(child) => {
@@ -409,26 +394,6 @@ fn exited_unreaped(pid: libc::pid_t) -> io::Result<bool> {
     }
 }
 
-/// Whether child `pid`, whose exit was already seen ([`exit_seen_within`]), exited, leaving it unreaped: `waitid`
-/// with `WNOWAIT` and without `WNOHANG`, which returns once the exiting child is a zombie (at once when it is one).
-/// A child the system already reaped (`SIGCHLD` ignored) is `ECHILD`, an error, never a wait.
-#[cfg(target_vendor = "apple")]
-fn exited_unreaped_after_exit(pid: libc::pid_t) -> io::Result<bool> {
-    let id = libc::id_t::try_from(pid).map_err(io::Error::other)?;
-    loop {
-        // SAFETY: a zeroed siginfo_t is valid output storage.
-        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-        // SAFETY: waitid writes one siginfo_t for a child of this process; WNOWAIT leaves it unreaped.
-        if unsafe { libc::waitid(libc::P_PID, id, &mut info, libc::WEXITED | libc::WNOWAIT) } == 0 {
-            return Ok(true);
-        }
-        let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::Interrupted {
-            return Err(error);
-        }
-    }
-}
-
 /// Block until `pid` exits or `limit` passes (kqueue `NOTE_EXIT`). A child
 /// that exited before the registration (a zombie: `EV_ADD` fails with
 /// ESRCH, as an `EV_ERROR` event or as `kevent`'s own error) returns at once;
@@ -437,15 +402,6 @@ fn exited_unreaped_after_exit(pid: libc::pid_t) -> io::Result<bool> {
 /// registered event only updates it).
 #[cfg(target_vendor = "apple")]
 pub(crate) fn exit_event_within(pid: libc::pid_t, limit: Duration) -> io::Result<()> {
-    exit_seen_within(pid, limit).map(|_| ())
-}
-
-/// [`exit_event_within`], answering whether the exit was seen (`NOTE_EXIT`, or ESRCH: the child is past its
-/// registration) rather than `limit` passing. XNU posts `NOTE_EXIT` and closes the child's descriptors (its pipes
-/// end) while the child is still on its way to a zombie, so a `WNOHANG` wait right after can find nothing yet: a
-/// caller that saw the exit waits for the zombie instead ([`exited_unreaped_after_exit`]).
-#[cfg(target_vendor = "apple")]
-fn exit_seen_within(pid: libc::pid_t, limit: Duration) -> io::Result<bool> {
     use std::os::fd::{FromRawFd, OwnedFd};
     // SAFETY: kqueue returns a new descriptor or -1.
     let queue = unsafe { libc::kqueue() };
@@ -478,12 +434,12 @@ fn exit_seen_within(pid: libc::pid_t, limit: Duration) -> io::Result<bool> {
             if n == 1 && event.flags & libc::EV_ERROR != 0 && event.data as i32 != libc::ESRCH {
                 return Err(io::Error::from_raw_os_error(event.data as i32));
             }
-            return Ok(n == 1);
+            return Ok(());
         }
         let error = io::Error::last_os_error();
         match error.raw_os_error() {
             // Exited before the registration: its status waits to be reaped.
-            Some(libc::ESRCH) => return Ok(true),
+            Some(libc::ESRCH) => return Ok(()),
             Some(libc::EINTR) => {}
             _ => return Err(error),
         }

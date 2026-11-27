@@ -27,9 +27,6 @@ nonisolated public enum UpdateCard: Equatable, Sendable {
     /// download runs), with no click (Leo 2026-10-29: "if there's multiple nightlies, i should
     /// only need to do one to get the latest"). `pulled`: the running build was pulled (one line says so).
     case gettingNewest(UpdateTransfer?, pulled: Bool)
-    /// The check after a relaunch into a new build failed (``UpdateHealthFailure``): Go Back
-    /// restarts into `previousBuild`, kept on this Mac; `reason` names the failed checks.
-    case healthFailed(previousBuild: String, reason: String)
 }
 
 /// What a notice card's button does. The raw value is the card action id.
@@ -45,23 +42,19 @@ nonisolated public enum UpdateCardAction: String, Sendable, CaseIterable {
     /// Stop the running download: Sparkle deletes the partial file and the card goes back to the
     /// found update, whose Update downloads it again (Leo 2026-10-31: "WHY CAN'T I CANCEL THE DOWNLOAD").
     case cancelDownload = "cancel_download"
-    /// Restart into the build that ran before a failed check after an update.
-    case goBack = "go_back"
 
     public var title: String {
         switch self {
         case .update: UpdaterStrings.update
         case .releaseNotes: UpdaterStrings.releaseNotes
-        // retry-prompt-ok: an update that downloads and replaces binaries
         case .retry: UpdaterStrings.retry
         case .details: UpdaterStrings.details
         case .cancelDownload: UpdaterStrings.cancel
-        case .goBack: UpdaterStrings.goBack
         }
     }
 
     /// The call to action (filled); the others are quiet.
-    public var isProminent: Bool { self == .update || self == .goBack }
+    public var isProminent: Bool { self == .update }
 
     /// The SF Symbol of an action drawn as the card's right-hand control (``UpdateCardPresentation/trailing``).
     public var symbol: String {
@@ -71,7 +64,6 @@ nonisolated public enum UpdateCardAction: String, Sendable, CaseIterable {
         case .releaseNotes: "doc.text"
         case .retry: "arrow.clockwise"
         case .details: "info.circle"
-        case .goBack: "arrow.uturn.backward.circle"
         }
     }
 }

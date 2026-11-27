@@ -353,7 +353,7 @@ struct CreationHoldReplyBoundTests {
         buffer.endReplyWait(personMoves: 3, shows: { _ in true })
         let keys = buffer.take(focused: focused, isShortcut: { _, _ in false })
         #expect(keys.count == 1, "focused \(focused): the held keys went on in \(keys.count) runs")
-        guard case .type(let events, let lane, _)? = keys.first else {
+        guard case .type(let events, let lane)? = keys.first else {
             Issue.record("focused \(focused): the held keys went on as no typed run: \(keys.first.map { "\($0)" } ?? "none")")
             return
         }

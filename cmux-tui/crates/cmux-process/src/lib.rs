@@ -44,25 +44,14 @@
 //! and [`Command::process_group`] cover what the daemon's hooks did); a
 //! descriptor other than 0-2 reaches the child only through
 //! [`Command::inherit_fd`].
-//!
-//! [`Command::spawn_owned`] starts a child that dies with this process
-//! (even by SIGKILL) and with its handle, its descendants too; a
-//! [`ChildGroup`] gives the same to a `std` or `tokio` command, and a
-//! [`GroupTether`] to a child that leads a group of its own.
 
 mod child;
 mod command;
-#[cfg(unix)]
-mod exec;
-mod group;
 #[cfg(target_vendor = "apple")]
 mod spawn_apple;
 mod stdio;
 
 pub use child::{Child, DROP_GRACE};
 pub use command::Command;
-#[cfg(unix)]
-pub use exec::exec_replace;
-pub use group::{ChildGroup, GRACE, GroupTether, OwnedChild};
 pub use std::process::{ExitStatus, Output};
 pub use stdio::Stdio;

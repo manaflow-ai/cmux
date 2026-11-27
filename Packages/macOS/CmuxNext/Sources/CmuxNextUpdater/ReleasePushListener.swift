@@ -1,4 +1,3 @@
-import CmuxEgress
 import Foundation
 
 /// The release push (Leo 2026-10-26: "if the nightly is post, I just want it. Just give it to me.
@@ -221,8 +220,8 @@ nonisolated final class LiveReleasePushSocket: ReleasePushSocket {
     init(url: URL) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.waitsForConnectivity = false
-        session = CmuxEgress.session(site: "CmuxNextUpdater.ReleasePushListener", configuration: configuration)
-        socket = CmuxEgress.websocket(session, with: url, site: "CmuxNextUpdater.ReleasePushListener")
+        session = URLSession(configuration: configuration)
+        socket = session.webSocketTask(with: url)
         socket.resume()
     }
 

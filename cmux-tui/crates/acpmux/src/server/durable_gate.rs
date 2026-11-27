@@ -1,47 +1,23 @@
 //! A connection's outbound gate (R-DURABILITY S2c, DESIGN.md 3.3d): with the event journal on, no
 //! line goes to a client before every acknowledged change it may show is durable.
 //!
-//! Each line a connection queues raises the connection's needs (`outbound::Raised`) to the
-//! store's last acknowledged LSN ([`Durability::acked`]) before it is queued, except the lines of
-//! a `Stream` record's event (agent output, shown at once: DESIGN.md C4), sent inside a
-//! [`stream_scope`]; the queue stamps each line with the needs raised so far (`outbound::Needs`).
-//! The gate's task takes every queued line at once and sends them in order, each once the
-//! journal's durable LSN reaches its own stamp (waiting async, no thread blocked). So a reply goes
+//! Each line a connection queues raises the gate's `needs` to the store's last acknowledged LSN
+//! ([`Durability::acked`]) before it is queued, except the lines of a `Stream` record's event
+//! (agent output, shown at once: DESIGN.md C4), sent inside a [`stream_scope`]. The gate's task
+//! takes every queued line at once, reads `needs` after that, waits (async, no thread blocked)
+//! until the journal's durable LSN reaches it, then sends the batch in order. So a reply goes
 //! out only once the changes it may show are durable, an acknowledged event once its record is,
-//! and a connection that heard nothing acknowledged never waits. A line never waits for a change
-//! acknowledged after it was queued: agent output queued between a turn's first records and its
-//! last goes out once the first are durable, not after the syncs of the last (the turn bench,
-//! `benches/turn_overhead.rs`, measured 3.8 ms of a 4.5 ms turn there: every line of the turn
-//! went out in one burst after its newest record's sync). A burst whose lines all need one LSN
-//! costs one wait, as the journal's group commit costs one sync. Each batch the gate takes asks
-//! the journal once for the sync of the newest change its lines need
-//! (`cmux_journal::Journal::ask_durable`), as a `wait_durable` does: the journal's group window
-//! (`ack_group_window`, 5 ms) is for the records nobody waits to see, and an acked change a
-//! client waits for is synced at once instead of at the window's end. A kept change (a draft, a name:
-//! [`crate::store::ShowAfter::Written`]) raises the written needs instead, to the store's last
-//! kept record, and its lines wait for the journal's written LSN to reach it: its record written,
-//! not synced, so typing and renaming never wait for a disk sync while a kill -9 still keeps every
+//! and a connection that heard nothing acknowledged never waits; a burst costs one wait per
+//! batch, as the journal's group commit costs one sync. A kept change (a draft, a name:
+//! [`crate::store::ShowAfter::Written`]) raises `needs_written` instead, to the store's last kept
+//! record, and the gate waits for the journal's written LSN to reach it: its record written, not
+//! synced, so typing and renaming never wait for a disk sync while a kill -9 still keeps every
 //! change a client saw. When the journal's writer ended (the durable watch closed), the gate
 //! drops what it holds and ends, which closes the connection; the store asks the daemon to stop.
-//!
-//! While the store is in its full-disk state (`store/journal_store/space.rs`), a line waits at
-//! most [`crate::store::FULL_WAIT`] (400 ms) for the journal: the writer's first retries write the
-//! records appended before the disk filled into the room its freed reserve leaves, and the line
-//! goes out as on any disk. Past it, and for every later line that has not reached the journal
-//! while the disk stays full, a reply (a response to a client's request) is answered with the
-//! store's refusal instead, typed `disk.full` with its request id: the client waits for it, and
-//! only space could release it. Any other line (a notification, or a request the daemon sends,
-//! such as a permission ask) is not a call anyone waits on: it stays held, aside, and goes out
-//! once the journal reaches it, in its order among the other held ones, before any later line
-//! that reached the journal. Neither shows a change before it is on disk. The duress bench's
-//! disk leg had 3 of about 85 `session/prompt` calls a run unanswered at its 30 s limit, the ones
-//! whose records were appended as the disk filled. The first line that reaches the journal ends
-//! the full wait.
 //!
 //! Without the journal ([`crate::store::Store::durability`] is None) there is no gate: the
 //! connection's plain pump moves its lines (`outbound.rs`).
 
-use super::outbound::{Needs, Raised};
 use crate::store::Durability;
 use std::cell::Cell;
 use std::sync::Arc;
@@ -51,9 +27,11 @@ use tokio::sync::watch;
 
 /// What a connection's lines wait for.
 pub(super) struct Gate {
-    /// The highest LSNs a line queued so far may show: acknowledged, and kept.
-    raised: Arc<Raised>,
+    /// The highest acknowledged LSN a line queued so far may show.
+    needs: AtomicU64,
     acked: Arc<AtomicU64>,
+    /// The highest LSN of a kept change a line queued so far may show.
+    needs_written: AtomicU64,
     kept: Arc<AtomicU64>,
 }
 
@@ -64,8 +42,8 @@ impl Gate {
         if STREAM.with(Cell::get) {
             return;
         }
-        self.raised.durable.fetch_max(self.acked.load(Ordering::SeqCst), Ordering::SeqCst);
-        self.raised.written.fetch_max(self.kept.load(Ordering::SeqCst), Ordering::SeqCst);
+        self.needs.fetch_max(self.acked.load(Ordering::SeqCst), Ordering::SeqCst);
+        self.needs_written.fetch_max(self.kept.load(Ordering::SeqCst), Ordering::SeqCst);
     }
 }
 
@@ -99,9 +77,10 @@ pub(super) fn install(
     durability: Durability,
     pump: super::outbound::Pump,
 ) -> (Arc<Gate>, impl std::future::Future<Output = ()> + Send + 'static) {
-    let Durability { acked, durable, kept, written, ask, stalled, full } = durability;
-    let gate = Arc::new(Gate { raised: pump.raised(), acked, kept });
-    let run = run(pump, Journal { durable, written, ask, full }, stalled);
+    let Durability { acked, durable, kept, written, stalled } = durability;
+    let gate =
+        Arc::new(Gate { needs: AtomicU64::new(0), acked, needs_written: AtomicU64::new(0), kept });
+    let run = run(pump, Arc::clone(&gate), Journal { durable, written }, stalled);
     (gate, run)
 }
 
@@ -127,44 +106,21 @@ fn stall_limit() -> Duration {
 struct Journal {
     durable: watch::Receiver<u64>,
     written: watch::Receiver<u64>,
-    /// Asks the journal to sync through an LSN now.
-    ask: Arc<dyn Fn(u64) + Send + Sync>,
-    /// The store's `disk.full` refusal while it is full ([`Durability::full`]).
-    full: Arc<dyn Fn() -> Option<String> + Send + Sync>,
-}
-
-/// How a line's wait for the journal ended.
-enum Waited {
-    Reached,
-    /// The pump stopped or the journal's writer ended: the gate ends.
-    Ended,
-    /// The disk is full and the journal did not reach the line: the store's refusal.
-    Full(String),
 }
 
 impl Journal {
-    fn reached(&self, needs: Needs) -> bool {
-        *self.durable.borrow() >= needs.durable && *self.written.borrow() >= needs.written
-    }
-
-    /// Asks the journal to sync through the newest LSN `batch` needs, once for the whole batch: a
-    /// client waits for these lines, so they do not wait out the group window, and one sync covers
-    /// them all.
-    fn ask(&self, batch: &[super::outbound::Line]) {
-        let needs = batch.iter().map(|line| line.needs.durable).max().unwrap_or(0);
-        if *self.durable.borrow() < needs {
-            (self.ask)(needs);
-        }
+    fn reached(&self, needs: u64, needs_written: u64) -> bool {
+        *self.durable.borrow() >= needs && *self.written.borrow() >= needs_written
     }
 
     /// Until both LSNs are reached; false when the journal's writer ended.
-    async fn reach(&mut self, needs: Needs) -> bool {
+    async fn reach(&mut self, needs: u64, needs_written: u64) -> bool {
         // Each borrow of a watch ends in its own statement: none is held across an await.
-        let durable = self.durable.wait_for(|lsn| *lsn >= needs.durable).await.is_ok();
+        let durable = self.durable.wait_for(|lsn| *lsn >= needs).await.is_ok();
         if !durable {
             return false;
         }
-        self.written.wait_for(|lsn| *lsn >= needs.written).await.is_ok()
+        self.written.wait_for(|lsn| *lsn >= needs_written).await.is_ok()
     }
 }
 
@@ -173,158 +129,56 @@ impl Journal {
 /// closes the queue (`outbound.rs`).
 async fn run(
     pump: super::outbound::Pump,
+    gate: Arc<Gate>,
     mut journal: Journal,
     stalled: Arc<dyn Fn(Duration) -> bool + Send + Sync>,
 ) {
     let mut batch = Vec::new();
-    // A line waited out [`crate::store::FULL_WAIT`] while the disk is full and no line reached
-    // the journal since: the next lines that have not reached it do not wait again.
-    let mut full = false;
-    // Lines that are not replies, held aside on a full disk until the journal reaches them.
-    let mut aside: std::collections::VecDeque<super::outbound::Line> = Default::default();
     'pump: loop {
-        if !send_reached(&pump, &journal, &mut aside).await {
-            break 'pump;
-        }
-        let next = aside.front().map(|line| line.needs);
         tokio::select! {
             biased;
             () = pump.stopped() => break 'pump,
-            reached = async {
-                match next {
-                    Some(needs) => journal.reach(needs).await,
-                    None => std::future::pending().await,
-                }
-            } => {
-                if !reached {
-                    break 'pump;
-                }
-                continue 'pump;
-            }
             more = pump.take(&mut batch) => {
                 if !more {
                     break 'pump;
                 }
             }
         }
-        journal.ask(&batch);
-        for line in batch.drain(..) {
-            let line = if journal.reached(line.needs) {
-                full = false;
-                line
-            } else {
-                match wait(&pump, &mut journal, line.needs, &stalled, full).await {
-                    Waited::Reached => {
-                        full = false;
-                        line
-                    }
-                    Waited::Ended => break 'pump,
-                    Waited::Full(refusal) => {
-                        full = true;
-                        match refused(&line, &refusal) {
-                            Some(Some(answer)) => pump.replace(line, answer),
-                            Some(None) => line,
-                            None => {
-                                aside.push_back(line);
-                                continue;
-                            }
+        // After the lines were taken: every line among them raised the gate before it was queued.
+        let needs = gate.needs.load(Ordering::SeqCst);
+        let needs_written = gate.needs_written.load(Ordering::SeqCst);
+        if !journal.reached(needs, needs_written) {
+            let reached = journal.reach(needs, needs_written);
+            tokio::pin!(reached);
+            let started = tokio::time::Instant::now();
+            let stall = tokio::time::sleep(stall_limit());
+            tokio::pin!(stall);
+            let mut asked = false;
+            loop {
+                tokio::select! {
+                    biased;
+                    () = pump.stopped() => break 'pump,
+                    reached = &mut reached => {
+                        if !reached {
+                            tracing::error!("the event journal's writer ended: this connection closes");
+                            break 'pump;
                         }
+                        break;
+                    }
+                    () = &mut stall, if !asked => {
+                        // Asked again each interval: a disk that is slow first may fail later.
+                        asked = stalled(started.elapsed());
+                        stall.as_mut().reset(tokio::time::Instant::now() + stall_limit());
                     }
                 }
-            };
-            // A line's needs only grow, so the held lines before one that reached the journal
-            // reached it too: they go first.
-            if !send_reached(&pump, &journal, &mut aside).await || !pump.forward(line).await {
+            }
+        }
+        for line in batch.drain(..) {
+            if !pump.forward(line).await {
                 break 'pump;
             }
         }
     }
-}
-
-/// Sends the lines held aside that the journal reached, in order; false when the pump stopped.
-async fn send_reached(
-    pump: &super::outbound::Pump,
-    journal: &Journal,
-    aside: &mut std::collections::VecDeque<super::outbound::Line>,
-) -> bool {
-    while aside.front().is_some_and(|line| journal.reached(line.needs)) {
-        let Some(line) = aside.pop_front() else { break };
-        if !pump.forward(line).await {
-            return false;
-        }
-    }
-    true
-}
-
-/// Until the journal reaches `needs`, asking the store each [`stall_limit`] whether the journal
-/// is failing, and each [`crate::store::FULL_WAIT`] whether the disk is full (at once when
-/// `full`: a line before this one waited it out already).
-async fn wait(
-    pump: &super::outbound::Pump,
-    journal: &mut Journal,
-    needs: Needs,
-    stalled: &Arc<dyn Fn(Duration) -> bool + Send + Sync>,
-    full: bool,
-) -> Waited {
-    if full && let Some(refusal) = (journal.full)() {
-        return Waited::Full(refusal);
-    }
-    let disk = Arc::clone(&journal.full);
-    let reached = journal.reach(needs);
-    tokio::pin!(reached);
-    let started = tokio::time::Instant::now();
-    let stall = tokio::time::sleep(stall_limit());
-    tokio::pin!(stall);
-    let look = tokio::time::sleep(crate::store::FULL_WAIT);
-    tokio::pin!(look);
-    let mut asked = false;
-    loop {
-        tokio::select! {
-            biased;
-            () = pump.stopped() => return Waited::Ended,
-            reached = &mut reached => {
-                if !reached {
-                    tracing::error!("the event journal's writer ended: this connection closes");
-                    return Waited::Ended;
-                }
-                return Waited::Reached;
-            }
-            () = &mut look => {
-                if let Some(refusal) = disk() {
-                    tracing::warn!(
-                        waited = ?started.elapsed(),
-                        "a line waits for the event journal on a full disk: a reply is answered disk.full"
-                    );
-                    return Waited::Full(refusal);
-                }
-                look.as_mut().reset(tokio::time::Instant::now() + crate::store::FULL_WAIT);
-            }
-            () = &mut stall, if !asked => {
-                // Asked again each interval: a disk that is slow first may fail later.
-                asked = stalled(started.elapsed());
-                stall.as_mut().reset(tokio::time::Instant::now() + stall_limit());
-            }
-        }
-    }
-}
-
-/// What goes out instead of `line`, which the journal has not reached on a full disk: for a
-/// reply, the store's refusal under its request id, typed `disk.full` (`Some(Some(text))`), or
-/// the line itself when it is an error already (`Some(None)`: it acknowledges nothing); for any
-/// other line, None (held aside until the journal reaches it).
-fn refused(line: &super::outbound::Line, refusal: &str) -> Option<Option<String>> {
-    let message: serde_json::Value = serde_json::from_str(line.text.trim_end()).ok()?;
-    let id = message.get("id").filter(|_| message.get("method").is_none())?;
-    if message.get("error").is_some() {
-        return Some(None);
-    }
-    let mut error = crate::rpc::RpcError::internal(refusal.to_owned());
-    crate::recovery::annotate(&mut error, None);
-    let mut text = crate::rpc::Message::err(id.clone(), error).to_line();
-    if !line.text.ends_with('\n') {
-        text.pop();
-    }
-    Some(Some(text))
 }
 
 /// Tests: the stall limit in milliseconds when not 0.

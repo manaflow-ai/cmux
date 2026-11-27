@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub const MACHINE_METADATA_CLIENT_CAPABILITY: &str = "machine-metadata-v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MachineDescriptor {
     pub id: OpaqueId,
     pub display_name: String,
@@ -25,6 +26,7 @@ pub struct MachineDescriptor {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MachinePlatform {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub os: Option<String>,

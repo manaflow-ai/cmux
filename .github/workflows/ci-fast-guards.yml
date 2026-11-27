@@ -1,0 +1,95 @@
+name: CI fast guards
+
+# The workflow, scripts/ci and repository-variable guard tests (ci-guards.yml's
+# `ci` group), reported as their own check within about a minute of a push to
+# main. Pull requests run this same group as the first-class `CI fast guards`
+# job in ci.yml, so they do not pay for a second copy of the suite.
+#
+# On pull requests, ci.yml runs this same group as its first-class
+# `CI fast guards` job beside routing and static checks. Its result feeds the
+# admission and required-status jobs directly, so a red guard remains visible
+# even when the routed matrix is skipped.
+#
+# The main-push route remains independent because merge-main uses its verdict
+# to select a known-green base commit.
+#
+# scripts/ci/guards-local.sh is the same command a dev machine runs; a clean
+# local pass stamps the head for the agent merge guard in cmuxterm-hq.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A PR's newer push supersedes its older run; every main commit keeps its own.
+  group: ci-fast-guards-${{ github.event.pull_request.number || github.sha }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fast-guards:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' }}
+    name: CI fast guards
+    # This read-only guard runs the same untrusted-source checks as the
+    # standard CI route and needs no secrets or write token. Let the shared
+    # Linux runner expression absorb overflow instead of consuming hosted
+    # capacity.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout main runner-pool policy tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: .runner-pool-tooling
+          sparse-checkout: |
+            .github/runners.json
+            scripts/ci/runner_pools.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
+            scripts/ci/simple_pool_picker.py
+            scripts/ci/cloud_overflow_switch.py
+            scripts/ci/runner_label_policy.py
+            scripts/ci/signing_runner_variables.py
+            scripts/ci/python-with-yaml.sh
+          persist-credentials: false
+
+      - name: Checkout feat runner-pool workflow boundary
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # On this PR, use the exact head so the checked-out helper exists
+          # before the feat branch receives the merge. Once merged, the normal
+          # feat branch ref remains the source for later main wiring.
+          ref: ${{ github.event.pull_request.head.sha || 'feat-cmux-next' }}
+          path: .runner-pool-feat
+          sparse-checkout: |
+            .github/workflows/ci.yml
+            .github/workflows/cmux-next-ios-kit.yml
+            .github/workflows/backend.yml
+            scripts/ci/runner_pool_reconcile.py
+            tests/test_ci_runner_pool_reconcile.py
+            tests/workflow_jobs.py
+            scripts/ci/gh_expressions.py
+          persist-credentials: false
+
+      - name: Validate fleet Linux runner-pool reconciliation
+        env:
+          RUNNER_POOL_POLICY_ROOT: ${{ github.workspace }}/.runner-pool-tooling
+          RUNNER_POOL_WORKFLOW_ROOT: ${{ github.workspace }}/.runner-pool-feat
+        run: bash .runner-pool-tooling/scripts/ci/python-with-yaml.sh .runner-pool-feat/tests/test_ci_runner_pool_reconcile.py
+
+      - name: Run the fast guard tests
+        env:
+          CMUX_GUARDS_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || '' }}
+        run: scripts/ci/guards-local.sh --no-stamp --jobs 8

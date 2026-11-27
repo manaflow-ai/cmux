@@ -6,7 +6,7 @@ import type { Env } from "./env.ts"
 import { BEGIN_SKEW_MS, beginProofMessage, codeFromRandom, displayCode, normalizeCode, normalizeInvite, sha256Hex } from "./domains/pairing.ts"
 import { jwkThumbprint } from "./domains/user.ts"
 import { collectSecret, collectSecretValid } from "./pair-collect.ts"
-import { beginWithInvite, invitePairedNotify, type BegunPairing, serverPairingObjects } from "./pair-invite-routes.ts"
+import { beginWithInvite, invitePairedNotify, type BegunPairing } from "./pair-invite-routes.ts"
 import { fail, isHumanSession, pairingStub, pairLimited, type OpReply } from "./pair-op-reply.ts"
 import type { PairingInvite, PairingRecord, PairingResult } from "./pairing-do.ts"
 import { machineJoinLive, mintPairMachineJoin } from "./pair-machine-join.ts"
@@ -213,7 +213,7 @@ export const pairApprove = async (
     team,
     principal,
     // The join token's id (not a secret) goes with the server, so its revoke also revokes the machine the token made.
-    { install, name, platform: rec.info.platform, wg_public_key: rec.wg_public_key, ...(network ? { network: networkLocator(network) } : {}), ...(machineJoin ? { machine_join_token: machineJoin.join_token_id } : {}), pairing: serverPairingObjects(env, code, rec.invite ?? null) },
+    { install, name, platform: rec.info.platform, wg_public_key: rec.wg_public_key, ...(network ? { network: networkLocator(network) } : {}), ...(machineJoin ? { machine_join_token: machineJoin.join_token_id } : {}) },
     `pair:${code}:${rec.thumbprint}:host`
   )
   if (!enrolled.ok) {

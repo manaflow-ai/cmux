@@ -93,13 +93,11 @@ extension TabStripView {
             let alpha = Float(min(max(place.alpha, 0), 1))
             let direct = groups.isDragged(id)
             var moved = false
-            // A chip still moving joins this change on its curve, as the tabs do (`applyFrames`).
-            let restarts = move.map { !$0.isScroll && TabStripMove.isMoving(chip.layer) } ?? false
-            if let move, restarts || frame != chip.frame || alpha != chip.layer.opacity || abs(scroll) > 0.01 {
+            if let move, frame != chip.frame || alpha != chip.layer.opacity || abs(scroll) > 0.01 {
                 let before = TabStripMove.snapshot(chip.layer)
                 chip.frame = frame
                 chip.layer.opacity = alpha
-                moved = move.animate(from: before, scroll: scroll, restarts: restarts)
+                moved = move.animate(from: before, scroll: scroll)
             } else {
                 chip.frame = frame
                 chip.layer.opacity = alpha
@@ -130,8 +128,8 @@ extension TabStripView {
             )
             band.lineLayer.frame.origin.x = pixel(pillMinX - offset)
             if let move, let wash, let line {
-                move.animate(from: wash, scroll: scroll, pinsEnd: pinsEnd, restarts: !move.isScroll && TabStripMove.isMoving(band.washLayer))
-                move.animate(from: line, scroll: scroll, pinsEnd: pinsEnd, restarts: !move.isScroll && TabStripMove.isMoving(band.lineLayer))
+                move.animate(from: wash, scroll: scroll, pinsEnd: pinsEnd)
+                move.animate(from: line, scroll: scroll, pinsEnd: pinsEnd)
             }
         }
     }

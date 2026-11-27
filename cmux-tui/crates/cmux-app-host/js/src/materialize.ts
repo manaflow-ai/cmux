@@ -28,12 +28,6 @@ interface NodeRecord {
   menu: MenuEntry[] | null
   /** Current child ids, so a removal releases the whole subtree from the budget. */
   children: string[]
-  /** A TextField bound to a live `text`: the field reports the text it shows (with each edit, submit
-   * and cancel), which becomes the page's copy of the prop. */
-  shown?: (text: string) => void
-  /** After a submit or cancel has run (its returned promise settled): sends the app's `text` when it
-   * differs from the field's. */
-  settle?: () => void
 }
 
 export class Mount {
@@ -130,24 +124,6 @@ function build(m: Mount, view: ViewNode, depth: number): string {
   for (const [key, fn] of live) {
     let last = firstValues.get(key)
     let first = true
-    // A TextField's text is the person's while they type: the page keeps what they typed as the prop's
-    // value, and the field reports it with each edit, submit and cancel. That report becomes `last`, so
-    // the app's value goes out only when it differs from what the field shows: an edit is never echoed
-    // back (a late echo would overwrite newer typing). After a submit or cancel has run, `settle` sends
-    // the app's value if it differs from the field's, also when no signal changed: an app that sets ""
-    // after a submit clears the field even when its value was "" all along (no edit reached it).
-    if (view.type === "TextField" && key === "text") {
-      record.shown = (text) => {
-        last = text
-      }
-      record.settle = () => {
-        if (nodes.get(id) !== record) return
-        const value = scalar(untrack(fn))
-        if (JSON.stringify(value) === JSON.stringify(last)) return
-        last = value
-        m.pending.push({ op: "update", id, props: { [key]: value } })
-      }
-    }
     effect(() => {
       const value = scalar(fn())
       if (first) {
@@ -239,11 +215,7 @@ function buildList(m: Mount, containerId: string, view: ViewNode, depth: number)
         } else {
           const owner = createOwner()
           const [read, write] = signal<unknown>(item, { equals: () => false })
-          const nodeId = runWithOwner(owner, () => {
-            const child = template(read as Read<unknown>, key)
-            if (view.type === "Reorderable" && spec.onMove) child.props.reorderKey = key
-            return build(m, child, depth + 1)
-          })
+          const nodeId = runWithOwner(owner, () => build(m, template(read as Read<unknown>, key), depth + 1))
           next.set(key, { key, owner, setItem: (v) => write(() => v), nodeId })
         }
         nextOrder.push(key)
@@ -259,6 +231,7 @@ function buildList(m: Mount, containerId: string, view: ViewNode, depth: number)
       if (changed) setChildren(m, containerId, nextOrder.map((k) => next.get(k)!.nodeId))
     })
   })
+  // Rows emit `move` with the row key, which is what onMove(id, index) expects.
 }
 
 function bindMenu(m: Mount, id: string, record: NodeRecord, source: ViewNode[] | (() => ViewNode[])) {

@@ -18,8 +18,6 @@ struct AgentPaneAttachDroppedTests {
     /// The clock the stash reads, moved by the test.
     private final class Uptime {
         var now: TimeInterval = 1000
-        /// The wall clock (seconds since 1970) the page's `Date.now()` reads too.
-        var wall: TimeInterval = 1_800_000_000
     }
 
     /// A pane whose App says its chat is on this Mac (`local`), or says nothing (nil).
@@ -27,17 +25,14 @@ struct AgentPaneAttachDroppedTests {
         let model = AgentPaneModel(host: NoHost())
         let clock = Uptime()
 
-        init(local: Bool? = true, handshake: Bool = true) {
+        init(local: Bool? = true) {
             let clock = clock
-            model.droppedPaths = AgentPaneDroppedPaths(now: { clock.now }, wall: { clock.wall })
-            model.hasHandshake = handshake
+            model.droppedPaths = AgentPaneDroppedPaths(now: { clock.now })
             if let local { model.onLocalPaths = { local } }
         }
 
-        func ask(_ kind: String, _ names: [String], gestureAt: TimeInterval? = nil) async -> [String: Any] {
-            var params: [String: Any] = ["kind": kind, "names": names]
-            if let gestureAt { params["gestureAt"] = gestureAt * 1000 }
-            return await model.respond(to: AgentPaneRequest(body: ["method": "chat.attach.dropped", "params": params]))
+        func ask(_ kind: String, _ names: [String]) async -> [String: Any] {
+            await model.respond(to: AgentPaneRequest(body: ["method": "chat.attach.dropped", "params": ["kind": kind, "names": names]]))
         }
     }
 
@@ -67,8 +62,6 @@ struct AgentPaneAttachDroppedTests {
         #expect(String(describing: request) == "attachDropped")
         #expect(AgentPaneRequest(body: ["method": "chat.attach.dropped", "params": ["kind": "paste", "names": ["a.mov"]]])
             == .attachDropped(.paste, names: ["a.mov"]))
-        #expect(AgentPaneRequest(body: ["method": "chat.attach.dropped", "params": ["kind": "drop", "names": ["a.png"], "gestureAt": 1_800_000_000_250]])
-            == .attachDropped(.drop, names: ["a.png"], gestureAt: 1_800_000_000.25))
     }
 
     @Test func refusesAMalformedRequest() {
@@ -253,43 +246,6 @@ struct AgentPaneAttachDroppedTests {
         #expect(Self.items(await rig.ask("drop", ["docs", "build.zip"]))?.isEmpty == true)
     }
 
-    /// Two fast pastes (or drops) of files with the same names from different folders: each page ask
-    /// says when it took its gesture, and gets that gesture's paths, in either order. A late ask for
-    /// the first never takes the second's record (the doubled-screenshots follow-up, cmux#48809).
-    @Test func eachFastGestureGetsItsOwnPaths() async throws {
-        let first = try Self.dropped(), second = try Self.dropped()
-        defer { [first.base, second.base].forEach { try? FileManager.default.removeItem(at: $0) } }
-        for kind in ["paste", "drop"] {
-            for lateFirst in [false, true] {
-                let rig = Rig()
-                let gesture = AgentPaneDroppedPaths.Kind(rawValue: kind)!
-                let firstAt = rig.clock.wall
-                rig.model.droppedPaths.stash([first.folder, first.file], kind: gesture)
-                rig.clock.wall += 0.2
-                let secondAt = rig.clock.wall
-                rig.model.droppedPaths.stash([second.folder, second.file], kind: gesture)
-                // The page reads its clock after the record was made: a few ms later.
-                let askFirst = { await rig.ask(kind, ["docs", "build.zip"], gestureAt: firstAt + 0.004) }
-                let askSecond = { await rig.ask(kind, ["docs", "build.zip"], gestureAt: secondAt + 0.004) }
-                let paths = { (reply: [String: Any]) in Self.items(reply)?.compactMap { $0["path"] as? String } }
-                if lateFirst {
-                    #expect(paths(await askSecond()) == [second.folder.path, second.file.path])
-                    #expect(paths(await askFirst()) == [first.folder.path, first.file.path])
-                } else {
-                    #expect(paths(await askFirst()) == [first.folder.path, first.file.path])
-                    #expect(paths(await askSecond()) == [second.folder.path, second.file.path])
-                }
-                // Each record answered once.
-                #expect(Self.items(await askSecond())?.isEmpty == true)
-            }
-        }
-        // A gesture taken before any record of its kind finds none, and leaves the record.
-        let rig = Rig()
-        rig.model.droppedPaths.stash([first.folder, first.file], kind: .drop)
-        #expect(Self.items(await rig.ask("drop", ["docs", "build.zip"], gestureAt: rig.clock.wall - 1))?.isEmpty == true)
-        #expect(Self.items(await rig.ask("drop", ["docs", "build.zip"], gestureAt: rig.clock.wall))?.count == 2)
-    }
-
     /// A paste asks for the paste's files: the drop's stay for the drop.
     @Test func aPasteDoesNotTakeTheDrop() async throws {
         let (base, folder, file) = try Self.dropped()
@@ -317,20 +273,6 @@ struct AgentPaneAttachDroppedTests {
             rig.model.droppedPaths.stash([url], kind: .drop)
             #expect(Self.errorCode(await rig.ask("drop", ["build.zip"])) == "unsupported")
         }
-    }
-
-    /// Before its handshake a page on a remote route still reads `remoteChat == false`, so it
-    /// never receives this Mac's paths. A local chat can link the same drop after the handshake.
-    @Test func refusedBeforeTheHandshake() async throws {
-        let (base, _, file) = try Self.dropped()
-        defer { try? FileManager.default.removeItem(at: base) }
-        let rig = Rig(handshake: false)
-        rig.model.droppedPaths.stash([file], kind: .drop)
-        #expect(Self.errorCode(await rig.ask("drop", ["build.zip"])) == "unsupported")
-
-        rig.model.hasHandshake = true
-        rig.model.droppedPaths.stash([file], kind: .drop)
-        #expect(Self.items(await rig.ask("drop", ["build.zip"]))?.compactMap { $0["path"] as? String } == [file.path])
     }
 
     /// WebKit's Paste in the composer's right-click menu runs the web view's own `paste:`, so a

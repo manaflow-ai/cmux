@@ -1,53 +1,10 @@
 import Foundation
-import Observation
-
-/// Other members' Macs shown by Terminal Sizing after the phone has visited their team.
-@MainActor
-@Observable
-public final class TerminalSizingPeers {
-    private let cache: LastKnownList?
-    @ObservationIgnored private lazy var restored = cache?.read([String: [MacDevice]].self) ?? [:]
-    private var updated: [String: [MacDevice]]?
-    private var byTeam: [String: [MacDevice]] { updated ?? restored }
-
-    public init(cache: LastKnownList?) {
-        self.cache = cache
-    }
-
-    /// A full team response settles that team's peers, including their removal. The caller's
-    /// own Macs come from the shared Devices roster instead.
-    public func replace(teamID: String, devices: [MacDevice], accountID: String) {
-        let peers = devices.filter { $0.ownerUserID != nil && $0.ownerUserID != accountID }
-        guard peers != (byTeam[teamID] ?? []) else { return }
-        var latest = byTeam
-        latest[teamID] = peers.isEmpty ? nil : peers
-        updated = latest
-        cache?.save(latest)
-    }
-
-    public func forget(_ id: String) {
-        let affected = byTeam.keys.filter { byTeam[$0]?.contains { $0.id == id } == true }
-        guard !affected.isEmpty else { return }
-        var latest = byTeam
-        for teamID in affected {
-            latest[teamID]?.removeAll { $0.id == id }
-            if latest[teamID]?.isEmpty == true { latest[teamID] = nil }
-        }
-        updated = latest
-        cache?.save(latest)
-    }
-
-    /// Never include a roster whose membership the active account no longer displays.
-    public func visible(in teams: [Team]) -> [MacDevice] {
-        teams.flatMap { byTeam[$0.id] ?? [] }
-    }
-}
 
 /// One of the account's devices as Settings → Devices lists it. A phone
 /// registers two service devices (link and presence); `ids` holds both, so
 /// removing the phone removes them together.
-public struct SettingsDevice: Identifiable, Hashable, Sendable, Codable {
-    public enum Kind: String, Sendable, Hashable, Codable { case mac, phone }
+public struct SettingsDevice: Identifiable, Hashable, Sendable {
+    public enum Kind: Sendable, Hashable { case mac, phone }
 
     public var id: String { ids.first ?? name }
     public var ids: [String]
@@ -87,7 +44,7 @@ public enum SettingsDeviceRows {
     /// The Mac rows. With a device service (`hasService`), the service's list
     /// with live presence from `liveMacs` laid over it, or nil while it has not
     /// loaded. Without one, every Mac the phone knows (`liveMacs`, each once).
-    /// `teamOf`: each live Mac's team (the fallback's rows carry it).
+    /// `teamOf`: each live Mac's team (the fallback's rows carry it for ``otherBuilds(_:)``).
     public static func macs(service: [SettingsDevice]?, hasService: Bool, liveMacs: [MacDevice],
                             teamOf: [String: String]? = nil) -> [SettingsDevice]? {
         guard hasService else {
@@ -110,15 +67,17 @@ public enum SettingsDeviceRows {
         }
     }
 
-    /// Terminal sizing keeps team Macs, including another member's, and fills in this
-    /// account's own Macs from the same directory as Devices while discovery catches up.
-    public static func sizingMacs(teams: [Team], activeTeamID: String, service: [SettingsDevice]?,
-                                  accountID: String?, peers: [MacDevice] = []) -> [MacDevice] {
-        let restored = (service ?? []).filter { $0.kind == .mac }.map {
-            MacDevice(id: $0.id, name: $0.name, isOnline: $0.online == true, lastSeenAt: $0.lastSeenAt,
-                      ownerUserID: accountID, machineID: $0.machineID)
+    /// The Mac rows that are another cmux build on a computer whose most
+    /// recently active build Workspaces lists (``MacRoster``, per team, as
+    /// each team's Workspaces groups them): Settings still lists them, so each
+    /// can be removed, and says what they are. Every row is the caller's own.
+    public static func otherBuilds(_ macs: [SettingsDevice]) -> Set<String> {
+        Dictionary(grouping: macs, by: { $0.teamID ?? "" }).values.reduce(into: Set<String>()) { hidden, team in
+            let devices = team.map {
+                MacDevice(id: $0.id, name: $0.name, isOnline: $0.online == true, lastSeenAt: $0.lastSeenAt, machineID: $0.machineID)
+            }
+            hidden.formUnion(MacRoster(devices).hiddenIDs)
         }
-        return MacRoster.acrossTeams(teams, activeTeamID: activeTeamID, including: peers + restored)
     }
 
     /// The phone rows (only a device service lists phones).

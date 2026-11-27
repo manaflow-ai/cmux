@@ -41,7 +41,7 @@ extension SidebarViewComponents {
         func box(_ r: CGRect) -> [Double] { [r.minX, r.minY, r.width, r.height].map { Double($0) } }
         let frames = debugMotion(start: start)
         let scale = frames.last?.scale ?? list.window?.backingScaleFactor ?? 1
-        return ["scale": Double(scale), "process_start_media": Self.processStartMedia(), "frames": frames.map { frame -> [String: Any] in
+        return ["scale": Double(scale), "frames": frames.map { frame -> [String: Any] in
             ["t": frame.time, "link": frame.linkTimestamp, "target": frame.targetTimestamp,
              "refresh": frame.refreshInterval.map { $0 as Any } ?? NSNull(),
              "ids": frame.identity.mapValues { String($0) },
@@ -50,18 +50,6 @@ extension SidebarViewComponents {
              "revision": Double(frame.revision), "settling": frame.settling, "closing": frame.closing,
              "views": Dictionary(uniqueKeysWithValues: frame.views.map { key, rect in (key, box(rect) + [Double(frame.opacity[key] ?? 1)]) })]
         }]
-    }
-
-    /// The process start on the frames' clock (`t` is CACurrentMediaTime): (t - this) * 1000 is a frame's ms since the
-    /// process started, the launch marks' zero (`sysctl` `KERN_PROC_PID`, as LaunchTimesRecorder.processStart reads it).
-    private static func processStartMedia() -> Double {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        let now = CACurrentMediaTime()
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return now }
-        let start = info.kp_proc.p_un.__p_starttime
-        return now - (Date().timeIntervalSince1970 - (Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000))
     }
 
     private static func row(_ row: SidebarDebugRow) -> [String: Any] {

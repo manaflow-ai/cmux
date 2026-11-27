@@ -75,7 +75,7 @@ fn host(files: Arc<GatedFiles>) -> Host {
 
 fn stat(host: &Host, id: &str, path: &str) {
     host.send(&json!({ "type": "op", "id": id, "op": "cloud.fs.stat",
-        "args": { "machine": "vm_alpha01", "path": path } }));
+        "args": { "machine": "vm-alpha01", "path": path } }));
 }
 
 /// The result line of op `id` within `wait`, other lines skipped.
@@ -174,14 +174,14 @@ fn the_connect_info_gate_is_cached_until_it_expires_or_the_machine_changes() {
     let reads = |s: &Server<FakeControlPlane>| {
         s.control_plane().ops().iter().filter(|o| *o == "cloud.machine.connect_info").count()
     };
-    let op = || Request::new("cloud.fs.stat", json!({ "machine": "vm_alpha01", "path": "/a" }));
+    let op = || Request::new("cloud.fs.stat", json!({ "machine": "vm-alpha01", "path": "/a" }));
     s.handle(&op()).expect("stat");
     s.handle(&op()).expect("stat");
     assert_eq!(reads(&s), 1, "one read for two ops");
     clock.0.fetch_add(301_000, Ordering::SeqCst);
     s.handle(&op()).expect("stat");
     assert_eq!(reads(&s), 2, "an entry older than 300 s is read again");
-    s.team_event("cloud.machine.removed", &json!({ "machine": "vm_alpha01", "revision": "9" }))
+    s.team_event("cloud.machine.removed", &json!({ "machine": "vm-alpha01", "revision": "9" }))
         .expect("event");
     s.handle(&op()).expect("stat");
     assert_eq!(reads(&s), 3, "a machine change drops the entry");

@@ -273,7 +273,6 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::BROWSER.optional(), args::SOURCE_2.optional(), args::PROFILE_3.optional()],
         cli_name: "bookmark import-from-browser",
         main_menu: Some("file"),
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

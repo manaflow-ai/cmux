@@ -41,8 +41,6 @@ export interface Sock {
   frames: Array<any>
   binary: Array<Uint8Array>
   closed: boolean
-  /** The close frame's code, once closed. */
-  closeCode?: number
   until(pred: (s: Sock) => boolean): Promise<void>
   send(f: unknown): void
 }
@@ -53,11 +51,7 @@ export const connect = async (tok: string, teamId: string, deviceId: string, via
   else headers.authorization = `Bearer ${tok}`
   const res = await worker.fetch(`https://api.test/v1/teams/${teamId}/signal?deviceId=${deviceId}`, { headers })
   expect(res.status).toBe(101)
-  return sockOf(res.webSocket!)
-}
-
-/** An accepted client socket that records its text frames (JSON) and binary frames, in order. */
-export const sockOf = (ws: WebSocket): Sock => {
+  const ws = res.webSocket!
   const waiters: Array<() => void> = []
   const s: Sock = {
     ws,
@@ -88,9 +82,8 @@ export const sockOf = (ws: WebSocket): Sock => {
       waiters.splice(0).forEach((w) => w())
     })
   })
-  ws.addEventListener("close", (e) => {
+  ws.addEventListener("close", () => {
     s.closed = true
-    s.closeCode = e.code
     waiters.splice(0).forEach((w) => w())
   })
   ws.accept()

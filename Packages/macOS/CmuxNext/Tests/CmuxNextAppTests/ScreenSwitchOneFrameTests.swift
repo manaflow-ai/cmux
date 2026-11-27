@@ -24,8 +24,8 @@ struct ScreenSwitchOneFrameTests {
     }
 
     static let pair: SplitNode = .split("a1", axis: .horizontal, ratio: 0.5, a: .leaf("a-p1"), b: .leaf("a-p2"))
-    /// ``pair`` with its divider at 30 %: the same panes, so a change from ``pair`` to it springs.
-    static let pairUneven: SplitNode = .split("a1", axis: .horizontal, ratio: 0.3, a: .leaf("a-p1"), b: .leaf("a-p2"))
+    static let pairSplit: SplitNode = .split("a1", axis: .horizontal, ratio: 0.5, a: .leaf("a-p1"),
+                                             b: .split("a2", axis: .horizontal, ratio: 0.5, a: .leaf("a-p2"), b: .leaf("a-p3")))
 
     static func columns(_ count: Int, prefix: String) -> ScreenLayout {
         .columns((1...count).map {
@@ -107,24 +107,23 @@ struct ScreenSwitchOneFrameTests {
         #expect(outgoing.frame.size == layout.root.bounds.size, "a hidden screen keeps the root's size (\(outgoing.frame.size))")
     }
 
-    /// No frame steps a hidden screen: a pane spring left in flight there froze its panes mid-motion, their content
-    /// held wider than the pane. The old screen's pane springs (here its divider on its way to another ratio, as an
-    /// equalize or another client's drag moves it) land in the turn that hides it.
+    /// No frame steps a hidden screen (Leo 2026-10-21: panes frozen mid-motion, their content held wider than the
+    /// pane). The old screen's pane springs land in the turn that hides it.
     @Test func aScreenHiddenByASwitchMidSpringSettlesInThatTurn() throws {
         let layout = Layout()
         defer { layout.window.closeAfterTest() }
         let outgoing = try layout.view("a")
-        layout.model.apply(screens: [LayoutScreen(id: "a", name: "a", layout: .splits(Self.pairUneven)),
+        layout.model.apply(screens: [LayoutScreen(id: "a", name: "a", layout: .splits(Self.pairSplit)),
                                      LayoutScreen(id: "b", name: "b", layout: .splits(.leaf("b-p1")))])
         layout.root.syncWithModel()
         _ = layout.root.advanceFrame(1.0 / 120)
-        try #require(outgoing.hasMotion, "the ratio change on the shown screen did not spring")
+        try #require(outgoing.hasMotion, "the split on the shown screen did not spring")
 
         layout.select("b")
         #expect(outgoing.isHidden, "the old screen did not hide in the switch's turn")
         #expect(!outgoing.hasMotion, "a screen that hid mid-spring stays frozen mid-motion")
-        #expect(outgoing.paneFrames.count == 2 && outgoing.paneFrames.values.allSatisfy { $0.rect == $0.targetRect })
-        for pane in ["a-p1", "a-p2"] as [PaneID] {
+        #expect(outgoing.paneFrames.count == 3 && outgoing.paneFrames.values.allSatisfy { $0.rect == $0.targetRect })
+        for pane in ["a-p1", "a-p2", "a-p3"] as [PaneID] {
             let host = try #require(layout.root.context.hosts[pane])
             #expect(!host.isOnLayoutSpring, "\(pane.rawValue) still holds its content on a spring")
             let clip = host.content.superview?.bounds ?? .zero

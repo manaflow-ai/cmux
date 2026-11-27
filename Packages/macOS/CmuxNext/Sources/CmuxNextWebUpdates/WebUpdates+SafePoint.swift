@@ -24,8 +24,7 @@ extension WebUpdates {
     /// and the checks after it run right before the reload, so a page that got busy (or started
     /// loading) after its first answer holds itself, and only itself.
     func look() async {
-        guard let pending, !looking else { return }
-        let target = target(pending)
+        guard let target = pending, !looking else { return }
         looking = true
         defer { looking = false }
         let generation = pendingGeneration
@@ -37,10 +36,6 @@ extension WebUpdates {
         var candidates: [WKWebView] = []
         var next: (after: Duration, reason: String)?
         for view in behind {
-            if case .later(let after, let reason) = WebSwapGate.sight(inSight: Self.inSight(view)) {
-                next = Self.sooner(next, (after, reason))
-                continue
-            }
             switch WebSwapGate.input(focused: view === focused, active: NSApp.isActive, idle: Self.idleSeconds(), waited: waited) {
             case .later(let after, let reason): next = Self.sooner(next, (after, reason))
             case .askPages: candidates.append(view)
@@ -60,8 +55,6 @@ extension WebUpdates {
         // answered still holds it.
         if case .later(let after, let reason) = appDecision() { return book(after, reason) }
         ready = ready.filter { view in
-            // A page brought into sight while the pages answered is not reloaded under the eye.
-            if case .later = WebSwapGate.sight(inSight: Self.inSight(view)) { return false }
             if case .later = WebSwapGate.input(focused: view === Self.focusedWebView(), active: NSApp.isActive,
                                                idle: Self.idleSeconds(), waited: waited) { return false }
             return true
@@ -109,9 +102,6 @@ extension WebUpdates {
         }
         return nil
     }
-
-    /// Whether `view` shows on screen now (``WebSwapSight/inSight(_:)``, shared with the web-dev swaps).
-    static func inSight(_ view: NSView) -> Bool { WebSwapSight.inSight(view) }
 
     /// What modal the app has open: a modal window, a sheet, a menu or drag being tracked.
     static func appBlocked() -> String? {

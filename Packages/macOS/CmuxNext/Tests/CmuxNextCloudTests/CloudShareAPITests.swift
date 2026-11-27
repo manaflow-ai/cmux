@@ -31,7 +31,7 @@ struct ShareInstallsTests {
 
     static func identity(_ root: URL, _ folder: String) -> MacInstallIdentity {
         MacInstallIdentity(store: .files(directory: root.appendingPathComponent(folder)),
-                           transport: InstallHTTPTransport(baseURL: development, buildSpace: .nightly), deviceName: "Test Mac", clientVersion: nil)
+                           transport: InstallHTTPTransport(baseURL: development), deviceName: "Test Mac", clientVersion: nil)
     }
 
     static func installs(_ root: URL, owner: MacInstallIdentity, fallback: MacInstallIdentity, release: Bool = false) -> ShareInstalls {

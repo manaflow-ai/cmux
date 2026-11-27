@@ -619,7 +619,7 @@ fn config_path_prefers_cmux_tui_json_and_falls_back_to_legacy_mux_json() {
         std::process::id(),
         SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
     ));
-    let config_dir = dir.join(if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" });
+    let config_dir = dir.join("cmux");
     std::fs::create_dir_all(&config_dir).unwrap();
     let preferred = config_dir.join("cmux-tui.json");
     let legacy = config_dir.join("mux.json");

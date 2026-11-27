@@ -5,9 +5,10 @@ import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
 
-/// A page's own tools in the pane's tab row (``PaneToolbarView``'s native buttons): their menus, and the chat's own
-/// menu keeping the tools a narrow pane hid. The bar has no "…" of its own
-/// (https://github.com/manaflow-ai/cmux/issues/53356).
+/// The pane toolbar's page tools (a chat's own tools in the row, `chrome.tabs.nativeRowTools`): a press or the
+/// keyboard opens a tool's menu, the chat's own menu ("chat-menu") is a button like the others, last in the row
+/// (the pane's "…" that hosted it is gone, user 2026-11-13), and it lists the tools a narrow pane hid. Every
+/// menu is a standard macOS menu, like every right-click menu.
 @MainActor @Suite struct PaneMoreOverflowButtonTests {
     @Test func nativeToolKeyboardActivationOpensItsMenu() throws {
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
@@ -68,7 +69,7 @@ import Testing
         ])
         let summary = PaneTabRowTool(id: "summary", symbol: "list.bullet", label: "Summary", toggled: true)
         // Room for one button: the chat's menu, in the trailing slot.
-        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: PaneToolbarView.trailingGap + Metrics.tabBarControlSide + 2, height: 30))
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: PaneToolbarView.trailingGap + TitlebarBandButton.side + 2, height: 30))
         view.show(nativeItems: [summary, chatMenu])
         var invoked: [String] = []
         view.onNativeTool = { id, _ in invoked.append(id) }
@@ -198,7 +199,7 @@ import Testing
         wide.show(nativeItems: tools)
         wide.layoutSubtreeIfNeeded()
         #expect(wide.nativeButtons.allSatisfy { !$0.isHidden })
-        #expect(wide.nativeOverflowItems().isEmpty, "visible native tools are duplicated under …")
+        #expect(wide.nativeOverflowItems().isEmpty, "visible native tools are duplicated in the overflow")
 
         let narrow = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 1, height: 30))
         narrow.show(nativeItems: tools)
@@ -209,16 +210,14 @@ import Testing
 
     }
 
-    @Test func narrowToolbarHidesPartialNativeSlotWithoutOverlapping() {
+    @Test func narrowToolbarHidesPartialNativeSlotWithoutOverlap() {
         DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
             let tools = [
                 PaneTabRowTool(id: "first", symbol: "checkmark", label: "First"),
                 PaneTabRowTool(id: "second", symbol: "square", label: "Second"),
             ]
-            // One whole slot and half of the next, at any button side.
-            let side = Metrics.tabBarControlSide
-            let width = PaneToolbarView.trailingGap + side + Metrics.space1 / 2 + side / 2
-            let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: width, height: 30))
+            // Room for one slot, not two: the second is partial.
+            let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 40, height: 30))
             view.show(nativeItems: tools)
             view.layoutSubtreeIfNeeded()
 
@@ -240,12 +239,12 @@ import Testing
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 400, height: 30))
         view.show(nativeItems: [icon, text])
         view.layoutSubtreeIfNeeded()
-        #expect(view.nativeButtons[0].frame.width == Metrics.tabBarControlSide)
+        #expect(view.nativeButtons[0].frame.width == TitlebarBandButton.side)
         #expect(view.nativeButtons[1].frame.width > view.nativeButtons[0].frame.width)
         #expect(view.nativeOverflowItems().isEmpty)
     }
 
-    @Test func iconAndOverflowFitAtTheirIntrinsicWidth() {
+    @Test func aToolFitsAtItsIntrinsicWidth() {
         let icon = PaneTabRowTool(id: "icon", symbol: "checkmark", label: "Icon")
         let view = PaneToolbarView(frame: .zero)
         view.show(nativeItems: [icon])
@@ -282,5 +281,17 @@ import Testing
         #expect(NSApplication.shared.sendAction(try #require(row.action), to: row.target, from: row))
         #expect(opened.count == 1)
         #expect(invoked.count == 1)
+    }
+
+    /// The tab bar's right-click rows that replace "…" (Search Tabs, Show in Tab Bar): every one a standard macOS row.
+    @Test func everyTabBarRowIsNative() throws {
+        let registry = ActionRegistry.standard()
+        let toolbar = PaneToolbar(registry: { registry })
+        toolbar.update(target: "tab0", kind: .terminal)
+        let rows = toolbar.tabBarMenuRows().joined().filter { !$0.isSeparatorItem }
+        #expect(!rows.isEmpty)
+        for item in rows {
+            #expect(item.view == nil, "\(item.title) is custom-drawn, not a standard macOS row")
+        }
     }
 }

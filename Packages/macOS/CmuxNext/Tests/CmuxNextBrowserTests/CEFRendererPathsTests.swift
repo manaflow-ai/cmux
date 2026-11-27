@@ -36,17 +36,6 @@ import Testing
         #expect(!tab.sendClick(x: 1, y: 1))
     }
 
-    /// Lawrence 2026-11-16: the Web Store's buttons read "Add to Chrome" on the nightly, whose tabs take
-    /// the DevTools path: the labels script was installed only by the renderer path. Both paths install it.
-    @Test func aDevToolsPathTabInstallsTheWebStoreLabels() async throws {
-        let rig = try Rig(forkAPI: 24)
-        defer { rig.close() }
-        _ = try rig.attachedTab()
-        await rig.answeringDevTools { Spy.devToolsParams.contains { $0.contains(BrowserWebStoreLabels.world) } }
-        #expect(Spy.devToolsParams.contains { $0.contains(BrowserWebStoreLabels.world) && $0.contains(BrowserWebStoreLabels.host) },
-                "\(Spy.devToolsCalls)")
-    }
-
     /// The fork's event numbers (cmux_cef_shim.h): PAGE_MESSAGE 49, EVALUATE_RESULT 50; 48 is FILE_DIALOG.
     @Test func theRendererPathEventsDecodeFromTheirNumbers() {
         #expect(CEFShimEvent(kind: 49, browser: 7, request: 0, a: 1, b: 0, s1: "cmuxMedia", s2: "{}")
@@ -313,7 +302,6 @@ private nonisolated enum Spy {
     /// Every DevTools call sent, with the browser it went to. One array rather than two, so a
     /// test that clears the methods cannot leave the browsers behind and misalign them.
     nonisolated(unsafe) static var devToolsSent: [(method: String, browser: Int32)] = []
-    nonisolated(unsafe) static var devToolsParams: [String] = []
     /// The methods of `devToolsSent`, which is what most tests here assert on.
     static var devToolsCalls: [String] { devToolsSent.map(\.method) }
     nonisolated(unsafe) static var watched: [Int32] = []
@@ -340,7 +328,6 @@ private nonisolated enum Spy {
         channels = []
         schemes = []
         scripts = []
-        devToolsParams = []
         nextMessage = 1
         unanswered = []
         exportsRendererPaths = true
@@ -349,9 +336,8 @@ private nonisolated enum Spy {
     static func library() throws -> CEFShimLibrary {
         let version: @convention(c) () -> Int32 = { Spy.forkAPI }
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in 1 }
-        let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { browser, method, params in
+        let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { browser, method, _ in
             Spy.devToolsSent.append((method.map { String(cString: $0) } ?? "", browser))
-            Spy.devToolsParams.append(params.map { String(cString: $0) } ?? "")
             Spy.nextMessage += 1
             Spy.unanswered.append(Spy.nextMessage)
             return Spy.nextMessage

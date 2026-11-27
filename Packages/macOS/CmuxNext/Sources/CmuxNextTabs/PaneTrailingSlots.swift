@@ -10,12 +10,8 @@ public import CoreGraphics
 public struct PaneTrailingSlots {
     public init() {}
 
-    /// One tab's need: its toolbar beside it alone, as it fits the pane (`intrinsic`, ``PaneToolbarView/fittedWidth(cap:)``:
-    /// never the room of buttons that fold), its toolbar beside its page's tools in the row
-    /// (`shared`, nil: the page shares no row), and those tools' need (`tools`), what decides whether they fit. Never
-    /// the row's accessories (header/tabRow.ts TAB_ROW_ACCESSORY): they take only the room the tabs leave free
-    /// (``TabRowAccessoryFit``), so an accessory kept for a tab not selected left an empty gap the tabs were squeezed
-    /// and scrolled beside (#53314).
+    /// One tab's need: its toolbar beside it alone (`intrinsic`), its toolbar beside its page's tools in the row
+    /// (`shared`, nil: the page shares no row) and those tools' need (`tools`).
     public struct Need: Equatable {
         public var intrinsic: CGFloat
         public var shared: CGFloat?
@@ -33,7 +29,7 @@ public struct PaneTrailingSlots {
             let half = max(0, width / 2)
             if let shared, let tools, tools > 0 {
                 let bar = min(shared, half), room = max(0, width - bar)
-                if tools <= room / 2 { return bar + tools }
+                if tools <= room / 2 { return bar + min(tools, room / 2) }
             }
             return min(intrinsic, half)
         }
@@ -58,21 +54,4 @@ public struct PaneTrailingSlots {
 
     /// The toolbar beside a chat of this pane, from the last time one was selected; nil before then.
     public var parkedChatToolbar: CGFloat? { needs.values.lazy.compactMap { $0.tools == nil ? nil : $0.shared }.max() }
-}
-
-/// How a pane's tab row shares its leftover room with a page's row accessories (none today, header/tabRow.ts
-/// TAB_ROW_ACCESSORY), #53314: "its many tabs crammed into 1/3 of the space ... one tab is crammed and need to scroll".
-/// The strip always gives up its trailing slot (the toolbar and the page's tools, ``PaneTrailingSlots``), and the tabs
-/// come next: an accessory takes only what is left once every tab has its full width, so the tabs fill the row up to the
-/// tools, shrink only when it is full, and scroll only past that. Before, the summary took up to half of the row and
-/// the tabs shrank and scrolled beside it (or beside its empty room, kept for a chat not selected).
-public struct TabRowAccessoryFit {
-    public init() {}
-    /// In a row `width` wide whose trailing slot is `base`, with tabs that need `tabs` to keep their full width
-    /// (``TabStripView/naturalWidth``) and accessories that take `accessory`: the slot the strip gives up, and `room`,
-    /// the most the accessories may take (offered to the page, ``PaneTabRowSharing/setTabRowAccessoryRoom(_:)``).
-    public static func fit(base: CGFloat, accessory: CGFloat, width: CGFloat, tabs: CGFloat) -> (slot: CGFloat, room: CGFloat) {
-        let room = max(0, width - base - tabs)
-        return (base + min(max(0, accessory), room), room)
-    }
 }

@@ -1,6 +1,3 @@
-public import CmuxNextWakeups
-public import Foundation
-
 /// Where every notification sound passes on its way out: the burst cooldown
 /// (``NotificationSoundThrottle``, `notifications.sounds.cooldownSeconds`), then the player. The
 /// notification service holds one; tests pass a recorder and their own clock.
@@ -18,56 +15,14 @@ public final class NotificationSoundGate {
     /// A workspace's groups by its id, innermost first, for its sound rules; the App's composition root
     /// sets it (the person's sidebar groups live there).
     public var groups: @MainActor (String) -> [NotificationSoundScope.Group] = { _ in [] }
-    /// Where sounds are listed and where Custom Sound… copies a file.
-    public let library: NotificationSoundLibrary
-    /// Every installed sound name (``NotificationSoundLibrary/names()``), after the first
-    /// ``refreshSounds(work:)``: the Settings page's menu and the palette's list.
-    public private(set) var soundNames: [String] = []
-    private var customFiles: [String: URL] = [:]
-    /// The newest ``refreshSounds(work:)``: an older listing that finishes after it is dropped.
-    private var listings: UInt64 = 0
-    private var maxSeconds: Double = NotificationSoundPreferences.maxSecondsDefault
 
     /// - Parameters:
     ///   - player: The sound output (`NSSound` by default).
-    ///   - library: The sound folders; tests pass temporary ones.
     ///   - now: The cooldown's clock.
     public init(player: any NotificationSoundPlaying = NotificationSoundPlayer(),
-                library: NotificationSoundLibrary = NotificationSoundLibrary(),
                 now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }) {
         self.player = player
-        self.library = library
         self.now = now
-    }
-
-    /// The master volume a Settings preview plays at (`notifications.sounds.volume`).
-    public private(set) var volume: Double = NotificationSoundPreferences.volumeDefault
-
-    /// Applies the sound preferences the player and previews follow (`notifications.sounds.volume`
-    /// and `maxSeconds`).
-    public func apply(_ sounds: NotificationSoundPreferences) {
-        volume = sounds.volume
-        guard sounds.maxSeconds != maxSeconds else { return }
-        maxSeconds = sounds.maxSeconds
-        player.use(files: customFiles, maxSeconds: maxSeconds)
-    }
-
-    /// Lists the installed sounds and the files cmux keeps off the main thread, then hands the files
-    /// to the player. Call at launch and after an import.
-    public func refreshSounds(work: BackgroundWork) async {
-        let library = library
-        listings &+= 1
-        let listing = listings
-        guard let listed = try? await work.run(.bestEffort, mayBlock: .files, { (library.names(), library.customFiles()) }),
-              listing == listings else { return } // a later listing (an import's) is newer
-        take(names: listed.0, files: listed.1)
-    }
-
-    /// Takes a listing of ``library`` (``refreshSounds(work:)`` makes one off the main thread).
-    public func take(names: [String], files: [String: URL]) {
-        soundNames = names
-        customFiles = files
-        player.use(files: customFiles, maxSeconds: maxSeconds)
     }
 
     /// Clears `decision`'s sound when the cooldown holds it: an event no more urgent than the last

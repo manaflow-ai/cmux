@@ -41,15 +41,13 @@ public struct ReattachDebounce<Instant: InstantProtocol>: Sendable where Instant
 @Observable
 public final class ReattachIndicator<C: Clock> where C.Duration == Duration {
     public private(set) var isShown = false
-    /// The Mac is offline: once the outage has lasted the debounce (the shared
-    /// quiet bound), the pill says "Mac offline", not "Reattaching…"
-    /// (termfix-r13 D4: "Reattaching…" stayed for 20 minutes). The outage's
-    /// first instant is kept across the switch, so going offline mid-reattach
-    /// does not restart the wait.
+    /// The Mac is offline: the pill says so at once, with no reattach debounce
+    /// (termfix-r13 D4: "Reattaching…" stayed for 20 minutes).
     public private(set) var isOffline = false
 
     public func update(offline: Bool) {
         if isOffline != offline { isOffline = offline }
+        if offline { update(reattaching: false) }
     }
     @ObservationIgnored private var debounce: ReattachDebounce<C.Instant>
     @ObservationIgnored private let clock: C

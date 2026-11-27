@@ -53,16 +53,12 @@ public final class MainWorkScheduler {
         }
     }
 
-    /// Notes keys, scroll and drags for the Rust interactivity policy; owned for the app's life.
-    private var interactivityMonitor: Interactivity.EventMonitor?
-
     /// The app's one scheduler, built at the composition root: a scheduler on the main screen's link
     /// (``init(budget:)``) that also runs every ``ObservationStream`` evaluation of the process as a
     /// task of its budget (``runsObservationEvaluations()``).
     public static func app(budget: MainFrameBudget) -> MainWorkScheduler {
         let scheduler = MainWorkScheduler(budget: budget)
         scheduler.runsObservationEvaluations()
-        scheduler.interactivityMonitor = Interactivity.EventMonitor()
         return scheduler
     }
 

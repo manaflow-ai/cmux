@@ -8,7 +8,7 @@
 //! restart gets every event exactly once.
 #![cfg(target_os = "linux")]
 
-use crate::carrier_support;
+mod carrier_support;
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;

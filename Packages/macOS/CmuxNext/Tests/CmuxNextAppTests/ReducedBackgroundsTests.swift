@@ -33,7 +33,7 @@ import Testing
         let ui = reduced.map { #", "ui": {"reducedBackgrounds": \#($0)}"# } ?? ""
         let json = #"{"appearance": {"background": "\#(Self.work)", "backgroundBlur": "glass"}\#(ui)}"#
         try Data(json.utf8).write(to: url)
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let room = ThemeScope(level: .room)

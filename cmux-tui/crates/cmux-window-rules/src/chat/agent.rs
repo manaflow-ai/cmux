@@ -56,8 +56,6 @@ pub struct Tables {
     pub permission_commands: Vec<PermissionCommand>,
     pub copy_files: Vec<CopyFile>,
     pub teams: Vec<TeamsLaunch>,
-    /// Native file-location URL scheme, by the selected editor's lowercased macOS bundle ID.
-    pub editor_schemes: BTreeMap<&'static str, &'static str>,
     /// The protocol's effort names, the palette's suggestions for Set Effort.
     pub efforts: Vec<&'static str>,
     /// The protocol's mode names, the palette's suggestions for Set Mode.
@@ -94,13 +92,6 @@ pub fn tables() -> Tables {
             copy("agentChat.copyHarnessSettingsFile", &["claude_settings"]),
             copy("agentChat.copyAcpmuxSessionFile", &["acpmux_session"]),
         ],
-        editor_schemes: BTreeMap::from([
-            ("com.microsoft.vscode", "vscode"),
-            ("com.microsoft.vscodeinsiders", "vscode-insiders"),
-            ("com.todesktop.230313mzl4w4u92", "cursor"),
-            ("com.exafunction.windsurf", "windsurf"),
-            ("dev.zed.zed", "zed"),
-        ]),
         teams: vec![
             TeamsLaunch {
                 action: "palette.launchClaudeTeams",
@@ -634,17 +625,6 @@ pub fn session_placement(group: bool, top: bool) -> SessionPlacement {
         below_caller: !group && !top,
         default_slot: (!group).then_some(slot),
     }
-}
-
-/// The file-location URL scheme Open in Editor hands the selected editor (`scheme://file<path>:<line>`),
-/// by its macOS bundle ID; None for an editor without one, or a line out of 1 to 10,000,000: it gets
-/// the file itself.
-pub fn editor_scheme(line: Option<i64>, bundle_id: Option<&str>) -> Option<&'static str> {
-    let line = line?;
-    if !(1..=10_000_000).contains(&line) {
-        return None;
-    }
-    tables().editor_schemes.get(bundle_id?.to_lowercase().as_str()).copied()
 }
 
 #[cfg(test)]

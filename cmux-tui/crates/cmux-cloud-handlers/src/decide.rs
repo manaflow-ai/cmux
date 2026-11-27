@@ -106,56 +106,6 @@ pub fn new_machine_start(is_default: bool, by_user: bool, has_window: bool) -> N
     }
 }
 
-/// How long after a typing prewarm's resume failed the next keystroke may not try again. A failed
-/// resume (a 503 retried for up to 30 s inside the call) was asked again on every keystroke: the
-/// page clears its dedupe on a declined hint, and the machine is `paused` again once the call fails.
-pub const PREWARM_RETRY_AFTER_MS: u64 = 15_000;
-
-/// The facts of a typing prewarm (`cloudMachine.prewarm`): a hint, never a gesture.
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct PrewarmFacts {
-    /// The App may call Cloud: signed in, Cloud on, not unavailable.
-    pub allowed: bool,
-    /// The machine list is the loaded one for the signed-in account.
-    pub loaded: bool,
-    /// The machine's status in that list (`paused`, `running`, ...); None when it is not listed.
-    pub status: Option<String>,
-    /// Milliseconds since this machine's last prewarm resume failed; None when none did.
-    pub since_failure_ms: Option<u64>,
-}
-
-/// What a typing prewarm does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Prewarm {
-    /// Resume the machine now (script-originated).
-    Resume,
-    /// Do nothing, for this reason.
-    Skip(&'static str),
-}
-
-/// Resumes only a `paused` machine of the loaded list while Cloud may be called: not one that
-/// runs, is `pausing`, `starting` or unknown, and not within [`PREWARM_RETRY_AFTER_MS`] of a
-/// failed resume.
-pub fn prewarm(facts: &PrewarmFacts) -> Prewarm {
-    if !facts.allowed {
-        return Prewarm::Skip("notAllowed");
-    }
-    if !facts.loaded {
-        return Prewarm::Skip("notLoaded");
-    }
-    match facts.status.as_deref() {
-        None => return Prewarm::Skip("notListed"),
-        Some("paused") => {}
-        Some(_) => return Prewarm::Skip("notPaused"),
-    }
-    match facts.since_failure_ms {
-        Some(ms) if ms < PREWARM_RETRY_AFTER_MS => Prewarm::Skip("coolingDown"),
-        _ => Prewarm::Resume,
-    }
-}
-
 /// Where the workspace setup's creation is. Mirroring removes the progress row normally;
 /// explicit teardown ends the wizard even when it already opened a workspace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -190,14 +140,11 @@ pub enum Creation {
 }
 
 /// The creation's state from its facts: still `listed`, its machine (`has_session`), `failed`.
-/// A failure outranks the row's leaving: a creation no window shows (a CLI's, an agent's) ends
-/// as it fails, so `cloud list-machines` never keeps a failed create, and its caller still hears
-/// why it failed, not "declined".
 pub fn creation(listed: bool, has_session: bool, failed: bool) -> Creation {
     match (listed, has_session, failed) {
+        (false, false, _) => Creation::Gone,
         (_, true, _) => Creation::Created,
-        (_, false, true) => Creation::Failed,
-        (false, false, false) => Creation::Gone,
+        (true, false, true) => Creation::Failed,
         (true, false, false) => Creation::Pending,
     }
 }
@@ -218,9 +165,6 @@ pub struct Settled {
     pub workspace_id: Option<String>,
     /// The paid plan a refusal names.
     pub plan: Option<String>,
-    /// When the request was made, unix seconds: whether the machine is `reused`
-    /// ([`fields::note_reuse`]).
-    pub asked_at: Option<f64>,
 }
 
 /// A run's failure: its reason, the error code a caller can act on, and whether it is a
@@ -240,9 +184,7 @@ pub struct Failure {
 pub fn settled(settled: &Settled) -> Result<Fields, Failure> {
     // A machine the server returned is made, whatever phase raced it (as `creation` decides).
     if let Some(machine) = &settled.machine {
-        let mut made = fields::created_machine(machine, settled.workspace_id.as_deref());
-        fields::note_reuse(&mut made, machine, settled.asked_at);
-        return Ok(made);
+        return Ok(fields::created_machine(machine, settled.workspace_id.as_deref()));
     }
     match settled.state {
         Some(Creation::Failed) => {

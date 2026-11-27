@@ -214,23 +214,6 @@ fn a_row_reads_as_one_line() {
 }
 
 #[test]
-fn a_topic_match_reads_as_what_the_session_works_on_never_its_words() {
-    let r = |title: Option<&str>| {
-        json!({
-            "name": "swift-generated", "harness": "codex", "title": title, "filesInCommon": 0,
-            "files": [], "topicWords": ["above", "background", "message", "rows", "tasks"],
-            "agoMs": 3 * 3_600_000,
-        })
-    };
-    assert_eq!(
-        row_line(&r(Some("Regenerate the Swift action surfaces"))),
-        "swift-generated (codex): working on \"Regenerate the Swift action surfaces\"; 3h ago"
-    );
-    assert_eq!(row_line(&r(None)), "swift-generated (codex): working on something similar; 3h ago");
-    assert!(!row_line(&r(None)).contains("background"), "no matched word reaches the text");
-}
-
-#[test]
 fn a_worktree_and_its_clone_key_a_file_by_repository_and_path() {
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("main");

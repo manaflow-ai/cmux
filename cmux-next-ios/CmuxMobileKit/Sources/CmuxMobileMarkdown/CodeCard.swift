@@ -3,7 +3,7 @@ import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
-/// SPEC 4.6 code card: the content card level, radius 20, 40 pt header with language and
+/// SPEC 4.6 code card: `codeBg`, radius 20, 40 pt header with language and
 /// copy, mono body in a horizontal scroll view, capped height with a fade and
 /// "Show all N lines".
 public struct CodeCard: View {
@@ -32,19 +32,9 @@ public struct CodeCard: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             ScrollView(.horizontal) {
-                SelectableText(CodeHighlightCache.shared.highlighted(code, language: language, size: codeSize))
-                    .selectionMenu { label in
-                        [
-                            SelectionMenu.action("Copy Code", "doc.on.doc") { copy() },
-                            SelectionMenu.action("Select Code Text", "selection.pin.in.out") {
-                                SelectableTextView(code, monospaced: true).present()
-                            },
-                            SelectionMenu.action("Copy as Markdown", "text.document") {
-                                UIPasteboard.general.string = "```\(language ?? "")\n\(code)\n```"
-                            },
-                            SelectionMenu.share(code, from: label, title: "Share Code")
-                        ]
-                    }
+                Text(CodeHighlightCache.shared.highlighted(code, language: language))
+                    .font(.system(size: codeSize, design: .monospaced))
+                    .lineSpacing(codeSize * 0.46)
                     .fixedSize(horizontal: !wrapCode, vertical: true)
                     .padding(.horizontal, 16)
                     .padding(.top, 4)
@@ -56,33 +46,35 @@ public struct CodeCard: View {
             .trailingOverflowFade()
             .frame(maxHeight: isCapped ? maxHeight - 40 : nil, alignment: .top)
             .clipped()
-            // Capped: the code fades out above "Show all" through an alpha mask, so the card stays
-            // see-through (an opaque band would paint over the Mac's picture).
-            .mask {
-                if isCapped {
-                    VStack(spacing: 0) {
-                        Rectangle()
-                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 48)
-                        Color.clear.frame(height: 40)
-                    }
-                } else {
-                    Rectangle()
-                }
-            }
             .overlay(alignment: .bottom) {
                 if isCapped {
-                    Button("Show all \(lineCount) lines") {
-                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expanded = true }
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.cmuxMobileCodeBackground.opacity(0), .cmuxMobileCodeBackground], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 48)
+                        Button("Show all \(lineCount) lines") {
+                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expanded = true }
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                        .background(Color.cmuxMobileCodeBackground)
                     }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, minHeight: 40)
-                    .contentShape(.rect)
                 }
             }
         }
-        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
+        .background(Color.cmuxMobileCodeBackground, in: .rect(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5)
+        }
+        .contextMenu {
+            Button("Copy", systemImage: "doc.on.doc") { copy() }
+            Button("Select Text", systemImage: "selection.pin.in.out") { SelectableTextView(code, monospaced: true).present() }
+            Button("Copy as Markdown", systemImage: "text.document") {
+                UIPasteboard.general.string = "```\(language ?? "")\n\(code)\n```"
+            }
+            ShareLink(item: code) { Label("Share", systemImage: "square.and.arrow.up") }
+        }
     }
 
     private var header: some View {
@@ -111,7 +103,7 @@ public struct CodeCard: View {
         .padding(.leading, 16)
         .padding(.trailing, 8)
         .frame(height: 40)
-        .cmuxMobileSensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
+        .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
     }
 
     private var isShell: Bool {
@@ -140,32 +132,22 @@ public struct CodeCard: View {
 @MainActor
 final class CodeHighlightCache {
     static let shared = CodeHighlightCache()
-    private struct Key: Hashable {
-        let language: String?
-        let code: String
-        let size: CGFloat
-    }
+    private var cache: [String: AttributedString] = [:]
+    private var order: [String] = []
 
-    private var cache: [Key: NSAttributedString] = [:]
-    private var order: [Key] = []
-
-    func highlighted(_ code: String, language: String?, size: CGFloat) -> NSAttributedString {
-        let key = Key(language: language, code: code, size: size)
+    func highlighted(_ code: String, language: String?) -> AttributedString {
+        let key = (language ?? "") + "\u{0}" + code
         if let hit = cache[key] { return hit }
-        let highlighted = language?.lowercased() == "diff" ? Self.diff(code) : SyntaxHighlighter(language: language).highlight(code)
-        let font = UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = size * 0.46
-        let text = NSMutableAttributedString()
-        for run in highlighted.runs {
-            let color = run.swiftUI.foregroundColor.map { UIColor($0) } ?? .label
-            text.append(NSAttributedString(string: String(highlighted[run.range].characters),
-                                           attributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph]))
+        let value: AttributedString
+        if language?.lowercased() == "diff" {
+            value = Self.diff(code)
+        } else {
+            value = SyntaxHighlighter(language: language).highlight(code)
         }
-        cache[key] = text
+        cache[key] = value
         order.append(key)
         if order.count > 200 { cache[order.removeFirst()] = nil }
-        return text
+        return value
     }
 
     /// ChatGPT-style diff card: text colors only (SPEC 6.8).

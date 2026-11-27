@@ -49,11 +49,7 @@ async fn connect(port: u16) -> Result<TcpStream, Refusal> {
 }
 
 /// Serves one forwarded connection to completion.
-pub async fn serve(
-    args: &Value,
-    sender: &ChannelSender,
-    mut receiver: ChannelReceiver,
-) -> Result<(), Refusal> {
+pub async fn serve(args: &Value, sender: &ChannelSender, mut receiver: ChannelReceiver) -> Result<(), Refusal> {
     let port = port(args)?;
     let stream = connect(port).await?;
     let _ = stream.set_nodelay(true);

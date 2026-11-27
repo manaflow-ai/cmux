@@ -33,16 +33,6 @@ column with no trade to make gets wider or narrower on its own; the strip keeps 
 left edge still follows the press. Test: `KeyboardResizeLastColumnScrollTests`. Capture scenes:
 `scripts/cmux-next/media/states/pane-keys-hjkl-resize.json` and `pane-keys-hjkl-splits.json`.
 
-**Lone column beside a docked dock (2026-11-23).** Lawrence's video (Chief's chat docked left, one browser column
-beside it): Ctrl-Shift-H with the chat focused moved the divider between them left, but with the browser focused the
-same key narrowed the browser across its far right edge, leaving an empty area at the window's right edge, while the
-divider a person sees stayed still. Since #34123 a lone strip column always sized itself on its own. Now a lone column
-beside a docked side dock moves the dock's inner edge in the arrow's direction (the left dock when both are docked),
-as a split's divider does; beside a left dock that is exactly what the dock focused does. Its far edge stays at the
-window's edge. (A right dock focused keeps grow/shrink, so there H with the dock focused moves the edge right and with
-the column focused left; making docks follow the arrow too is a separate change.) A lone column with no docked dock still sizes
-itself. Test: `KeyboardResizeLoneColumnBesideDockTests`.
-
 The tables below describe 2026-11-08; their split and row rows are replaced by case 1.
 
 ## What Ctrl-Shift-HJKL is today

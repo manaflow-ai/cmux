@@ -37,7 +37,6 @@ use super::{Peer, hidden_attach_after, page_max_seq, replayable};
 use crate::no_panic::LockExt;
 use crate::peer_paths::Via;
 use crate::rpc::{Message, method};
-use acpmux_list_types::resume::{Decision, ResumeBudget, ResumeErrorClass};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -184,9 +183,8 @@ pub(super) struct ShadowRun {
     pub rx: mpsc::Receiver<String>,
     streams: HashMap<String, Stream>,
     /// Chats whose attach did not cover their stream (one page of many, or the live stream ran
-    /// past it) and that made no progress: when each is attached again, and the attempts it
-    /// spent ([`schedule_retry`]).
-    retry: HashMap<String, (tokio::time::Instant, ResumeBudget)>,
+    /// past it) and that made no progress: when each is attached again, and how many times.
+    retry: HashMap<String, (tokio::time::Instant, u32)>,
     /// When its link ended: it reads answers to what it carried until [`ANSWER_GRACE`].
     orphaned_at: Option<tokio::time::Instant>,
 }
@@ -198,33 +196,6 @@ const RETRY_MOST: Duration = Duration::from_secs(5);
 
 fn retry_wait(tries: u32) -> Duration {
     RETRY_FIRST.saturating_mul(1u32 << tries.min(5)).min(RETRY_MOST)
-}
-
-/// The class a shadow attach that made no progress counts against: the shadow lagged behind a
-/// live stream, which a later attach may pass.
-const NO_PROGRESS: ResumeErrorClass = ResumeErrorClass::Transient;
-
-/// `sid`'s shadow attach made no progress: schedules its next attach after [`retry_wait`],
-/// until [`NO_PROGRESS`]'s budget is spent. Past it the chat leaves `retry` and this shadow
-/// attaches it no more ([`Decision::Surface`]): the link alone streams it, and the next
-/// link's handshake attaches it again.
-pub(super) fn schedule_retry(
-    retry: &mut HashMap<String, (tokio::time::Instant, ResumeBudget)>,
-    sid: &str,
-    now: tokio::time::Instant,
-) -> Decision {
-    let mut budget = retry.get(sid).map_or_else(ResumeBudget::new, |(_, budget)| *budget);
-    let tries = budget.used(NO_PROGRESS);
-    let decision = budget.on_failure(NO_PROGRESS);
-    match decision {
-        Decision::Act { .. } => {
-            retry.insert(sid.to_owned(), (now + retry_wait(tries), budget));
-        }
-        Decision::Surface { .. } => {
-            retry.remove(sid);
-        }
-    }
-    decision
 }
 
 /// A load, resume or attach of a chat in flight (`Peer::replay_start`): its chat leaves the
@@ -810,17 +781,8 @@ impl Peer {
             run.retry.remove(sid);
             return self.shadow_resubscribe(run, sid).await.into_iter().collect();
         }
-        if let Decision::Surface { class, attempts } =
-            schedule_retry(&mut run.retry, sid, tokio::time::Instant::now())
-        {
-            tracing::info!(
-                peer = %self.name,
-                chat = sid,
-                class = %class,
-                attempts,
-                "the shadow's attaches of a chat made no progress; it waits for the next link"
-            );
-        }
+        let tries = run.retry.get(sid).map_or(0, |(_, tries)| tries + 1);
+        run.retry.insert(sid.to_owned(), (tokio::time::Instant::now() + retry_wait(tries), tries));
         Vec::new()
     }
 

@@ -30,7 +30,7 @@ SKIP = (
     "CmuxNextDesign/TypeScale.generated.swift",
     "CmuxNextDesign/Text/LabelParityProbe.swift",
     "CmuxNextDesign/Text/TextWeightProbe.swift",
-    "CmuxNextFloating/SleepyMode/SleepySceneView.swift",
+    "CmuxNextApp/SleepyMode/SleepySceneView.swift",
 )
 
 NUMBER = r"\d+(?:\.\d+)?"

@@ -573,13 +573,14 @@ pub(crate) fn create_dir(dir: impl AsRef<Path>, mode: u32) -> io::Result<()> {
     }
 }
 
-/// The name beside `path` for this process's temporary copy of it: `.<name>.tmp-<pid>`, the same
-/// on every write (`dead_temps`: each new name is one more path fseventsd keeps).
+/// A new name beside `path` for a temporary copy of it: `.<name>.tmp-<pid>-<n>`.
 fn aside(path: &Path) -> io::Result<std::path::PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
     let name = path.file_name().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     let mut tmp = std::ffi::OsString::from(".");
     tmp.push(name);
-    tmp.push(format!(".tmp-{}", std::process::id()));
+    tmp.push(format!(".tmp-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
     Ok(path.with_file_name(tmp))
 }
 
@@ -631,22 +632,14 @@ fn replace_with<T>(
     fill: impl FnOnce(&mut File, &Path) -> io::Result<T>,
 ) -> io::Result<T> {
     let tmp = aside(to)?;
-    let done = {
-        // This process's writers of the name take turns (`dead_temps::hold`). One a failed
-        // removal left is this process's own: start anew.
-        let _turn = crate::dead_temps::hold(&tmp);
+    let mut file = create_private(&tmp, mode)?;
+    let done = fill(&mut file, &tmp).and_then(|value| {
+        drop(file);
+        rename(&tmp, to).map(|()| value)
+    });
+    if done.is_err() {
         let _ = remove_file(&tmp);
-        let done = create_private(&tmp, mode).and_then(|mut file| {
-            fill(&mut file, &tmp).and_then(|value| {
-                drop(file);
-                rename(&tmp, to).map(|()| value)
-            })
-        });
-        if done.is_err() {
-            let _ = remove_file(&tmp);
-        }
-        done
-    };
+    }
     if let (Some(dir), Some(name)) = (to.parent(), to.file_name()) {
         crate::dead_temps::remove(dir, &format!(".{}.tmp-", name.to_string_lossy()));
     }
@@ -677,22 +670,6 @@ fn rewritten_mode(path: &Path) -> u32 {
 pub(crate) fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::Result<()> {
     let path = path.as_ref();
     replace_with(path, rewritten_mode(path), |file, tmp| fill(file, tmp, contents.as_ref()))
-}
-
-/// [`write`], made durable: the copy is synced before its rename and the folder after it. The
-/// copy's name is the file's and this process's (`.<name>.tmp-<pid>`), the same on every write,
-/// where a random name (`tempfile::NamedTempFile`) is one more path fseventsd keeps per write
-/// (`dead_temps`).
-pub(crate) fn write_durable(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::Result<()> {
-    let path = path.as_ref();
-    replace_with(path, rewritten_mode(path), |file, tmp| {
-        fill(file, tmp, contents.as_ref())?;
-        file.sync_all()
-    })?;
-    match path.parent() {
-        Some(dir) if !dir.as_os_str().is_empty() => sync_dir(dir),
-        _ => Ok(()),
-    }
 }
 
 /// `std::fs::File::create(path)`: made 0600 (an existing file narrowed to the owner's bits on
@@ -834,9 +811,6 @@ pub(crate) fn write_json_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let dir = path.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
     private_dir(dir)?;
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-    // This process's writers of the name take turns, as `config::write_atomic`'s, which names
-    // its copy the same (`dead_temps::hold`).
-    let turn = crate::dead_temps::hold(&tmp);
     // A file a crashed process left under a reused pid keeps its mode: start anew.
     let _ = remove_file(&tmp);
     let written = (|| {
@@ -850,7 +824,6 @@ pub(crate) fn write_json_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if written.is_err() {
         let _ = remove_file(&tmp);
     }
-    drop(turn);
     crate::dead_temps::remove_beside(path);
     written?;
     let _ = sync_dir(dir);
@@ -1122,38 +1095,8 @@ mod unix {
             return std::fs::symlink_metadata(path);
         };
         // SAFETY: a valid descriptor and a NUL-terminated name.
-        match owned(unsafe { libc::openat(dir.as_raw_fd(), at.name.as_ptr(), flags) }) {
-            Ok(fd) => File::from(fd).metadata(),
-            // Apple's systems open no Unix socket (`EOPNOTSUPP`), even for events only: a socket
-            // an earlier daemon left (`share-host/device.sock`) then read as "nothing to remove",
-            // so the next bind failed and the app's device channel never came up. Its metadata is
-            // read by path and kept only when it is the file the held home's folder names (same
-            // device and inode), so a replacement at the same path still never answers.
-            Err(error) if error.raw_os_error() == Some(libc::EOPNOTSUPP) => {
-                use std::os::unix::fs::MetadataExt as _;
-                // SAFETY: an all-zero `stat` is a valid value for fstatat to fill.
-                let mut stat: libc::stat = unsafe { std::mem::zeroed() };
-                // SAFETY: a valid descriptor, a NUL-terminated name and a `stat` to fill.
-                check(unsafe {
-                    libc::fstatat(
-                        dir.as_raw_fd(),
-                        at.name.as_ptr(),
-                        &mut stat,
-                        libc::AT_SYMLINK_NOFOLLOW,
-                    )
-                })?;
-                let meta = std::fs::symlink_metadata(path)?;
-                #[allow(
-                    clippy::useless_conversion,
-                    clippy::unnecessary_fallible_conversions,
-                    reason = "st_dev and st_ino widths differ by system"
-                )]
-                let same = meta.dev() == u64::try_from(stat.st_dev).unwrap_or(u64::MAX)
-                    && meta.ino() == u64::from(stat.st_ino);
-                if same { Ok(meta) } else { Err(error) }
-            }
-            Err(error) => Err(error),
-        }
+        let fd = owned(unsafe { libc::openat(dir.as_raw_fd(), at.name.as_ptr(), flags) })?;
+        File::from(fd).metadata()
     }
 
     pub(super) fn read_dir(path: &Path) -> io::Result<Vec<super::DirEntry>> {
@@ -1360,7 +1303,3 @@ mod unix {
         done
     }
 }
-
-#[cfg(test)]
-#[path = "home_fs_stable_copy_name_tests.rs"]
-mod stable_copy_name_tests;

@@ -8,7 +8,6 @@ mod agent_hooks_at_rest;
 mod agent_plugin_reports_at_rest;
 mod agent_reports_at_rest;
 mod terminal_size_clamp;
-pub(crate) use journal_plugin_demand::demand_tapped as journal_plugin_demand_tapped;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
 mod terminal_exit_snapshot;
 use terminal_exit_snapshot::{
@@ -27,8 +26,8 @@ mod terminal_host_records;
 #[cfg(any(unix, windows))]
 use terminal_host_records::{
     HostEnd, acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
-    request_terminal_host_end, schedule_discovered_terminal_host_cleanup,
-    terminal_host_record_liveness, terminate_discovered_terminal_host_in,
+    request_terminal_host_end, terminal_host_record_liveness,
+    terminate_discovered_terminal_host_in,
 };
 mod detached_terminals;
 pub(crate) use agent_hooks_at_rest::{JournalFollowerFilter, JournalRowFollower};
@@ -191,10 +190,7 @@ pub(crate) use topology_ops::split_direction_field;
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
-#[cfg(unix)]
-mod agent_failure_code;
 pub(crate) mod agent_message_pump;
-mod agent_notice_stats;
 pub(crate) mod app_terminals;
 mod cell_pixels;
 pub(crate) mod chat_index;
@@ -203,7 +199,6 @@ mod cloud_conversations;
 mod construct;
 mod conversations;
 mod deadline_fanout;
-mod terminal_warm_compact;
 #[cfg(test)]
 use deadline_fanout::DeadlineCompletion;
 use deadline_fanout::{
@@ -222,10 +217,8 @@ mod host_close;
 #[cfg(all(test, unix))]
 mod host_death_tests;
 mod idle_close;
-mod idle_freeing;
 mod journal;
 mod journal_maintenance;
-mod journal_plugin_demand;
 mod journal_plugin_host;
 mod journal_retention;
 mod kitty_budget;
@@ -233,12 +226,10 @@ mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
 mod output_cleanup;
-mod park_eligibility;
 mod pinned_columns;
 #[cfg(unix)]
 mod project_chats;
 mod pty_reclaim;
-mod shell_state_save;
 mod tree_revision;
 mod viewport_scroll;
 mod workspace_name;
@@ -249,7 +240,6 @@ pub use agent_presence::{AgentActivity, AgentPresence};
 pub(crate) use agent_prompts::{
     with_agent_list_replies, with_agent_session, with_kept_session, with_last_reply,
 };
-mod agent_notification_delivery;
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -267,8 +257,8 @@ mod layout_types;
 mod layout_undo;
 mod lifecycle;
 pub use layout_types::{
-    AppliedLayout, AppliedPane, Direction, FloatPaneError, FloatPaneOutcome, LayoutLeafSpec,
-    LayoutSpec, LayoutUndoError, LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
+    AppliedLayout, AppliedPane, Direction, LayoutLeafSpec, LayoutSpec, LayoutUndoError,
+    LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
 pub use events::{
@@ -339,8 +329,6 @@ mod holder_late;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
-#[cfg(any(unix, windows))]
-pub mod process_census;
 mod startup_adoption_gate;
 mod startup_record;
 mod terminal_adoption;
@@ -420,7 +408,7 @@ use resource_content::ensure_screen_split_public_ids;
 #[cfg(unix)]
 pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
-    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, PANE_SPLIT_FIT_FIELD,
+    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD,
     PANE_SPLIT_FOCUS_FIELD, RoomClose, SCREEN_CREATE_FOCUS_FIELD, TabSplit,
     WORKSPACE_CREATE_FOCUS_FIELD,
 };
@@ -529,6 +517,7 @@ type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, 
 
 /// Startup diagnostics kept until the frontend installs its sink.
 const MAX_PENDING_DIAGNOSTICS: usize = 8;
+const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 /// How long a closed terminal's host gets to end its programs (SIGHUP, grace,
@@ -720,9 +709,6 @@ pub struct Mux {
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,
-    /// Terminal output and agent events for the held journal plugin's watch
-    /// (`mux/journal_plugin_demand.rs`).
-    journal_plugin_demand: journal_plugin_demand::DemandTap,
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     /// Each terminal agent's last prompt and reply, memory only (`agent_prompts.rs`).
@@ -741,8 +727,6 @@ pub struct Mux {
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_worker: agent_roster_fold::AgentRosterWorker,
     agent_message_pump: agent_message_pump::AgentMessagePump,
-    /// Terminal agents' warm compaction timer (`terminal_warm_compact.rs`).
-    terminal_warm_compact: terminal_warm_compact::TerminalWarmCompact,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
     /// The chat-index project import's wake (`project_chats.rs`).
@@ -922,9 +906,6 @@ pub struct Mux {
     pub(crate) control_clients: crate::server::ClientRegistry,
     /// One whole-tree `list-workspaces` build for concurrent readers.
     pub(crate) tree_reply_flight: crate::server::tree_reply_flight::TreeReplyFlight,
-    /// The ring of changed workspace ids for `list-workspaces {since}`
-    /// (server/list_workspaces_delta.rs).
-    pub(crate) workspace_delta: crate::server::list_workspaces_delta::WorkspaceDelta,
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
@@ -939,8 +920,6 @@ pub struct Mux {
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
     /// A launch failed for lack of PTYs: the next reclaim pass runs at once (`pty_reclaim.rs`).
     pty_reclaim_forced: AtomicBool,
-    /// The idle freeing timer (`workspaces.freeing.*`, `idle_freeing.rs`).
-    idle_freeing: idle_freeing::IdleFreeing,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
@@ -950,8 +929,6 @@ pub struct Mux {
     terminal_reaper: Mutex<terminal_reap::TerminalReaperSlot>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
-    /// Immediate-write requests to that writer (`flush-launch-snapshot`).
-    launch_snapshot_flush: Mutex<Option<Arc<crate::server::LaunchSnapshotFlush>>>,
     /// The settings owner (the settings file), started on first use or at
     /// daemon start (mux/settings.rs).
     settings: settings::SettingsSlot,
@@ -1176,17 +1153,6 @@ impl Mux {
     /// local terminals are reaped after the creator closes the insert race.
     fn reap_if_dead(self: &Arc<Self>, surface: &Arc<Surface>) {
         if surface.is_dead() {
-            // A never-started lazy tab is parked, not reaped
-            // (mux/terminal_respawn/lazy.rs). Its park waits for the end of
-            // its creating request: a park inside the creation is overwritten
-            // when the creation commits the tab and its terminal.
-            #[cfg(unix)]
-            if surface
-                .terminal_host_identity()
-                .is_some_and(|host| self.lazy_never_started(&host.terminal_id))
-            {
-                return;
-            }
             if self.resource_creation_active.load(Ordering::Acquire) {
                 // The reader's exit callback is fenced by the creation
                 // execution lock. It will reap this surface after the public
@@ -1213,25 +1179,14 @@ impl Mux {
             self.remove_surface_after_registry(surface.id);
             return;
         }
-        // The surface's workspace comes from the placement indexes: no walk of the workspace list.
-        // The scan stays for the transient state where the indexes lack the placement.
         let workspace_key = {
             let state = self.state.lock().unwrap();
-            let indexed = state
-                .pane_of(surface.id)
-                .and_then(|pane| state.screen_of(pane))
-                .and_then(|(workspace, _)| state.workspaces.get(workspace))
-                .map(|workspace| workspace.key.clone());
-            indexed.or_else(|| {
-                #[cfg(test)]
-                crate::walk_counters::workspace_list_walked(state.workspaces.len());
-                state.workspaces.iter().find_map(|workspace| {
-                    workspace
-                        .screens
-                        .iter()
-                        .any(|screen| screen_tabs(&state, screen).contains(&surface.id))
-                        .then(|| workspace.key.clone())
-                })
+            state.workspaces.iter().find_map(|workspace| {
+                workspace
+                    .screens
+                    .iter()
+                    .any(|screen| screen_tabs(&state, screen).contains(&surface.id))
+                    .then(|| workspace.key.clone())
             })
         };
         if let Some(workspace_key) = workspace_key {

@@ -1026,7 +1026,6 @@ fn personal_change(
             icon: string(fields, "icon"),
             theme: string(fields, "theme"),
             index: index(fields, "index"),
-            created_by: fields.get("created_by").cloned(),
         },
         Op::RoomUpdate => {
             require_any(

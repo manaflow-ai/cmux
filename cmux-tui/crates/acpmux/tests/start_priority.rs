@@ -6,9 +6,6 @@
 //! A real daemon starts a hosted stand-in harness (`fake_agent.py`), which logs its own nice as it
 //! answers `session/new` (`FAKE_CLASS_LOG`): the daemon's. After its first turn, its nice is the
 //! agent tier's (`qos::AGENT_NICE`).
-//!
-//! A background task's runner and its task run at their starter's priority (macOS), as a
-//! terminal's shell does, never under the utility clamp the runner used to take.
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
 #[path = "support/daemon_env.rs"]
@@ -105,16 +102,15 @@ fn nice_of(pid: u32) -> Option<i32> {
     }
 }
 
-/// `normal`: what the hermetic environment gives a stand-in (`daemon_env::vars`), and the product's
-/// default. On macOS it keeps the daemon's priority; on Linux it yields to the agent tier.
+/// `normal`: what the hermetic environment gives a stand-in (`daemon_env::vars`).
 #[test]
 fn a_harness_starts_at_the_daemons_priority_and_yields_once_started() {
     starts_at_the_daemons_priority_and_yields("normal");
 }
 
-/// `background` (opt-in; `normal` is the product's default, `cpu_class::DEFAULT`). Linux has no
-/// background class, so the agent tier's nice is all the lowering it gets there; on macOS the
-/// harness is also in background class.
+/// `background`: the product's default for every harness but a Claude Code launcher
+/// (`cpu_class::DEFAULT`). Linux has no background class, so the agent tier's nice is all the
+/// lowering it gets there; on macOS the harness is also in background class.
 #[test]
 fn a_background_class_harness_also_yields_to_the_agent_tier() {
     starts_at_the_daemons_priority_and_yields("background");
@@ -171,15 +167,9 @@ fn starts_at_the_daemons_priority_and_yields(class: &str) {
     // The start ran at the daemon's priority (this process's: the daemon inherits it), not under
     // the agent tier its host used to enter first thing.
     assert_eq!(at_start, own, "the harness answered session/new at nice {at_start}");
-    // Once the start is over the harness yields; the daemon lowers it right after the start. A
-    // `normal` harness on macOS keeps the daemon's priority, as a terminal's shell does.
+    // Once the start is over the harness yields; the daemon lowers it right after the start.
     let deadline = Instant::now() + Duration::from_secs(10);
-    let expected =
-        if cfg!(target_os = "macos") && class == "normal" { own } else { own.max(agent) };
-    if expected == own {
-        // Nothing to wait for: give a wrong renice the time the daemon takes to make it.
-        std::thread::sleep(Duration::from_secs(2));
-    }
+    let expected = own.max(agent);
     let mut now = nice_of(pid);
     while now != Some(expected) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
@@ -193,61 +183,4 @@ fn starts_at_the_daemons_priority_and_yields(class: &str) {
     drop(daemon);
     let _ = fs::remove_dir_all(&scratch);
     assert_eq!(now, Some(expected), "the started harness's nice");
-}
-
-/// The scheduler priority of `pid` (`ps -o pri=`): 31 at the default, 20 under the utility QoS
-/// clamp, 4 at background class.
-#[cfg(target_os = "macos")]
-fn priority_of(pid: u32) -> Option<i32> {
-    let out = std::process::Command::new("/bin/ps")
-        .args(["-o", "pri=", "-p", &pid.to_string()])
-        .output()
-        .ok()?;
-    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
-}
-
-/// A background task an agent starts (`bg_run.rs`) and what it runs run at its starter's
-/// priority, as a shell in a terminal does (`qos.rs`, `Tier::Agent`). Under the runner's utility
-/// clamp (priority 20, inherited by the task's whole tree) a tagged build an agent started in the
-/// background took 21 to 41 minutes on a busy Mac (2026-11-27) against 2 to 3 in a terminal.
-#[cfg(target_os = "macos")]
-#[test]
-fn a_background_task_runs_at_a_terminal_shells_priority() {
-    let scratch = std::env::temp_dir().join(format!(
-        "amx-bgpri-{}-{}",
-        std::process::id(),
-        uuid::Uuid::now_v7().simple()
-    ));
-    let tasks = scratch.join("tasks");
-    fs::create_dir_all(&tasks).unwrap();
-    let out = scratch.join("pri");
-    // The task's shell, and a process it starts, each log their priority.
-    let command =
-        format!("ps -o pri= -p $$ > '{0}'; /bin/sh -c 'ps -o pri= -p $$' >> '{0}'", out.display());
-    let spec = json!({
-        "dir": tasks, "id": "pri", "sessionId": "s", "command": command, "cwd": scratch,
-        "env": {"PATH": "/usr/bin:/bin"}, "segment": 1 << 20, "generation": "g",
-    });
-    let mut runner = daemon_env::acpmux(&scratch)
-        .arg("__bg-run")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .unwrap();
-    runner.stdin.take().unwrap().write_all(format!("{spec}\n").as_bytes()).unwrap();
-    let mut answer = String::new();
-    BufReader::new(runner.stdout.take().unwrap()).read_line(&mut answer).unwrap();
-    eprintln!("runner answered: {answer}");
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let mut text = String::new();
-    while text.lines().count() < 2 && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(50));
-        text = fs::read_to_string(&out).unwrap_or_default();
-    }
-    let _ = runner.wait();
-    let own = priority_of(std::process::id()).expect("this process's priority");
-    let _ = fs::remove_dir_all(&scratch);
-    let logged: Vec<i32> = text.split_whitespace().filter_map(|p| p.parse().ok()).collect();
-    assert_eq!(logged, vec![own, own], "the task's priorities {text:?}, this process at {own}");
 }

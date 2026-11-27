@@ -80,9 +80,7 @@ impl Target {
 
 /// Resolves the request's target and its ids. With `mint`, the first sight
 /// of a repository or worktree mints its ids; without, an unseen one is
-/// `None`. Each operation calls this before it reads or writes the store,
-/// and the store gets its folders here, after the repository is opened: a
-/// folder that the open refuses makes no folder of the store.
+/// `None`.
 fn target(
     mux: &Arc<Mux>,
     store: &Store,
@@ -93,7 +91,6 @@ fn target(
     let directory = super::target::directory(mux, request, operation)?;
     let repository = super::open_repository(&directory, operation)?;
     let layout = Layout::locate(&repository, operation)?;
-    store.make_folders().map_err(|error| io_failed(operation, &error))?;
     let ids = if mint {
         store.identify(&layout.common_dir, &layout.git_dir).map(Some)
     } else {

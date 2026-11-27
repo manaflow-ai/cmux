@@ -3,9 +3,7 @@
 Usage: render_backdrop_art.py SRC_DIR framing.json OUT_DIR   (needs Pillow with AVIF)
 
 SRC_DIR holds the Commons downloads as <slug>.jpg (about 2560 px long side; the URLs are in
-art/manifest.json), or a generated work as <slug>.png, taken before a .jpg (the Frutiger Aero
-backdrops: `cargo run -p cmux-backdrop-gen --release -- --shipped SRC_DIR` in cmux-tui).
-framing.json maps slug -> one of:
+art/manifest.json). framing.json maps slug -> one of:
   {"mode": "auto"}
       wide works (>= 1.15:1) crop to 16:10 with text on the darker half; others go "side".
   {"mode": "crop", "box": [x0, y0, x1, y1], "focal": [x, y], "quiet": "left"|"right"}
@@ -13,11 +11,10 @@ framing.json maps slug -> one of:
   {"mode": "side", "side": "left"|"right", "scale": 1.0}
       the whole work at canvas height on that side, over a blurred, darkened
       cover-fill of itself; the text sits on the other side.
-Optional per slug: "quality" (AVIF, default 50), "thumbQuality" (default 60), "darken" (side backdrop, default 0.32),
+Optional per slug: "quality" (AVIF, default 50), "darken" (side backdrop, default 0.32),
 "inset" [l, t, r, b] fractions trimmed first (frames, arched tops), "circle" (round works),
 "trim": false (keep near-uniform margins, which are otherwise trimmed).
-Writes OUT_DIR/<slug>.avif, OUT_DIR/<slug>.thumb.avif (480x300, the picker's thumbnail),
-OUT_DIR/preview/<slug>.jpg and OUT_DIR/metadata.json.
+Writes OUT_DIR/<slug>.avif, OUT_DIR/preview/<slug>.jpg and OUT_DIR/metadata.json.
 """
 import json
 import sys
@@ -167,8 +164,7 @@ def main():
     (out / "preview").mkdir(parents=True, exist_ok=True)
     meta = {}
     for slug, spec in crops.items():
-        generated = src / f"{slug}.png"
-        img = Image.open(generated if generated.exists() else src / f"{slug}.jpg").convert("RGB")
+        img = Image.open(src / f"{slug}.jpg").convert("RGB")
         if spec.get("trim", True):
             img = trim_margins(img)
         if "inset" in spec:
@@ -183,9 +179,7 @@ def main():
             rendered, focal, quiet = render_side(img, spec)
         path = out / f"{slug}.avif"
         rendered.save(path, "AVIF", quality=spec.get("quality", 50), speed=4)
-        thumb = rendered.resize((480, 300), Image.LANCZOS)
-        thumb.save(out / f"{slug}.thumb.avif", "AVIF", quality=spec.get("thumbQuality", 60), speed=4)
-        thumb.save(out / "preview" / f"{slug}.jpg", quality=80)
+        rendered.resize((480, 300), Image.LANCZOS).save(out / "preview" / f"{slug}.jpg", quality=80)
         info = measure(rendered, quiet)
         info.update({"focal": [round(focal[0], 3), round(focal[1], 3)], "quiet": quiet,
                      "bytes": path.stat().st_size})

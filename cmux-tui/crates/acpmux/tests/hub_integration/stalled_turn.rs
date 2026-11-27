@@ -91,30 +91,6 @@ async fn a_turn_whose_model_went_quiet_ends_as_stalled_unless_someone_holds_it()
     assert!(results(&hub, &off).is_empty(), "stalledTurnEndMs 0 still ended a turn");
 }
 
-/// no-hangs (2026-11-24): a chat left open on a screen held a turn whose model had died
-/// `running` forever, rechecked every 15 min. A viewer's hold now lasts four of the turn's
-/// periods; past that the turn ends `stalled` while the client still shows it.
-#[tokio::test]
-async fn a_viewer_holds_a_stalled_turn_for_four_periods_not_forever() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
-    let clock = acpmux::clock::ManualClock::new();
-    hub.set_clock(clock.clone());
-    hub.set_idle_child(None);
-    hub.config.write().await.stalled_turn_end_ms = Some(60_000);
-    let held = new_session(&mut c, "stall-viewed").await;
-    start(&mut c, &held, "hang", "working").await;
-    // The client stays attached the whole time.
-    for _ in 0..3 {
-        clock.advance(Duration::from_secs(61));
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        assert!(results(&hub, &held).is_empty(), "a viewer's hold ended before four periods");
-    }
-    clock.advance(Duration::from_secs(61));
-    let ended = until_results(&hub, &held, 1).await;
-    assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");
-    assert!(ended[0]["stalledMs"].as_u64().unwrap() >= 240_000, "{ended:?}");
-}
-
 /// A turn whose owner (the session its `spawnedBy` tag names) is running may be what that owner
 /// waits on: it is not ended until the owner is done.
 #[tokio::test]

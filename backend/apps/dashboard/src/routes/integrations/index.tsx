@@ -5,8 +5,6 @@ import { useTeamApi } from "../../lib/team-api"
 import { newKey, setSignedIn, useSignedIn } from "../../lib/session"
 import { IntegrationApprovals } from "./-approvals"
 import { integrationReturnTeamKey } from "./-return"
-import { IntegrationNotice } from "./-notice"
-import { integrationMessage, type IntegrationMessage } from "../../lib/integration-messages"
 
 export const Route = createFileRoute("/integrations/")({ component: Integrations })
 
@@ -36,9 +34,7 @@ const LABEL: Record<Connection["provider"], string> = { github: "GitHub App", li
 function Integrations() {
   const signedIn = useSignedIn()
   const { read, mutate, team } = useTeamApi()
-  const [error, setError] = useState<IntegrationMessage | null>(null)
-  // Disconnect asks inline: the first click turns the button into "Disconnect now", the second deletes the credential.
-  const [confirming, setConfirming] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const list = useLoad<Listing & { policy: Policy | null }>(signedIn ? `integrations:${team ?? "personal"}` : null, async () => {
     const e = await mutate({ data: { op: "user.ensure", params: {}, idempotency_key: newKey() } })
     if (e.status === 401) setSignedIn(false)
@@ -58,7 +54,7 @@ function Integrations() {
     const r = await mutate({ data: { op: "integration.connect", params: { provider }, idempotency_key: newKey() } })
     if (r.status === 401) return setSignedIn(false)
     const value = r.body.value as unknown as { authorize_url?: string } | undefined
-    if (!r.body.ok || !value?.authorize_url) return setError(integrationMessage(r.body.error, r.status))
+    if (!r.body.ok || !value?.authorize_url) return setError(`${r.body.error?.code ?? r.status}: ${r.body.error?.message ?? "connect failed"}`)
     // The provider callback is a fresh navigation. Remember the selected team so
     // the user lands back in the scope where they started the connection.
     try {
@@ -71,16 +67,15 @@ function Integrations() {
     window.location.assign(value.authorize_url)
   }
   const revoke = async (c: Connection) => {
-    if (confirming !== c.id) return setConfirming(c.id)
-    setConfirming(null)
+    if (!window.confirm(`Disconnect ${c.account?.name ?? LABEL[c.provider]}? The stored credential is deleted at once.`)) return
     const r = await mutate({ data: { op: "integration.revoke", params: { connection: c.id }, idempotency_key: newKey() } })
-    if (!r.body.ok) setError(integrationMessage(r.body.error, r.status))
+    if (!r.body.ok) setError(`${r.body.error?.code}: ${r.body.error?.message}`)
     list.reload()
   }
 
   const setPolicy = async (github: Partial<Policy["github"]>) => {
     const r = await mutate({ data: { op: "integration.policy.set", params: { github }, idempotency_key: newKey() } })
-    if (!r.body.ok) setError(integrationMessage(r.body.error, r.status))
+    if (!r.body.ok) setError(`${r.body.error?.code}: ${r.body.error?.message}`)
     list.reload()
   }
   const policy = list.data?.policy
@@ -90,7 +85,7 @@ function Integrations() {
       <h2>Integrations</h2>
       <p className="muted">Provider tokens stay on the server, encrypted. Agents and automations use them only through cmux operations.</p>
       {list.error ? <p className="error">{list.error}</p> : null}
-      {error ? <IntegrationNotice message={error} onConnect={() => void connect("github")} onRetry={() => { setError(null); list.reload() }} /> : null}
+      {error ? <p className="error">{error}</p> : null}
       {signedIn ? <IntegrationApprovals /> : null}
       <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {(list.data?.providers ?? []).map((p) => (
@@ -153,12 +148,9 @@ function Integrations() {
                 </td>
                 <td>
                   {c.status === "revoked" || c.status === "expired" ? null : (
-                    <span style={{ display: "inline-flex", gap: 6 }}>
-                      <button className="danger" onClick={() => void revoke(c)} title={confirming === c.id ? "The stored credential is deleted at once." : undefined}>
-                        {confirming === c.id ? "Disconnect now" : "Disconnect"}
-                      </button>
-                      {confirming === c.id ? <button onClick={() => setConfirming(null)}>Keep</button> : null}
-                    </span>
+                    <button className="danger" onClick={() => void revoke(c)}>
+                      Disconnect
+                    </button>
                   )}
                 </td>
               </tr>

@@ -16,9 +16,7 @@
 //! rows (`Mux::state_update_tab`), which patches the presentation cache with
 //! [`Mux::patch_tab_presentation`].
 
-pub(crate) mod place_list;
 pub(crate) mod reopen_identity;
-pub(crate) mod tab_place;
 pub(crate) mod tab_slot;
 
 use std::collections::BTreeSet;

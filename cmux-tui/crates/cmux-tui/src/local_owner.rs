@@ -60,27 +60,12 @@ pub(crate) const RESTORE_DEADLINE: Duration = Duration::from_secs(120);
 /// fixed timeout shorter than `RESTORE_DEADLINE`.
 pub(crate) const PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
 
-/// How long a progress report waits for the restoring owner's `identify`
-/// (it answers at once; an older owner holds it unanswered).
-const RESTORE_PROBE_DEADLINE: Duration = Duration::from_secs(1);
-
 /// The owner is alive and still restoring its session.
 pub(crate) struct Restoring {
     /// The owner's pid when known (its socket identity or this call's spawn).
     pub pid: Option<u64>,
     /// Time since this ensure started waiting on the restore.
     pub waited: Duration,
-    /// What the owner said its restore does now (`identify`'s `restore`:
-    /// phase, done, total, elapsed_ms, last_advance_ms), when it said.
-    pub restore: Option<Value>,
-}
-
-thread_local! {
-    /// The `restore` of the last `lifecycle_ready: false` identity `attempt`
-    /// read on this thread: every wait reports its owner on the thread that
-    /// probed it, right after the probe.
-    static OWNER_RESTORE: std::cell::RefCell<Option<Value>> =
-        const { std::cell::RefCell::new(None) };
 }
 
 /// Reports a restoring owner to the caller: the first sighting at once, then
@@ -114,8 +99,7 @@ impl<'a> RestoreProgress<'a> {
             return;
         }
         self.last.set(Some(now));
-        let restore = OWNER_RESTORE.with_borrow(Clone::clone);
-        (self.report)(&Restoring { pid, waited: now.duration_since(first), restore });
+        (self.report)(&Restoring { pid, waited: now.duration_since(first) });
     }
 }
 
@@ -144,16 +128,12 @@ mod carried_launch;
 pub(crate) use carried_launch::CarriedLaunch;
 mod exit_with;
 mod install_key;
-#[cfg(windows)]
-mod job_breakaway;
-mod owner_launcher;
 mod replace;
 pub(crate) use exit_with::{
     EXIT_WITH_PID_ARG, ExitWith, parse_owner_exit_with, resolve_exit_with_pid,
 };
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub(crate) use exit_with::{exit_with, test_owner_exit_with};
-use owner_launcher::{OWNER_LAUNCHER_ENV, owner_launcher};
 mod identify;
 #[cfg(all(test, unix))]
 mod recovery_tests;
@@ -496,14 +476,11 @@ pub(crate) fn ensure_owner(
         Some(pipe) => wait_for_spawned_owner(
             pipe,
             owner.pid,
-            owner.direct,
             spec,
             contact_deadline,
             restore_deadline,
             progress,
         ),
-        // No ready pipe (off Unix): the owner that answers is this call's
-        // when it is the process this call spawned.
         None => wait_until_ready(
             spec,
             Some(&spec.session),
@@ -511,16 +488,10 @@ pub(crate) fn ensure_owner(
             contact_deadline,
             restore_deadline,
             progress,
-        )
-        .map(|ready| {
-            ready.map(|ready| {
-                let own = is_spawned_owner(&ready, owner.pid, owner.direct);
-                (ready, own)
-            })
-        }),
+        ),
     };
     match ready {
-        Ok(Some((ready, own))) => {
+        Ok(Some(ready)) => {
             if let Some(expected) = requested_backend.as_deref()
                 && ready.cloud_backend.as_deref() != Some(expected)
             {
@@ -538,9 +509,7 @@ pub(crate) fn ensure_owner(
                     }
                 }
             }
-            // Not the owner this call spawned (it lost the bind, or a
-            // successor replaced it): that one runs, this call started none.
-            Ok(if own { Ensured::Started(ready) } else { Ensured::Running(ready) })
+            Ok(Ensured::Started(ready))
         }
         Ok(None) => {
             owner.terminate();
@@ -658,12 +627,11 @@ fn wait_until_ready(
 fn wait_for_spawned_owner(
     pipe: &std::fs::File,
     pid: u32,
-    direct: bool,
     spec: &OwnerSpec,
     contact_deadline: Instant,
     restore_deadline: &RestoreBound,
     progress: &RestoreProgress<'_>,
-) -> Result<Option<(ReadyOwner, bool)>, EnsureError> {
+) -> Result<Option<ReadyOwner>, EnsureError> {
     let expected = Some(spec.session.as_str());
     restore_deadline.note_owner(Some(u64::from(pid)));
     // The pipe stays open while the owner lives, and the owner writes its
@@ -683,42 +651,20 @@ fn wait_for_spawned_owner(
         }
         // Silent for the first slice: a quick owner start is not a restore.
         if started.elapsed() + Duration::from_millis(50) >= PROGRESS_INTERVAL {
-            // Ask the owner how far its restore is, for the report; the
-            // pipe alone decides when it is ready.
-            let _ = attempt(spec, expected, Instant::now() + RESTORE_PROBE_DEADLINE);
             progress.restoring(Some(u64::from(pid)));
         }
     }
     let mut byte = [0_u8; 1];
     let signaled = matches!((&*pipe).read(&mut byte), Ok(1));
-    // Without the byte (end of file) this owner exited: it lost the bind to a
-    // racing ensure's owner (which announces readiness only to its own
-    // parent), or crashed. Whoever serves the socket then is not the owner
-    // this call started, and a caller that stops only its own owner (the
-    // server uninstall's sweep) leaves it alone. With the byte, the owner that
-    // answers is this call's only while it is that process: not a successor
-    // that replaced it in the meantime.
-    let own = |ready: &ReadyOwner| signaled && is_spawned_owner(ready, pid, direct);
     if signaled
         && let Attempt::Ready(ready) =
             attempt(spec, expected, attempt_deadline(restore_deadline.deadline()))?
     {
-        let own = own(&ready);
-        return Ok(Some((ready, own)));
+        return Ok(Some(ready));
     }
-    Ok(wait_until_ready(spec, expected, &|| true, contact_deadline, restore_deadline, progress)?
-        .map(|ready| {
-            let own = own(&ready);
-            (ready, own)
-        }))
-}
-
-/// Whether the owner that answered is the process this call spawned as
-/// `pid`. An owner run under the DEV launcher (`direct` false) is the
-/// launcher's child, with a pid this call never saw: there the spawned
-/// owner's own announcement is all there is to go on.
-fn is_spawned_owner(ready: &ReadyOwner, pid: u32, direct: bool) -> bool {
-    !direct || ready.pid == u64::from(pid)
+    // End of file: this owner exited. It lost the bind to a racing ensure's
+    // owner (which announces readiness only to its own parent), or crashed.
+    wait_until_ready(spec, expected, &|| true, contact_deadline, restore_deadline, progress)
 }
 
 /// Whether `pipe` became readable (a byte or end of file) before `deadline`.
@@ -746,12 +692,11 @@ fn wait_readable(pipe: &std::fs::File, deadline: Instant) -> bool {
 fn wait_for_spawned_owner(
     pipe: &std::convert::Infallible,
     _pid: u32,
-    _direct: bool,
     _spec: &OwnerSpec,
     _contact_deadline: Instant,
     _restore_deadline: &RestoreBound,
     _progress: &RestoreProgress<'_>,
-) -> Result<Option<(ReadyOwner, bool)>, EnsureError> {
+) -> Result<Option<ReadyOwner>, EnsureError> {
     match *pipe {}
 }
 
@@ -760,7 +705,6 @@ fn attempt(
     expected_session: Option<&str>,
     deadline: Instant,
 ) -> Result<Attempt, EnsureError> {
-    OWNER_RESTORE.set(None);
     let stream =
         match cmux_tui_core::server::connect_session_socket(&spec.socket, spec.socket_is_derived) {
             Ok(stream) => stream,
@@ -795,8 +739,6 @@ fn attempt(
     // missing or malformed field is a broken identity, never "ready".
     match identity.get("lifecycle_ready") {
         Some(Value::Bool(false)) => {
-            // An owner that restores says how far it is (restoring.rs).
-            OWNER_RESTORE.set(identity.get("restore").cloned());
             return Ok(Attempt::Starting(identity.get("pid").and_then(Value::as_u64)));
         }
         Some(Value::Bool(true)) => {}
@@ -857,8 +799,6 @@ struct SpawnedOwner {
     state: std::sync::Arc<OwnerProcessState>,
     /// The owner's process id.
     pid: u32,
-    /// Whether `pid` is the owner itself, not the DEV launcher it runs under.
-    direct: bool,
     /// Read end of the owner's readiness pipe (`OWNER_READY_FD_ARG`).
     #[cfg(unix)]
     ready: Option<std::fs::File>,
@@ -889,28 +829,6 @@ fn configure_detached_owner_environment(command: &mut Command) {
     for key in crate::startup_env::agent_caller_keys(std::env::vars_os().map(|(key, _)| key)) {
         command.env_remove(key);
     }
-}
-
-/// The owner's command before its own arguments: `program`, or `launcher run -- program` when
-/// `launcher` is the helper embedded in the owner's own app (`owner_launcher.rs`).
-fn owner_command(program: &std::path::Path, launcher: Option<&std::ffi::OsStr>) -> Command {
-    owner_command_with(program, launcher, |path| path.is_file())
-}
-
-fn owner_command_with(
-    program: &std::path::Path,
-    launcher: Option<&std::ffi::OsStr>,
-    is_file: impl Fn(&std::path::Path) -> bool,
-) -> Command {
-    let launcher = owner_launcher(program, launcher, is_file);
-    let mut command =
-        Command::new(launcher.map_or(program.as_os_str(), |launcher| launcher.as_os_str()));
-    if launcher.is_some() {
-        command.arg("run").arg("--").arg(program);
-    }
-    // The owner, its shells and their programs never see it: only this `server ensure` uses it.
-    command.env_remove(OWNER_LAUNCHER_ENV);
-    command
 }
 
 impl SpawnedOwner {
@@ -965,11 +883,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         Some(binary) => binary,
         None => platform::self_exe_for_spawn()?,
     };
-    let launcher = std::env::var_os(OWNER_LAUNCHER_ENV);
-    let mut command = owner_command(&program, launcher.as_deref());
-    let direct = command.get_program() == program.as_os_str();
-    // The daemon's freed pages go back as it frees them (macOS; malloc_space.rs).
-    command.envs(cmux_tui_platform::malloc_space::child_env());
+    let mut command = Command::new(program);
     command.arg("--headless");
     command.arg("--session").arg(&spec.session);
     command.arg("--socket").arg(&spec.socket);
@@ -1032,14 +946,14 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     // terminal teardown must never reach it, so it gets no stdio and (on
     // Unix) its own session, free of the controlling terminal. On Windows
     // its stdin is the install key pipe when there is a key.
+    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(windows)]
     if spec.install_key.is_some() {
-        command.arg(install_key::OWNER_INSTALL_KEY_STDIN_ARG);
+        command.arg(install_key::OWNER_INSTALL_KEY_STDIN_ARG).stdin(Stdio::piped());
     }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        set_owner_stdio(&mut command, spec);
         // SAFETY: setsid(2) is async-signal-safe and touches no Rust state
         // in the post-fork child. A freshly forked child is not a
         // process-group leader, so failure is a real launch error.
@@ -1050,12 +964,16 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         }
     }
     #[cfg(windows)]
-    install_key::keep_std_handles_from_children();
-    let spawn = |command: &mut Command| command.spawn();
-    #[cfg(unix)]
-    let child = spawn(&mut command)?;
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
     #[cfg(windows)]
-    let mut child = job_breakaway::spawn_owner_out_of_callers_job(&mut command, spec, spawn)?;
+    install_key::keep_std_handles_from_children();
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut child = command.spawn()?;
     // Only the owner holds the write end now, so end of file means it exited.
     #[cfg(unix)]
     drop(ready_writer);
@@ -1084,25 +1002,12 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         // returning. This preserves the no-zombie guarantee even under
         // thread exhaustion; the owner has already been detached from the
         // caller's terminal and cannot report through its stdio.
-        SpawnedOwner { state: std::sync::Arc::clone(&state), pid, direct, ready: None }.terminate();
+        SpawnedOwner { state: std::sync::Arc::clone(&state), pid, ready: None }.terminate();
         return Err(io::Error::other("local owner reaper unavailable"));
     }
     #[cfg(unix)]
     let ready = Some(ready);
-    Ok(SpawnedOwner { state, pid, direct, ready })
-}
-
-/// The owner's stdio: none, except on Windows the install key pipe as stdin
-/// when there is a key. A spawn uses the streams up, so a second spawn of
-/// the same command sets them again.
-fn set_owner_stdio(command: &mut Command, spec: &OwnerSpec) {
-    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    #[cfg(windows)]
-    if spec.install_key.is_some() {
-        command.stdin(Stdio::piped());
-    }
-    #[cfg(not(windows))]
-    let _ = spec;
+    Ok(SpawnedOwner { state, pid, ready })
 }
 
 /// Blocks until the owner exits, without reaping it (`WNOWAIT`), so a
@@ -1146,5 +1051,117 @@ fn reap_on_tick(state: &OwnerProcessState) {
 }
 
 #[cfg(test)]
-#[path = "local_owner_tests.rs"]
-mod tests;
+mod tests {
+    use std::ffi::OsString;
+    use std::process::Command;
+
+    use super::cloud_backend_from_identity;
+    use super::configure_detached_owner_environment;
+    use serde_json::json;
+
+    #[test]
+    fn backend_identity_is_optional_for_classic_and_exact_for_next() {
+        assert_eq!(cloud_backend_from_identity(&json!({"app":"cmux-tui"})), None);
+        assert_eq!(
+            cloud_backend_from_identity(
+                &json!({"cloud_backend":"https://cloud-api-staging.cmux.dev"})
+            ),
+            Some("https://cloud-api-staging.cmux.dev".to_owned())
+        );
+        assert_eq!(cloud_backend_from_identity(&json!({"cloud_backend": 7})), None);
+    }
+
+    #[cfg(unix)]
+    mod event_driven {
+        use std::os::fd::IntoRawFd;
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        use super::super::*;
+
+        #[test]
+        fn ready_descriptor_is_claimed_close_on_exec_and_signaled_once() {
+            let (mut reader, writer) = io::pipe().unwrap();
+            let fd = writer.into_raw_fd();
+            assert_eq!(claim_inherited_fd(OWNER_READY_FD_ARG, &fd.to_string()), Ok(fd));
+            // SAFETY: querying flags of a descriptor this test owns.
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+            assert_ne!(flags & libc::FD_CLOEXEC, 0);
+            signal_ready(fd);
+            let mut bytes = Vec::new();
+            reader.read_to_end(&mut bytes).unwrap();
+            assert_eq!(bytes, b"1");
+            for invalid in ["0", "2", "-1", "x"] {
+                assert!(claim_inherited_fd(OWNER_READY_FD_ARG, invalid).is_err(), "{invalid}");
+            }
+        }
+
+        fn owner_state(command: &mut Command) -> (Arc<OwnerProcessState>, u32) {
+            let child = command.spawn().unwrap();
+            let pid = child.id();
+            (Arc::new(OwnerProcessState { child: std::sync::Mutex::new(Some(child)) }), pid)
+        }
+
+        #[test]
+        fn the_reaper_wakes_on_exit_and_leaves_no_zombie() {
+            let (state, pid) = owner_state(&mut Command::new("true"));
+            let reaper = {
+                let state = Arc::clone(&state);
+                std::thread::spawn(move || reap_on_exit(&state, pid))
+            };
+            reaper.join().unwrap();
+            assert!(state.child.lock().unwrap().is_none());
+            // SAFETY: probing a pid this test spawned and the reaper reaped.
+            assert_eq!(unsafe { libc::kill(pid as libc::pid_t, 0) }, -1);
+        }
+
+        #[test]
+        fn terminate_ends_a_blocked_reaper_and_the_owner() {
+            let (state, pid) = owner_state(Command::new("sleep").arg("60"));
+            let reaper = {
+                let state = Arc::clone(&state);
+                std::thread::spawn(move || reap_on_exit(&state, pid))
+            };
+            let started = Instant::now();
+            SpawnedOwner { state: Arc::clone(&state), pid, ready: None }.terminate();
+            reaper.join().unwrap();
+            assert!(started.elapsed() < Duration::from_secs(5));
+            assert!(state.child.lock().unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn detached_owner_removes_terminal_identity_but_keeps_configuration() {
+        let mut command = Command::new("cmux-tui");
+        command
+            .env("CMUX_SURFACE_ID", "surface")
+            .env("CMUX_WORKSPACE_ID", "workspace")
+            .env("CMUX_TAB_ID", "tab")
+            .env("CMUX_PANEL_ID", "panel")
+            .env("CMUX_PANE_ID", "pane")
+            .env("CMUX_NEXT_CLOUD_LAUNCHER", "1")
+            .env("CMUX_TUI_CONFIG", "/tmp/mux.json")
+            .env("CMUX_MUX_CONFIG", "/tmp/legacy-mux.json");
+
+        configure_detached_owner_environment(&mut command);
+
+        let values = command
+            .get_envs()
+            .map(|(key, value)| (key.to_owned(), value.map(OsString::from)))
+            .collect::<std::collections::HashMap<_, _>>();
+        for key in
+            ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"]
+        {
+            assert_eq!(values.get(OsString::from(key).as_os_str()), Some(&None));
+        }
+        assert_eq!(values.get(OsString::from("CMUX_NEXT_CLOUD_LAUNCHER").as_os_str()), Some(&None));
+        assert_eq!(
+            values.get(OsString::from("CMUX_TUI_CONFIG").as_os_str()),
+            Some(&Some(OsString::from("/tmp/mux.json")))
+        );
+        assert_eq!(
+            values.get(OsString::from("CMUX_MUX_CONFIG").as_os_str()),
+            Some(&Some(OsString::from("/tmp/legacy-mux.json")))
+        );
+    }
+}

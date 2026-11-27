@@ -5,14 +5,8 @@
 //! or its short alias `apps.<verb>`.
 //!
 //! - `catalog.list` and `catalog.get`: the catalog packages, never
-//!   `cmux/app-store` itself; first-party apps are `hide_only`. Each listing
-//!   names its shelf ([`Shelf`]): Discover shows the store shelf, the SDK
-//!   examples show only to developers, and `cmux ext dev` apps only under
-//!   Installed. `catalog.get` also answers the versions and What's New, and
-//!   `catalog.sections` the store's shelves (apps/store_sections.rs).
+//!   `cmux/app-store` itself; first-party apps are `hide_only`.
 //! - `installed.list`: the installed apps with their state and grants.
-//! - `updates.list` and `update`: the Community (git) apps' updates
-//!   (apps/community.rs); `update` installs through `install`.
 //! - `set`: every field (`enabled`, `hidden`, `sandboxed`) only from the
 //!   user, in both directions (D55 as amended, APPS-ENABLE-ORIGIN): agents
 //!   must not change what the user sees or what an app may do.
@@ -28,19 +22,16 @@
 //! feat-cmux-next-apps-store; they move to the IR crate (with schemars) when
 //! it lands.
 
-use std::collections::HashMap;
-use std::sync::PoisonError;
-
 use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::catalog::Package;
 use super::mirror::{Origin, Record, SetOp, Source, Tier};
-use super::supervisor::{ApiError, Out, Supervisor};
+use super::supervisor::{ApiError, Supervisor};
 
 /// The App Store never lists itself.
-pub(super) const APP_STORE: &str = "cmux/app-store";
+const APP_STORE: &str = "cmux/app-store";
 const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 200;
 
@@ -54,51 +45,6 @@ struct CatalogListParams {
     cursor: Option<String>,
     /// 1 to 200; default 50.
     limit: Option<u32>,
-    /// Only listings on this shelf; every shelf when absent.
-    shelf: Option<Shelf>,
-    /// Developer mode is on (`app.internalDeveloperMode`; the page router
-    /// fills it from settings): the page offers the Examples shelf.
-    developer: Option<bool>,
-}
-
-/// Where a listing belongs in the App Store, decided from where its package
-/// came from so the page, the CLI and MCP agree (Leo, 2026-11-16: "idk if we
-/// want to ship THOSE as standard apps").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum Shelf {
-    /// Discover: the first-party apps cmux ships as default apps (Cloud),
-    /// cmux's own store apps (the `cmux/` packages the build
-    /// writes to `AppPlatform/store` from a `first-party-apps/<name>/STORE`
-    /// marker: the clock, weather, calendar and to-do widgets), and later a
-    /// cloud catalog's listings.
-    Store,
-    /// SDK examples and samples shipped next to cmux (`CMUX_APPS_DIRS`,
-    /// `apps/`) under any other publisher: templates for `cmux ext new`,
-    /// listed under Examples only with developer mode or once the person runs
-    /// `cmux ext dev`.
-    Example,
-    /// The person's own `cmux ext dev` apps (`local/...`): Installed shows
-    /// them as Local (dev); Discover never lists them.
-    Local,
-}
-
-/// The publisher prefix of cmux's own packages.
-const FIRST_PARTY_PUBLISHER: &str = "cmux/";
-
-impl Shelf {
-    pub(crate) fn of(package: &Package) -> Self {
-        match package.source {
-            // A git-installed app is the person's own install, like User.
-            Source::Default | Source::User | Source::Git => Self::Store,
-            // A first-party STORE app is built into the same folder as the
-            // samples; its `cmux/` publisher puts it on Discover (Leo,
-            // 2026-11-20: "JUST ADD SHIT").
-            Source::Bundled if package.id.starts_with(FIRST_PARTY_PUBLISHER) => Self::Store,
-            Source::Bundled => Self::Example,
-            Source::Local => Self::Local,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,14 +56,6 @@ struct CatalogGetParams {
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InstalledListParams {}
-
-/// `apps.local.reload`: one local app, or every one when `app` is absent.
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LocalReloadParams {
-    #[serde(default)]
-    app: Option<String>,
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -142,9 +80,6 @@ pub(crate) struct CatalogListResult {
     next_cursor: Option<String>,
     /// The install mirror revision the install fields reflect.
     revision: u64,
-    /// Whether the page offers the Examples shelf: developer mode is on, or
-    /// the person has a `cmux ext dev` app.
-    examples: bool,
 }
 
 /// One store row.
@@ -154,20 +89,13 @@ pub(crate) struct Listing {
     app: String,
     name: String,
     summary: String,
-    /// One line on what the person gets (manifest `tagline`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tagline: Option<String>,
     publisher: String,
-    /// The app draws on the New Tab page (`cmux.newtab/1`), so the store
-    /// offers Use as New Tab (`tabs.newTabApp`).
-    new_tab: bool,
     tier: Tier,
     version: String,
     icon: Option<IconRef>,
     categories: Vec<String>,
     /// First-party apps offer Hide and Show only.
     hide_only: bool,
-    shelf: Shelf,
     install: Option<InstallState>,
 }
 
@@ -180,27 +108,16 @@ enum IconRef {
     Symbol(String),
 }
 
-/// `catalog.get`: the listing plus its screenshots, the places the app shows
-/// up, the scopes it asks for and, for an app with a `deploy` block, where it
-/// runs.
+/// `catalog.get`: the listing plus the scopes the app asks for and, for an
+/// app with a `deploy` block, where it runs.
 #[derive(Debug, Serialize)]
 pub(crate) struct AppDetail {
     #[serde(flatten)]
     listing: Listing,
-    /// Package paths; the page loads each through `asset.get`.
-    screenshots: Vec<String>,
-    contributes: Vec<Contribution>,
     scopes: Vec<ScopeRow>,
     /// Absent for an app with no `deploy` block.
     #[serde(skip_serializing_if = "Option::is_none")]
     deploy: Option<DeployFacts>,
-    /// `[{version, tag?, commit?, date_ms?}]`, newest first
-    /// (apps/store_sections.rs).
-    versions: Vec<Value>,
-    /// `{version, items: [{title, pr}]}`; absent with no news for this
-    /// version.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    whats_new: Option<Value>,
 }
 
 /// What a listing says about an app's server (`deploy`, deploy.rs): the
@@ -211,88 +128,6 @@ pub(crate) struct AppDetail {
 struct DeployFacts {
     targets: Vec<String>,
     tenancy: Vec<String>,
-}
-
-/// One place the app shows up: an interface it implements (`section`,
-/// `statusItem`, `pane`, `newTab`, `sessionInfo`) or a palette command
-/// (`command`). `title` is the interface's en title, else the app name; a
-/// command's is its palette title.
-#[derive(Debug, Serialize)]
-struct Contribution {
-    kind: &'static str,
-    title: String,
-}
-
-/// The interfaces a listing names, in the order the page shows them.
-const CONTRIBUTION_KINDS: [(&str, &str); 5] = [
-    ("cmux.section/1", "section"),
-    ("cmux.status/1", "statusItem"),
-    ("cmux.pane/1", "pane"),
-    ("cmux.newtab/1", "newTab"),
-    ("cmux.session.info.section/1", "sessionInfo"),
-];
-
-/// Where `package` shows up. Reads the catalog fragment from disk, so it
-/// runs outside the supervisor lock.
-fn contributions(package: &Package) -> Vec<Contribution> {
-    let m = &package.manifest;
-    let name = m.get("name").map(text).unwrap_or_default();
-    let mut rows: Vec<Contribution> = CONTRIBUTION_KINDS
-        .iter()
-        .filter_map(|&(interface, kind)| {
-            let implementation = m.get("implements")?.get(interface)?;
-            let title = implementation.get("title").map(text).filter(|t| !t.is_empty());
-            Some(Contribution { kind, title: title.unwrap_or_else(|| name.clone()) })
-        })
-        .collect();
-    if let Some(widget) = m.get("implements").and_then(|i| i.get("cmux.widget/1")) {
-        rows.extend(widget_contributions(widget, &name));
-    }
-    rows.extend(package.palette_commands(None).iter().map(|command| Contribution {
-        kind: "command",
-        title: command.get("title").map(text).unwrap_or_default(),
-    }));
-    rows
-}
-
-/// A widget (`cmux.widget/1`) shows up once per place in `options.places`:
-/// `newtab` (kind `newTab`) and `sidebar` (kind `sidebarWidget`). With no
-/// `places` it shows up in both; a place this daemon does not know is
-/// skipped.
-fn widget_contributions(widget: &Value, name: &str) -> Vec<Contribution> {
-    if !widget.is_object() {
-        return Vec::new();
-    }
-    let title = widget.get("title").map(text).filter(|t| !t.is_empty());
-    let title = title.unwrap_or_else(|| name.to_string());
-    let Some(places) = widget.pointer("/options/places").and_then(Value::as_array) else {
-        return ["newTab", "sidebarWidget"]
-            .into_iter()
-            .map(|kind| Contribution { kind, title: title.clone() })
-            .collect();
-    };
-    let mut kinds: Vec<&'static str> = Vec::new();
-    for place in places.iter().filter_map(Value::as_str) {
-        let kind = match place {
-            "newtab" => "newTab",
-            "sidebar" => "sidebarWidget",
-            _ => continue,
-        };
-        if !kinds.contains(&kind) {
-            kinds.push(kind);
-        }
-    }
-    kinds.into_iter().map(|kind| Contribution { kind, title: title.clone() }).collect()
-}
-
-fn screenshots(manifest: &Value) -> Vec<String> {
-    manifest
-        .get("screenshots")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|path| path.as_str().map(str::to_string))
-        .collect()
 }
 
 fn deploy_facts(manifest: &Value) -> Option<DeployFacts> {
@@ -326,11 +161,7 @@ struct InstallState {
     sandboxed: bool,
     source: Source,
     version: Option<String>,
-    /// The version an update brings: a Community (git) app whose row in the
-    /// cached index names another reviewed commit (`apps.updates.list`).
-    /// Filled by `installed.list` only; catalog apps ship with cmux and are
-    /// always current.
-    update: Option<AvailableUpdate>,
+    update: Option<String>,
     /// Why the app is not running when it should: `off: safe mode`, or
     /// `failed: <reason>` (apps/safe_mode.rs). Absent when nothing holds it.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -342,13 +173,6 @@ struct InstallState {
     /// mount over its op-batch rate gets 1 batch a second) or `paused`
     /// (`apps.resume` starts it again).
     budget: &'static str,
-}
-
-/// `state.update`: `{version, commit}` (the page reads `version`).
-#[derive(Debug, Serialize)]
-struct AvailableUpdate {
-    version: String,
-    commit: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -363,8 +187,6 @@ struct InstalledApp {
     name: String,
     tier: Tier,
     hide_only: bool,
-    /// The app draws on the New Tab page (`cmux.newtab/1`).
-    new_tab: bool,
     state: InstallState,
     grants: Vec<String>,
     /// The deployed instance (`deploy.rs`), null for an app with none.
@@ -421,15 +243,7 @@ fn state(record: &Record, package: Option<&Package>) -> InstallState {
     }
 }
 
-/// The interface whose app draws on the New Tab page (`tabs.newTabApp`).
-const NEW_TAB_INTERFACE: &str = "cmux.newtab/1";
-
-/// Whether the manifest implements `cmux.newtab/1`.
-fn draws_new_tab(manifest: &Value) -> bool {
-    manifest.get("implements").and_then(|implements| implements.get(NEW_TAB_INTERFACE)).is_some()
-}
-
-pub(super) fn listing(package: &Package, record: Option<&Record>) -> Listing {
+fn listing(package: &Package, record: Option<&Record>) -> Listing {
     let m = &package.manifest;
     let icon = match &m["icon"] {
         Value::String(path) => Some(IconRef::Asset(path.clone())),
@@ -442,9 +256,7 @@ pub(super) fn listing(package: &Package, record: Option<&Record>) -> Listing {
         app: package.id.clone(),
         name: text(&m["name"]),
         summary: text(&m["description"]),
-        tagline: m.get("tagline").map(text).filter(|t| !t.is_empty()),
         publisher: package.id.split('/').next().unwrap_or_default().to_string(),
-        new_tab: draws_new_tab(m),
         tier: package.tier,
         version: package.version.clone(),
         icon,
@@ -455,7 +267,6 @@ pub(super) fn listing(package: &Package, record: Option<&Record>) -> Listing {
             .filter_map(|c| c.as_str().map(str::to_string))
             .collect(),
         hide_only: package.tier == Tier::FirstParty,
-        shelf: Shelf::of(package),
         install: record.map(|r| state(r, Some(package))),
     }
 }
@@ -470,28 +281,12 @@ fn annotate(inner: &super::supervisor::Inner, app: &str, state: Option<&mut Inst
     }
 }
 
-/// A setting-backed entry's cmux setting (the manifest's `setting`, first-party only): its
-/// dotted key and its default. The entry's enabled switch is that setting (the App Store's Auto
-/// cleanup is `worktrees.autoCleanup`, read by acpmux before each automatic pass).
-fn setting_of(package: &Package) -> Option<(String, bool)> {
-    let setting = package.manifest.get("setting").filter(|_| package.tier == Tier::FirstParty)?;
-    Some((setting["key"].as_str()?.to_string(), setting["default"].as_bool().unwrap_or(true)))
-}
-
-/// Shows a setting-backed entry's switch as its setting says (`switches`).
-fn switch(switches: &HashMap<String, bool>, app: &str, state: Option<&mut InstallState>) {
-    if let (Some(state), Some(on)) = (state, switches.get(app)) {
-        state.enabled = *on;
-    }
-}
-
 fn installed_app(app: &str, record: &Record, package: Option<&Package>) -> InstalledApp {
     InstalledApp {
         app: app.to_string(),
         name: package.map_or_else(|| app.to_string(), |p| text(&p.manifest["name"])),
         tier: package.map_or(Tier::Unverified, |p| p.tier),
         hide_only: package.is_some_and(|p| p.tier == Tier::FirstParty),
-        new_tab: package.is_some_and(|p| draws_new_tab(&p.manifest)),
         state: state(record, package),
         grants: record.grants.iter().cloned().collect(),
         instance: Value::Null,
@@ -521,9 +316,8 @@ fn matches(package: &Package, query: &str) -> bool {
         .any(|field| field.to_lowercase().contains(&query))
 }
 
-/// Whether App Store op `op` changes the install mirror (`set`, `install`, `update`,
-/// `uninstall`, `hidden.set`, `grant.set`, `grant.revoke`, `settings.set`, `community.synced.put`),
-/// or the person's widget layout (`widgets.layout.edit`): the wire admits
+/// Whether App Store op `op` changes the install mirror (`set`, `install`,
+/// `uninstall`, `hidden.set`, `grant.set`, `grant.revoke`): the wire admits
 /// it only from the verified cmux app connection (Gate A2), whatever origin
 /// it claims.
 pub(crate) fn store_op_mutates(op: &str) -> bool {
@@ -531,21 +325,17 @@ pub(crate) fn store_op_mutates(op: &str) -> bool {
         op.strip_prefix("cmux.").unwrap_or(op),
         "apps.set"
             | "apps.install"
-            | "apps.update"
             | "apps.uninstall"
             | "apps.hidden.set"
             | "apps.grant.set"
             | "apps.grant.revoke"
-            | "apps.settings.set"
-            | "apps.widgets.layout.edit"
-            | "apps.community.synced.put"
     )
 }
 
 impl Supervisor {
     /// Runs one App Store op. `origin` is the request's, admitted by the A2
     /// gate on the wire.
-    pub(super) fn store_call_base(
+    pub fn store_call(
         &self,
         client: u64,
         op: &str,
@@ -553,39 +343,20 @@ impl Supervisor {
         origin: Origin,
     ) -> Result<Value, ApiError> {
         match op.strip_prefix("cmux.").unwrap_or(op) {
-            // The Community source (community.rs): `{source: "community"}`.
-            "apps.catalog.list" | "apps.catalog.get" if super::community::wants(&args) => {
-                self.community_call(op, args)
-            }
-            "apps.community.installs" | "apps.community.synced.put" => {
-                self.community_call(op, args)
-            }
             "apps.catalog.list" => params(args).and_then(|p| to_value(self.catalog_list(p)?)),
             "apps.catalog.get" => params(args).and_then(|p| to_value(self.catalog_get(p)?)),
-            "apps.catalog.sections" => {
-                params(args).and_then(|p| to_value(self.catalog_sections(p)?))
-            }
             "apps.installed.list" => {
                 params::<InstalledListParams>(args).and_then(|_| to_value(self.installed_list()))
             }
-            // Community (git) app updates (community.rs), from the cached index.
-            "apps.updates.list" => {
-                params(args).and_then(|p| to_value(self.community_updates_list(p)?))
-            }
-            "apps.update" => params(args).and_then(|p| self.community_update(client, p, origin)),
             "apps.set" => params(args).and_then(|p| self.store_set(client, p, origin)),
             "apps.install" => {
                 params(args).and_then(|p| self.store_install_deploy(client, p, origin))
             }
             "apps.uninstall" => {
-                params(args).and_then(|p| self.store_install(client, p, origin, false, false))
+                params(args).and_then(|p| self.store_install(client, p, origin, false))
             }
             "apps.rollback" => params(args).and_then(|p| self.rollback(p, origin)),
             "apps.resume" => params(args).and_then(|p| self.resume(p, origin)),
-            // The app's Reload Custom Views (palette, an error card's Reload):
-            // the same forced read as `apps-reload` (`cmux ext reload`).
-            "apps.local.reload" => params::<LocalReloadParams>(args)
-                .and_then(|p| self.reload_local_now(p.app.as_deref())),
             other => self.panel_call(client, other, args, origin).unwrap_or_else(|| {
                 Err(ApiError::new("apps.op.unknown", format!("{op} is not an App Store op")))
             }),
@@ -598,15 +369,13 @@ impl Supervisor {
             Some(cursor) => cursor.parse::<usize>().map_err(|_| bad_request("bad cursor"))?,
         };
         let limit = p.limit.map_or(DEFAULT_LIMIT, |l| l as usize).clamp(1, MAX_LIMIT);
-        let switches = self.setting_switches();
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let inner = self.inner.lock().unwrap();
         let rows: Vec<&Package> = inner
             .catalog
             .packages
             .values()
             .filter(|package| package.id != APP_STORE)
             .filter(|package| p.tier.is_none_or(|tier| package.tier == tier))
-            .filter(|package| p.shelf.is_none_or(|shelf| Shelf::of(package) == shelf))
             .filter(|package| {
                 p.category.as_deref().is_none_or(|category| {
                     package.manifest["categories"]
@@ -623,24 +392,17 @@ impl Supervisor {
             .map(|package| {
                 let mut row = listing(package, inner.mirror.apps.get(&package.id));
                 annotate(&inner, &package.id, row.install.as_mut());
-                switch(&switches, &package.id, row.install.as_mut());
                 row
             })
             .collect();
         // A cursor is a wire value: never overflow on it.
         let end = offset.saturating_add(limit);
         let next_cursor = (end < rows.len()).then(|| end.to_string());
-        // Offered only when there are examples to show.
-        let packages = || inner.catalog.packages.values();
-        let has_examples = packages().any(|p| Shelf::of(p) == Shelf::Example);
-        let has_local = packages().any(|p| p.source == Source::Local);
-        let examples = has_examples && (p.developer == Some(true) || has_local);
-        Ok(CatalogListResult { listings, next_cursor, revision: inner.mirror.revision, examples })
+        Ok(CatalogListResult { listings, next_cursor, revision: inner.mirror.revision })
     }
 
     fn catalog_get(&self, p: CatalogGetParams) -> Result<AppDetail, ApiError> {
-        let switches = self.setting_switches();
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let inner = self.inner.lock().unwrap();
         let package = inner
             .catalog
             .packages
@@ -660,27 +422,11 @@ impl Supervisor {
         }
         let mut listing = listing(package, inner.mirror.apps.get(&p.app));
         annotate(&inner, &p.app, listing.install.as_mut());
-        switch(&switches, &p.app, listing.install.as_mut());
-        let package = package.clone();
-        // The catalog fragment and What's New are file reads: never under the supervisor lock.
-        drop(inner);
-        let release = super::store_sections::release(&package);
-        Ok(AppDetail {
-            listing,
-            screenshots: screenshots(&package.manifest),
-            contributes: contributions(&package),
-            scopes,
-            deploy: deploy_facts(&package.manifest),
-            versions: release.versions,
-            whats_new: release.whats_new,
-        })
+        Ok(AppDetail { listing, scopes, deploy: deploy_facts(&package.manifest) })
     }
 
     fn installed_list(&self) -> InstalledListResult {
-        let switches = self.setting_switches();
-        // A file read and the community lock: before the supervisor lock.
-        let updates = self.community_updates_cached();
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let inner = self.inner.lock().unwrap();
         let apps = inner
             .mirror
             .apps
@@ -689,11 +435,6 @@ impl Supervisor {
             .map(|(app, record)| {
                 let mut row = installed_app(app, record, inner.catalog.packages.get(app));
                 annotate(&inner, app, Some(&mut row.state));
-                switch(&switches, app, Some(&mut row.state));
-                row.state.update = updates.get(app).map(|update| AvailableUpdate {
-                    version: update.version.clone(),
-                    commit: update.commit.clone(),
-                });
                 row.instance = self.instance_json(app);
                 row
             })
@@ -704,59 +445,19 @@ impl Supervisor {
     /// The app's state after a commit, as `set`, `install` and `uninstall`
     /// answer it.
     pub(super) fn set_result(&self, app: &str) -> Result<Value, ApiError> {
-        let switches = self.setting_switches();
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let inner = self.inner.lock().unwrap();
         let fallback = super::mirror::absent(Source::User, None);
         let record = inner.mirror.apps.get(app).unwrap_or(&fallback);
         let mut row = installed_app(app, record, inner.catalog.packages.get(app));
         annotate(&inner, app, Some(&mut row.state));
-        switch(&switches, app, Some(&mut row.state));
         row.instance = self.instance_json(app);
         let result = SetResult { revision: inner.mirror.revision, app: row };
         to_value(result)
     }
 
-    /// Each setting-backed entry's switch, from the settings owner (`OpRouter::setting_get`),
-    /// read outside the supervisor lock: the settings owner tells apps of its changes and must
-    /// never wait on this lock while one of these reads waits on it.
-    fn setting_switches(&self) -> HashMap<String, bool> {
-        let settings: Vec<(String, String, bool)> = {
-            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-            inner
-                .catalog
-                .packages
-                .values()
-                .filter_map(|package| {
-                    setting_of(package).map(|(key, on)| (package.id.clone(), key, on))
-                })
-                .collect()
-        };
-        settings
-            .into_iter()
-            .map(|(app, key, default)| {
-                let on = self.router.setting_get(&key).and_then(|v| v.as_bool()).unwrap_or(default);
-                (app, on)
-            })
-            .collect()
-    }
-
     fn store_set(&self, client: u64, p: SetParams, origin: Origin) -> Result<Value, ApiError> {
-        // A setting-backed entry's enabled switch is a cmux setting: only the person turns it,
-        // in both directions, like every enabled change (APPS-ENABLE-ORIGIN).
-        let setting = {
-            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-            inner.catalog.packages.get(&p.app).and_then(setting_of)
-        }
-        .zip(p.enabled)
-        .map(|((key, _), on)| (key, on));
-        if setting.is_some() && origin != Origin::User {
-            return Err(ApiError::new(
-                "apps.origin",
-                "this switch changes a cmux setting; it needs a user action",
-            ));
-        }
         let op = SetOp {
-            key: p.idempotency_key.clone(),
+            key: p.idempotency_key,
             app: p.app.clone(),
             origin,
             enabled: p.enabled,
@@ -765,19 +466,6 @@ impl Supervisor {
             ..SetOp::default()
         };
         self.set(client, op)?;
-        if let Some((key, on)) = setting {
-            self.router.setting_set(&key, Value::Bool(on))?;
-            // The record may not have changed (the setting was edited elsewhere): every page
-            // reads the entry again.
-            let revision =
-                self.inner.lock().unwrap_or_else(PoisonError::into_inner).mirror.revision;
-            self.emit(vec![Out::Broadcast(json!({
-                "event": "apps-changed",
-                "revision": revision,
-                "transaction": p.idempotency_key,
-                "app": p.app,
-            }))]);
-        }
         self.set_result(&p.app)
     }
 
@@ -787,14 +475,13 @@ impl Supervisor {
         p: AppRef,
         origin: Origin,
         install: bool,
-        grant_optional: bool,
     ) -> Result<Value, ApiError> {
         if origin != Origin::User {
             let verb = if install { "installing" } else { "removing" };
             return Err(ApiError::new("apps.origin", format!("{verb} an app needs a user action")));
         }
         let first_party = {
-            let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let inner = self.inner.lock().unwrap();
             inner
                 .catalog
                 .packages
@@ -812,31 +499,26 @@ impl Supervisor {
             app: p.app.clone(),
             origin,
             installed: Some(install),
-            grant_optional: install && grant_optional,
             ..SetOp::default()
         };
         self.set(client, op)?;
         if !install {
             self.deploy_remove(&p.app);
         }
-        let placed = if install { self.place_installed_widget(&p.app) } else { None };
-        let mut result = self.set_result(&p.app)?;
-        if let (Some(placed), Some(object)) = (placed, result.as_object_mut()) {
-            object.insert("widget".into(), placed);
-        }
-        Ok(result)
+        self.set_result(&p.app)
     }
 
     /// `cmux.apps.install`, with an optional `deploy {target}` (install =
     /// deploy + pin, `deploy.rs`): the target is checked against the manifest
     /// before anything installs; the install commits, then the runner starts
     /// off the request and the answer carries the instance as `deploying`.
-    pub(super) fn store_install_deploy(
+    fn store_install_deploy(
         &self,
         client: u64,
         p: super::deploy::InstallParams,
         origin: Origin,
     ) -> Result<Value, ApiError> {
+        let _ = p.grant_optional;
         let checked = match &p.deploy {
             Some(request) if origin == Origin::User => Some(self.deploy_checked(&p.app, request)?),
             _ => None,
@@ -847,8 +529,6 @@ impl Supervisor {
             AppRef { app: p.app.clone(), idempotency_key: key.clone() },
             origin,
             true,
-            // The consent card listed the optional scopes too: grant them.
-            p.grant_optional.unwrap_or(false),
         )?;
         if let Some((target, spec)) = checked {
             result.set("instance", self.deploy_start(&p.app, &key, target, spec));
@@ -856,11 +536,3 @@ impl Supervisor {
         Ok(result)
     }
 }
-
-#[cfg(test)]
-#[path = "store_new_tab_tests.rs"]
-mod new_tab_tests;
-
-#[cfg(test)]
-#[path = "store_tests.rs"]
-mod tests;

@@ -95,14 +95,10 @@ extension Array where Element == TurnItem {
     mutating func apply(_ update: ACPSessionUpdate) {
         switch update {
         case .agentMessageChunk(let text, let messageId):
-            if case .message(let id, let existing)? = last, messageId == nil || messageId == id || messageId.map({ id.hasPrefix("\($0)-#") }) == true {
+            if case .message(let id, let existing)? = last, messageId == nil || messageId == id {
                 self[count - 1] = .message(id: id, markdown: existing + text)
             } else {
-                // The same message going on after a row of its own between (an image it sent)
-                // takes a new id: two rows never share one.
-                var id = messageId ?? UUID().uuidString
-                if contains(where: { $0.id == "m-\(id)" }) { id += "-#\(count)" }
-                append(.message(id: id, markdown: text))
+                append(.message(id: messageId ?? UUID().uuidString, markdown: text))
             }
         case .agentThoughtChunk(let text):
             if case .thought(let id, let existing)? = last {
@@ -123,6 +119,12 @@ extension Array where Element == TurnItem {
                 call.apply(update)
                 if !call.isRunning, call.endedAt == nil { call.endedAt = Date() }
                 self[index] = .tool(call)
+            }
+        case .plan(let entries):
+            if let index = firstIndex(where: { if case .plan = $0 { true } else { false } }), case .plan(let id, _) = self[index] {
+                self[index] = .plan(id: id, entries: entries)
+            } else if !entries.isEmpty {
+                append(.plan(id: UUID().uuidString, entries: entries))
             }
         default:
             break

@@ -9,13 +9,10 @@ extension UpdaterService {
     func installPreflightFailure() -> UpdateInstallPreflight.Failure? {
         let bytes = controller?.stagedUpdate.map { Int64(clamping: $0.contentLength) }
         let preflight = UpdateInstallPreflight(bundle: Bundle.main.bundleURL, updateBytes: bytes.flatMap { $0 > 0 ? $0 : nil },
-                                               stagedInstallations: UpdateInstallPreflight.stagedInstallations(bundleIdentifier: Bundle.main.bundleIdentifier))
+                                               stagedInstallation: UpdateInstallPreflight.stagedInstallation(bundleIdentifier: Bundle.main.bundleIdentifier))
         // concurrency-allow: two access checks, one volume read and two directory reads, at the click, before the app quits.
         let failure = preflight.failure()
         // concurrency-allow: one directory existence check, same click.
-        if failure == .updateMissing {
-            log.append("install preflight: no staged update in \(preflight.stagedInstallations.map(\.path).joined(separator: " or "))")
-        }
         if failure == nil, !preflight.knowsStagedLayout() {
             log.append("install preflight: Sparkle's staging folder is not where 2.9.5 kept it; the staged-update check let the click through")
         }

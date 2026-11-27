@@ -37,19 +37,6 @@
     {"name": "sharp s folds to ss", "query": {"text": "STRASSE"}, "expected_ids": ["page:4"]},
     {"name": "greek final sigma folds to sigma", "query": {"text": "οδος"}, "expected_ids": ["page:4"]},
     {"name": "halfwidth kana with dakuten matches fullwidth kana", "query": {"text": "ガイド"}, "expected_ids": ["page:4"]},
-    {"name": "no match", "query": {"text": "zzz"}, "expected_ids": []},
-    {"name": "is: narrows to one kind", "query": {"text": "is:page"}, "expected_ids": ["page:1", "page:file", "page:2", "page:3", "page:4"]},
-    {"name": "is: takes plurals and a word", "query": {"text": "is:commands cargo"}, "expected_ids": ["command:home/t/1799999300000"]},
-    {"name": "is: twice is either kind", "query": {"text": "kind:agent is:closed"}, "expected_ids": ["agent:s-1", "closed:tab_9"]},
-    {"name": "is: inside the chip's kinds", "query": {"kinds": ["page"], "text": "is:agent"}, "expected_ids": []},
-    {"name": "an unknown kind is a plain word", "query": {"text": "is:nosuch"}, "expected_ids": []},
-    {"name": "since: an age", "query": {"text": "since:1d"}, "expected_ids": ["agent:s-1", "page:1", "location:home:tab3:2", "command:home/t/1799999300000", "closed:tab_9", "page:file", "page:2"]},
-    {"name": "since:today is the local day", "query": {"text": "since:today"}, "expected_ids": ["agent:s-1", "page:1", "location:home:tab3:2", "command:home/t/1799999300000", "closed:tab_9", "page:file", "page:2"]},
-    {"name": "before: a date", "query": {"text": "before:2027-01-01"}, "expected_ids": ["page:3", "page:4"]},
-    {"name": "a window between two dates", "query": {"text": "after:2026-12-01 before:2027-01-01"}, "expected_ids": ["page:3"]},
-    {"name": "since: and the range both apply", "query": {"text": "since:30d", "range": "hour"}, "expected_ids": ["agent:s-1", "page:1", "location:home:tab3:2", "command:home/t/1799999300000", "closed:tab_9", "page:file"]},
-    {"name": "a minus word leaves entries out", "query": {"text": "is:page -swift"}, "expected_ids": ["page:file", "page:2", "page:3", "page:4"]},
-    {"name": "a quoted phrase keeps its order", "query": {"text": "\"cargo test\""}, "expected_ids": ["command:home/t/1799999300000"]},
-    {"name": "a quoted phrase out of order does not match", "query": {"text": "\"test cargo\""}, "expected_ids": []}
+    {"name": "no match", "query": {"text": "zzz"}, "expected_ids": []}
   ]
 }

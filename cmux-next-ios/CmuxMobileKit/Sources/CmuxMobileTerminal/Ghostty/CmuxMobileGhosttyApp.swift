@@ -117,16 +117,14 @@ final class CmuxMobileGhosttyApp {
     /// A config for one surface: the app's, with `theme` over every terminal theme key (none of
     /// the phone's own colors survive), at `fontSize` so the update keeps the surface's size.
     /// The caller frees it after `ghostty_surface_update_config` (Ghostty copies what it uses).
-    /// With `seeThrough` the default background is transparent (the page shows the Mac's wallpaper).
-    func themedConfig(_ theme: CmuxMobileTerminalTheme, fontSize: Double, seeThrough: Bool = false) -> ghostty_config_t? {
-        Self.themedConfig(theme, fontSize: fontSize, seeThrough: seeThrough, base: config)
+    func themedConfig(_ theme: CmuxMobileTerminalTheme, fontSize: Double) -> ghostty_config_t? {
+        Self.themedConfig(theme, fontSize: fontSize, base: config)
     }
 
     /// `base` with `theme` over every terminal theme key, at `fontSize`.
-    static func themedConfig(_ theme: CmuxMobileTerminalTheme, fontSize: Double, seeThrough: Bool = false,
-                             base: ghostty_config_t) -> ghostty_config_t? {
+    static func themedConfig(_ theme: CmuxMobileTerminalTheme, fontSize: Double, base: ghostty_config_t) -> ghostty_config_t? {
         guard let themed = ghostty_config_clone(base) else { return nil }
-        let text = theme.configText(seeThrough: seeThrough) + "font-size = \(fontSize)\n"
+        let text = theme.configText + "font-size = \(fontSize)\n"
         text.withCString { ghostty_config_load_string(themed, $0, UInt(text.utf8.count), "cmux-mac-terminal-theme") }
         ghostty_config_finalize(themed)
         return themed

@@ -2028,7 +2028,7 @@ fn every_test_wait_on_a_hold_is_bounded() {
     /// `(file under src/, receiver, why it may block unbounded)`.
     const ALLOWED: &[(&str, &str, &str)] = &[
         (
-            "agent_host/host/orphan_tests.rs",
+            "agent_host/host/orphan.rs",
             "held",
             "the harness waiter's park: it ends when the test drops `release`",
         ),
@@ -2087,8 +2087,28 @@ fn every_test_wait_on_a_hold_is_bounded() {
         "a test module's `mod child;` resolves to no file:\n{}",
         unresolved.join("\n")
     );
-    // Raw-string braces and extracted test modules are checked with fixtures in
-    // `the_bounded_wait_scan_exempts_by_meaning_not_text_shape`, independent of source layout.
+    // #41842 review F1: a `}` in a raw string once cut hub/restart_resume.rs's test module
+    // short at line 1143, hiding the tests after it. The scan reads it to its last test.
+    let resume = files
+        .iter()
+        .find(|(path, _)| path == Path::new("hub/restart_resume.rs"))
+        .map(|(_, text)| text)
+        .expect("hub/restart_resume.rs is a source of the crate");
+    let last_fn = resume.rfind("fn ").map_or(0, |at| resume[..at].lines().count());
+    let mut modules = Modules::default();
+    modules_in(lex(resume), Path::new(""), Path::new(""), false, &mut modules);
+    let reached = modules
+        .bodies
+        .iter()
+        .filter_map(|body| body.clone().into_iter().last())
+        .map(|tt| tt.span().end().line)
+        .max()
+        .unwrap_or(0);
+    assert!(
+        last_fn > 1143 && reached >= last_fn,
+        "the scan read hub/restart_resume.rs's test module to line {reached}, not its last \
+         test at line {last_fn}"
+    );
     let mut found = Vec::new();
     let mut allowed_seen = vec![false; ALLOWED.len()];
     for (path, wait) in waits {
@@ -2194,11 +2214,18 @@ fn scan_crate(files: &[(PathBuf, String)]) -> CrateScan {
     };
     let mut modules: Vec<Modules> =
         (0..files.len()).map(|i| modules_of(i, named(&files[i].0))).collect();
-    // A `#[cfg(test)] mod name;` makes the one file the module tree puts there test code (the
-    // walk below, through `files`), never every file of that name: stress/mod.rs's `mod outbox;`
-    // once made server/outbox.rs and hub/outbox.rs whole test files, and their live `select!`
-    // arms unbounded waits.
-    let mut whole: Vec<bool> = files.iter().map(|(relative, _)| named(relative)).collect();
+    // Modules declared `#[cfg(test)] mod name;`: files with that name only build under test.
+    let test_names: HashSet<String> = modules.iter().flat_map(|m| m.names.clone()).collect();
+    let mut whole: Vec<bool> = files
+        .iter()
+        .map(|(relative, _)| {
+            named(relative)
+                || relative.iter().any(|part| {
+                    let part = part.to_str().unwrap_or("");
+                    test_names.contains(part.strip_suffix(".rs").unwrap_or(part))
+                })
+        })
+        .collect();
     let mut scan =
         CrateScan { checked: 0, unread: Vec::new(), unresolved: Vec::new(), waits: Vec::new() };
     // Each test file's own `mod child;` files are test files too, to any depth.
@@ -2253,6 +2280,8 @@ struct Modules {
     bodies: Vec<TokenStream>,
     /// Each `mod child;` whose file is test code: where it may be, the first that exists.
     files: Vec<Vec<PathBuf>>,
+    /// Each name declared `#[cfg(test)] mod name;` outside test code.
+    names: Vec<String>,
 }
 
 /// The modules in `tokens`, at any depth. `dir` holds the `mod child;` files, `base` is what a
@@ -2298,6 +2327,9 @@ fn modules_in(tokens: TokenStream, dir: &Path, base: &Path, in_test: bool, out: 
                             vec![dir.join(format!("{name}.rs")), dir.join(&name).join("mod.rs")]
                         }
                     });
+                }
+                if test && !in_test {
+                    out.names.push(name);
                 }
                 i = j + 3;
                 continue;
@@ -2609,7 +2641,7 @@ fn waits_of(bodies: &[TokenStream], drops: &DropNames) -> TestScan {
     let mut waits = Vec::new();
     for body in bodies {
         let tts: Vec<TokenTree> = body.clone().into_iter().collect();
-        waits_in(&tts, None, false, &[], drops, &mut waits);
+        waits_in(&tts, None, &[], drops, &mut waits);
     }
     waits.sort_by_key(|wait| wait.line);
     TestScan { ranges: bodies.len(), waits }
@@ -2621,7 +2653,6 @@ fn waits_of(bodies: &[TokenStream], drops: &DropNames) -> TestScan {
 fn waits_in(
     tts: &[TokenTree],
     callee: Option<&str>,
-    timeout_future: bool,
     before: &[&[TokenTree]],
     drops: &DropNames,
     out: &mut Vec<Wait>,
@@ -2644,26 +2675,7 @@ fn waits_in(
         if !fn_body {
             path.push(&tts[..j]);
         }
-        // Only an async block passed as the timeout's future inherits its deadline.
-        // A synchronous block can block before timeout() is called, and a nested async
-        // block or function can escape the outer future's lifetime.
-        let async_at = j.checked_sub(1).filter(|&k| word(tts.get(k), "async")).or_else(|| {
-            j.checked_sub(2).filter(|&k| word(tts.get(k), "async") && word(tts.get(k + 1), "move"))
-        });
-        let timed_async = g.delimiter() == Delimiter::Brace
-            && callee.is_some_and(|c| matches!(c, "timeout" | "timeout_at"))
-            && async_at.is_some_and(|at| at > 0 && punct(tts.get(at - 1), ','))
-            && (j + 1 == tts.len() || (j + 2 == tts.len() && punct(tts.get(j + 1), ',')));
-        // Stay conservative across calls and closures: their work may run elsewhere.
-        let statement = tts[..j].rsplit(|tt| punct(Some(tt), ';')).next().unwrap_or(&[]);
-        let nested_future = timed_async
-            || (timeout_future
-                && g.delimiter() == Delimiter::Brace
-                && !fn_body
-                && async_at.is_none()
-                && !called.as_deref().is_some_and(|c| c.ends_with('!') && c != "select!")
-                && !statement.iter().any(|tt| punct(Some(tt), '|')));
-        waits_in(&inner, called.as_deref(), nested_future, &path, drops, out);
+        waits_in(&inner, called.as_deref(), &path, drops, out);
     }
     for i in 0..tts.len() {
         let (Some(TokenTree::Ident(wait)), Some(args)) =
@@ -2680,15 +2692,7 @@ fn waits_in(
         let whole_argument = (head == 0 || punct(tts.get(head - 1), ','))
             && (i + 3 == tts.len() || punct(tts.get(i + 3), ','));
         let bounded = callee.is_some_and(|c| BOUNDS.contains(&c)) && whole_argument;
-        // select! requires a future before `=>`; a receive in its handler can still
-        // block synchronously and must not be excused by the enclosing timeout.
-        let selected = timeout_future
-            && callee == Some("select!")
-            && head > 0
-            && punct(tts.get(head - 1), '=')
-            && punct(tts.get(i + 3), '=')
-            && punct(tts.get(i + 4), '>');
-        if !blocking && (awaited || bounded || selected) {
+        if !blocking && (awaited || bounded) {
             continue;
         }
         let root = root_name(&tts[head..i]);
@@ -2992,34 +2996,6 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
         ("sweep: a comparison", "let same = arrived.RECV == Ok(());\n"),
         ("sweep: a call's argument inside a timeout", "consume(timeout(d, wrap(rx.RECV)));\n"),
         ("sweep: a select! arm with no timeout", "tokio::select! {\n    n = rx.RECV => n,\n}\n"),
-        (
-            "a blocking receive in a timed select future",
-            "timeout(d, async { tokio::select! { n = rx.blocking_RECV => n } }).await;",
-        ),
-        (
-            "a synchronous receive in a timed select handler",
-            "timeout(d, async { tokio::select! { n = ready() => rx.RECV } }).await;",
-        ),
-        (
-            "a synchronous block evaluated before timeout",
-            "timeout(d, { tokio::select! { n = rx.RECV => n } }).await;",
-        ),
-        (
-            "a nested async block can outlive a timeout",
-            "timeout(d, async { spawn(async { tokio::select! { n = rx.RECV => n } }); }).await;",
-        ),
-        (
-            "a nested function does not inherit a timeout",
-            "timeout(d, async { async fn other() { tokio::select! { n = rx.RECV => n } } }).await;",
-        ),
-        (
-            "an async closure does not inherit a timeout",
-            "timeout(d, async { let later = async || { tokio::select! { n = rx.RECV => n } }; }).await;",
-        ),
-        (
-            "an unknown macro can move work outside a timeout",
-            "timeout(d, async { spawn_work! { tokio::select! { n = rx.RECV => n } } }).await;",
-        ),
         ("sweep: a park name in an argument, not the receiver", "pick(release).RECV.unwrap();\n"),
         ("sweep: a park name on another field", "self.release.held.RECV.unwrap();\n"),
     ];
@@ -3161,14 +3137,6 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
         ),
         ("F2: a timeout_at", "let got = tokio::time::timeout_at(deadline, self.rx.RECV).await;\n"),
         (
-            "an inbox acknowledgement selected inside a timed async block",
-            "tokio::time::timeout(d, async { tokio::select! { result = &mut prompt => panic!(), ack = rx.RECV => ack.expect(\"acceptance\"), } }).await;",
-        ),
-        (
-            "a selected receive in a timed async move block",
-            "timeout_at(deadline, async move { if ready { tokio::select! { n = rx.RECV => n } } },).await;",
-        ),
-        (
             "F2: a timeout in a select! arm",
             "tokio::select! {\n    n = tokio::time::timeout(d, rx.RECV) => n,\n}\n",
         ),
@@ -3218,17 +3186,6 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
     // from where the module tree puts it (`#[path]` when given).
     type Files<'a> = &'a [(&'a str, &'a str)];
     let crates: &[(&str, Files<'_>)] = &[
-        (
-            "a raw-string brace before a wait in an extracted test module",
-            &[
-                ("hub/resume.rs", "#[cfg(test)]\n#[path = \"resume_checks.rs\"]\nmod tests;\n"),
-                (
-                    "hub/resume_checks.rs",
-                    "fn before() { let text = r#\"}\"#; }\n\
-                     fn after() { arrived.RECV.unwrap(); }\n",
-                ),
-            ],
-        ),
         (
             "F2 at 699228e4: a child of an inline test module, by name",
             &[
@@ -3301,20 +3258,6 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
             wrong.push(format!("child file not read: {shape}"));
         }
     }
-    // A test module's name is no test file elsewhere: stress/mod.rs's `#[cfg(test)] mod outbox;`
-    // is stress/outbox.rs, not server/outbox.rs's live code.
-    let files: Vec<(PathBuf, String)> = [
-        ("stress/mod.rs", "#[cfg(test)]\nmod outbox;\n"),
-        ("stress/outbox.rs", "fn t() {}\n"),
-        ("server/outbox.rs", "fn live() {\n    arrived.RECV.unwrap();\n}\n"),
-    ]
-    .iter()
-    .map(|(path, text)| (PathBuf::from(path), source(text)))
-    .collect();
-    let flagged: Vec<String> = scan_crate(&files).waits.into_iter().map(|(path, _)| path).collect();
-    if !flagged.is_empty() {
-        wrong.push(format!("a test module's name made another file test code: {flagged:?}"));
-    }
     assert!(wrong.is_empty(), "the bounded-wait scan judges by text shape:\n{}", wrong.join("\n"));
 }
 
@@ -3346,53 +3289,4 @@ fn journal_store_forwards_every_local_store_override() {
     let stale: Vec<&&str> =
         DEFAULT_STANDS.iter().filter(|m| forwarded.iter().any(|f| f == *m)).collect();
     assert!(stale.is_empty(), "forwarded now, take them out of DEFAULT_STANDS: {stale:?}");
-}
-
-/// A held tool output body (`Store::keep_held`) is kept beside the chat's log, replaced, listed
-/// and removed, through the journal store and through the local store under it. A deleted chat's
-/// folder is not made again for one, and a name that is no slot is refused.
-#[test]
-fn held_bodies_are_kept_replaced_and_removed_beside_the_log() {
-    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
-    let journal = SimStorage::new(41);
-    let journaled = open(home.path(), &journal);
-    let root = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
-    let local = LocalStore::new(root.path().join("sessions"), 1 << 20)
-        .unwrap_or_else(|e| panic!("open the local store: {e:#}"));
-    for store in [journaled.as_ref(), &local as &dyn Store] {
-        store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
-        assert!(store.kept_held(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_empty());
-        let keep = |slot: &str, held: Option<&[u8]>| {
-            store.keep_held(CHAT, slot, held).unwrap_or_else(|e| panic!("keep {slot}: {e:#}"))
-        };
-        let kept = || {
-            let mut kept = store.kept_held(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
-            kept.sort();
-            kept
-        };
-        keep("00ff", Some(&b"one"[..]));
-        keep("00ff", Some(&b"two"[..]));
-        keep("abcd", Some(&b"three"[..]));
-        let both =
-            vec![("00ff".to_owned(), b"two".to_vec()), ("abcd".to_owned(), b"three".to_vec())];
-        assert_eq!(kept(), both);
-        // A copy a write left behind is no slot's.
-        let dir = store.session_path(CHAT).unwrap_or_else(|| panic!("no folder")).join("held");
-        std::fs::write(dir.join("00ff.tmp-1"), b"partial").unwrap_or_else(|e| panic!("{e}"));
-        assert_eq!(kept(), both);
-        keep("00ff", None);
-        keep("00ff", None);
-        assert_eq!(kept(), vec![("abcd".to_owned(), b"three".to_vec())]);
-        for bad in ["", "../parked", "ABCD", "00ff.json", "ab/cd"] {
-            assert!(store.keep_held(CHAT, bad, Some(&b"x"[..])).is_err(), "{bad:?} was kept");
-            assert!(store.keep_held(CHAT, bad, None).is_err(), "{bad:?} was removed");
-        }
-        store.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
-        assert!(
-            store.keep_held(CHAT, "abcd", Some(&b"again"[..])).is_err(),
-            "kept for a deleted chat"
-        );
-        assert!(!store.session_path(CHAT).unwrap_or_else(|| panic!("no path")).exists());
-        assert!(store.kept_held(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_empty());
-    }
 }

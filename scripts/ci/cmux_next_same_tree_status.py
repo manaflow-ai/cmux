@@ -214,6 +214,7 @@ def post(api: notify.Api, args: argparse.Namespace, state: str, description: str
     if target_url:
         body["target_url"] = target_url
     started, backoffs, others = now(), 0, 0
+    sleep(POST_WAITS[0])
     while True:
         try:
             code = api.post(f"repos/{args.repo}/statuses/{args.status_sha}", body)
@@ -282,11 +283,8 @@ def main(argv: list[str], api: notify.Api | None = None, sleep: Callable[[float]
         # SAME_TREE_STATUS_SPARE_TOKEN (hq#11150): github.token shares one hourly budget with every run in the
         # repository; a spent one refused run 43660624788's post with HTTP 403. A rate-limited call moves to the
         # cmux-bot App token (its own budget) at once, through the tree notify client's SPARE_TOKEN_SWITCH.
-        # POOL_TOKEN_CHAIN: then CI_POOL_TOKEN_1/_2 (GH_TOKEN_POOL), each its own hourly budget, so a post waits on
-        # the runner only once every token is spent.
-        spares = " ".join(os.environ.get(name, "") for name in ("GH_TOKEN_SPARE", "GH_TOKEN_POOL"))
         api = notify.GitHub(os.environ.get("GH_TOKEN", ""), os.environ.get("GITHUB_API_URL", "https://api.github.com"),
-                            spares.strip())
+                            os.environ.get("GH_TOKEN_SPARE", ""))
     server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
     target_url = f"{server}/{args.repo}/actions/runs/{args.run_id}" if args.run_id else ""
     jobs = Jobs(api, args.repo, args.run_id, args.attempt) if args.run_id else None

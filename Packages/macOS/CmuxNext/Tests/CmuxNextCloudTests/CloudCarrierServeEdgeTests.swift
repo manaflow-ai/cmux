@@ -83,17 +83,6 @@ import Testing
         await serve.stop()
     }
 
-    /// A helper that accepts the connect but never answers it must end the app's link with an actionable error.
-    /// Its late answer is ignored after the waiter has timed out, so it cannot resume a continuation twice.
-    @Test func aSilentSupervisorConnectFailsAtTheAppDeadline() async throws {
-        let cli = try Self.standIn(answer: "sleep 1")
-        let serve = CloudCarrierServe(connector: try Self.connector(cli), socket: Self.socket,
-                                      connectDeadline: .milliseconds(50))
-        let expected = CloudLinkError.helperNotRunning(reason: "cmux carrier supervise did not answer connect within 0.05 seconds")
-        await #expect(throws: expected) { try await serve.socketPath() }
-        await serve.stop()
-    }
-
     /// A stop ends the supervisor (its child with it) for good: later connects fail closed and start nothing.
     @Test func aStopIsTerminal() async throws {
         let cli = try Self.standIn()

@@ -36,8 +36,8 @@ upstream Ghostty.app built from the SAME upstream commit the ghostty-next pin is
 `c7f68a7f48c6`), in every metric below. "Worse" means: past the upstream arm's own run spread AND past the
 metric's floor. A pin change that makes any metric worse does not land.
 
-**No CI.** This is not a CI gate, job, step or perf-gate row (kept off CI under Lawrence's 2026-10-23 rule, since
-lifted). The pin author runs the bench on the fleet before the pin PR and pastes the parity table into the pin PR
+**No CI.** This is not a CI gate, job, step or perf-gate row (CLAUDE.md, Lawrence 2026-10-23). The pin
+author runs the bench on the fleet before the pin PR and pastes the parity table into the pin PR
 description, with job IDs, host, macOS version and refresh rate. A pin PR without the table is not done.
 Reviewers check the table, not a CI status.
 
@@ -388,9 +388,8 @@ move (step 4).
 
 Each step is one PR (a pin PR where the fork changes). Each step has, in its PR body: the parity table of sec. 1.2
 for the rows it touches, before (the feat tip) and after (the PR head), both against the same upstream Ghostty.app
-arm; and a red-first regression test, committed failing before the fix, red and green results named. The plan
-was written under the 2026-10-23 no-new-CI rule, since lifted: a step may add a CI gate, job, step or perf-gate row,
-in addition to its own fleet runs. A step that makes any row worse than before beyond the spread does not land.
+arm; and a red-first regression test, committed failing before the fix, red and green results named. No step adds a
+CI gate, job, step or perf-gate row. A step that makes any row worse than before beyond the spread does not land.
 
 | step | change | rows that must not get worse / must pass | red-first test |
 |---|---|---|---|

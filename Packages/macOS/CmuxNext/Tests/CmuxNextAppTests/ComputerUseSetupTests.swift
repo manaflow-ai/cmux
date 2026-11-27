@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentActivity
 import CmuxNextCompat
 @testable import CmuxNextOnboarding
 import Foundation
@@ -46,7 +47,8 @@ struct ComputerUseSetupTests {
                       notifications: NotificationCenter = NotificationCenter(),
                       distributed: NotificationCenter = NotificationCenter()) -> ComputerUseSetup {
         ComputerUseSetup(inputs: { box.value },
-                         read: { await reader.read() },
+                         configuration: { .init(socketPath: "/unused/cua.sock", authToken: nil, machineName: "") },
+                         read: { _ in await reader.read() },
                          resolveHelper: { _ in nil },
                          restartHelper: {
                              box.restarts += 1
@@ -72,6 +74,39 @@ struct ComputerUseSetupTests {
         #expect(setup.pageJSON["phase"] == .string("failed"))
         #expect(setup.pageJSON["accessibility"] == .null)
         #expect(setup.pageJSON["screen_recording"] == .null)
+    }
+
+    /// The legacy helper refusing this build as its consent host shows on the card under the
+    /// legacy driver only.
+    @Test func anUnverifiedConsentHostShowsUnderTheLegacyDriver() async {
+        let box = InputBox()
+        box.value.consentHostUnverified = true
+        let setup = make(box, Reader())
+        setup.start()
+        #expect(setup.pageJSON["host_unverified"] == .bool(true))
+        box.value.driver = .upstream
+        for await value in ObservationStream({ setup.hostUnverified }) where !value { break }
+        #expect(setup.pageJSON["host_unverified"] == .bool(false))
+    }
+
+    /// Driver "upstream" in a build without the helper v2: the legacy helper that runs is read,
+    /// Restart Helper restarts it, and the status says plainly that Legacy runs in its place.
+    @Test func anUpstreamFallbackReadsTheLegacyHelperAndSaysSo() async {
+        let box = InputBox()
+        box.value.upstreamFallback = true
+        let reader = Reader()
+        await reader.answer()
+        let setup = make(box, reader)
+        setup.start()
+        await wait(setup, for: .ready)
+        #expect(setup.pageJSON["driver"] == .string("legacy"))
+        #expect(setup.pageJSON["upstream_fallback"] == .bool(true))
+        #expect(setup.pageJSON["note"] == .string("Upstream helper isn't in this build; using Legacy"))
+        #expect(setup.prepareRestart() != nil, "Restart Helper restarts the legacy helper that runs")
+        box.value.enabled = false
+        for await value in ObservationStream({ setup.upstreamFallback }) where !value { break }
+        #expect(setup.pageJSON["upstream_fallback"] == .bool(false))
+        #expect(setup.pageJSON["note"] == .null)
     }
 
     @Test func recheckStartsANewReadBudget() async {
@@ -104,45 +139,6 @@ struct ComputerUseSetupTests {
         await wait(setup, for: .ready)
         #expect(setup.permissions.accessibility && setup.permissions.screenRecording)
         #expect(!setup.stepPermissions.helperFailed)
-    }
-
-    /// Review round 2 of #48024: a helper that answered, kept its pid and then stops answering is not ready any more
-    /// (the pane would send `@computer-use` to it): its first failed read clears the answer, and the read budget's end
-    /// shows failed with Restart.
-    @Test func aReadyHelperThatStopsAnsweringIsNotReadyThenFails() async {
-        let reader = Reader()
-        await reader.answer()
-        let setup = make(InputBox(), reader)
-        setup.start()
-        await wait(setup, for: .ready)
-        await reader.setResult(.noAnswer)
-        setup.recheck()
-        await wait(setup, for: .failed)
-        #expect(await reader.count == 1 + ComputerUseSetup.maximumRetries)
-        #expect(setup.permissions == .none, "the old grants stayed after the host stopped answering")
-        #expect(setup.pageJSON["accessibility"] == .null)
-        #expect(setup.stepPermissions.helperFailed)
-    }
-
-    /// Review round 3 of #48024 (P1): the person revokes a grant in System Settings and comes back. The same helper (same
-    /// pid) is read again; until it answers, nothing acts on the old ready (the chats' `@computer-use` sees starting),
-    /// while the card keeps its last grants. The answer then says what is missing.
-    @Test func aRecheckOfTheSameHelperIsNotReadyUntilItAnswers() async {
-        let reader = Reader()
-        await reader.answer()
-        let notifications = NotificationCenter()
-        let setup = make(InputBox(), reader, notifications: notifications)
-        setup.start()
-        await wait(setup, for: .ready)
-        #expect((setup.rechecking ? ComputerUseSetup.Phase.starting : setup.phase) == .ready)
-        await reader.setResult(.answered(ComputerUsePermissions(accessibility: false, screenRecording: true), helper: nil))
-        notifications.post(name: NSApplication.didBecomeActiveNotification, object: nil)
-        #expect(setup.rechecking, "the read after the return from System Settings did not start")
-        #expect((setup.rechecking ? ComputerUseSetup.Phase.starting : setup.phase) == .starting, "the same helper stayed ready while its grants were read again")
-        #expect(setup.phase == .ready && setup.permissions.accessibility, "the card lost its last grants during the read")
-        for await value in ObservationStream({ setup.rechecking }) where !value { break }
-        #expect((setup.rechecking ? ComputerUseSetup.Phase.starting : setup.phase) == .ready)
-        #expect(!setup.permissions.accessibility, "the revoked grant did not read false")
     }
 
     @Test func restartShowsProgressThenReadsTheRestartedHelper() async throws {
@@ -191,40 +187,38 @@ struct ComputerUseSetupTests {
         #expect(box.restarts == 1)
     }
 
-    /// Allow asks cmux Remote for the grant (macOS names cmux Remote in its prompt; on macOS 26
-    /// the Screen Recording toggle alone is not enough until the holder asks once), then opens
-    /// System Settings: one request per click, for that grant alone.
-    @Test func allowAsksCmuxRemoteForTheGrantThenOpensSettings() {
-        var requested: [ComputerUsePermissionPane] = []
+    /// On macOS 26 the Screen Recording toggle alone leaves the helper's capture
+    /// check false until the helper itself asks once (seen 2026-10-27). Allow must
+    /// send that host-only request to the running helper, then open System Settings.
+    @Test func allowAsksTheRunningHelperToRequestTheGrant() async {
+        let reader = Reader()
+        await reader.setResult(.answered(ComputerUsePermissions(accessibility: true, screenRecording: false), helper: nil))
+        let box = InputBox()
+        let requests = GrantRequests()
         var opened: [URL] = []
-        let setup = ComputerUseSetup(inputs: { .init(disabledByPolicy: false, enabled: true, helper: .running(42)) },
-                                     read: { .answered(ComputerUsePermissions(accessibility: true, screenRecording: false), helper: nil) },
+        let setup = ComputerUseSetup(inputs: { box.value },
+                                     configuration: { .init(socketPath: "/unused/cua.sock", authToken: "a", hostAuthToken: "h",
+                                                            machineName: "") },
+                                     read: { _ in await reader.read() },
                                      resolveHelper: { _ in nil },
                                      openURL: { opened.append($0) },
-                                     requestPermission: { requested.append($0) },
+                                     requestGrant: { _, pane in await requests.add(pane) },
                                      notifications: NotificationCenter(), distributed: NotificationCenter(), clock: RetryClock())
+        setup.start()
+        await wait(setup, for: .ready)
+        // Accessibility sends no request: it would raise macOS's alert over the drag panel.
         setup.open(.accessibility)
         setup.open(.screenRecording)
-        #expect(requested == [.accessibility, .screenRecording])
-        #expect(opened == [ComputerUseSetup.settingsURL(.accessibility), ComputerUseSetup.settingsURL(.screenRecording)].compactMap { $0 })
-    }
+        for await count in ObservationStream({ requests.count }) where count == 1 { break }
+        #expect(await requests.panes == [.screenRecording])
+        #expect(opened.count == 2)
 
-    /// cmux Remote's host status gives the grants; a status before its first probe gives none.
-    @Test func theGrantsComeFromCmuxRemotesStatus() {
-        let ready = ComputerUseSetup.grants(fromStatus: ["pid": 1, "permissions": ["accessibility": true, "screen_recording": false]])
-        #expect(ready == .answered(ComputerUsePermissions(accessibility: true, screenRecording: false), helper: nil))
-        #expect(ComputerUseSetup.grants(fromStatus: ["pid": 1]) == nil)
-        #expect(ComputerUseSetup.grants(fromStatus: ["permissions": ["accessibility": "yes"]]) == .versionMismatch)
-    }
-
-    /// With no cmux Remote in this build there is nothing to restart.
-    @Test func noRestartWithoutCmuxRemote() {
-        let box = InputBox()
-        box.value.helper = .unavailable
-        let setup = make(box, Reader())
-        setup.start()
-        #expect(setup.phase == .unavailable)
-        #expect(setup.prepareRestart() == nil)
+        // Off: no helper runs, so only System Settings opens.
+        box.value = ComputerUseSetup.Inputs(disabledByPolicy: false, enabled: false, helper: .off)
+        await wait(setup, for: .off)
+        setup.open(.accessibility)
+        #expect(await requests.panes == [.screenRecording])
+        #expect(opened.count == 3)
     }
 
     /// The helper exited and the daemon started another (macOS "Quit & Reopen"
@@ -234,7 +228,8 @@ struct ComputerUseSetupTests {
         let reads = GatedReads()
         let box = InputBox()
         let setup = ComputerUseSetup(inputs: { box.value },
-                                     read: { await reads.read() },
+                                     configuration: { .init(socketPath: "/unused/cua.sock", authToken: nil, machineName: "") },
+                                     read: { _ in await reads.read() },
                                      resolveHelper: { _ in nil },
                                      notifications: NotificationCenter(), distributed: NotificationCenter(), clock: RetryClock())
         setup.start()
@@ -266,73 +261,6 @@ struct ComputerUseSetupTests {
         #expect(box.restarts == 1)
     }
 
-    // MARK: A drop into the list (macOS "Quit & Reopen" after a grant)
-
-    /// Without a drop a helper that stops answering waits for the person's Restart.
-    @Test func withoutADropAFailedHelperIsNotRestarted() async {
-        let reader = Reader()
-        let box = InputBox()
-        let setup = make(box, reader)
-        setup.start()
-        await wait(setup, for: .failed)
-        #expect(box.restarts == 0)
-    }
-
-    /// The helper answered, the person dropped it into the list and macOS quit it for the grant: the
-    /// helper no longer answers, so the setup restarts it once and reads its grants.
-    @Test func aHelperThatStopsAnsweringAfterADropIsRestartedOnce() async {
-        let reader = Reader()
-        await reader.setResult(.answered(ComputerUsePermissions(accessibility: true, screenRecording: false), helper: nil))
-        let box = InputBox()
-        let setup = make(box, reader)
-        setup.start()
-        await wait(setup, for: .ready)
-        await reader.setResult(.noAnswer)
-        setup.recheckAfterGrant()
-        for await restarts in ObservationStream({ box.restarts }) where restarts == 1 { break }
-        await wait(setup, for: .ready)
-        #expect(box.restarts == 1)
-        #expect(setup.permissions.screenRecording, "the restarted helper's grants")
-        #expect(!setup.restartsAfterGrant, "the drop's one restart is spent")
-    }
-
-    /// A worker that keeps exiting after a drop is restarted once; when it still fails, the window
-    /// shows Restart instead of restarting it again.
-    @Test func aWorkerThatKeepsFailingAfterADropIsRestartedOnlyOnce() async {
-        let box = InputBox()
-        box.value.helper = .failed
-        let setup = make(box, Reader())
-        setup.start()
-        #expect(box.restarts == 0)
-        setup.recheckAfterGrant()
-        for await restarts in ObservationStream({ box.restarts }) where restarts == 1 { break }
-        await wait(setup, for: .failed)
-        #expect(box.restarts == 1)
-        #expect(setup.stepPermissions.helperFailed)
-        #expect(!setup.restartsAfterGrant)
-    }
-
-    /// Both grants on, or the step's end, disarm the drop's restart.
-    @Test func bothGrantsOnOrTheStepsEndDisarmTheDropsRestart() async {
-        let reader = Reader()
-        await reader.setResult(.answered(ComputerUsePermissions(accessibility: true, screenRecording: false), helper: nil))
-        let box = InputBox()
-        let setup = make(box, reader)
-        setup.start()
-        await wait(setup, for: .ready)
-        await reader.answer()
-        setup.recheckAfterGrant()
-        for await permissions in ObservationStream({ setup.permissions }) where permissions.screenRecording { break }
-        #expect(!setup.restartsAfterGrant, "both grants on: nothing left to restart for")
-
-        setup.recheckAfterGrant()
-        setup.endGrantWatch()
-        box.value.helper = .failed
-        setup.recheck()
-        #expect(setup.phase == .failed)
-        #expect(box.restarts == 0, "after the step ended a failure waits for Restart")
-    }
-
     /// Reads that wait until the test answers them.
     @MainActor @Observable final class GatedReads {
         private(set) var waiting = false
@@ -350,6 +278,16 @@ struct ComputerUseSetupTests {
             pending?.resume(returning: read)
             pending = nil
         }
+    }
+
+    /// With Accessibility off, the helper's capture request also raised macOS's Accessibility
+    /// alert: Allow on Screenshots then only opens System Settings.
+    @Test func screenshotsAllowAsksTheHelperOnlyOnceAccessibilityIsOn() {
+        #expect(!ComputerUseSetup.asksHelper(.screenRecording, accessibility: false, phase: .ready, driver: .legacy))
+        #expect(ComputerUseSetup.asksHelper(.screenRecording, accessibility: true, phase: .ready, driver: .legacy))
+        #expect(!ComputerUseSetup.asksHelper(.accessibility, accessibility: true, phase: .ready, driver: .legacy))
+        #expect(!ComputerUseSetup.asksHelper(.screenRecording, accessibility: true, phase: .off, driver: .legacy))
+        #expect(!ComputerUseSetup.asksHelper(.screenRecording, accessibility: true, phase: .ready, driver: .upstream))
     }
 
     actor GrantRequestsStore {

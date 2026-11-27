@@ -5,7 +5,7 @@
 //! - `claude`: Claude Code's official native installer (`https://claude.ai/install.sh`, the one
 //!   `machine-join.sh` runs on a joined machine), which puts `claude` in `~/.local/bin`.
 //! - `codex`: cmux's managed Codex runtime (`managed_codex`: the pinned official release, its
-//!   SHA-256 checked), on macOS and Linux.
+//!   SHA-256 checked), on macOS.
 //!
 //! Each step is one JSON line on stdout with `--json` (`{"step", "state", "detail"}`), so a caller
 //! can draw progress; the last line is the result (`{"id", "installed", "path", "version"}`), or the
@@ -88,7 +88,7 @@ fn claude_path() -> Option<PathBuf> {
     })
 }
 
-pub(crate) fn which_on_path(program: &str) -> Option<PathBuf> {
+fn which_on_path(program: &str) -> Option<PathBuf> {
     std::env::var_os("PATH")
         .into_iter()
         .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
@@ -112,7 +112,7 @@ async fn fetch(url: &str) -> Result<String> {
     // The workspace builds reqwest with `rustls-no-provider` (as `managed_codex::install`).
     let _ = rustls::crypto::ring::default_provider().install_default();
     // HTTPS only, redirects included: the body runs as bash, so no hop may be plaintext.
-    let client = crate::happy_dial::http_client().https_only(true).build()?;
+    let client = reqwest::Client::builder().https_only(true).build()?;
     let text = client.get(url).send().await?.error_for_status()?.text().await?;
     if !text.starts_with("#!") {
         bail!("{url} did not answer with an installer script")
@@ -176,5 +176,42 @@ fn last_line(stderr: &[u8], stdout: &[u8]) -> String {
 }
 
 #[cfg(test)]
-#[path = "harness_install_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_known_agents_install() {
+        assert_eq!(agent("claude").unwrap().0, "Claude Code");
+        assert_eq!(agent("codex").unwrap().0, "Codex");
+        let err = agent("gemini").unwrap_err().to_string();
+        assert!(err.contains("installs claude, codex"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_an_executable_file_counts_as_installed() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("claude");
+        std::fs::write(&file, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(!is_executable(&file));
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(is_executable(&file));
+        assert!(!is_executable(dir.path()));
+    }
+
+    #[test]
+    fn a_failure_names_the_last_line_of_stderr_else_stdout() {
+        assert_eq!(last_line(b"warn\nboom\n\n", b"ok"), "boom");
+        assert_eq!(last_line(b"  \n", b"step 1\nerror: offline\n"), "error: offline");
+        assert_eq!(last_line(b"", b""), "no output");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_agent_runs_nothing() {
+        let mut steps = 0;
+        assert!(install("aider", |_, _, _| steps += 1).await.is_err());
+        assert_eq!(steps, 0);
+    }
+}

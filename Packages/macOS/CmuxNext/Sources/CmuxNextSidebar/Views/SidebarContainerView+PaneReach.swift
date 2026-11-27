@@ -35,15 +35,12 @@ extension SidebarContainerView {
         handle.lineMinY = handle.convert(CGPoint(x: 0, y: rootY), from: root).y
     }
 
-    /// The sidebar's on-screen share of its width, 0 to 1: its animated width over the user's width
-    /// (the window's toolbar band opens in step with it, cx-uxdr). Read from the width constraint,
-    /// which the slide sets each frame and a resize drag sets to the dragged width, not from the
-    /// laid-out frame: Auto Layout rounds the frame to whole pixels, so a drag's fractional width
-    /// read the share just under 1 and moved the band's toggle, Back and Forward by a pixel (#48495).
+    /// The sidebar's on-screen share of its width, 0 to 1: its animated frame over the user's width
+    /// (the window's toolbar band opens in step with it, cx-uxdr).
     public var onScreenShare: CGFloat {
         let width = model.width
         guard width > 0 else { return model.isHidden ? 0 : 1 }
-        return min(1, max(0, widthConstraint.constant / width))
+        return min(1, max(0, frame.width / width))
     }
 
     /// The container's frame in `view`'s coordinates (the window's for nil), widened by the visible

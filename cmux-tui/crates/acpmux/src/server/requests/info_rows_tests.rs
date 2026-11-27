@@ -302,32 +302,6 @@ async fn status_reads_the_live_sessions_and_says_the_same() {
     assert_eq!(stuck, [older_stuck]);
 }
 
-/// `_acpmux/status` with `listCounts` (the read `ls --json` makes before its list) answers the
-/// full status's `closedListed`, `closedRemoteListed` and `peers`, and nothing else: none of the
-/// host, disk or agent reads that wait under load (#58414).
-#[tokio::test]
-async fn list_counts_are_the_full_statuss_counts_and_nothing_else() {
-    let hub = memory_hub();
-    session(&hub, 0, "idle");
-    stuck_session(&hub, 1, 1_791_540_000_100);
-    for n in 2..5 {
-        session(&hub, n, "closed");
-    }
-    let (full, _) = call(&hub, method::MUX_STATUS, json!({})).await;
-    let full = full.unwrap();
-    let (counts, _) = call(&hub, method::MUX_STATUS, json!({"listCounts": true})).await;
-    let counts = counts.unwrap();
-    let keys: Vec<&str> = counts.as_object().unwrap().keys().map(String::as_str).collect();
-    assert_eq!(keys.len(), 3, "{counts}");
-    for key in ["closedListed", "closedRemoteListed", "peers"] {
-        assert_eq!(counts[key], full[key], "{key}");
-    }
-    assert_eq!(counts["closedListed"], 3);
-    // Anything but `true` is the full status.
-    let (other, _) = call(&hub, method::MUX_STATUS, json!({"listCounts": false})).await;
-    assert!(other.unwrap().get("stuckSessions").is_some());
-}
-
 /// A hub with a hundred live chats, and `closed` closed ones beside them: the hundred's keys.
 fn batch_hub(closed: usize) -> (Arc<Hub>, Vec<String>) {
     let hub = memory_hub();

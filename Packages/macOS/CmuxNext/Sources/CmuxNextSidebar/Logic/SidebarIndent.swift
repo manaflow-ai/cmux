@@ -7,8 +7,7 @@ import CoreGraphics
 /// level always share one x, in any group, after a drag and after a reload. A level past
 /// ``visualCap(width:)`` draws at the cap: in a narrow sidebar the labels keep their width.
 nonisolated struct SidebarIndent: Hashable, Sendable {
-    /// One level's step: the members' gutter (`SidebarStyle.groupGutter`), or in the plain-folder look the distance
-    /// that puts a member's title under its folder's name (`SidebarStyle.folderMemberStep`).
+    /// One level's step: the members' gutter (`SidebarStyle.groupGutter`).
     var step: CGFloat
     /// The label width a row keeps at its deepest drawn level: in a narrow sidebar the indent stops before a
     /// label gets narrower than this.
@@ -17,10 +16,6 @@ nonisolated struct SidebarIndent: Hashable, Sendable {
     /// level at its own x in the default sidebar (Lawrence 2026-10-23: "i want to see deeply nested groups");
     /// deeper levels share the deepest x, and still nest.
     var maxVisualLevels = 6
-    /// A top-level group's members move in one step too (`SidebarGroupBackgroundStyle.indentsMembers`, the plain
-    /// folder look): every level L sits at L steps, so a folder's members read as inside it with no line beside them.
-    /// False keeps level 1 on level 0's x, where the group's rail marks its members.
-    var indentsTopLevel = false
 
     /// How many steps in the deepest drawn level may go, for a row `width` wide at level 0.
     func visualCap(width: CGFloat) -> Int {
@@ -34,7 +29,7 @@ nonisolated struct SidebarIndent: Hashable, Sendable {
     /// members) keeps level 0's x: grouped rows line up with ungrouped ones (Leo 2026-10-21, #23975), the
     /// group's rail sits in the inset beside them. Each deeper level is one step further in, up to the cap.
     func offset(level: Int, width: CGFloat) -> CGFloat {
-        CGFloat(min(max(0, indentsTopLevel ? level : level - 1), visualCap(width: width))) * step
+        CGFloat(min(max(0, level - 1), visualCap(width: width))) * step
     }
 
     /// The level a pointer at `x` (from the list's leading inset) points at, in `range`: a drop
@@ -44,11 +39,9 @@ nonisolated struct SidebarIndent: Hashable, Sendable {
         let cap = visualCap(width: width)
         // Level L >= 1 sits at (L - 1) steps (`offset`), level 0 shares level 1's x: a pointer in the first half
         // step picks 0 (out of the top-level group), the rest of that step 1, then each step one level deeper.
-        // With `indentsTopLevel` each level has its own x, L steps in: the pointer picks the nearest one.
-        let picked = indentsTopLevel ? Int((x / step + 0.5).rounded(.down))
-            : x < step / 2 ? 0 : Int((x / step).rounded(.down)) + 1
+        let picked = x < step / 2 ? 0 : Int((x / step).rounded(.down)) + 1
         // Past the cap every level shares one x: the deepest allowed one wins there.
-        let level = (indentsTopLevel ? picked : picked - 1) >= cap ? range.upperBound : picked
+        let level = picked - 1 >= cap ? range.upperBound : picked
         return min(range.upperBound, max(range.lowerBound, level))
     }
 }

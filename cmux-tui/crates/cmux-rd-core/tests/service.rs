@@ -56,24 +56,3 @@ fn every_named_cap_is_short_and_distinct() {
     names.dedup();
     assert_eq!(names.len(), caps::ALL.len());
 }
-
-#[test]
-fn clipboard_text_is_negotiated_only_when_both_sides_list_it() {
-    let offered = vec![caps::CURSOR.to_owned(), caps::CLIPBOARD_TEXT.to_owned()];
-    let both = negotiate(SERVICE_DESKTOP, &offered, &[SERVICE_DESKTOP], &[caps::CLIPBOARD_TEXT])
-        .expect("desktop");
-    assert_eq!(both.caps, vec![caps::CLIPBOARD_TEXT.to_owned()]);
-    // A host without a clipboard (X11 today) does not list it: the viewer never sends one.
-    let host_without =
-        negotiate(SERVICE_DESKTOP, &offered, &[SERVICE_DESKTOP], &[caps::CURSOR]).expect("desktop");
-    assert!(!host_without.caps.iter().any(|c| c == caps::CLIPBOARD_TEXT));
-    // An older viewer does not offer it: the host never sends one.
-    let older = negotiate(
-        SERVICE_DESKTOP,
-        &[caps::CURSOR.to_owned()],
-        &[SERVICE_DESKTOP],
-        &[caps::CURSOR, caps::CLIPBOARD_TEXT],
-    )
-    .expect("desktop");
-    assert!(!older.caps.iter().any(|c| c == caps::CLIPBOARD_TEXT));
-}

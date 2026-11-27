@@ -60,7 +60,7 @@ fn an_answer_is_found_among_notifications_and_server_requests() {
 
 #[test]
 fn the_queue_call_is_codex_queues() {
-    let add = queue_add(2, T1, "hi", &[], "u-1");
+    let add = queue_add(2, T1, "hi", "u-1");
     assert_eq!(add["method"], "thread/queue/add");
     assert_eq!(add["params"]["threadId"], T1);
     assert_eq!(add["params"]["clientUserMessageId"], "u-1");
@@ -184,7 +184,7 @@ pub(crate) fn fake_daemon(
 async fn a_message_is_queued_through_the_daemons_control_socket() {
     let dir = home();
     let added = fake_daemon(dir.path(), |_| {});
-    let queued = deliver(dir.path(), T1, "ping", &[], "u-7").await.unwrap();
+    let queued = deliver(dir.path(), T1, "ping", "u-7").await.unwrap();
     assert_eq!(queued, "q-1");
     let added = added.lock().unwrap().clone();
     assert_eq!(added.len(), 1);

@@ -1,4 +1,3 @@
-import { isDevSpace, spaceOfEnv, spacedName, unspacedName } from "./build-space.ts"
 import { conversation as homeConversation } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
 import { projectionReadMode, shadowRead } from "./projection-reads.ts"
@@ -115,8 +114,7 @@ const searchKeys = (r: SearchResult): Array<string> =>
 
 export const homeSearch = async (env: Env, principal: Principal, params: SearchParams): Promise<SearchResult> => {
   // MySQL reads after the verified cutover (vitess-migration-DESIGN.md); shadow compares both first.
-  // A dev build's rows are in Postgres only (build-space-projection.ts).
-  const mode = isDevSpace(env.BUILD_SPACE) ? "postgres" : projectionReadMode(env)
+  const mode = projectionReadMode(env)
   const mysql = async () => (await import("./home-search-mysql.ts")).homeSearchMysql(env, principal, params)
   if (mode === "mysql") return mysql()
   if (mode === "shadow") return shadowRead("home.search", () => homeSearchPostgres(env, principal, params), mysql, searchKeys)
@@ -133,17 +131,14 @@ const homeSearchPostgres = async (env: Env, principal: Principal, params: Search
     "p.left_at IS NULL",
     "p.kind = 'human'",
     "s.seq > p.visible_from_seq",
-    "s.body ILIKE $2 ESCAPE '\\'",
-    // Only this build's conversations (build-space.ts): nightly and stable rows have space ''.
-    "p.space = $3"
+    "s.body ILIKE $2 ESCAPE '\\'"
   ]
-  const space = spaceOfEnv(env)
-  const args: Array<unknown> = [me, `%${likeEscape(q)}%`, space]
+  const args: Array<unknown> = [me, `%${likeEscape(q)}%`]
   const add = (sql: string, value: unknown) => {
     args.push(value)
     where.push(sql.replace("?", `$${args.length}`))
   }
-  if (params.conversation) add("p.conversation_id = ?", spacedName(space, params.conversation))
+  if (params.conversation) add("p.conversation_id = ?", params.conversation)
   if (params.author) add("s.author_id = ?", params.author)
   if (params.kind) add("c.kind = ?", params.kind)
   if (params.before) add("s.created_at < ?", params.before)
@@ -169,8 +164,7 @@ const homeSearchPostgres = async (env: Env, principal: Principal, params: Search
     const connected = await client.connect().then(() => true, () => false)
     const res = connected ? await client.query(sql, args).catch(() => null) : null
     if (!res) return { ok: false, code: "search.unavailable", message: "search failed or timed out; try a longer query" }
-    // A dev build's projected ids carry its space (build-space-projection.ts); its clients see their own ids.
-    const hits = res.rows.map((r) => hitOf({ ...r, conversation_id: unspacedName(space, r.conversation_id) }, q))
+    const hits = res.rows.map((r) => hitOf(r, q))
     return { ok: true, value: { hits, ...(hits.length === limit ? { cursor: encodeCursor(hits[hits.length - 1]!) } : {}) } }
   } finally {
     await client.end().catch(() => {})

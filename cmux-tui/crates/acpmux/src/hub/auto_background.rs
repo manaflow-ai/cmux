@@ -47,20 +47,11 @@
 use super::*;
 
 /// How long a foreground shell runs before it goes to the background.
-///
-/// Leo, 2026-11-24, on a 5-second `slack-post` the chat labelled "manually backgrounded by user":
-/// "honestly do we want to reduce the forced backgrounding now? on cosmic-gray and potentialy
-/// everywhere". It was 60 s (the 2026-11-03 value); a normal short or medium command (up to
-/// about two minutes, Claude Code's own default `timeout`) now stays in the foreground, and only
-/// a truly long one moves.
-pub(super) const AUTO_BACKGROUND_AFTER: std::time::Duration = std::time::Duration::from_secs(300);
+pub(super) const AUTO_BACKGROUND_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// How long a foreground call of the chat's own turn has run before the person's message waiting
 /// behind it moves it to the background (module docs).
-/// Was 30 s; two minutes now (Leo, 2026-11-24, above), so a command of normal length finishes
-/// before a message moves it.
-pub(super) const MESSAGE_BACKGROUND_AFTER: std::time::Duration =
-    std::time::Duration::from_secs(120);
+pub(super) const MESSAGE_BACKGROUND_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// How long the person's message waits for the translator's list of foreground calls.
 const FOREGROUND_ASK: std::time::Duration = std::time::Duration::from_secs(5);
@@ -277,5 +268,84 @@ impl Hub {
 }
 
 #[cfg(test)]
-#[path = "auto_background_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use cmux_json::JsonSet as _;
+
+    /// A steer answered before it was written (held, or refused) moves nothing; one written moves
+    /// work only from then on, while its answer is still to come.
+    #[tokio::test]
+    async fn work_moves_only_once_the_steer_is_written() {
+        let moved = std::sync::atomic::AtomicBool::new(false);
+        let mover = || async { moved.store(true, Ordering::SeqCst) };
+        let written = tokio::sync::Notify::new();
+        let held = async {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            "held"
+        };
+        assert_eq!(answer_once_written(&written, held, mover()).await, "held");
+        assert!(!moved.load(Ordering::SeqCst), "a steer never written moved work");
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<&str>();
+        let answer = async {
+            written.notify_one();
+            tokio::task::yield_now().await;
+            assert!(moved.load(Ordering::SeqCst), "the written steer moved nothing");
+            rx.await.unwrap()
+        };
+        tx.send("read").unwrap();
+        assert_eq!(answer_once_written(&written, answer, mover()).await, "read");
+    }
+
+    #[test]
+    fn the_wait_comes_from_the_env_and_zero_turns_it_off() {
+        assert_eq!(after_of(None), Some(AUTO_BACKGROUND_AFTER));
+        assert_eq!(after_of(Some("")), Some(AUTO_BACKGROUND_AFTER));
+        assert_eq!(after_of(Some("90")), Some(std::time::Duration::from_secs(90)));
+        assert_eq!(after_of(Some("0")), None);
+        assert_eq!(after_of(Some("soon")), Some(AUTO_BACKGROUND_AFTER));
+    }
+
+    #[test]
+    fn a_declared_timeout_is_read_in_milliseconds() {
+        let call = |input: Value| json!({"rawInput": input});
+        assert_eq!(declared_timeout(&call(json!({"command": "x"}))), None);
+        assert_eq!(
+            declared_timeout(&call(json!({"command": "x", "timeout": 600000}))),
+            Some(std::time::Duration::from_secs(600))
+        );
+        assert_eq!(
+            declared_timeout(&call(json!({"command": "x", "timeout": 1500.0}))),
+            Some(std::time::Duration::from_millis(1500))
+        );
+        assert_eq!(declared_timeout(&call(json!({"command": "x", "timeout": "soon"}))), None);
+    }
+
+    #[test]
+    fn only_a_new_foreground_shell_arms_it() {
+        let call = |input: Value| {
+            json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "execute",
+                "status": "in_progress", "rawInput": input})
+        };
+        assert_eq!(foreground_shell(&call(json!({"command": "make"}))), Some("t1"));
+        assert_eq!(
+            foreground_shell(&call(json!({"command": "make", "run_in_background": false}))),
+            Some("t1")
+        );
+        assert_eq!(
+            foreground_shell(&call(json!({"command": "npm run dev", "run_in_background": true}))),
+            None
+        );
+        // Announced before its input streamed: no command yet, nothing to time.
+        assert_eq!(foreground_shell(&call(json!({}))), None);
+        let mut read = call(json!({"command": "x"}));
+        read.set("kind", json!("read"));
+        assert_eq!(foreground_shell(&read), None);
+        // A call named early gets its command in the update that follows.
+        let mut update = call(json!({"command": "make"}));
+        update.set("sessionUpdate", json!("tool_call_update"));
+        assert_eq!(foreground_shell(&update), Some("t1"));
+        update.set("status", json!("completed"));
+        assert_eq!(foreground_shell(&update), None);
+    }
+}

@@ -4,8 +4,6 @@ Owner: Performance Lead (PL-blocking, 2026-10-24; the detector's one process-wid
 Performance Lead with PL-arch). Chrome's model is the reference: the UI thread never
 blocks (`base::ScopedBlockingCall`, `base::ThreadRestrictions`), each thread owns its state, work moves
 between threads as messages, and every queue has a bound and a back-pressure rule.
-The short how-to for agents (the seams, `BackgroundWork`, the `NonisolatedNonsendingByDefault` trap, a worked
-conversion): [skills/cmux-architecture/references/main-thread-model.md](../../skills/cmux-architecture/references/main-thread-model.md).
 
 How it is enforced:
 - **Runtime (the real guard).** The checked seams in `CmuxNextCompat/Threading` wrap the blocking primitives
@@ -117,8 +115,7 @@ One priority model. Main thread: MainWorkClass (PL-main). Off main: WorkPriority
 
 userInteractive: only the main thread and threads a frame waits for. Today: MainThreadWatchdog, QuitDeadline and
 CrashDeadline threads, LineTransport reader (daemon lines), LocalPTY read queue, TerminalOutputLane queue,
-MetalYUVRenderer, RemoteDecodePipeline (`cmux.remote-view.decode`, the actor's executor: the next frame on screen
-waits for its decode). No BackgroundWork lane runs at it.
+MetalYUVRenderer. No BackgroundWork lane runs at it.
 
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
 .files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at
@@ -152,11 +149,7 @@ still waits for everything queued before it on that queue.
 A new thread or queue in `Packages/macOS/CmuxNext/Sources` needs its label here (the `thread-doc` guardrail
 matches the label's literal text; `<x>` matches an interpolation). Its owner row above says what it may block on.
 
-- Disk writes: `com.cmuxterm.app.next.coalescing-file-writer` (CoalescingFileWriter: one utility queue per writer, newest bytes per path, pending bytes bounded, flushed at quit)
 - Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`
-- Hang reports: `com.cmuxterm.app.next.hang-resolve` (HangReportCollector's stack resolution, utility, serial:
-  started by a user-data-or source the main thread signals at a sampled stall's end, no allocation on main; it
-  blocks on nothing but dyld reads; at most 16 samples wait, more are dropped)
 - Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.slow-log`, `com.cmuxterm.next.daemon.path.<machine>`,
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
@@ -164,10 +157,12 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   the bundled `cmux cloud hands` child's stdin, user-initiated, serial: its pipe writes block only it and keep
   their order; a few small lines per answer, level change or token ask, so no back-pressure; a write to an
   engine that exited fails with EPIPE (no SIGPIPE) and the engine is started again; HandsEngine)
-- Cloud event socket: `com.cmuxterm.next.cloud.wire.path` (CloudMachineWire's `NWPathMonitor` updates, utility,
-  serial: it blocks on nothing and hops each usable path change to the main actor; one per started wire)
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
-- Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
+- Settings and files: `com.cmuxterm.next.settings.watcher`, `com.cmuxterm.next.settings.file-lock` (the app's
+  waits for the write lock of `cmux-next.json`, which the daemon also takes; user-initiated, serial: it blocks in
+  `flock` only while another writer holds the lock, one wait at a time in call order, and the write is suspended
+  meanwhile, never a caller's thread or the main thread; a write hears `SettingsFileBusy` after 5 s, and a wait
+  given up on before its turn is skipped; SettingsFileLock), `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
   never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS),
   `cmux.chief.movedMarker` (the Chief home's `state/moved.json` vnode watch, utility, serial: event delivery only,
@@ -178,12 +173,6 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
   stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
-  `cmux.remote-view.decode` (one remote view's decode pipeline actor, user-interactive, serial: it blocks only on
-  a synchronous VideoToolbox decode of one access unit, a few ms; the transport's stream to it is bounded
-  `bufferingNewest(8)`, so a slow decoder loses units and asks for a keyframe instead of queueing),
-  `cmux.backdrop-shader.render` (the living wallpapers' Metal frames, user-initiated, serial: it blocks only on
-  `CAMetalLayer.nextDrawable`, bounded by the layer's one-second timeout; one frame in flight per window, the
-  next is skipped while it is busy, so no back-pressure; BackdropShaderRenderer),
   `cmux.daemon-bridge.stream` (one Cloud desktop session's `link dial --service desktop` bridge socket,
   user-initiated, serial: DispatchIO delivers the stream's bytes here and it blocks on nothing; the rd transport
   reads them in order, a few MB/s of H.264 at most, and the session's end closes it; DaemonBridgeStream),
@@ -192,12 +181,6 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   stop, so no back-pressure; MacScreenRdProcess), `com.cmuxterm.mac-screen.rd-socket` (the viewer's
   Unix socket to `cmux rd connect`, user-initiated: Network delivers the stream's bytes here, it blocks on
   nothing, the decode pipeline reads them; MacScreenUnixStream),
-  `com.cmuxterm.mac-screen.stream-stdin` (one iPhone viewer session's JSON lines into its WebRTC host child
-  in the Screen Sharing helper, user-initiated, serial: its pipe writes block only it; a few signals per
-  session and an exclusion list per window change, so no back-pressure; MacScreenStreamProcess),
-  `com.cmuxterm.mac-screen.stream-host-stdout` and `screen-stream-host-input` (that child's own lines to the
-  app and its input reader thread, in the child process only, never the app: the queue's pipe writes block
-  only it, the thread blocks on its stdin and ends at its end of file; MacScreenStreamChild),
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
   host's paired-phone list and its Keychain seal, utility, serial: its file and Keychain calls block this queue,
   never main; one item per save, read or withdrawal, each from a person's action or an account change, so no back-pressure;
@@ -216,10 +199,6 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Design: `com.cmuxterm.next.desktop-picture` (the desktop wallpaper watch's reads, utility, serial: its
   `NSWorkspace.desktopImageURL(for:)` WindowServer round trip and file stat block this queue, never main
   (#26394); one read at a time, and events during it fold into one more read, so no back-pressure)
-- Design: `com.cmuxterm.next.live-wallpaper.render` (every live wallpaper's frames, LiveWallpaperRenderer,
-  user-initiated, serial: `nextDrawable`, which may wait for the compositor to hand a drawable back, the
-  encode and the commit block this queue, never main; at most one frame per view in flight, a tick that
-  finds its last frame still on the GPU draws nothing, so no back-pressure; held wallpapers queue nothing)
 - Agents: `com.cmuxterm.app.next.agent-pane.tail-disk` (each chat's kept tail on disk, AgentPaneTailDisk, utility,
   serial: its file reads and writes block this queue, never main; saves of one chat coalesce to the newest, at most
   20 files of 1 MiB, and a read waits only behind the saves queued before it; the quit awaits its saves with the
@@ -233,21 +212,15 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `cmux.next.agent-pane.acpmux-socket-wait` (one person-socket exchange's readiness wait, userInitiated, serial, one
   queue per wait: a dispatch source wakes it, nothing blocks it; it ends at readiness, the daemon's close or the
   caller's cancel),
-  `cmux.agent-activity.socket`, `cmux.acpmux-client`, `cmux.acpmux-client.driver`,
-  `cmux.acpmux-chat-rows` (a pane's chat rows host, AcpmuxChatRowsHost, utility, serial: the page's `chat.rows.*`
-  calls and each batch the driver hands it; it builds the page's one call per batch and hops to main once for it; the
-  page's `taken` is its back-pressure, one batch of at most 64 KiB out at a time, and it blocks only on the client
-  handle's own queue), `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
-  `signed-helper-reap` (one per signed Screen Sharing helper launch, SignedHelperLaunch.reap: a blocking waitpid that
-  ends when that helper exits; no back-pressure, one per launch), `cmux-remote-device` (one per open channel to cmux Remote's Screen
+  `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
+  `cua-helper-v2-reap`, `cua-helper-v2-stdout`, `cmux-remote-device` (one per open channel to cmux Remote's Screen
   Sharing worker: a blocking read(2) that ends at the channel's EOF; answers and hub pushes go to their waiters, pushes
   bounded at 256, docs/cmux-remote.md)
 - Input: `com.cmuxterm.next.event-source-processes` (``EventSourceProcesses``: the executable path and start time of
   each process that posts key and mouse events, read once per process with `sysctl(KERN_PROC_PID)`/`proc_pidpath`, user-initiated,
   serial; it also runs that process's exit watch, which removes the entry. The key path only reads the table, never
   a system call; one item per new posting process, so no back-pressure)
-- Diagnostics: `cmux-next.starvation-reports` (MainThreadWatchdog, serial utility queue for starvation-probe bookkeeping;
-  the timer skips new probes until the outstanding answer has been recorded), `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
+- Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
   `debug.window_record`, `debug.motion.trace` (a `debug.motion` `trace_stop`/`trace_read` with `path`: the report's JSON serialization and file

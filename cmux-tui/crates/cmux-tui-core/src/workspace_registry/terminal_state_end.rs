@@ -68,7 +68,7 @@ impl PersistentSessionStateResetter {
             None
         };
         if lease.is_some() {
-            let snapshot = session_dir.join(crate::server_protocol::LAUNCH_SNAPSHOT_FILE);
+            let snapshot = session_dir.join(crate::server::LAUNCH_SNAPSHOT_FILE);
             match fs::remove_file(&snapshot) {
                 Ok(()) => {
                     ended.removed_launch_snapshot = true;

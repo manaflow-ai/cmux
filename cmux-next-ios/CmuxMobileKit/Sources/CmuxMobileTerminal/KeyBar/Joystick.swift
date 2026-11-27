@@ -36,6 +36,7 @@ final class JoystickEngine {
 
     @ObservationIgnored private var repeatTask: Task<Void, Never>?
     @ObservationIgnored private let clock: any Clock<Duration>
+    @ObservationIgnored private let impact = UIImpactFeedbackGenerator(style: .light)
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         self.clock = clock
@@ -108,17 +109,8 @@ final class JoystickEngine {
 
     /// The finger is on the joystick.
     var touching = false {
-        didSet {
-            if touching { returnTask?.cancel(); returning = false }
-            #if DEBUG
-            if touching, !oldValue { touches += 1 }
-            #endif
-        }
+        didSet { if touching { returnTask?.cancel(); returning = false } }
     }
-    #if DEBUG
-    /// DEBUG, for TerminalComposerTapBleedUITests: touches that reached the joystick.
-    private(set) var touches = 0
-    #endif
     /// Springing back after release.
     private(set) var returning = false
     @ObservationIgnored private var returnTask: Task<Void, Never>?
@@ -129,11 +121,8 @@ final class JoystickEngine {
 
     private func fire(_ direction: JoystickDirection) {
         keysSent += 1
-        // No haptic: an arrow is a key press, and the system keyboard's own
-        // haptic setting (which no app can read) decides whether keys tick.
-        // Leo, 2026-11-23: "dont inject haptic noise when i havent asked for
-        // it. ever."
         send(direction)
+        impact.impactOccurred(intensity: 0.6)
     }
 
     /// One arrow already went; held, it repeats after 400 ms at the rate
@@ -177,31 +166,11 @@ struct JoystickThumbOverlay: View {
     }
 }
 
-/// The joystick's four arrowheads, just inside its circle's edge.
-struct JoystickArrowMarks: Shape {
-    func path(in rect: CGRect) -> Path {
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let radius = min(rect.width, rect.height) / 2
-        let tip = radius - 1.5
-        let base = radius - 4.5
-        let half: CGFloat = 2.5
-        var path = Path()
-        // Up, right, down, left: a unit vector and its perpendicular.
-        for (dx, dy) in [(0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)] as [(CGFloat, CGFloat)] {
-            path.move(to: CGPoint(x: center.x + dx * tip, y: center.y + dy * tip))
-            path.addLine(to: CGPoint(x: center.x + dx * base - dy * half, y: center.y + dy * base + dx * half))
-            path.addLine(to: CGPoint(x: center.x + dx * base + dy * half, y: center.y + dy * base - dx * half))
-            path.closeSubpath()
-        }
-        return path
-    }
-}
-
 struct Joystick: View {
     let engine: JoystickEngine
 
     var body: some View {
-        // Classic cmux iOS's arrow nub: a 28 pt circle (the key row's height) with a 12 pt dot.
+        // Classic cmux iOS's arrow nub: a 28 pt circle with a 12 pt dot.
         let size = JoystickGeometry.circle
         Circle()
             .fill(Color.white.opacity(0.9))
@@ -210,18 +179,10 @@ struct Joystick: View {
             // (`JoystickThumbOverlay`), at most on the circle's edge.
             .opacity(engine.showsFloatingThumb ? 0 : 1)
             .frame(width: size, height: size)
-            // Four small arrowheads around the dot, as on a d-pad: it is
-            // dragged to send arrows. Without them it read as a blank
-            // white button.
-            .overlay {
-                JoystickArrowMarks()
-                    .fill(Color.primary.opacity(engine.gear > 0 ? 0.7 : 0.45))
-                    .allowsHitTesting(false)
-            }
             // A glass circle under the dot, as classic's nub (`UIGlassEffect`);
             // not interactive: the drag owns the touch. The dot draws on top,
             // crisp.
-            .glassEffect(engine.gear > 0 ? .regular.tint(CmuxMobileTheme.standard.colors.fillPressed.color) : .regular, in: .circle)
+            .glassEffect(engine.gear > 0 ? .regular.tint(Color.white.opacity(0.15)) : .regular, in: .circle)
         .onGeometryChange(for: CGPoint.self) { proxy in
             let frame = proxy.frame(in: .global)
             return CGPoint(x: frame.midX, y: frame.midY)

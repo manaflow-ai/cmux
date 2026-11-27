@@ -41,15 +41,31 @@ import Testing
         #expect(rows?.first?.lastSeenAt == seen)
     }
 
-    /// Settings lists every build as its own Mac row (no build is marked as another one's).
-    @Test func everyBuildIsItsOwnRow() {
+    /// Settings still lists every build, and says which rows are another build of a Mac Workspaces lists once.
+    @Test func otherBuildsOfOneMacAreMarked() {
         let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
-        var stable = mac("3eb7", "MacBook Pro", online: true)
-        stable.machineID = machine
-        var nightly = mac("39c6", "MacBook Pro (NIGHTLY)", online: false)
+        var nightly = mac("3eb7", "MacBook Pro", online: true)
         nightly.machineID = machine
-        let rows = SettingsDeviceRows.macs(service: [nightly, stable], hasService: true, liveMacs: []) ?? []
-        #expect(rows.map(\.id) == ["39c6", "3eb7"])
+        var old = mac("39c6", "MacBook Pro", online: false)
+        old.machineID = machine
+        var sameName = mac("aaaa", "MacBook Pro", online: false)
+        sameName.machineID = "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+        let unknown = mac("bbbb", "MacBook Pro", online: false)
+        let rows = SettingsDeviceRows.macs(service: [old, nightly, sameName, unknown], hasService: true, liveMacs: []) ?? []
+        #expect(rows.count == 4)
+        #expect(SettingsDeviceRows.otherBuilds(rows) == ["39c6"])
+    }
+
+    /// Builds of one computer in two teams are each listed by their team: neither is marked.
+    @Test func buildsInTwoTeamsAreNotMarked() {
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        var inTeam = mac("a", "Mini", online: true)
+        inTeam.machineID = machine
+        inTeam.teamID = "t"
+        var inPersonal = mac("b", "Mini", online: false)
+        inPersonal.machineID = machine
+        inPersonal.teamID = "personal-me"
+        #expect(SettingsDeviceRows.otherBuilds([inTeam, inPersonal]).isEmpty)
     }
 
     @Test func withoutAServiceEveryKnownMacOnce() {
@@ -58,38 +74,6 @@ import Testing
                     MacDevice(id: "a", name: "A", isOnline: true)]
         #expect(SettingsDeviceRows.macs(service: nil, hasService: false, liveMacs: live)?.map(\.id) == ["a", "b"])
         #expect(SettingsDeviceRows.rootValue(service: nil, hasService: false, liveMacs: live) == "2")
-    }
-
-    @Test func sizingSharesAccountDevicesBeforeDiscoveryAndKeepsTeamMacsWhenTheyArrive() {
-        var kept = mac("kept", "Kept build", online: false)
-        kept.machineID = "computer"
-        let directory = [kept, mac("remote"), phone("iphone")]
-        let cold = SettingsDeviceRows.sizingMacs(teams: [], activeTeamID: "team", service: directory, accountID: "me")
-        #expect(cold.map(\.id) == ["kept", "remote"])
-        let live = Team(id: "team", name: "Studio", macs: [
-            MacDevice(id: "current", name: "Live build", isOnline: true, ownerUserID: "me", machineID: "computer"),
-            MacDevice(id: "colleague", name: "Colleague's Mac", isOnline: true, ownerUserID: "other")
-        ])
-        let refreshed = SettingsDeviceRows.sizingMacs(teams: [live], activeTeamID: "team", service: directory, accountID: "me")
-        // Every build is its own Mac: the directory's "kept" record of the same computer stays listed.
-        #expect(refreshed.map(\.id) == ["current", "colleague", "kept", "remote"])
-    }
-
-    @MainActor @Test func sizingKeepsPeersOnlyWhileTheirTeamIsVisibleAndUntilItAnswersAgain() {
-        let store = LastKnownListStore(directory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
-        defer { store.removeAll() }
-        let cache = store.list(accountID: "owner", screen: "terminal-sizing-peers")
-        let first = TerminalSizingPeers(cache: cache)
-        let a = Team(id: "a", name: "A", macs: [])
-        let b = Team(id: "b", name: "B", macs: [])
-        let peer = MacDevice(id: "peer", name: "Peer", isOnline: false, ownerUserID: "another")
-        let mine = MacDevice(id: "mine", name: "Mine", isOnline: true, ownerUserID: "owner")
-        first.replace(teamID: "a", devices: [peer, mine], accountID: "owner")
-        let reopened = TerminalSizingPeers(cache: cache)
-        #expect(reopened.visible(in: [a, b]) == [peer])
-        #expect(reopened.visible(in: [b]).isEmpty)
-        reopened.replace(teamID: "a", devices: [], accountID: "owner")
-        #expect(TerminalSizingPeers(cache: cache).visible(in: [a, b]).isEmpty)
     }
 
     @Test func notificationValues() {

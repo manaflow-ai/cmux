@@ -1,12 +1,6 @@
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 import Foundation
-#if canImport(Security)
 import Security
-#endif
 
 /// Where the push key and the trust record live: a keychain access group the
 /// app shares with its notification service extension
@@ -25,11 +19,9 @@ public extension PushSecretStore {
     func deleteAll() {}
 }
 
-/// The shared keychain group. Without the Security framework (a Linux build of the kit's tests) there is
-/// no keychain: no build names a group, so `current` is nil and nothing is stored.
+/// The shared keychain group.
 public struct PushKeychainStore: PushSecretStore {
-    /// `status` is the keychain's OSStatus (Int32).
-    public struct Failure: Error, Equatable { public let status: Int32 }
+    public struct Failure: Error, Equatable { public let status: OSStatus }
 
     public let group: String
     public let service: String
@@ -41,16 +33,10 @@ public struct PushKeychainStore: PushSecretStore {
 
     /// The group this build is signed with; nil when Info.plist names none.
     public static func current(bundle: Bundle = .main) -> PushKeychainStore? {
-        #if !canImport(Security)
-        return nil
-        #else
         guard let group = bundle.object(forInfoDictionaryKey: "CmuxMobileKeychainGroup") as? String,
               !group.isEmpty, !group.hasPrefix("$(") else { return nil }
         return PushKeychainStore(group: group)
-        #endif
     }
-
-    #if canImport(Security)
 
     private func query(_ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
@@ -91,12 +77,6 @@ public struct PushKeychainStore: PushSecretStore {
                                   kSecAttrAccessGroup as String: group, kSecUseDataProtectionKeychain as String: true]
         SecItemDelete(all as CFDictionary)
     }
-    #else
-    public func read(_ account: String) throws -> Data? { nil }
-    public func write(_ data: Data, account: String) throws { throw Failure(status: -1) }
-    public func delete(_ account: String) {}
-    public func deleteAll() {}
-    #endif
 }
 
 /// Memory (tests).
@@ -179,7 +159,7 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
     }
 
     public static var hasEnclave: Bool {
-        #if targetEnvironment(simulator) || !canImport(CryptoKit)
+        #if targetEnvironment(simulator)
         false
         #else
         SecureEnclave.isAvailable
@@ -197,15 +177,6 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
     public func open(_ sealed: String, user: String, context: Data) throws -> Data {
         let stored: Key = try lock.withLock { try self.key(user: user, create: false) }
         return try PushSeal.open(sealed, recipient: stored.publicKey, context: context) { try stored.agree($0) }
-    }
-
-    /// The ECDH secret of this account's push key with `peer` (X9.63), for the relay cache's
-    /// sealed deltas (`cmux-relay-snapshot`, which derives and opens in Rust): the scalar never
-    /// leaves the Secure Enclave, only the agreed secret does.
-    public func agree(user: String, peer: Data) throws -> Data {
-        let stored: Key = try lock.withLock { try self.key(user: user, create: false) }
-        let point = try P256.KeyAgreement.PublicKey(x963Representation: peer)
-        return try stored.agree(point).withUnsafeBytes { Data($0) }
     }
 
     /// Account deletion and "Remove This iPhone": the key and the trust go.
@@ -250,27 +221,20 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
 
     // MARK: Storage
 
-    // swift-crypto (Linux) has no Secure Enclave: only software keys there.
     private enum Key {
-        #if canImport(CryptoKit)
         case enclave(SecureEnclave.P256.KeyAgreement.PrivateKey)
-        #endif
         case software(P256.KeyAgreement.PrivateKey)
 
         var publicKey: Data {
             switch self {
-            #if canImport(CryptoKit)
             case .enclave(let k): k.publicKey.x963Representation
-            #endif
             case .software(let k): k.publicKey.x963Representation
             }
         }
 
         func agree(_ peer: P256.KeyAgreement.PublicKey) throws -> SharedSecret {
             switch self {
-            #if canImport(CryptoKit)
             case .enclave(let k): try k.sharedSecretFromKeyAgreement(with: peer)
-            #endif
             case .software(let k): try k.sharedSecretFromKeyAgreement(with: peer)
             }
         }
@@ -279,7 +243,6 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
     private func key(user: String, create: Bool) throws -> Key {
         let account = Self.account(user)
         let stored = try store.read(account)
-        #if canImport(CryptoKit)
         if enclave {
             if let stored, let key = try? SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: stored) { return .enclave(key) }
             guard create else { throw Failure.noKey }
@@ -291,7 +254,6 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
             try store.write(made.dataRepresentation, account: account)
             return .enclave(made)
         }
-        #endif
         #if DEBUG || targetEnvironment(simulator)
         if let stored, let key = try? P256.KeyAgreement.PrivateKey(rawRepresentation: stored) { return .software(key) }
         guard create else { throw Failure.noKey }

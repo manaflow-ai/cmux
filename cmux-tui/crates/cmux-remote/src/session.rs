@@ -16,26 +16,6 @@ use crate::per_lane::PerLane;
 
 const RECONNECT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Unacknowledged frames one lane may have in flight by default.
-const DEFAULT_DELIVERY_FRAMES_PER_LANE: usize = 1_024;
-/// Unacknowledged encoded bytes one lane may have in flight by default.
-///
-/// This window caps one lane's throughput at window / RTT, so it must cover the
-/// bandwidth-delay product of a slow link: 256 KiB held `cmux remote cp` to
-/// about 1.6 MiB/s at 100 ms RTT, where kernel TCP did 26.6 MiB/s. 7 MiB
-/// allows about 50 MiB/s of base64 file data at 100 ms and 8 MiB/s at 600 ms.
-///
-/// The peer acknowledges a frame once it leaves the link's ingress queue, and
-/// that queue holds `INGRESS_BYTES_PER_LANE`, counting each frame as at least
-/// `INGRESS_ACCOUNTING_FLOOR_BYTES`. A full window therefore always fits, so one
-/// lane's window never makes the peer stop reading the shared transport.
-const DEFAULT_DELIVERY_BYTES_PER_LANE: usize = 7 * 1024 * 1024;
-const _: () = assert!(
-    DEFAULT_DELIVERY_BYTES_PER_LANE
-        + DEFAULT_DELIVERY_FRAMES_PER_LANE * crate::link::INGRESS_ACCOUNTING_FLOOR_BYTES
-        <= crate::link::INGRESS_BYTES_PER_LANE
-);
-
 #[derive(Debug, Clone, Copy)]
 pub struct SessionLimits {
     pub replay_frames_per_lane: usize,
@@ -51,8 +31,8 @@ impl Default for SessionLimits {
         Self {
             replay_frames_per_lane: 4_096,
             replay_bytes_per_lane: 16 * 1024 * 1024,
-            delivery_frames_per_lane: DEFAULT_DELIVERY_FRAMES_PER_LANE,
-            delivery_bytes_per_lane: DEFAULT_DELIVERY_BYTES_PER_LANE,
+            delivery_frames_per_lane: 64,
+            delivery_bytes_per_lane: 256 * 1024,
             queued_frames_per_lane: 256,
             queued_bytes_per_lane: 8 * 1024 * 1024,
         }
@@ -208,31 +188,6 @@ impl ReliableSession {
                 (lane, cursor)
             })
             .collect()
-    }
-
-    /// The Control lane's unacknowledged frames as a reconnect at `generation` would replay
-    /// them, oldest first and at most `max_bytes` encoded: an IK link's early data
-    /// (`cmux_braid_session::may_send_early`). Encoding them leaves the session unchanged; the
-    /// reconnect's own replay sends the same frames again, and the peer's dedupe keeps one copy.
-    pub(crate) fn early_replay(&self, generation: u64, max_bytes: usize) -> Vec<Bytes> {
-        let lane = Lane::Control;
-        let state = self.shared.lock_state();
-        let acknowledgement = state.inbound(lane).contiguous;
-        let mut early = Vec::new();
-        let mut total = 0_usize;
-        for entry in &state.outbound(lane).replay {
-            let mut frame = entry.frame.clone();
-            frame.generation = generation;
-            frame.acknowledgement = acknowledgement;
-            frame.flags = frame.flags.union(FrameFlags::REPLAY);
-            let Ok(encoded) = frame.encode() else { break };
-            total = total.saturating_add(encoded.len());
-            if total > max_bytes {
-                break;
-            }
-            early.push(Bytes::from(encoded));
-        }
-        early
     }
 
     pub fn outstanding_reliable_frames(&self, lane: Lane) -> usize {
@@ -711,42 +666,6 @@ impl ReliabilityState {
     }
 }
 
-/// The early frames (an IK link's first message, `ReliableSession::early_replay`) a daemon keeps
-/// for a reconnect's link group, to read ahead of the group's link once it commits: each must be a
-/// reliable Control frame of `session` at `generation`, or the link is refused. Frames the session
-/// already holds (at or below `contiguous`) and any after a gap are dropped, so what is kept
-/// always applies in order; the client's replay after the commit brings the rest.
-pub(crate) fn admit_early_frames(
-    frames: &[Bytes],
-    session: SessionId,
-    generation: u64,
-    contiguous: u64,
-) -> Result<Vec<Bytes>, String> {
-    let mut kept = Vec::new();
-    let mut expected = contiguous.saturating_add(1);
-    for encoded in frames {
-        let frame = WireFrame::decode(encoded).map_err(|error| format!("early frame: {error}"))?;
-        if frame.session != session || frame.generation != generation {
-            return Err("an early frame names another session or generation".into());
-        }
-        if frame.lane != Lane::Control
-            || frame.sequence == 0
-            || frame.flags.contains(FrameFlags::ACK_ONLY)
-        {
-            return Err("early data carries reliable Control frames only".into());
-        }
-        if frame.sequence < expected {
-            continue;
-        }
-        if frame.sequence > expected {
-            break;
-        }
-        kept.push(encoded.clone());
-        expected = expected.saturating_add(1);
-    }
-    Ok(kept)
-}
-
 #[derive(Clone)]
 struct OutboundLane {
     next_sequence: u64,
@@ -1030,7 +949,3 @@ impl fmt::Display for SessionError {
 }
 
 impl std::error::Error for SessionError {}
-
-#[cfg(test)]
-#[path = "session_window_tests.rs"]
-mod window_tests;

@@ -30,7 +30,7 @@ pub struct AdminClient {
 
 pub(crate) fn http_client() -> reqwest::Client {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    cmux_egress::client_builder("cmux_weft::admin")
+    reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(40))
         .build()
         .unwrap_or_default()
@@ -126,7 +126,3 @@ impl AdminClient {
         Ok(check(request.send().await?).await?.json().await?)
     }
 }
-
-#[cfg(test)]
-#[path = "admin_seeded_tests.rs"]
-mod seeded_tests;

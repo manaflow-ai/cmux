@@ -48,9 +48,6 @@ public final class AgentTranscriptCache: @unchecked Sendable {
     public let memoryEntries: Int
     let writeDelay: DispatchTimeInterval
     let queue = DispatchQueue(label: "dev.cmux.mobile.agent-transcript-cache", qos: .utility)
-    /// Which chat shows each terminal agent session and the face each tab shows, kept beside the
-    /// transcripts (`<directory>-pairings.json`) so an offline relaunch reaches them; deleted with them.
-    public let terminalChats: KeptTerminalChats
     /// Entries waiting for their write, by key; the queue takes the newest.
     private let pending = OSAllocatedUnfairLock(initialState: [String: AgentTranscriptEntry]())
     /// This run's entries by key, most recently used last. Main actor only.
@@ -58,12 +55,6 @@ public final class AgentTranscriptCache: @unchecked Sendable {
     @MainActor private var recent: [String] = []
     /// Bumps on `removeAll`: a read that started before it never lands after it.
     @MainActor private var generation = 0
-    /// Bumps per chat on `forget`: a read of that chat that started before it never lands after it
-    /// (the whole copy's refill reads while the attach may drop the kept copy).
-    @MainActor private var forgets: [String: Int] = [:]
-    /// The last head file read (``firstScreen(_:)``): an open reads it twice in one turn (the
-    /// coordinator for the session, the source for the turns). Dropped on any change of its chat.
-    @MainActor private var lastHead: (key: String, entry: AgentTranscriptEntry)?
 
     public init(directory: URL, recordLimit: Int = 600, entryBytes: Int = 512 * 1024, totalBytes: Int = 48 << 20,
                 memoryEntries: Int = 12, writeDelay: DispatchTimeInterval = .seconds(1)) {
@@ -73,8 +64,6 @@ public final class AgentTranscriptCache: @unchecked Sendable {
         self.totalBytes = totalBytes
         self.memoryEntries = memoryEntries
         self.writeDelay = writeDelay
-        terminalChats = KeptTerminalChats(
-            file: directory.deletingLastPathComponent().appending(path: "\(directory.lastPathComponent)-pairings.json"), queue: queue)
     }
 
     public static func inApplicationSupport(_ name: String) -> AgentTranscriptCache {
@@ -97,38 +86,17 @@ public final class AgentTranscriptCache: @unchecked Sendable {
         return entry
     }
 
-    /// Records in a chat's head file: its newest turns, at most `firstScreenBytes`, from a prompt.
-    public static let firstScreenRecords = 120
-    public static let firstScreenBytes = 64 * 1024
-
-    /// The newest turns kept for `key`, for a reopened chat's first frame: from memory, else one
-    /// small head file (at most ``firstScreenBytes``) read in this turn, as the Workspaces cache's
-    /// head is (`LiveSnapshotStore.loadFirstScreen`). The head says `earlier` when the kept copy
-    /// holds more; ``load(_:)`` reads that off the main thread. Nil when nothing is kept, or it was
-    /// kept before head files. Leo, 2026-11-14: "i also want all our connectivity stuff to shut the
-    /// f*** up and load faster/percievably load faster".
-    @MainActor public func firstScreen(_ key: String) -> AgentTranscriptEntry? {
-        if let held = cached(key) { return held }
-        if let lastHead, lastHead.key == key { return lastHead.entry }
-        // A bounded read on the main actor, on purpose: the first frame draws the kept turns,
-        // never "Loading chat…" over a chat this phone holds.
-        guard let data = try? Data(contentsOf: headFile(for: key)),
-              let entry = try? JSONDecoder().decode(AgentTranscriptEntry.self, from: data) else { return nil }
-        lastHead = (key, entry)
-        return entry
-    }
-
     /// The entry for `key`: from memory, else read from disk off the main thread.
     @MainActor public func load(_ key: String) async -> AgentTranscriptEntry? {
         if let held = cached(key) { return held }
-        let url = file(for: key), started = generation, forgot = forgets[key, default: 0]
+        let url = file(for: key), started = generation
         let read: AgentTranscriptEntry? = await withCheckedContinuation { continuation in
             queue.async {
                 let data = try? Data(contentsOf: url)
                 continuation.resume(returning: data.flatMap { try? JSONDecoder().decode(AgentTranscriptEntry.self, from: $0) })
             }
         }
-        guard started == generation, forgot == forgets[key, default: 0] else { return nil }
+        guard started == generation else { return nil }
         // A save during the read is newer than what was on disk.
         if let held = cached(key) { return held }
         if let read { remember(key, read) }
@@ -141,7 +109,6 @@ public final class AgentTranscriptCache: @unchecked Sendable {
         let entry = AgentTranscriptEntry(sessionID: sessionID, earlier: earlier, records: records)
         guard memory[key] != entry else { return }
         remember(key, entry)
-        if lastHead?.key == key { lastHead = nil }
         let waiting = pending.withLock { pending in
             defer { pending[key] = entry }
             return pending[key] != nil
@@ -153,25 +120,18 @@ public final class AgentTranscriptCache: @unchecked Sendable {
     /// Forgets one chat's kept copy (too old to catch up from), in memory and on disk.
     @MainActor public func forget(_ key: String) {
         memory[key] = nil
-        forgets[key, default: 0] += 1
-        if lastHead?.key == key { lastHead = nil }
         recent.removeAll { $0 == key }
         pending.withLock { _ = $0.removeValue(forKey: key) }
-        let url = file(for: key), head = headFile(for: key)
-        queue.async {
-            try? FileManager.default.removeItem(at: url)
-            try? FileManager.default.removeItem(at: head)
-        }
+        let url = file(for: key)
+        queue.async { try? FileManager.default.removeItem(at: url) }
     }
 
     /// Sign-out: every kept chat leaves this device.
     @MainActor public func removeAll() {
         memory = [:]
-        lastHead = nil
         recent = []
         generation += 1
         pending.withLock { $0 = [:] }
-        terminalChats.removeAll()
         let directory = directory
         queue.async { try? FileManager.default.removeItem(at: directory) }
     }
@@ -202,7 +162,6 @@ public final class AgentTranscriptCache: @unchecked Sendable {
         guard let data = Self.encoded(entry, recordLimit: recordLimit, entryBytes: entryBytes) else {
             // Not even the newest turn fits: an older copy must not stay behind it.
             try? FileManager.default.removeItem(at: file(for: key))
-            try? FileManager.default.removeItem(at: headFile(for: key))
             return
         }
         var directory = directory
@@ -215,15 +174,6 @@ public final class AgentTranscriptCache: @unchecked Sendable {
         }
         let url = file(for: key)
         try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        // The newest turns on their own, for the next open's first frame (``firstScreen(_:)``);
-        // a newest turn too big for the head leaves none (the open reads the whole copy then).
-        let head = headFile(for: key)
-        if let headData = Self.encoded(entry, recordLimit: min(recordLimit, Self.firstScreenRecords),
-                                       entryBytes: min(entryBytes, Self.firstScreenBytes)) {
-            try? headData.write(to: head, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        } else {
-            try? FileManager.default.removeItem(at: head)
-        }
         ConversationTranscriptCache.trim(directory, to: totalBytes, keeping: url)
     }
 
@@ -259,16 +209,7 @@ public final class AgentTranscriptCache: @unchecked Sendable {
     }
 
     func file(for key: String) -> URL {
-        directory.appending(path: "\(Self.safeName(key)).json")
-    }
-
-    /// The head file of `key` (`.head` keeps it apart from every chat file: a safe name has no dot).
-    func headFile(for key: String) -> URL {
-        directory.appending(path: "\(Self.safeName(key)).head.json")
-    }
-
-    private static func safeName(_ key: String) -> String {
         let safe = key.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" ? String($0) : "_" }.joined()
-        return safe.isEmpty ? "default" : safe
+        return directory.appending(path: "\(safe.isEmpty ? "default" : safe).json")
     }
 }

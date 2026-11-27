@@ -112,7 +112,6 @@ import CmuxNextWakeupsTestSupport
         let body = try #require(coordinator.panel?.glass.contentView.subviews.compactMap { $0 as? WorkspaceHoverCardView }.first)
         // The card opens tabs-first; Show details reveals the history and refits the card in place.
         body.detailsToggle.performClick(nil)
-        body.runPendingDetailsPresses()
         try #require(!body.timeline.isHidden, "the card shows no history")
         let card = try #require(coordinator.panel).cardFrame
         #expect(body.timeline.scrollOffset == 0)
@@ -145,7 +144,6 @@ import CmuxNextWakeupsTestSupport
         #expect(coordinator.handleMonitoredEvent(press) != nil, "the press on Show details was swallowed")
         #expect(coordinator.isShowing(shown.id), "pressing Show details dismissed the card (\(coordinator.machine.phase))")
         toggle.performClick(nil)
-        body.runPendingDetailsPresses()
         #expect(body.isDetailsExpanded)
         #expect(coordinator.isShowing(shown.id), "Show details did not expand the card in place")
         try await Self.tearDown(window, coordinator)

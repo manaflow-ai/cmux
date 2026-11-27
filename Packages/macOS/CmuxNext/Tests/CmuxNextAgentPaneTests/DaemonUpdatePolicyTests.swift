@@ -529,31 +529,11 @@ import Testing
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
         let target = fixture.target("vm", build: Self.older, outcomes: [.updated(build: Self.bundled)])
-        #expect(await fixture.policy([]).updateNow(target) == .updated(build: Self.bundled))
+        await fixture.policy([]).updateNow(target)
 
         #expect(fixture.calls == ["vm"])
         #expect(await target.currentBuild() == Self.bundled)
         #expect(fixture.ledger.targets == ["vm": "updated"])
-    }
-
-    /// A start's update the machine refuses (a Cloud machine whose own updater never takes an older build): the
-    /// start reads the refusal from ``DaemonUpdatePolicy/updateNow(_:)`` and waits for no new link, which never comes.
-    @Test(.timeLimit(.minutes(1))) func updateNowAnswersARefusalThatChangedNothing() async throws {
-        let fixture = try PolicyFixture()
-        defer { fixture.remove() }
-        let target = fixture.target("vm", build: Self.older, outcomes: [.held(reason: "the channel's build is older than the one applied here")])
-        let policy = fixture.policy([])
-        let outcome = await policy.updateNow(target)
-
-        #expect(outcome == .held(reason: "the channel's build is older than the one applied here"))
-        #expect(outcome?.mayHaveChangedTarget == false)
-        #expect(DaemonUpdateOutcome.updated(build: nil).mayHaveChangedTarget)
-        #expect(fixture.calls == ["vm"])
-
-        // The same start asks again for its next capability: the refusal answers it, and nothing runs again.
-        #expect(await policy.updateNow(target) == outcome)
-        await policy.drained()
-        #expect(fixture.calls == ["vm"])
     }
 
     /// As the person's Update click: an earlier failure on this build does not hold it back.
@@ -616,7 +596,7 @@ import Testing
         let waiter = Task { await policy.updateNow(target) }
         while !(await policy.awaitsTurn("vm")) { await Task.yield() }
         release.fire()
-        #expect(await waiter.value == .failed(reason: "disk full"), "the joined update's outcome")
+        await waiter.value
         await policy.drained()
 
         #expect(fixture.calls == ["vm"])

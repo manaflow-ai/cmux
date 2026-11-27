@@ -23,7 +23,6 @@ extension ServerRestartOutcome {
             UpdaterStrings.format("server.result.stillMissing",
                                   "%@ restarted but still lacks the new features. It may run from another install.", serverLabel)
         case .failed:
-            // retry-prompt-ok: restarting a server stops its sessions' processes: the person chooses when
             UpdaterStrings.format("server.result.failed", "Couldn't restart %@. Try again.", serverLabel)
         }
     }
@@ -31,7 +30,6 @@ extension ServerRestartOutcome {
     /// The result toast's one action: Try Again after a failure; none otherwise.
     public var retryTitle: String? {
         guard case .failed = self else { return nil }
-        // retry-prompt-ok: restarting a server stops its sessions' processes: the person chooses when
         return UpdaterStrings.retry
     }
 

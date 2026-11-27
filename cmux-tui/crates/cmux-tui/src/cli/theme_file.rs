@@ -1,4 +1,4 @@
-//! `cmux theme` for theme files (`~/.config/cmux-next/themes/NAME.json`, `cmux/` off macOS, the
+//! `cmux theme` for theme files (`~/.config/cmux/themes/NAME.json`, the
 //! whole look of the app as one dotfile; `cmux_config::theme_file`). The
 //! reads, checks and writes run in process, so they work with cmux quit; the
 //! running app reloads a saved file at once. Picking a file (`use`, `reset`
@@ -17,10 +17,7 @@
 //!   16-color scheme, see `theme_scheme`) into the themes folder.
 //! - `use NAME`: makes NAME the active theme file.
 //! - `check [NAME|FILE]`: the problems the app would report, as
-//!   `FILE:LINE: key: message`, and every ink on a fill the look draws
-//!   under its WCAG minimum (`themes/NAME.json: contrast: THEME: element FG
-//!   on BG is R:1, needs M:1`, `theme_file::contrast`); exit 1 when there
-//!   are any.
+//!   `FILE:LINE: key: message`; exit 1 when there are any.
 //! - `schema [--install]`: the theme file JSON Schema (`--install` writes
 //!   `themes/.schema.json`, which `export` points `$schema` at).
 
@@ -38,7 +35,7 @@ use serde_json::{Value, json};
 use super::{GlobalArgs, OutputMode};
 
 pub(super) const USAGE: &str = "\
-cmux theme: the whole look of cmux as one file, ~/.config/cmux-next/themes/NAME.json (cmux/ off macOS).
+cmux theme: the whole look of cmux as one file, ~/.config/cmux/themes/NAME.json.
   cmux theme list                                   the theme files, the active one marked
   cmux theme export [--save NAME [--use] | --output FILE] [--name TITLE]
       the current look as a theme file (applying it changes nothing)
@@ -47,14 +44,9 @@ cmux theme: the whole look of cmux as one file, ~/.config/cmux-next/themes/NAME.
   cmux theme set KEY VALUE [--theme NAME]           one look value, checked first
   cmux theme reset [KEY] [--theme NAME]             take KEY out; with no KEY, back to the stock look
   cmux theme import FILE [--name N] [--replace] [--use]   a theme file into the themes folder
-  cmux theme check [NAME|FILE|DIR]                  problems as FILE:LINE: key: message, and text too faint
-                                                    on its fill (WCAG 4.5:1, 3:1 for marks) (DIR: a theme repo)
+  cmux theme check [NAME|FILE]                      problems as FILE:LINE: key: message
   cmux theme schema [--install]                     the theme file JSON Schema
-  cmux theme path [NAME]
-  cmux theme install HOST/OWNER/REPO[/PATH][@REF] [--yes]   a community theme from a git repository
-  cmux theme update [ID|REF] [--yes]                follow its new releases
-  cmux theme remove ID|REF                           take it out; what was under it comes back
-  cmux theme installed                               community themes and where they came from";
+  cmux theme path [NAME]";
 
 /// The verbs this module answers; the rest of `cmux theme` is `theme_scheme`.
 pub(super) const VERBS: &[&str] =
@@ -231,15 +223,6 @@ fn read(paths: &Paths, name: &str, text: Option<&str>) -> ThemeFile {
         Schema::embedded(),
         &Domains::default(),
     )
-}
-
-/// The colors of the installed terminal theme `name` (Ghostty's theme folders), for the contrast
-/// check of a theme file that names a theme without its own `colors`.
-fn installed_theme(name: &str) -> Option<cmux_theme_tokens::ThemeInput> {
-    let path = cmux_theme_tokens::find_theme_file(&cmux_theme_tokens::Env::current(), name)?;
-    let text = std::fs::read_to_string(&path).ok()?;
-    let scheme = cmux_theme_tokens::Scheme::parse(&text, name, None).ok()?;
-    Some(scheme.theme_input())
 }
 
 fn diagnostics_json(file: &ThemeFile) -> Value {
@@ -438,20 +421,10 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
             if activate {
                 return settings(global, prefix, &["set", theme_file::SETTING_KEY, &name]);
             }
-            // Not picked: the look is unchanged until it is, so say how in one command.
             ok(
                 global,
-                &json!({
-                    "name": name,
-                    "path": path,
-                    "active": false,
-                    "use": format!("cmux theme use {name}"),
-                    "diagnostics": diagnostics_json(&checked),
-                }),
-                &format!(
-                    "{}\n  not in use yet (the look is unchanged): `cmux theme use {name}` applies it, or import with --use",
-                    path.display()
-                ),
+                &json!({ "name": name, "path": path, "diagnostics": diagnostics_json(&checked) }),
+                &path.display().to_string(),
             )
         }
         Request::Use { name } => {
@@ -465,14 +438,6 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
             settings(global, prefix, &["set", theme_file::SETTING_KEY, &name])
         }
         Request::Check { target: spec } => {
-            #[cfg(unix)]
-            if let Some(dir) = spec
-                .as_deref()
-                .map(Path::new)
-                .filter(|dir| cmux_customize::community::Tier::of_dir(dir).is_some())
-            {
-                return super::community::check_dir(global, dir);
-            }
             let (name, text) = match spec {
                 Some(spec) if spec.contains('/') || spec.ends_with(".json") => {
                     let path = PathBuf::from(&spec);
@@ -490,18 +455,11 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
                     Err(code) => return code,
                 },
             };
-            let mut file = read(&paths, &name, text.as_deref());
-            // The font pack's face files: the check stats them, the read does not.
-            let faces = file.face_diagnostics();
-            file.diagnostics.extend(faces);
-            let contrast = file.contrast(&paths.settings_root(), &installed_theme);
-            let mut problems: Vec<String> = file.diagnostics.iter().map(|d| d.display()).collect();
-            problems.extend(
-                contrast.iter().map(|f| format!("themes/{name}.json: contrast: {}", f.display())),
-            );
+            let file = read(&paths, &name, text.as_deref());
+            let problems: Vec<String> = file.diagnostics.iter().map(|d| d.display()).collect();
             if matches!(global.output, OutputMode::Json | OutputMode::JsonLines) {
                 super::wire::print_local_success(
-                    &json!({ "theme": name, "ok": problems.is_empty(), "keys": file.keys(), "diagnostics": diagnostics_json(&file), "contrast": contrast }),
+                    &json!({ "theme": name, "ok": problems.is_empty(), "keys": file.keys(), "diagnostics": diagnostics_json(&file) }),
                     global.output,
                 );
             } else if problems.is_empty() {

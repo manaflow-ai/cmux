@@ -5,31 +5,6 @@
 use crate::tree::Part;
 use crate::{Roots, Status};
 
-/// The settings most asks need, by the surface a person names, so an agent in the chat goes
-/// straight to the key instead of searching 700 rows. Every one is a `cmux-next.json` key, so a
-/// generation snapshots it and discard or rollback undoes it; `brief_surfaces.rs` holds each to
-/// the embedded settings schema (present, agent-settable).
-pub const SURFACE_KEYS: &[(&str, &[&str])] = &[
-    (
-        "sidebar",
-        &["sidebar.density", "sidebar.sections.hidden", "sidebar.sections.order", "sidebar.side"],
-    ),
-    ("density and chrome", &["appearance.density", "appearance.chromeStyle"]),
-    ("theme and colors", &["appearance.theme", "appearance.accent"]),
-    (
-        "composer",
-        &[
-            "agentPane.composerLook",
-            "agentPane.composerRing",
-            "agentPane.emptyChatComposerPosition",
-        ],
-    ),
-    (
-        "background and particles (`live:particles` is the drifting particle field; `live:ID` any live wallpaper)",
-        &["appearance.background"],
-    ),
-];
-
 /// What to do for `ask`, given where things live and what is live now.
 /// Short on purpose: the smallest model should get it right, and the
 /// recipes stay in the `cmux-customization` skill.
@@ -50,20 +25,11 @@ Where things are:\n\
 - {settings}: {settings_file} (`cmux settings list` shows every key; `cmux settings set KEY VALUE` writes one)\n\
 - {keys}: {config}/keybindings.json\n\
 - {themes}: {config}/themes/NAME.json\n\
-- {views}: {views_dir}/ (place a section with `cmux apps place 'local/customize#cmux.section/1'`; \
-a New Tab view (`cmux.newtab/1`, over the composer) shows only once picked: `cmux settings set tabs.newTabApp local/customize`, \
-and only on the web New Tab page, so `tabs.nativeNewTabPage` must be false)\n\
+- {views}: {views_dir}/ (place a section with `cmux apps place 'local/customize#cmux.section/1'`)\n\
 - {styles}: {config}/agent-pane/theme.css\n\
 - {automations}: make and change them with `cmux automation create|update …` (`cmux automation --help`)\n\
 \n\
-The keys most asks need ({surfaces}). A feature on or off is a toggle key: find it with \
-`cmux settings list | grep -i WORD`. A saved profile is previewed with `cmux customize use NAME` \
-(`cmux customize profiles` lists them).\n\
-\n\
-Recipes and working templates are in the cmux-customization skill; read the one that fits before you write. \
-`cmux customize docs SURFACE` is the reference for one surface (a settings surface above, or a view of \
-your own: section, pane, newtab, widget, command, ...) with a working example; `cmux customize prompts` has \
-tested prompts for common goals.\n\
+Recipes and working templates are in the cmux-customization skill; read the one that fits before you write.\n\
 \n\
 Do this:\n\
 1. Make the smallest change that does what they asked. Change only what the ask needs.\n\
@@ -80,11 +46,6 @@ what changed on screen, and that it is a preview they can Apply, keep refining b
         views_dir = roots.customize_dir.display(),
         styles = Part::Styles.about(),
         automations = Part::Automations.about(),
-        surfaces = SURFACE_KEYS
-            .iter()
-            .map(|(what, keys)| format!("{what}: {}", keys.iter().map(|key| format!("`{key}`")).collect::<Vec<_>>().join(", ")))
-            .collect::<Vec<_>>()
-            .join("; "),
     ));
     let by_hand: Vec<&str> = status
         .changes

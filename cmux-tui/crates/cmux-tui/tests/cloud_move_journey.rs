@@ -26,7 +26,7 @@
 //! Linux only: a Cloud host is a Linux machine (`cloud_fs::is_cloud_host`).
 #![cfg(target_os = "linux")]
 
-use crate::journey_support;
+mod journey_support;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -287,19 +287,15 @@ fn a_fresh_image_vm_serves_fs_v1_from_the_baked_env_and_the_bound_id() {
     .unwrap();
     let seam = vec![("CMUX_TEST_CLOUD_ETC", etc.to_string_lossy().into_owned())];
 
-    // No bound id yet: no identity, so not a Cloud host (as before the fix, a fresh VM). It
-    // serves fs-v1 only as a Linux machine of one's own does (owner only), and none of the
-    // Cloud-only verbs.
+    // No bound id yet: no identity, no fs-v1 (as before the fix, a fresh VM).
     let unbound = Machine::start(&root, "unbound", seam.clone());
-    assert!(!advertises(&unbound, "access-request-v1"), "a Cloud host without a machine id");
+    assert!(!advertises(&unbound, "fs-v1"), "fs-v1 without a machine id");
     drop(unbound);
 
     fs::write(etc.join("daemon-instance-id"), "vm-fresh-image\n").unwrap();
     let mac = Machine::start(&root, "mac", Vec::new());
     let vm = Machine::start(&root, "vm", seam);
     assert!(advertises(&vm, "fs-v1"), "a fresh image VM does not serve fs-v1");
-    // Owner scope also serves fs-v1: the bound VM must be a Cloud host.
-    assert!(advertises(&vm, "access-request-v1"), "a bound VM is a Cloud host");
     assert!(
         !vm.home().join(".config/cmux/model-plane.env").exists(),
         "the daemon must not write a per-home model-plane.env (it would shadow the image's)"
@@ -450,42 +446,4 @@ fn cloud_move_resolves_a_lost_finish_after_the_vm_daemon_restarts() {
     let unknown = vm.rpc(json!({"id": 18, "cmd": "agent-transfer-receive-abort",
                                 "receive_id": "rcv-never-made-here"}));
     assert_eq!(unknown["error_code"], json!("agent_transfer.unknown_receive"), "{unknown}");
-}
-
-/// kill-mid-move drill `cloud-cloud after-receive` (run 45389153532): the source daemon
-/// restarted under a move, its restore put every tab in a new surface slot, and the pump's
-/// give back by the old `--surface` was refused "not an agent tab": the chat stayed frozen.
-/// The tab's public id outlives the restart: the source answers it with the begin, and a
-/// give back by it after the restart unfreezes the chat.
-#[test]
-fn a_move_is_given_back_by_its_tab_after_the_source_daemon_restarts() {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
-    let root = PathBuf::from("/tmp").join(format!("cmt-{}-{stamp}", std::process::id()));
-    fs::create_dir_all(&root).unwrap();
-    let root = fs::canonicalize(&root).unwrap();
-    let _cleanup = Cleanup(root.clone());
-
-    let mac = Machine::start(&root, "mac", Vec::new());
-    let here = mac.home().join("app");
-    fs::create_dir_all(&here).unwrap();
-    let mut mac_acpmux = mac.acpmux();
-    let session = plain_chat(&mut mac_acpmux, &here, "restarted-source");
-    let surface = bound_agent_tab(&mac, &session);
-    let begun = ok(mac.rpc(json!({"id": 20, "cmd": "agent-transfer-begin", "surface": surface})));
-    let transfer_id = begun["transfer_id"].as_str().unwrap().to_owned();
-    let tab = begun["tab"].as_str().expect("the begin answers the tab's public id").to_owned();
-    assert!(tab.starts_with("tab_"), "{begun}");
-
-    restart_daemon(&mac);
-
-    let source = ok(mac.rpc(json!({"id": 21, "cmd": "agent-transfer-source", "tab": tab})));
-    assert_eq!(source["session"], json!(session), "{source}");
-    assert_eq!(source["tab"], json!(tab), "{source}");
-    ok(mac.rpc(json!({"id": 22, "cmd": "agent-transfer-abort", "tab": tab,
-                      "transfer_id": transfer_id})));
-    // Given back: a new move of the chat begins (a frozen chat answers `transfer.moving`).
-    let again = ok(mac.rpc(json!({"id": 23, "cmd": "agent-transfer-begin", "tab": tab})));
-    assert_ne!(again["transfer_id"], json!(transfer_id), "{again}");
-    ok(mac.rpc(json!({"id": 24, "cmd": "agent-transfer-abort", "tab": tab,
-                      "transfer_id": again["transfer_id"]})));
 }

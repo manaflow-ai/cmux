@@ -1,12 +1,11 @@
 import AppKit
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
-import CmuxNextTestSupport
 import Testing
 
 /// The flush corner (`chrome.cornerFlush`, Thunderdome r2 A): `flush`, no goo, by default, and the card's wedge on
 /// the sidebar's side goes while the selected first tab rises from that corner.
-@MainActor @Suite(.serialized, .closesItsWindows) struct CornerFlushTests {
+@MainActor @Suite(.serialized) struct CornerFlushTests {
     /// Leo, 2026-11-13: "lawrence wanted no goo by default". The flush frame stays; goo is a Debug Settings choice.
     @Test func flushWithoutGooIsTheDefault() {
         #expect(CornerFlush.tunable.defaultValue == .flush)
@@ -159,7 +158,7 @@ import Testing
 /// Lawrence, 2026-11-13: "get rid of border between tabs and omnibar, at all density levels." The tab row's divider
 /// leaves out a pane whose content starts with a toolbar row (a browser's omnibar), so its tabs and its omnibar read as
 /// one surface, and still runs under a pane whose content starts right under its tabs (a terminal).
-@MainActor @Suite(.serialized, .closesItsWindows) struct TabRowDividerOverToolbarTests {
+@MainActor @Suite(.serialized) struct TabRowDividerOverToolbarTests {
     @Test(arguments: DensityPreset.allCases, [false, true])
     func noDividerBetweenTabsAndOmnibar(density: DensityPreset, isDark: Bool) throws {
         let design = DesignSettings.shared
@@ -170,13 +169,6 @@ import Testing
         design.tabBarPosition = .top
         design.titleAreaContrast = 1
         design.titleAreaTone = .oneColor // the default: the divider alone parts the tab row from the content
-        // The line is opt-in since 2026-11-15 (`NoLineUnderTabsTests`): this test holds how it draws when on.
-        let store = TunableStore.shared
-        store.register([ChromeTunables.tabRowDivider.descriptor])
-        if !store.isActive { store.activate(file: nil) }
-        let savedLine = store.overrides[ChromeTunables.tabRowDivider.key] // `set` returns the new value, not the old
-        store.set(ChromeTunables.tabRowDivider.key, .bool(true))
-        defer { store.set(ChromeTunables.tabRowDivider.key, savedLine) }
 
         _ = NSApplication.shared
         let window = CornerWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 500),
@@ -229,71 +221,6 @@ import Testing
     }
 }
 
-/// Lawrence, 2026-11-15: "we still have the line below tabs which is very bad." No tab row line by default: none under
-/// a terminal's tabs, a browser's, a chat's or a Markdown page's, and none past the strips (under the docked Home's
-/// header), at every density, light and dark, under either title area tone and any contrast.
-@MainActor @Suite(.serialized, .closesItsWindows) struct NoLineUnderTabsTests {
-    @Test(arguments: DensityPreset.allCases, [false, true])
-    func noLineUnderAnyTabStrip(density: DensityPreset, isDark: Bool) throws {
-        let design = DesignSettings.shared
-        let before = (design.densityTokens, design.chromeStyle, design.tabBarPosition, design.titleAreaContrast, design.titleAreaTone)
-        defer { (design.densityTokens, design.chromeStyle, design.tabBarPosition, design.titleAreaContrast, design.titleAreaTone) = before }
-        design.densityTokens = density.tokens
-        design.chromeStyle = .flat
-        design.tabBarPosition = .top
-        // The default, whatever an earlier test in this process left in the shared store.
-        let store = TunableStore.shared
-        let savedLine = store.overrides[ChromeTunables.tabRowDivider.key]
-        store.set(ChromeTunables.tabRowDivider.key, nil)
-        defer { store.set(ChromeTunables.tabRowDivider.key, savedLine) }
-
-        _ = NSApplication.shared
-        let window = CornerWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 500),
-                                  styleMask: .borderless, backing: .buffered, defer: false)
-        window.reportedScale = 2
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        let root = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 500))
-        window.contentView = root
-        // A card with a strip-less column on its left (the docked Home's header), then a terminal pane and a browser pane.
-        let content = NSView(frame: CGRect(x: 100, y: 40, width: 600, height: 320))
-        content.wantsLayer = true
-        let stripHeight = PaneChromeMetrics.current.resolvedStripHeight(scale: 2)
-        var strips: [CornerStrip] = []
-        for x in [200.0, 400.0] {
-            let pane = NSView(frame: CGRect(x: x, y: 0, width: 200, height: content.bounds.height))
-            let strip = CornerStrip(frame: CGRect(x: 0, y: pane.bounds.height - stripHeight, width: 200, height: stripHeight))
-            pane.addSubview(PaneContentAreaView(frame: CGRect(x: 0, y: 0, width: 200, height: pane.bounds.height - stripHeight)))
-            pane.addSubview(strip)
-            content.addSubview(pane)
-            strips.append(strip)
-        }
-        strips[1].meetsToolbar = true
-        let shade = MainPaneChromeShadeView(frame: root.bounds)
-        let chrome = CornerFlushChrome(frame: root.bounds)
-        root.addSubview(shade)
-        root.addSubview(content)
-        let line = Metrics.lineWidth(Metrics.dividerThickness)
-        let seam = content.frame.maxY - stripHeight + line / 2
-        for tone in [TitleAreaTone.oneColor, .subtleTone] {
-            for contrast in [0, 0.5, 1] as [CGFloat] {
-                design.titleAreaTone = tone
-                design.titleAreaContrast = contrast
-                chrome.apply(content: content, radius: 12, isDark: isDark, page: false, shade: shade, in: root)
-                for strip in strips { CornerFlushChrome.stripDidChange(strip) }
-                #expect(Metrics.tabRowDividerStrength == 0, "\(tone) at contrast \(contrast)")
-                // Only the divider layer may draw a hairline at the seam; the shade's ground is the tone, not a line.
-                let dividers = (shade.layer?.sublayers ?? []).compactMap { $0 as? CAShapeLayer }.dropFirst()
-                for x in stride(from: content.frame.minX + 14, to: content.frame.maxX - 14, by: 10) {
-                    let drawn = dividers.contains { $0.path?.contains(CGPoint(x: x, y: seam), using: .evenOdd) == true
-                        && ($0.fillColor?.alpha ?? 0) > 0 }
-                    #expect(!drawn, "a line under the tabs at x \(x), \(density) \(isDark ? "dark" : "light"), \(tone) \(contrast)")
-                }
-            }
-        }
-    }
-}
-
 @MainActor private final class CornerWindow: NSWindow {
     var reportedScale: CGFloat = 1
     override var backingScaleFactor: CGFloat { reportedScale }
@@ -309,7 +236,7 @@ import Testing
 }
 
 /// The goo value's fillets: only `flush-goo` draws them.
-@MainActor @Suite(.closesItsWindows) struct CornerFlushGooTests {
+@MainActor @Suite struct CornerFlushGooTests {
     @Test func onlyGooHasFeet() {
         #expect(CornerFlush.goo.feetRadius > 0)
         for value in [CornerFlush.off, .flush, .tight] { #expect(value.feetRadius == 0) }

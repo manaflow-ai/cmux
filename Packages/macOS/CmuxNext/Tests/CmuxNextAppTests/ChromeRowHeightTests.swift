@@ -13,9 +13,12 @@ import Testing
 /// first tab. also the sizes of the icons/omnibar etc should match the tabbar tab height, which
 /// should match the workspace row height, at all density levels").
 ///
-/// Real tab strips and browser chrome keep that alignment at every preset and `sidebar.density`.
-/// Tabs follow the visible workspace row; the omnibar and its buttons scale Default's 29 pt reference,
-/// and the toolbar glyphs scale the Compact Helium calibration independently of the row-height exceptions.
+/// At every density preset and every `sidebar.density`, a real tab strip and a real browser chrome
+/// are laid out in a window: the tab pill, the back button and the omnibar are each as tall as a
+/// one-line sidebar workspace row (``SidebarRowTokens``), the back arrow's ink is the tab icon's
+/// side, and its leftmost ink sits on the first tab icon's box (the box every tab icon shares). Base drew a 24 pt tab beside a 28 pt
+/// omnibar and back button at Compact (30 / 34 / 32 at Comfortable), and the arrow's 12 pt ink
+/// beside the tab's 14 pt icon.
 @MainActor @Suite(.serialized, .closesItsWindows) struct ChromeRowHeightTests {
     private func load(_ preset: DensityPreset, _ sidebar: SidebarDensity) {
         DesignSettings.shared.densityTokens = preset.tokens
@@ -29,8 +32,7 @@ import Testing
     private func strip() -> (NSWindow, TabStripView) {
         _ = NSApplication.shared
         let items = (0..<2).map { TabItem(id: TabID("tab\($0)"), title: "lawrence@cmux \($0)", icon: .icon(.tabTerminal)) }
-        // The second tab is selected: a selected tab runs down into the page card, so the first is a plain pill.
-        let strip = TabStripView(model: TabStripModel(tabs: items, selectedID: TabID("tab1")))
+        let strip = TabStripView(model: TabStripModel(tabs: items, selectedID: TabID("tab0")))
         strip.dragsWindowFromEmptySpace = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 120), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -96,13 +98,11 @@ import Testing
         return inkSpan(rep, pointWidth: size.width)
     }
 
-    /// Tabs follow the visible sidebar row, including sidebar settings. The omnibar and its buttons are their own
-    /// location bar, independent of the specified row-height exceptions: Helium's 28 pt at Compact, scaled by each
-    /// density, and Chrome's 34 pt at Default.
     @Test(arguments: DensityPreset.allCases, SidebarDensity.allCases)
-    func tabNavigationAndOmnibarTakeTheDensitysHeights(preset: DensityPreset, sidebar: SidebarDensity) throws {
+    func tabNavigationAndOmnibarAreOneSidebarRowTall(preset: DensityPreset, sidebar: SidebarDensity) throws {
         defer { reset() }
         load(preset, sidebar)
+        // The row as the sidebar draws it: at Default its fill takes the gap under it (30, not 28).
         let row = SidebarRowTokens.current.listRowHeight
         let (stripWindow, strip) = strip()
         defer { stripWindow.close() }
@@ -111,21 +111,11 @@ import Testing
         defer { window.close() }
         let back = chrome.backButton.convert(chrome.backButton.bounds, to: nil)
         let bar = chrome.addressBar.convert(chrome.addressBar.bounds, to: nil)
-        let omnibar = OmnibarMetrics.current.barHeight
-        let label = "\(preset) / sidebar \(sidebar): row \(row), tab \(Metrics.tabHeight), omnibar \(omnibar)"
-        #expect(abs(pill.height - Metrics.tabHeight) <= 0.5, "\(label), pill \(pill.height)")
-        // The buttons are the bar's height, Compact's 28 at Default (Lucas 2026-11-18: Compact's padding).
-        let button = OmnibarMetrics.current.buttonSize
-        #expect(button == (preset == .cozy ? 28 : omnibar), "\(label), buttons \(button)")
-        #expect(abs(back.height - button) <= 0.5, "\(label), back button \(back.height)")
-        #expect(abs(back.width - button) <= 0.5, "\(label), back button is square: \(back.width)")
-        #expect(abs(bar.height - omnibar) <= 0.5, "\(label), omnibar \(bar.height)")
-        // Compact's tab is 2 pt over its row: the user's tuning (2026-11-19) keeps Helium's 28 pt tab over a 24 pt sidebar
-        // row token (26 pt with the row fill), as `TabsFollowRowsTests` holds.
-        let lift: CGFloat = preset == .compact ? 2 : 0
-        #expect(abs(pill.height - (row + lift)) <= 0.5, "\(label): the tab follows the visible row")
-        let expectedBar: CGFloat = preset == .cozy ? 34 : (28 / 0.9 * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2
-        #expect(abs(bar.height - expectedBar) <= 0.5, "\(label): the bar is Helium's 28 pt at Compact, Chrome's 34 at Default")
+        let label = "\(preset) / sidebar \(sidebar): row \(row)"
+        #expect(abs(pill.height - row) <= 0.5, "\(label), tab \(pill.height)")
+        #expect(abs(back.height - row) <= 0.5, "\(label), back button \(back.height)")
+        #expect(abs(back.width - row) <= 0.5, "\(label), back button is square: \(back.width)")
+        #expect(abs(bar.height - row) <= 0.5, "\(label), omnibar \(bar.height)")
     }
 
     @Test(arguments: DensityPreset.allCases)
@@ -142,9 +132,8 @@ import Testing
         let (window, chrome) = chrome()
         defer { window.close() }
         let back = chrome.backButton
-        // The button draws its glyph image centered in its square: the box's size, its ink centered (`InkCenteredGlyphView`).
-        back.layoutSubtreeIfNeeded()
-        let glyph = try #require(back.drawnImage, "\(preset): the back button has no glyph")
+        // The button draws its glyph image centered in its square (`imagePosition = .imageOnly`).
+        let glyph = try #require(back.image, "\(preset): the back button has no glyph")
         let arrowInk = try #require(inkSpan(glyph), "\(preset): the back arrow draws no ink")
         let glyphLeft = (back.bounds.width - glyph.size.width) / 2
         // Both rows start at their pane's leading edge (PaneContentView lays the strip and the
@@ -156,17 +145,13 @@ import Testing
         #expect(iconInk.lowerBound >= -0.01, "\(preset): the tab icon draws inside its box")
         // The arrow's ink starts on the icon box, or as near as the toolbar's leading edge lets it: a large density's
         // button is wider than its 13 pt ink, and the button stays inside the toolbar (OmnibarStyle.toolbarInset).
-        // Within one device pixel of the window (0.75 pt at 2x as before): a 1x display draws the ink centered on whole
-        // points, so a half-point inset lands a point off there (Compact and Spacious on the fleet's 1x display workers).
-        let pixel = 0.25 + 1 / max(window.backingScaleFactor, 1)
-        #expect(arrowLeft >= iconLeft - pixel, "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
-        #expect(arrowLeft <= iconLeft + pixel || OmnibarStyle.toolbarInset == 0,
+        #expect(arrowLeft >= iconLeft - 0.75, "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
+        #expect(arrowLeft <= iconLeft + 0.75 || OmnibarStyle.toolbarInset == 0,
                 "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
-        // Compact's 14 pt reload ink calibrates the shared toolbar box (0.617 of its side); the back arrow's
-        // keyline fills 0.6 of that box. Both scale from Default, independently of the small-icon fallback.
+        // The arrow's ink is a point under the small icon (Helium's 13 pt at Default; Lucas 2026-11-13: the arrows were
+        // bigger than Helium's), not the tab icon's box.
         let arrowWidth = arrowInk.upperBound - arrowInk.lowerBound
-        let box = ((14 / 0.9 / 0.617) * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2 // Default's toolbar row is Compact's
-        let ink = box * DensityTokens.toolbarGlyphInkRatio
+        let ink = DensityTokens.toolbarGlyphInk(smallIcon: Metrics.smallIconSize)
         #expect(abs(arrowWidth - ink) <= 1, "\(preset): back arrow ink \(arrowWidth) wide, want \(ink)")
     }
 }

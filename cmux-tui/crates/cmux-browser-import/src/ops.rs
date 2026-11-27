@@ -26,7 +26,6 @@
 //! | `chromium.session` | path or base64 | tabs |
 //! | `chromium.search_engine` | profile | engine or null |
 //! | `chromium.extensions` | profile | extensions |
-//! | `chromium.extension_install_plan` | profile (a cmux profile), extensions, copyRoot | `{store, unpacked: [{extension, copy}], installed}` |
 //! | `arc.bookmarks` | path or base64, profileDirectory | bookmarks |
 //! | `firefox.bookmarks` | path | bookmarks |
 //! | `firefox.history` | path, limit | history entries |
@@ -43,7 +42,7 @@
 use crate::model::{self, Bookmark, Extension, HistoryEntry, ReadError, SearchEngine, Tab};
 use crate::place::{Files, Place};
 use crate::upload::{self, Uploads};
-use crate::{arc, chromium, exported, extension_plan, firefox, safari, search};
+use crate::{arc, chromium, exported, firefox, safari, search};
 use base64::Engine as _;
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
@@ -229,30 +228,6 @@ fn read(op: &str, request: &Value, source: Source<'_>) -> Result<Value, OpError>
             let items = chromium::extensions(path("profile")?);
             json!({ "ok": model::list(&items, Extension::to_json) })
         }
-        "chromium.extension_install_plan" => {
-            let extensions: Vec<Extension> = match request.get("extensions") {
-                None => Vec::new(),
-                Some(list) => list
-                    .as_array()
-                    .ok_or(OpError::Invalid)?
-                    .iter()
-                    .filter_map(Extension::from_json)
-                    .collect(),
-            };
-            let copy_root = field(request, "copyRoot")?;
-            let plan = extension_plan::install_plan(&extensions, path("profile")?, copy_root)
-                .ok_or(OpError::Refused)?;
-            let unpacked: Vec<Value> = plan
-                .unpacked
-                .iter()
-                .map(|(e, copy)| json!({ "extension": e.to_json(), "copy": copy }))
-                .collect();
-            json!({ "ok": {
-                "store": model::list(&plan.store, Extension::to_json),
-                "unpacked": unpacked,
-                "installed": plan.installed,
-            } })
-        }
         "arc.bookmarks" => {
             let profile = field(request, "profileDirectory")?;
             bookmarks(bytes(request, source)?.and_then(|d| arc::bookmarks(&d, profile)))
@@ -309,7 +284,7 @@ fn read(op: &str, request: &Value, source: Source<'_>) -> Result<Value, OpError>
 pub const UPLOAD_OPS: [&str; 2] = ["upload.append", "upload.drop"];
 
 /// The reader names: `browser_import.read`'s `reader` values besides [`UPLOAD_OPS`].
-pub const OPS: [&str; 20] = [
+pub const OPS: [&str; 19] = [
     "chromium.bookmarks",
     "chromium.history",
     "chromium.session_file",
@@ -317,7 +292,6 @@ pub const OPS: [&str; 20] = [
     "chromium.session",
     "chromium.search_engine",
     "chromium.extensions",
-    "chromium.extension_install_plan",
     "arc.bookmarks",
     "firefox.bookmarks",
     "firefox.history",

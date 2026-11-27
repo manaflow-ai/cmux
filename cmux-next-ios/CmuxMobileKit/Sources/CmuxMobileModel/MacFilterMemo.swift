@@ -16,10 +16,6 @@ public final class MacFilterMemo {
         public let id: String
         public let title: String
         public let detail: String
-        /// Its dot in the Filter menu: green when reachable (or on its way), red when not
-        /// (``ComputerDots/isUp(_:listedOnline:)``). Leo, 2026-11-24: "red dot green dot when you
-        /// switch between your computers' stuff".
-        public var isOnline: Bool = false
     }
 
     /// Everything a Filter row's text depends on. `minute` makes offline
@@ -34,18 +30,11 @@ public final class MacFilterMemo {
         public var connection: [String: MacConnection]
         public var linkStatus: [String: String]
         public var live: Bool
-        /// The last failed try at each Mac and whether this iPhone is offline: with `connection`,
-        /// each row's dot (``MacReachability/resolve(mac:connection:failure:live:phoneOffline:)``).
-        public var failure: [String: MacLinkFailure] = [:]
-        public var phoneOffline = false
         public var minute: Int
 
         public init(macs: [MacDevice], accountMacs: [MacDevice]? = nil, connection: [String: MacConnection],
-                    linkStatus: [String: String], live: Bool, now: Date = Date(),
-                    failure: [String: MacLinkFailure] = [:], phoneOffline: Bool = false) {
+                    linkStatus: [String: String], live: Bool, now: Date = Date()) {
             self.macs = macs
-            self.failure = failure
-            self.phoneOffline = phoneOffline
             self.accountMacs = accountMacs ?? macs
             self.connection = connection
             self.linkStatus = linkStatus
@@ -57,7 +46,6 @@ public final class MacFilterMemo {
         public static func == (lhs: Input, rhs: Input) -> Bool {
             lhs.macs == rhs.macs && lhs.accountMacs == rhs.accountMacs && lhs.connection == rhs.connection
                 && lhs.linkStatus == rhs.linkStatus && lhs.live == rhs.live && lhs.minute == rhs.minute
-                && lhs.failure == rhs.failure && lhs.phoneOffline == rhs.phoneOffline
         }
     }
 
@@ -72,17 +60,13 @@ public final class MacFilterMemo {
     public init() {}
 
     private var rosterKey: [MacDevice]?
-    private var rosterPick: String?
     private var cachedRoster = MacRoster([])
 
-    /// ``MacRoster`` of `team`'s Macs, its picked build listed for its computer (``Team/pickedMacID``),
-    /// as the coordinator focuses it; recomputed only when a Mac or the pick changed.
-    public func roster(_ team: Team?) -> MacRoster {
-        let macs = team?.macs ?? [], pick = team?.pickedMacID
-        if rosterKey == macs, rosterPick == pick { return cachedRoster }
+    /// ``MacRoster`` of `macs`, recomputed only when a Mac changed.
+    public func roster(_ macs: [MacDevice]) -> MacRoster {
+        if rosterKey == macs { return cachedRoster }
         rosterKey = macs
-        rosterPick = pick
-        cachedRoster = MacRoster(macs, preferring: pick)
+        cachedRoster = MacRoster(macs)
         return cachedRoster
     }
 
@@ -107,10 +91,7 @@ public final class MacFilterMemo {
             let presence = stamp.presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
             let status = MacStatusLine.make(mac: mac, connection: input.connection[mac.id], live: input.live, presence: presence).text
             let detail = input.linkStatus[mac.id] ?? status
-            let reach = MacReachability.resolve(mac: mac, connection: input.connection[mac.id], failure: input.failure[mac.id],
-                                                live: input.live, phoneOffline: input.phoneOffline)
-            return Entry(id: mac.id, title: names.displayName(mac), detail: detail,
-                         isOnline: ComputerDots.isUp(reach, listedOnline: mac.isOnline))
+            return Entry(id: mac.id, title: names.displayName(mac), detail: detail)
         }
         entriesKey = input
         entryComputations += 1

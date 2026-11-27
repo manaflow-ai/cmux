@@ -2,11 +2,12 @@
 
 use crate::clock::Rng;
 use crate::marker;
-use crate::shm::{ServerAccess, ShmSeg};
+use crate::shm::ShmSeg;
 use crate::Res;
 use x11rb::connection::Connection;
+use x11rb::protocol::shm::ConnectionExt as _;
 use x11rb::protocol::xproto::{
-    ConnectionExt as _, CreateGCAux, Gcontext, Rectangle, Screen, Window,
+    ConnectionExt as _, CreateGCAux, Gcontext, ImageFormat, Rectangle, Screen, Window,
 };
 
 pub const GRAY: u32 = 0x80_80_80;
@@ -106,7 +107,7 @@ impl<'c, C: Connection> Painter<'c, C> {
             None
         };
         let motion = if kind == Kind::Motion {
-            let shm = ShmSeg::new(conn, w as usize * h as usize * 4, ServerAccess::Read)?;
+            let shm = ShmSeg::new(conn, w as usize * h as usize * 4)?;
             let mut rng = Rng::new(0x0dd_ba11);
             let noise = (0..1024 * 1024).map(|_| (rng.next_u64() >> 56) as u8).collect();
             Some(MotionState { shm, noise, frame: 0 })
@@ -242,7 +243,7 @@ impl<'c, C: Connection> Painter<'c, C> {
         let stride = w * 4;
         let col: Vec<u8> = (0..w).map(|x| (x * 255 / w) as u8).collect();
         {
-            let buf = m.shm.pixels_mut();
+            let buf = m.shm.as_mut_slice();
             for y in 0..h {
                 let ny = ((y + dy) & 1023) * 1024;
                 let gy = ((y * 255 / h) + t * 3) as u8;
@@ -259,7 +260,13 @@ impl<'c, C: Connection> Painter<'c, C> {
             }
             marker::paint_bgrx(buf, stride, counter);
         }
-        // Returns once the server has read the segment, before we overwrite it next tick.
-        m.shm.put_image(&self.conn, self.win, self.gray, (self.w, self.h), self.depth)
+        let fmt = u8::from(ImageFormat::Z_PIXMAP);
+        self.conn.shm_put_image(
+            self.win, self.gray, self.w, self.h, 0, 0, self.w, self.h, 0, 0, self.depth, fmt,
+            false, m.shm.seg, 0,
+        )?;
+        // Round trip so the server has read the segment before we overwrite it next tick.
+        self.conn.get_input_focus()?.reply()?;
+        Ok(())
     }
 }

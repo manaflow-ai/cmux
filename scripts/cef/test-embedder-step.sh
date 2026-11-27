@@ -11,8 +11,7 @@
 #             checkout's scripts/cmux-next/cef-manifest.json pins (this Mac's arch)
 #   SOURCES   sha256:<hex> of the test-source archive (below)
 #   FORK_REF  the 40-hex fork commit the archive was made from (its REF file)
-#   CASE      default: all 12; preload157-omnibox and preload157-net (fork API 33) and
-#             passkey157-profile-ui (UI-thread gap while a profile is created, hq#11649) run only when named
+#   CASE      default: all 12; preload157-omnibox and preload157-net (fork API 33) run only when named
 #
 # Both archives come from the controller store by sha256 and are checked
 # before use; the host holds no credential. The fork is private, so the
@@ -48,9 +47,8 @@ usage() { sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 (( $# >= 3 )) || usage
 PACKAGE="$1" SOURCES="$2" FORK_REF="$3"; shift 3
 ALL=(signals slow-teardown duplicate zoom-bubble bookmark-bubble window-close move-parent transparent pref-control opaque-webauthn passkeys password-core)
-# Named only (fork API 33, omnibox preloading; preload157-net loads real sites; passkey157-profile-ui
-# is a measurement whose source exists only in forks with it): not in the default run.
-NAMED_ONLY=(preload157-omnibox preload157-net passkey157-profile-ui)
+# Named only (fork API 33, omnibox preloading; preload157-net loads real sites): not in the default run.
+NAMED_ONLY=(preload157-omnibox preload157-net)
 cases=("$@")
 die() { echo "cmux-embedder: error: $*" >&2; exit 2; }
 (( ${#cases[@]} )) || cases=("${ALL[@]}")
@@ -72,9 +70,7 @@ PY
 fi
 [[ "$PACKAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || die "PACKAGE must be sha256:<64 hex> or a pinned cef release tag"
 
-# TMPDIR first: on a lent worker steps/<id> (CI_JOB_DIR) stays root's 0711 and only
-# its subdirectories, TMPDIR among them, are the build user's, which a gui-session-v1 step runs as.
-WORK="${CMUX_EMBEDDER_WORK:-${TMPDIR:-${CI_JOB_DIR:-/tmp}}/cef-embedder}"
+WORK="${CMUX_EMBEDDER_WORK:-${CI_JOB_DIR:-${TMPDIR:-/tmp}}/cef-embedder}"
 rm -rf "$WORK"; mkdir -p "$WORK/in" "$WORK/cef" "$WORK/run"
 CONTROLLER="${CMUX_CI_CONTROLLER:-http://100.89.225.106:18765}"
 

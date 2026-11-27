@@ -89,20 +89,6 @@ import Testing
         #expect(!CloudAccessToken.isTeam("personal"))
     }
 
-    @Test func machineRoutesActInTheInstallsOwnTeamUnlessTheDeviceIsManaged() throws {
-        let project = "proj_1", stackTeam = "6F1C2D9E-0000-4000-8000-000000000001", other = "6f1c2d9e-0000-4000-8000-000000000002"
-        let backend = CloudIdentity.workerTeamID(stackProjectID: project, stackTeamID: stackTeam)
-        // Unmanaged: the install's own (personal) team, where the Cloud machines are, whatever team is active
-        // (cloud-carrier-ssh-failover 2026-11-15T21:18Z joined the Mac in the active Stack team: another mesh).
-        #expect(try CloudAccessToken.machineRoutesTeam(activeStackTeam: stackTeam, managedStackTeam: nil, stackProjectID: project) == nil)
-        #expect(try CloudAccessToken.machineRoutesTeam(activeStackTeam: nil, managedStackTeam: nil, stackProjectID: project) == nil)
-        // Managed: only its team, only while it is the active one.
-        #expect(try CloudAccessToken.machineRoutesTeam(activeStackTeam: stackTeam, managedStackTeam: stackTeam, stackProjectID: project) == backend)
-        #expect(throws: CloudAccessToken.Failure.managed) {
-            try CloudAccessToken.machineRoutesTeam(activeStackTeam: other, managedStackTeam: stackTeam, stackProjectID: project)
-        }
-    }
-
     @Test func theDefaultIsTheActiveTeamAndAManagedDeviceMintsOnlyForItsTeam() throws {
         let project = "proj_1", stackTeam = "6F1C2D9E-0000-4000-8000-000000000001", other = "6f1c2d9e-0000-4000-8000-000000000002"
         // Rust mints for the same id the Worker and Home use for that team.

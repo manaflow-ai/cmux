@@ -3,7 +3,7 @@
 //! bytes on the wire. The benchmark is `#[ignore]`: run it with
 //!
 //! ```text
-//! cargo test -p cmux-tui --test it -- link_push_bench:: --ignored --nocapture
+//! cargo test -p cmux-tui --test link_push_bench -- --ignored --nocapture
 //! ```
 //!
 //! It prints one JSON line (`{"bench":"link_push",...}`). The fixture and
@@ -20,7 +20,7 @@
 //! the Cloud link's local socket does. Linux only, as a Cloud host is.
 #![cfg(target_os = "linux")]
 
-use crate::journey_support;
+mod journey_support;
 
 use std::collections::VecDeque;
 use std::fs;
@@ -425,7 +425,7 @@ fn digest(folder: &Path) -> u64 {
 /// folder untouched (`seed_cli::hop`); and the file-by-file relay (`sync relay`) beside them.
 /// Then a folder that started on VM one (its own clone, no folder of this Mac's): before, the
 /// file-by-file relay it took; after, `seed move` with no Mac folder, git from its upstream.
-/// Run with `cargo test -p cmux-tui --test it link_relay_bench -- --ignored
+/// Run with `cargo test -p cmux-tui --test link_push_bench link_relay_bench -- --ignored
 /// --nocapture`; it prints one JSON line (`{"bench":"link_relay",...}`).
 #[test]
 #[ignore = "benchmark: run with --ignored --nocapture"]

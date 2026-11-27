@@ -17,7 +17,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
-use cmux_signed_envelope::linux_release::Place as ReleasePlace;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::sync::watch;
@@ -39,8 +38,8 @@ struct ArtifactManifest {
     binaries: HashMap<String, String>,
 }
 
-/// The per-user cache for downloaded SSH payloads: `~/Library/Caches/cmux-next` on
-/// macOS (never cmux Classic's `Caches/cmux`), `$XDG_CACHE_HOME/cmux` or `~/.cache/cmux` elsewhere.
+/// The per-user cache for downloaded SSH payloads: `~/Library/Caches` on
+/// macOS, `$XDG_CACHE_HOME` or `~/.cache` elsewhere.
 pub(crate) fn default_payload_cache() -> Option<PathBuf> {
     let base = if std::env::consts::OS == "macos" {
         PathBuf::from(std::env::var_os("HOME")?).join("Library/Caches")
@@ -50,8 +49,7 @@ pub(crate) fn default_payload_cache() -> Option<PathBuf> {
     } else {
         PathBuf::from(std::env::var_os("HOME")?).join(".cache")
     };
-    let own = if std::env::consts::OS == "macos" { "cmux-next" } else { "cmux" };
-    Some(base.join(own).join("cmux-tui-ssh"))
+    Some(base.join("cmux/cmux-tui-ssh"))
 }
 
 /// The SHA-256 digests this client build pins for every remote platform, read
@@ -218,8 +216,6 @@ fn client_architecture(
 pub(crate) struct PublishedPayload {
     url: String,
     sha256: String,
-    /// The size a signed release file gives; None for a bundled manifest's pin.
-    size: Option<u64>,
     cache_path: PathBuf,
     proxy_pac: Option<String>,
 }
@@ -291,7 +287,6 @@ pub(crate) fn payload(
                 ),
                 cache_path: cache.join(format!("{expected}-{name}")),
                 sha256: expected,
-                size: None,
                 proxy_pac: source.proxy_pac.map(str::to_owned),
             })))
         }
@@ -308,15 +303,13 @@ const PUBLISHED_BASE_URL: &str = "https://files.cmux.com/cmux-tui";
 /// release into the payload cache and checked against the pin. A Cloud
 /// machine's in-place update installs it (cmux link machine update,
 /// cx-rppd.13). A build that ships no manifest (DEV builds) takes the pin
-/// from its own commit's signed release file instead ([`published_release`]),
-/// or, for a tree-mode bundle whose commit was never published on its own,
-/// from its cmux-tui tree's ([`published_tree_pin`]). Those files are
-/// verified against the release keys before any field is read
-/// (cmuxterm-hq docs/design/linux-signed-packages.md, path E); the unsigned
-/// `<commit>/manifest.json` is never read. `Ok(None)` when nothing is
-/// published (a source build of an unpublished or dirty tree); a commit
-/// published only with the unsigned manifest, a file that does not verify, or
-/// a payload that does not match its pin is an error, never an unverified file.
+/// from its own commit's published manifest instead ([`published_pin`]), or,
+/// for a tree-mode bundle whose commit was never published on its own, from
+/// the commit that published its cmux-tui tree ([`published_tree_pin`]), as
+/// the app's SSH installer does for a DEV build (RemoteInstaller.plan).
+/// `Ok(None)` when it has neither (a source build of an unpublished or dirty
+/// tree); a payload that does not match its pin is an error, never an
+/// unverified file.
 /// `identity` is the binary's `cmux_build_identity::BUILD_IDENTITY`.
 pub async fn pinned_linux_payload(
     arch: &str,
@@ -376,18 +369,17 @@ async fn resolve_linux_pin(
             // tree-mode bundle was built from: its manifest pins the same
             // build, and the download is still checked against that pin.
             let Some(cache) = cache else { return Ok(None) };
-            let keys = cmux_signed_envelope::linux_release::trusted_keys();
-            let own =
-                published_release(PUBLISHED_BASE_URL, identity, "linux", arch, &cache, &keys).await;
-            let tree_key =
-                if matches!(own, Ok(Some(_))) { None } else { bundled_tree_key(&executable) };
-            let published = match tree_key {
-                None => own?,
-                Some(key) => commit_or_tree(
-                    own,
-                    published_tree_pin(PUBLISHED_BASE_URL, &key, "linux", arch, &cache, &keys)
-                        .await,
-                )?,
+            let published = match published_manifest(PUBLISHED_BASE_URL, identity).await {
+                Some(manifest) => {
+                    published_pin(PUBLISHED_BASE_URL, identity, "linux", arch, &manifest, &cache)?
+                        .map(|pin| (pin, identity.to_owned()))
+                }
+                None => match bundled_tree_key(&executable) {
+                    Some(key) => {
+                        published_tree_pin(PUBLISHED_BASE_URL, &key, "linux", arch, &cache).await?
+                    }
+                    None => None,
+                },
             };
             let Some((published, commit)) = published else { return Ok(None) };
             Ok(Some((pin(&published.sha256, &commit), PinSource::Published(published))))
@@ -409,89 +401,15 @@ async fn resolve_linux_pin(
     }
 }
 
-/// A tree-mode bundle's pin: its own commit's signed release file when that
-/// gives one, else its tree's. A commit published before release files were
-/// signed has only the unsigned manifest (`own` is the unsigned_only error):
-/// the tree's signed file still pins the same build, so that error stands only
-/// when the tree publishes nothing either. A tree file that fails to verify is
-/// its own error, never an unpinned download.
-fn commit_or_tree<T>(
-    own: Result<Option<T>, BootstrapError>,
-    tree: Result<Option<T>, BootstrapError>,
-) -> Result<Option<T>, BootstrapError> {
-    match (own, tree?) {
-        (Ok(Some(found)), _) => Ok(Some(found)),
-        (_, Some(found)) => Ok(Some(found)),
-        (own, None) => own,
+/// The published manifest of commit `identity` (`<base>/<commit>/manifest.json`),
+/// or None when `identity` is not a plain commit (a dirty or local build) or
+/// nothing is published for it. HTTPS only, from the same immutable release the
+/// payload comes from.
+async fn published_manifest(base_url: &str, identity: &str) -> Option<Vec<u8>> {
+    if !is_commit(identity) {
+        return None;
     }
-}
-
-/// The pin commit `commit`'s signed release file (`<base>/<commit>/release.json`)
-/// gives for `os`/`arch`, and the commit that built it. None when `commit` is
-/// not a plain commit (a dirty or local build) or nothing is published for it.
-/// A commit published before CI signed release files (cmux#39452) has only the
-/// unsigned `manifest.json`: that is refused with its reason, never trusted.
-async fn published_release(
-    base_url: &str,
-    commit: &str,
-    os: &str,
-    arch: &str,
-    cache: &Path,
-    keys: &[cmux_signed_envelope::Key],
-) -> Result<Option<(PublishedPayload, String)>, BootstrapError> {
-    if !is_commit(commit) {
-        return Ok(None);
-    }
-    let base = base_url.trim_end_matches('/');
-    match published_file(&format!("{base}/{commit}/release.json")).await {
-        Some(body) => release_pin(&body, ReleasePlace::Commit(commit), os, arch, cache, keys),
-        None if published_file(&format!("{base}/{commit}/manifest.json")).await.is_some() => {
-            Err(unsigned_only(commit))
-        }
-        None => Ok(None),
-    }
-}
-
-fn unsigned_only(commit: &str) -> BootstrapError {
-    BootstrapError::Configuration(format!(
-        "cmux-tui {} is published without a signed release file (release.json), so its build \
-         cannot be verified; install a cmux build that bundles its Linux build, or one built \
-         after Linux release files were signed",
-        commit.get(..12).unwrap_or(commit)
-    ))
-}
-
-/// The pin the release file `body`, read from `place`, gives for `os`/`arch`
-/// and the commit that built it: None for a platform no release publishes. A
-/// file no release key signed, one of another kind, commit or tree, or one
-/// without a well-formed entry for the platform is an error, never an
-/// unpinned download.
-fn release_pin(
-    body: &[u8],
-    place: ReleasePlace<'_>,
-    os: &str,
-    arch: &str,
-    cache: &Path,
-    keys: &[cmux_signed_envelope::Key],
-) -> Result<Option<(PublishedPayload, String)>, BootstrapError> {
-    let Some((target, _)) = release_target(os, arch) else { return Ok(None) };
-    let refused = |why: String| {
-        BootstrapError::Configuration(format!("the signed cmux-tui release file is refused: {why}"))
-    };
-    let release =
-        cmux_signed_envelope::linux_release::verify(body, keys, place).map_err(refused)?;
-    let file = release.binary(target, "cmux-tui").map_err(refused)?;
-    let name = format!("cmux-tui-{target}");
-    Ok(Some((
-        PublishedPayload {
-            url: file.url.clone(),
-            cache_path: cache.join(format!("{}-{name}", file.sha256)),
-            sha256: file.sha256.clone(),
-            size: Some(file.size),
-            proxy_pac: None,
-        },
-        release.commit,
-    )))
+    published_file(&format!("{}/{identity}/manifest.json", base_url.trim_end_matches('/'))).await
 }
 
 /// One published file at `url`, or None when it is missing or did not come.
@@ -545,29 +463,24 @@ fn tree_key_in(version: &str) -> Option<String> {
 }
 
 /// The pin of tree `key` for `os`/`arch` and the commit that published it:
-/// the tree's own signed `tree/<key>/release.json` when it is published
-/// (phase 1b), else the signed release file of the commit its
-/// `tree/<key>/source.json` names, which must list the same digest
-/// (RemoteInstaller.plan). None while the tree is not published; a source of
-/// another tree, a commit that is not one, a release file that does not
-/// verify, or a digest the tree does not vouch for is an error.
+/// `tree/<key>/source.json` names the commit, whose manifest pins the build,
+/// and the tree must list the same digest (RemoteInstaller.plan). None while
+/// the tree is not published; a source of another tree, a commit that is not
+/// one, or a digest the tree does not vouch for is an error.
 async fn published_tree_pin(
     base_url: &str,
     key: &str,
     os: &str,
     arch: &str,
     cache: &Path,
-    keys: &[cmux_signed_envelope::Key],
 ) -> Result<Option<(PublishedPayload, String)>, BootstrapError> {
     let base = base_url.trim_end_matches('/');
-    if let Some(body) = published_file(&format!("{base}/tree/{key}/release.json")).await {
-        return release_pin(&body, ReleasePlace::Tree(key), os, arch, cache, keys);
-    }
     let Some(source) = published_file(&format!("{base}/tree/{key}/source.json")).await else {
         return Ok(None);
     };
     let commit = tree_commit(key, &source)?;
-    let Some((pin, commit)) = published_release(base, &commit, os, arch, cache, keys).await? else {
+    let Some(manifest) = published_manifest(base, &commit).await else { return Ok(None) };
+    let Some(pin) = published_pin(base, &commit, os, arch, &manifest, cache)? else {
         return Ok(None);
     };
     tree_vouches(&source, &pin)?;
@@ -604,6 +517,45 @@ fn tree_vouches(source: &[u8], pin: &PublishedPayload) -> Result<(), BootstrapEr
 /// A 40-hex lowercase commit.
 fn is_commit(text: &str) -> bool {
     text.len() == 40 && text.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// The payload `manifest` (commit `identity`'s published manifest) pins for
+/// `os`/`arch`: None for a platform no release publishes. A manifest of
+/// another commit, or one without a well-formed digest for the platform, is an
+/// error, never an unpinned download.
+fn published_pin(
+    base_url: &str,
+    identity: &str,
+    os: &str,
+    arch: &str,
+    manifest: &[u8],
+    cache: &Path,
+) -> Result<Option<PublishedPayload>, BootstrapError> {
+    let Some((target, _)) = release_target(os, arch) else { return Ok(None) };
+    let manifest: ArtifactManifest = serde_json::from_slice(manifest)
+        .map_err(|_| BootstrapError::Configuration("invalid published cmux-tui manifest".into()))?;
+    if manifest.commit != identity {
+        return Err(BootstrapError::Configuration(
+            "the published cmux-tui manifest names another commit".into(),
+        ));
+    }
+    let name = format!("cmux-tui-{target}");
+    let sha256 = manifest
+        .binaries
+        .get(&name)
+        .filter(|digest| digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(|| {
+            BootstrapError::Configuration(
+                "the published cmux-tui manifest lacks a checksum for this platform".into(),
+            )
+        })?
+        .to_ascii_lowercase();
+    Ok(Some(PublishedPayload {
+        url: format!("{}/{identity}/{name}", base_url.trim_end_matches('/')),
+        cache_path: cache.join(format!("{sha256}-{name}")),
+        sha256,
+        proxy_pac: None,
+    }))
 }
 
 fn file_sha256(path: &Path) -> std::io::Result<String> {
@@ -785,37 +737,8 @@ async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
                 }),
             }
         }
-        // files.cmux.com down (a Cloudflare outage, cmuxterm-hq
-        // docs/rfd/0146-distribute-every-service/cloudflare-down-3h.md step 4):
-        // the same immutable, hash-named object from each mirror in
-        // CMUX_TUI_PAYLOAD_MIRRORS, in order. Unset (the default), nothing
-        // changes. The pin below still checks whatever a mirror served.
-        if !errors.is_empty() {
-            let mirrors =
-                mirror_urls(&payload.url, std::env::var(PAYLOAD_MIRRORS_ENV).ok().as_deref());
-            let last = mirrors.len().saturating_sub(1);
-            for (index, url) in mirrors.into_iter().enumerate() {
-                let mirrored = PublishedPayload { url: url.clone(), ..payload.clone() };
-                match run_curl(&mirrored, &partial, None, index < last).await {
-                    Ok(()) => {
-                        errors.clear();
-                        break;
-                    }
-                    Err(error) => errors.push(format!("from mirror {url}: {error}")),
-                }
-            }
-        }
         if !errors.is_empty() {
             return Err(errors.join("; ").chars().take(800).collect());
-        }
-        if let Some(size) = payload.size {
-            let length = std::fs::metadata(&partial).map_err(|error| error.to_string())?.len();
-            if length != size {
-                let _ = std::fs::remove_file(&partial);
-                return Err(format!(
-                    "the downloaded file is {length} bytes, not the {size} its release file signs"
-                ));
-            }
         }
         let actual = sha256_of(partial.clone()).await.map_err(|error| error.to_string())?;
         if actual != payload.sha256 {
@@ -826,28 +749,6 @@ async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
     std::fs::rename(&partial, &payload.cache_path).map_err(|error| error.to_string())?;
     prune_cache(&directory, &file_name);
     Ok(payload.cache_path.clone())
-}
-
-/// Comma-separated https base URLs that mirror [`PUBLISHED_BASE_URL`]
-/// object for object (a second bucket off Cloudflare). Empty or unset: off.
-const PAYLOAD_MIRRORS_ENV: &str = "CMUX_TUI_PAYLOAD_MIRRORS";
-
-/// `url` under each mirror base in `mirrors`, when `url` is under
-/// [`PUBLISHED_BASE_URL`]. Only https mirrors count: the download's own
-/// protocol pin would refuse anything else on a redirect anyway.
-fn mirror_urls(url: &str, mirrors: Option<&str>) -> Vec<String> {
-    let Some(rest) = url.strip_prefix(PUBLISHED_BASE_URL) else { return Vec::new() };
-    if !rest.starts_with('/') {
-        return Vec::new();
-    }
-    mirrors
-        .unwrap_or_default()
-        .split(',')
-        .map(|base| base.trim().trim_end_matches('/'))
-        .filter(|base| base.starts_with("https://") && base.len() > "https://".len())
-        .map(|base| format!("{base}{rest}"))
-        .filter(|mirrored| mirrored != url)
-        .collect()
 }
 
 /// Appends `payload` to `partial` with curl, through `route` when given.
@@ -958,5 +859,113 @@ impl std::os::fd::AsFd for DownloadLock {
 mod lock_tests;
 
 #[cfg(test)]
-#[path = "ssh_artifacts_published_release_tests.rs"]
-mod published_release_tests;
+mod published_pin_tests {
+    use super::*;
+
+    const COMMIT: &str = "5bdd4c9e4de3d3e93809a65135a039effc453c05";
+    const BASE: &str = "https://files.cmux.com/cmux-tui/";
+
+    fn manifest(commit: &str, digest: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "commit": commit,
+            "builtAt": "2026-11-01T00:00:00Z",
+            "binaries": {"cmux-tui-x86_64-unknown-linux-musl": digest, "cmux-tui-aarch64-apple-darwin": "00"},
+        }))
+        .unwrap()
+    }
+
+    /// A DEV build ships no manifest; its own commit's published one pins the
+    /// Cloud machine's build (Cloud start proof, 2026-11-01: a fresh machine's
+    /// older image refused the first send and the DEV app could not update it).
+    #[test]
+    fn a_dev_builds_published_manifest_pins_the_linux_build() {
+        let digest = "B4311A86C5EA".to_owned() + &"0".repeat(52);
+        let cache = Path::new("/tmp/cache");
+        let pin = published_pin(BASE, COMMIT, "linux", "x86_64", &manifest(COMMIT, &digest), cache)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            pin.url,
+            format!("https://files.cmux.com/cmux-tui/{COMMIT}/cmux-tui-x86_64-unknown-linux-musl")
+        );
+        assert_eq!(pin.sha256, digest.to_ascii_lowercase());
+        assert_eq!(
+            pin.cache_path,
+            cache.join(format!(
+                "{}-cmux-tui-x86_64-unknown-linux-musl",
+                digest.to_ascii_lowercase()
+            ))
+        );
+    }
+
+    #[test]
+    fn another_commits_or_an_incomplete_manifest_pins_nothing() {
+        let digest = "a".repeat(64);
+        let cache = Path::new("/tmp/cache");
+        let other = "1".repeat(40);
+        assert!(
+            published_pin(BASE, COMMIT, "linux", "x86_64", &manifest(&other, &digest), cache)
+                .is_err()
+        );
+        assert!(
+            published_pin(BASE, COMMIT, "linux", "x86_64", &manifest(COMMIT, "short"), cache)
+                .is_err()
+        );
+        assert!(published_pin(BASE, COMMIT, "linux", "x86_64", b"not json", cache).is_err());
+        assert!(
+            published_pin(BASE, COMMIT, "linux", "aarch64", &manifest(COMMIT, &digest), cache)
+                .is_err(),
+            "a platform the manifest does not pin"
+        );
+        assert!(
+            published_pin(BASE, COMMIT, "plan9", "x86_64", &manifest(COMMIT, &digest), cache)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    /// A tree-mode DEV bundle's own commit is never published on its own; the
+    /// commit that published its tree pins it (Cloud start proof,
+    /// 2026-11-01: the DEV app's commit manifest was a 404).
+    #[test]
+    fn a_tree_bundle_takes_its_trees_publishing_commit() {
+        let key = "df65220e9948cbe76924483c2a7ae1a98d52efbc";
+        let version = format!("mode=tree\nkey={key}\ncommit={}\n", "6".repeat(40));
+        assert_eq!(tree_key_in(&version).as_deref(), Some(key));
+        assert_eq!(tree_key_in(&format!("mode=pin\nkey={key}\n")), None);
+        assert_eq!(tree_key_in("mode=tree\nkey=\n"), None);
+
+        let digest = "c".repeat(64);
+        let source = |key: &str, commit: &str, digest: &str| {
+            serde_json::to_vec(&serde_json::json!({
+                "key": key, "commit": commit, "run": "1",
+                "binaries": {"cmux-tui-x86_64-unknown-linux-musl": digest},
+            }))
+            .unwrap()
+        };
+        assert_eq!(tree_commit(key, &source(key, COMMIT, &digest)).unwrap(), COMMIT);
+        assert!(tree_commit(key, &source(&"e".repeat(40), COMMIT, &digest)).is_err());
+        assert!(tree_commit(key, &source(key, "HEAD", &digest)).is_err());
+
+        let pin = published_pin(
+            BASE,
+            COMMIT,
+            "linux",
+            "x86_64",
+            &manifest(COMMIT, &digest),
+            Path::new("/tmp/cache"),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(tree_vouches(&source(key, COMMIT, &digest), &pin).is_ok());
+        assert!(tree_vouches(&source(key, COMMIT, &"d".repeat(64)), &pin).is_err());
+    }
+
+    #[test]
+    fn only_a_plain_commit_is_looked_up() {
+        assert!(is_commit(COMMIT));
+        assert!(!is_commit(&COMMIT.to_ascii_uppercase()));
+        assert!(!is_commit(&format!("{COMMIT}-dirty")));
+        assert!(!is_commit("local"));
+    }
+}

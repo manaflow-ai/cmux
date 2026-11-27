@@ -116,31 +116,6 @@ struct TerminalFindOpenFocusTests {
         #expect(session.find.query == "x")
     }
 
-    /// Cmd-G before any Cmd-F opens the bar as Cmd-F does (seeded with the selection), where it
-    /// used to refuse with "no find is active; use Find first".
-    @Test func findNextWithNoFindYetOpensTheBarAsFindDoes() throws {
-        let harness = try Self.harness()
-        defer { harness.close() }
-        let session = harness.terminals[0].session
-        try #require(harness.window.makeFirstResponder(session.surfaceView))
-        session.find.navigate(.next, seed: "err")
-        let bar = try #require(Self.bar(of: session), "Find Next with no query built no find bar")
-        #expect(bar.pill.isPresented, "Find Next with no query did not show the find bar")
-        #expect(session.find.query == "err", "the bar did not start with the selection")
-        #expect(FindPillView.ownsFieldEditor(harness.window.firstResponder), "the find field did not take the keyboard")
-    }
-
-    @Test func findPreviousAfterClosingReopensWithTheLastQuery() throws {
-        let harness = try Self.harness()
-        defer { harness.close() }
-        let session = harness.terminals[0].session
-        try Self.cmdFThenType("err", in: session, window: harness.window)
-        session.find.close()
-        session.find.navigate(.previous, seed: "other")
-        #expect(session.find.isPresented, "Find Previous did not reopen the bar")
-        #expect(session.find.query == "err", "the last query lost to the selection")
-    }
-
     @Test func aSocketOpenShowsTheBarAndLeavesTheKeyboardOnTheTerminal() throws {
         let harness = try Self.harness()
         defer { harness.close() }

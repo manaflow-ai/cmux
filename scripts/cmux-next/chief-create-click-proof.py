@@ -26,11 +26,6 @@ if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.env
     sys.exit("chief-create-click-proof.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
              "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 
-# It activates the app and posts real clicks and keys: never on a person's Mac (bench_launch.require_no_person_mac).
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import require_no_person_mac  # noqa: E402
-require_no_person_mac("chief-create-click-proof")
-
 APP, TAG, OUT = os.environ["NX_APP"], os.environ["NX_APP_TAG"], os.environ["NX_ARTIFACTS"]
 CAPTURE, STOP, CLI = os.environ["NX_CAPTURE"], os.environ["NX_APP_STOP"], os.environ["NX_APP_CLI"]
 ACPMUX = os.path.join(APP, "Contents/Resources/bin/acpmux")
@@ -430,9 +425,9 @@ try:
 
     # 1. The app restarted the keyless owner once, with its key.
     def owner():
-        o = (res(rpc("debug.home", {"paths": True}, 30)) or {}).get("chief_owner") or {}
+        o = (res(rpc("debug.home", {}, 30)) or {}).get("chief_owner") or {}
         return o if o.get("connected") and o.get("daemon_pid") and o.get("daemon_pid") != pre_pid else None
-    o = until(owner, 120) or (res(rpc("debug.home", {"paths": True}, 30)) or {}).get("chief_owner")
+    o = until(owner, 120) or (res(rpc("debug.home", {}, 30)) or {}).get("chief_owner")
     after = owner_status()
     R["key_file_mode"] = oct(os.stat(os.path.join(CHIEF, "tui", "frontend-install-key")).st_mode & 0o777) \
         if os.path.exists(os.path.join(CHIEF, "tui", "frontend-install-key")) else None
@@ -485,7 +480,7 @@ try:
     R["host_list_after_click"] = rpc("debug.page", {"page": "cmux.home-channels", "action": "call", "op": "cmux.chief.profile.list",
                                                      "params": {"machine": "current", "session": "current"}}, 30)
     R["hangs"] = res(rpc("debug.hangs", {}, 30))
-    R["debug_home_after_click"] = res(rpc("debug.home", {"paths": True}, 30))
+    R["debug_home_after_click"] = res(rpc("debug.home", {}, 30))
     until(lambda: None, 3)  # proof pacing: the page shows the new Chief before the shot
     after_page = page_state()
     R["page_after_create"] = json.dumps(after_page)[-3000:]
@@ -508,7 +503,7 @@ try:
         R["owner_stop"] = subprocess.run([CLI, "--session", owner_session(CHIEF), "--json", "server", "stop", "--force"],
                                          capture_output=True, text=True, timeout=60, env={**env_base(), **OWNER_ENV}).returncode
         def new_owner():
-            o = (res(rpc("debug.home", {"paths": True}, 30)) or {}).get("chief_owner") or {}
+            o = (res(rpc("debug.home", {}, 30)) or {}).get("chief_owner") or {}
             return o if o.get("connected") and o.get("daemon_pid") and o.get("daemon_pid") != before_restart.get("pid") else None
         # A relay call while the owner is down or coming back: an answer (ok or a typed error) within the deadline.
         t0 = time.time()

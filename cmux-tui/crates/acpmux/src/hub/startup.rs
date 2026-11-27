@@ -40,7 +40,7 @@ pub(crate) fn startup_wait_error(phase: &str, wait: std::time::Duration) -> crat
     );
     error.message.push_str(
         "; no session was created. `acpmux --json daemon status` shows the phase \
-         (`loading.phase`); sessions start once it reads ready",
+         (`loading.phase`); try again once it reads ready",
     );
     if let Some(data) = error.data.as_mut().and_then(serde_json::Value::as_object_mut) {
         data.insert("phase".into(), serde_json::json!(phase));
@@ -70,12 +70,7 @@ impl Hub {
         }
         // Startup's work is done here (`loading.startupDone`); the sync after it is not startup.
         self.end_startup_work();
-        let config = self.config.read().await.clone();
-        // The fleet memory mount (`memory_mount.rs`) runs beside it; each returns when off.
-        tokio::join!(
-            crate::artifacts_sync::run_background(config.clone(), &self.shutdown),
-            crate::memory_mount::run_background(config, &self.shutdown),
-        );
+        crate::artifacts_sync::run_background(self.clone()).await;
     }
 
     /// What an agent start needs, run beside the chats' logs and adoption (`daemon.rs`): the
@@ -166,8 +161,6 @@ impl Hub {
         }
         self.startup_ready.send_replace(true);
         self.care_worker();
-        // Keeps a locked Mac from idle sleep while a turn runs (`lock_bridge.rs`): opt-in.
-        self.lock_bridge_worker();
         // A spare for each harness this machine used (`pool/spare.rs`).
         {
             let hub = self.clone();

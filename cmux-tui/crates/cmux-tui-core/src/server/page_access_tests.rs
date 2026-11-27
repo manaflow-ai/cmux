@@ -135,34 +135,9 @@ const FILE_SYSTEM: &[&str] = &[
     "diff.comments.list",
     "diff.comments.save",
     "diff.comments.delete",
-    "diff.comments.thread",
-    "git.review.start",
-    "git.review.comment",
-    "git.review.post",
     "diff.comments.send",
     "session.journal.hook.put",
 ];
-
-/// `language_packs.ensure` is of the file system class too, but needs origin user: a plain local
-/// connection is refused as well (request_origin_tests, gate A2), so it is not in
-/// [`FILE_SYSTEM`], whose plain connection is not refused by origin. A page is refused.
-#[test]
-fn a_page_cannot_ensure_a_language_pack() {
-    let mux = mux("language-packs");
-    let relay = relay(&mux, "token:10.1");
-    let narrowed = connect(&mux);
-    let operation = "language_packs.ensure";
-    let page = Some(json!({"claim": "page"}));
-    for reply in [
-        send(&mux, &relay, &v2(operation, params(), None)),
-        send(&mux, &relay, &v2(operation, params(), page.clone())),
-        send(&mux, &narrowed, &v2(operation, params(), page)),
-    ] {
-        assert_eq!(reply["ok"], false, "{reply}");
-        assert_eq!(reply["error"]["code"], "origin.forbidden", "{reply}");
-        assert_eq!(reply["error"]["details"]["derived"], "page", "{reply}");
-    }
-}
 
 /// Operations that spawn a terminal and refuse a page only when it picks
 /// the working directory (`cwd`), as R5 does on legacy `new-screen`.

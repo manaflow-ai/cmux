@@ -290,47 +290,13 @@ fn catalog_with(locale: usize, row: impl Fn(&Action) -> Value) -> Value {
         .iter()
         .map(|(dup, canonical)| ((*dup).to_owned(), json!(canonical)))
         .collect();
-    // The Customize… element map (crate::customize_elements): what the right-click row and the
-    // Inspector name for each big part of the window.
-    let customize_elements: Vec<Value> = crate::customize_elements::ELEMENTS
-        .iter()
-        .map(|e| {
-            json!({
-                "id": e.id,
-                "title": text(&e.title, locale),
-                "surface": e.surface,
-                "menus": e.menus,
-                "settings": e.settings,
-                "tokens": e.tokens,
-            })
-        })
-        .collect();
     json!({
         "version": 1,
         "locale": strings::LOCALES.get(locale).copied().unwrap_or("en"),
-        "customize_elements": customize_elements,
         "actions": crate::actions().map(row).collect::<Vec<_>>(),
         "legacy_aliases": legacy,
         "categories": categories,
         "menu_folders": folders,
-        // The right-click menus built from the placements (crate::context_menus), and the choices
-        // rows that end with one more action (Move to Group > New Group).
-        "context_menu_trees": crate::context_menus::trees_json(),
-        // Each action's default key routing tier other than navigation (crate::key_tiers).
-        "key_tiers": crate::actions()
-            .filter(|a| crate::key_tiers::default_tier(a) != "navigation")
-            .map(|a| (a.id.to_owned(), json!(crate::key_tiers::default_tier(a))))
-            .collect::<Map<String, Value>>(),
-        // The menus built by hand in their views (crate::hand_built_menus), in the export's order:
-        // the export lists them as `context_menus_not_exported`.
-        "hand_built_menus": crate::hand_built_menus::MENUS
-            .iter()
-            .map(|m| json!({ "name": m.name, "source": m.source }))
-            .collect::<Vec<_>>(),
-        "context_menu_choice_trailers": crate::context_menus::CHOICE_TRAILERS
-            .iter()
-            .map(|(id, trailer)| ((*id).to_owned(), json!(trailer)))
-            .collect::<Map<String, Value>>(),
         "key_binding_defaults": {
             "tab_cycle_aliases": binding_list(bindings::TAB_CYCLE_ALIASES),
             "workspaces_as_tabs": binding_list(bindings::WORKSPACES_AS_TABS),

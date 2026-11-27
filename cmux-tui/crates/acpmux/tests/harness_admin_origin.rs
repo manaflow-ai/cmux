@@ -57,7 +57,7 @@ async fn add_and_doctor_are_unix_socket_only() {
     unsafe { std::env::set_var("ACPMUX_HOME", &acpmux_home) };
     acpmux::registry::save(&acpmux_home, include_bytes!("fixtures/acp-registry.json")).unwrap();
     let user = root.join("config").join("harnesses");
-    let sources = ProfileSources { user_dir: Some(user.clone()), ..ProfileSources::none() };
+    let sources = ProfileSources { managed: vec![], user_dir: Some(user.clone()), cmux_json: None };
     std::fs::write(root.join("home").join("config.json"), "{}").unwrap();
     let mut cfg = Config::load_from_with(&root.join("home").join("config.json"), &sources).unwrap();
     cfg.store.mode = StoreMode::Memory;

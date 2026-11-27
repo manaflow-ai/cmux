@@ -11,8 +11,6 @@ description = "Pure reducer for cmux conversations: types, ops, validation (no I
 workspace = true
 
 [dependencies]
-# A message's Markdown as its preview words (home.rs `preview_of`), the same as the apps say.
-cmux-message-preview.workspace = true
 serde.workspace = true
 # A part of an unknown type is kept as its JSON (types.rs `Part::Unknown`).
 serde_json.workspace = true

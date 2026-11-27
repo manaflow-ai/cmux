@@ -116,17 +116,13 @@ impl Hub {
 
     /// The `inbox_read` records of what a read or an ack marked read, one per thread.
     fn log_read(&self, session: &Session, marked: Vec<(String, Vec<String>)>) {
-        let any = !marked.is_empty();
         for (thread, ids) in marked {
             self.append(
                 session,
                 "mux",
-                super::super::surge_triage::READ_KIND,
+                "inbox_read",
                 json!({"threadId": thread, "promptIds": ids}),
             );
-        }
-        if any {
-            self.surge_after_read(session, None);
         }
     }
 }
@@ -177,7 +173,7 @@ pub(super) fn whole_notice(items: &[&Item]) -> String {
     for item in items {
         text.push_str(&format!(
             "\n\n--- From {} ({}, thread {}):\n{}",
-            super::display_sender(&item.sender, &item.from),
+            item.from,
             kind_of(item.class),
             item.thread,
             item.text

@@ -298,9 +298,29 @@ def journey(process, socket_path, env, app, out, report) -> list[str]:
     return Journey(process, Path(socket_path), env, Path(app), Path(out) if out else None, report).run()
 
 
-# The fresh home's login keychain (fresh_home_launch_smoke.login_keychain). Callers that load the smoke
-# themselves call theirs: this module loads its own copy, whose CannotRun their main does not catch.
-login_keychain = smoke.login_keychain
+def login_keychain(env: dict) -> None:
+    """A login keychain inside the fresh home, as a real install has.
+
+    Without one, Chromium's first Safe Storage read put up "Keychain Not Found" and held its pages
+    (runs 41419773317, 41582798853). The app drops an inherited CMUX_MOCK_KEYCHAIN at launch
+    (LaunchIdentity.inheritedKeys strips every inherited CMUX* variable), so the gate keeps the real
+    Keychain path. Every `security` call runs with the home's own HOME and CFFIXED_USER_HOME, so the
+    keychain, its search list and the default are the fresh home's: the runner account's own keychain
+    settings are untouched (checked on cmux11s: default and search list unchanged).
+    """
+    home = Path(env["HOME"])
+    keychain = home / "Library" / "Keychains" / "login.keychain-db"
+    keychain.parent.mkdir(parents=True, exist_ok=True)
+    scoped = {"HOME": env["HOME"], "CFFIXED_USER_HOME": env["CFFIXED_USER_HOME"], "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+              "USER": env.get("USER", "")}
+    for args in (["create-keychain", "-p", "", str(keychain)],
+                 ["list-keychains", "-d", "user", "-s", str(keychain)],
+                 ["default-keychain", "-d", "user", "-s", str(keychain)],
+                 ["set-keychain-settings", str(keychain)]):
+        done = subprocess.run(["security", *args], env=scoped, capture_output=True, text=True, timeout=30)
+        if done.returncode != 0:
+            raise smoke.CannotRun(f"security {args[0]} in the fresh home failed: {done.stderr.strip()[:300]}")
+    smoke.log(f"fresh home login keychain: {keychain}")
 
 
 if __name__ == "__main__":

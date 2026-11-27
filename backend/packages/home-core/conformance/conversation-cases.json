@@ -4,7 +4,7 @@
   "Each case is {name, head, request, expect} or {name, create, expect}. expect is {commit}, {head} (create) or {reject: code}.",
   "request = the Rust OpRequest fields (actor, idempotency_key, op tagged by kind, now, new_message_id, target, reply_target, thread_target, last_message) plus actor_addresses (cloud only).",
   "message.send: thread_root must name a message of this conversation (request.thread_target) that has no thread_root itself, else invalid_thread_root (checked after reply_to). A committed send sets read_cursors[actor] = new seq when read_cursors[actor] (absent = 0) >= the head's last_seq before the send, else leaves it; the change stays kind message. A null thread_root is absent.",
-  "A runner calls apply(head, request). REQUIRED for the Rust owner: every head carries agent_text_streak (0 at create) and last_agent_text_at; a text send by an agent adds 1 to the streak of the thread the message joins (agent_text_streak for the top level, thread_agent_streaks[root id] for a thread; a thread entry at 0 is dropped and an empty map is absent) and sets last_agent_text_at, a human text resets the streak of its own thread only, a person's question.answer resets the question's thread, a text-less work card changes neither; an agent text is refused with agent_budget when its thread's streak >= 6 and the conversation holds two or more agent participants without left_at (a lone agent, the person's own Chief chat, has no cap) and agent_rate within 2000 ms of last_agent_text_at only when its thread's streak >= the number of agent participants without left_at (the first round after a person's text is free of the gap), after every other rule passes.",
+  "A runner calls apply(head, request). REQUIRED for the Rust owner: every head carries agent_text_streak (0 at create) and last_agent_text_at; a text send by an agent adds 1 to the streak of the thread the message joins (agent_text_streak for the top level, thread_agent_streaks[root id] for a thread; a thread entry at 0 is dropped and an empty map is absent) and sets last_agent_text_at, a human text resets the streak of its own thread only, a person's question.answer resets the question's thread, a text-less work card changes neither; an agent text is refused with agent_budget when its thread's streak >= 6 and agent_rate within 2000 ms of last_agent_text_at only when its thread's streak >= the number of agent participants without left_at (the first round after a person's text is free of the gap), after every other rule passes.",
   "Compare JSON values: optional fields are omitted when absent; object key order does not matter.",
   "Commit = {head, message?, change}; change kinds: message, message-updated, read-cursor, conversation, invite.",
   "The head guard counts a retracted agent message and applies the gap to the last agent text message however old. The cases named 'loop guard:' are the work-card bypass that a row window misses.",
@@ -11814,7 +11814,7 @@
    }
   },
   {
-   "name": "budget: a lone agent has no turn cap",
+   "name": "budget: one agent turn over the budget",
    "head": {
     "id": "conv_TEST",
     "title": "mux",
@@ -11877,6 +11877,74 @@
     }
    },
    "expect": {
+    "reject": "agent_budget"
+   }
+  },
+  {
+   "name": "budget: a work card is never limited",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 7,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:01:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 6,
+    "last_agent_text_at": "2026-10-01T12:01:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "w1",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "w1",
+     "parts": [
+      {
+       "type": "work",
+       "session": "s",
+       "status": "done"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:01:10.000Z",
+    "new_message_id": "msg_00000000000000000000000008",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000007",
+     "conversation": "conv_TEST",
+     "seq": 7,
+     "client_msg_id": "m5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "turn 5"
+      }
+     ],
+     "created_at": "2026-10-01T12:01:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
     "commit": {
      "head": {
       "id": "conv_TEST",
@@ -11902,142 +11970,13 @@
       "read_cursors": {
        "user_local": 1
       },
-      "agent_text_streak": 7,
-      "last_agent_text_at": "2026-10-01T12:01:10.000Z"
+      "agent_text_streak": 6,
+      "last_agent_text_at": "2026-10-01T12:01:00.000Z"
      },
      "message": {
       "id": "msg_00000000000000000000000008",
       "conversation": "conv_TEST",
       "seq": 8,
-      "client_msg_id": "m9",
-      "author": "agent_mux",
-      "parts": [
-       {
-        "type": "text",
-        "text": "again"
-       }
-      ],
-      "created_at": "2026-10-01T12:01:10.000Z",
-      "reactions": []
-     },
-     "change": {
-      "kind": "message",
-      "message": {
-       "id": "msg_00000000000000000000000008",
-       "conversation": "conv_TEST",
-       "seq": 8,
-       "client_msg_id": "m9",
-       "author": "agent_mux",
-       "parts": [
-        {
-         "type": "text",
-         "text": "again"
-        }
-       ],
-       "created_at": "2026-10-01T12:01:10.000Z",
-       "reactions": []
-      }
-     }
-    }
-   }
-  },
-  {
-   "name": "budget: a work card is never limited",
-   "head": {
-    "id": "conv_TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 8,
-    "rev": 9,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:01:10.000Z",
-    "read_cursors": {
-     "user_local": 1
-    },
-    "agent_text_streak": 7,
-    "last_agent_text_at": "2026-10-01T12:01:10.000Z"
-   },
-   "request": {
-    "actor": "agent_mux",
-    "idempotency_key": "w1",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "w1",
-     "parts": [
-      {
-       "type": "work",
-       "session": "s",
-       "status": "done"
-      }
-     ]
-    },
-    "now": "2026-10-01T12:01:10.000Z",
-    "new_message_id": "msg_00000000000000000000000009",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000008",
-     "conversation": "conv_TEST",
-     "seq": 8,
-     "client_msg_id": "m9",
-     "author": "agent_mux",
-     "parts": [
-      {
-       "type": "text",
-       "text": "again"
-      }
-     ],
-     "created_at": "2026-10-01T12:01:10.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "commit": {
-     "head": {
-      "id": "conv_TEST",
-      "title": "mux",
-      "participants": [
-       {
-        "id": "user_local",
-        "kind": "human",
-        "display_name": "Alice"
-       },
-       {
-        "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       }
-      ],
-      "last_seq": 9,
-      "rev": 10,
-      "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:01:10.000Z",
-      "read_cursors": {
-       "user_local": 1
-      },
-      "agent_text_streak": 7,
-      "last_agent_text_at": "2026-10-01T12:01:10.000Z"
-     },
-     "message": {
-      "id": "msg_00000000000000000000000009",
-      "conversation": "conv_TEST",
-      "seq": 9,
       "client_msg_id": "w1",
       "author": "agent_mux",
       "parts": [
@@ -12053,9 +11992,9 @@
      "change": {
       "kind": "message",
       "message": {
-       "id": "msg_00000000000000000000000009",
+       "id": "msg_00000000000000000000000008",
        "conversation": "conv_TEST",
-       "seq": 9,
+       "seq": 8,
        "client_msg_id": "w1",
        "author": "agent_mux",
        "parts": [
@@ -12091,15 +12030,15 @@
       "acp_session": "mux"
      }
     ],
-    "last_seq": 9,
-    "rev": 10,
+    "last_seq": 8,
+    "rev": 9,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:01:10.000Z",
     "read_cursors": {
      "user_local": 1
     },
-    "agent_text_streak": 7,
-    "last_agent_text_at": "2026-10-01T12:01:10.000Z"
+    "agent_text_streak": 6,
+    "last_agent_text_at": "2026-10-01T12:01:00.000Z"
    },
    "request": {
     "actor": "user_local",
@@ -12115,14 +12054,14 @@
      ]
     },
     "now": "2026-10-01T12:01:10.000Z",
-    "new_message_id": "msg_00000000000000000000000010",
+    "new_message_id": "msg_00000000000000000000000009",
     "target": null,
     "reply_target": null,
     "thread_target": null,
     "last_message": {
-     "id": "msg_00000000000000000000000009",
+     "id": "msg_00000000000000000000000008",
      "conversation": "conv_TEST",
-     "seq": 9,
+     "seq": 8,
      "client_msg_id": "w1",
      "author": "agent_mux",
      "parts": [
@@ -12155,20 +12094,20 @@
         "acp_session": "mux"
        }
       ],
-      "last_seq": 10,
-      "rev": 11,
+      "last_seq": 9,
+      "rev": 10,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:01:10.000Z",
       "read_cursors": {
        "user_local": 1
       },
       "agent_text_streak": 0,
-      "last_agent_text_at": "2026-10-01T12:01:10.000Z"
+      "last_agent_text_at": "2026-10-01T12:01:00.000Z"
      },
      "message": {
-      "id": "msg_00000000000000000000000010",
+      "id": "msg_00000000000000000000000009",
       "conversation": "conv_TEST",
-      "seq": 10,
+      "seq": 9,
       "client_msg_id": "h2",
       "author": "user_local",
       "parts": [
@@ -12183,9 +12122,9 @@
      "change": {
       "kind": "message",
       "message": {
-       "id": "msg_00000000000000000000000010",
+       "id": "msg_00000000000000000000000009",
        "conversation": "conv_TEST",
-       "seq": 10,
+       "seq": 9,
        "client_msg_id": "h2",
        "author": "user_local",
        "parts": [
@@ -12220,15 +12159,15 @@
       "acp_session": "mux"
      }
     ],
-    "last_seq": 10,
-    "rev": 11,
+    "last_seq": 9,
+    "rev": 10,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:01:10.000Z",
     "read_cursors": {
      "user_local": 1
     },
     "agent_text_streak": 0,
-    "last_agent_text_at": "2026-10-01T12:01:10.000Z"
+    "last_agent_text_at": "2026-10-01T12:01:00.000Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -12244,14 +12183,14 @@
      ]
     },
     "now": "2026-10-01T12:01:10.000Z",
-    "new_message_id": "msg_00000000000000000000000011",
+    "new_message_id": "msg_00000000000000000000000010",
     "target": null,
     "reply_target": null,
     "thread_target": null,
     "last_message": {
-     "id": "msg_00000000000000000000000010",
+     "id": "msg_00000000000000000000000009",
      "conversation": "conv_TEST",
-     "seq": 10,
+     "seq": 9,
      "client_msg_id": "h2",
      "author": "user_local",
      "parts": [
@@ -12283,8 +12222,8 @@
         "acp_session": "mux"
        }
       ],
-      "last_seq": 11,
-      "rev": 12,
+      "last_seq": 10,
+      "rev": 11,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:01:10.000Z",
       "read_cursors": {
@@ -12294,9 +12233,9 @@
       "last_agent_text_at": "2026-10-01T12:01:10.000Z"
      },
      "message": {
-      "id": "msg_00000000000000000000000011",
+      "id": "msg_00000000000000000000000010",
       "conversation": "conv_TEST",
-      "seq": 11,
+      "seq": 10,
       "client_msg_id": "m10",
       "author": "agent_mux",
       "parts": [
@@ -12311,9 +12250,9 @@
      "change": {
       "kind": "message",
       "message": {
-       "id": "msg_00000000000000000000000011",
+       "id": "msg_00000000000000000000000010",
        "conversation": "conv_TEST",
-       "seq": 11,
+       "seq": 10,
        "client_msg_id": "m10",
        "author": "agent_mux",
        "parts": [
@@ -12348,8 +12287,8 @@
       "acp_session": "mux"
      }
     ],
-    "last_seq": 11,
-    "rev": 12,
+    "last_seq": 10,
+    "rev": 11,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:01:10.000Z",
     "read_cursors": {
@@ -12372,14 +12311,14 @@
      ]
     },
     "now": "2026-10-01T12:01:11.999Z",
-    "new_message_id": "msg_00000000000000000000000012",
+    "new_message_id": "msg_00000000000000000000000011",
     "target": null,
     "reply_target": null,
     "thread_target": null,
     "last_message": {
-     "id": "msg_00000000000000000000000011",
+     "id": "msg_00000000000000000000000010",
      "conversation": "conv_TEST",
-     "seq": 11,
+     "seq": 10,
      "client_msg_id": "m10",
      "author": "agent_mux",
      "parts": [
@@ -12415,8 +12354,8 @@
       "acp_session": "mux"
      }
     ],
-    "last_seq": 11,
-    "rev": 12,
+    "last_seq": 10,
+    "rev": 11,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:01:10.000Z",
     "read_cursors": {
@@ -12434,14 +12373,14 @@
      "parts": []
     },
     "now": "2026-10-01T12:01:11.999Z",
-    "new_message_id": "msg_00000000000000000000000012",
+    "new_message_id": "msg_00000000000000000000000011",
     "target": null,
     "reply_target": null,
     "thread_target": null,
     "last_message": {
-     "id": "msg_00000000000000000000000011",
+     "id": "msg_00000000000000000000000010",
      "conversation": "conv_TEST",
-     "seq": 11,
+     "seq": 10,
      "client_msg_id": "m10",
      "author": "agent_mux",
      "parts": [
@@ -12477,8 +12416,8 @@
       "acp_session": "mux"
      }
     ],
-    "last_seq": 11,
-    "rev": 12,
+    "last_seq": 10,
+    "rev": 11,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:01:10.000Z",
     "read_cursors": {
@@ -12501,14 +12440,14 @@
      ]
     },
     "now": "2026-10-01T12:01:12.000Z",
-    "new_message_id": "msg_00000000000000000000000012",
+    "new_message_id": "msg_00000000000000000000000011",
     "target": null,
     "reply_target": null,
     "thread_target": null,
     "last_message": {
-     "id": "msg_00000000000000000000000011",
+     "id": "msg_00000000000000000000000010",
      "conversation": "conv_TEST",
-     "seq": 11,
+     "seq": 10,
      "client_msg_id": "m10",
      "author": "agent_mux",
      "parts": [
@@ -12540,8 +12479,8 @@
         "acp_session": "mux"
        }
       ],
-      "last_seq": 12,
-      "rev": 13,
+      "last_seq": 11,
+      "rev": 12,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:01:12.000Z",
       "read_cursors": {
@@ -12551,9 +12490,9 @@
       "last_agent_text_at": "2026-10-01T12:01:12.000Z"
      },
      "message": {
-      "id": "msg_00000000000000000000000012",
+      "id": "msg_00000000000000000000000011",
       "conversation": "conv_TEST",
-      "seq": 12,
+      "seq": 11,
       "client_msg_id": "m11",
       "author": "agent_mux",
       "parts": [
@@ -12568,9 +12507,9 @@
      "change": {
       "kind": "message",
       "message": {
-       "id": "msg_00000000000000000000000012",
+       "id": "msg_00000000000000000000000011",
        "conversation": "conv_TEST",
-       "seq": 12,
+       "seq": 11,
        "client_msg_id": "m11",
        "author": "agent_mux",
        "parts": [
@@ -12580,1215 +12519,6 @@
         }
        ],
        "created_at": "2026-10-01T12:01:12.000Z",
-       "reactions": []
-      }
-     }
-    }
-   }
-  },
-  {
-   "name": "budget: two agents, agent turn 1 of 6",
-   "head": {
-    "id": "conv_01J0000000000000000000TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 1,
-    "rev": 2,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {
-     "user_local": 1
-    },
-    "agent_text_streak": 0
-   },
-   "request": {
-    "actor": "agent_mux",
-    "idempotency_key": "m0",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "m0",
-     "parts": [
-      {
-       "type": "text",
-       "text": "turn 0"
-      }
-     ]
-    },
-    "now": "2026-10-01T12:00:10.000Z",
-    "new_message_id": "msg_00000000000000000000000002",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000001",
-     "conversation": "conv_01J0000000000000000000TEST",
-     "seq": 1,
-     "client_msg_id": "h1",
-     "author": "user_local",
-     "parts": [
-      {
-       "type": "text",
-       "text": "go"
-      }
-     ],
-     "created_at": "2026-10-01T12:00:00.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "commit": {
-     "head": {
-      "id": "conv_01J0000000000000000000TEST",
-      "title": "mux",
-      "participants": [
-       {
-        "id": "user_local",
-        "kind": "human",
-        "display_name": "Alice"
-       },
-       {
-        "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       }
-      ],
-      "last_seq": 2,
-      "rev": 3,
-      "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:10.000Z",
-      "read_cursors": {
-       "user_local": 1
-      },
-      "agent_text_streak": 1,
-      "last_agent_text_at": "2026-10-01T12:00:10.000Z"
-     },
-     "message": {
-      "id": "msg_00000000000000000000000002",
-      "conversation": "conv_01J0000000000000000000TEST",
-      "seq": 2,
-      "client_msg_id": "m0",
-      "author": "agent_mux",
-      "parts": [
-       {
-        "type": "text",
-        "text": "turn 0"
-       }
-      ],
-      "created_at": "2026-10-01T12:00:10.000Z",
-      "reactions": []
-     },
-     "change": {
-      "kind": "message",
-      "message": {
-       "id": "msg_00000000000000000000000002",
-       "conversation": "conv_01J0000000000000000000TEST",
-       "seq": 2,
-       "client_msg_id": "m0",
-       "author": "agent_mux",
-       "parts": [
-        {
-         "type": "text",
-         "text": "turn 0"
-        }
-       ],
-       "created_at": "2026-10-01T12:00:10.000Z",
-       "reactions": []
-      }
-     }
-    }
-   }
-  },
-  {
-   "name": "budget: two agents, agent turn 2 of 6",
-   "head": {
-    "id": "conv_01J0000000000000000000TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 2,
-    "rev": 3,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:10.000Z",
-    "read_cursors": {
-     "user_local": 1
-    },
-    "agent_text_streak": 1,
-    "last_agent_text_at": "2026-10-01T12:00:10.000Z"
-   },
-   "request": {
-    "actor": "agent_two",
-    "idempotency_key": "m1",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "m1",
-     "parts": [
-      {
-       "type": "text",
-       "text": "turn 1"
-      }
-     ]
-    },
-    "now": "2026-10-01T12:00:20.000Z",
-    "new_message_id": "msg_00000000000000000000000003",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000002",
-     "conversation": "conv_01J0000000000000000000TEST",
-     "seq": 2,
-     "client_msg_id": "m0",
-     "author": "agent_mux",
-     "parts": [
-      {
-       "type": "text",
-       "text": "turn 0"
-      }
-     ],
-     "created_at": "2026-10-01T12:00:10.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "commit": {
-     "head": {
-      "id": "conv_01J0000000000000000000TEST",
-      "title": "mux",
-      "participants": [
-       {
-        "id": "user_local",
-        "kind": "human",
-        "display_name": "Alice"
-       },
-       {
-        "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       }
-      ],
-      "last_seq": 3,
-      "rev": 4,
-      "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:20.000Z",
-      "read_cursors": {
-       "user_local": 1
-      },
-      "agent_text_streak": 2,
-      "last_agent_text_at": "2026-10-01T12:00:20.000Z"
-     },
-     "message": {
-      "id": "msg_00000000000000000000000003",
-      "conversation": "conv_01J0000000000000000000TEST",
-      "seq": 3,
-      "client_msg_id": "m1",
-      "author": "agent_two",
-      "parts": [
-       {
-        "type": "text",
-        "text": "turn 1"
-       }
-      ],
-      "created_at": "2026-10-01T12:00:20.000Z",
-      "reactions": []
-     },
-     "change": {
-      "kind": "message",
-      "message": {
-       "id": "msg_00000000000000000000000003",
-       "conversation": "conv_01J0000000000000000000TEST",
-       "seq": 3,
-       "client_msg_id": "m1",
-       "author": "agent_two",
-       "parts": [
-        {
-         "type": "text",
-         "text": "turn 1"
-        }
-       ],
-       "created_at": "2026-10-01T12:00:20.000Z",
-       "reactions": []
-      }
-     }
-    }
-   }
-  },
-  {
-   "name": "budget: two agents, agent turn 3 of 6",
-   "head": {
-    "id": "conv_01J0000000000000000000TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 3,
-    "rev": 4,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:20.000Z",
-    "read_cursors": {
-     "user_local": 1
-    },
-    "agent_text_streak": 2,
-    "last_agent_text_at": "2026-10-01T12:00:20.000Z"
-   },
-   "request": {
-    "actor": "agent_mux",
-    "idempotency_key": "m2",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "m2",
-     "parts": [
-      {
-       "type": "text",
-       "text": "turn 2"
-      }
-     ]
-    },
-    "now": "2026-10-01T12:00:30.000Z",
-    "new_message_id": "msg_00000000000000000000000004",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000003",
-     "conversation": "conv_01J0000000000000000000TEST",
-     "seq": 3,
-     "client_msg_id": "m1",
-     "author": "agent_two",
-     "parts": [
-      {
-       "type": "text",
-       "text": "turn 1"
-      }
-     ],
-     "created_at": "2026-10-01T12:00:20.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "commit": {
-     "head": {
-      "id": "conv_01J0000000000000000000TEST",
-      "title": "mux",
-      "participants": [
-       {
-        "id": "user_local",
-        "kind": "human",
-        "display_name": "Alice"
-       },
-       {
-        "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       }
-      ],
-      "last_seq": 4,
-      "rev": 5,
-      "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:30.000Z",
-      "read_cursors": {
-       "user_local": 1
-      },
-      "agent_text_streak": 3,
-      "last_agent_text_at": "2026-10-01T12:00:30.000Z"
-     },
-     "message": {
-      "id": "msg_00000000000000000000000004",
-      "conversation": "conv_01J0000000000000000000TEST",
-      "seq": 4,
-      "client_msg_id": "m2",
-      "author": "agent_mux",
-      "parts": [
-       {
-        "type": "text",
-        "text": "turn 2"
-       }
-      ],
-      "created_at": "2026-10-01T12:00:30.000Z",
-      "reactions": []
-     },
-     "change": {
-      "kind": "message",
-      "message": {
-       "id": "msg_00000000000000000000000004",
-       "conversation": "conv_01J0000000000000000000TEST",
-       "seq": 4,
-       "client_msg_id": "m2",
-       "author": "agent_mux",
-       "parts": [
-        {
-         "type": "text",
-         "text": "turn 2"
-        }
-       ],
-       "created_at": "2026-10-01T12:00:30.000Z",
-       "reactions": []
-      }
-     }
-    }
-   }
-  },
-  {
-   "name": "budget: two agents, agent turn 4 of 6",
-   "head": {
-    "id": "conv_01J0000000000000000000TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 4,
-    "rev": 5,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:30.000Z",
-    "read_cursors": {
-     "user_local": 1
-    },
-    "agent_text_streak": 3,
-    "last_agent_text_at": "2026-10-01T12:00:30.000Z"
-   },
-   "request": {
-    "actor": "agent_two",
-    "idempotency_key": "m3",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "m3",
-     "parts": [
-      {
-       "type": "text",
-       "text": "turn 3"
-      }
-     ]
-    },
-    "now": "2026-10-01T12:00:40.000Z",
-    "new_message_id": "msg_00000000000000000000000005",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000004",
-     "conversation": "conv_01J0000000000000000000TEST",
-     "seq": 4,
-     "client_msg_id": "m2",
-     "author": "agent_mux",
-     "parts": [
-      {
-       "type": "text",
-       "text": "turn 2"
-      }
-     ],
-     "created_at": "2026-10-01T12:00:30.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "commit": {
-     "head": {
-      "id": "conv_01J0000000000000000000TEST",
-      "title": "mux",
-      "participants": [
-       {
-        "id": "user_local",
-        "kind": "human",
-        "display_name": "Alice"
-       },
-       {
-        "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       }
-      ],
-      "last_seq": 5,
-      "rev": 6,
-      "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:40.000Z",
-      "read_cursors": {
-       "user_local": 1
-      },
-      "agent_text_streak": 4,
-      "last_agent_text_at": "2026-10-01T12:00:40.000Z"
-     },
-     "message": {
-      "id": "msg_00000000000000000000000005",
-      "conversation": "conv_01J0000000000000000000TEST",
-      "seq": 5,
-      "client_msg_id": "m3",
-      "author": "agent_two",
-      "parts": [
-       {
-        "type": "text",
-        "text": "turn 3"
-       }
-      ],
-      "created_at": "2026-10-01T12:00:40.000Z",
-      "reactions": []
-     },
-     "change": {
-      "kind": "message",
-      "message": {
-       "id": "msg_00000000000000000000000005",
-       "conversation": "conv_01J0000000000000000000TEST",
-       "seq": 5,
-       "client_msg_id": "m3",
-       "author": "agent_two",
-       "parts": [
-        {
-         "type": "text",
-         "text": "turn 3"
-        }
-       ],
-       "created_at": "2026-10-01T12:00:40.000Z",
-       "reactions": []
-      }
-     }
-    }
-   }
-  },
-  {
-   "name": "budget: two agents, agent turn 5 of 6",
-   "head": {
-    "id": "conv_01J0000000000000000000TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 5,
-    "rev": 6,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:40.000Z",
-    "read_cursors": {
-     "user_local": 1
-    },
-    "agent_text_streak": 4,
-    "last_agent_text_at": "2026-10-01T12:00:40.000Z"
-   },
-   "request": {
-    "actor": "agent_mux",
-    "idempotency_key": "m4",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "m4",
-     "parts": [
-      {
-       "type": "text",
-       "text": "turn 4"
-      }
-     ]
-    },
-    "now": "2026-10-01T12:00:50.000Z",
-    "new_message_id": "msg_00000000000000000000000006",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000005",
-     "conversation": "conv_01J0000000000000000000TEST",
-     "seq": 5,
-     "client_msg_id": "m3",
-     "author": "agent_two",
-     "parts": [
-      {
-       "type": "text",
-       "text": "turn 3"
-      }
-     ],
-     "created_at": "2026-10-01T12:00:40.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "commit": {
-     "head": {
-      "id": "conv_01J0000000000000000000TEST",
-      "title": "mux",
-      "participants": [
-       {
-        "id": "user_local",
-        "kind": "human",
-        "display_name": "Alice"
-       },
-       {
-        "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       }
-      ],
-      "last_seq": 6,
-      "rev": 7,
-      "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:00:50.000Z",
-      "read_cursors": {
-       "user_local": 1
-      },
-      "agent_text_streak": 5,
-      "last_agent_text_at": "2026-10-01T12:00:50.000Z"
-     },
-     "message": {
-      "id": "msg_00000000000000000000000006",
-      "conversation": "conv_01J0000000000000000000TEST",
-      "seq": 6,
-      "client_msg_id": "m4",
-      "author": "agent_mux",
-      "parts": [
-       {
-        "type": "text",
-        "text": "turn 4"
-       }
-      ],
-      "created_at": "2026-10-01T12:00:50.000Z",
-      "reactions": []
-     },
-     "change": {
-      "kind": "message",
-      "message": {
-       "id": "msg_00000000000000000000000006",
-       "conversation": "conv_01J0000000000000000000TEST",
-       "seq": 6,
-       "client_msg_id": "m4",
-       "author": "agent_mux",
-       "parts": [
-        {
-         "type": "text",
-         "text": "turn 4"
-        }
-       ],
-       "created_at": "2026-10-01T12:00:50.000Z",
-       "reactions": []
-      }
-     }
-    }
-   }
-  },
-  {
-   "name": "budget: two agents, agent turn 6 of 6",
-   "head": {
-    "id": "conv_01J0000000000000000000TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 6,
-    "rev": 7,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:50.000Z",
-    "read_cursors": {
-     "user_local": 1
-    },
-    "agent_text_streak": 5,
-    "last_agent_text_at": "2026-10-01T12:00:50.000Z"
-   },
-   "request": {
-    "actor": "agent_two",
-    "idempotency_key": "m5",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "m5",
-     "parts": [
-      {
-       "type": "text",
-       "text": "turn 5"
-      }
-     ]
-    },
-    "now": "2026-10-01T12:01:00.000Z",
-    "new_message_id": "msg_00000000000000000000000007",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000006",
-     "conversation": "conv_01J0000000000000000000TEST",
-     "seq": 6,
-     "client_msg_id": "m4",
-     "author": "agent_mux",
-     "parts": [
-      {
-       "type": "text",
-       "text": "turn 4"
-      }
-     ],
-     "created_at": "2026-10-01T12:00:50.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "commit": {
-     "head": {
-      "id": "conv_01J0000000000000000000TEST",
-      "title": "mux",
-      "participants": [
-       {
-        "id": "user_local",
-        "kind": "human",
-        "display_name": "Alice"
-       },
-       {
-        "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       }
-      ],
-      "last_seq": 7,
-      "rev": 8,
-      "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:01:00.000Z",
-      "read_cursors": {
-       "user_local": 1
-      },
-      "agent_text_streak": 6,
-      "last_agent_text_at": "2026-10-01T12:01:00.000Z"
-     },
-     "message": {
-      "id": "msg_00000000000000000000000007",
-      "conversation": "conv_01J0000000000000000000TEST",
-      "seq": 7,
-      "client_msg_id": "m5",
-      "author": "agent_two",
-      "parts": [
-       {
-        "type": "text",
-        "text": "turn 5"
-       }
-      ],
-      "created_at": "2026-10-01T12:01:00.000Z",
-      "reactions": []
-     },
-     "change": {
-      "kind": "message",
-      "message": {
-       "id": "msg_00000000000000000000000007",
-       "conversation": "conv_01J0000000000000000000TEST",
-       "seq": 7,
-       "client_msg_id": "m5",
-       "author": "agent_two",
-       "parts": [
-        {
-         "type": "text",
-         "text": "turn 5"
-        }
-       ],
-       "created_at": "2026-10-01T12:01:00.000Z",
-       "reactions": []
-      }
-     }
-    }
-   }
-  },
-  {
-   "name": "budget: two agents, one agent turn over the budget",
-   "head": {
-    "id": "conv_01J0000000000000000000TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 7,
-    "rev": 8,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:01:00.000Z",
-    "read_cursors": {
-     "user_local": 1
-    },
-    "agent_text_streak": 6,
-    "last_agent_text_at": "2026-10-01T12:01:00.000Z"
-   },
-   "request": {
-    "actor": "agent_mux",
-    "idempotency_key": "m9",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "m9",
-     "parts": [
-      {
-       "type": "text",
-       "text": "again"
-      }
-     ]
-    },
-    "now": "2026-10-01T12:01:10.000Z",
-    "new_message_id": "msg_00000000000000000000000008",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000007",
-     "conversation": "conv_01J0000000000000000000TEST",
-     "seq": 7,
-     "client_msg_id": "m5",
-     "author": "agent_two",
-     "parts": [
-      {
-       "type": "text",
-       "text": "turn 5"
-      }
-     ],
-     "created_at": "2026-10-01T12:01:00.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "reject": "agent_budget"
-   }
-  },
-  {
-   "name": "budget: two agents, a person's text resets the cap",
-   "head": {
-    "id": "conv_01J0000000000000000000TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 7,
-    "rev": 8,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:01:00.000Z",
-    "read_cursors": {
-     "user_local": 1
-    },
-    "agent_text_streak": 6,
-    "last_agent_text_at": "2026-10-01T12:01:00.000Z"
-   },
-   "request": {
-    "actor": "user_local",
-    "idempotency_key": "h2",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "h2",
-     "parts": [
-      {
-       "type": "text",
-       "text": "next"
-      }
-     ]
-    },
-    "now": "2026-10-01T12:01:10.000Z",
-    "new_message_id": "msg_00000000000000000000000008",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000007",
-     "conversation": "conv_01J0000000000000000000TEST",
-     "seq": 7,
-     "client_msg_id": "m5",
-     "author": "agent_two",
-     "parts": [
-      {
-       "type": "text",
-       "text": "turn 5"
-      }
-     ],
-     "created_at": "2026-10-01T12:01:00.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "commit": {
-     "head": {
-      "id": "conv_01J0000000000000000000TEST",
-      "title": "mux",
-      "participants": [
-       {
-        "id": "user_local",
-        "kind": "human",
-        "display_name": "Alice"
-       },
-       {
-        "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       }
-      ],
-      "last_seq": 8,
-      "rev": 9,
-      "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:01:10.000Z",
-      "read_cursors": {
-       "user_local": 1
-      },
-      "agent_text_streak": 0,
-      "last_agent_text_at": "2026-10-01T12:01:00.000Z"
-     },
-     "message": {
-      "id": "msg_00000000000000000000000008",
-      "conversation": "conv_01J0000000000000000000TEST",
-      "seq": 8,
-      "client_msg_id": "h2",
-      "author": "user_local",
-      "parts": [
-       {
-        "type": "text",
-        "text": "next"
-       }
-      ],
-      "created_at": "2026-10-01T12:01:10.000Z",
-      "reactions": []
-     },
-     "change": {
-      "kind": "message",
-      "message": {
-       "id": "msg_00000000000000000000000008",
-       "conversation": "conv_01J0000000000000000000TEST",
-       "seq": 8,
-       "client_msg_id": "h2",
-       "author": "user_local",
-       "parts": [
-        {
-         "type": "text",
-         "text": "next"
-        }
-       ],
-       "created_at": "2026-10-01T12:01:10.000Z",
-       "reactions": []
-      }
-     }
-    }
-   }
-  },
-  {
-   "name": "budget: two agents, an agent after the person's text",
-   "head": {
-    "id": "conv_01J0000000000000000000TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 8,
-    "rev": 9,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:01:10.000Z",
-    "read_cursors": {
-     "user_local": 1
-    },
-    "agent_text_streak": 0,
-    "last_agent_text_at": "2026-10-01T12:01:00.000Z"
-   },
-   "request": {
-    "actor": "agent_mux",
-    "idempotency_key": "m10",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "m10",
-     "parts": [
-      {
-       "type": "text",
-       "text": "ok"
-      }
-     ]
-    },
-    "now": "2026-10-01T12:01:10.000Z",
-    "new_message_id": "msg_00000000000000000000000009",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000008",
-     "conversation": "conv_01J0000000000000000000TEST",
-     "seq": 8,
-     "client_msg_id": "h2",
-     "author": "user_local",
-     "parts": [
-      {
-       "type": "text",
-       "text": "next"
-      }
-     ],
-     "created_at": "2026-10-01T12:01:10.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "commit": {
-     "head": {
-      "id": "conv_01J0000000000000000000TEST",
-      "title": "mux",
-      "participants": [
-       {
-        "id": "user_local",
-        "kind": "human",
-        "display_name": "Alice"
-       },
-       {
-        "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       }
-      ],
-      "last_seq": 9,
-      "rev": 10,
-      "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:01:10.000Z",
-      "read_cursors": {
-       "user_local": 1
-      },
-      "agent_text_streak": 1,
-      "last_agent_text_at": "2026-10-01T12:01:10.000Z"
-     },
-     "message": {
-      "id": "msg_00000000000000000000000009",
-      "conversation": "conv_01J0000000000000000000TEST",
-      "seq": 9,
-      "client_msg_id": "m10",
-      "author": "agent_mux",
-      "parts": [
-       {
-        "type": "text",
-        "text": "ok"
-       }
-      ],
-      "created_at": "2026-10-01T12:01:10.000Z",
-      "reactions": []
-     },
-     "change": {
-      "kind": "message",
-      "message": {
-       "id": "msg_00000000000000000000000009",
-       "conversation": "conv_01J0000000000000000000TEST",
-       "seq": 9,
-       "client_msg_id": "m10",
-       "author": "agent_mux",
-       "parts": [
-        {
-         "type": "text",
-         "text": "ok"
-        }
-       ],
-       "created_at": "2026-10-01T12:01:10.000Z",
        "reactions": []
       }
      }
@@ -14297,7 +13027,7 @@
   {
    "name": "loop guard: agent text 1 of 6 between work cards",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -14307,13 +13037,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -14349,7 +13072,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 1,
      "client_msg_id": "h1",
      "author": "user_local",
@@ -14366,7 +13089,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -14376,13 +13099,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -14401,7 +13117,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000002",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 2,
       "client_msg_id": "t0",
       "author": "agent_mux",
@@ -14418,7 +13134,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000002",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 2,
        "client_msg_id": "t0",
        "author": "agent_mux",
@@ -14438,7 +13154,7 @@
   {
    "name": "loop guard: work card 1",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -14448,13 +13164,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -14492,7 +13201,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000002",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 2,
      "client_msg_id": "t0",
      "author": "agent_mux",
@@ -14509,7 +13218,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -14519,13 +13228,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -14544,7 +13246,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000003",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 3,
       "client_msg_id": "w0",
       "author": "agent_mux",
@@ -14562,7 +13264,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000003",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 3,
        "client_msg_id": "w0",
        "author": "agent_mux",
@@ -14583,7 +13285,7 @@
   {
    "name": "loop guard: agent text 2 of 6 between work cards",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -14593,13 +13295,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -14636,7 +13331,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000003",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 3,
      "client_msg_id": "w0",
      "author": "agent_mux",
@@ -14654,7 +13349,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -14664,13 +13359,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -14689,7 +13377,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000004",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 4,
       "client_msg_id": "t1",
       "author": "agent_mux",
@@ -14706,7 +13394,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000004",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 4,
        "client_msg_id": "t1",
        "author": "agent_mux",
@@ -14726,7 +13414,7 @@
   {
    "name": "loop guard: work card 2",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -14736,13 +13424,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -14780,7 +13461,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000004",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 4,
      "client_msg_id": "t1",
      "author": "agent_mux",
@@ -14797,7 +13478,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -14807,13 +13488,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -14832,7 +13506,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000005",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 5,
       "client_msg_id": "w1",
       "author": "agent_mux",
@@ -14850,7 +13524,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000005",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 5,
        "client_msg_id": "w1",
        "author": "agent_mux",
@@ -14871,7 +13545,7 @@
   {
    "name": "loop guard: agent text 3 of 6 between work cards",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -14881,13 +13555,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -14924,7 +13591,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000005",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 5,
      "client_msg_id": "w1",
      "author": "agent_mux",
@@ -14942,7 +13609,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -14952,13 +13619,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -14977,7 +13637,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000006",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 6,
       "client_msg_id": "t2",
       "author": "agent_mux",
@@ -14994,7 +13654,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000006",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 6,
        "client_msg_id": "t2",
        "author": "agent_mux",
@@ -15014,7 +13674,7 @@
   {
    "name": "loop guard: work card 3",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -15024,13 +13684,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -15068,7 +13721,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000006",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 6,
      "client_msg_id": "t2",
      "author": "agent_mux",
@@ -15085,7 +13738,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -15095,13 +13748,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -15120,7 +13766,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000007",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 7,
       "client_msg_id": "w2",
       "author": "agent_mux",
@@ -15138,7 +13784,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000007",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 7,
        "client_msg_id": "w2",
        "author": "agent_mux",
@@ -15159,7 +13805,7 @@
   {
    "name": "loop guard: agent text 4 of 6 between work cards",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -15169,13 +13815,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -15212,7 +13851,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000007",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 7,
      "client_msg_id": "w2",
      "author": "agent_mux",
@@ -15230,7 +13869,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -15240,13 +13879,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -15265,7 +13897,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000008",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 8,
       "client_msg_id": "t3",
       "author": "agent_mux",
@@ -15282,7 +13914,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000008",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 8,
        "client_msg_id": "t3",
        "author": "agent_mux",
@@ -15302,7 +13934,7 @@
   {
    "name": "loop guard: work card 4",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -15312,13 +13944,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -15356,7 +13981,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000008",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 8,
      "client_msg_id": "t3",
      "author": "agent_mux",
@@ -15373,7 +13998,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -15383,13 +14008,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -15408,7 +14026,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000009",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 9,
       "client_msg_id": "w3",
       "author": "agent_mux",
@@ -15426,7 +14044,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000009",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 9,
        "client_msg_id": "w3",
        "author": "agent_mux",
@@ -15447,7 +14065,7 @@
   {
    "name": "loop guard: agent text 5 of 6 between work cards",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -15457,13 +14075,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -15500,7 +14111,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000009",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 9,
      "client_msg_id": "w3",
      "author": "agent_mux",
@@ -15518,7 +14129,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -15528,13 +14139,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -15553,7 +14157,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000010",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 10,
       "client_msg_id": "t4",
       "author": "agent_mux",
@@ -15570,7 +14174,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000010",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 10,
        "client_msg_id": "t4",
        "author": "agent_mux",
@@ -15590,7 +14194,7 @@
   {
    "name": "loop guard: work card 5",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -15600,13 +14204,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -15644,7 +14241,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000010",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 10,
      "client_msg_id": "t4",
      "author": "agent_mux",
@@ -15661,7 +14258,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -15671,13 +14268,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -15696,7 +14286,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000011",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 11,
       "client_msg_id": "w4",
       "author": "agent_mux",
@@ -15714,7 +14304,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000011",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 11,
        "client_msg_id": "w4",
        "author": "agent_mux",
@@ -15735,7 +14325,7 @@
   {
    "name": "loop guard: agent text 6 of 6 between work cards",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -15745,13 +14335,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -15788,7 +14371,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000011",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 11,
      "client_msg_id": "w4",
      "author": "agent_mux",
@@ -15806,7 +14389,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -15816,13 +14399,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -15841,7 +14417,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000012",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 12,
       "client_msg_id": "t5",
       "author": "agent_mux",
@@ -15858,7 +14434,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000012",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 12,
        "client_msg_id": "t5",
        "author": "agent_mux",
@@ -15878,7 +14454,7 @@
   {
    "name": "loop guard: work card 6",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -15888,13 +14464,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -15932,7 +14501,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000012",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 12,
      "client_msg_id": "t5",
      "author": "agent_mux",
@@ -15949,7 +14518,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -15959,13 +14528,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -15984,7 +14546,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000013",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 13,
       "client_msg_id": "w5",
       "author": "agent_mux",
@@ -16002,7 +14564,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000013",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 13,
        "client_msg_id": "w5",
        "author": "agent_mux",
@@ -16023,7 +14585,7 @@
   {
    "name": "loop guard: one agent text over the budget after work cards is refused",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -16033,13 +14595,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -16076,7 +14631,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000013",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 13,
      "client_msg_id": "w5",
      "author": "agent_mux",
@@ -17126,7 +15681,7 @@
   {
    "name": "loop guard: agent link preview 1 of 6",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -17136,13 +15691,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -17178,7 +15726,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 1,
      "client_msg_id": "h1",
      "author": "user_local",
@@ -17195,7 +15743,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -17205,13 +15753,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -17230,7 +15771,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000002",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 2,
       "client_msg_id": "p0",
       "author": "agent_mux",
@@ -17247,7 +15788,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000002",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 2,
        "client_msg_id": "p0",
        "author": "agent_mux",
@@ -17267,7 +15808,7 @@
   {
    "name": "loop guard: agent link preview 2 of 6",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -17277,13 +15818,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -17320,7 +15854,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000002",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 2,
      "client_msg_id": "p0",
      "author": "agent_mux",
@@ -17337,7 +15871,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -17347,13 +15881,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -17372,7 +15899,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000003",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 3,
       "client_msg_id": "p1",
       "author": "agent_mux",
@@ -17389,7 +15916,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000003",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 3,
        "client_msg_id": "p1",
        "author": "agent_mux",
@@ -17409,7 +15936,7 @@
   {
    "name": "loop guard: agent link preview 3 of 6",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -17419,13 +15946,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -17462,7 +15982,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000003",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 3,
      "client_msg_id": "p1",
      "author": "agent_mux",
@@ -17479,7 +15999,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -17489,13 +16009,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -17514,7 +16027,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000004",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 4,
       "client_msg_id": "p2",
       "author": "agent_mux",
@@ -17531,7 +16044,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000004",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 4,
        "client_msg_id": "p2",
        "author": "agent_mux",
@@ -17551,7 +16064,7 @@
   {
    "name": "loop guard: agent link preview 4 of 6",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -17561,13 +16074,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -17604,7 +16110,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000004",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 4,
      "client_msg_id": "p2",
      "author": "agent_mux",
@@ -17621,7 +16127,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -17631,13 +16137,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -17656,7 +16155,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000005",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 5,
       "client_msg_id": "p3",
       "author": "agent_mux",
@@ -17673,7 +16172,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000005",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 5,
        "client_msg_id": "p3",
        "author": "agent_mux",
@@ -17693,7 +16192,7 @@
   {
    "name": "loop guard: agent link preview 5 of 6",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -17703,13 +16202,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -17746,7 +16238,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000005",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 5,
      "client_msg_id": "p3",
      "author": "agent_mux",
@@ -17763,7 +16255,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -17773,13 +16265,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -17798,7 +16283,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000006",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 6,
       "client_msg_id": "p4",
       "author": "agent_mux",
@@ -17815,7 +16300,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000006",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 6,
        "client_msg_id": "p4",
        "author": "agent_mux",
@@ -17835,7 +16320,7 @@
   {
    "name": "loop guard: agent link preview 6 of 6",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -17845,13 +16330,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -17888,7 +16366,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000006",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 6,
      "client_msg_id": "p4",
      "author": "agent_mux",
@@ -17905,7 +16383,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J0000000000000000000TEST",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -17915,13 +16393,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -17940,7 +16411,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000007",
-      "conversation": "conv_01J0000000000000000000TEST",
+      "conversation": "conv_TEST",
       "seq": 7,
       "client_msg_id": "p5",
       "author": "agent_mux",
@@ -17957,7 +16428,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000007",
-       "conversation": "conv_01J0000000000000000000TEST",
+       "conversation": "conv_TEST",
        "seq": 7,
        "client_msg_id": "p5",
        "author": "agent_mux",
@@ -17977,7 +16448,7 @@
   {
    "name": "loop guard: one agent link preview over the budget is refused",
    "head": {
-    "id": "conv_01J0000000000000000000TEST",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -17987,13 +16458,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -18030,7 +16494,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000007",
-     "conversation": "conv_01J0000000000000000000TEST",
+     "conversation": "conv_TEST",
      "seq": 7,
      "client_msg_id": "p5",
      "author": "agent_mux",
@@ -32266,7 +30730,7 @@
   {
    "name": "question budget: agent question 1 of 6",
    "head": {
-    "id": "conv_01J00000000000000000GUARD",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -32276,13 +30740,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -32342,7 +30799,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
-     "conversation": "conv_01J00000000000000000GUARD",
+     "conversation": "conv_TEST",
      "seq": 1,
      "client_msg_id": "h1",
      "author": "user_local",
@@ -32359,7 +30816,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J00000000000000000GUARD",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -32369,13 +30826,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -32394,7 +30844,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000002",
-      "conversation": "conv_01J00000000000000000GUARD",
+      "conversation": "conv_TEST",
       "seq": 2,
       "client_msg_id": "q0",
       "author": "agent_mux",
@@ -32441,7 +30891,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000002",
-       "conversation": "conv_01J00000000000000000GUARD",
+       "conversation": "conv_TEST",
        "seq": 2,
        "client_msg_id": "q0",
        "author": "agent_mux",
@@ -32491,7 +30941,7 @@
   {
    "name": "question budget: agent question 2 of 6",
    "head": {
-    "id": "conv_01J00000000000000000GUARD",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -32501,13 +30951,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -32568,7 +31011,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000002",
-     "conversation": "conv_01J00000000000000000GUARD",
+     "conversation": "conv_TEST",
      "seq": 2,
      "client_msg_id": "q0",
      "author": "agent_mux",
@@ -32615,7 +31058,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J00000000000000000GUARD",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -32625,13 +31068,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -32650,7 +31086,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000003",
-      "conversation": "conv_01J00000000000000000GUARD",
+      "conversation": "conv_TEST",
       "seq": 3,
       "client_msg_id": "q1",
       "author": "agent_mux",
@@ -32697,7 +31133,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000003",
-       "conversation": "conv_01J00000000000000000GUARD",
+       "conversation": "conv_TEST",
        "seq": 3,
        "client_msg_id": "q1",
        "author": "agent_mux",
@@ -32747,7 +31183,7 @@
   {
    "name": "question budget: agent question 3 of 6",
    "head": {
-    "id": "conv_01J00000000000000000GUARD",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -32757,13 +31193,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -32824,7 +31253,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000003",
-     "conversation": "conv_01J00000000000000000GUARD",
+     "conversation": "conv_TEST",
      "seq": 3,
      "client_msg_id": "q1",
      "author": "agent_mux",
@@ -32871,7 +31300,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J00000000000000000GUARD",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -32881,13 +31310,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -32906,7 +31328,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000004",
-      "conversation": "conv_01J00000000000000000GUARD",
+      "conversation": "conv_TEST",
       "seq": 4,
       "client_msg_id": "q2",
       "author": "agent_mux",
@@ -32953,7 +31375,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000004",
-       "conversation": "conv_01J00000000000000000GUARD",
+       "conversation": "conv_TEST",
        "seq": 4,
        "client_msg_id": "q2",
        "author": "agent_mux",
@@ -33003,7 +31425,7 @@
   {
    "name": "question budget: agent question 4 of 6",
    "head": {
-    "id": "conv_01J00000000000000000GUARD",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -33013,13 +31435,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -33080,7 +31495,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000004",
-     "conversation": "conv_01J00000000000000000GUARD",
+     "conversation": "conv_TEST",
      "seq": 4,
      "client_msg_id": "q2",
      "author": "agent_mux",
@@ -33127,7 +31542,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J00000000000000000GUARD",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -33137,13 +31552,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -33162,7 +31570,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000005",
-      "conversation": "conv_01J00000000000000000GUARD",
+      "conversation": "conv_TEST",
       "seq": 5,
       "client_msg_id": "q3",
       "author": "agent_mux",
@@ -33209,7 +31617,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000005",
-       "conversation": "conv_01J00000000000000000GUARD",
+       "conversation": "conv_TEST",
        "seq": 5,
        "client_msg_id": "q3",
        "author": "agent_mux",
@@ -33259,7 +31667,7 @@
   {
    "name": "question budget: agent question 5 of 6",
    "head": {
-    "id": "conv_01J00000000000000000GUARD",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -33269,13 +31677,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -33336,7 +31737,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000005",
-     "conversation": "conv_01J00000000000000000GUARD",
+     "conversation": "conv_TEST",
      "seq": 5,
      "client_msg_id": "q3",
      "author": "agent_mux",
@@ -33383,7 +31784,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J00000000000000000GUARD",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -33393,13 +31794,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -33418,7 +31812,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000006",
-      "conversation": "conv_01J00000000000000000GUARD",
+      "conversation": "conv_TEST",
       "seq": 6,
       "client_msg_id": "q4",
       "author": "agent_mux",
@@ -33465,7 +31859,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000006",
-       "conversation": "conv_01J00000000000000000GUARD",
+       "conversation": "conv_TEST",
        "seq": 6,
        "client_msg_id": "q4",
        "author": "agent_mux",
@@ -33515,7 +31909,7 @@
   {
    "name": "question budget: agent question 6 of 6",
    "head": {
-    "id": "conv_01J00000000000000000GUARD",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -33525,13 +31919,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -33592,7 +31979,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000006",
-     "conversation": "conv_01J00000000000000000GUARD",
+     "conversation": "conv_TEST",
      "seq": 6,
      "client_msg_id": "q4",
      "author": "agent_mux",
@@ -33639,7 +32026,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J00000000000000000GUARD",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -33649,13 +32036,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -33674,7 +32054,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000007",
-      "conversation": "conv_01J00000000000000000GUARD",
+      "conversation": "conv_TEST",
       "seq": 7,
       "client_msg_id": "q5",
       "author": "agent_mux",
@@ -33721,7 +32101,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000007",
-       "conversation": "conv_01J00000000000000000GUARD",
+       "conversation": "conv_TEST",
        "seq": 7,
        "client_msg_id": "q5",
        "author": "agent_mux",
@@ -33771,7 +32151,7 @@
   {
    "name": "question budget: one agent question over the budget",
    "head": {
-    "id": "conv_01J00000000000000000GUARD",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -33781,13 +32161,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -33848,7 +32221,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000007",
-     "conversation": "conv_01J00000000000000000GUARD",
+     "conversation": "conv_TEST",
      "seq": 7,
      "client_msg_id": "q5",
      "author": "agent_mux",
@@ -33899,7 +32272,7 @@
   {
    "name": "question budget: one agent text over the budget after the questions",
    "head": {
-    "id": "conv_01J00000000000000000GUARD",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -33909,13 +32282,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -33952,7 +32318,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000007",
-     "conversation": "conv_01J00000000000000000GUARD",
+     "conversation": "conv_TEST",
      "seq": 7,
      "client_msg_id": "q5",
      "author": "agent_mux",
@@ -34003,7 +32369,7 @@
   {
    "name": "question budget: the person answers",
    "head": {
-    "id": "conv_01J00000000000000000GUARD",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -34013,13 +32379,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -34057,7 +32416,7 @@
     "new_message_id": "msg_00000000000000000000000008",
     "target": {
      "id": "msg_00000000000000000000000007",
-     "conversation": "conv_01J00000000000000000GUARD",
+     "conversation": "conv_TEST",
      "seq": 7,
      "client_msg_id": "q5",
      "author": "agent_mux",
@@ -34104,7 +32463,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000007",
-     "conversation": "conv_01J00000000000000000GUARD",
+     "conversation": "conv_TEST",
      "seq": 7,
      "client_msg_id": "q5",
      "author": "agent_mux",
@@ -34151,7 +32510,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J00000000000000000GUARD",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -34161,13 +32520,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -34186,7 +32538,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000007",
-      "conversation": "conv_01J00000000000000000GUARD",
+      "conversation": "conv_TEST",
       "seq": 7,
       "client_msg_id": "q5",
       "author": "agent_mux",
@@ -34248,7 +32600,7 @@
       "kind": "message-updated",
       "message": {
        "id": "msg_00000000000000000000000007",
-       "conversation": "conv_01J00000000000000000GUARD",
+       "conversation": "conv_TEST",
        "seq": 7,
        "client_msg_id": "q5",
        "author": "agent_mux",
@@ -34313,7 +32665,7 @@
   {
    "name": "question budget: an answer is a human turn, the agent may go on",
    "head": {
-    "id": "conv_01J00000000000000000GUARD",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -34323,13 +32675,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -34366,7 +32711,7 @@
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000007",
-     "conversation": "conv_01J00000000000000000GUARD",
+     "conversation": "conv_TEST",
      "seq": 7,
      "client_msg_id": "q5",
      "author": "agent_mux",
@@ -34428,7 +32773,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_01J00000000000000000GUARD",
+      "id": "conv_TEST",
       "title": "mux",
       "participants": [
        {
@@ -34438,13 +32783,6 @@
        },
        {
         "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
         "kind": "agent",
         "display_name": "mux",
         "agent_class": "mux",
@@ -34463,7 +32801,7 @@
      },
      "message": {
       "id": "msg_00000000000000000000000008",
-      "conversation": "conv_01J00000000000000000GUARD",
+      "conversation": "conv_TEST",
       "seq": 8,
       "client_msg_id": "t10",
       "author": "agent_mux",
@@ -34480,7 +32818,7 @@
       "kind": "message",
       "message": {
        "id": "msg_00000000000000000000000008",
-       "conversation": "conv_01J00000000000000000GUARD",
+       "conversation": "conv_TEST",
        "seq": 8,
        "client_msg_id": "t10",
        "author": "agent_mux",
@@ -34498,9 +32836,9 @@
    }
   },
   {
-   "name": "question budget: the second agent answers in the free round",
+   "name": "question budget: a question within the 2 s gap",
    "head": {
-    "id": "conv_01J00000000000000000GUARD",
+    "id": "conv_TEST",
     "title": "mux",
     "participants": [
      {
@@ -34510,13 +32848,6 @@
      },
      {
       "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
       "kind": "agent",
       "display_name": "mux",
       "agent_class": "mux",
@@ -34532,148 +32863,6 @@
     },
     "agent_text_streak": 1,
     "last_agent_text_at": "2026-10-01T12:01:10.000Z"
-   },
-   "request": {
-    "actor": "agent_two",
-    "idempotency_key": "t11",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "t11",
-     "parts": [
-      {
-       "type": "text",
-       "text": "me too"
-      }
-     ]
-    },
-    "now": "2026-10-01T12:01:10.050Z",
-    "new_message_id": "msg_00000000000000000000000009",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000008",
-     "conversation": "conv_01J00000000000000000GUARD",
-     "seq": 8,
-     "client_msg_id": "t10",
-     "author": "agent_mux",
-     "parts": [
-      {
-       "type": "text",
-       "text": "thanks"
-      }
-     ],
-     "created_at": "2026-10-01T12:01:10.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "commit": {
-     "head": {
-      "id": "conv_01J00000000000000000GUARD",
-      "title": "mux",
-      "participants": [
-       {
-        "id": "user_local",
-        "kind": "human",
-        "display_name": "Alice"
-       },
-       {
-        "id": "agent_mux",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       },
-       {
-        "id": "agent_two",
-        "kind": "agent",
-        "display_name": "mux",
-        "agent_class": "mux",
-        "acp_session": "mux"
-       }
-      ],
-      "last_seq": 9,
-      "rev": 11,
-      "created_at": "2026-10-01T12:00:00.000Z",
-      "updated_at": "2026-10-01T12:01:10.050Z",
-      "read_cursors": {
-       "user_local": 1
-      },
-      "agent_text_streak": 2,
-      "last_agent_text_at": "2026-10-01T12:01:10.050Z"
-     },
-     "message": {
-      "id": "msg_00000000000000000000000009",
-      "conversation": "conv_01J00000000000000000GUARD",
-      "seq": 9,
-      "client_msg_id": "t11",
-      "author": "agent_two",
-      "parts": [
-       {
-        "type": "text",
-        "text": "me too"
-       }
-      ],
-      "created_at": "2026-10-01T12:01:10.050Z",
-      "reactions": []
-     },
-     "change": {
-      "kind": "message",
-      "message": {
-       "id": "msg_00000000000000000000000009",
-       "conversation": "conv_01J00000000000000000GUARD",
-       "seq": 9,
-       "client_msg_id": "t11",
-       "author": "agent_two",
-       "parts": [
-        {
-         "type": "text",
-         "text": "me too"
-        }
-       ],
-       "created_at": "2026-10-01T12:01:10.050Z",
-       "reactions": []
-      }
-     }
-    }
-   }
-  },
-  {
-   "name": "question budget: a question within the 2 s gap",
-   "head": {
-    "id": "conv_01J00000000000000000GUARD",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     },
-     {
-      "id": "agent_two",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 9,
-    "rev": 11,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:01:10.050Z",
-    "read_cursors": {
-     "user_local": 1
-    },
-    "agent_text_streak": 2,
-    "last_agent_text_at": "2026-10-01T12:01:10.050Z"
    },
    "request": {
     "actor": "agent_mux",
@@ -34713,23 +32902,23 @@
      ]
     },
     "now": "2026-10-01T12:01:11.999Z",
-    "new_message_id": "msg_00000000000000000000000010",
+    "new_message_id": "msg_00000000000000000000000009",
     "target": null,
     "reply_target": null,
     "thread_target": null,
     "last_message": {
-     "id": "msg_00000000000000000000000009",
-     "conversation": "conv_01J00000000000000000GUARD",
-     "seq": 9,
-     "client_msg_id": "t11",
-     "author": "agent_two",
+     "id": "msg_00000000000000000000000008",
+     "conversation": "conv_TEST",
+     "seq": 8,
+     "client_msg_id": "t10",
+     "author": "agent_mux",
      "parts": [
       {
        "type": "text",
-       "text": "me too"
+       "text": "thanks"
       }
      ],
-     "created_at": "2026-10-01T12:01:10.050Z",
+     "created_at": "2026-10-01T12:01:10.000Z",
      "reactions": []
     }
    },

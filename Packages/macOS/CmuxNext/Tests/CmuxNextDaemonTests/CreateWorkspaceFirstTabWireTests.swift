@@ -57,14 +57,8 @@ struct CreateWorkspaceFirstTabWireTests {
         let result = try JSONDecoder().decode(WorkspaceMutationResult.self, from: Data(reply.utf8))
         #expect(result.firstTab?.surface == SurfaceID(rawValue: 12))
         #expect(result.firstTab?.tabResourceID?.rawValue == "tab_0123456789abcdef0123456789abcdef")
-        // The run's `created` names the tab too (Open Desktop's answer named only the workspace since 11-11).
-        #expect(CreateWorkspaceRequest(mutation: nil).createdObjects(in: result) == [
-            DaemonCreatedObject(.workspace, "018f6e21-7b70-7e70-8000-0000000000b1"), DaemonCreatedObject(.tab, "12"),
-        ])
         // An older daemon's reply has no first tab.
         let old = #"{"workspace":4,"key":"018f6e21-7b70-7e70-8000-0000000000b1","workspace_revision":9,"replayed":false}"#
-        let older = try JSONDecoder().decode(WorkspaceMutationResult.self, from: Data(old.utf8))
-        #expect(older.firstTab == nil)
-        #expect(CreateWorkspaceRequest(mutation: nil).createdObjects(in: older) == [DaemonCreatedObject(.workspace, "018f6e21-7b70-7e70-8000-0000000000b1")])
+        #expect(try JSONDecoder().decode(WorkspaceMutationResult.self, from: Data(old.utf8)).firstTab == nil)
     }
 }

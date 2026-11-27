@@ -34,12 +34,6 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
-// retry-prompt-ok: a stream `gap` end's hint to the client program, which
-// reopens the stream from the cursor by itself; no person reads or acts on it.
-const GAP_HINT: &str = "reconnect with the last journal cursor";
-// retry-prompt-ok: the same client-program hint for a cursor past retention.
-const RETAINED_GAP_HINT: &str = "reconnect from a retained journal cursor";
-
 const JOURNAL_STREAM_PAGE_SIZE: usize = 1024;
 
 pub(super) struct SessionJournalStreamStart {
@@ -191,22 +185,6 @@ pub(super) fn handle_journal_extension_request(
                         })?;
                     mux.note_agent_question(&terminal, question).then_some(terminal)
                 });
-            // An approval hook's approval rides the same way, for the phone's Allow / Deny card.
-            let approval = request
-                .fields
-                .get("live_approval")
-                .and_then(Value::as_str)
-                .filter(|_| ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
-                .and_then(|approval| {
-                    let terminal = ingress
-                        .subjects
-                        .iter()
-                        .find(|subject| subject.kind == "terminal")
-                        .and_then(|subject| {
-                            crate::resource::TerminalPublicId::parse(subject.id.clone()).ok()
-                        })?;
-                    mux.note_agent_approval(&terminal, approval).then_some(terminal)
-                });
             let idempotency_key = super::wire_values::required_idempotency_key(request)?;
             let appended = mux.append_journal_ingress(&ingress, origin, idempotency_key);
             if let Some((terminal, previous)) = noted
@@ -224,9 +202,6 @@ pub(super) fn handle_journal_extension_request(
             }
             if let Some(terminal) = question {
                 mux.forget_noted_agent_question(&terminal);
-            }
-            if let Some(terminal) = approval {
-                mux.forget_noted_agent_approval(&terminal);
             }
             appended
                 .map(|commit| {
@@ -537,8 +512,13 @@ pub(super) fn prepare_session_journal_stream(
     }
     let indexed_subjects = filter.indexed_subjects();
     let opened_cursor = journal_cursor(&session_id, last_sequence);
-    let overflow =
-        resource_stream_end(&stream_id, "gap", Some(opened_cursor.clone()), Some(GAP_HINT), None);
+    let overflow = resource_stream_end(
+        &stream_id,
+        "gap",
+        Some(opened_cursor.clone()),
+        Some("reconnect with the last journal cursor"),
+        None,
+    );
     let outbound = writer
         .start_stream(&overflow)
         .map_err(|error| stream_start_error("session.journal.subscribe", &error))?;
@@ -609,7 +589,6 @@ pub(super) fn start_session_journal_stream(
     let worker_writer = writer.clone();
     let spawn = std::thread::Builder::new()
         .name("mux-resource-session-journal".into())
-        .stack_size(super::RESOURCE_WORKER_STACK_BYTES)
         .spawn(move || run_session_journal_stream(&worker_mux, client, &worker_writer, start));
     if spawn.is_err() {
         let _ = mux.control_clients.take_resource_stream(client, &stream_id);
@@ -671,7 +650,7 @@ pub(super) fn run_session_journal_stream(
                                 &stream.stream_id,
                                 "gap",
                                 Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                                Some(GAP_HINT),
+                                Some("reconnect with the last journal cursor"),
                                 None,
                             );
                             let _ = writer.send_terminal(&end, &stream.outbound);
@@ -684,7 +663,7 @@ pub(super) fn run_session_journal_stream(
                         &stream.stream_id,
                         "gap",
                         Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                        Some(GAP_HINT),
+                        Some("reconnect with the last journal cursor"),
                         None,
                     );
                     let _ = writer.send_terminal(&end, &stream.outbound);
@@ -695,7 +674,7 @@ pub(super) fn run_session_journal_stream(
                         &stream.stream_id,
                         "gap",
                         Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                        Some(GAP_HINT),
+                        Some("reconnect with the last journal cursor"),
                         None,
                     );
                     let _ = writer.send_terminal(&end, &stream.outbound);
@@ -718,7 +697,7 @@ pub(super) fn run_session_journal_stream(
                         &stream.stream_id,
                         "gap",
                         Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                        Some(RETAINED_GAP_HINT),
+                        Some("reconnect from a retained journal cursor"),
                         None,
                     );
                     let _ = writer.send_terminal(&end, &stream.outbound);
@@ -771,7 +750,7 @@ pub(super) fn run_session_journal_stream(
                     &stream.stream_id,
                     "gap",
                     Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                    Some(GAP_HINT),
+                    Some("reconnect with the last journal cursor"),
                     None,
                 );
                 let _ = writer.update_stream_overflow(&stream.outbound, &end);
@@ -787,7 +766,7 @@ pub(super) fn run_session_journal_stream(
                     &stream.stream_id,
                     "gap",
                     Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                    Some(GAP_HINT),
+                    Some("reconnect with the last journal cursor"),
                     None,
                 );
                 let _ = writer.update_stream_overflow(&stream.outbound, &end);

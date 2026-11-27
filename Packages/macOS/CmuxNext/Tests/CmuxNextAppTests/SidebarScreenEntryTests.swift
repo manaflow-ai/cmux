@@ -7,8 +7,7 @@ import Testing
 
 /// Screen Sharing from the sidebar's machine headers (Leo: "for screensharing, jf theres no easy path to use
 /// it then theres no point even if its the most performant thing in the world"): This Mac's header shows
-/// Share, a Cloud machine's View screen, an SSH or server machine's nothing; each routes to its action. The button draws
-/// on hover only (Leo 2026-11-16: nothing on every row at rest), so these tests hover a header before pressing it.
+/// Share, a Cloud machine's View screen, an SSH or server machine's nothing; each routes to its action.
 @MainActor @Suite(.serialized) struct SidebarScreenEntryTests {
     static func section(_ id: String, name: String, kind: SidebarMachine.Kind) -> SidebarSection {
         SidebarSection(kind: .machine(SidebarMachine(id: MachineID(id), name: name, kind: kind)),
@@ -36,15 +35,6 @@ import Testing
 
     static func header(_ list: SidebarListView, _ id: String) throws -> SectionHeaderRowView {
         try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID(id)))] as? SectionHeaderRowView)
-    }
-
-    /// The header as the pointer finds it: hovered and laid out again.
-    static func hovered(_ list: SidebarListView, _ id: String) throws -> SectionHeaderRowView {
-        let row = try header(list, id)
-        row.isHovered = true
-        row.needsLayout = true
-        row.layoutSubtreeIfNeeded()
-        return row
     }
 
     // MARK: Routing
@@ -92,19 +82,16 @@ import Testing
         let (list, model) = Self.groupedList(Self.examples)
         var intents: [SidebarIntent] = []
         model.onIntent = { intents.append($0) }
-        for id in ["local", "cloud"] {
-            #expect(try !Self.header(list, id).showsScreenButton, "\(id)'s screen button draws on hover only")
-        }
-        let local = try Self.hovered(list, "local")
+        let local = try Self.header(list, "local")
         #expect(local.showsScreenButton)
         #expect(local.screenButton.label == Strings.shareScreen)
         #expect(local.screenButton.accessibilityPerformPress())
-        let cloud = try Self.hovered(list, "cloud")
+        let cloud = try Self.header(list, "cloud")
         #expect(cloud.showsScreenButton)
         #expect(cloud.screenButton.label == Strings.viewScreen)
         #expect(cloud.screenButton.accessibilityPerformPress())
         for id in ["ssh", "server"] {
-            let header = try Self.hovered(list, id)
+            let header = try Self.header(list, id)
             #expect(!header.showsScreenButton, "\(id) has no screen path in this slice")
             #expect(!header.screenButton.accessibilityPerformPress())
         }
@@ -115,11 +102,11 @@ import Testing
         let (list, model) = Self.groupedList(Self.examples)
         var intents: [SidebarIntent] = []
         model.onIntent = { intents.append($0) }
-        #expect(try Self.hovered(list, "cloud").showsScreenButton)
+        #expect(try Self.header(list, "cloud").showsScreenButton)
         model.sections = [Self.examples[0], Self.section("cloud", name: "Now an SSH machine", kind: .ssh)]
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
-        let reused = try Self.hovered(list, "cloud")
+        let reused = try Self.header(list, "cloud")
         #expect(reused.screenAction == nil)
         #expect(!reused.showsScreenButton)
         #expect(!reused.screenButton.accessibilityPerformPress())
@@ -131,7 +118,7 @@ import Testing
         var intents: [SidebarIntent] = []
         model.onIntent = { intents.append($0) }
         // The list always draws the sole machine's header, titled "Projects" (`showsSoleMachineHeader`).
-        let local = try Self.hovered(list, "local")
+        let local = try Self.header(list, "local")
         #expect(local.showsScreenButton)
         #expect(local.screenButton.accessibilityPerformPress())
         #expect(intents == [.shareScreen(.local)])
@@ -141,7 +128,7 @@ import Testing
     func headerControlsNeverOverlapTheNameOrEachOther(width: Double) throws {
         let (list, _) = Self.groupedList(Self.examples, width: width)
         for id in ["local", "cloud"] {
-            let row = try Self.hovered(list, id)
+            let row = try Self.header(list, id)
             #expect(row.allowsAdd)
             #expect(row.showsChevron)
             #expect(row.showsScreenButton)

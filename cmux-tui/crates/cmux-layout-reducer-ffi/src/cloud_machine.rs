@@ -5,8 +5,8 @@
 
 use cmux_cloud_machine::record::{self, Machine, Operation, Status};
 use cmux_cloud_machine::{
-    cap, changes, error, github, harness_copy, limits, list_facts, models, preview, push, reads,
-    rules, vm_host,
+    cap, changes, error, github, harness_copy, limits, list_facts, models, preview, push, rules,
+    vm_host,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -15,13 +15,12 @@ use serde_json::{Value, json};
 use crate::ERR_INVALID;
 
 /// Whether `operation` is one of this module's: `cloud_model_*`, and `cloud_machine_*` but for
-/// `cloud_bootstrap`'s `cloud_machine_config_*`, `cloud_machine_step_*` and `cloud_machine_repo_*`.
+/// `cloud_bootstrap`'s `cloud_machine_config_*` and `cloud_machine_step_*`.
 pub(crate) fn handles(operation: &[u8]) -> bool {
     operation.starts_with(b"cloud_model_")
         || (operation.starts_with(b"cloud_machine_")
             && !operation.starts_with(b"cloud_machine_config_")
-            && !operation.starts_with(b"cloud_machine_step_")
-            && !operation.starts_with(b"cloud_machine_repo_"))
+            && !operation.starts_with(b"cloud_machine_step_"))
 }
 
 fn read<T: DeserializeOwned>(request: &[u8]) -> Result<T, i32> {
@@ -38,26 +37,6 @@ struct ChangesRequest {
     machine: String,
     #[serde(default)]
     id: String,
-}
-
-/// The read order's state and its arguments, the shape of every `cloud_machine_reads_*` but begin.
-#[derive(Deserialize)]
-struct ReadsRequest {
-    #[serde(default)]
-    state: reads::Reads,
-    #[serde(default)]
-    read: i64,
-    #[serde(default)]
-    machine: String,
-    /// A list's machines.
-    #[serde(default)]
-    machines: Vec<String>,
-    /// The machines the app holds sessions for.
-    #[serde(default)]
-    held: Vec<String>,
-    /// Cloud is off: tickets retire, no omission is released.
-    #[serde(default)]
-    disabled: bool,
 }
 
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
@@ -219,41 +198,6 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({"delayMs": changes::next_delay(request.delay_ms, request.listed), "settleDelayMs": changes::SETTLE_DELAY_MS})
-        }
-        // The order of record reads (`reads::Reads`): each answers the new state; the app removes
-        // the `removals` it holds.
-        b"cloud_machine_reads_begin" => {
-            #[derive(Deserialize)]
-            struct Request {
-                #[serde(default)]
-                state: reads::Reads,
-                #[serde(default)]
-                machine: Option<String>,
-            }
-            let Request { mut state, machine } = read(request)?;
-            let ticket = state.begin(machine.as_deref());
-            json!({"state": state, "read": ticket})
-        }
-        b"cloud_machine_reads_finish" => {
-            let ReadsRequest { mut state, read: ticket, disabled, .. } = read(request)?;
-            let removals = state.finish(ticket, disabled);
-            json!({"state": state, "removals": removals, "idle": state.is_idle()})
-        }
-        b"cloud_machine_reads_admit" => {
-            let ReadsRequest { mut state, read: ticket, machine, .. } = read(request)?;
-            let admitted = state.admit(&machine, ticket);
-            json!({"state": state, "admitted": admitted})
-        }
-        b"cloud_machine_reads_listed" => {
-            let ReadsRequest { mut state, read: ticket, machines, held, disabled, .. } =
-                read(request)?;
-            let listed = state.listed(&machines, &held, ticket, disabled);
-            json!({"state": state, "add": listed.add, "removals": listed.removals})
-        }
-        b"cloud_machine_reads_removed" => {
-            let ReadsRequest { mut state, machine, .. } = read(request)?;
-            state.removed(&machine);
-            json!({"state": state})
         }
         // The pushed state's rules; the app holds the sockets.
         b"cloud_machine_push_url" => {
@@ -480,13 +424,6 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({"stale": vm_host::stale(request.known, request.failed_age_ms)})
-        }
-        // The machine list a team last answered, kept for a cold start (`cloud_last_seen`).
-        b"cloud_machine_last_seen_save" => crate::cloud_last_seen::save(&read(request)?),
-        b"cloud_machine_last_seen_load" => crate::cloud_last_seen::load(&read(request)?),
-        b"cloud_machine_last_seen_forget" => crate::cloud_last_seen::forget(&read(request)?),
-        b"cloud_machine_last_seen_refresh_due" => {
-            crate::cloud_last_seen::refresh_due(&read(request)?)
         }
         _ => return Err(ERR_INVALID),
     };

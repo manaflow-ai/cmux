@@ -7,11 +7,6 @@ use crate::text::t;
 
 const GROUP: &str = "TerminalActionCatalog";
 
-/// A terminal of the session, by its `term_…` id; the palette lists them from the daemon's
-/// `terminal.list` (`op:terminal.list`), by title.
-#[rustfmt::skip]
-const PROJECT_TERMINAL: Argument = Argument { name: "terminal", title: t("LayoutActions", "argument.terminal.project", "Terminal"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "op:terminal.list", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
-
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
     Action {
@@ -117,26 +112,6 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "terminal paste-last-screenshot",
         ..Action::DEFAULT
     },
-    // Insert Path: a file panel, then the chosen files' and folders' paths, shell-quoted and
-    // space-separated, pasted into the terminal's input, as a drop of those files does. A `path`
-    // argument (action.run, MCP) inserts that path without the panel. Ctrl-Cmd-I in a terminal
-    // only: the browser's View Site Information keeps it there.
-    Action {
-        id: "insertPath",
-        group: GROUP,
-        title: t("ActionCatalog", "action.insertPath", "Insert Path…"),
-        keywords: &["file", "folder", "path", "choose", "browse", "paste"],
-        default_shortcut: Some(Shortcut { key: "i", modifiers: CTRL | CMD }),
-        category: "terminal",
-        symbol: "text.insert",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("liveInput"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::PATH.optional()],
-        requires: &["terminalFocused"],
-        targets: &["pane"],
-        cli_name: "terminal insert-path",
-        ..Action::DEFAULT
-    },
     Action {
         id: "terminal.keep",
         group: GROUP,
@@ -148,40 +123,6 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::ON.optional()],
         targets: &["tab"],
         cli_name: "terminal keep",
-        ..Action::DEFAULT
-    },
-    // Show Last Line in Sidebar: the tab's terminal's last output line under its workspace in the
-    // sidebar (`terminal-tail-pin-v1`), as `cmux terminal <term> pin-tail on|off`; off clears it.
-    // In the workspace category, where the line shows: a row in a terminal category needs its App
-    // handler before it lands (HandlerCoverage), and this one's follows the re-pin.
-    Action {
-        id: "terminal.pinTail",
-        group: GROUP,
-        title: t("ActionCatalog", "action.terminal.pinTail", "Show Last Line in Sidebar"),
-        keywords: &["pin", "tail", "last line", "output", "status", "sidebar"],
-        category: "workspace",
-        symbol: "sidebar.left",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::ON.optional()],
-        targets: &["tab"],
-        cli_name: "terminal pin-tail",
-        ..Action::DEFAULT
-    },
-    // Show Terminal in New Tab: a new tab in the pane showing a live terminal (one kept running
-    // after its tab closed, or another tab's), as `cmux terminal <term> project` (the daemon's
-    // verb, terminal.project). In the workspace category: the row adds a tab, and a row in a
-    // terminal category needs its App handler before it lands (HandlerCoverage).
-    Action {
-        id: "terminal.project",
-        group: GROUP,
-        title: t("LayoutActions", "action.terminal.project", "Show Terminal in New Tab…"),
-        keywords: &["terminal", "project", "show", "reattach", "attach", "restore", "kept", "detached", "background", "mirror", "tab"],
-        category: "workspace",
-        symbol: "rectangle.portrait.on.rectangle.portrait",
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        arguments: &[PROJECT_TERMINAL],
-        targets: &["pane"],
-        cli_name: "action terminal-project",
         ..Action::DEFAULT
     },
     Action {
@@ -229,25 +170,6 @@ pub static ACTIONS: &[Action] = &[
         targets: &["pane"],
         cli_name: "terminal find-in-directory",
         main_menu: Some("edit"),
-        ..Action::DEFAULT
-    },
-    // Go to Directory: the focused terminal's shell changes to a typed directory (`cd`), as
-    // Finder's Go to Folder (Shift-Cmd-G). Shift-Cmd-G's other owners (Group Selected Workspaces,
-    // the browser's Find Previous) keep it outside a focused terminal.
-    Action {
-        id: "terminal.goToDirectory",
-        group: GROUP,
-        title: t("ActionCatalog", "action.terminal.goToDirectory", "Go to Directory…"),
-        keywords: &["cd", "folder", "path", "change directory", "jump"],
-        default_shortcut: Some(Shortcut { key: "g", modifiers: SHIFT | CMD }),
-        category: "terminal",
-        symbol: "arrow.right.circle",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("liveInput"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::PATH],
-        requires: &["terminalFocused"],
-        targets: &["tab"],
-        cli_name: "terminal go-to-directory",
         ..Action::DEFAULT
     },
     Action {
@@ -434,7 +356,7 @@ pub static ACTIONS: &[Action] = &[
         category: "terminal",
         symbol: "wrench.and.screwdriver",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "edit", 9).folder("tools")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "edit", 9)], ..SurfacePlan::DEFAULT },
         requires: &["terminalFocused"],
         targets: &["tab"],
         cli_name: "terminal fix-last-command",
@@ -448,7 +370,7 @@ pub static ACTIONS: &[Action] = &[
         category: "terminal",
         symbol: "text.bubble",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "edit", 8).folder("tools")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "edit", 8)], ..SurfacePlan::DEFAULT },
         requires: &["terminalFocused"],
         targets: &["tab"],
         cli_name: "terminal send-last-output-to-chat",
@@ -462,7 +384,7 @@ pub static ACTIONS: &[Action] = &[
         category: "terminal",
         symbol: "bubble.left.and.text.bubble.right",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menus: &[Placement::at("terminalSelection", "edit", 7).folder("tools")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menus: &[Placement::at("terminalSelection", "edit", 7)], ..SurfacePlan::DEFAULT },
         requires: &["terminalFocused"],
         targets: &["tab"],
         cli_name: "terminal send-selection-to-chat",
@@ -476,8 +398,7 @@ pub static ACTIONS: &[Action] = &[
         category: "terminal",
         symbol: "arrow.up.forward.app",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "inspect", 0).folder("tools")], ..SurfacePlan::DEFAULT },
-        // `app`: an editor id (listed, the default first), `finder`, `terminal`, or any app by name, bundle id or path.
-        arguments: &[args::EDITOR],
+        arguments: &[args::APP],
         targets: &["pane"],
         cli_name: "terminal open-current-directory-in",
         ..Action::DEFAULT

@@ -74,11 +74,6 @@ while IFS= read -r path; do
   if git diff --quiet "$merge_base" "$base_ref" -- "$path"; then
     continue
   fi
-  # A merge that equals the base for this path kept nothing stale, even when the
-  # PR side is the same content (a PR stacked on a base PR that squash-merged).
-  if git diff --quiet "$base_ref" "$merge_ref" -- "$path"; then
-    continue
-  fi
   if git diff --quiet "$pr_parent" "$merge_ref" -- "$path"; then
     stale+=("$path (merge snapshot kept the PR side)")
   fi

@@ -4,9 +4,7 @@
 //! `_acpmux/process/tail {processId, fromByte?, maxBytes?}` and
 //! `_acpmux/process/kill {processId, sessionId?, signal?}` (a named chat must
 //! be the process's),
-//! `_acpmux/process/background {sessionId, toolCallId?}` (Ctrl-B),
-//! `_acpmux/process/census {callerSession?}` (every process and lock acpmux owns on this machine,
-//! what `acpmux ps --json` prints: [`census`]), and the
+//! `_acpmux/process/background {sessionId, toolCallId?}` (Ctrl-B), and the
 //! `_acpmux/process_update {process}` notification.
 //!
 //! Routed before every other method (`chats.rs`), like the secret methods:
@@ -37,7 +35,6 @@ pub(super) async fn dispatch(
             | method::MUX_PROCESS_TAIL
             | method::MUX_PROCESS_KILL
             | method::MUX_PROCESS_BACKGROUND
-            | method::MUX_PROCESS_CENSUS
     ) {
         return None;
     }
@@ -50,27 +47,9 @@ pub(super) async fn dispatch(
 }
 
 async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
-    if m == method::MUX_PROCESS_CENSUS {
-        return census(hub, params).await;
-    }
     if m == method::MUX_PROCESS_LIST {
         let paging = process_page_params(params)?;
-        let recent = recent_param(params)?;
-        let within = byte_param(params, "endedWithin")?;
-        let calls = calls_param(params)?;
-        if recent.is_some() && paging.is_some() {
-            return Err(RpcError::invalid_params("recent does not take limit or cursor"));
-        }
-        if within.is_some() && recent.is_none() {
-            return Err(RpcError::invalid_params("endedWithin requires recent"));
-        }
-        if calls.is_some() && (recent.is_some() || paging.is_some()) {
-            return Err(RpcError::invalid_params("calls takes no recent, limit or cursor"));
-        }
         return match params.get("sessionId").filter(|v| !v.is_null()) {
-            None if recent.is_some() || calls.is_some() => Err(RpcError::invalid_params(
-                "a recent process list or one by calls requires a sessionId",
-            )),
             None if paging.is_some() => {
                 Err(RpcError::invalid_params("paged process lists require a sessionId"))
             }
@@ -80,12 +59,6 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
                     .as_str()
                     .ok_or_else(|| RpcError::invalid_params("sessionId must be a string"))?;
                 let session = hub.resolve(key)?;
-                if let Some(recent) = recent {
-                    return hub.list_recent_processes(&session, recent, within);
-                }
-                if let Some(calls) = calls {
-                    return Ok(hub.list_call_processes(&session, &calls));
-                }
                 match paging {
                     Some((limit, cursor)) => hub.list_processes_page(&session, limit, cursor),
                     None => Ok(hub.list_processes_reply(Some(&session))),
@@ -125,65 +98,6 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
     hub.kill_process(id).await
 }
 
-/// `_acpmux/process/census {callerSession?}`: the census `acpmux ps --json` prints
-/// (`cli/process_census.rs`), built by the same code, so an agent or the app reads acpmux's own
-/// judgment of each process (whose it is now, and whether it is in use, idle or a proven orphan)
-/// instead of guessing from a command line. Read-only: it ends nothing and removes nothing.
-///
-/// Each session's status comes from this hub, never from a connection to this daemon's own
-/// socket. The process and lock reads block (every process's environment, each host's lock), so
-/// they run on the blocking pool. `callerSession` names the asker's session, whose processes read
-/// `yours` instead of `live` and are never `orphaned` or a gc candidate, as `acpmux ps` run in
-/// that session reads them; it changes no state. Any local client may name any session, as any
-/// local process may run `acpmux ps` with that session's environment.
-///
-/// A census too large for one reply has its longest command lines cut (`fit_census`); one that
-/// still does not fit is refused with a pointer to `acpmux ps --json`, never sent over the cap.
-#[cfg(not(unix))]
-async fn census(_hub: &Arc<Hub>, _params: &Value) -> Result<Value, RpcError> {
-    // `cli::process_census` reads /proc and ps, which this platform has no arm for yet.
-    Err(RpcError::internal("the process census runs on unix only")
-        .with_data(json!({"reason": "census.unsupported"})))
-}
-
-#[cfg(unix)]
-async fn census(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
-    use crate::cli::process_census::{self, SessionInfo, Sessions};
-    let caller = match params.get("callerSession").filter(|v| !v.is_null()) {
-        None => None,
-        Some(Value::String(s)) if !s.is_empty() => Some(s.clone()),
-        Some(_) => {
-            return Err(RpcError::invalid_params("callerSession must be a nonempty session id"));
-        }
-    };
-    let blocking_failed = |e: tokio::task::JoinError| RpcError::internal(format!("census: {e}"));
-    let gathered = tokio::task::spawn_blocking(move || process_census::gather(caller.as_deref()))
-        .await
-        .map_err(blocking_failed)?;
-    let wanted = gathered.session_ids();
-    let mut sessions: Sessions =
-        wanted.iter().map(|id| (id.clone(), SessionInfo::gone())).collect();
-    for session in hub.session_handles() {
-        if let Some(info) = sessions.get_mut(session.id.as_str()) {
-            *info = session.read_meta(|m| SessionInfo {
-                status: Some(m.status.to_string()),
-                updated_at: Some(m.updated_at),
-            });
-        }
-    }
-    let mut census =
-        tokio::task::spawn_blocking(move || process_census::build(&gathered, &sessions, true))
-            .await
-            .map_err(blocking_failed)?;
-    if !process_census::fit_census(&mut census, crate::hub::reply_fit::REPLY_BYTES) {
-        return Err(RpcError::internal(
-            "census too large for one reply even with command lines cut; run `acpmux ps --json`",
-        )
-        .with_data(json!({"reason": "census.too_large"})));
-    }
-    Ok(census)
-}
-
 /// An opt-in process page. A bare cursor must never silently fall back to a full
 /// list, and an unbounded requested limit is capped to a modest page size.
 fn process_page_params(params: &Value) -> Result<Option<(usize, Option<&str>)>, RpcError> {
@@ -204,32 +118,6 @@ fn process_page_params(params: &Value) -> Result<Option<(usize, Option<&str>)>, 
         .ok_or_else(|| RpcError::invalid_params("limit must be a positive integer"))?;
     let bounded = usize::try_from(limit).unwrap_or(usize::MAX).min(1_000);
     Ok(Some((bounded, cursor)))
-}
-
-/// `recent`: how many ended processes a chat's page holds beside the running ones
-/// (`Hub::list_recent_processes`), a positive integer, at most 1,000.
-fn recent_param(params: &Value) -> Result<Option<usize>, RpcError> {
-    let Some(value) = params.get("recent").filter(|v| !v.is_null()) else { return Ok(None) };
-    let recent = value
-        .as_u64()
-        .filter(|&n| n > 0)
-        .ok_or_else(|| RpcError::invalid_params("recent must be a positive integer"))?;
-    Ok(Some(usize::try_from(recent).unwrap_or(usize::MAX).min(1_000)))
-}
-
-/// `calls`: the tool calls whose processes to read (`Hub::list_call_processes`), 1 to 1,000
-/// nonempty strings.
-fn calls_param(params: &Value) -> Result<Option<Vec<String>>, RpcError> {
-    let Some(value) = params.get("calls").filter(|v| !v.is_null()) else { return Ok(None) };
-    let bad = || RpcError::invalid_params("calls must be 1 to 1,000 tool call ids");
-    let list =
-        value.as_array().filter(|list| !list.is_empty() && list.len() <= 1_000).ok_or_else(bad)?;
-    list.iter()
-        .map(|call| {
-            call.as_str().filter(|call| !call.is_empty()).map(str::to_owned).ok_or_else(bad)
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Some)
 }
 
 /// A byte count or offset: absent, null or a non-negative integer.
@@ -262,5 +150,27 @@ pub(super) fn push_update(conn: &Conn, ev: &HubEvent) {
 }
 
 #[cfg(test)]
-#[path = "processes_process_page_params_tests.rs"]
-mod process_page_params_tests;
+mod process_page_params_tests {
+    use super::*;
+
+    #[test]
+    fn a_cursor_requires_a_positive_limited_session_page() {
+        assert_eq!(process_page_params(&json!({})).unwrap(), None);
+        assert_eq!(process_page_params(&json!({"limit": 1})).unwrap(), Some((1, None)));
+        assert_eq!(
+            process_page_params(&json!({"limit": 3_000, "cursor": "s/task"})).unwrap(),
+            Some((1_000, Some("s/task")))
+        );
+        for bad in [
+            json!({"cursor": "s/task"}),
+            json!({"limit": 0}),
+            json!({"limit": -1}),
+            json!({"limit": "3"}),
+            json!({"limit": true}),
+            json!({"limit": 1, "cursor": ""}),
+            json!({"limit": 1, "cursor": 13}),
+        ] {
+            assert!(process_page_params(&bad).is_err(), "{bad}");
+        }
+    }
+}

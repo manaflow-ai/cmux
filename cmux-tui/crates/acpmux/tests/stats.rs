@@ -151,8 +151,6 @@ fn stats_turns_working_time_and_harnesses() {
     assert_eq!(s.days[0].day, "2026-10-12");
     assert_eq!(s.days[0].turns, 3);
     assert_eq!(s.peak_parallel, 1);
-    // One agent at a time, with gaps between: the clock time is the work time.
-    assert_eq!(s.busy_ms, s.working_ms);
     // Counts and times only: no prompt text reaches the answer.
     assert!(!serde_json::to_string(&s).unwrap().contains("secret"));
 }
@@ -169,10 +167,6 @@ fn stats_overlapping_turns_are_parallel_but_back_to_back_ones_are_not() {
     let s = summarize(&store, &options(DAY0 + DAY / 2, 1), &live_ids(&[])).unwrap();
     assert_eq!(s.peak_parallel, 3);
     assert_eq!(s.peak_parallel_at, Some(DAY0 + 20 * MIN));
-    // 140 min of agent work in 90 min of the clock: overlaps count once, and
-    // the back-to-back turn at 60 joins the busy stretch with no gap.
-    assert_eq!(s.working_ms, 140 * MIN);
-    assert_eq!(s.busy_ms, 90 * MIN);
 }
 
 #[test]

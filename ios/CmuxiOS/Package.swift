@@ -26,7 +26,6 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxTerminalStream"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
-        .package(path: "../../Packages/iOS/CmuxPushRegistration"),
         .package(path: "../../Packages/macOS/CmuxPhonePush"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
@@ -47,8 +46,6 @@ let package = Package(
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxPhonePush", package: "CmuxPhonePush"),
-                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
-                .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport"),
             ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
@@ -61,7 +58,6 @@ let package = Package(
                 .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport"),
                 .product(name: "CmuxPhonePush", package: "CmuxPhonePush"),
-                .product(name: "CmuxPushRegistration", package: "CmuxPushRegistration"),
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [
@@ -110,7 +106,6 @@ let package = Package(
         .target(
             name: "CmuxiOSPush",
             dependencies: [
-                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],
@@ -120,7 +115,6 @@ let package = Package(
         .target(
             name: "CmuxiOSIdentity",
             dependencies: [
-                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],

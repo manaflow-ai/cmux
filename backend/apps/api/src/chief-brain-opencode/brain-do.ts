@@ -1,6 +1,5 @@
-import { envForObject } from "../build-space.ts"
 import { DurableObject } from "cloudflare:workers"
-import type { Env, RawEnv } from "../env.ts"
+import type { Env } from "../env.ts"
 import { assertFaultHooks } from "../chief-fault.ts"
 import { ackWake, chiefPrincipal, readConversation, typing } from "../chief-brain/brain-io.ts"
 import { turnFailedNotice } from "../chief-brain/brain-gateway.ts"
@@ -72,10 +71,6 @@ const sameToken = (a: string, b: string): boolean => {
 }
 
 export class OpencodeBrainDO extends DurableObject<Env> {
-  constructor(ctx: DurableObjectState, raw: RawEnv) {
-    super(ctx, envForObject(ctx, raw))
-  }
-
   private readonly sql = this.ctx.storage.sql
   private readonly runsView = new LiveRuns({
     env: this.env,

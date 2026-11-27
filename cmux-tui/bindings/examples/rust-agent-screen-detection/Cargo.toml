@@ -29,19 +29,3 @@ toml = "0.8"
 [profile.release]
 lto = "fat"
 codegen-units = 1
-# panic=abort drops the landing pads and unwind cleanup code (CMUX-570, cut 3 of
-# cmuxterm-hq docs/perf/bundle-size.md). Nothing here catches a panic (no
-# catch_unwind, panic hook or joined-thread result). A panic on a wake-stream thread
-# used to end that thread alone and leave the detector without its wakes; now it ends
-# the process, and the daemon's plugin supervisor starts it again after its backoff
-# (journal_plugin.rs), as after any exit.
-panic = "abort"
-
-# Proc-macro and build-script dylibs keep their symbols: Rust before 1.98 strips a
-# Mach-O without padding its LINKEDIT string pool to 8 bytes (rust-lang/rust#157750),
-# and macOS 27 dyld refuses such an image built against the Xcode 27 SDK, so rustc
-# reports `E0463 can't find crate` for the macro (cmux#17311; the app FFI release
-# after the fleet's move to Xcode 27.2, #60808). Only build-time code: what ships
-# is unchanged.
-[profile.release.build-override]
-strip = false

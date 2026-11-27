@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib.util
-import json
 import os
 import re
 import subprocess
@@ -202,11 +201,9 @@ _NON_RUNNING_FILES = frozenset({
     ".github/actionlint.yaml",
     ".github/checkout-lean.json",
     ".github/cloud-backend-paths.json",
-    ".github/cloud-harness-matrix/request",
     ".github/cloud-machine-count-probe/request",
-    ".github/cloud-staging-test-sweep/request",
-    ".github/cloud-surge-proof/request",
     ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
+    ".github/defaults-call-owners.json",
     ".github/design-surfaces.json",
     ".github/gateway-e2e/request",
     ".github/github-token-budget.json",
@@ -215,7 +212,6 @@ _NON_RUNNING_FILES = frozenset({
     ".github/language-boundaries.toml",
     ".github/nightly-known-bad.json",
     ".github/nightly-step-coverage.json",
-    ".github/post-merge-batch.json",
     ".github/post-merge-checks.json",
     ".github/release-thanks.json",
     ".github/review-fabric-policy.json",
@@ -224,7 +220,6 @@ _NON_RUNNING_FILES = frozenset({
     ".github/single-host-fallbacks.json",
     ".github/swift-warning-budget.tsv",
     ".github/warm-sources.json",
-    ".github/workflow-job-bounds.json",
 })
 
 
@@ -252,42 +247,12 @@ def routed_workflows(root: Path) -> Optional[frozenset[str]]:
     return frozenset(seen)
 
 
-LEAN_CHECKOUT_TABLE = ".github/checkout-lean.json"
-
-
-@lru_cache(maxsize=None)
-def _tree_is_complete(root: str) -> bool:
-    """True when the tree at `root` holds every file the helper walk searches.
-
-    ci.yml's `changes` job checks out a narrower sparse set than the table's `sparse_checkout`
-    (.github/checkout-lean.json), which saves the blobs of the paths routing never opens
-    (78-80 s of a cold workspace, 2026-11-23). The helper walk's `git grep` sees only checked-out
-    files, so before its first search it widens the checkout to the table's patterns: the tree
-    the job had before it was narrowed, and the same answer. A checkout that is not sparse is
-    complete already. False when the table or the widening fails, which the walk reads as
-    "could not search" and answers every area.
-    """
-    def git(*args: str, **options) -> subprocess.CompletedProcess:
-        return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, **options)
-
-    try:
-        if git("config", "--bool", "core.sparseCheckout").stdout.strip() != "true":
-            return True
-        patterns = json.loads((Path(root) / LEAN_CHECKOUT_TABLE).read_text(encoding="utf-8"))["sparse_checkout"]
-        widened = git("sparse-checkout", "set", "--no-cone", "--stdin", input="\n".join(patterns) + "\n", timeout=240)
-        return widened.returncode == 0
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
-        return False
-
-
 def _files_naming(root: Path, token: str) -> Optional[list[str]]:
     """Tracked files that name `token` as a whole name, not inside a longer one.
 
     `tests/test_foo.py` names the test, not `foo`; the test is its own
     referrer and is judged by its own rule.
     """
-    if not _tree_is_complete(str(root)):
-        return None
     result = subprocess.run(
         # -I: a binary file (an image, an archive) names no helper.
         ["git", "-C", str(root), "grep", "-I", "-l", "-F", "-e", token],
@@ -310,8 +275,6 @@ def _files_naming(root: Path, token: str) -> Optional[list[str]]:
 def searchable_files(root: Path, pathspec: str) -> Optional[frozenset[str]]:
     """The tracked files under `pathspec` that _files_naming() can return: the
     non-empty text files. None when git cannot search the tree."""
-    if not _tree_is_complete(str(root)):
-        return None
     result = subprocess.run(
         ["git", "-C", str(root), "grep", "-I", "-l", "-e", "", "--", pathspec],
         capture_output=True, text=True,
@@ -384,13 +347,28 @@ _CI_GUARD_PROFILE_MARKER = "scripts/ci/cmux_workload_profile.py run cmux.ci.guar
 _CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
 
 
+# ci-guards.yml's guard tests take a free mini from portable placement
+# (scripts/ci/portable_job_placement.py) only when cmux-next-guards.yml passes
+# one. That job runs the same Linux guard tests, not the app's macOS lanes, so
+# the term does not make the tests it names macOS-relevant.
+_PORTABLE_RUNNER_TERM = "inputs.guard_tests_runner != '' && inputs.guard_tests_runner ||"
+# The credentialed `changes` router accepts only the current attempt's
+# validated Linux placement. Its test-path references still run on Linux;
+# an unknown needs expression must continue to fail open below.
+_PORTABLE_ROUTER_LINUX_TERM = (
+    "needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+    "contains(needs.portable-placement.outputs.linux_jobs, ' changes ') && "
+    "needs.portable-placement.outputs.linux_runner ||"
+)
+
+
 def is_plainly_linux_runner(runs_on: str) -> bool:
     # Anything else counts as macOS: a matrix or needs expression, a list or
     # group on the following lines, or a label this does not recognize.
-    value = runs_on.strip()
+    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "").replace(_PORTABLE_ROUTER_LINUX_TERM, "")
     if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
         return False
-    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu|'cmux-linux'", value))
+    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
 
 
 _JOB_SPLIT_RE = re.compile(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)")
@@ -937,11 +915,7 @@ def ci_helper_areas(
                         and runner not in _TEST_PATH_LISTS
                         and not runner.endswith(_DOCUMENTATION_SUFFIXES)
                         and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
-                        # So does a script under scripts/ (scripts/cmux-next/tests/
-                        # test_build_names.py names tests/test_script_module_loads.py
-                        # in a comment; #44759 made that fail open for every helper
-                        # that test reaches).
-                        and not (runner.startswith(("tests/", "scripts/")) and runner.endswith(".py")
+                        and not (runner.startswith("tests/") and runner.endswith(".py")
                                  and _python_runner_names(root, runner, referrer) is False)
                         # A test that runs this test is judged by the rule for a
                         # test that names the helper: a Linux guard test, or a
@@ -1119,12 +1093,6 @@ SHARED_WEB_WORKFLOW_EXACT = frozenset({
     "scripts/run-diff-sidecar-cargo.sh",
 })
 
-RELAY_PARAMS_RULE = frozenset({
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
-    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
-})
-
 SHARED_WEB_WORKFLOW_PREFIXES = (
     "Native/DiffSidecar/",
     # The diff sidecar links this crate by path.
@@ -1293,11 +1261,6 @@ def is_web_change(path: str) -> bool:
     # these (web_subareas.UNIT_TESTS_EXACT); #38631 changed the catalog alone,
     # skipped Web tests and turned them red on base.
     if path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
-        return True
-    # webviews/test/agent-pane-relay-params-contract.test.ts checks every key the page sends
-    # against the relay's params rule and its Rust mirror (web_subareas.REACT_EXACT): a PR that
-    # changes only the rule runs it too (cmux#46563 refused every handshake).
-    if path in RELAY_PARAMS_RULE:
         return True
     if is_web_bundle_input(path):
         return True
@@ -1692,7 +1655,7 @@ def is_macos_neutral(
     if re.match(r"Packages/iOS/[^/]+/Tests/", path):
         return True
     # Agent instructions at any depth, and skill documentation. The app bundles
-    # skills/cmux-computer-use as a folder resource, and skill scripts and manifests are
+    # skills/cmux-cua as a folder resource, and skill scripts and manifests are
     # executable inputs, so only Markdown outside that folder is neutral.
     if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
         return True
@@ -1744,7 +1707,7 @@ def is_macos_neutral(
         return True
     if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
         return True
-    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-computer-use/")
+    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/")
 
 
 def is_macos_change(

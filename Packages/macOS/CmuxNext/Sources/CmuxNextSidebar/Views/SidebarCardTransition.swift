@@ -34,10 +34,9 @@ struct SidebarCardTransition {
     /// How far the card rises on its way in.
     static let travel: CGFloat = 8
 
-    /// Plays the entrance on `view`'s layer. A card faded out (Minimal Mode with the pointer away,
-    /// ``SidebarChromeReveal/rest``) plays none: the entrance would draw it over its 0 opacity.
+    /// Plays the entrance on `view`'s layer.
     func enter(_ view: NSView) {
-        guard let layer = view.layer, Motion.canAnimate(in: view), view.alphaValue > 0 else { return }
+        guard let layer = view.layer, Motion.canAnimate(in: view) else { return }
         clear(layer)
         let fade = policy.duration(.fadeIn)
         if fade > 0 {

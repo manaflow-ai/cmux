@@ -26,10 +26,10 @@ extension CEFSparePageSuites.CEFSparePageTests {
     }
 
     /// A runtime that outlives the test (as in `CEFDeferredTabShowTests`), and no spare left by another test.
-    static func runtime(forkAPI: Int32 = 27, clock: any Clock<Duration> = ContinuousClock()) throws -> (CEFRuntime, URL) {
+    static func runtime(forkAPI: Int32 = 27) throws -> (CEFRuntime, URL) {
         SpareSpy.reset(forkAPI: forkAPI)
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-spare-page-\(UUID().uuidString)", directoryHint: .isDirectory)
-        let runtime = CEFRuntime(shim: try SpareSpy.library(), storage: CEFProfileStorage(root: root), clock: clock)
+        let runtime = CEFRuntime(shim: try SpareSpy.library(), storage: CEFProfileStorage(root: root))
         _ = Unmanaged.passRetained(runtime)
         SpareSpy.runtime = runtime
         setSparePage(true)
@@ -103,8 +103,6 @@ extension CEFSparePageSuites.CEFSparePageTests {
 /// `cmux_shim_create_window` are recorded; `cmux_shim_tab_set_frozen` and DevTools
 /// `Page.setWebLifecycleState` (`cmux_shim_devtools_call`) are logged as freezes and thaws;
 /// `cmux_shim_fork_api_version` is `forkAPI` (27 by default: layer hosting, no renderer paths);
-/// `cmux_shim_tab_set_webauthn_mode` is recorded and logged (`webauthn <b> <mode>`);
-/// `cmux_shim_popup_window_attach` answers `popupAttachAnswer`;
 /// every other function does nothing and returns 0.
 nonisolated enum SpareSpy {
     nonisolated(unsafe) static var added: [(anchor: Int32, url: String, activate: Int32, browser: Int32)] = []
@@ -113,10 +111,6 @@ nonisolated enum SpareSpy {
     nonisolated(unsafe) static var closed: [Int32] = []
     nonisolated(unsafe) static var loads: [(browser: Int32, url: String)] = []
     nonisolated(unsafe) static var createWindowCalls = 0
-    /// Each `cmux_shim_tab_set_webauthn_mode` call: the browser and the mode (1: refuse).
-    nonisolated(unsafe) static var webAuthnModes: [(browser: Int32, mode: Int32)] = []
-    /// What `cmux_shim_popup_window_attach` answers (1: the fork attached the popup window).
-    nonisolated(unsafe) static var popupAttachAnswer: Int32 = 1
     /// The URL each `cmux_shim_create_window` was given, in order.
     nonisolated(unsafe) static var createdURLs: [String] = []
     nonisolated(unsafe) static var windows: [Int32: Int32] = [:]
@@ -138,7 +132,6 @@ nonisolated enum SpareSpy {
 
     static func reset(forkAPI: Int32 = 27) {
         clearRecords()
-        popupAttachAnswer = 1
         windows = [:]
         nextBrowser = 30
         setFrozenAnswer = 1
@@ -157,7 +150,6 @@ nonisolated enum SpareSpy {
         closed = []
         loads = []
         log = []
-        webAuthnModes = []
         createWindowCalls = 0
         createdURLs = []
     }
@@ -214,12 +206,6 @@ nonisolated enum SpareSpy {
             }
             return 1
         }
-        let setWebAuthnMode: @convention(c) (Int32, Int32) -> Int32 = { browser, mode in
-            SpareSpy.webAuthnModes.append((browser, mode))
-            SpareSpy.log.append("webauthn \(browser) \(mode)")
-            return 1
-        }
-        let popupAttach: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32) -> Int32 = { _, _, _, _ in SpareSpy.popupAttachAnswer }
         let forkAPIVersion: @convention(c) () -> Int32 = { SpareSpy.forkAPI }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
@@ -234,8 +220,6 @@ nonisolated enum SpareSpy {
             case "cmux_shim_tab_set_frozen": unsafeBitCast(setFrozen, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_devtools_call": unsafeBitCast(devToolsCall, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
-            case "cmux_shim_tab_set_webauthn_mode": unsafeBitCast(setWebAuthnMode, to: UnsafeMutableRawPointer.self)
-            case "cmux_shim_popup_window_attach": unsafeBitCast(popupAttach, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }
         }

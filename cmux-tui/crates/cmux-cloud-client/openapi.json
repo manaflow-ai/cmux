@@ -1111,11 +1111,6 @@
             "maxItems": 16,
             "type": "array"
           },
-          "deviceKey": {
-            "description": "Platform web only: the browser's ECDSA P-256 signing key (a non-extractable WebCrypto key), its raw uncompressed public point (65 bytes) in base64url without padding. With it the returned credential is bound to the key and is never a bearer on its own: each connection proves possession (POST /v1/machines/credentials/self/challenge, then /session) and uses the session credential it gets. Any other platform with a deviceKey answers 400 join.malformed.",
-            "examples": [],
-            "type": "string"
-          },
           "hostname": {
             "description": "The joining machine's reported hostname.",
             "maxLength": 256,
@@ -1132,12 +1127,10 @@
             "type": "string"
           },
           "platform": {
-            "description": "Where the machine joined from: its operating system, or web for a browser enrolled as its own device (it reads and sends on the mesh hub, and never heartbeats, carries or registers a mesh node).",
+            "description": "The machine operating system.",
             "enum": [
               "macos",
-              "linux",
-              "windows",
-              "web"
+              "linux"
             ],
             "examples": [
               "linux"
@@ -9550,16 +9543,6 @@
                   "clientKey": {
                     "maxLength": 128,
                     "minLength": 1,
-                    "type": "string"
-                  },
-                  "size": {
-                    "enum": [
-                      "sm",
-                      "md",
-                      "lg",
-                      "xl",
-                      "2xl"
-                    ],
                     "type": "string"
                   },
                   "visibility": {

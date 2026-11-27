@@ -32,7 +32,6 @@ struct HomeSidebarSplitDividerTests {
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 300))
         home.update(HomeLoneChiefRailTests.model(chiefs: conversations))
         let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
-        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         split.windowKey = { "divider" }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -100,17 +99,17 @@ struct HomeSidebarSplitDividerTests {
         defer { window.close() }
         let old = split.sidebarWidth
         #if DEBUG
-        split.setWidth(HomeSidebarWidth.minimum) // the strip: a width under the full list snaps to it
+        split.setWidth(150)
         #endif
         split.layoutSubtreeIfNeeded()
         window.display()
-        #expect(split.sidebarWidth == HomeSidebarWidth.minimum)
+        #expect(split.sidebarWidth == 150)
         Self.expectOneDivider(split, notAt: old)
         // The divider's double-click: back to the standard width.
         split.resetWidth()
         split.layoutSubtreeIfNeeded()
         window.display()
         #expect(split.sidebarWidth == old)
-        Self.expectOneDivider(split, notAt: HomeSidebarWidth.minimum)
+        Self.expectOneDivider(split, notAt: 150)
     }
 }

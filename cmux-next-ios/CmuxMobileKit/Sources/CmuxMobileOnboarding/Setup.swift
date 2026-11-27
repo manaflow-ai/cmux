@@ -256,7 +256,7 @@ private struct ExplainerRow: View {
 
 /// "Choose a space" (design spec, section 5): the title and Personal from the
 /// first frame, the account's teams under it (skeleton rows while they load,
-/// read again on their own if they can't), and "Create a team" once they're known.
+/// an inline retry if they can't), and "Create a team" once they're known.
 /// An empty list before the answer is "not loaded", never "no teams", so
 /// "Create a team" never shows as a placeholder.
 private struct TeamStep: View {
@@ -266,12 +266,7 @@ private struct TeamStep: View {
     let personal: () -> Void
     let create: () -> Void
     let next: () -> Void
-    /// A failed team list is read again on its own (no Retry): the skeleton rows stay through a
-    /// short failure; past the quiet bound the row says why, with no button.
-    @State private var autoRetry = AutoRetry()
-    /// A retry is out (the list reads "loading" meanwhile): it still counts as failed, and a
-    /// failure already on screen stays there instead of blinking back to the skeleton.
-    @State private var retrying = false
+    @State private var isRetrying = false
     /// "Create a team" arrives 0.1 s after the team rows (its own fade: a
     /// nested transition would not run inside the rows' insertion).
     @State private var showsCreate = false
@@ -280,15 +275,10 @@ private struct TeamStep: View {
 
     private var phase: Phase {
         switch auth.teamList.phase {
-        case .loading: retrying && autoRetry.isQuietLineShown ? .failed : .loading
-        case .failed: autoRetry.isQuietLineShown ? .failed : .loading
+        case .loading: .loading
+        case .failed: .failed
         case .loaded: .loaded
         }
-    }
-
-    private var teamsFailed: Bool {
-        if case .failed = auth.teamList.phase { return true }
-        return false
     }
 
     /// The account's teams, the personal space aside (it has its own row).
@@ -319,7 +309,6 @@ private struct TeamStep: View {
                             SkeletonList(rows: 2, leadingSquare: theme.metrics.teamAvatar, delay: .zero)
                                 .transition(.opacity)
                                 .accessibilityIdentifier("setup.teams.loading")
-                                .placeholderBound("onboarding.teams.skeleton", .milliseconds(2000))
                         case .failed:
                             failedRow
                                 .transition(.opacity)
@@ -327,12 +316,13 @@ private struct TeamStep: View {
                         case .loaded:
                             VStack(spacing: 0) {
                                 ForEach(teams) { team in
-                                    let computer = ComputerDots.team(team)
+                                    let presence = team.macDots()
                                     row(action: { pick(team) }) {
                                         SidebarTeamRow(
                                             name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji,
                                             transparent: team.appearance.isTransparent,
-                                            computer: computer.map { ($0.name, $0.isUp) }, isSelected: false
+                                            dots: presence.dots, overflow: presence.overflow,
+                                            onlineCount: team.listedMacs.filter(\.isOnline).count, isSelected: false
                                         )
                                     }
                                 }
@@ -347,11 +337,6 @@ private struct TeamStep: View {
                 }
                 .animation(theme.motion.smooth.animation.unlessReduceMotion, value: phase)
             }
-        }
-        .autoRetry(autoRetry, failing: teamsFailed || retrying) {
-            retrying = true
-            await auth.retryTeams()
-            retrying = false
         }
         .onChange(of: phase, initial: true) { _, phase in
             guard phase == .loaded else {
@@ -438,16 +423,29 @@ private struct TeamStep: View {
     /// A failed team list doesn't block setup: Personal stays selectable.
     private var failedRow: some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Couldn't load your teams.")
-                    .font(theme.type.rowSubtitle)
-                    .foregroundStyle(theme.colors.label2)
-                AutoRetryQuietLine(autoRetry)
-            }
+            Text("Couldn't load your teams.")
+                .font(theme.type.rowSubtitle)
+                .foregroundStyle(theme.colors.label2)
             Spacer(minLength: 0)
+            if isRetrying {
+                CmuxSpinner().controlSize(.small)
+            } else {
+                Button("Retry", action: retry)
+                    .font(theme.type.rowSubtitle.weight(.semibold))
+                    .foregroundStyle(theme.colors.label)
+                    .frame(minHeight: 44)
+            }
         }
         .padding(.horizontal, theme.metrics.sideMargin)
         .frame(minHeight: theme.metrics.teamRowHeight)
+    }
+
+    private func retry() {
+        isRetrying = true
+        Task {
+            await auth.retryTeams()
+            isRetrying = false
+        }
     }
 
     private func pickPersonal() {
@@ -483,7 +481,8 @@ private struct CreateTeamPage: View {
         SetupPage(symbol: "person.2", title: "Create your team") {
             VStack(alignment: .leading, spacing: 10) {
                 TextField("Team name", text: $name)
-                    // Names are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
+                    // Names are code-like: no autocorrect, no capitals (full verify D5).
+                    .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .font(theme.type.body)
                     .cmuxMobileInputField()

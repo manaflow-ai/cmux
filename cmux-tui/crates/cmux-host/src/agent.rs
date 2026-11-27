@@ -365,9 +365,6 @@ pub enum Exit {
 pub trait Platform {
     /// End remote authority before a potentially blocking clone/metadata read.
     fn invalidate_remote_authority(&self) {}
-    /// A resume: read the agent harnesses' executables back into the page cache the pause dropped
-    /// (`cloud/page_in.rs`), off the poll loop.
-    fn page_in_harnesses(&self) {}
     /// Blocks until at least one wake.
     fn wait(&mut self) -> io::Result<Vec<Wake>>;
     /// Collects exits after a [`Wake::ProcessExit`].
@@ -401,21 +398,6 @@ pub trait Platform {
     }
     /// Publishes the status file.
     fn write_status(&mut self, status: &Status) -> io::Result<()>;
-
-    /// Count one session host stop, with its cause, in the persisted per-day budget of the
-    /// supervisor contract (`cmux-supervise-core`); where the budget stands after it. `None`
-    /// where nothing is kept.
-    fn record_stop(
-        &mut self,
-        _cause: cmux_supervise_core::StopCause,
-    ) -> Option<cmux_supervise_core::BudgetState> {
-        None
-    }
-
-    /// Where the session host's restart budget stands, for the status.
-    fn restart_budget(&self) -> Option<cmux_supervise_core::BudgetState> {
-        None
-    }
     /// Answers accepted identity clients only after the fresh observation's actions.
     fn reply_identity(&mut self, _settled_instance: Option<&str>) {}
 }
@@ -470,8 +452,6 @@ pub struct Agent<P: Platform> {
     log: ActionLog,
     last_wake: &'static str,
     wakes: u64,
-    /// (first agent start on this VM disk, an earlier agent already ran): the marker read once at start.
-    first_start: (u64, bool),
 }
 
 impl<P: Platform> Agent<P> {
@@ -484,21 +464,7 @@ impl<P: Platform> Agent<P> {
         log: ActionLog,
     ) -> Self {
         let roles = Roles::new(roles, install);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let first_start =
-            crate::status::MachineFacts::mark(Path::new(crate::config::MACHINE_MARKER), now);
-        Self {
-            platform,
-            machine: Machine::new(),
-            roles,
-            log,
-            last_wake: "start",
-            wakes: 0,
-            first_start,
-        }
+        Self { platform, machine: Machine::new(), roles, log, last_wake: "start", wakes: 0 }
     }
 
     pub fn machine(&self) -> &Machine {
@@ -568,7 +534,6 @@ impl<P: Platform> Agent<P> {
                 }
                 Wake::ClockSet | Wake::Paused => {
                     self.platform.invalidate_remote_authority();
-                    self.platform.page_in_harnesses();
                     resumed = true;
                     observe = true;
                     clone_signal = true;
@@ -608,12 +573,10 @@ impl<P: Platform> Agent<P> {
                 Wake::AnnounceTimer => rest.push(Input::AnnounceTick),
                 Wake::Terminate => terminate = true,
                 Wake::ProcessExit => {
-                    for exit in self.platform.reap() {
-                        match exit {
-                            Exit::Daemon { lived_ms } => rest.extend(self.daemon_exit(lived_ms)),
-                            Exit::Announce => rest.push(Input::AnnounceDone),
-                        }
-                    }
+                    rest.extend(self.platform.reap().into_iter().map(|exit| match exit {
+                        Exit::Daemon { lived_ms } => Input::DaemonExited { lived_ms },
+                        Exit::Announce => Input::AnnounceDone,
+                    }));
                 }
                 Wake::Rearm => rest.push(Input::RearmElapsed),
                 Wake::Backoff => rest.push(Input::BackoffElapsed),
@@ -735,38 +698,13 @@ impl<P: Platform> Agent<P> {
                             continue;
                         }
                         if *action == Action::SpawnDaemon {
-                            follow.extend(self.daemon_exit(0));
+                            follow.push(Input::DaemonExited { lived_ms: 0 });
                         }
                     }
                 },
             }
         }
         follow
-    }
-
-    /// A session host exit, counted on the supervisor contract before the machine sees it: an
-    /// exit while it was meant to run (a crash, a kill, a failed spawn) is a fault against the
-    /// day's budget; one the agent asked for (a bind, a park, a respawn for a new route or
-    /// build) is counted, never as a fault.
-    fn daemon_exit(&mut self, lived_ms: u64) -> Vec<Input> {
-        use cmux_supervise_core::StopCause;
-        let cause = match self.machine.daemon() {
-            DaemonState::Running if !self.machine.is_parked() => StopCause::Died(format!(
-                "the session host exited after {lived_ms} ms while it was meant to run"
-            )),
-            DaemonState::Stopping(crate::machine::StopReason::Respawn) => {
-                StopCause::Update("respawned for a new carrier route or build".into())
-            }
-            DaemonState::Stopping(reason) => StopCause::Intentional(format!("{reason:?}")),
-            _ => return vec![Input::DaemonExited { lived_ms }],
-        };
-        let fault = cause.counts();
-        let budget = self.platform.record_stop(cause);
-        let exceeded = budget.as_ref().is_some_and(|b| b.exceeded());
-        if fault && exceeded {
-            self.log.line(&format!("restart-budget-exceeded: {budget:?}"));
-        }
-        vec![Input::RestartBudget { exceeded }, Input::DaemonExited { lived_ms }]
     }
 
     fn log_all(&mut self, lines: Vec<String>) {
@@ -787,11 +725,6 @@ impl<P: Platform> Agent<P> {
             roles: self.roles.statuses(),
             last_wake: self.last_wake.to_owned(),
             wakes: self.wakes,
-            restart_budget: self.platform.restart_budget(),
-            machine: Some(crate::status::MachineFacts::live(
-                self.first_start.0,
-                self.first_start.1,
-            )),
         };
         if let Err(err) = self.platform.write_status(&status) {
             self.log.line(&format!("status write failed: {err}"));

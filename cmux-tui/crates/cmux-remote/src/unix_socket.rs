@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use cmux_tui_util::backoff::Backoff;
+use cmux_tui_core::backoff::Backoff;
 use tokio::net::UnixListener;
 
 use crate::owner_lock::{OwnerFileLock, sibling_lock_path};
@@ -21,7 +21,7 @@ const ACCEPT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(10);
 const ACCEPT_RETRY_MAX_DELAY: Duration = Duration::from_millis(250);
 
 /// The spacing of a listener's `accept` retries
-/// ([`cmux_tui_util::backoff::accept_retry_delay`]): 10 ms doubling to 250 ms.
+/// ([`cmux_tui_core::backoff::accept_retry_delay`]): 10 ms doubling to 250 ms.
 pub fn accept_backoff() -> Backoff {
     Backoff::new(ACCEPT_RETRY_INITIAL_DELAY, ACCEPT_RETRY_MAX_DELAY).with_jitter(0.0)
 }
@@ -316,5 +316,19 @@ fn contextual_io(error: io::Error, context: String) -> UnixSocketError {
 }
 
 #[cfg(test)]
-#[path = "unix_socket_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn bind_preserves_an_existing_owner_controlled_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        let socket = directory.path().join("daemon.sock");
+
+        let listener = OwnedUnixListener::bind(socket.clone()).await.unwrap();
+
+        assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o755);
+        assert_eq!(fs::metadata(&socket).unwrap().permissions().mode() & 0o777, 0o600);
+        drop(listener);
+    }
+}

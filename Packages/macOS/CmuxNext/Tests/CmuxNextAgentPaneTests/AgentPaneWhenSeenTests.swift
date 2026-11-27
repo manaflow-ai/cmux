@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The nightly ef384ddbc64d (2026-11-11, about 50 live agents): each turn's end computed its
+/// Lawrence's nightly ef384ddbc64d (2026-11-11, about 50 live agents): each turn's end computed its
 /// repository's diff ahead of a diff tab (`DiffPageRuntime.warm`: a `git.status`, a full-patch
 /// `git.diff` of 970 ms mean and 1.9 s at most, a sidecar child), for a chat nobody looked at too,
 /// in front of the git reads of the view the person looked at. Work whose result only a person at

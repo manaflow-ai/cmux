@@ -3,8 +3,7 @@
 //! its inputs: no network, no disk, no clock, no randomness. The acpmux daemon
 //! owns the connections and does the I/O; this crate decides what is allowed
 //! and what the card shows, so each rule of the threat model (section 4) has a
-//! unit test. `shared` names the machine's one store of connections (paths and
-//! record shape) that the Chief's hub and the acpmux card both write.
+//! unit test.
 
 pub mod classify;
 pub mod command;
@@ -15,7 +14,6 @@ pub mod redact;
 pub mod registry;
 pub mod resolve;
 pub mod screen;
-pub mod shared;
 pub mod target;
 pub mod wire;
 

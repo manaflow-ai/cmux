@@ -39,26 +39,6 @@ struct PageWebViewDebugQueryTests {
         #expect(plain == ["elements": [["data": [:], "classes": ["plain"], "text": "Couldn't start the chat."]]])
     }
 
-    /// The text is cut at 120 characters; past that the answer also says the whole text's `length`, so a bench reads a
-    /// long draft's growth (new-tab-typing-live.py read "typed 0" for every key typed past 120 characters).
-    @Test func aLongTextAnswersItsWholeLength() async throws {
-        defer { try? FileManager.default.removeItem(at: root) }
-        let long = String(repeating: "abcdefghij", count: 30)
-        let view = try await webKitPage("""
-        <!doctype html><title>Query</title>
-        <p class="long">\(long)</p>
-        <p class="ready">ready</p>
-        """)
-        defer { view.close() }
-        let answer = await view.debugQuery(".long")
-        let element = try #require(answer["elements"]?.arrayValue?.first)
-        #expect(element["text"]?.stringValue?.count == 120)
-        #expect(element["length"] == .number(300))
-        // A text that fits has no `length`: its text is whole.
-        let ready = await view.debugQuery(".ready")
-        #expect(ready["elements"]?.arrayValue?.first?["length"] == nil)
-    }
-
     @Test func anAnswerThatIsNotJSONIsAnError() {
         #expect(PageDebugQuery.answer(nil) == ["error": "query failed"])
         #expect(PageDebugQuery.answer("[]") == ["elements": []])

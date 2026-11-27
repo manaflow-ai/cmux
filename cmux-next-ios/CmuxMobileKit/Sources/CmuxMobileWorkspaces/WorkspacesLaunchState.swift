@@ -18,8 +18,7 @@ public enum WorkspacesLaunchState: Equatable, Sendable {
     case content(refreshFailed: Bool)
     /// The team loaded and has no Mac: the connect-a-Mac page.
     case noMacs
-    /// The first load failed with nothing to show: retried on its own (placeholders, then
-    /// the error page past the quiet bound; no Retry).
+    /// The first load failed with nothing to show: the error page with Retry.
     case failed(offline: Bool)
 
     public static func resolve(team: AppStore.LoadState, hasMacs: Bool, hasWorkspaces: Bool,
@@ -36,19 +35,10 @@ public enum WorkspacesLaunchState: Equatable, Sendable {
         }
     }
 
-    /// Whether the page draws its placeholder rows: only when this phone has nothing it ever
-    /// listed for the team to draw. The team's first load with no cached Macs and rows
-    /// (`firstLoad`), or Macs known while no Mac has a row or a Mac line yet. Rows the phone
-    /// showed before (a launch's or a team switch's cache) are drawn instead, and the Macs'
-    /// answers change them in place. Leo, 2026-11-24: "holy shit this is a huge problem in
-    /// ios... wer need to chase all these placeholders doen and prevent them".
-    /// `listLoading`: the list is waiting with no row to show (`WorkspaceInbox.isLoading`);
-    /// `hasMacLines`: it has a Mac line to show instead (`WorkspaceInbox.folds`).
-    public func showsPlaceholderRows(hasMacs: Bool, listLoading: Bool, hasMacLines: Bool) -> Bool {
-        switch self {
-        case .firstLoad: true
-        case .noMacs, .content: hasMacs && listLoading && !hasMacLines
-        case .failed: false
-        }
+    /// The navigation subtitle may say "Updating…" only over rows: on the
+    /// first load the page itself says it is loading (one indicator, not two).
+    public var allowsUpdatingSubtitle: Bool {
+        if case .content(refreshFailed: false) = self { return true }
+        return false
     }
 }

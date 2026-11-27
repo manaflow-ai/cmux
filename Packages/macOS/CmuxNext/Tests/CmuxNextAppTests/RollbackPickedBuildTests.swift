@@ -17,22 +17,6 @@ import Testing
         #expect(h.updater.defaults.string(forKey: UpdaterService.pickedBuildKey) == nil)
     }
 
-    /// A person's rollback picks its target, so the next newer build waits for their click; the
-    /// install check's automatic rollback picks nothing (and drops an older pick), so the next
-    /// NIGHTLY newer than the refused build installs as set once the target build relaunches.
-    @Test func onlyAPersonsRollbackPicksItsTarget() {
-        let h = TipUpdateCheckTests.make()
-        let target = h.updater.identity.build
-        h.updater.recordPick(target, picksBuild: true)
-        h.updater.restoreRollbackSkip()
-        #expect(h.updater.runsPickedBuild)
-
-        h.updater.recordPick(target, picksBuild: false)
-        h.updater.restoreRollbackSkip()
-        #expect(!h.updater.runsPickedBuild)
-        #expect(h.updater.defaults.string(forKey: UpdaterService.pickedBuildKey) == nil)
-    }
-
     /// Turning automatic downloads back on (the setting, a link that cleared) downloads a found
     /// update, except on the build the person picked: that one still waits for their click (#36419).
     @Test func downloadsComingOnKeepThePickedBuildsHold() {

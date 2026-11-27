@@ -12,7 +12,7 @@ import Testing
             sleep: { _ in await Task.yield() }
         )
         let store = AgentChatStore(source: mock)
-        await yieldUntil { !(store.turns.count < 2 || store.turns.last?.status != .completed) }
+        while store.turns.count < 2 || store.turns.last?.status != .completed { await Task.yield() }
         return store
     }
 

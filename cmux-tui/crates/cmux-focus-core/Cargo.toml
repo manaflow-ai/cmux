@@ -9,8 +9,7 @@ description = "The cmux window focus state machine and key rules (pure; the macO
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
-# float_roundtrip: the Esc Esc gesture compares key timestamps that went to the app and back.
-serde_json = { workspace = true, features = ["float_roundtrip"] }
+serde_json = { workspace = true }
 unicode-segmentation = { workspace = true }
 
 [lints]

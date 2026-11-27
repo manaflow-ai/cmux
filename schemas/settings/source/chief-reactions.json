@@ -19,7 +19,7 @@
           },
           "help": {
             "key": "settings.chief.reactionsCanWake.help",
-            "text": "A reaction on a Chief message can start a turn, such as ? on a question."
+            "text": "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted."
           },
           "kind": "toggle",
           "default": true,
@@ -42,7 +42,7 @@
           },
           "help": {
             "key": "settings.chief.reactionClassifier.harness.help",
-            "text": "The agent that reads reactions, such as claude or codex. Empty uses the Chief's."
+            "text": "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route."
           },
           "kind": "text",
           "default": "",
@@ -66,7 +66,7 @@
           },
           "help": {
             "key": "settings.chief.reactionClassifier.model.help",
-            "text": "The model that decides whether a reaction starts a turn."
+            "text": "The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap."
           },
           "kind": "text",
           "default": "claude-haiku-5-5",

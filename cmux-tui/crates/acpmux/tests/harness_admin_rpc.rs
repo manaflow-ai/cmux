@@ -134,7 +134,6 @@ async fn people_add_check_remove_and_restore_their_own_harness() {
         managed: vec![managed.clone()],
         user_dir: Some(user.clone()),
         cmux_json: Some(root.join("config").join("cmux.json")),
-        person_dir: None,
     };
     write(&root.join("home").join("config.json"), "{}");
     let mut cfg = Config::load_from_with(&root.join("home").join("config.json"), &sources).unwrap();

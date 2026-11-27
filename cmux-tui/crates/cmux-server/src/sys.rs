@@ -22,8 +22,8 @@ mod imp {
         unsafe { libc::getuid() }
     }
 
-    /// `uid`'s user database entry; its strings point into `buf`.
-    fn passwd(uid: u32, buf: &mut [libc::c_char]) -> io::Result<libc::passwd> {
+    pub fn user_name(uid: u32) -> io::Result<String> {
+        let mut buf = vec![0 as libc::c_char; 4096];
         // SAFETY: zeroed passwd is a valid out-parameter for getpwuid_r.
         let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
         let mut result: *mut libc::passwd = std::ptr::null_mut();
@@ -33,32 +33,12 @@ mod imp {
         if rc != 0 {
             return Err(io::Error::from_raw_os_error(rc));
         }
-        if result.is_null() {
-            return Err(io::Error::new(io::ErrorKind::NotFound, format!("no user for uid {uid}")));
-        }
-        Ok(pwd)
-    }
-
-    pub fn user_name(uid: u32) -> io::Result<String> {
-        let mut buf = vec![0 as libc::c_char; 4096];
-        let pwd = passwd(uid, &mut buf)?;
-        if pwd.pw_name.is_null() {
+        if result.is_null() || pwd.pw_name.is_null() {
             return Err(io::Error::new(io::ErrorKind::NotFound, format!("no user for uid {uid}")));
         }
         // SAFETY: getpwuid_r returned a NUL-terminated name inside buf.
         let name = unsafe { CStr::from_ptr(pwd.pw_name) };
         Ok(name.to_string_lossy().into_owned())
-    }
-
-    pub fn home_dir(uid: u32) -> io::Result<std::path::PathBuf> {
-        let mut buf = vec![0 as libc::c_char; 4096];
-        let pwd = passwd(uid, &mut buf)?;
-        if pwd.pw_dir.is_null() {
-            return Err(io::Error::new(io::ErrorKind::NotFound, format!("no home for uid {uid}")));
-        }
-        // SAFETY: getpwuid_r returned a NUL-terminated path inside buf.
-        let dir = unsafe { CStr::from_ptr(pwd.pw_dir) };
-        Ok(std::ffi::OsStr::from_bytes(dir.to_bytes()).into())
     }
 
     pub fn uid_of(name: &str) -> io::Result<Option<u32>> {
@@ -140,10 +120,6 @@ mod imp {
         Err(unsupported())
     }
 
-    pub fn home_dir(_uid: u32) -> io::Result<std::path::PathBuf> {
-        Err(unsupported())
-    }
-
     pub fn owner_uid(_meta: &std::fs::Metadata) -> u32 {
         u32::MAX
     }
@@ -178,12 +154,6 @@ pub fn is_root() -> bool {
 /// The login name of `uid` from the user database.
 pub fn user_name(uid: u32) -> io::Result<String> {
     imp::user_name(uid)
-}
-
-/// The home folder of `uid` in the user database: the `HOME` launchd and
-/// systemd give that user's services, whatever `HOME` this process has.
-pub fn home_dir(uid: u32) -> io::Result<std::path::PathBuf> {
-    imp::home_dir(uid)
 }
 
 /// The uid of the user `name`, `None` when there is no such user.

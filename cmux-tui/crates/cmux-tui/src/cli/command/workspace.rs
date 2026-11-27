@@ -38,10 +38,9 @@ pub(super) fn workspace_create(
         // Run from a cmux terminal: the new workspace goes below the one
         // the script runs in, not next to the person's selection
         // (ask-48544d7525). A place hint only; an older daemon gets the
-        // request without it (wire/created_by_stamp.rs).
-        params.insert("created_by".into(), creator(key, std::env::var("ACPMUX_SESSION_ID").ok()));
+        // request without it (wire/workspace_created_by.rs).
+        params.insert("created_by".into(), json!({"kind": "script", "workspace": key}));
     }
-    insert_purpose(&mut params, flags);
     // The daemon refuses these with --empty: there is no terminal to launch.
     if let Some(cwd) = flags.take("cwd") {
         params.insert("cwd".into(), Value::String(cwd));
@@ -58,18 +57,3 @@ pub(super) fn workspace_create(
     }
     request(ResourceOperation::WorkspaceCreate, selectors, flags, params)
 }
-
-/// `created_by` of a create run in workspace `key`: an agent's, naming its
-/// acpmux session, when one runs it (`ACPMUX_SESSION_ID`), so `workspace list
-/// --tree` says which session made the workspace; else a script's. Both are
-/// placed below `key` the same way.
-fn creator(key: String, session: Option<String>) -> Value {
-    match session.filter(|session| !session.is_empty()) {
-        Some(session) => json!({"kind": "agent", "workspace": key, "session": session}),
-        None => json!({"kind": "script", "workspace": key}),
-    }
-}
-
-#[cfg(test)]
-#[path = "workspace_creator_tests.rs"]
-mod creator_tests;

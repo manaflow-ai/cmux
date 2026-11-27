@@ -1,5 +1,5 @@
 {
-  "$comment": "Settings rows of this Mac's machines, phones, Cloud and connectors (Computer Use, free model, SSH links, Cloud workspaces, worktree and build cache cleanup, iPhone, Mac Screen, cmux Remote, Device Hub, iMessage). Each list is one run of rows in SettingsSchema.all; gen-settings-sources.py writes the Swift (SettingsSchema+Machines*.generated.swift).",
+  "$comment": "Settings rows of this Mac's machines, phones, Cloud and connectors (Computer Use, free model, SSH links, Cloud workspaces, iPhone, Mac Screen, cmux Remote, Device Hub, iMessage). Each list is one run of rows in SettingsSchema.all; gen-settings-sources.py writes the Swift (SettingsSchema+Machines*.generated.swift).",
   "lists": [
     {
       "name": "computerUse",
@@ -10,306 +10,76 @@
       },
       "rows": [
         {
-          "key": "computerUse.mode",
-          "note": "How much agents may do with the apps on this Mac; the raw values are the engine's (cmux_computer_use::policy::Mode).",
+          "key": "computerUse.enabled",
           "title": {
-            "key": "settings.computerUse.mode",
+            "key": "settings.computerUse.enabled",
             "text": "Computer Use"
           },
           "help": {
-            "key": "settings.computerUse.mode.help",
-            "text": "What agents may do with the apps on this Mac. Denied apps are never used, in any mode."
+            "key": "settings.computerUse.enabled.help",
+            "text": "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them."
           },
           "summary": {
-            "key": "settings.computerUse.mode.summary",
-            "text": "What agents may do with your apps"
+            "key": "settings.computerUse.enabled.summary",
+            "text": "Lets agents see and use your apps"
           },
-          "kind": "choice",
-          "choices": [
-            {
-              "value": "fullAccess",
-              "title": {
-                "key": "settings.computerUse.mode.fullAccess",
-                "text": "Full Access"
-              }
-            },
-            {
-              "value": "approvedApps",
-              "title": {
-                "key": "settings.computerUse.mode.approvedApps",
-                "text": "Approved Apps"
-              }
-            },
-            {
-              "value": "askEveryTime",
-              "title": {
-                "key": "settings.computerUse.mode.askEveryTime",
-                "text": "Ask Every Time"
-              }
-            },
-            {
-              "value": "lookOnly",
-              "title": {
-                "key": "settings.computerUse.mode.lookOnly",
-                "text": "Look Only"
-              }
-            },
-            {
-              "value": "off",
-              "title": {
-                "key": "settings.computerUse.mode.off",
-                "text": "Off"
-              }
-            }
-          ],
-          "default": "fullAccess",
-          "swift_enum": {
-            "name": "ComputerUseMode",
-            "generated": false
-          },
+          "kind": "toggle",
+          "default": false,
           "keywords": [
             "computer use",
             "agents",
             "automation",
-            "apps",
-            "access",
-            "permission",
-            "look only",
-            "approve"
+            "screen recording",
+            "accessibility",
+            "helper"
           ]
         },
         {
-          "key": "computerUse.deniedApps",
-          "note": "The engine's default deny list, entry for entry (cmux-tui/crates/cmux-computer-use/src/policy.rs, default_denied_apps; ComputerUseSettingsTests compares the two).",
+          "key": "computerUse.driver",
+          "note": "Which Computer Use driver the helper runs.",
           "title": {
-            "key": "settings.computerUse.deniedApps",
-            "text": "Denied Apps"
+            "key": "settings.computerUse.driver",
+            "text": "Computer Use Driver"
           },
           "help": {
-            "key": "settings.computerUse.deniedApps.help",
-            "text": "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name."
+            "key": "settings.computerUse.driver.help",
+            "text": "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately."
           },
           "summary": {
-            "key": "settings.computerUse.deniedApps.summary",
-            "text": "Apps agents may never use"
-          },
-          "kind": "string_list",
-          "default": [
-            "com.apple.keychainaccess",
-            "com.apple.Passwords",
-            "com.1password.*",
-            "com.agilebits.onepassword*",
-            "com.bitwarden.*",
-            "com.dashlane.*",
-            "com.lastpass.*",
-            "com.nordpass.*",
-            "me.proton.pass",
-            "org.keepassxc.keepassxc",
-            "com.markmcguill.strongbox",
-            "in.sinew.enpass*",
-            "com.keepersecurity.*",
-            "1password.exe",
-            "bitwarden.exe",
-            "keepass.exe",
-            "keepassxc.exe",
-            "org.keepassxc.KeePassXC",
-            "1password",
-            "bitwarden",
-            "com.apple.systempreferences"
-          ],
-          "keywords": [
-            "computer use",
-            "deny",
-            "block",
-            "apps",
-            "password",
-            "terminal",
-            "exclude"
-          ]
-        },
-        {
-          "key": "computerUse.allowOwnMachines",
-          "title": {
-            "key": "settings.computerUse.allowOwnMachines",
-            "text": "Allow My Other Machines"
-          },
-          "help": {
-            "key": "settings.computerUse.allowOwnMachines.help",
-            "text": "Agents on your other machines, signed in to the same account, may use this Mac's apps."
-          },
-          "summary": {
-            "key": "settings.computerUse.allowOwnMachines.summary",
-            "text": "Agents on your other machines may use this Mac"
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "computer use",
-            "remote",
-            "machines",
-            "devices",
-            "same account"
-          ]
-        },
-        {
-          "key": "computerUse.pauseOnTakeover",
-          "title": {
-            "key": "settings.computerUse.pauseOnTakeover",
-            "text": "Pause When I Use the Mouse or Keyboard"
-          },
-          "help": {
-            "key": "settings.computerUse.pauseOnTakeover.help",
-            "text": "While you use the mouse or keyboard, agents wait before their next click or key press."
-          },
-          "summary": {
-            "key": "settings.computerUse.pauseOnTakeover.summary",
-            "text": "Agents wait while you use this Mac"
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "computer use",
-            "pause",
-            "takeover",
-            "mouse",
-            "keyboard",
-            "interrupt"
-          ]
-        },
-        {
-          "key": "computerUse.showCursor",
-          "title": {
-            "key": "settings.computerUse.showCursor",
-            "text": "Show Agent Cursor"
-          },
-          "help": {
-            "key": "settings.computerUse.showCursor.help",
-            "text": "A blue cursor shows wherever an agent clicks or types."
-          },
-          "summary": {
-            "key": "settings.computerUse.showCursor.summary",
-            "text": "A blue cursor shows where agents act"
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "computer use",
-            "cursor",
-            "pointer",
-            "blue",
-            "overlay"
-          ]
-        },
-        {
-          "key": "computerUse.cursorTag",
-          "note": "When an agent cursor shows its tag (the agent's workspace name, or the tag the agent set).",
-          "title": {
-            "key": "settings.computerUse.cursorTag",
-            "text": "Agent Cursor Tag"
-          },
-          "help": {
-            "key": "settings.computerUse.cursorTag.help",
-            "text": "Each agent cursor can carry a tag: the agent's workspace name, or a tag the agent sets. Show it when your pointer is over the cursor, always, or never."
-          },
-          "summary": {
-            "key": "settings.computerUse.cursorTag.summary",
-            "text": "When the agent cursor shows its tag"
+            "key": "settings.computerUse.driver.summary",
+            "text": "Which helper runs Computer Use"
           },
           "kind": "choice",
           "choices": [
             {
-              "value": "hover",
+              "value": "legacy",
               "title": {
-                "key": "settings.computerUse.cursorTag.hover",
-                "text": "When I Point at It"
+                "key": "settings.computerUse.driver.legacy",
+                "text": "Legacy"
               },
-              "note": "The tag shows while the person's pointer is over the agent cursor."
+              "note": "The cmux-cua 0.8.12 helper (today's path, unchanged)."
             },
             {
-              "value": "always",
+              "value": "upstream",
               "title": {
-                "key": "settings.computerUse.cursorTag.always",
-                "text": "Always"
-              }
-            },
-            {
-              "value": "never",
-              "title": {
-                "key": "settings.computerUse.cursorTag.never",
-                "text": "Never"
-              }
+                "key": "settings.computerUse.driver.upstream",
+                "text": "Upstream"
+              },
+              "note": "The cmux Computer Use helper v2 with upstream Cua Driver in process."
             }
           ],
-          "default": "hover",
-          "swift_enum": {
-            "name": "ComputerUseCursorTag"
-          },
+          "default": "upstream",
           "keywords": [
             "computer use",
-            "cursor",
-            "tag",
-            "label",
-            "workspace",
-            "name",
-            "hover"
-          ]
-        },
-        {
-          "key": "computerUse.settle",
-          "note": "What the engine waits for after an action before its screenshot (PolicyConfig settle).",
-          "title": {
-            "key": "settings.computerUse.settle",
-            "text": "After Each Action"
-          },
-          "help": {
-            "key": "settings.computerUse.settle.help",
-            "text": "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing."
-          },
-          "summary": {
-            "key": "settings.computerUse.settle.summary",
-            "text": "What agents wait for after each action"
-          },
-          "kind": "choice",
-          "choices": [
-            {
-              "value": "adaptive",
-              "title": {
-                "key": "settings.computerUse.settle.adaptive",
-                "text": "Wait for the change (adaptive)"
-              },
-              "note": "Waits until the screen stops changing."
-            },
-            {
-              "value": "anthropic",
-              "title": {
-                "key": "settings.computerUse.settle.anthropic",
-                "text": "Fixed 2 s, then screenshot (Anthropic)"
-              },
-              "note": "Anthropic's reference loop: a fixed 2 s wait."
-            },
-            {
-              "value": "openai",
-              "title": {
-                "key": "settings.computerUse.settle.openai",
-                "text": "Screenshot at once (OpenAI)"
-              },
-              "note": "OpenAI's reference loop: no wait."
-            }
+            "driver",
+            "cua",
+            "upstream",
+            "legacy",
+            "helper"
           ],
-          "default": "openai",
           "swift_enum": {
-            "name": "ComputerUseSettle"
-          },
-          "keywords": [
-            "computer use",
-            "settle",
-            "wait",
-            "delay",
-            "screenshot",
-            "action",
-            "anthropic",
-            "openai"
-          ]
+            "name": "ComputerUseDriver"
+          }
         },
         {
           "key": "computerUse.livePreview",
@@ -319,7 +89,7 @@
           },
           "help": {
             "key": "settings.computerUse.livePreview.help",
-            "text": "A small live view of the app an agent uses. Click it for Agent Activity."
+            "text": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."
           },
           "summary": {
             "key": "settings.computerUse.livePreview.summary",
@@ -334,128 +104,6 @@
             "agent activity",
             "screenshot",
             "chat"
-          ]
-        },
-        {
-          "key": "computerUse.floatingPreview",
-          "note": "Prototype: a floating, non-activating panel over every app with the live preview; the menu bar's Computer Use menu shows and hides it. Needs computerUse.livePreview (the worker streams no frame without it).",
-          "title": {
-            "key": "settings.computerUse.floatingPreview",
-            "text": "Floating Live Preview"
-          },
-          "help": {
-            "key": "settings.computerUse.floatingPreview.help",
-            "text": "A live view of the app an agent uses, floating over every app. Drag it anywhere; hide it from the menu bar."
-          },
-          "summary": {
-            "key": "settings.computerUse.floatingPreview.summary",
-            "text": "Shows the app an agent uses in a floating panel"
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "computer use",
-            "live preview",
-            "floating",
-            "picture in picture",
-            "preview"
-          ]
-        },
-        {
-          "key": "computerUse.whileLocked",
-          "note": "Off by default. On, while the screen is locked the engine still runs app and window lists, window captures by window id and background input to a window; foreground input, display captures, launches and permission prompts stay refused with mac_locked (cmux_computer_use::locked; cmuxterm-hq docs/design/locked-screen-computer-use.md).",
-          "title": {
-            "key": "settings.computerUse.whileLocked",
-            "text": "Keep Working While Locked"
-          },
-          "help": {
-            "key": "settings.computerUse.whileLocked.help",
-            "text": "Agents keep seeing and using app windows while this Mac is locked. Anything that needs the desktop or the pointer waits for you to unlock."
-          },
-          "summary": {
-            "key": "settings.computerUse.whileLocked.summary",
-            "text": "Lets agents use app windows while the Mac is locked"
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "computer use",
-            "locked",
-            "lock screen",
-            "screen lock",
-            "background",
-            "while locked"
-          ]
-        },
-        {
-          "key": "computerUse.menus",
-          "note": "Whether agents may open pop-up and context menus of background apps (cmux_computer_use::menus::MenuMode).",
-          "title": {
-            "key": "settings.computerUse.menus",
-            "text": "Menus in Background Apps"
-          },
-          "help": {
-            "key": "settings.computerUse.menus.help",
-            "text": "Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background."
-          },
-          "summary": {
-            "key": "settings.computerUse.menus.summary",
-            "text": "Agents may open menus in background apps"
-          },
-          "kind": "choice",
-          "choices": [
-            {
-              "value": "open",
-              "title": {
-                "key": "settings.computerUse.menus.open",
-                "text": "Open Menus"
-              }
-            },
-            {
-              "value": "refuse",
-              "title": {
-                "key": "settings.computerUse.menus.refuse",
-                "text": "Never Open Menus"
-              }
-            }
-          ],
-          "default": "open",
-          "swift_enum": {
-            "name": "ComputerUseMenus"
-          },
-          "keywords": [
-            "computer use",
-            "menu",
-            "pop-up",
-            "popup",
-            "context menu",
-            "right click",
-            "background"
-          ]
-        },
-        {
-          "key": "computerUse.allowForeground",
-          "title": {
-            "key": "settings.computerUse.allowForeground",
-            "text": "Allow Foreground Input"
-          },
-          "help": {
-            "key": "settings.computerUse.allowForeground.help",
-            "text": "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input."
-          },
-          "summary": {
-            "key": "settings.computerUse.allowForeground.summary",
-            "text": "Advanced: agents may take focus and move the pointer"
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "computer use",
-            "foreground",
-            "focus",
-            "pointer",
-            "advanced",
-            "background"
           ]
         }
       ]
@@ -476,7 +124,7 @@
           },
           "help": {
             "key": "settings.freeModel.enabled.help",
-            "text": "Agents can use the free cmux model while signed out. cmux checks this is a real Mac."
+            "text": "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."
           },
           "summary": {
             "key": "settings.freeModel.enabled.summary",
@@ -511,7 +159,7 @@
           },
           "help": {
             "key": "settings.machines.sshLinkHosts.help",
-            "text": "ssh:// links from other apps connect to these hosts without asking."
+            "text": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask."
           },
           "kind": "string_list",
           "default": [],
@@ -535,41 +183,6 @@
       ]
     },
     {
-      "name": "hosts",
-      "section": "machines",
-      "group": {
-        "key": "settings.group.sshLinks",
-        "text": "SSH Links"
-      },
-      "note": "Hosts declared by hand (CMUX-673): a label and the ssh endpoints tried in order, with an optional icon and id. cmux-config hosts.rs owns the rule; `cmux hosts list|check` reads them.",
-      "rows": [
-        {
-          "key": "machines.hosts",
-          "note": "A list of {label, endpoints | endpoint, icon?, id?}; labels are unique ignoring case. Edited in cmux-next.json, so it stays off the Settings page.",
-          "title": {
-            "key": "settings.machines.hosts",
-            "text": "Hosts"
-          },
-          "help": {
-            "key": "settings.machines.hosts.help",
-            "text": "Computers you reach over ssh, each a label and the addresses tried in order. cmux hosts check says which ones answer."
-          },
-          "kind": "text",
-          "swift_owner": "HostsSetting",
-          "default": [],
-          "keywords": [
-            "hosts",
-            "machines",
-            "computers",
-            "ssh",
-            "remote",
-            "endpoints"
-          ],
-          "page_hidden": "a list of host objects, edited in cmux-next.json"
-        }
-      ]
-    },
-    {
       "name": "cloud",
       "section": "machines",
       "group": {
@@ -586,7 +199,7 @@
           },
           "help": {
             "key": "settings.cloud.newWorkspacesInCloud.help",
-            "text": "Each new workspace gets its own Cloud machine, and its chats run there."
+            "text": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine."
           },
           "kind": "toggle",
           "default": false,
@@ -612,7 +225,7 @@
           },
           "help": {
             "key": "settings.cloud.newWorkspaceFolder.help",
-            "text": "Current Folder copies your git working copy to the new machine."
+            "text": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder."
           },
           "kind": "choice",
           "choices": [
@@ -650,58 +263,54 @@
           }
         },
         {
-          "key": "cloud.useMyGitHubLogin",
-          "name": "useMyGitHubLogin",
-          "note": "Cloud starts use the cmux GitHub App by default. Only an explicit opt-in carries this Mac's personal GitHub CLI login.",
+          "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
           "title": {
-            "key": "settings.cloud.useMyGitHubLogin",
-            "text": "Use My GitHub Login on Cloud Machines"
+            "key": "settings.cloud.useMyClaudeLogin",
+            "text": "Use My Claude Login on My Own Cloud Machines"
           },
           "help": {
-            "key": "settings.cloud.useMyGitHubLogin.help",
-            "text": "Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine."
+            "key": "settings.cloud.useMyClaudeLogin.help",
+            "text": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead."
           },
           "kind": "toggle",
           "default": false,
           "keywords": [
             "cloud",
-            "github",
-            "gh",
+            "claude",
             "login",
-            "git",
-            "clone",
-            "push",
-            "token",
-            "repository",
             "sign in",
-            "account"
-          ]
+            "token",
+            "credential",
+            "machine",
+            "consent",
+            "copy"
+          ],
+          "swift_owner": "CloudLoginCopyConsentSetting"
         },
         {
-          "key": "cloud.defaultImage",
-          "name": "defaultImage",
-          "note": "The Cloud environment (image) a new Cloud chat boots from when the chat names none: `auto` (the default; cloud.startChat sends no environment and the platform derives one from the repository) or one of the account's Cloud environment ids (`cloud.environment.list`). Replaces the composer's Environment chip (PR 51769). Auto reuses the person's own Cloud machine for a new chat; a named environment makes a new machine per chat, as a machine boots in its image only when made (cmux-tui start_chat_cli.rs `reusable`). The chat page follows it (AgentPaneDisplaySetting.followedAppPaths; webviews chatCloudEnvironment.ts); Settings draws it as a menu of Auto and the environments (webviews settings editors/DefaultImageEditor.tsx).",
+          "key": "cloud.useMyCodexLoginOnMyCloudMachines",
           "title": {
-            "key": "settings.cloud.defaultImage",
-            "text": "Default Image"
+            "key": "settings.cloud.useMyCodexLogin",
+            "text": "Use My Codex Login on My Own Cloud Machines"
           },
           "help": {
-            "key": "settings.cloud.defaultImage.help",
-            "text": "The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine."
+            "key": "settings.cloud.useMyCodexLogin.help",
+            "text": "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead."
           },
-          "kind": "text",
-          "default": "auto",
+          "kind": "toggle",
+          "default": false,
           "keywords": [
             "cloud",
-            "image",
-            "environment",
-            "default",
-            "auto",
-            "snapshot",
-            "vm",
+            "codex",
+            "chatgpt",
+            "login",
+            "sign in",
+            "token",
+            "credential",
             "machine",
-            "new chat"
-          ]
+            "consent"
+          ],
+          "swift_owner": "CloudCodexSignInConsentSetting"
         },
         {
           "key": "cloud.agentsStartWithoutAsking",
@@ -743,7 +352,7 @@
           },
           "help": {
             "key": "settings.cloud.turnCheckpoints.help",
-            "text": "Back to Before This Turn restores the machine in seconds. Keeps the newest few."
+            "text": "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved."
           },
           "kind": "toggle",
           "default": false,
@@ -757,183 +366,6 @@
             "turn",
             "back",
             "machine"
-          ]
-        },
-        {
-          "key": "cloud.addFolderLive",
-          "name": "addFolderLive",
-          "note": "Add folder in a Cloud chat's Sources (Leo, 2026-11-25: \"mostly just the one you selected, right? then you can add more folders and files/select more as you go potentially\"): a Mac folder is copied read-only to the chat's machine and joins the chat's folders between turns, and an agent's access-request card in any Cloud chat lands its folder the same way. On by default (Leo, 2026-11-25: \"it doesnt work if it's not \\\"on by default\\\"\"); this switch turns it off.",
-          "title": {
-            "key": "settings.cloud.addFolderLive",
-            "text": "Add Folders to Running Cloud Chats"
-          },
-          "help": {
-            "key": "settings.cloud.addFolderLive.help",
-            "text": "Sources shows Add Folder, and a folder an agent asks for joins its chat. Copies are read-only; secret files never go."
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "cloud",
-            "folder",
-            "add",
-            "sources",
-            "share",
-            "access",
-            "directory",
-            "attach",
-            "machine"
-          ]
-        },
-        {
-          "key": "cloud.autoCloud",
-          "name": "autoCloud",
-          "note": "AutoCloud (Leo, 2026-11-24): the new-chat Where menu's Auto opens Auto, Cloud only and Machine…, and Auto may start a chat on a Cloud VM when this Mac has no room. A Settings switch, off by default, so a person can turn the preview on without editing cmux-next.json (Leo, 2026-11-24: \"can we put our mvp in?\"). Also the switch for keeping a chat running: with it on, a chat that starts on this Mac is copied to the Cloud, goes on there when this Mac sleeps or goes offline, and comes home (plans/cmux-next/auto-mode/DESIGN.md; the acpmux daemon reads it when a chat starts; nothing is copied where the Cloud store is not bound). The plan gate still applies.",
-          "title": {
-            "key": "settings.cloud.autoCloud",
-            "text": "Auto Places Chats in Cloud"
-          },
-          "help": {
-            "key": "settings.cloud.autoCloud.help",
-            "text": "Auto runs a new chat on this Mac when it has room, else on a Cloud machine."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "cloud",
-            "auto",
-            "place",
-            "where"
-          ]
-        },
-        {
-          "key": "cloud.agentMemory.follow",
-          "name": "agentMemoryFollow",
-          "title": {
-            "key": "settings.cloud.agentMemory.follow",
-            "text": "Carry Your Agent Memory to Cloud Machines"
-          },
-          "help": {
-            "key": "settings.cloud.agentMemory.follow.help",
-            "text": "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push."
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "cloud",
-            "agent",
-            "memory",
-            "claude",
-            "agents",
-            "skills",
-            "commands",
-            "sync",
-            "follow",
-            "machine"
-          ]
-        }
-      ]
-    },
-    {
-      "name": "storage",
-      "section": "general",
-      "group": {
-        "key": "settings.group.storage",
-        "text": "Storage"
-      },
-      "rows": [
-        {
-          "key": "worktrees.location",
-          "name": "location",
-          "note": "Default ~/.cmux/worktrees, where cmux always put them. The shared folder of the worktrees cmux makes for local chats, forks and lanes, as <folder>/<project>/<name>: cmux-config worktree_names::location, read by git.worktree.create (cmux-tui-core git_ops/worktree.rs) and acpmux subsession_worktree.rs. A leading ~/ is the home folder; a value that is no absolute path is the default. agentPane.sessionWorktrees set to project keeps them inside the project instead.",
-          "title": {
-            "key": "settings.worktrees.location",
-            "text": "Worktree Folder"
-          },
-          "help": {
-            "key": "settings.worktrees.location.help",
-            "text": "Where cmux makes worktrees for local chats, forks and lanes, one folder per project."
-          },
-          "kind": "text",
-          "default": "~/.cmux/worktrees",
-          "keywords": [
-            "git",
-            "worktree",
-            "folder",
-            "location",
-            "path",
-            "disk",
-            "storage"
-          ]
-        },
-        {
-          "key": "worktrees.branchPrefix",
-          "name": "branchPrefix",
-          "note": "Default cmux/, the prefix cmux always used. The start of the branch name of each worktree cmux makes (cmux/fix-login): cmux-config worktree_names::branch_prefix, read by git.worktree.create and acpmux subsession_worktree.rs. Empty is no prefix; one git would not take at the start of a branch name is the default.",
-          "title": {
-            "key": "settings.worktrees.branchPrefix",
-            "text": "Worktree Branch Prefix"
-          },
-          "help": {
-            "key": "settings.worktrees.branchPrefix.help",
-            "text": "The start of each new worktree's branch name, such as cmux/."
-          },
-          "kind": "text",
-          "default": "cmux/",
-          "keywords": [
-            "git",
-            "worktree",
-            "branch",
-            "prefix",
-            "name"
-          ]
-        },
-        {
-          "key": "worktrees.autoCleanup",
-          "name": "autoCleanup",
-          "note": "On by default. The acpmux daemon archives and removes the worktrees agents finished with and trims the build output of idle ones; unpushed work stays in git and comes back when the chat reopens (cmux-tui acpmux hub/worktree_care.rs, auto_cleanup_enabled, read from the settings file at each pass).",
-          "title": {
-            "key": "settings.worktrees.autoCleanup",
-            "text": "Clean Up Agent Worktrees"
-          },
-          "help": {
-            "key": "settings.worktrees.autoCleanup.help",
-            "text": "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens."
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "disk",
-            "storage",
-            "cleanup",
-            "worktree",
-            "cache",
-            "DerivedData",
-            "free space"
-          ]
-        },
-        {
-          "key": "worktrees.cleanBuildCaches",
-          "name": "cleanBuildCaches",
-          "note": "On by default (was off before cmux care). On: machine cleanup also removes this machine's regenerable build caches nobody used lately (Xcode DerivedData, package caches, idle build folders and the like), under the disk budget; an explicit false keeps them (cmux-tui cmux-worktree-care).",
-          "title": {
-            "key": "settings.worktrees.cleanBuildCaches",
-            "text": "Clean Up Build Caches"
-          },
-          "help": {
-            "key": "settings.worktrees.cleanBuildCaches.help",
-            "text": "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "disk",
-            "storage",
-            "cleanup",
-            "worktree",
-            "cache",
-            "DerivedData",
-            "free space"
           ]
         }
       ]
@@ -954,35 +386,11 @@
           },
           "help": {
             "key": "settings.mobile.allowIPhoneConnections.help",
-            "text": "The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once."
+            "text": "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."
           },
           "summary": {
             "key": "settings.mobile.allowIPhoneConnections.summary",
             "text": "Lets your iPhone reach this Mac"
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "iphone",
-            "phone",
-            "mobile",
-            "remote",
-            "connect"
-          ]
-        },
-        {
-          "key": "mobile.autoApprovePhones",
-          "title": {
-            "key": "settings.mobile.autoApprovePhones",
-            "text": "Approve Phone Requests Automatically"
-          },
-          "help": {
-            "key": "settings.mobile.autoApprovePhones.help",
-            "text": "A new phone signed in to your account connects without asking you first, and so do phones already waiting. Other accounts never connect."
-          },
-          "summary": {
-            "key": "settings.mobile.autoApprovePhones.summary",
-            "text": "New phones on your account connect without asking"
           },
           "kind": "toggle",
           "default": false,
@@ -990,10 +398,8 @@
             "iphone",
             "phone",
             "mobile",
-            "approve",
-            "allow",
-            "pair",
-            "automatic"
+            "remote",
+            "connect"
           ]
         },
         {
@@ -1005,7 +411,7 @@
           },
           "help": {
             "key": "settings.mobile.terminalSizing.help",
-            "text": "The size of a terminal shown on this Mac and a phone at once."
+            "text": "Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone."
           },
           "kind": "choice",
           "choices": [
@@ -1067,7 +473,7 @@
           },
           "help": {
             "key": "settings.mobile.terminalSizingOrder.help",
-            "text": "The devices a shared terminal sizes to first, highest first."
+            "text": "The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order."
           },
           "kind": "string_list",
           "default": [],
@@ -1099,7 +505,7 @@
           },
           "help": {
             "key": "settings.macScreen.systemShortcuts.help",
-            "text": "Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility."
+            "text": "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility."
           },
           "summary": {
             "key": "settings.macScreen.systemShortcuts.summary",
@@ -1116,70 +522,6 @@
             "mission control",
             "keyboard",
             "accessibility"
-          ]
-        },
-        {
-          "key": "macScreen.shareWithoutAsking",
-          "title": {
-            "key": "settings.macScreen.shareWithoutAsking",
-            "text": "Share This Mac Without Asking"
-          },
-          "help": {
-            "key": "settings.macScreen.shareWithoutAsking.help",
-            "text": "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies."
-          },
-          "summary": {
-            "key": "settings.macScreen.shareWithoutAsking.summary",
-            "text": "Sharing turns on without asking"
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "mac screen",
-            "remote",
-            "screen sharing",
-            "share this mac",
-            "confirm",
-            "ask"
-          ]
-        }
-      ]
-    },
-    {
-      "name": "macScreenViewing",
-      "section": "machines",
-      "group": {
-        "key": "settings.group.screenSharing",
-        "text": "Screen Sharing"
-      },
-      "rows": [
-        {
-          "key": "macScreen.onlyPersonStartsViewing",
-          "note": "Read by MacScreenPages.agentMayStartViewing: off (the default), an agent's or the CLI's macScreen.open with a device of the person's own starts viewing at once (MacScreenPages.isOwnDevice); on, it waits at the Connect card for the person's click, as before. Leo 2026-11-17: \"why should it get held only be aperson's click? i dont like that\".",
-          "title": {
-            "key": "settings.macScreen.onlyPersonStartsViewing",
-            "text": "Only Your Click Starts Viewing a Screen"
-          },
-          "help": {
-            "key": "settings.macScreen.onlyPersonStartsViewing.help",
-            "text": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."
-          },
-          "summary": {
-            "key": "settings.macScreen.onlyPersonStartsViewing.summary",
-            "text": "Agents can't start viewing your screens"
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "screen sharing",
-            "mac screen",
-            "agents",
-            "automation",
-            "cli",
-            "view",
-            "control",
-            "click",
-            "approve"
           ]
         }
       ]
@@ -1200,7 +542,7 @@
           },
           "help": {
             "key": "settings.macScreen.debug.relayOnly.help",
-            "text": "Mac Screen tabs connect only through the relay, to test it."
+            "text": "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect."
           },
           "summary": {
             "key": "settings.macScreen.debug.relayOnly.summary",
@@ -1236,7 +578,7 @@
           },
           "help": {
             "key": "settings.remote.endSharingOnQuit.help",
-            "text": "Off: this Mac stays available to your devices while cmux is quit."
+            "text": "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit."
           },
           "summary": {
             "key": "settings.remote.endSharingOnQuit.summary",
@@ -1254,39 +596,6 @@
           ]
         },
         {
-          "key": "remote.agentShareIdleMinutes",
-          "note": "Read by the daemon each time an owner's agent turns sharing on under the account's \"My agents can turn screen sharing and control on my machines\" (cmux-tui-util user_settings::agent_share_idle_minutes; cmux-tui-core remote_host/agent_share.rs AutoOff). The person's own sharing never turns itself off.",
-          "title": {
-            "key": "settings.remote.agentShareIdleMinutes",
-            "text": "Agent Sharing Turns Off After"
-          },
-          "help": {
-            "key": "settings.remote.agentShareIdleMinutes.help",
-            "text": "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it."
-          },
-          "summary": {
-            "key": "settings.remote.agentShareIdleMinutes.summary",
-            "text": "Minutes with no viewer before an agent's sharing turns off"
-          },
-          "kind": "number",
-          "range": {
-            "min": 1,
-            "max": 240,
-            "step": 1,
-            "unit": "minutes"
-          },
-          "default": 15,
-          "keywords": [
-            "cmux remote",
-            "screen sharing",
-            "mac screen",
-            "agents",
-            "idle",
-            "timeout",
-            "turn off"
-          ]
-        },
-        {
           "key": "remote.ultra",
           "name": "ultra",
           "note": "Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra): auto (the default) sends no repair data on a clean link and UltraMode::SETTING (rs:4:4) within about one round trip of a loss (cmux-wg UltraChoice::Auto); always sends it on every datagram; CMUX_WG_ULTRA still wins. Replaces the toggle remote.ultraMode, whose true still reads as always.",
@@ -1296,7 +605,7 @@
           },
           "help": {
             "key": "settings.remote.ultra.help",
-            "text": "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data."
+            "text": "Sends repair data with connections to Cloud and your other machines, so a network that drops packets stays fast. Auto sends it only once packets are lost, and nothing extra on a clean network. Always sends it all the time, about 2 to 3 times the data. Applies to the next connection."
           },
           "summary": {
             "key": "settings.remote.ultra.summary",
@@ -1345,291 +654,6 @@
           "swift_enum": {
             "name": "UltraConnectionMode"
           }
-        },
-        {
-          "key": "transport.tailnetCarrier",
-          "name": "tailnetCarrier",
-          "note": "Read by direct route races. When direct-only, a cached Tailscale LocalAPI view may add a peer's direct tailnet address as a candidate. DERP and peer-relay paths are excluded until their cost is measured. Off is the default.",
-          "title": {
-            "key": "settings.transport.tailnetCarrier",
-            "text": "Tailscale Carrier"
-          },
-          "help": {
-            "key": "settings.transport.tailnetCarrier.help",
-            "text": "Race a peer's direct Tailscale address with the other transports when tailscaled reports one."
-          },
-          "summary": {
-            "key": "settings.transport.tailnetCarrier.summary",
-            "text": "Use direct Tailscale paths when available"
-          },
-          "kind": "choice",
-          "choices": [
-            {
-              "value": "off",
-              "title": {
-                "key": "settings.transport.tailnetCarrier.off",
-                "text": "Off"
-              },
-              "note": "Do not add Tailscale candidates."
-            },
-            {
-              "value": "direct-only",
-              "title": {
-                "key": "settings.transport.tailnetCarrier.directOnly",
-                "text": "Direct Only"
-              },
-              "note": "Add only paths tailscaled reports as direct."
-            },
-            {
-              "value": "on",
-              "title": {
-                "key": "settings.transport.tailnetCarrier.on",
-                "text": "On"
-              },
-              "note": "Accept the carrier policy value. Relayed paths remain excluded until their cost is measured."
-            }
-          ],
-          "default": "off",
-          "keywords": [
-            "tailscale",
-            "tailnet",
-            "wireguard",
-            "transport",
-            "direct",
-            "relay"
-          ],
-          "swift_enum": {
-            "name": "TailnetCarrierMode"
-          }
-        },
-        {
-          "key": "remote.screenSharingProfile",
-          "name": "screenSharingProfile",
-          "note": "Read by MacScreenSession: ultra puts a=cmux-rd-encode-profile:ultra in the viewer's cmux.rd offer and the host's cmux-rd serve setup gets \"encode_profile\": \"ultra\"; balanced (the default) sends nothing. Not remote.ultra, which repairs loss on the WireGuard tunnel.",
-          "title": {
-            "key": "settings.remote.screenSharingProfile",
-            "text": "Screen Sharing Profile"
-          },
-          "help": {
-            "key": "settings.remote.screenSharingProfile.help",
-            "text": "Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network."
-          },
-          "summary": {
-            "key": "settings.remote.screenSharingProfile.summary",
-            "text": "Picture quality and bandwidth when viewing another Mac"
-          },
-          "kind": "choice",
-          "choices": [
-            {
-              "value": "balanced",
-              "title": {
-                "key": "settings.remote.screenSharingProfile.balanced",
-                "text": "Balanced"
-              },
-              "note": "Today's stream; the viewer asks for nothing extra."
-            },
-            {
-              "value": "ultra",
-              "title": {
-                "key": "settings.remote.screenSharingProfile.ultra",
-                "text": "Ultra"
-              },
-              "note": "Up to 120 fps and 150 Mbps, near-lossless text, on a fast direct link."
-            }
-          ],
-          "default": "balanced",
-          "keywords": [
-            "screen sharing",
-            "mac screen",
-            "profile",
-            "quality",
-            "ultra",
-            "bandwidth",
-            "fps",
-            "frame rate",
-            "bitrate",
-            "text"
-          ],
-          "swift_enum": {
-            "name": "ScreenSharingProfile"
-          }
-        }
-      ]
-    },
-    {
-      "name": "remoteDesktop",
-      "section": "general",
-      "group": {
-        "key": "settings.group.cmuxRemote",
-        "text": "cmux Remote"
-      },
-      "note": "The viewer's defaults for a new Screen Sharing session (remoteDesktop.*, plans/cmux-next/remote-desktop.md section 16). MacScreenPages seeds each session's toolbar picks from them, and the session's cmux.rd offer carries them (a=cmux-rd-max-width and -max-fps from the quality, -max-fps capped, -max-kbps); a toolbar pick still wins for its session.",
-      "rows": [
-        {
-          "key": "remoteDesktop.quality",
-          "note": "The quality a new Screen Sharing session starts at: Auto fits the stream to the pane, Sharp Text streams the host display's full size at up to 60 fps, Smooth Motion streams 1920 wide at the display's rate, Low Bandwidth streams 1280 wide at up to 60 fps (MacScreenRdDocument.wish).",
-          "title": {
-            "key": "settings.remoteDesktop.quality",
-            "text": "Screen Sharing Quality"
-          },
-          "help": {
-            "key": "settings.remoteDesktop.quality.help",
-            "text": "The quality a new Screen Sharing session starts at. The session's toolbar can still change it."
-          },
-          "kind": "choice",
-          "choices": [
-            {
-              "value": "auto",
-              "title": {
-                "key": "settings.remoteDesktop.auto",
-                "text": "Auto"
-              },
-              "note": "Fits the stream to the pane."
-            },
-            {
-              "value": "sharpText",
-              "title": {
-                "key": "settings.remoteDesktop.quality.sharpText",
-                "text": "Sharp Text"
-              },
-              "note": "The host display's full size, up to 60 fps."
-            },
-            {
-              "value": "smoothMotion",
-              "title": {
-                "key": "settings.remoteDesktop.quality.smoothMotion",
-                "text": "Smooth Motion"
-              },
-              "note": "1920 wide at the display's frame rate."
-            },
-            {
-              "value": "lowBandwidth",
-              "title": {
-                "key": "settings.remoteDesktop.quality.lowBandwidth",
-                "text": "Low Bandwidth"
-              },
-              "note": "1280 wide, up to 60 fps."
-            }
-          ],
-          "default": "auto",
-          "keywords": [
-            "screen sharing",
-            "remote desktop",
-            "mac screen",
-            "quality",
-            "resolution",
-            "sharp text",
-            "smooth motion",
-            "low bandwidth"
-          ],
-          "swift_enum": {
-            "name": "RemoteDesktopQuality"
-          }
-        },
-        {
-          "key": "remoteDesktop.maxFps",
-          "note": "A cap on the frame rate a Screen Sharing session asks for (a=cmux-rd-max-fps is the quality's rate, at most this). auto: no cap beyond the quality's (this Mac's display refresh).",
-          "title": {
-            "key": "settings.remoteDesktop.maxFps",
-            "text": "Screen Sharing Frame Rate Limit"
-          },
-          "help": {
-            "key": "settings.remoteDesktop.maxFps.help",
-            "text": "The most frames per second a Screen Sharing session asks for. Auto follows this display's refresh rate."
-          },
-          "kind": "choice_or_number",
-          "choices": [
-            {
-              "value": "auto",
-              "title": {
-                "key": "settings.remoteDesktop.auto",
-                "text": "Auto"
-              }
-            }
-          ],
-          "range": {
-            "min": 1,
-            "max": 240,
-            "step": 1,
-            "unit": "count",
-            "placeholder": 60
-          },
-          "default": "auto",
-          "keywords": [
-            "screen sharing",
-            "remote desktop",
-            "fps",
-            "frame rate",
-            "frames per second",
-            "refresh"
-          ]
-        },
-        {
-          "key": "remoteDesktop.maxBitrateMbps",
-          "note": "The bitrate a new Screen Sharing session may use, in Mbit/s (a=cmux-rd-max-kbps, times 1000). auto: the host's own cap. The toolbar's Customize > Bitrate starts at it.",
-          "title": {
-            "key": "settings.remoteDesktop.maxBitrateMbps",
-            "text": "Screen Sharing Bitrate Limit"
-          },
-          "help": {
-            "key": "settings.remoteDesktop.maxBitrateMbps.help",
-            "text": "The most megabits per second a new Screen Sharing session may use. Auto lets the host decide."
-          },
-          "kind": "choice_or_number",
-          "choices": [
-            {
-              "value": "auto",
-              "title": {
-                "key": "settings.remoteDesktop.auto",
-                "text": "Auto"
-              }
-            }
-          ],
-          "range": {
-            "min": 0.5,
-            "max": 80,
-            "step": 0.5,
-            "unit": "count",
-            "placeholder": 10
-          },
-          "default": "auto",
-          "keywords": [
-            "screen sharing",
-            "remote desktop",
-            "bitrate",
-            "bandwidth",
-            "mbps",
-            "megabits",
-            "data"
-          ]
-        },
-        {
-          "key": "remoteDesktop.sharpLinuxText",
-          "note": "Off by default. On: this Mac's Screen Sharing hello offers cap video.sharp_text, and a Linux host whose encoder is OpenH264 codes the session in its switching screen usage instead of camera usage (cmux-rd-host encoder.rs shipped_openh264_options). Screen usage's motion search encodes a 1080p frame about 4x slower (cmux#51662). The host's CMUX_RD_OPENH264_USAGE still wins. Mac, Windows and GPU (VAAPI) hosts ignore it.",
-          "title": {
-            "key": "settings.remoteDesktop.sharpLinuxText",
-            "text": "Sharper Text from Linux Machines"
-          },
-          "help": {
-            "key": "settings.remoteDesktop.sharpLinuxText.help",
-            "text": "A Linux machine without a GPU encoder codes its screen for sharp text instead of speed. Text reads clearer while it changes; typing and scrolling show a little later."
-          },
-          "summary": {
-            "key": "settings.remoteDesktop.sharpLinuxText.summary",
-            "text": "Linux screens favor sharp text over speed"
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "screen sharing",
-            "remote desktop",
-            "linux",
-            "text",
-            "sharp",
-            "screen usage",
-            "openh264",
-            "encoder"
-          ]
         }
       ]
     },
@@ -1649,7 +673,7 @@
           },
           "help": {
             "key": "settings.deviceHub.url.help",
-            "text": "The device hub for Mac Screen sharing. Empty uses the built-in one."
+            "text": "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."
           },
           "summary": {
             "key": "settings.deviceHub.url.summary",
@@ -1685,7 +709,7 @@
           },
           "help": {
             "key": "settings.imessage.enabled.help",
-            "text": "Lets cmux read Messages conversations on this Mac. Sending needs your click."
+            "text": "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click."
           },
           "kind": "toggle",
           "default": false,
@@ -1706,7 +730,7 @@
           },
           "help": {
             "key": "settings.imessage.automationSkipped.help",
-            "text": "Remembers that you skipped the Messages Automation step."
+            "text": "Remember skipping the Messages Automation step. This does not grant access or authorize sending."
           },
           "kind": "toggle",
           "default": false,

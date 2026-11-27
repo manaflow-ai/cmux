@@ -51,11 +51,7 @@ extension ChiefConversationContainer {
         let rest = UIDeferredMenuElement.uncached { [weak self] completion in
             completion(self.map { [$0.chatColorsAction(), $0.zoomMenu()] } ?? [])
         }
-        // App Review 1.2 / 4.7.1: report an offensive or wrong reply.
-        let report = UIAction(title: ChiefReport.title, image: UIImage(systemName: "exclamationmark.bubble")) { [weak self] _ in
-            ChiefReport.open(conversationID: self?.session.conversationID)
-        }
-        conversation.headerActionMenu = UIMenu(children: [invite, rest, UIMenu(options: .displayInline, children: [report])])
+        conversation.headerActionMenu = UIMenu(children: [invite, rest])
         applyTextZoom()
         observeTextZoom()
         applyChatColors()

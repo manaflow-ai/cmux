@@ -45,8 +45,6 @@ let gatewayOutage = "(turn failed on claude: API Error: 503 no non-exhausted cla
             ("Repeated 529 Overloaded errors. The API is at capacity — this is usually temporary. Try again in a moment.", .modelBusy),
             ("API Error: 429 rate limit exceeded", .modelBusy),
             ("API Error: 401 {\"type\":\"authentication_error\"}", .modelSignIn),
-            // acpmux's own words on a fresh Mac with no Claude sign-in, cut before Claude's "Not logged in".
-            ("Claude is not signed in here. This agent found no sign-in (Claude home ~/.claude). Your terminal has no Claude sign-in either. Run `claude auth login` in a terminal, or set ANTHROPIC_API_KEY (or ANTHR", .modelSignIn),
             ("the harness exited with status 2", .other),
             // A port is not a status code.
             ("harness crashed at 10.0.0.4:14290", .other),
@@ -130,10 +128,7 @@ let gatewayOutage = "(turn failed on claude: API Error: 503 no non-exhausted cla
         // The old copy blamed Chief for any of these.
         for problem in [ChiefEngineProblem.macUnreachable, .chiefBusy, .modelsUnavailable] {
             #expect(!problem.loadText.contains("didn't answer. Try again"))
-            // Leo 2026-11-22: "remove them all": the line sits beside Try Again and never narrates retries.
-            #expect(!problem.loadText.contains("Retrying"))
         }
-        #expect(ChiefEngineProblem.macUnreachable.loadText == "Mac unavailable")
     }
 
     @Test func aReplyDeadlineEndsAWaitOnAQuietLink() async throws {
@@ -198,7 +193,8 @@ final class ScriptedChiefMac: @unchecked Sendable {
     func session(_ mac: ScriptedChiefMac, preferences: ChiefPreferences, macID: String?) async throws -> ChiefSession {
         let link = MockMacLink { _, request in mac.respond(request) }
         let client = DaemonClient(channel: try await link.openChannel(service: "chief", args: [:]))
-        let session = ChiefSession(backend: ChiefOfflineBackend(), preferences: preferences, clock: ImmediateClock())
+        let session = ChiefSession(backend: ChiefOfflineBackend(), preferences: preferences,
+                                   outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
         session.macID = macID
         session.use(ChiefDaemonBackend(client: client, preferences: preferences))
         return session

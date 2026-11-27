@@ -23,6 +23,7 @@
 //! so two sends at once never lose each other's pins, and written to a
 //! temporary name and renamed.
 
+use std::collections::BTreeSet;
 use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
@@ -113,15 +114,7 @@ pub(crate) struct PendingCreate {
     pub(crate) refused: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) create_key: Option<String>,
-    /// How the sent create reached the server: `direct` (as the signed-in person) or `relay` (the
-    /// Mac's install; also what a create sent before routes were kept took). The server keeps a
-    /// key per caller, so a retry on the other route would be a second machine.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) route: Option<String>,
 }
-
-/// The route of a sent create that names none: the relay, the only route before they were kept.
-pub(crate) const RELAY: &str = "relay";
 
 impl PendingCreate {
     fn is(&self, send: &Send) -> bool {
@@ -162,18 +155,6 @@ impl Ledger {
         self.entry(send).map(|entry| entry.machine_id.clone())
     }
 
-    /// The machines `account`'s sends ran on, the most recent first, each once.
-    pub(crate) fn recent_machines(&self, account: &str) -> Vec<String> {
-        let account = account.to_lowercase();
-        let mut machines: Vec<String> = Vec::new();
-        for entry in self.entries.iter().rev().filter(|entry| entry.account == account) {
-            if !machines.contains(&entry.machine_id) {
-                machines.push(entry.machine_id.clone());
-            }
-        }
-        machines
-    }
-
     pub(crate) fn pending_create(&self, send: &Send) -> Option<PendingCreate> {
         self.pending_creates.iter().rev().find(|pending| pending.is(send)).cloned()
     }
@@ -200,22 +181,13 @@ impl Ledger {
             sent: false,
             refused: false,
             create_key: None,
-            route: None,
         });
         let over = self.pending_creates.len().saturating_sub(LIMIT);
         self.pending_creates.drain(..over);
         true
     }
 
-    /// The create with `key` goes out to `team` on `route` (none: the relay). A key that went out
-    /// once keeps its first team and route: a send to another team or on the other route is refused.
-    pub(crate) fn mark_create_sent(
-        &mut self,
-        send: &Send,
-        team: &str,
-        key: &str,
-        route: Option<&str>,
-    ) -> bool {
+    pub(crate) fn mark_create_sent(&mut self, send: &Send, team: &str, key: &str) -> bool {
         let Some(pending) = self.pending_creates.iter_mut().rev().find(|pending| pending.is(send))
         else {
             return false;
@@ -223,13 +195,11 @@ impl Ledger {
         if pending.refused
             || pending.create_key.as_deref().unwrap_or(&super::Keys::of(send.key()).create) != key
             || (pending.sent && pending.team.as_deref() != Some(team))
-            || (pending.sent && pending.route.as_deref().unwrap_or(RELAY) != route.unwrap_or(RELAY))
         {
             return false;
         }
         if !pending.sent {
             pending.team = Some(team.to_string());
-            pending.route = route.map(str::to_string);
             pending.sent = true;
         }
         true
@@ -250,7 +220,6 @@ impl Ledger {
         pending.refused = true;
         pending.sent = false;
         pending.team = None;
-        pending.route = None;
         true
     }
 
@@ -276,6 +245,20 @@ impl Ledger {
         true
     }
 
+    /// Every machine a kept send of the account `account` ran on, or one of
+    /// its workspaces picked: what counts as that account's own machine when the
+    /// server names no creator. Another user's sends on this Mac, or another
+    /// team's, never do.
+    pub(crate) fn machines_of(&self, account: &str) -> BTreeSet<String> {
+        let account = account.to_lowercase();
+        self.entries
+            .iter()
+            .filter(|entry| entry.account == account)
+            .map(|entry| entry.machine_id.clone())
+            .chain(self.workspace_machines(&account))
+            .collect()
+    }
+
     /// The machine the Mac workspace `workspace` picked in `account`, once a send from it ran on one.
     pub(crate) fn workspace_machine(&self, workspace: &str, account: &str) -> Option<String> {
         let account = account.to_lowercase();
@@ -293,6 +276,16 @@ impl Ledger {
                 && binding.account == account
                 && binding.workspace != workspace
         })
+    }
+
+    /// The machines some workspace in `account` picked.
+    fn workspace_machines(&self, account: &str) -> BTreeSet<String> {
+        let account = account.to_lowercase();
+        self.workspaces
+            .iter()
+            .filter(|binding| binding.account == account)
+            .map(|binding| binding.machine_id.clone())
+            .collect()
     }
 
     /// `workspace` picks `machine` in `account` from now on.
@@ -618,25 +611,13 @@ pub(crate) fn unreadable_path(path: &Path) -> PathBuf {
     path.with_extension(format!("unreadable-{now}.json"))
 }
 
-/// The ledger's file name in the start-chat state folder ([`path`]).
-pub(crate) const FILE: &str = "destinations.json";
-
 /// Where this Mac keeps the ledger; None when it has no state folder.
 pub(crate) fn path() -> Option<PathBuf> {
-    Some(cmux_tui_core::platform::workspace_state_dir()?.join("cloud-start-chat").join(FILE))
-}
-
-/// The machines the ledger at `path` pins a send to: every machine a start took (a reserve's
-/// bind, the platform's ensure, a pinned existing machine, the App's create pinned with `pin`).
-/// Read with no lock and nothing moved aside: a ledger missing, busy or unreadable names none,
-/// so a reader that only uses it to skip a taken machine never fails because of it.
-pub(crate) fn pinned_machines(path: &Path) -> std::collections::HashSet<String> {
-    let Ok(bytes) = std::fs::read(path) else { return Default::default() };
-    let sends = serde_json::from_slice::<File>(&bytes)
-        .map(|file| file.sends)
-        .or_else(|_| serde_json::from_slice::<Vec<Entry>>(&bytes))
-        .unwrap_or_default();
-    sends.into_iter().map(|entry| entry.machine_id).collect()
+    Some(
+        cmux_tui_core::platform::workspace_state_dir()?
+            .join("cloud-start-chat")
+            .join("destinations.json"),
+    )
 }
 
 #[cfg(test)]

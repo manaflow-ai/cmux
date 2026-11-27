@@ -73,9 +73,6 @@ pub(super) struct EnrollAdminArgs {
     relay_tickets: Vec<InvitationTicketArg>,
     pub(super) device_key: Option<String>,
     pub(super) device_name: Option<String>,
-    /// `create --via-machine KEY`: the hub route the invitation carries, else this machine's
-    /// own node key when it is joined to a hub ([`local_hub_route`]).
-    pub(super) via_machine: Option<String>,
 }
 
 pub(super) fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollAdminArgs> {
@@ -97,7 +94,6 @@ pub(super) fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollA
         relay_tickets: Vec::new(),
         device_key: None,
         device_name: None,
-        via_machine: None,
     };
     let mut seen = BTreeSet::new();
     let mut options_ended = false;
@@ -178,21 +174,6 @@ pub(super) fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollA
                 index += 1;
                 parsed.device_key = Some(key);
             }
-            "--via-machine" => {
-                require_create_action(action, "--via-machine")?;
-                require_unique_flag(&mut seen, "--via-machine")?;
-                // Not strict_option_value: a base64 key may begin with `--`.
-                let key = args.get(index).cloned().ok_or_else(|| {
-                    anyhow!(catalog().remote_client.option_needs_value("--via-machine"))
-                })?;
-                index += 1;
-                if !cmux_remote::identity::is_hub_machine_key(&key) {
-                    return Err(anyhow!(
-                        "--via-machine takes the machine's node key (`acpmux machine status --json`, wgPublicKey: base64 of 32 bytes)"
-                    ));
-                }
-                parsed.via_machine = Some(key);
-            }
             "--device-name" => {
                 require_create_action(action, "--device-name")?;
                 require_unique_flag(&mut seen, "--device-name")?;
@@ -270,148 +251,11 @@ pub(super) fn run_enroll(
             session_id: parsed.positionals[1].clone(),
         },
     };
-    let mut response = tokio_runtime()?.block_on(call_admin(&admin_socket, &request))?;
-    if parsed.action == EnrollAdminAction::Create {
-        let via = parsed.via_machine.clone().or_else(local_hub_route);
-        carry_hub_route(&mut response, via.as_deref())?;
-    }
+    let response = tokio_runtime()?.block_on(call_admin(&admin_socket, &request))?;
     if parsed.device_key.is_some() {
         require_bound_invitation(&response)?;
     }
-    if !parsed.json && response.ok {
-        let result = response.result.as_ref().unwrap_or(&Value::Null);
-        match parsed.action {
-            EnrollAdminAction::Create => return print_created_invitation(&parsed, result),
-            EnrollAdminAction::Revoke => {
-                let device_id = parsed.positionals.first().map_or("", String::as_str);
-                println!("{}", revoked_device_summary(device_id, result));
-                return Ok(());
-            }
-            _ => {}
-        }
-    }
     print_admin_response(parsed.action.name(), response, parsed.json)
-}
-
-/// This machine's node key as its hub knows it, when it is joined to one (acpmux's join record
-/// in the home `cmux acp` uses): the route another machine of the account reaches its loopback
-/// daemon by.
-pub(super) fn local_hub_route() -> Option<String> {
-    crate::acp::daemon_acpmux_home()
-        .and_then(|home| acpmux::cli::cloud_join::joined_node_key_at(&home))
-}
-
-/// Put `via` into the invitation a create answered (`via_machine`), unless it names one
-/// already: its route hints are often this machine's loopback daemon alone, which another
-/// machine reaches only through the hub (`cmux remote connect --via-machine`). The daemon
-/// mints the invitation; its URI is unsigned JSON, so the CLI adds the field before showing it.
-pub(super) fn carry_hub_route(
-    response: &mut AdminResponse,
-    via: Option<&str>,
-) -> anyhow::Result<()> {
-    let Some(via) = via else { return Ok(()) };
-    let Some(result) = response.result.as_mut().and_then(Value::as_object_mut) else {
-        return Ok(());
-    };
-    let Some(uri) = result.get("uri").and_then(Value::as_str) else { return Ok(()) };
-    let mut invitation = EnrollmentInvitation::from_uri(uri)?;
-    if invitation.via_machine.is_some() {
-        return Ok(());
-    }
-    invitation.via_machine = Some(via.to_owned());
-    result.insert("uri".into(), Value::String(invitation.to_uri()?));
-    Ok(())
-}
-
-/// `enroll create` prints the URI as stdout's only line, for scripts that
-/// capture it, and what an owner needs next on stderr.
-fn print_created_invitation(parsed: &EnrollAdminArgs, result: &Value) -> anyhow::Result<()> {
-    let uri = result
-        .get("uri")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("missing invitation URI"))?;
-    println!("{uri}");
-    let invitation = EnrollmentInvitation::from_uri(uri)?;
-    let bound = parsed
-        .device_key
-        .as_deref()
-        .map(|key| BoundDevice::parse(key, parsed.device_name.clone()))
-        .transpose()?;
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-    for line in invitation_summary(&invitation, parsed.ttl_seconds, bound.as_ref(), now) {
-        eprintln!("{line}");
-    }
-    Ok(())
-}
-
-pub(super) fn invitation_summary(
-    invitation: &EnrollmentInvitation,
-    requested_ttl_seconds: u64,
-    bound: Option<&BoundDevice>,
-    now_unix: u64,
-) -> Vec<String> {
-    let remaining = invitation.expires_at_unix.saturating_sub(now_unix);
-    let mut lines = vec![format!(
-        "expires in {}, at {} UTC",
-        human_duration(remaining),
-        utc_clock(invitation.expires_at_unix)
-    )];
-    // The daemon caps an invitation's lifetime; a second of slack covers the
-    // clock ticking between its reply and this line.
-    if requested_ttl_seconds > remaining.saturating_add(1) {
-        lines.push(format!(
-            "asked for {}; the daemon caps an invitation at {}",
-            human_duration(requested_ttl_seconds),
-            human_duration(remaining)
-        ));
-    }
-    match bound {
-        Some(device) => lines.push(match &device.name {
-            Some(name) => format!(
-                "bound to device {name} ({}); it enrolls with no approval step",
-                device.fingerprint()
-            ),
-            None => format!(
-                "bound to device {}; it enrolls with no approval step",
-                device.fingerprint()
-            ),
-        }),
-        None => lines.push(format!(
-            "not bound to a device: when it connects, approve it with `cmux remote enroll approve {}`",
-            invitation.id
-        )),
-    }
-    let route = invitation.route_hints.first().map_or("ROUTE", String::as_str);
-    lines.push(
-        "on the device, save the line above to an owner-only file (chmod 600) and run:".into(),
-    );
-    lines.push(format!("  cmux remote connect {route} --invite-file PATH"));
-    lines
-}
-
-/// Seconds as "5 min", "4 min 30 s" or "45 s".
-fn human_duration(seconds: u64) -> String {
-    match (seconds / 60, seconds % 60) {
-        (0, seconds) => format!("{seconds} s"),
-        (minutes, 0) => format!("{minutes} min"),
-        (minutes, seconds) => format!("{minutes} min {seconds} s"),
-    }
-}
-
-/// A Unix time's time of day in UTC, as HH:MM:SS.
-fn utc_clock(unix: u64) -> String {
-    let seconds = unix % 86_400;
-    format!("{:02}:{:02}:{:02}", seconds / 3600, seconds / 60 % 60, seconds % 60)
-}
-
-/// What `enroll revoke` revoked. A daemon older than this reply sends `{}`;
-/// then only the id the owner passed is known.
-pub(super) fn revoked_device_summary(device_id: &str, result: &Value) -> String {
-    let fingerprint = result.get("fingerprint").and_then(Value::as_str).unwrap_or(device_id);
-    match result.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) {
-        Some(name) => format!("revoked device {name} ({fingerprint}); it can no longer connect"),
-        None => format!("revoked device {fingerprint}; it can no longer connect"),
-    }
 }
 
 /// A daemon older than bound invitations ignores `--device-key` and makes an

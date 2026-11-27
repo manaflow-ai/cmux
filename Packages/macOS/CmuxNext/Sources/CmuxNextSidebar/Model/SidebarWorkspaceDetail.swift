@@ -32,9 +32,6 @@ public nonisolated struct SidebarWorkspaceDetail: Hashable, Sendable {
     public var subagentsRunning = 0
     public var subagentNames: [String] = []
     public var commandsRunning = 0
-    /// Who made the workspace when an agent or a script did, and why (the daemon's
-    /// `extra.created_by`); nil for one the person made.
-    public var origin: SidebarWorkspaceOrigin?
 
     public init(activitySince: Date? = nil, model: String? = nil, task: String? = nil, needsInput: String? = nil,
                 command: String? = nil, commandSince: Date? = nil, contextTokens: Int? = nil, contextWindow: Int? = nil,

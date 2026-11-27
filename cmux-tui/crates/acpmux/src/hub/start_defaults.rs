@@ -1,10 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`. The model and effort a new chat starts
 //! on when its request names none (cx-qtmy2, cx-fusxy; Lawrence 2026-10-13):
 //!
-//! 0. the cmux settings `agents.defaults.<family>.model` and `.effort`
-//!    (`model_settings.rs`, Settings > Agents): what the person chose for every
-//!    new chat of Claude Code or Codex. Above the saved default, which every
-//!    pick in a chat rewrites; shown to the app as `saved`, the person's choice;
 //! 1. the saved default in config.json `defaults` (family, then profile):
 //!    what `acpmux defaults <family> model=… effort=…` sets, and what the
 //!    person's pick in a chat writes (`note_pick`: the app pane's
@@ -108,8 +104,7 @@ pub(super) fn profile_sets_model(
 /// Where a start value came from (`_acpmux/harnesses` `start.*Source`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum StartSource {
-    /// config.json `defaults` (an `acpmux defaults` write or a pick), or the
-    /// person's Settings row (`model_settings.rs`): both are their own choice.
+    /// config.json `defaults` (an `acpmux defaults` write or a pick).
     Saved,
     /// The profile's own `model`/`effort`.
     Profile,
@@ -165,29 +160,17 @@ impl Hub {
         model: &str,
         pick: bool,
     ) -> Result<Value, RpcError> {
-        // As the catalog names it (`model_alias.rs`); the reply's `modelRewrite` says so, for
-        // the CLI's `model X -> Y` line.
-        let given = model;
-        let canonical = self.rewrite_session_model(session, given, "set_model").await?;
-        let model = canonical.as_str();
-        let rewrite = (model != given.trim()).then(|| json!({"from": given.trim(), "to": model}));
-        let with_rewrite = |mut r: Value| {
-            if let (Some(rewrite), Some(obj)) = (&rewrite, r.as_object_mut()) {
-                obj.insert("modelRewrite".into(), rewrite.clone());
-            }
-            r
-        };
         let runs = super::model_options::current_model(&session.meta()).or_else(|| {
             session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).model.clone()
         });
         if runs.as_deref() == Some(model) {
-            return Ok(with_rewrite(json!({})));
+            return Ok(json!({}));
         }
         let r = self.set_model(session, model).await?;
         if pick {
             self.note_pick(session, Some(model), None).await;
         }
-        Ok(with_rewrite(r))
+        Ok(r)
     }
 
     /// `session/set_config_option`. From the app pane (`pick`), an effort the
@@ -261,16 +244,6 @@ impl Hub {
         );
     }
 
-    /// Tells open pages every harness's `start` may have changed (a Settings row of
-    /// `model_settings.rs`), so a prewarmed New Tab draws the new start model and effort.
-    pub(super) async fn start_settings_changed(&self) {
-        let cfg = self.config.read().await;
-        let names: Vec<&String> = cfg.harnesses.keys().collect();
-        self.send_harness_change(
-            json!({"harnesses": names, "diagnostics": cfg.profile_diagnostics}),
-        );
-    }
-
     /// The model and effort a new chat on `agent` starts on when nothing
     /// pins them (module docs). `model`: the model the chat runs when the
     /// request or a pin names it, which only the effort then follows.
@@ -314,18 +287,14 @@ impl Hub {
         // harness's own default, its config's model, instead (cnx-ios full verify D4).
         let reported = self.reported_model_ids(agent);
         // Codex: a config model the catalog does not list still runs (module docs).
-        let family = crate::config::derive_family(agent, profile);
-        let codex = family == "codex";
-        // The person's Settings rows for this family (module docs, 0), read at each start.
-        let chosen = crate::model_settings::ChatDefaults::current(&family);
+        let codex = crate::config::derive_family(agent, profile) == "codex";
         let own_unlisted =
             || own().model.clone().filter(|m| codex && !m.is_empty() && own_model().is_none());
         let start_model = match model {
             Some(_) => None,
-            None => chosen
+            None => saved
                 .model
                 .clone()
-                .or_else(|| saved.model.clone())
                 .map(|value| StartValue { value, source: StartSource::Saved })
                 .or_else(|| {
                     own_model()
@@ -353,11 +322,10 @@ impl Hub {
             |m: &str| curated.as_ref().is_none_or(|c| c.models.iter().any(|x| x.id == m));
         let fits =
             |e: &String| runs.is_none_or(described) && effort_fits(curated.as_ref(), runs, e);
-        let start_effort = chosen
+        let start_effort = saved
             .effort
             .clone()
             .filter(fits)
-            .or_else(|| saved.effort.clone().filter(fits))
             .map(|value| StartValue { value, source: StartSource::Saved })
             .or_else(|| {
                 // Codex applies its effort to whatever model runs, so an effort with no model
@@ -385,9 +353,11 @@ impl Hub {
     /// The model ids `agent` itself reported (its last session or probe);
     /// empty when it reported none (Claude Code, a harness not probed yet).
     pub(super) fn reported_model_ids(&self, agent: &str) -> Vec<String> {
-        self.model_lists
-            .acp(agent)
-            .map(|list| list.into_iter().map(|(id, _)| id).collect())
+        self.known_models
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(agent)
+            .map(|list| list.iter().map(|(id, _)| id.clone()).collect())
             .unwrap_or_default()
     }
 
@@ -448,7 +418,7 @@ fn c_ids(curated: Option<&CatalogHarness>) -> Vec<String> {
 /// Whether reported id `id` names `model`: the same id, or a DSH route
 /// (`["provider","model"]`) for `model` or `provider/model`, as
 /// `model_catalog::resolve` accepts them.
-pub(super) fn names(id: &str, model: &str) -> bool {
+fn names(id: &str, model: &str) -> bool {
     id == model
         || serde_json::from_str::<Vec<String>>(id)
             .is_ok_and(|p| p.len() == 2 && (p[1] == model || format!("{}/{}", p[0], p[1]) == model))

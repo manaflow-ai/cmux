@@ -7,8 +7,6 @@
 
   // The terminal theme, and its own colors (appearance.themeEdits of that theme).
   "appearance.theme": "Soft Blue",
-  // The window, sidebar and pages take that theme too, over an App Theme of your own.
-  "appearance.appTheme": "followTerminal",
   "colors": { "background": "#0f1b26", "foreground": "#dce6ee", "selection": "#1f3a52", "accent": "#5fb3d9" },
   "appearance.accent": "theme",
 

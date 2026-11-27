@@ -22,10 +22,6 @@ acpmux = { path = "../acpmux", default-features = false }
 acpmux-build-id = { path = "../acpmux-build-id" }
 anyhow = "1"
 
-[target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
-# The daemon's allocator on musl Linux, the shipped packages (src/main.rs); gnu builds keep glibc.
-mimalloc = { version = "0.1", default-features = false }
-
 # acpmux's shipping features, passed through: the package builds this binary
 # with scripts/ci/acpmux-build-features.sh's flags on this manifest, as it builds
 # `-p acpmux` with them on acpmux's. Without these the Linux package's acpmux had

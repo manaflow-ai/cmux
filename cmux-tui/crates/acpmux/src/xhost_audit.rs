@@ -11,9 +11,7 @@
 //!   its checks pass, not when its turn ends (`server/requests.rs`); one this daemon then
 //!   refuses is a `refused` line with the error's code.
 //!
-//! Writing it never fails a send: an error is said on stderr once and the message goes on. Past
-//! [`CAP`] it moves to `cross-host-audit.jsonl.1` (replacing the one before), so the home keeps
-//! at most two logs' worth.
+//! Writing it never fails a send: an error is said on stderr once and the message goes on.
 
 use serde_json::{Value, json};
 use std::io::Write;
@@ -22,63 +20,19 @@ use std::path::PathBuf;
 /// The log's file name under the acpmux home.
 pub const FILE: &str = "cross-host-audit.jsonl";
 
-/// The size past which the next line starts a new log, the old one kept as [`previous`].
-const CAP: u64 = 4 << 20;
-
-/// The log's previous copy, beside it.
-pub(crate) fn previous(path: &std::path::Path) -> PathBuf {
-    path.with_extension("jsonl.1")
-}
-
 /// Where the log is: `ACPMUX_HOME` (or the default home)'s [`FILE`].
 pub fn path() -> PathBuf {
     crate::config::home().join(FILE)
 }
 
 /// Append one line: `fields` (an object) with `at` (ms since the epoch), `dir` and this
-/// machine's name as `host`. Written before it returns: for a short-lived process (the CLI's
-/// send relay), whose line a background writer could lose at exit.
-pub fn record(dir: &str, fields: Value) {
-    write(stamp(dir, fields));
-}
-
-/// [`record`] from the daemon's request path: stamped now, written in order by one writer
-/// thread, so a fan-out of thousands of prompts never waits on the log's directory checks,
-/// opens and append on an async worker (2026-11-23, sessions-2000-attached: 2,969 blocking
-/// switches under `peer_forward::forward` in a 2,000-prompt round). Falls back to writing
-/// here when the thread cannot start.
-pub fn record_queued(dir: &str, fields: Value) {
-    static WRITER: std::sync::OnceLock<Option<std::sync::mpsc::Sender<Value>>> =
-        std::sync::OnceLock::new();
-    let line = stamp(dir, fields);
-    let writer = WRITER.get_or_init(|| {
-        let (tx, rx) = std::sync::mpsc::channel::<Value>();
-        std::thread::Builder::new()
-            .name("acpmux-xhost-audit".into())
-            .spawn(move || rx.into_iter().for_each(write))
-            .ok()
-            .map(|_| tx)
-    });
-    match writer {
-        Some(tx) => {
-            if let Err(std::sync::mpsc::SendError(line)) = tx.send(line) {
-                write(line);
-            }
-        }
-        None => write(line),
-    }
-}
-
-fn stamp(dir: &str, mut fields: Value) -> Value {
+/// machine's name as `host`.
+pub fn record(dir: &str, mut fields: Value) {
     if let Some(object) = fields.as_object_mut() {
         object.insert("at".into(), json!(crate::store::now_ms()));
         object.insert("dir".into(), json!(dir));
         object.entry("host").or_insert_with(|| json!(crate::pairing::machine_name()));
     }
-    fields
-}
-
-fn write(fields: Value) {
     if let Err(e) = append(&fields) {
         static SAID: std::sync::Once = std::sync::Once::new();
         SAID.call_once(|| {
@@ -95,26 +49,10 @@ fn append(line: &Value) -> anyhow::Result<()> {
 }
 
 fn append_to(path: &std::path::Path, line: &Value) -> anyhow::Result<()> {
-    append_capped(path, line, CAP)
-}
-
-/// [`append_to`], moving the log to [`previous`] first when it is past `cap` bytes, as
-/// `daemon/log_cap.rs` does `daemon.log`: the home keeps at most two logs' worth (it grew by
-/// 2 MB in 10 days on a lane, and nothing cut it).
-pub(crate) fn append_capped(path: &std::path::Path, line: &Value, cap: u64) -> anyhow::Result<()> {
-    // One writer at a time: two that both found it past the cap would each move it aside, the
-    // second over the first's copy.
-    static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _one = WRITING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(dir) = path.parent() {
         crate::config::private_state_dir(dir)?;
     }
     let mut file = crate::config::private_state_append(path)?;
-    if file.metadata()?.len() > cap {
-        drop(file);
-        crate::home_fs::rename(path, previous(path))?;
-        file = crate::config::private_state_append(path)?;
-    }
     let mut text = line.to_string();
     text.push('\n');
     file.write_all(text.as_bytes())?;
@@ -151,18 +89,60 @@ pub fn prompt_fields(params: &Value) -> Value {
     })
 }
 
-/// The lines of this home's log, its previous copy's first, oldest first (tests and `acpmux`
-/// diagnostics).
+/// The lines of this home's log, oldest first (tests and `acpmux` diagnostics).
 pub fn read() -> Vec<Value> {
-    read_at(&path())
-}
-
-fn read_at(path: &std::path::Path) -> Vec<Value> {
-    let mut text = std::fs::read_to_string(previous(path)).unwrap_or_default();
-    text.push_str(&std::fs::read_to_string(path).unwrap_or_default());
-    text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
+    std::fs::read_to_string(path())
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect()
 }
 
 #[cfg(test)]
-#[path = "xhost_audit_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_prompts_fields_name_its_target_sender_and_size_never_its_text() {
+        let params = json!({"request": {"sessionId": "lane-2/chat", "prompt": [{"type": "text", "text": "hello"}],
+            "_meta": {"acpmux": {"fromAgent": "lane-1/perf", "promptId": "p-1"}}}});
+        let fields = prompt_fields(&params);
+        assert_eq!(
+            fields,
+            json!({"to": "lane-2/chat", "from": "lane-1/perf", "promptId": "p-1", "bytes": 5})
+        );
+        assert!(!fields.to_string().contains("hello"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_wider_log_is_narrowed_to_the_owner_and_a_link_is_never_followed() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("amx-xa-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let log = dir.join(FILE);
+        std::fs::write(&log, "").unwrap();
+        std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o644)).unwrap();
+        append_to(&log, &json!({"dir": "sent"})).unwrap();
+        assert_eq!(std::fs::metadata(&log).unwrap().permissions().mode() & 0o777, 0o600);
+        std::fs::remove_file(&log).unwrap();
+        let elsewhere = dir.join("elsewhere");
+        std::fs::write(&elsewhere, "").unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &log).unwrap();
+        assert!(append_to(&log, &json!({"dir": "sent"})).is_err());
+        assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), "");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_a_sender_on_another_machine_crosses_machines() {
+        let own = crate::pairing::machine_name();
+        assert_eq!(other_machine("lane-1/perf"), Some("lane-1"));
+        assert_eq!(other_machine(&format!("{own}/perf")), None);
+        assert_eq!(other_machine("local/perf"), None);
+        assert_eq!(other_machine("perf"), None);
+        assert_eq!(other_machine("lane-1/"), None);
+    }
+}

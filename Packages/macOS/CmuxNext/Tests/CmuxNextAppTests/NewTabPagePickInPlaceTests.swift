@@ -1,5 +1,5 @@
 import AppKit
-@testable import CmuxNextAgentPane
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 @testable import CmuxNextApp
@@ -140,7 +140,7 @@ import Testing
         for request in [run, typed] {
             #expect(LinkOpenPlacement<String>.inColumn(right: "web", column: ["web"], sourceWidth: 1400,
                                                        width: { _ in 700 }, kind: request.kind.rightColumnKind,
-                                                       holds: { _, kind in kind == .browser }, opening: .tool) == .splitBelow(of: "web"),
+                                                       holds: { _, kind in kind == .browser }) == .splitBelow(of: "web"),
                     "both terminal intents go below an existing browser in the chat's right column")
         }
         for kind in [AgentPaneTabKind.terminal, .browser] {
@@ -226,24 +226,6 @@ import Testing
         _ = NewTabPage.submitNative(kind == .terminal ? "echo hello" : "!echo hello", kind: kind,
                                     search: false, cwd: "/project", in: pane, page: page)
         #expect(consultedPlacement, "the native page's pick replaced the page instead of opening in the pane on the right")
-    }
-
-    /// Final review of #48024 (P2): native New Tab holds only a submission that becomes a chat prompt for Computer Use. A
-    /// `!` command (a terminal) or an address that names `@computer-use` opens as it is, with no setup and no notice.
-    @Test func aNativeAgentSubmitHoldsOnlyAChatPromptForComputerUse() throws {
-        let (services, pane, _) = try Self.pane(withTerminal: true)
-        defer { pane.teardown() }
-        services.agentTabs.paneShared.computerUse.set(.needsSetup)
-        var refusals: [String] = []
-        let observer = services.registry.refusalObserver
-        services.registry.refusalObserver = { reason, quiet in refusals.append(reason); observer?(reason, quiet) }
-        defer { services.registry.refusalObserver = observer }
-        for text in ["!echo @computer-use", "https://example.com/@computer-use"] {
-            _ = NewTabPage.submitNative(text, kind: .agent, search: false, cwd: "/project", in: pane)
-            #expect(!refusals.contains(AgentPaneComputerUse.notSetUp), "\(text) was held for Computer Use")
-        }
-        #expect(!NewTabPage.submitNative("open Notes with @computer-use", kind: .agent, search: false, cwd: "/project", in: pane))
-        #expect(refusals.filter { $0 == AgentPaneComputerUse.notSetUp }.count == 1, "a chat prompt naming @computer-use was not held")
     }
 
     /// A lone native page has nothing to keep in view: its pick replaces it in place.

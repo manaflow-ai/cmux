@@ -12,11 +12,7 @@ import Testing
         #expect(read.code == "ABCDE12345")
         #expect(read.display == "ABCDE-12345")
         #expect(read.line == "cmux pair ABCDE-12345")
-        let pin = MachineInvite.installStaticSHA256
-        #expect(read.installLine == "(d=\"$(mktemp -d)\" && curl -fsSL https://cmux.com/tui/install-static/\(pin).sh"
-            + " -o \"$d/install.sh\" && echo \"\(pin)  $d/install.sh\" | $(command -v sha256sum || echo shasum -a 256) -c"
-            + " && sh \"$d/install.sh\"; s=$?; rm -rf \"$d\"; exit \"$s\") && ~/.cmux/bin/cmux pair ABCDE-12345")
-        #expect(!read.installLine.contains("| sh"), "the line pins the script, never curl | sh")
+        #expect(read.installLine == "curl -fsSL https://cmux.com/tui/install-static.sh | sh && ~/.cmux/bin/cmux pair ABCDE-12345")
         #expect(invite("https://www.cmux.com/pair/?i=ABCDE12345")?.code == "ABCDE12345")
         #expect(invite("HTTPS://CMUX.COM/pair?i=ABCDE12345")?.code == "ABCDE12345")
         #expect(MachineInvite(text: "  https://cmux.com/pair?i=ABCDE12345\n")?.code == "ABCDE12345")

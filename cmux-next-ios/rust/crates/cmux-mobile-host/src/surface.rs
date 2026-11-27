@@ -33,13 +33,6 @@
 //! serves it only when the app's current Cloud links list exactly one owned link
 //! for that machine and team, and the machine is running ([`cloud_desktop_access`]);
 //! its host forwards no phone input to the source and offers the phone no input cap.
-//!
-//! A Mac display tab (`d~<display>`, [`mac_display_of`]; `display` a CGDirectDisplayID, 0 the
-//! main display) streams this Mac's own screen through the same host, view only: the Mac screen
-//! as rd/1 on the cmux-wg link the phone already holds, its video on the link's media lane
-//! (connectivity map 4.3, move 2). hostd serves it only when the app's source captures displays
-//! (`CMUX_MOBILE_MAC_DISPLAY=1`, `mac-display-v1`); the app grants each start only while Share
-//! This Mac is on, and stops the source when it turns off. The capture ends with its viewer.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -91,19 +84,13 @@ pub struct SurfaceConfig {
     /// Whether the app's source streams simulator phone tabs too (SimulatorKit loads); without
     /// it the source serves only Cloud desktops.
     no_simulators: bool,
-    /// Whether the app's source also captures this Mac's displays (`d~<display>`).
-    mac_display: bool,
 }
 
 impl SurfaceConfig {
     /// `source` starts the app's frame source for a tab (supervised: the
     /// app answers `need_surface`); None refuses every open.
     pub fn new(source: Option<Launcher>, max_tabs: usize) -> Self {
-        Self {
-            hosts: BrowserConfig::new(source.map(host_launcher), max_tabs),
-            no_simulators: false,
-            mac_display: false,
-        }
+        Self { hosts: BrowserConfig::new(source.map(host_launcher), max_tabs), no_simulators: false }
     }
 
     /// The same source, but one that streams no simulator tabs (`CMUX_MOBILE_SURFACE_SIMULATORS=0`:
@@ -111,17 +98,6 @@ impl SurfaceConfig {
     pub fn without_simulators(mut self) -> Self {
         self.no_simulators = true;
         self
-    }
-
-    /// The same source, and it also captures this Mac's displays (`CMUX_MOBILE_MAC_DISPLAY=1`).
-    pub fn with_mac_display(mut self) -> Self {
-        self.mac_display = true;
-        self
-    }
-
-    /// Whether this Mac streams its own displays (`mac-display-v1`).
-    pub fn streams_mac_display(&self) -> bool {
-        self.available() && self.mac_display
     }
 
     /// Whether the app has a surface source at all (Cloud desktops, `cloud-desktop-v1`).
@@ -154,24 +130,6 @@ pub fn surface_of(tab: &str) -> Option<u64> {
         return None;
     }
     digits.parse().ok()
-}
-
-/// The display of a Mac display tab key `d~<display>` (decimal CGDirectDisplayID; 0 is the main
-/// display), with no sign, padding or leading zero, so one display has one key.
-pub fn mac_display_of(tab: &str) -> Option<u32> {
-    let digits = tab.strip_prefix("d~")?;
-    if digits.is_empty() || digits.len() > 10 || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    if digits.len() > 1 && digits.starts_with('0') {
-        return None;
-    }
-    digits.parse().ok()
-}
-
-/// Whether a tab's host sends its viewers' input nowhere: Cloud desktops and Mac displays.
-pub fn view_only(tab: &str) -> bool {
-    cloud_desktop_of(tab).is_some() || mac_display_of(tab).is_some()
 }
 
 /// The Cloud machine and team of a Cloud desktop tab key `c~<machine_id>~<team_id>`.
@@ -265,10 +223,6 @@ pub async fn serve(
             return Err(Refusal::new("forbidden", "this Mac does not show Cloud desktops on phones"));
         }
         cloud_desktop_access(snapshot.links, machine_id, team_id)?;
-    } else if mac_display_of(tab).is_some() {
-        if !config.streams_mac_display() {
-            return Err(Refusal::new("no_surface_host", "this Mac does not stream its screen to phones"));
-        }
     } else {
         return Err(Refusal::new("bad_request", "invalid tab"));
     }
@@ -279,16 +233,10 @@ pub async fn serve(
         .flatten()
         .filter(|video| !video.is_closed());
     let video_tag = args.get("video_tag").and_then(Value::as_u64).and_then(|tag| u32::try_from(tag).ok());
-    let video_kind = if view_only(tab) {
-        crate::traffic::Kind::DesktopVideo
-    } else {
-        crate::traffic::Kind::SimulatorVideo
-    };
-    let track = track.map(|video| (video, video_tag, video_kind));
+    let track = track.map(|video| (video, video_tag));
     let result = crate::browser::splice(claim, None, filter_frame, None, peer, sender, receiver, track).await;
-    if view_only(tab) {
-        // A Cloud desktop's source holds a VNC session to the machine, and a Mac display's holds a
-        // screen capture (the menu bar's recording light): each ends with its viewer.
+    if cloud_desktop_of(tab).is_some() {
+        // A Cloud desktop's source holds a VNC session to the machine: it ends with its viewer.
         config.hosts.release_and_stop(tab, viewer).await;
     } else {
         config.hosts.release(tab, viewer).await;
@@ -454,9 +402,8 @@ fn host_launcher(source: Launcher) -> Launcher {
             let secret = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
             let (source_addr, source_secret, host_secret) = (app.addr, app.secret.clone(), secret.clone());
             let tab = request.tab;
-            // A Cloud desktop and a Mac display are view only: their viewers' input never
-            // reaches the source.
-            let view_only = view_only(&tab);
+            // A Cloud desktop is view only: its viewers' input never reaches the source.
+            let view_only = cloud_desktop_of(&tab).is_some();
             let task = tokio::spawn(async move {
                 while let Ok((stream, _)) = listener.accept().await {
                     let (host_secret, source_secret, tab) =
@@ -692,12 +639,7 @@ pub async fn host_session(
                                     continue;
                                 }
                                 let Some((request, _)) = flow.in_flight.take() else { continue };
-                                let encoded = Encoded {
-                                    access_unit: annex_b,
-                                    idr,
-                                    t_capture_us: capture_us,
-                                    ltr_token: None,
-                                };
+                                let encoded = Encoded { access_unit: annex_b, idr, t_capture_us: capture_us };
                                 match engine.encoded(&request, Some(encoded), surface_clock_us()) {
                                     Ok(output) => flow.take(output, &mut to_phone, &mut to_app),
                                     Err(error) => tracing::warn!(?error, "surface: a frame did not packetize"),
@@ -925,33 +867,6 @@ mod tests {
         assert_eq!(cloud_desktop_of(&format!("c~{}~t", "m".repeat(161))), None);
         // A Cloud key is never a simulator surface, and the reverse.
         assert_eq!(surface_of("c~m1~t1"), None);
-    }
-
-    #[test]
-    fn mac_display_keys_name_one_display_once() {
-        assert_eq!(mac_display_of("d~0"), Some(0));
-        assert_eq!(mac_display_of("d~69734272"), Some(69_734_272));
-        assert_eq!(mac_display_of("d~4294967295"), Some(u32::MAX));
-        for bad in [
-            "",
-            "d",
-            "d~",
-            "d~01",
-            "d~-1",
-            "d~+1",
-            "d~ 1",
-            "d~1 ",
-            "d~4294967296",
-            "D~1",
-            "d1",
-            "s1",
-            "c~m~t",
-        ] {
-            assert_eq!(mac_display_of(bad), None, "{bad}");
-        }
-        assert_eq!(surface_of("d~1"), None);
-        assert_eq!(cloud_desktop_of("d~1"), None);
-        assert!(view_only("d~0") && view_only("c~m~t") && !view_only("s12"));
     }
 
     #[test]

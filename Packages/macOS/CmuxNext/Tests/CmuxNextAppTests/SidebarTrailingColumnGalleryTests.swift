@@ -46,8 +46,6 @@ import Testing
         var state: String
         var image: String
         var density: String
-        var preset: String
-        var textSize: String
         var width: CGFloat
         var columnCenterX: CGFloat
         var listIsFlipped: Bool
@@ -86,7 +84,7 @@ import Testing
         }
     }
 
-    static func export(_ h: T.KindHarness, state: String, density: SidebarDensity, preset: DensityPreset, textSize: SidebarTextSize, image: CGImage, name: String) throws -> State {
+    static func export(_ h: T.KindHarness, state: String, density: SidebarDensity, image: CGImage, name: String) throws -> State {
         let (parent, groupDepth) = parents(h.model)
         // A group's nesting depth; a member one deeper than its group.
         func depth(_ key: String) -> Int {
@@ -117,7 +115,7 @@ import Testing
         let content = try #require(h.window.contentView)
         var inContent = content.convert(h.list.bounds, from: h.list)
         if !content.isFlipped { inContent.origin.y = content.bounds.height - inContent.maxY }
-        return State(state: state, image: name, density: density.rawValue, preset: preset.rawValue, textSize: textSize.rawValue, width: h.sidebar.bounds.width, columnCenterX: try T.columnX(h),
+        return State(state: state, image: name, density: density.rawValue, width: h.sidebar.bounds.width, columnCenterX: try T.columnX(h),
                      listIsFlipped: h.list.isFlipped, imagePoints: [content.bounds.width, content.bounds.height],
                      imagePixels: [image.width, image.height], backingScale: CGFloat(image.width) / content.bounds.width,
                      listInImage: box(inContent), rows: rows)
@@ -139,37 +137,29 @@ import Testing
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         var states: [State] = []
-        let design = DesignSettings.shared
-        let saved = design.densityTokens
-        defer { design.densityTokens = saved }
-        for preset in DensityPreset.allCases {
-            design.densityTokens = preset.tokens
-            for textSize in [SidebarTextSize.standard, .larger] {
-                for density in [SidebarDensity.compact, .comfortable] {
-                    try SidebarGroupRailAlignmentTests.with(density, .off, textSize: textSize) {
-                        let h = T.KindHarness(width: 300)
-                        defer { h.window.close() }
-                        h.window.appearance = NSAppearance(named: .darkAqua)
-                        let input = try AANestedGroupsGalleryTests.input("Soft Blue")
-                        _ = ThemeScope.app.store.apply(input)
-                        let scope = ThemeScope(level: .room)
-                        scope.setOverride(ThemeSpec("Soft Blue"), input: input, animated: false)
-                        let content = try #require(h.window.contentView)
-                        content.wantsLayer = true
-                        scope.root(content)
-                        content.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
-                        let hovers: [(String, SidebarRowKey?)] = [("rest", nil), ("hover-working-row", .workspace(T.busy)),
-                                                                  ("hover-selected-row", .workspace(T.selected)),
-                                                                  ("hover-loading-header", .group(T.folded))]
-                        for (state, key) in hovers {
-                            let row = key.flatMap { h.list.rowViews[$0] as? SidebarRowView }
-                            row?.isHovered = true
-                            defer { row?.isHovered = false; row?.layoutSubtreeIfNeeded() }
-                            let image = try Self.render(h), name = "\(preset.rawValue)-\(density.rawValue)-\(textSize.rawValue)-\(state).png"
-                            try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: name))
-                            states.append(try Self.export(h, state: state, density: density, preset: preset, textSize: textSize, image: image, name: name))
-                        }
-                    }
+        for density in [SidebarDensity.compact, .comfortable] {
+            try SidebarGroupRailAlignmentTests.with(density, .off) {
+                let h = T.KindHarness(width: 300)
+                defer { h.window.close() }
+                h.window.appearance = NSAppearance(named: .darkAqua)
+                let input = try AANestedGroupsGalleryTests.input("Soft Blue")
+                _ = ThemeScope.app.store.apply(input)
+                let scope = ThemeScope(level: .room)
+                scope.setOverride(ThemeSpec("Soft Blue"), input: input, animated: false)
+                let content = try #require(h.window.contentView)
+                content.wantsLayer = true
+                scope.root(content)
+                content.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
+                let hovers: [(String, SidebarRowKey?)] = [("rest", nil), ("hover-working-row", .workspace(T.busy)),
+                                                          ("hover-selected-row", .workspace(T.selected)),
+                                                          ("hover-loading-header", .group(T.folded))]
+                for (state, key) in hovers {
+                    let row = key.flatMap { h.list.rowViews[$0] as? SidebarRowView }
+                    row?.isHovered = true
+                    defer { row?.isHovered = false; row?.layoutSubtreeIfNeeded() }
+                    let image = try Self.render(h), name = "\(density.rawValue)-\(state).png"
+                    try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: name))
+                    states.append(try Self.export(h, state: state, density: density, image: image, name: name))
                 }
             }
         }

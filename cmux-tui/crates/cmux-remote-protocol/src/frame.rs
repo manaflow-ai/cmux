@@ -39,16 +39,6 @@ impl Lane {
         !matches!(self, Self::Tunnel)
     }
 
-    /// The Braid class this lane's frames belong to (RFD 0164 B5).
-    pub const fn braid_class(self) -> cmux_braid_class::Class {
-        use cmux_braid_class::Class;
-        match self {
-            Self::Interactive => Class::Input,
-            Self::Control | Self::Tunnel => Class::Ordered,
-            Self::Bulk => Class::Bulk,
-        }
-    }
-
     fn from_wire(value: u8) -> Result<Self, FrameDecodeError> {
         match value {
             0 => Ok(Self::Interactive),
@@ -412,5 +402,48 @@ impl fmt::Display for FrameDecodeError {
 impl std::error::Error for FrameDecodeError {}
 
 #[cfg(test)]
-#[path = "frame_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_close_has_a_canonical_wire_shape() {
+        let frame = WireFrame {
+            session: SessionId([8; 16]),
+            generation: 2,
+            lane: Lane::Control,
+            flags: FrameFlags::RELIABLE.union(FrameFlags::SESSION_CLOSE),
+            sequence: 4,
+            acknowledgement: 3,
+            stream: 0,
+            payload: Vec::new(),
+        };
+        assert_eq!(WireFrame::decode(&frame.encode().unwrap()).unwrap(), frame);
+
+        let mut invalid = frame.clone();
+        invalid.stream = 1;
+        assert_eq!(invalid.encode(), Err(FrameDecodeError::InvalidSessionClose));
+
+        invalid = frame;
+        invalid.flags = FrameFlags::SESSION_CLOSE;
+        assert_eq!(invalid.encode(), Err(FrameDecodeError::InvalidSessionClose));
+    }
+
+    #[test]
+    fn heartbeat_has_a_canonical_wire_shape() {
+        let frame = WireFrame {
+            session: SessionId([8; 16]),
+            generation: 2,
+            lane: Lane::Control,
+            flags: FrameFlags::RELIABLE.union(FrameFlags::HEARTBEAT_REQUEST),
+            sequence: 4,
+            acknowledgement: 3,
+            stream: 0,
+            payload: Vec::new(),
+        };
+        assert_eq!(WireFrame::decode(&frame.encode().unwrap()).unwrap(), frame);
+
+        let mut invalid = frame;
+        invalid.flags = invalid.flags.union(FrameFlags::HEARTBEAT_RESPONSE);
+        assert_eq!(invalid.encode(), Err(FrameDecodeError::InvalidHeartbeat));
+    }
+}

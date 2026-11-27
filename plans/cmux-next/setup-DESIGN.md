@@ -16,7 +16,7 @@ for what a person must do: an OAuth sign-in, a secret, a macOS switch.
 | acpmux peers, host updates | none in the app | `cmux acp host ls/update --json` | yes | yes |
 | Cloud machine | GUI (New Cloud Machine sheet) | `cmux setup cloud-machine`; from an agent the person allows it on a card in cmux | yes | yes (setup keeps its machine) |
 | Tailscale, mesh | CLI only | `cmux host enable/status --json`; needs Tailscale signed in | yes | yes |
-| MCP servers | agents cmux starts get the `cmux` server through their launch once `agents.cmuxMcp` is on (terminal shims, acpmux `agent_tools`); cmux writes no agent config | `cmux setup mcp [claude\|codex ...]` (a report and manual lines; writes nothing); `cmux agents doctor --json` checks cmux-cua | yes | yes |
+| MCP servers | docs only; chats cmux starts get them (acpmux `agent_tools`) | `cmux setup mcp [claude\|codex ...]`; `cmux agents doctor --json` checks cmux-cua | yes | yes |
 | Computer Use | GUI (Computer Use Setup) | `cmux setup computer-use`; the person allows it on the app's sheet, and grants are switches in System Settings | yes | yes |
 | Browser import | GUI (Import from Browser...) | `cmux setup browser-import --browser B [--cookies]`: bookmarks, and cookies after the person's Allow on the consent panel; history and passwords person-only | yes | bookmarks yes; cookies ask again |
 | Keyboard shortcuts | GUI (Keyboard Shortcuts) | `cmux keybinding list/resolve --json`; edits only over the raw socket or keybindings.json | reads yes | yes |

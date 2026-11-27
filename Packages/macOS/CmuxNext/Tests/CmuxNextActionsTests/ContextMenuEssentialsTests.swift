@@ -50,7 +50,7 @@ struct ContextMenuEssentialsTests {
         #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
                                "home.messageAbout", "palette.moveWorkspaceToTop", "—",
                                "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "palette.copyWorkspaceLink", "More", "—",
-                               "workspace.toggleArchive", "closeWorkspace"])
+                               "closeWorkspace"])
         // Move to Group > Frontend names the group as a target, as the handler needs.
         let groups = menu.items.first { ActionRegistry.menuRun(of: $0.submenu?.items.first ?? NSMenuItem())?.id == "moveWorkspaceToGroup" }
         let frontend = groups?.submenu?.items.first.flatMap(ActionRegistry.menuRun(of:))
@@ -64,14 +64,12 @@ struct ContextMenuEssentialsTests {
     /// menus ... there's no link to workspace, which is, I mean, that seems pretty important". The
     /// workspace, tab and pane menus each have one Copy ▸ at their top level, just above More, whose
     /// first row is the right-clicked object's link, then its ID, then the other identifiers. (#27709 put the
-    /// workspace's ID and link in More > Copy; they move up with the rest.) Copy Cloud Session Link (#40159)
-    /// is in the workspace and tab folders; the app leaves it out of a local target's menu
-    /// (CloudTeamMenuRowsTests), and this bare registry binds no Cloud feature, so it shows here.
+    /// workspace's ID and link in More > Copy; they move up with the rest.)
     @Test(arguments: [
         (ActionMenuContext.workspaceRow, ActionTargetKind.workspace,
-         ["palette.copyWorkspaceLink", "palette.copyWorkspaceID", "cloud.team.copyLink"]),
-        (.tab, .tab, ["palette.copySurfaceLink", "palette.copySurfaceID", "palette.copyPaneLink", "cloud.team.copyLink",
-                      "palette.copyPaneID", "palette.copyIdentifiers", "agentChat.copyIdentifier", "tab.screenshot"]),
+         ["palette.copyWorkspaceLink", "palette.copyWorkspaceID"]),
+        (.tab, .tab, ["palette.copySurfaceLink", "palette.copySurfaceID", "palette.copyPaneLink", "palette.copyPaneID",
+                      "palette.copyIdentifiers", "agentChat.copyIdentifier", "tab.screenshot"]),
         (.pane, .pane, ["palette.copyPaneLink", "palette.copyPaneID", "pane.screenshot"]),
     ] as [(ActionMenuContext, ActionTargetKind, [String])])
     func eachObjectMenuHasOneCopyFolderLinkFirst(context: ActionMenuContext, kind: ActionTargetKind, expected: [String]) throws {
@@ -97,8 +95,7 @@ struct ContextMenuEssentialsTests {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"), entries: entries)
         let more = try #require(menu.items.first { $0.title == "More" }?.submenu)
         let copy = try #require(more.items.first { $0.title == MenuFolder.copy.title }?.submenu)
-        // Copy Cloud Session Link shows on a Cloud workspace only (CloudTeamMenuRowsTests); unbound here, it shows.
-        #expect(allActions(copy).filter { $0 != "cloud.team.copyLink" } == ["palette.copyWorkspaceLink", "palette.copyWorkspaceID"])
+        #expect(allActions(copy) == ["palette.copyWorkspaceLink", "palette.copyWorkspaceID"])
     }
 
     /// Leo 2026-10-23: "I don't think anybody actually looks at most of the, like, row settings
@@ -114,7 +111,7 @@ struct ContextMenuEssentialsTests {
 
     /// A menu opened on one of several selected rows is Chrome's menu for several tabs (Leo
     /// 2026-10-20): New Workspace Below and Add to New Group; Duplicate, Move ▸, Pin, Mute; More;
-    /// Archive, Close, Close Other and Close Below; then Reopen Closed. The color row is the header's swatches.
+    /// Close, Close Other and Close Below; then Reopen Closed. The color row is the header's swatches.
     @Test func theSelectionMenuFollowsChromesMenuForSeveralTabs() {
         let entries = ContextMenuCatalog.shared.selectionEntries(for: .workspaceRow)
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"), entries: entries)
@@ -123,11 +120,9 @@ struct ContextMenuEssentialsTests {
         // not a second "Add to New Group" that does the same thing under another name.
         #expect(shown == ["palette.workspaceColor", "workspace.newBelow", "groupSelectedWorkspaces", "—",
                           "workspace.duplicate", "palette.moveWorkspaceToTop", "palette.toggleWorkspacePin", "workspace.toggleAudioMute", "—",
-                          "More", "—", "workspace.toggleArchive", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "—",
+                          "More", "—", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "—",
                           "reopenClosedWorkspace"])
-        // 13, the one-row workspace menu's cap, now that Archive opens the closing section on both (#48595; Leo
-        // 2026-11-21: "there's no right click archive chat in the left bit").
-        #expect(shown.filter { $0 != "—" }.count <= 13)
+        #expect(shown.filter { $0 != "—" }.count <= 12)
         // The rest moved into More, not gone.
         for id in ["renameWorkspace", "moveWorkspaceToGroup", "palette.closeWorkspacesAbove", "palette.markWorkspaceUnread"] {
             #expect(allActions(menu).contains(id), "\(id)")

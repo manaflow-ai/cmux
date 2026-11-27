@@ -102,24 +102,10 @@ import Testing
     /// The cap is for the rows a person sees at one time. A menu whose builder always hides
     /// some of its catalog rows is counted where it is built (``countedAtItsBuilder``), with
     /// the rows that builder hides; its catalog list here is longer than any menu it shows.
-    /// A row the registry leaves out of every menu is not counted either: a catalog row whose App
-    /// handler has not landed is bound unavailable and hidden (``HandlerPlaceholders``,
-    /// #44082), so it is never seen. The catalog's own test (cmux-action-catalog
-    /// `swift_parity.rs`, `menus_keep_a_short_top_level`) counts every row the crate places, so
-    /// the next pin cannot bring them back over the cap once their handlers land.
     @Test func everyMenuKeepsAShortTopLevel() {
-        let registry = ActionRegistry.standard()
-        HandlerPlaceholders.bind(into: registry)
         for context in ActionMenuContext.allCases {
             let entries = ContextMenuCatalog.shared.entries(for: context)
-            let target = ActionInvocation(target: context.targetKind.map { ActionTargetRef(kind: $0, id: "t1") })
-            let rows = entries.filter { entry in
-                switch entry {
-                case .separator: false
-                case .action(let id): !ActionTargetVisibility.isHidden(id, invocation: target, in: registry)
-                default: true
-                }
-            }
+            let rows = entries.filter { if case .separator = $0 { false } else { true } }
             // A workspace row's and a tab's menu also have Copy ▸ (ContextMenuEssentials.copyFolder, Leo 2026-10-29).
             let cap = [.terminalSelection, .workspaceRow, .tab].contains(context) ? 13 : 12
             if !Self.countedAtItsBuilder.contains(context) {
@@ -205,7 +191,7 @@ import Testing
         let url = Self.planURL("action-surfaces.json")
         // The catalog as Rust declares it (its order, plain titles): swift_parity.rs pairs these rows with
         // the crate's actions by position. `ActionCatalog.all` lists debug rows last as "Debug: <name>".
-        let current = ActionExports.surfacesJSON(titles: try Self.titleCatalog())
+        let current = ActionSurfaceExport.json(Self.exportedCatalog, titles: try Self.titleCatalog())
         if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
             try current.write(to: url, atomically: true, encoding: .utf8)
         }
@@ -222,16 +208,18 @@ import Testing
     @Test(.enabled(if: ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"].contains { ProcessInfo.processInfo.environment[$0] == "1" })) func reportIsFresh() throws {
         let url = Self.planURL("actions.md")
         let text = try String(contentsOf: url, encoding: .utf8)
-        let current = try #require(ActionExports.report(replacingBlockIn: text), "actions.md has no generated block")
+        let current = ActionSurfaceReport(Self.exportedCatalog, menus: .shared).markdown
+        let start = try #require(text.range(of: ActionSurfaceReport.begin), "actions.md has no generated block")
+        let end = try #require(text.range(of: ActionSurfaceReport.end), "actions.md has no generated block end")
         if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
-            try current.write(to: url, atomically: true, encoding: .utf8)
+            try (String(text[..<start.lowerBound]) + current + String(text[end.upperBound...])).write(to: url, atomically: true, encoding: .utf8)
             return
         }
-        #expect(text == current, "actions.md is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
+        #expect(String(text[start.lowerBound..<end.upperBound]) == current, "actions.md is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
     }
 
     /// What the exports list: the Rust catalog's descriptors in its order, with their plain titles, not the palette's "Debug: <name>" ones.
-    static var exportedCatalog: [ActionDescriptor] { ActionExports.exportedCatalog }
+    nonisolated static var exportedCatalog: [ActionDescriptor] { RustActionCatalog.shared.descriptors }
 
     /// Every string catalog of CmuxNextActions, from the source tree.
     static func titleCatalog() throws -> ActionTitleCatalog {
@@ -240,8 +228,8 @@ import Testing
             .appendingPathComponent("Sources/CmuxNextActions")
         let files = try FileManager.default.contentsOfDirectory(at: sources, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "xcstrings" }
-            .map { (name: $0.lastPathComponent, data: try Data(contentsOf: $0)) }
-        return try ActionExports.titleCatalog(files: files)
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        return try ActionTitleCatalog(catalogs: files.map { ($0.deletingPathExtension().lastPathComponent, try Data(contentsOf: $0)) })
     }
 
     /// Nearly every title names its key, and a named key's English text is

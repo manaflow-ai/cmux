@@ -729,8 +729,8 @@ async fn replay_frame_gate() {
     let small = replay_once(false).await;
     let god = replay_once(true).await;
     assert!(small.0 > 1 && god.0 > 1, "full replay must use multiple frames");
-    emit("v2.pr05c.replay_frame", small.1 as u128, god.1 as u128, god.1 as u128, "bytes");
     assert!(small.1 <= MAX_REPLAY_FRAME_BYTES && god.1 <= MAX_REPLAY_FRAME_BYTES);
+    emit("v2.pr05c.replay_frame", small.1 as u128, god.1 as u128, god.1 as u128, "bytes");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -800,9 +800,9 @@ async fn replay_append_gate() {
     let god = best_p95(&during);
     let all = all_p95(&during);
     gate_rounds::report("v2.pr05c.replay_append", &[("small", &baseline), ("god", &during)]);
+    assert!(copy_counts.iter().all(|(small, god)| *small > 0 && *god > 0));
     eprintln!("REPLAY_APPEND_RETAKES {retakes:?}");
     emit("v2.pr05c.replay_append", small, god, all, "ns");
-    assert!(copy_counts.iter().all(|(small, god)| *small > 0 && *god > 0));
     assert!(
         god <= small.saturating_mul(12) / 10,
         "replay append p95 exceeded 1.2x: {small}ns vs {god}ns"

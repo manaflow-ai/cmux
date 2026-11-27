@@ -77,9 +77,8 @@ fn session_context_reads_and_overrides_are_pinned_to_the_attachment() {
         frame.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
         assert_code(&client.request(frame), "agent_session.bad_request");
     }
-    // A `get` carrying `text` is no longer refused: the field `get` does not
-    // take is dropped unread, like any newer client's field.
     for bad in [
+        json!({"cmd":"agent-session-context", "surface":surface, "op":"get", "text":"ignored"}),
         json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"machine"}),
         json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"user", "text":7}),
         json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"user", "partId":"provider-prompt"}),

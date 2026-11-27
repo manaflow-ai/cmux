@@ -11,27 +11,12 @@ pub(crate) struct Forward {
     /// The socket here that reaches the remote daemon.
     pub local: PathBuf,
     dir: PathBuf,
-    /// `None` only once `close` or `drop` has taken it.
-    ssh: Option<tokio::process::Child>,
-    /// Its recorded owner, dropped after `drop` kills `ssh`: cancels the forward on any shared
-    /// master and removes the record (`ssh_forward_owners.rs`).
-    _owner: crate::ssh_forward_owners::Owner,
+    ssh: tokio::process::Child,
 }
 
 impl Forward {
     /// Forwards `remote_socket` on the ssh host `host`, and waits (up to 30s) until it is up.
     pub(crate) async fn open(host: &str, remote_socket: &str) -> Result<Self> {
-        let ledger = crate::ssh_forward_owners::ledger_dir(&crate::config::home());
-        Self::open_with(std::ffi::OsStr::new("ssh"), &ledger, host, remote_socket).await
-    }
-
-    /// [`Forward::open`] with the ssh program and the owners' folder named (a test's stand-in).
-    pub(crate) async fn open_with(
-        ssh_program: &std::ffi::OsStr,
-        ledger: &Path,
-        host: &str,
-        remote_socket: &str,
-    ) -> Result<Self> {
         let host = crate::cli::hosts::checked_host(host)?;
         if !(remote_socket.starts_with('/') && crate::cli::hosts::plain_path(remote_socket)) {
             bail!("the remote socket {remote_socket:?} is not a plain absolute path");
@@ -49,7 +34,9 @@ impl Forward {
             std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
         }
         let local = dir.join("d.sock");
-        let spawned = tied_command(ssh_program, &forward_argv(host, &local, remote_socket))
+        let spawned = tokio::process::Command::new("ssh")
+            .args(forward_argv(host, &local, remote_socket))
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .kill_on_drop(true)
@@ -62,27 +49,11 @@ impl Forward {
                 return Err(e);
             }
         };
-        // Recorded before anything waits on it: a start's sweep ends it if this process dies.
-        let owner = crate::ssh_forward_owners::Owner::record(
-            ssh_program,
-            ledger,
-            crate::ssh_forward_owners::Record {
-                owner: std::process::id(),
-                host: host.to_owned(),
-                local: local.clone(),
-                remote: remote_socket.to_owned(),
-                opened: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0),
-            },
-        );
-        // Dropped on every early return below: ssh killed, the forward cancelled on any
-        // master, the folder and the record removed.
-        let mut fwd = Self { local, dir, ssh: Some(ssh), _owner: owner };
+        // Dropped on every early return below: ssh killed, the folder removed.
+        let mut fwd = Self { local, dir, ssh };
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
         while !fwd.local.exists() {
-            if let Some(status) = fwd.ssh.as_mut().map(|s| s.try_wait()).transpose()?.flatten() {
+            if let Some(status) = fwd.ssh.try_wait()? {
                 bail!("ssh to {host} ended ({status}) before forwarding the daemon's socket");
             }
             if tokio::time::Instant::now() > deadline {
@@ -94,116 +65,17 @@ impl Forward {
     }
 }
 
-impl Forward {
-    #[cfg(test)]
-    pub(crate) fn ssh_pid(&self) -> Option<u32> {
-        self.ssh.as_ref().and_then(|s| s.id())
-    }
-
-    /// The owner dies without its drop running (SIGKILL): its end of the ssh's stdin closes.
-    #[cfg(test)]
-    pub(crate) fn owner_dies(mut self) {
-        drop(self.ssh.as_mut().and_then(|s| s.stdin.take()));
-        std::mem::forget(self);
-    }
-
-    /// Ends the forward and waits for its ssh to exit, so it leaves no zombie behind while the
-    /// caller goes on (a move of several chats waits minutes on the next one's turn).
-    pub(crate) async fn close(mut self) {
-        if let Some(mut ssh) = self.ssh.take() {
-            kill_group(&ssh);
-            let _ = ssh.kill().await;
-        }
-    }
-}
-
 impl Drop for Forward {
     fn drop(&mut self) {
-        if let Some(ssh) = self.ssh.take() {
-            kill_group(&ssh);
-            reap_off_worker(ssh);
-        }
+        let _ = self.ssh.start_kill();
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
-/// Kills `child` and reaps it without holding up the caller: on a tokio runtime the bounded wait
-/// runs on a blocking thread (a forward dropped on an error path must not stall a worker for up
-/// to 2 s); with no runtime it waits here.
-pub(crate) fn reap_off_worker(mut child: tokio::process::Child) {
-    if matches!(child.try_wait(), Ok(Some(_))) {
-        return;
-    }
-    let _ = child.start_kill();
-    match tokio::runtime::Handle::try_current() {
-        Ok(rt) => {
-            rt.spawn_blocking(move || reap(&mut child));
-        }
-        Err(_) => reap(&mut child),
-    }
-}
-
-/// Runs `ssh ARGV` tied to this process: under `sh` in a process group of its own, with its
-/// stdin a pipe from here. When this process ends by any means (a SIGKILL runs no drop), the
-/// pipe closes and `sh` kills the ssh; when the ssh ends, `sh` ends with its status.
-fn tied_command(ssh_program: &std::ffi::OsStr, argv: &[String]) -> tokio::process::Command {
-    const TIED: &str = r#"exec 3<&0
-"$0" "$@" </dev/null &
-s=$!
-{ read _ <&3; kill $s 2>/dev/null; } &
-r=$!
-wait $s
-st=$?
-kill $r 2>/dev/null
-exit $st"#;
-    let mut command = tokio::process::Command::new("sh");
-    command.arg("-c").arg(TIED).arg(ssh_program).args(argv);
-    command.stdin(std::process::Stdio::piped());
-    #[cfg(unix)]
-    command.process_group(0);
-    command
-}
-
-/// SIGKILL to the forward's whole group (`sh` and its ssh), while `child` is unreaped: its pid,
-/// and so its group's id, cannot name another process yet.
-fn kill_group(child: &tokio::process::Child) {
-    #[cfg(unix)]
-    if let Some(pid) = child.id().and_then(|p| libc::pid_t::try_from(p).ok()) {
-        // SAFETY: a signal to the group this unreaped child leads.
-        unsafe { libc::kill(-pid, libc::SIGKILL) };
-    }
-    #[cfg(not(unix))]
-    let _ = child;
-}
-
-/// Kills `child` and reaps it (bounded, 2 s): `kill_on_drop` alone signals it but leaves it
-/// unwaited, a defunct child of the move until its process ends.
-pub(crate) fn reap(child: &mut tokio::process::Child) {
-    if matches!(child.try_wait(), Ok(Some(_))) {
-        return;
-    }
-    let _ = child.start_kill();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    while std::time::Instant::now() < deadline {
-        match child.try_wait() {
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(5)),
-            _ => return,
-        }
-    }
-}
-
-/// `ssh -N -L LOCAL:REMOTE -- HOST`, failing at once when the forward cannot be made. On a
-/// connection of its own (`ControlMaster=no`, `ControlPath=none`, which win over the fleet ssh
-/// config's `ControlMaster auto` per host): a forward a mux client asks for is the shared
-/// master's and outlives the killed client there (its listener still bound), and the peer link's
-/// `ssh -W` to the same host rides that master, so the move's ssh never takes part in it.
+/// `ssh -N -L LOCAL:REMOTE -- HOST`, failing at once when the forward cannot be made.
 pub(crate) fn forward_argv(host: &str, local: &Path, remote: &str) -> Vec<String> {
     let mut argv: Vec<String> = [
         "-N",
-        "-o",
-        "ControlMaster=no",
-        "-o",
-        "ControlPath=none",
         "-o",
         "BatchMode=yes",
         "-o",
@@ -224,7 +96,3 @@ pub(crate) fn forward_argv(host: &str, local: &Path, remote: &str) -> Vec<String
     argv.push(host.to_owned());
     argv
 }
-
-#[cfg(test)]
-#[path = "ssh_forward_tests.rs"]
-mod tests;

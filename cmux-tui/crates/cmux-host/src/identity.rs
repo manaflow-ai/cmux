@@ -106,8 +106,7 @@ pub(crate) fn enrolled(store: &dyn Store, fresh_instance: &str) -> Result<HostId
 /// machine id; the scoped key and receipt never touch normal enrollment state. A bind
 /// in progress or an already enrolled legacy receipt keeps this path fenced, while a
 /// bound machine with no receipt can bootstrap the separate scoped enrollment.
-// `turn_scope` is unix-only, so a Windows test build has no scoped path.
-#[cfg(any(target_os = "linux", all(test, unix)))]
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn scoped(store: &mut dyn Store, paths: &Paths) -> Result<HostIdentity, String> {
     if store.present(BIND_FILE)? || store.present(RECEIPT)? {
         return Err("identity enrollment is pending".to_owned());

@@ -19,7 +19,7 @@ mod fifo;
 #[cfg(unix)]
 use fifo::FifoOwner as Owner;
 #[cfg(unix)]
-pub(crate) use fifo::router_owner_fifo;
+pub(crate) use fifo::{open_router_owner, router_owner_fifo};
 #[cfg(windows)]
 mod job_object;
 #[cfg(windows)]

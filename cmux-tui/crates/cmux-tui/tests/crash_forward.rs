@@ -67,8 +67,6 @@ fn command(dir: &Path) -> Command {
         .env("CMUX_TUI_CONFIG", dir.join("config.json"))
         .env("CMUX_NEXT_CONFIG_FILE", dir.join("cmux-next.json"))
         .env("CMUX_TUI_LOG_FILE", dir.join("client.log"))
-        // Its own acpmux home: the owner also sends acpmux's panics.jsonl (RFD 0157).
-        .env("ACPMUX_HOME", dir.join("acpmux"))
         .env_remove("CI");
     command
 }
@@ -79,11 +77,6 @@ impl Owner {
     }
 
     fn start_with(dir: &Path, session: &'static str, dsn: &str, env: &[(&str, &str)]) -> Owner {
-        // Crash forwarding is opt-in: tests that are not about the default opt in first.
-        let settings = dir.join("cmux-next.json");
-        if !settings.exists() {
-            fs::write(&settings, r#"{ "app": { "sendAnonymousTelemetry": true } }"#).unwrap();
-        }
         let child = command(dir)
             .args(["--headless", "--session", session, "--socket"])
             .arg(dir.join("mux.sock"))
@@ -187,31 +180,6 @@ fn crash_forward_sends_nothing_with_telemetry_off() {
     let outcome = owner.outcome(0);
     assert!(outcome.contains("off") && outcome.contains("app.sendAnonymousTelemetry"), "{outcome}");
     assert!(requests.try_recv().is_err(), "nothing may be sent with telemetry off");
-    drop(owner);
-    let _ = fs::remove_dir_all(&dir);
-}
-
-/// A fresh install (no settings file) sends nothing: crash forwarding is opt-in.
-#[test]
-fn fresh_install_crash_forward_sends_nothing_until_opt_in() {
-    let (dsn, requests) = sentry();
-    let dir = temp_dir("fresh");
-    let session = "cf-fresh";
-    seed_panics(&dir, session);
-    // Not `Owner::start`: that opts in. Start with the default (absent) settings.
-    let child = command(&dir)
-        .args(["--headless", "--session", session, "--socket"])
-        .arg(dir.join("mux.sock"))
-        .env("CMUX_TUI_TEST_SENTRY_DSN", &dsn)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let owner = Owner { child, dir: dir.clone(), session };
-    let outcome = owner.outcome(0);
-    assert!(outcome.contains("off") && outcome.contains("not turned on"), "{outcome}");
-    assert!(requests.try_recv().is_err(), "a fresh install must send nothing");
     drop(owner);
     let _ = fs::remove_dir_all(&dir);
 }

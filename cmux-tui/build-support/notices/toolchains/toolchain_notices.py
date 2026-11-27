@@ -7,7 +7,6 @@
                                                  the toolchain pins match it
   toolchain_notices.py install --resources DIR   copy the texts to
                                                  DIR/toolchain-licenses/
-                                                 (Rust's gzip-compressed)
 
 Every Rust binary statically links the standard library (std, core, alloc,
 compiler_builtins and their vendored dependencies) of the rustc that built
@@ -31,11 +30,6 @@ stored text (texts/<file>), its sha256 and where it came from:
         of the shipped binaries. An entry with no sources is a reviewed Zig
         that CI may still install (the classic Ghostty's, or the next one
         before the ghostty-next gitlink moves to it); its LICENSE is bundled too.
-The bundle carries each Zig LICENSE as is and each Rust COPYRIGHT-library.html
-gzip-compressed (<file>.gz, `gzip -9 -n` bytes): the four Rust texts are 2.6 MB
-of HTML that nothing in the app reads and compress about 30 to 1, while every
-byte of each text stays in the app (gunzip or zcat reads it, any browser opens
-the result). The checks compare the decompressed bytes with the reviewed sha256.
 check-repo fails when a pin moves, so a toolchain bump stops until the new
 text is reviewed and recorded. A missing build.zig.zon fails (initialize the
 submodule); nothing is skipped.
@@ -51,7 +45,6 @@ Python 3.9+ standard library only: the Xcode phase may run /usr/bin/python3.
 from __future__ import annotations
 
 import argparse
-import gzip
 import hashlib
 import json
 from pathlib import Path
@@ -75,8 +68,6 @@ class ManifestError(RuntimeError):
 
 class Text:
     KEYS = {"version", "file", "sha256", "source", "binaries"}
-    # Bundled as <file>.gz (gzip -9, no name or mtime) instead of <file>.
-    COMPRESSED = False
 
     def __init__(self, data: dict, texts: Path, extra: set):
         unknown = set(data) - self.KEYS - extra
@@ -102,20 +93,8 @@ class Text:
             return f"{self.file}: stored text does not match its sha256 in toolchains.json"
         return None
 
-    @property
-    def bundled_file(self) -> str:
-        """The path under the bundle's toolchain-licenses directory."""
-        return f"{self.file}.gz" if self.COMPRESSED else self.file
-
-    def bundled_bytes(self) -> bytes:
-        """The bytes install writes: the stored text, gzip-compressed when COMPRESSED."""
-        data = self.path.read_bytes()
-        return gzip.compress(data, compresslevel=9, mtime=0) if self.COMPRESSED else data
-
 
 class RustToolchain(Text):
-    COMPRESSED = True
-
     def __init__(self, data: dict, texts: Path):
         super().__init__(data, texts, {"rustc_commit", "toolchain_files"})
         if not re.fullmatch(r"[0-9a-f]{40}", data["rustc_commit"]):
@@ -228,8 +207,7 @@ def repo_problems(manifest: Manifest, root: Path) -> List[str]:
 
 
 def install(manifest: Manifest, resources: Path) -> Path:
-    """Copy every stored text to <resources>/toolchain-licenses (replaced);
-    Rust texts go in gzip-compressed as <file>.gz."""
+    """Copy every stored text to <resources>/toolchain-licenses (replaced)."""
     problems = text_problems(manifest)
     if problems:
         raise ManifestError("; ".join(problems))
@@ -237,25 +215,19 @@ def install(manifest: Manifest, resources: Path) -> Path:
     if dest.exists():
         shutil.rmtree(dest)
     for text in manifest.texts():
-        target = dest / text.bundled_file
+        target = dest / text.file
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(text.bundled_bytes())
+        shutil.copyfile(text.path, target)
     return dest
 
 
 def _bundled_problem(manifest: Manifest, app: Path, text: Text) -> Optional[str]:
-    rel = f"{manifest.bundle_dir}/{text.bundled_file}"
+    rel = f"{manifest.bundle_dir}/{text.file}"
     path = app / rel
     if not path.is_file():
         return f"{rel} is not bundled"
-    data = path.read_bytes()
-    if text.COMPRESSED:
-        try:
-            data = gzip.decompress(data)
-        except (OSError, EOFError) as error:
-            return f"{rel} is not a readable gzip file ({error})"
-    if hashlib.sha256(data).hexdigest() != text.sha256:
-        return f"{rel} differs from the reviewed text" + (" (compared decompressed)" if text.COMPRESSED else "")
+    if hashlib.sha256(path.read_bytes()).hexdigest() != text.sha256:
+        return f"{rel} differs from the reviewed text"
     return None
 
 

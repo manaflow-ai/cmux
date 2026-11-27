@@ -77,10 +77,6 @@ pub(crate) enum PersonalChange {
         icon: Option<String>,
         theme: Option<String>,
         index: Option<usize>,
-        /// Who made the space (`created-by-detail-v1`), as the request sent it. Omitted when
-        /// absent, so older mutation fingerprints keep their shape.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        created_by: Option<Value>,
     },
     RoomUpdate {
         room: String,
@@ -308,9 +304,6 @@ fn apply_personal_change(
             .map_err(|error| typed(error, "room", room.as_deref().unwrap_or_default()))?;
             if top {
                 personal::set_group_top(tx, &group.id, Some(below_home(tx)?))?;
-                // sidebar-doc-v1: the document names the top (`below_home`
-                // is the old order's, the middle of the list with rows above Home).
-                super::sidebar_doc_create::place_group_at_top(tx, &group.id)?;
             }
             let value = personal::workspace_group_snapshot(tx, &group.id)?
                 .context("created group vanished")?;
@@ -412,21 +405,11 @@ fn apply_personal_change(
             }
             Ok(StateChanges::new(value.clone(), vec![placement_change(value)]))
         }
-        PersonalChange::RoomCreate { name, color, icon, theme, index, created_by } => {
+        PersonalChange::RoomCreate { name, color, icon, theme, index } => {
             let room = personal::create_room(
                 tx,
                 ProfileInput { name, color, icon, theme, index, ..ProfileInput::default() },
             )?;
-            if let Some(created_by) =
-                created_by.as_ref().and_then(super::created_by::CreatedBy::from_value)
-            {
-                super::created_by::record_made(
-                    tx,
-                    super::created_by::Made::Room,
-                    &room.id,
-                    &created_by,
-                )?;
-            }
             let value = personal::room_snapshot(tx, &room.id)?.context("created room vanished")?;
             Ok(StateChanges::new(value, all_rooms(tx)?))
         }
@@ -470,7 +453,6 @@ fn apply_personal_change(
                         error
                     }
                 })?;
-            super::created_by::forget_made(tx, super::created_by::Made::Room, &room)?;
             let mut changes = vec![state_delete("room", &room)];
             changes.extend(all_rooms(tx)?);
             changes.extend(all_groups(tx)?);

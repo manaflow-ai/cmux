@@ -26,7 +26,7 @@
 //!   so the next start re-folds the whole journal
 //! - `--quiet`: no progress on stderr
 //!
-//! Modes for an existing registry (`daemon-registry-start.sh
+//! Two modes for an existing registry (`daemon-registry-start.sh
 //! registry=`), which write no rows:
 //!
 //! - `--print-registry-path`: print the registry path an owner of
@@ -40,56 +40,19 @@
 //!   version behind (`synth_registry::bump_roster_version`), and print
 //!   `{"roster_version_before":V|null,"roster_version":V,...}`. Only on a
 //!   copy: it writes to the file.
-//! - `--trees --registry PATH`: print the pages and the bytes of each b-tree
-//!   of that registry (`dbstat`), the largest first, with the file's page
-//!   size, page count and free pages, as one JSON line. Read only: names of
-//!   tables and indexes and sizes, no row. It reads the whole file.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use cmux_tui_core::synth_registry::{
     ROSTER_REDUCER_VERSION, SynthOptions, bump_roster_version, generate, rebind_resource_pepper,
     registry_path,
 };
-use rusqlite::{Connection, OpenFlags};
-
-/// The b-trees of the registry at `registry` and its free pages (`--trees`).
-fn trees(registry: &Path) -> anyhow::Result<serde_json::Value> {
-    let connection = Connection::open_with_flags(registry, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let pragma = |name: &str| -> rusqlite::Result<i64> {
-        connection.query_row(&format!("PRAGMA {name}"), [], |row| row.get(0))
-    };
-    // One row for each b-tree: `pageno` is then the count of its pages, and
-    // the other columns are sums over them.
-    let mut statement = connection.prepare(
-        "SELECT name, pageno, pgsize, payload, unused FROM dbstat WHERE aggregate = TRUE
-         ORDER BY pgsize DESC, name",
-    )?;
-    let trees = statement
-        .query_map([], |row| {
-            Ok(serde_json::json!({
-                "name": row.get::<_, String>(0)?,
-                "pages": row.get::<_, i64>(1)?,
-                "bytes": row.get::<_, i64>(2)?,
-                "payload_bytes": row.get::<_, i64>(3)?,
-                "unused_bytes": row.get::<_, i64>(4)?,
-            }))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(serde_json::json!({
-        "page_size": pragma("page_size")?,
-        "page_count": pragma("page_count")?,
-        "freelist_count": pragma("freelist_count")?,
-        "trees": trees,
-    }))
-}
 
 fn main() -> anyhow::Result<()> {
     let mut options = SynthOptions { progress: true, ..SynthOptions::default() };
     let mut out = None;
     let mut registry = None;
     let (mut print_registry_path, mut bump_only, mut rebind_pepper) = (false, false, false);
-    let mut trees_only = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let mut value = || args.next().ok_or_else(|| anyhow::anyhow!("{arg} needs a value"));
@@ -110,18 +73,12 @@ fn main() -> anyhow::Result<()> {
             "--print-registry-path" => print_registry_path = true,
             "--bump-only" => bump_only = true,
             "--rebind-pepper" => rebind_pepper = true,
-            "--trees" => trees_only = true,
             "--print-roster-version" => {
                 println!("{ROSTER_REDUCER_VERSION}");
                 return Ok(());
             }
             other => anyhow::bail!("unknown option {other} (see the example's doc comment)"),
         }
-    }
-    if trees_only {
-        let registry = registry.ok_or_else(|| anyhow::anyhow!("--trees needs --registry"))?;
-        println!("{}", trees(&registry)?);
-        return Ok(());
     }
     if bump_only {
         let registry = registry.ok_or_else(|| anyhow::anyhow!("--bump-only needs --registry"))?;

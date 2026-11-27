@@ -3,31 +3,6 @@ import Foundation
 import Testing
 
 struct CloudRuntimeSelectionTests {
-    /// A dev build names its backend, and where an override came from (the tag's backend.json, a
-    /// launch); a release or RC bundle (not mutable) never shows one.
-    @Test func aDevBuildSaysWhichBackendItUsesAndWhereTheOverrideCameFrom() throws {
-        func selection(_ fields: String) throws -> CloudRuntimeSelection {
-            try CloudRuntimeSelection.decode(Data(("""
-            {"api_origin":"https://cmux-dev-backend-1.tail137216.ts.net:3850","auth_web_origin":"https://a.invalid",
-            "vm_origin":"https://a.invalid","platform_origin":"https://a.invalid","mobile_origin":"https://a.invalid",
-            "device_hub_origin":"https://a.invalid","share_room_origin":"https://a.invalid","share_api_origin":"https://a.invalid",
-            "stack_origin":"https://a.invalid","stack_project_id":"p","stack_client_key":"k","auth_namespace":"n-0",
-            "legacy_storage":false,
-            """ + fields + "}").utf8))
-        }
-        let tagged = try selection(#""name":"https://cmux-dev-backend-1.tail137216.ts.net:3850","bundle_id":"com.cmuxterm.app.debug.t","mutable":true,"backend_override":"tag_file""#)
-        #expect(tagged.backendOverride == "tag_file")
-        #expect(tagged.developerBackendLabel == "https://cmux-dev-backend-1.tail137216.ts.net:3850 (this tag's backend.json)")
-        let launched = try selection(#""name":"https://cmux-dev-backend-1.tail137216.ts.net:3850","bundle_id":"com.cmuxterm.app.debug.t","mutable":true,"backend_override":"launch""#)
-        #expect(launched.developerBackendLabel == "https://cmux-dev-backend-1.tail137216.ts.net:3850 (launch override)")
-        var shared = try selection(#""name":"dev","bundle_id":"com.cmuxterm.app.debug.t","mutable":true"#)
-        shared.apiOrigin = try #require(URL(string: "https://cmux-api-development.debussy.workers.dev"))
-        #expect(shared.backendOverride == nil, "an older CLI's selection has no backend_override")
-        #expect(shared.developerBackendLabel == "https://cmux-api-development.debussy.workers.dev (dev)")
-        let release = try selection(#""name":"prod","bundle_id":"com.cmuxterm.app","mutable":false"#)
-        #expect(release.developerBackendLabel == nil)
-    }
-
     @Test func rustSelectionRoutesAllNextConsumersAndScopesAuth() throws {
         let data = Data(#"""
         {"name":"staging","api_origin":"https://backend.standin.invalid","auth_web_origin":"https://signin.standin.invalid",

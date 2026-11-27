@@ -65,8 +65,7 @@ pub const PHASE_GRACE: u8 = 5;
 
 /// `HoverCardMachine<u64>`, every field. `phase` (`PHASE_*`) with its
 /// `target` and `token` (each meaningful only for the phases that carry
-/// it); `suppressions` bit 0 drag, 1 scroll, 2 sidebarHide; `last_shown` is
-/// the id of the target whose card showed last (when `has_last_shown`). The windows are
+/// it); `suppressions` bit 0 drag, 1 scroll, 2 sidebarHide. The windows are
 /// nanoseconds; the host may set them between calls (tunables).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
@@ -80,7 +79,6 @@ pub struct CmuxHoverCardMachine {
     pub leave_window: i64,
     pub aim_window: i64,
     pub still_pointer_delay: i64,
-    pub last_shown: u64,
     pub phase: u8,
     pub suppressions: u8,
     pub has_last_hit: bool,
@@ -88,7 +86,6 @@ pub struct CmuxHoverCardMachine {
     pub pointer_on_card: bool,
     pub owned_card_shown: bool,
     pub was_on_card: bool,
-    pub has_last_shown: bool,
 }
 
 impl CmuxHoverCardMachine {
@@ -121,7 +118,6 @@ impl From<CmuxHoverCardMachine> for HoverCardMachine<u64> {
             pointer_on_card: c.pointer_on_card,
             owned_card_shown: c.owned_card_shown,
             was_on_card: c.was_on_card,
-            last_shown_id: c.has_last_shown.then_some(c.last_shown),
             reshow_window: c.reshow_window,
             pin_lifetime: c.pin_lifetime,
             leave_window: c.leave_window,
@@ -151,7 +147,6 @@ impl From<&HoverCardMachine<u64>> for CmuxHoverCardMachine {
             leave_window: m.leave_window,
             aim_window: m.aim_window,
             still_pointer_delay: m.still_pointer_delay,
-            last_shown: m.last_shown_id().copied().unwrap_or_default(),
             phase,
             suppressions: m.suppressions().bits(),
             has_last_hit: m.last_hit().is_some(),
@@ -159,7 +154,6 @@ impl From<&HoverCardMachine<u64>> for CmuxHoverCardMachine {
             pointer_on_card: m.pointer_on_card(),
             owned_card_shown: m.owned_card_shown(),
             was_on_card: m.was_on_card(),
-            has_last_shown: m.last_shown_id().is_some(),
         }
     }
 }

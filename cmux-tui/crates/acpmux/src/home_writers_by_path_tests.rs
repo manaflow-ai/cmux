@@ -64,48 +64,15 @@ use syn::visit::Visit;
 
 /// The writes by path left as they are, each with why: (file, function, write, reason). `*`
 /// matches any file or function; a write ending in `*` any write it starts.
-const ALLOWED: &[(&str, &str, &str, &str)] = &[
-    (
-        "*",
-        "*",
-        "owner_only::*",
-        "Windows owner-only creates (CreateFileW with an owner-only descriptor) go by path: Windows \
+const ALLOWED: &[(&str, &str, &str, &str)] = &[(
+    "*",
+    "*",
+    "owner_only::*",
+    "Windows owner-only creates (CreateFileW with an owner-only descriptor) go by path: Windows \
      has no *at calls. Each runs right after its own home check (`config::private_state_*`, \
      `store::open_private_append`), and a temporary file it makes is renamed through `home_fs`, \
      which checks the home's file id again (#41372).",
-    ),
-    (
-        "src/auto_session/import/folder.rs",
-        "*",
-        "fs::write",
-        "git's input, the patch and the bundle go into a fresh `tempfile` file or folder under the \
-     system's temp folder, never the home: `home_fs::write` would replace the temp file's inode \
-     and narrow its mode for no gain.",
-    ),
-    (
-        "src/auto_session/export/leftover.rs",
-        "put",
-        "OpenOptions::open",
-        "Only the shared scratch case (`std::env::temp_dir()`, never the home) opens by path: made \
-     new and owner-only so a path anyone made first is refused (security review of cmux#52931, \
-     item 5); a patch beside its record goes through `config::write_atomic`.",
-    ),
-    (
-        "src/memory_mount/link.rs",
-        "symlink",
-        "fs::symlink_dir",
-        "Windows only: `home_fs::symlink` is Unix-only and Windows has no *at symlink call. It links a \
-     harness memory folder the user names to the memory mount, right after `home_fs::rename` moved \
-     the old folder aside.",
-    ),
-    (
-        "src/hypervisor/libvirt.rs",
-        "LibvirtDriver::*",
-        "fs::*",
-        "The VM images folder and domain XML are read by libvirt's qemu user, not only this one: \
-     `home_fs` makes folders 0700 and files 0600, which would lock qemu out of the overlays.",
-    ),
-];
+)];
 
 /// Whether `pattern` (an `ALLOWED` field) matches `value`.
 fn matches(pattern: &str, value: &str) -> bool {
@@ -322,8 +289,6 @@ struct Func<'a> {
     /// Parameters that bind one name to a named type (`x: &T`): (name, `T`).
     typed: Vec<(String, String)>,
     returns_path: bool,
-    /// Its return can hold no path ([`holds_no_path`]): never tainted whatever its arguments.
-    returns_scalar: bool,
     body: &'a syn::Block,
 }
 
@@ -506,49 +471,6 @@ fn bound(pat: &syn::Pat) -> Vec<String> {
 }
 
 const PATHY: &[&str] = &["Path", "PathBuf", "OsStr", "OsString"];
-
-/// Type names a value that can hold no path is made of. A function returning only these (a
-/// count, a flag, `io::Result<usize>`, nothing) never taints its callers' values: methods
-/// resolve by name, so one `io::Read::read` reading a tainted file once made every `.read()` in
-/// the crate (each `RwLock`'s) the home's, and the rows that followed were all noise (#43562
-/// added `ColdFile::read`; 30 false writes).
-const SCALAR: &[&str] = &[
-    "bool",
-    "char",
-    "u8",
-    "u16",
-    "u32",
-    "u64",
-    "u128",
-    "usize",
-    "i8",
-    "i16",
-    "i32",
-    "i64",
-    "i128",
-    "isize",
-    "f32",
-    "f64",
-    "Result",
-    "Option",
-    "std",
-    "io",
-    "Error",
-    "anyhow",
-    "Ordering",
-    "Duration",
-    "Instant",
-    "SystemTime",
-    "time",
-    "cmp",
-    "fmt",
-];
-
-/// Whether a return of type `ty` can hold no path (see [`SCALAR`]); `()` never can.
-fn holds_no_path(ty: &syn::Type) -> bool {
-    matches!(ty, syn::Type::Tuple(t) if t.elems.is_empty())
-        || type_names(ty).iter().all(|n| SCALAR.contains(&n.as_str()))
-}
 
 /// The type `ty` names, through references: `T` for `T`, `&T`, `&mut T` (`Self` is `self_ty`).
 fn named_type(ty: &syn::Type, self_ty: Option<&str>) -> Option<String> {
@@ -774,10 +696,6 @@ impl<'a> Index<'a> {
             syn::ReturnType::Default => false,
             syn::ReturnType::Type(_, ty) => is_pathy(&type_names(ty), &generic_paths),
         };
-        let returns_scalar = match &sig.output {
-            syn::ReturnType::Default => true,
-            syn::ReturnType::Type(_, ty) => holds_no_path(ty),
-        };
         self.funcs.push(Func {
             rel: rel.to_owned(),
             module: module.to_vec(),
@@ -787,7 +705,6 @@ impl<'a> Index<'a> {
             params,
             typed,
             returns_path,
-            returns_scalar,
             body,
         });
         // Functions declared inside this one's body.
@@ -1566,7 +1483,7 @@ fn analyze(sources: &[Source]) -> Vec<Row> {
         let mut rows = BTreeSet::new();
         for at in 0..index.funcs.len() {
             // Its return with no tainted parameter: tainted whatever its arguments.
-            if !index.funcs[at].returns_scalar && read_func(&index, &state, at, false).returns {
+            if read_func(&index, &state, at, false).returns {
                 next.returns.insert(at);
             }
             let found = read_func(&index, &state, at, true);

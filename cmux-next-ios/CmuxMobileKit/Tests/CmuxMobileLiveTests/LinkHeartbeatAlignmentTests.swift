@@ -108,14 +108,29 @@ private final class BeatDialer: MacLinkDialer, @unchecked Sendable {
         return controller
     }
 
-    /// The link is up: its link-up probe answered (its RTT is in the phase), and the heartbeat
-    /// sleeps toward its first beat.
-    private func linkUp(_ controller: LinkController, _ dialer: BeatDialer,
-                        probeAnswers: @escaping (LinkTestClock.Instant) -> Bool = { _ in true }) async throws -> LinkClockDriver {
-        let driver = LinkClockDriver(clock: dialer.clock, controller: controller, probeAnswers: probeAnswers)
-        try await pollUntil { controller.phase == .connected(.wireGuard, .direct, rttMillis: 1) && dialer.first != nil }
-        try await driver.settle()
-        return driver
+    private func eventually(_ condition: () -> Bool, within: Duration = .seconds(20),
+                            sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        let deadline = ContinuousClock.now + within
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        try #require(condition(), "Timed out waiting for test setup or transition", sourceLocation: sourceLocation)
+    }
+
+    private func run(_ clock: LinkTestClock, until end: LinkTestClock.Instant, while going: () -> Bool = { true }) async throws {
+        while clock.now < end, going() {
+            clock.advance(by: .milliseconds(100))
+            for _ in 0..<20 { await Task.yield() }
+            try await eventually { clock.isSleeping(after: clock.now) || !going() }
+        }
+    }
+
+    private func linkUp(_ controller: LinkController, _ dialer: BeatDialer) async throws {
+        // The link-up probe answered (its RTT is in the phase) and the
+        // heartbeat sleeps toward its first beat.
+        try await eventually {
+            controller.phase == .connected(.wireGuard, .direct, rttMillis: 1) && dialer.first != nil
+        }
+        let clock = dialer.clock
+        try await eventually { clock.isSleeping(after: clock.now) }
     }
 
     @Test func anIdleLinkIsProbedOnEveryBeat() async throws {
@@ -123,10 +138,10 @@ private final class BeatDialer: MacLinkDialer, @unchecked Sendable {
         let dialer = BeatDialer(clock: clock)
         let controller = controller(dialer, clock: clock)
         defer { controller.send(.target(nil)); clock.stop() }
-        let driver = try await linkUp(controller, dialer)
+        try await linkUp(controller, dialer)
         let link = try #require(dialer.first)
         let start = clock.now
-        try await driver.run(until: start.advanced(by: .seconds(60)))
+        try await run(clock, until: start.advanced(by: .seconds(60)))
         let probes = link.probes.filter { $0 > start }
         let offBeat = probes.filter {
             let ms = $0.offset.components.seconds * 1000 + $0.offset.components.attoseconds / 1_000_000_000_000_000
@@ -142,10 +157,10 @@ private final class BeatDialer: MacLinkDialer, @unchecked Sendable {
         let dialer = BeatDialer(clock: clock, traffic: true)
         let controller = controller(dialer, clock: clock)
         defer { controller.send(.target(nil)); clock.stop() }
-        let driver = try await linkUp(controller, dialer)
+        try await linkUp(controller, dialer)
         let link = try #require(dialer.first)
         let before = link.probes.count
-        try await driver.run(until: clock.now.advanced(by: .seconds(60)))
+        try await run(clock, until: clock.now.advanced(by: .seconds(60)))
         #expect(link.probes.count - before == 0)
         #expect(dialer.dials == 1)
     }
@@ -156,16 +171,12 @@ private final class BeatDialer: MacLinkDialer, @unchecked Sendable {
         let dialer = BeatDialer(clock: clock, traffic: true, trafficStops: trafficStops)
         let controller = controller(dialer, clock: clock)
         defer { controller.send(.target(nil)); clock.stop() }
-        var dropped: LinkTestClock.Instant?
-        controller.onSignal = { if case .dropped = $0, dropped == nil { dropped = clock.now } }
-        // A probe answers until the traffic stops; then only its bound ends it.
-        let driver = try await linkUp(controller, dialer) { $0 <= trafficStops }
+        try await linkUp(controller, dialer)
         // The last frame was at 10.0 s (frames every 200 ms).
         let lastFrame = LinkTestClock.Instant(offset: .seconds(10))
-        try await driver.run(until: lastFrame.advanced(by: .seconds(5))) { dropped != nil }
-        let drop = try #require(dropped, "the silent link was not dropped by \(lastFrame.advanced(by: .seconds(5)).offset)")
-        try await pollUntil { dialer.dials >= 2 }
-        print("LINK_HEARTBEAT aligned_busy_then_silent_redial_ms=\(lastFrame.duration(to: drop))")
-        #expect(drop <= lastFrame.advanced(by: .seconds(5)))
+        try await run(clock, until: lastFrame.advanced(by: .seconds(5)), while: { dialer.dials == 1 })
+        try await eventually { dialer.dials >= 2 }
+        print("LINK_HEARTBEAT aligned_busy_then_silent_redial_ms=\(lastFrame.duration(to: clock.now))")
+        #expect(clock.now <= lastFrame.advanced(by: .seconds(5)))
     }
 }

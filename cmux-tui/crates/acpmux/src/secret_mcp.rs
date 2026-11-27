@@ -32,20 +32,31 @@ pub fn protocol_version(params: &Value) -> &'static str {
         .unwrap_or(NEWEST_PROTOCOL_VERSION)
 }
 
+/// Lists `connect_mcp_server` only with this set to `1`: until the daemon runs an approved
+/// server (plans/cmux-next/mcp-connect-DESIGN.md step 2b), an approval connects nothing, so agents
+/// do not see the tool by default.
+pub const MCP_CONNECT_PREVIEW_ENV: &str = "CMUX_MCP_CONNECT_PREVIEW";
+
 /// `value[key]` without an index: `Null` for a missing key or a value that is not an object.
 fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
     value.get(key).unwrap_or(&Value::Null)
 }
 
 fn tools() -> Value {
-    all_tools()
+    let mut all = all_tools();
+    if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1")
+        && let Some(list) = all.as_array_mut()
+    {
+        list.retain(|t| *field(t, "name") != "connect_mcp_server");
+    }
+    all
 }
 
 fn all_tools() -> Value {
     json!([
         {
             "name": "request_secret",
-            "description": "Ask the user for a secret (an API key, a token, a password) on a private card in cmux. The user types it there; you never see the value. The call waits until the user fills or declines the card (it closes after 15 minutes, or with your turn); inside a cmux_exec script it waits at most 10 minutes, so call it in a script of its own. Returns a one-use secretRef for this chat's folder, good for an hour: pass it to run_with_secret to run one command with the secret in an environment variable. When the user also kept it as a key, keptAs names it: later commands get it with `cmux keys use NAME -- CMD`, without asking again. Never ask for a secret in chat.",
+            "description": "Ask the user for a secret (an API key, a token, a password) on a private card in cmux. The user types it there; you never see the value. The call waits until the user fills or declines the card (it closes after 15 minutes, or with your turn); inside a cmux_exec script it waits at most 10 minutes, so call it in a script of its own. Returns a one-use secretRef for this chat's folder, good for an hour: pass it to run_with_secret to run one command with the secret in an environment variable. Never ask for a secret in chat.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -155,9 +166,6 @@ where
         tools,
         instructions,
         call,
-        on_initialize: None,
-        list: None,
-        handle: None,
     }])
     .await
 }
@@ -182,6 +190,15 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
                 "host": field(&arguments, "host"), "timeoutSecs": field(&arguments, "timeoutSecs"),
             }),
         ),
+        Some("connect_mcp_server")
+            if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1") =>
+        {
+            return error_result(
+                "connect_mcp_server is not on yet: cmux cannot run an approved MCP server until its \
+                 sign-in and proxy land. Tell the user to add the server to the harness themselves."
+                    .to_owned(),
+            );
+        }
         Some("connect_mcp_server") => (
             method::MUX_MCP_CONNECT_REQUEST,
             json!({
@@ -240,5 +257,15 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
 }
 
 #[cfg(test)]
-#[path = "secret_mcp_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initialize_answers_a_version_we_speak() {
+        let version = |v: Value| protocol_version(&json!({"protocolVersion": v}));
+        assert_eq!(version(json!("2024-11-05")), "2024-11-05");
+        assert_eq!(version(json!("2099-01-01")), PROTOCOL_VERSIONS[0]);
+        assert_eq!(version(json!(7)), PROTOCOL_VERSIONS[0]);
+        assert_eq!(protocol_version(&Value::Null), PROTOCOL_VERSIONS[0]);
+    }
+}

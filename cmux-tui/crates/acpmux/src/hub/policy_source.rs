@@ -164,17 +164,6 @@ impl Hub {
         policy: PermissionPolicy,
         source: &str,
     ) -> Result<(), RpcError> {
-        // The app may replay its policy on every visible refresh. Preserve the answered-request
-        // barrier, but avoid emitting the same policy and permission-state records again.
-        let unchanged = {
-            let meta = session.meta();
-            meta.permission_policy.as_deref() == Some(policy.to_string().as_str())
-                && (meta.policy_source.as_deref() == Some(source)
-                    || meta.policy_source.as_deref() == Some(CLEARED_HOST))
-        };
-        if unchanged {
-            return self.meta_barrier(session);
-        }
         self.permission_policy_changed(session, |m| {
             m.permission_policy = Some(policy.to_string());
             if m.policy_source.as_deref() != Some(CLEARED_HOST) {

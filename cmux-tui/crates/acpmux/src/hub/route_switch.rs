@@ -81,9 +81,8 @@ impl Hub {
         };
         let route = routes::find(dir.as_deref(), &id).map_err(|e| {
             route_error(&routes::RouteError::NotFound(format!(
-                "{e}: this {scope}'s route is gone; put its file back in ~/.config/{next}/routes \
-                 or pick another account in the chat's Account menu",
-                next = cmux_config::NEXT_DIR
+                "{e}: this {scope}'s route is gone; put its file back in ~/.config/cmux/routes \
+                 or pick another account in the chat's Account menu"
             )))
         })?;
         if !route.serves(&family) {
@@ -234,29 +233,6 @@ impl Hub {
         self.child_for(session).await.map(|_| ())
     }
 
-    /// A restart left for a turn's end (a route switch, an update's `restart_harnesses`, an
-    /// unproven host's `restart_unproven`) when work runs below the chat as its turn ends
-    /// (`idle.rs` `holds_work_below`: a background subagent or process, a sub-session at work),
-    /// which the harness's exit would end: it waits. The agent restarts once nothing runs in it
-    /// (`Session::respawn_when_quiet`), or at the end of a later turn that leaves nothing below;
-    /// `route_switch` stays set for that turn. True when it waits.
-    ///
-    /// Before, the turn's end restarted it whatever ran below, though `restart_harnesses` says
-    /// such a session keeps its agent: on cosmic-gray (2026-11-26) a coordinator's agent ended at
-    /// 11:54, 12:19, 12:39 and 13:38Z, each at its first turn end after a cmux NIGHTLY install
-    /// and the restart that followed, and about 15 background subagents with it each time.
-    pub(super) fn restart_waits_for_work_below(self: &Arc<Self>, session: &Session) -> bool {
-        if !self.holds_work_below(session) {
-            return false;
-        }
-        tracing::info!(
-            session = %session.id,
-            "a restart left for the turn's end waits: work runs below it; it restarts once quiet"
-        );
-        self.respawn_when_quiet(session);
-        true
-    }
-
     /// `_acpmux/sessions/restart_harness {harnesses?, sessions?}` (Update
     /// Everything, cx-1mbnu; a chat's "Restart chat"): every live session of
     /// this daemon (none mirrored from a peer; none of the Home Chief's unless
@@ -264,8 +240,7 @@ impl Hub {
     /// sessions, restarts its harness process and resumes the same agent
     /// session, as a route switch does but with no binding written: so it runs
     /// the version an update just installed. A session between turns restarts
-    /// now; one in a turn when the turn ends (never cancelled), one with work
-    /// below it and no turn before its next turn. Returns how
+    /// now; one in a turn when the turn ends (never cancelled). Returns how
     /// many restarted now, how many restart after their turn, and each one
     /// whose harness could not start again.
     pub async fn restart_harnesses(
@@ -290,16 +265,8 @@ impl Hub {
             // meanwhile. An open permission prompt is never cut either (the
             // restart's `detach_child` would cancel it): that session restarts
             // after its next turn, as `restart_unproven` waits for one.
-            // Nor is work below it with no turn open (a background subagent or process, a
-            // sub-session at work: `holds_work_below`), which the harness's exit would end: an
-            // app update now relaunches while agents work (Leo, 2026-11-22: "auto be de facto
-            // able to click the restart button"), so its restart must drop nothing. Such a
-            // session keeps its agent and moves before its next turn (`turns.rs`).
             let idle = || {
-                if session.turn().is_none()
-                    && session.pending_permissions().is_empty()
-                    && !self.holds_work_below(&session)
-                {
+                if session.turn().is_none() && session.pending_permissions().is_empty() {
                     session.turn_lock.try_lock().ok()
                 } else {
                     None
@@ -354,7 +321,6 @@ impl Hub {
             let _turn = session.turn_lock.lock().await;
             if session.turn().is_none()
                 && session.pending_permissions().is_empty()
-                && !hub.restart_waits_for_work_below(&session)
                 && session.route_switch.swap(false, Ordering::SeqCst)
             {
                 hub.detach_child(&session).await;
@@ -377,7 +343,7 @@ pub struct HarnessRestarts {
 /// `cmux.chief`, or named `optchat-…`, or of an `optchat-compact-…` preset
 /// harness (the app's `AcpmuxSessionCensus.isChief`). Update Everything
 /// never counts or restarts one; only a caller naming it in `sessions` does.
-pub(crate) fn is_chief(meta: &SessionMeta) -> bool {
+pub(super) fn is_chief(meta: &SessionMeta) -> bool {
     live_tags(meta).get("cmux.chief").is_some()
         || meta.name.starts_with("optchat-")
         || meta.harness.starts_with("optchat-compact-")
@@ -571,5 +537,22 @@ fn cloud_gateway(
 }
 
 #[cfg(test)]
-#[path = "route_switch_route_failure_tests.rs"]
-mod route_failure_tests;
+mod route_failure_tests {
+    use super::is_route_failure;
+
+    #[test]
+    fn overloads_with_or_without_a_status_are_route_failures() {
+        for m in [
+            "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
+            "Selected model is at capacity. overloaded",
+            "API Error: 529 overloaded_error",
+            "API Error: 503 no non-exhausted claude accounts available",
+            "You've reached your usage limit for this account",
+            "API Error: 500 Internal server error",
+            "connection refused",
+        ] {
+            assert!(is_route_failure(m), "{m}");
+        }
+        assert!(!is_route_failure("simulated internal error"));
+    }
+}

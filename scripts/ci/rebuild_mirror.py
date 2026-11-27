@@ -22,7 +22,6 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import job_input_fingerprint as inputs
 import job_reuse
-import fast_tier_cargo_route as cargo_route
 
 TABLE = ".github/warm-sources.json"
 SCRIPT = "scripts/ci/rebuild_mirror.py"
@@ -69,7 +68,7 @@ def candidate(root: str, rev: str, job: str, full: dict) -> tuple[str, dict]:
     declared = policy.get("inputs")
     if not valid_paths(declared):
         raise inputs.Unresolved("job has no declared input paths")
-    keep = closure(root, rev, policy, job) + declared + [TABLE, SCRIPT]
+    keep = inputs.input_paths(root, rev, job) + declared + [TABLE, SCRIPT]
     result = subprocess.run(["git", "-C", root, "ls-tree", "-rz", "--full-tree", rev],
                             check=True, capture_output=True, timeout=120)
     selected, omitted = {}, []
@@ -89,42 +88,6 @@ def candidate(root: str, rev: str, job: str, full: dict) -> tuple[str, dict]:
     value["policy"] = policy_key
     return digest(value), {"policy": policy_key, "omitted_paths": len(omitted),
                            "input_paths": len(selected)}
-
-
-def closure(root: str, rev: str, policy: dict, job: str) -> list[str]:
-    """The paths a job reads that no independent root may drop.
-
-    Default: the job's fingerprint inputs and the Swift graph reads. `cmux-tui-tree`
-    (fast-tier-cargo, which runs only cmux-tui's cargo tests and fast-tier.json's
-    script entries) instead keeps every path the cmux-tui tree is keyed by
-    (scripts/cmux-next/cmux-tui-tree-inputs.txt: the crates and the files they
-    include from outside cmux-tui), the router's job and script inputs, and every
-    registry entry's own path; the Swift graph is not a cargo input.
-    """
-    kind = policy.get("closure")
-    if kind is None:
-        return inputs.input_paths(root, rev, job)
-    if kind != "cmux-tui-tree":
-        raise inputs.Unresolved(f"unknown closure {kind!r}")
-    tree = sorted(path for path in inputs.tui_tree_inputs(root, rev) if path)
-    if "cmux-tui" not in tree:
-        raise inputs.Unresolved(f"{inputs.TUI_TREE_INPUTS} at {rev} does not name cmux-tui")
-    registry = json.loads(inputs.git(root, "show", f"{rev}:{cargo_route.REGISTRY}"))
-    # A cargo entry keeps its workspace, a script entry its folder (fast_tier_cargo_route.inputs).
-    entries = []
-    for entry in registry.get("entries", []):
-        if not isinstance(entry, dict) or entry.get("kind") not in ("cargo", "script"):
-            continue
-        path = entry.get("path")
-        if not isinstance(path, str) or not path.strip("/"):
-            raise inputs.Unresolved(f"{cargo_route.REGISTRY} has a {entry.get('kind')} entry with no path")
-        path = path.strip("/")
-        entries.append(path if entry["kind"] == "cargo" or "/" not in path else path.rsplit("/", 1)[0])
-    if not entries or not valid_paths(entries):
-        raise inputs.Unresolved(f"{cargo_route.REGISTRY} names no readable cargo or script entry")
-    routed = [inputs.normalize(path) for path in
-              cargo_route.JOB_INPUTS + cargo_route.SCRIPT_INPUTS + cargo_route.LINKED]
-    return tree + entries + routed + [inputs.TUI_TREE_INPUTS, cargo_route.REGISTRY]
 
 
 def valid_paths(paths: object) -> bool:

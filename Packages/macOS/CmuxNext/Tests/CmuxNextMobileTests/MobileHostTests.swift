@@ -108,7 +108,7 @@ import Testing
     @Test func deviceIDPersists() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-mobile-device-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let identity = MobileHostDeviceIdentity(directory: directory, owner: "user-a", hostUUID: { Data(repeating: 7, count: 16) })
+        let identity = MobileHostDeviceIdentity(directory: directory)
         let first = try identity.deviceID()
         #expect(UUID(uuidString: first) != nil)
         #expect(try identity.deviceID() == first)
@@ -247,43 +247,6 @@ import Testing
         #expect(twins.map(\.deviceIDs) == [["x"], ["y"], ["z"]])
     }
 
-    @Test func aRefusedDeviceIDIsAPhaseThatDropsPhones() {
-        #expect(MobileHostEvent(line: #"{"type":"device_not_owned"}"#) == .deviceIDTaken)
-        var state = MobileHostState(phase: .online)
-        state.apply(.phoneUp(MobileHostPhoneLink(sessionID: "a", phoneDeviceID: "p", transport: "webrtc", path: "direct")), at: Date())
-        state.apply(.deviceIDTaken, at: Date())
-        #expect(state.phase == .deviceIDTaken && state.phones.isEmpty)
-    }
-
-    /// hostd reports a refused device id and exits 79: the supervisor shows it and does not
-    /// restart hostd with the same id (the iPhone host renews the id and starts it again).
-    @Test(.timeLimit(.minutes(1))) func aHostdWithARefusedDeviceIDIsNotRestartedAsIs() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-mobile-taken-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let script = directory.appendingPathComponent("cmux-mobile-host")
-        let starts = directory.appendingPathComponent("starts")
-        try """
-        #!/bin/sh
-        echo start >> "\(starts.path)"
-        echo '{"type":"device_not_owned"}'
-        exit 79
-        """.write(to: script, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-        let supervisor = MobileHostSupervisor()
-        let states = supervisor.states
-        await supervisor.start(.init(launch: Self.launch(executable: script), accessToken: { _ in "t" }, acpmux: { nil }, log: nil))
-        for await state in states where state.phase == .deviceIDTaken { break }
-        // A restart would come after the first backoff (1 s ± 20%); wait past it.
-        try await Task.sleep(for: .seconds(2))
-        #expect(await supervisor.current.phase == .deviceIDTaken)
-        // It says whose hostd was refused, so only that account's exact id is forgotten.
-        #expect(await supervisor.current.stoppedDevice == MobileHostStoppedDevice(owner: "u", deviceID: "d"))
-        let runs = try String(contentsOf: starts, encoding: .utf8).split(separator: "\n").count
-        #expect(runs == 1)
-        await supervisor.stop()
-    }
-
     @Test func aRemovalIsAPhaseThatDropsPhones() {
         #expect(MobileHostEvent(line: #"{"type":"removed"}"#) == .removed)
         var state = MobileHostState(phase: .online)
@@ -295,17 +258,14 @@ import Testing
     @Test func theRemovalMarkerForgetsTheDeviceAndHoldsPerAccount() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-mobile-removed-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let identity = MobileHostDeviceIdentity(directory: directory, owner: "u", hostUUID: { Data(repeating: 7, count: 16) })
-        let other = MobileHostDeviceIdentity(directory: directory, owner: "v", hostUUID: { Data(repeating: 7, count: 16) })
+        let identity = MobileHostDeviceIdentity(directory: directory)
         let first = try identity.deviceID()
-        let othersID = try other.deviceID()
         let marker = MobileHostRemovalMarker(directory: directory)
         #expect(marker.account() == nil)
         try marker.record(account: "u\u{0}personal-u", identity: identity)
         #expect(marker.account() == "u\u{0}personal-u")
-        // Allowing again registers a new device; another account's id is untouched.
+        // Allowing again registers a new device.
         #expect(try identity.deviceID() != first)
-        #expect(try other.deviceID() == othersID)
         marker.clear()
         #expect(marker.account() == nil)
     }
@@ -390,7 +350,7 @@ import Testing
         let palette = (0..<16).map { String(format: "#%02x%02x%02x", $0, $0, $0) }
         let shown = MobileHostAppearance(
             background: "#1e1e2e", foreground: "#cdd6f4", palette: palette, selectionBackground: "#585b70",
-            accent: "magenta", backgroundOpacity: 0.9, backgroundBlur: -2, wallpaper: URL(fileURLWithPath: "/tmp/phone-wallpaper/a.jpg"),
+            accent: "magenta", backgroundOpacity: 0.9, wallpaper: URL(fileURLWithPath: "/tmp/phone-wallpaper/a.jpg"),
             wallpaperTintOpacity: 0.62)
         let line = MobileHostLaunch.appearanceLine(shown)
         #expect(line.last == 0x0A)
@@ -403,8 +363,6 @@ import Testing
         #expect(theme["cursor"] == nil)
         #expect(theme["accent"] as? String == "magenta")
         #expect(theme["background_opacity"] as? Double == 0.9)
-        // The window's resolved material, in Ghostty's `background-blur` encoding (-2: clear Liquid Glass).
-        #expect(theme["background_blur"] as? Int == -2)
         let wallpaper = try #require(object["wallpaper"] as? [String: Any])
         #expect(wallpaper["path"] as? String == "/tmp/phone-wallpaper/a.jpg")
         #expect(wallpaper["tint_opacity"] as? Double == 0.62)
@@ -452,7 +410,7 @@ import Testing
     @Test func directoryListsAndRemovesWithTheBearerToken() async throws {
         let base = try #require(URL(string: "https://cmuxMobile.test"))
         let log = RequestLog()
-        let directory = MobileHostDeviceDirectory(baseURL: base, buildSpace: .nightly) { request in
+        let directory = MobileHostDeviceDirectory(baseURL: base) { request in
             await log.add(request)
             if request.httpMethod == "DELETE" {
                 return (Data(), request.url?.lastPathComponent == "b" ? 404 : 200)
@@ -466,7 +424,7 @@ import Testing
         let requests = await log.requests
         #expect(requests.map { "\($0.httpMethod ?? "GET") \($0.url?.path ?? "")" } == ["GET /v1/me/devices", "DELETE /v1/devices/a", "DELETE /v1/devices/b"])
         #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer tok" })
-        let failing = MobileHostDeviceDirectory(baseURL: base, buildSpace: .nightly) { _ in (Data(), 502) }
+        let failing = MobileHostDeviceDirectory(baseURL: base) { _ in (Data(), 502) }
         await #expect(throws: MobileHostDeviceDirectory.Failure.status(502)) { try await failing.phones(token: "tok") }
     }
 

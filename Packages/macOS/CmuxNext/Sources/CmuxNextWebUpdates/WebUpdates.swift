@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextAgentPane
-public import CmuxNextDaemon
 import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextUpdater
@@ -47,22 +46,6 @@ public final class WebUpdates {
     /// When ``pending`` was handed over: past ``WebSwapGate/inputCap`` the page being typed into
     /// needs only a short quiet.
     @ObservationIgnored var pendingSince: ContinuousClock.Instant?
-    /// Runs the app's bundled `cmux` CLI with the words given and returns its standard output (nil
-    /// when it could not run): the App sets it, for `cmux app web-pieces check` (WebUpdates+Pieces.swift).
-    @ObservationIgnored public var piecesCLI: (@Sendable ([String]) async -> Data?)?
-    /// The app's bundled `cmux`, which fetches a web update by `cas/1` while `updates.webCas` is on
-    /// (WebUpdates+Cas.swift).
-    @ObservationIgnored var bundledCLI: BundledExecutable?
-    /// The last answer of `cmux app web-pieces check`: what each web piece is served from.
-    var pieces: WebPiecesAnswer?
-    /// The read of the switch file that runs now; the next one waits for it.
-    @ObservationIgnored var piecesRead: Task<Void, Never>?
-    /// Reads the channel's drill switch file instead (`updates.web.pieces.check` with `drill`), until
-    /// cmux quits: a switch is rehearsed on this Mac before every app takes it.
-    @ObservationIgnored var piecesDrill = false
-    /// The kept updates' folders that verified in this run, so a pieces read does not hash them
-    /// again after every check (``resolve(_:_:_:verified:)``).
-    @ObservationIgnored var verifiedTrees = VerifiedTrees()
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored private var started = false
 
@@ -74,17 +57,7 @@ public final class WebUpdates {
     /// Starts the launch check with the launch settings before any restored or prewarmed page can
     /// request its entry document. Applying the channel first keeps `updates.web: off` on the
     /// bundled web even while the settings observer is still starting.
-    /// `cli`: the app's bundled `cmux`, which reads the switch file of web pieces
-    /// (WebUpdates+Pieces.swift); without it no piece is switched out.
-    public func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main, cli: BundledExecutable? = nil) {
-        if let cli {
-            bundledCLI = cli
-            piecesCLI = { words in
-                guard let url = await cli.resolve(),
-                      let ran = await BundledCLIRun.run(url, words, timeout: .seconds(20)), ran.status == 0 else { return nil }
-                return ran.stdout
-            }
-        }
+    public func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main) {
         start(bundle: bundle, settings: settings)
     }
 
@@ -121,33 +94,19 @@ public final class WebUpdates {
             self?.handedOver = true
             self?.ready(tree, version: pointer)
         }
-        updater.served = {
-            let overlay = WebBundleOverlay.shared
-            return Array(Set(WebBundleServedViews.shared.pinnedTrees + overlay.switchedTrees + [overlay.activeTree].compactMap { $0 }))
-        }
-        updater.onChecked = { [weak self] in self?.readPieces(offline: false) }
-        updater.refuses = { [weak self, weak updater] pointer in
-            guard let self, let updater else { return false }
-            return await piecesRefuse(pointer, updater)
-        }
+        updater.served = { Array(Set(WebBundleServedViews.shared.pinnedTrees + [WebBundleOverlay.shared.activeTree].compactMap { $0 })) }
         // Checks come every minute only while cmux is in the front (the activation observers follow it).
         updater.foreground = NSApp?.isActive ?? false
         self.updater = updater
         if let settings { follow(settings, updater: updater) }
         if WebBundleServedViews.shared.isEmpty {
             launchServed = true
-            // The pieces switched out when cmux last ran stay out from the first page on.
-            overlay.load { [weak self] in
-                let tree = await updater.launchTree()
-                let refused = await self?.restorePieces(updater) ?? false
-                return refused ? nil : tree
-            }
+            overlay.load { await updater.launchTree() }
         } else {
             // A page already loaded bundled files: the kept update waits for a safe point.
             // task-owner: one launch check; it ends by itself
             Task { [weak self] in
                 let tree = await updater.launchTree()
-                self?.readPieces(offline: true)
                 guard let self, tree != nil, !handedOver else { return }
                 ready(tree, version: updater.launchVersion)
             }
@@ -180,9 +139,7 @@ public final class WebUpdates {
     private func follow(_ settings: UpdatesSettings, updater: WebUpdater) {
         updater.allowsConstrained = settings.meteredNetwork == .download
         updater.allowsExpensive = settings.meteredNetwork != .deferExpensive
-        // RFD 0166: off by default; on, a miss of any kind takes the archive in the same check.
-        updater.casFetch = settings.webCas ? casFetcher() : nil
-        updater.follow(WebUpdater.Channel(rawValue: settings.webInEffect.rawValue) ?? .off)
+        updater.follow(WebUpdater.Channel(rawValue: settings.web.rawValue) ?? .off)
     }
 
     /// The update the pages serve now (nil: the bundled web). The updater's `state.active` runs
@@ -207,34 +164,16 @@ public final class WebUpdates {
         scheduleSafePoint()
     }
 
-    /// What a page that loads `tree` (nil: the bundled web) is served now: `tree`, less the pieces
-    /// the channel's switch file switched out.
-    func target(_ tree: URL?) -> WebBundleOverlay.Serving {
-        WebBundleOverlay.shared.serving(tree: tree)
-    }
-
-    /// The switch file moved a piece to another folder (WebUpdates+Pieces.swift): each open page
-    /// that reads that piece reloads at its own safe point, as for an update.
-    func switchesChanged() async {
-        let tree = await WebBundleOverlay.shared.current()
-        if pending == nil { pending = .some(tree) }
-        pendingSince = .now
-        pendingGeneration += 1
-        heldBy = nil
-        scheduleSafePoint()
-    }
-
     /// Reloads every open page still on an older update now, whatever holds it (`updates.web.apply`,
     /// for tests and support); returns how many reloaded.
     @discardableResult
     public func applyPending() -> Int {
         guard let tree = pending else { return 0 }
-        let target = target(tree)
-        let behind = WebBundleServedViews.shared.behind(target)
+        let behind = WebBundleServedViews.shared.behind(tree)
         finishPending()
         // A swap shows nothing (Leo, 2026-10-30: "i dont think i need to see this"); Settings'
         // Web UI card shows the served version.
-        return WebBundleServedViews.shared.reload(behind, to: target)
+        return WebBundleServedViews.shared.reload(behind, to: tree)
     }
 
     /// Every open page reads the pending update: nothing is pending any more, and the trees no

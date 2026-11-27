@@ -14,8 +14,6 @@ thread_local! {
 #[derive(Default)]
 pub struct MemoryStore {
     inner: Mutex<HashMap<String, (SessionMeta, Vec<EventRecord>)>>,
-    /// Each chat's held tool output bodies, by slot (`Store::keep_held`).
-    held: Mutex<HashMap<String, BTreeMap<String, Vec<u8>>>>,
 }
 
 impl Store for MemoryStore {
@@ -114,31 +112,8 @@ impl Store for MemoryStore {
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         Ok(Some(Box::new(MemoryHistory { store: self, id: id.to_owned(), records: Vec::new() })))
     }
-    /// Kept while the store is: a hub opened again on the same store (a restart, in a test) reads
-    /// them. Never for a chat the store does not hold, as a deleted chat's folder is not made again.
-    fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
-        anyhow::ensure!(super::deferred::is_slot(slot), "{slot:?} names no held slot");
-        match held {
-            Some(bytes) => {
-                anyhow::ensure!(self.inner.lock_or_recover().contains_key(id), "no chat {id}");
-                let mut held = self.held.lock_or_recover();
-                held.entry(id.to_owned()).or_default().insert(slot.to_owned(), bytes.to_vec());
-            }
-            None => {
-                if let Some(slots) = self.held.lock_or_recover().get_mut(id) {
-                    slots.remove(slot);
-                }
-            }
-        }
-        Ok(())
-    }
-    fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
-        let held = self.held.lock_or_recover();
-        Ok(held.get(id).map(|slots| slots.clone().into_iter().collect()).unwrap_or_default())
-    }
     fn delete(&self, id: &str) -> Result<()> {
         self.inner.lock_or_recover().remove(id);
-        self.held.lock_or_recover().remove(id);
         Ok(())
     }
 }

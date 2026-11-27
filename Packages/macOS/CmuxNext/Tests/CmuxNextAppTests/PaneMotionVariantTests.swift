@@ -4,20 +4,109 @@ import CmuxNextDesign
 import CmuxNextTestSupport
 import Testing
 
-/// The Debug choice `motion.pane.variant` and the spring tokens it names. No layout change reads them now (a split,
-/// a close, a zoom and an unzoom are one commit and spring nothing); the choice and its tokens stay registered until
-/// their own removal, so its store rules and the pairing of its tokens hold until then.
 @MainActor
-@Suite
+@Suite(.closesItsWindows)
 struct PaneMotionVariantTests {
-    /// The standard variant names the tokens of the motion pairs, so what `MotionCapTests` proves for a
-    /// pair (its exit ends sooner than its enter, at every speed) holds for the variant's springs.
-    @Test func theStandardVariantRunsTheTokensOfTheMotionPairs() {
-        let standard = PaneMotionVariant.standard
-        #expect(MotionPair.pane.enter == .spring(standard.splitSpring), "a split does not name the enter of the pane pair")
-        #expect(MotionPair.pane.exit == .spring(standard.closeSpring), "a close does not name the exit of the pane pair")
-        #expect(MotionPair.zoom.enter == .spring(standard.expandSpring), "a zoom does not name the enter of the zoom pair")
-        #expect(MotionPair.zoom.exit == .spring(standard.restoreSpring), "an unzoom does not name the exit of the zoom pair")
+    final class Panes: LayoutPaneContentProvider {
+        func makeContentView(for pane: PaneID) -> NSView { NSView() }
+    }
+
+    /// Owns one manually stepped screen; variants are injected without changing shared debug settings.
+    final class Screen {
+        let panes = Panes()
+        let context: LayoutViewContext
+        let view: ScreenContentView
+        let window: NSWindow
+
+        init(_ tree: SplitNode, variant: PaneMotionVariant, reduceMotion: Bool = false) {
+            let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))],
+                                    activeScreenID: "s", focusedPane: "p1")
+            context = LayoutViewContext(model: model, provider: panes)
+            context.reduceMotionOverride = reduceMotion
+            context.livePanes = Set(tree.panes)
+            view = ScreenContentView(screenID: "s", layout: .splits(tree), context: context, paneMotionVariant: { variant })
+            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+            window.contentView = view
+            view.reconcile(animated: false)
+        }
+
+        func zoom() {
+            context.livePanes = ["p1"]
+            view.update(layout: .splits(.leaf("p1")), zoomed: true, animated: true)
+        }
+
+        func close() {
+            context.livePanes = ["p1"]
+            view.update(layout: .splits(.leaf("p1")), animated: true)
+        }
+
+        @discardableResult
+        func step() -> Bool { view.step(1.0 / 120) }
+    }
+
+    static let split = SplitNode.split("h", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
+
+    @Test(arguments: PaneMotionVariant.allCases)
+    func expandLaysOutLiveAndSettles(_ variant: PaneMotionVariant) throws {
+        let screen = Screen(Self.split, variant: variant)
+        screen.zoom()
+        let target = try #require(screen.view.geometry.panes["p1"])
+        var sizes: Set<CGFloat> = []
+        for _ in 0..<120 {
+            screen.step()
+            let shown = try #require(screen.view.paneFrames["p1"]?.rect)
+            #expect(screen.context.hosts["p1"]?.frame == screen.view.displayedFrame(of: "p1"), "the expanding pane is not laid out at its spring rect")
+            sizes.insert(shown.width)
+        }
+        #expect(sizes.count >= 5, "the expanding pane laid out \(sizes.count) widths")
+        #expect(screen.view.paneFrames["p1"]?.rect == target)
+        #expect(screen.context.hosts["p1"]?.frame == screen.view.displayedFrame(of: "p1"))
+        #expect(screen.view.zoomMotion.covered.isEmpty)
+        #expect(!screen.step(), "a settled pane prototype kept requesting animation frames")
+    }
+
+    @Test(arguments: PaneMotionVariant.allCases)
+    func closeGrowsTheNeighbourLiveAndReleasesTheClosedHost(_ variant: PaneMotionVariant) throws {
+        let screen = Screen(Self.split, variant: variant)
+        screen.close()
+        let target = try #require(screen.view.geometry.panes["p1"])
+        #expect(screen.context.hosts["p2"] == nil, "a prototype retained the closed pane's native content")
+        var sizes: Set<CGFloat> = []
+        for _ in 0..<120 {
+            screen.step()
+            let shown = try #require(screen.view.paneFrames["p1"]?.rect)
+            #expect(screen.context.hosts["p1"]?.frame == screen.view.displayedFrame(of: "p1"), "the growing pane is not laid out at its spring rect")
+            sizes.insert(shown.width)
+        }
+        #expect(sizes.count >= 5, "the growing pane laid out \(sizes.count) widths")
+        #expect(screen.view.paneFrames["p1"]?.rect == target)
+        #expect(!screen.step())
+    }
+
+    /// Crisp's expand moves farther in the first frame than the current zoom spring. Its close does not: the current
+    /// close is the split spring, which since instant-splits (Leo 2026-11-08) is at least as quick as crisp's.
+    @Test func crispExpandMovesFartherInTheFirstFrameThanCurrentAndTheCurrentCloseKeepsUp() throws {
+        for zooming in [true, false] {
+            let current = Screen(Self.split, variant: .standard)
+            let crisp = Screen(Self.split, variant: .crisp)
+            if zooming { current.zoom(); crisp.zoom() } else { current.close(); crisp.close() }
+            current.step()
+            crisp.step()
+            let currentWidth = try #require(current.view.paneFrames["p1"]?.width.value)
+            let crispWidth = try #require(crisp.view.paneFrames["p1"]?.width.value)
+            if zooming { #expect(crispWidth > currentWidth) } else { #expect(currentWidth >= crispWidth) }
+        }
+    }
+
+    @Test(arguments: PaneMotionVariant.allCases)
+    func reduceMotionSnapsEveryVariant(_ variant: PaneMotionVariant) throws {
+        for zooming in [true, false] {
+            let screen = Screen(Self.split, variant: variant, reduceMotion: true)
+            if zooming { screen.zoom() } else { screen.close() }
+            #expect(screen.view.paneFrames["p1"]?.rect == screen.view.geometry.panes["p1"])
+            #expect(!screen.step())
+        }
     }
 
     @Test func debugChoiceIsInertUntilItsStoreIsActivatedAndResetsToCurrent() {

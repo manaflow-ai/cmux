@@ -75,9 +75,8 @@ pub(crate) enum KeeperEvent {
     Started,
     /// Its tunnel is up: the hub serves the socket.
     Ready,
-    /// It ended by itself, with its final status and the team it asked for
-    /// (a "no mesh" is that team's answer).
-    Ended(TunnelStatus, String),
+    /// It ended by itself, with its final status.
+    Ended(TunnelStatus),
     /// It was stopped: `left` (no longer joined) or `signed_out`.
     Stopped(&'static str),
     /// The wait before the next start.
@@ -170,25 +169,15 @@ impl Keeper {
             return;
         }
         let mut restarts = 0u32;
-        // The last sign-in refusal written: the keeper asks every `check_every`, so it writes a
-        // refusal once and again only when its reason or team changes (a link whose tunnel never
-        // starts names why in link.log, where the failover probe reads it).
-        let mut refused: Option<String> = None;
         loop {
             let Some(joined) = self.joined_now() else {
                 tokio::time::sleep(self.timing.check_every).await;
                 continue;
             };
-            if let Err(why) = self.ask(&joined).await {
-                let why = format!("no sign-in for team {}: {why}", joined.team);
-                if refused.as_deref() != Some(why.as_str()) {
-                    self.emit(KeeperEvent::Unstarted(why.clone()));
-                    refused = Some(why);
-                }
+            if self.ask(&joined).await.is_err() {
                 tokio::time::sleep(self.timing.check_every).await;
                 continue;
             }
-            refused = None;
             let plan = match self.plan(&joined) {
                 Ok(plan) => plan,
                 Err(why) => {
@@ -226,7 +215,7 @@ impl Keeper {
                         TunnelStatus::Unavailable(_) => self.timing.unavailable_wait,
                         _ => self.restart_delay(restarts),
                     };
-                    self.emit(KeeperEvent::Ended(status, joined.team.clone()));
+                    self.emit(KeeperEvent::Ended(status));
                     if self.wait_unless_rejoined(delay, &joined).await {
                         restarts = 0;
                     }

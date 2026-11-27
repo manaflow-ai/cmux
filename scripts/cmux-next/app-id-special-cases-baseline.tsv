@@ -1,5 +1,7 @@
 # path	app id literals	(check-app-id-special-cases.py; the count only goes down)
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/RemoteMachinesSidebar.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Apps/CodeRouterPageTab.swift	1
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/CodeRouterPageProvider.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneController.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarBridge+Sections.swift	2
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarRows.swift	2

@@ -36,8 +36,7 @@ pub(crate) const RESOURCE: &str = "browser_device";
 /// The id of the one custom device list.
 pub(crate) const ID: &str = "custom";
 
-static BUILT_IN: cmux_embed::PackedStr =
-    cmux_embed::packed_str!(include_str!("../../data/emulated-devices.json"));
+const BUILT_IN: &str = include_str!("../../data/emulated-devices.json");
 /// Most custom devices kept (Chrome has no limit; this bounds the row set).
 pub(crate) const MAX_CUSTOM: usize = 200;
 /// Largest stored device object.
@@ -61,8 +60,7 @@ struct BuiltIn {
 fn built_in() -> &'static BuiltIn {
     static LIST: OnceLock<BuiltIn> = OnceLock::new();
     LIST.get_or_init(|| {
-        let file: Value =
-            serde_json::from_str(&BUILT_IN.inflate()).expect("emulated-devices.json parses");
+        let file: Value = serde_json::from_str(BUILT_IN).expect("emulated-devices.json parses");
         let chrome = file.get("chrome").cloned().unwrap_or(Value::Null);
         let chromium =
             chrome.get("chromium").and_then(Value::as_str).unwrap_or_default().to_string();

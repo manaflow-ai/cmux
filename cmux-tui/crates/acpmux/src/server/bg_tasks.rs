@@ -82,20 +82,13 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
             };
             // The task prints its outcome last (`run_wait`): its summary line once it ended.
             let result_line = params.get("resultLine").and_then(Value::as_bool).unwrap_or(false);
-            // `filler`: its scope runs at `CPUWeight=idle` where CPU classes are on (RFD 0182 B2).
-            let class = crate::session_budget::TaskClass::parse(str_param(params, "class"))
-                .map_err(RpcError::invalid_params)?;
             // The Claude Code subagent whose MCP call starts it (`subagent_call.rs`), `{id, type}`:
             // a label its commands carry, as its Bash calls do; the session's token is the proof.
-            hub.bg_start(&session, command, cwd, description, notify, result_line, subagent, class)
-                .await
+            hub.bg_start(&session, command, cwd, description, notify, result_line, subagent).await
         }
         method::MUX_BG_LIST => Ok(hub.bg_list_as(&session, &scope("all")?)),
-        // The chat's own agent reading a task's end (`bg_output`, or `run_wait` given a task)
-        // is told it (`hub::Hub::bg_output_as`); `all` reads no wider, so it takes no part.
         method::MUX_BG_OUTPUT => {
-            let scope = if own_agent { BgScope::Caller(subagent.clone()) } else { BgScope::Every };
-            hub.bg_output_as(&session, id()?, byte("fromByte")?, byte("maxBytes")?, &scope)
+            hub.bg_output(&session, id()?, byte("fromByte")?, byte("maxBytes")?)
         }
         _ => hub.bg_stop_as(&session, id()?, &scope("force_other_owner")?).await,
     }

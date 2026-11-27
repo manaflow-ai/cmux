@@ -5,9 +5,8 @@
 //! frame from its own client.
 //!
 //! Bounds: a line from acpmux is at most [`MAX_LINE_BYTES`] (a longer one
-//! ends the link), and every call has a deadline. Any number of calls may
-//! wait for a reply: each is one map entry and one one-slot channel, with its
-//! caller's thread blocked on it. Notifications go to one handler on the reader
+//! ends the link), at most [`MAX_IN_FLIGHT`] calls wait for a reply, and
+//! every call has a deadline. Notifications go to one handler on the reader
 //! thread, which may block (backpressure): acpmux then fills its own bounded
 //! per-connection queue and reports `_acpmux/lagged`.
 
@@ -38,9 +37,6 @@ mod list_scan_tests;
 #[path = "agent_session_list_source.rs"]
 pub(crate) mod list_source;
 #[cfg(test)]
-#[path = "agent_session_list_source_tests.rs"]
-mod list_source_tests;
-#[cfg(test)]
 #[path = "agent_session_link_tests.rs"]
 mod tests;
 
@@ -48,6 +44,8 @@ mod tests;
 /// records with big tool outputs stays under it (the daemon then trims the
 /// page to `MAX_PAGE_BYTES` for its client); a longer line ends the link.
 pub(super) const MAX_LINE_BYTES: usize = 32 << 20;
+/// Calls waiting for a reply on one link.
+pub(super) const MAX_IN_FLIGHT: usize = 16;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 
@@ -76,6 +74,8 @@ pub(crate) enum LinkError {
     /// The socket is gone or never connected.
     Closed,
     Timeout,
+    /// Too many calls wait already.
+    Busy,
     /// acpmux answered with an error: its message (for the daemon log
     /// only) and its `data` (`Null` without one).
     Rpc(String, Value),
@@ -260,9 +260,9 @@ impl AcpmuxLink {
                 return Err(LinkError::Timeout);
             }
             match self.call(LIVENESS_PROBE, json!({}), patience.probe.min(left)) {
-                // Answered or refused.
+                // Answered, refused, or a link with every slot taken by other live calls.
                 Ok(_)
-                | Err(LinkError::Rpc(..) | LinkError::MethodNotFound(_))
+                | Err(LinkError::Rpc(..) | LinkError::MethodNotFound(_) | LinkError::Busy)
                 | Err(LinkError::BadList(_)) => {}
                 Err(LinkError::Closed) => {
                     // The answer may have come just before the close.
@@ -288,6 +288,9 @@ impl AcpmuxLink {
         let (sender, receiver) = sync_channel(1);
         {
             let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+            if pending.len() >= MAX_IN_FLIGHT {
+                return Err(LinkError::Busy);
+            }
             pending.insert(id, sender);
         }
         let frame = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
@@ -382,7 +385,7 @@ impl AcpmuxLink {
 
     /// Sends a request whose reply goes to `reply` (a closed link sends it `Closed`), and answers
     /// its id; the caller [`AcpmuxLink::forget`]s it once it stops listening, and a reply after
-    /// that is dropped. Its caller bounds how many it holds
+    /// that is dropped. It takes no [`MAX_IN_FLIGHT`] slot: its caller bounds how many it holds
     /// (a prompt's, while it waits for `prompt_accepted`, `agent_session_attach::submit_prompt`).
     pub(super) fn send_replying_to(
         &self,

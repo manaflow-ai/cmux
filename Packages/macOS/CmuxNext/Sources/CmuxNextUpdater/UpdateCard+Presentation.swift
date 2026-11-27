@@ -64,14 +64,9 @@ extension UpdateCard {
                                           detail: UpdaterStrings.needsMacOSDetail(found, required))
         case .gettingNewest(let transfer, let pulled):
             // One line, no button: the newest build downloads, then the Update Ready card (or the click) installs it.
-            // The detail is there from the first frame (keeps running until bytes arrive), so the card does not grow a
-            // line when the first byte comes in.
             return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.gettingNewest,
-                                          detail: pulled ? UpdaterStrings.runningBuildPulled : transfer?.bytesText ?? UpdaterStrings.keepsRunning,
+                                          detail: pulled ? UpdaterStrings.runningBuildPulled : transfer?.bytesText,
                                           showsProgress: true, progress: transfer?.fraction, dismissible: false)
-        case .healthFailed(let previous, let reason):
-            return UpdateCardPresentation(symbol: "exclamationmark.triangle", title: UpdaterStrings.healthFailedTitle,
-                                          detail: UpdaterStrings.healthFailedDetail(reason, previous), actions: [.goBack])
         }
     }
 
@@ -117,7 +112,6 @@ extension UpdateCard {
         case .note(.found): "found"
         case .note(.needsNewerMacOS): "requires_newer_macos"
         case .gettingNewest: "getting_newest"
-        case .healthFailed: "health_failed"
         }
     }
 }

@@ -20,8 +20,8 @@ final class AgentTabJumpGapUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
 
-        // At rest the composer is its collapsed capsule ("Reply to <chat>").
-        let field = app.buttons["agentChat.composer.collapsed"].firstMatch
+        // At rest the composer is its collapsed capsule ("Reply to Claude").
+        let field = app.buttons["Reply to Claude"].firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 30), "the agent tab's composer\n\(app.debugDescription)")
         let jump = app.buttons["Jump to bottom"].firstMatch
 

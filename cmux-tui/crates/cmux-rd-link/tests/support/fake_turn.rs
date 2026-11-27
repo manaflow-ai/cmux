@@ -2,16 +2,13 @@
 //! credentials (401, optional 438 once), Refresh with lifetimes it enforces,
 //! CreatePermission, ChannelBind, ChannelData, Send and Data indications.
 //! Or, in hostile mode, a server that answers every request with garbage.
-//! Clients reach it over UDP (`addr`) or TCP (`tcp_addr`, RFC 8656 §3.1: STUN and
-//! ChannelData framed on the stream, ChannelData padded to a multiple of 4).
 
 #![allow(dead_code)]
 
 use super::stun::*;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::io::{ErrorKind, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -56,7 +53,6 @@ pub struct Stats {
     pub data_indications: u32,
     pub expired: u32,
     pub hostile_sent: u32,
-    pub tcp_connections: u32,
 }
 
 struct Allocation {
@@ -68,7 +64,6 @@ struct Allocation {
 
 pub struct FakeTurn {
     pub addr: SocketAddr,
-    pub tcp_addr: SocketAddr,
     stop: Arc<AtomicBool>,
     stats: Arc<Mutex<Stats>>,
     thread: Option<thread::JoinHandle<()>>,
@@ -79,15 +74,10 @@ impl FakeTurn {
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
         socket.set_nonblocking(true).unwrap();
         let addr = socket.local_addr().unwrap();
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let tcp_addr = listener.local_addr().unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let stats = Arc::new(Mutex::new(Stats::default()));
         let mut server = Server {
             socket,
-            listener,
-            conns: HashMap::new(),
             options,
             nonce: "nonce-1".into(),
             stale_done: false,
@@ -97,7 +87,7 @@ impl FakeTurn {
         };
         let flag = stop.clone();
         let thread = thread::spawn(move || server.run(&flag));
-        Self { addr, tcp_addr, stop, stats, thread: Some(thread) }
+        Self { addr, stop, stats, thread: Some(thread) }
     }
 
     pub fn stats(&self) -> Stats {
@@ -114,41 +104,8 @@ impl Drop for FakeTurn {
     }
 }
 
-/// One TCP client: its stream and the bytes not yet a whole message.
-struct Conn {
-    stream: TcpStream,
-    pending: Vec<u8>,
-}
-
-/// TCP clients are keyed apart from UDP ones (same port number, another allocation):
-/// their address with 127.0.0.2 for the IP.
-fn tcp_key(peer: SocketAddr) -> SocketAddr {
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)), peer.port())
-}
-
-/// The whole messages at the front of `pending` (padding dropped), and how many bytes they used.
-fn deframe(pending: &[u8]) -> (Vec<Vec<u8>>, usize) {
-    let (mut out, mut at) = (Vec::new(), 0);
-    while let Some(head) = pending.get(at..at + 4) {
-        let len = usize::from(u16::from_be_bytes([head[2], head[3]]));
-        let (whole, padded) = match head[0] {
-            0x40..=0x4F => (4 + len, (4 + len).next_multiple_of(4)),
-            _ => (20 + len, 20 + len),
-        };
-        // A client that does not pad ChannelData desyncs the stream from here on.
-        if pending.len() < at + padded {
-            break;
-        }
-        out.push(pending[at..at + whole].to_vec());
-        at += padded;
-    }
-    (out, at)
-}
-
 struct Server {
     socket: UdpSocket,
-    listener: TcpListener,
-    conns: HashMap<SocketAddr, Conn>,
     options: Options,
     nonce: String,
     stale_done: bool,
@@ -166,18 +123,6 @@ impl Server {
                 events: libc::POLLIN,
                 revents: 0,
             }];
-            fds.push(libc::pollfd {
-                fd: self.listener.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            });
-            for c in self.conns.values() {
-                fds.push(libc::pollfd {
-                    fd: c.stream.as_raw_fd(),
-                    events: libc::POLLIN,
-                    revents: 0,
-                });
-            }
             for a in self.allocations.values() {
                 fds.push(libc::pollfd {
                     fd: a.relay.as_raw_fd(),
@@ -192,43 +137,6 @@ impl Server {
                     self.hostile(&buf[..n], from);
                 } else {
                     self.on_client_packet(&buf[..n], from);
-                }
-            }
-            while let Ok((stream, peer)) = self.listener.accept() {
-                stream.set_nonblocking(true).unwrap();
-                stream.set_nodelay(true).unwrap();
-                self.conns.insert(tcp_key(peer), Conn { stream, pending: Vec::new() });
-                self.stats.lock().unwrap().tcp_connections += 1;
-            }
-            let keys: Vec<SocketAddr> = self.conns.keys().copied().collect();
-            for key in keys {
-                let Some(c) = self.conns.get_mut(&key) else { continue };
-                let mut closed = false;
-                loop {
-                    match c.stream.read(&mut buf) {
-                        Ok(0) => {
-                            closed = true;
-                            break;
-                        }
-                        Ok(n) => c.pending.extend_from_slice(&buf[..n]),
-                        Err(e) if e.kind() == ErrorKind::WouldBlock => break,
-                        Err(_) => {
-                            closed = true;
-                            break;
-                        }
-                    }
-                }
-                let (messages, used) = deframe(&c.pending);
-                c.pending.drain(..used);
-                for m in messages {
-                    if self.options.hostile {
-                        self.hostile(&m, key);
-                    } else {
-                        self.on_client_packet(&m, key);
-                    }
-                }
-                if closed {
-                    self.conns.remove(&key);
                 }
             }
             let clients: Vec<SocketAddr> = self.allocations.keys().copied().collect();
@@ -247,23 +155,7 @@ impl Server {
     }
 
     fn send(&self, packet: &[u8], to: SocketAddr) {
-        let Some(c) = self.conns.get(&to) else {
-            let _ = self.socket.send_to(packet, to);
-            return;
-        };
-        let mut framed = packet.to_vec();
-        if matches!(packet.first(), Some(0x40..=0x4F)) {
-            framed.resize(packet.len().next_multiple_of(4), 0);
-        }
-        let mut written = 0;
-        let start = Instant::now();
-        while written < framed.len() && start.elapsed() < Duration::from_secs(1) {
-            match (&c.stream).write(&framed[written..]) {
-                Ok(n) => written += n,
-                Err(e) if e.kind() == ErrorKind::WouldBlock => thread::yield_now(),
-                Err(_) => return,
-            }
-        }
+        let _ = self.socket.send_to(packet, to);
     }
 
     fn key(&self) -> [u8; 16] {

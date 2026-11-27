@@ -32,7 +32,6 @@ fn frames(stream: u16, n: u32, len: usize) -> Vec<Vec<u8>> {
             let body = FrameBody {
                 t_capture_us: u64::from(f),
                 ref_frame: if f == 1 { REF_NONE } else { f - 1 },
-                ltr_token: None,
                 access_unit: vec![stream as u8; len],
             };
             let fl = if f == 1 { flags::KEYFRAME } else { 0 };
@@ -151,8 +150,6 @@ fn only_opened_streams_are_accepted_and_the_count_is_bounded() {
     assert_eq!(open(&s, 999), CMUX_RD_OK);
     // SAFETY: live session; stream 5 is closed now.
     assert_eq!(unsafe { cmux_rd_session_note_decode(s.0, 5, 100) }, CMUX_RD_ERR_STREAM);
-    // SAFETY: live session; stream 5 is closed now.
-    assert_eq!(unsafe { cmux_rd_session_note_frame_decode(s.0, 5, 0, 100) }, CMUX_RD_ERR_STREAM);
 }
 
 #[test]
@@ -226,46 +223,6 @@ fn stream_carrier_routes_frames_and_queues_other_messages() {
     assert_eq!(fb.iter().map(|f| f.0).collect::<Vec<_>>(), vec![0, 1]);
     // The datagram call refuses on the stream carrier.
     assert_eq!(push(&s, &frames(0, 1, 10)[0], 0), CMUX_RD_ERR_CARRIER);
-}
-
-/// An ultra capacity probe is padding the host times: its arrival rides the stream's
-/// media feedback (transport seq + arrival time), and it is never handed to the app as
-/// a message. Before probes were reported, the host's probe planner never got a sample
-/// and an ultra session held its start rate.
-#[test]
-fn probe_arrivals_ride_the_streams_feedback_and_are_not_messages() {
-    let s = session(CMUX_RD_CARRIER_DATAGRAM);
-    let probe_on = |stream: u16, seq: u16| {
-        let mut d = Vec::new();
-        DatagramHeader {
-            flags: 0,
-            kind: DatagramKind::Probe,
-            stream,
-            frame: 0,
-            index: seq,
-            count: 4,
-            fec_count: 0,
-            transport_seq: seq,
-        }
-        .encode_into(&mut d);
-        d.resize(1_200, 0);
-        d
-    };
-    for (i, seq) in [40u16, 41, 42, 43].into_iter().enumerate() {
-        assert!(push(&s, &probe_on(0, seq), 1_000 + i as u64 * 100) >= 0);
-    }
-    // A probe for a stream the viewer never opened is dropped, not an error.
-    assert_eq!(push(&s, &probe_on(9, 44), 1_500), CMUX_RD_OK);
-    let mut m = CmuxRdMessage { data: std::ptr::null(), len: 0, kind: 0 };
-    // SAFETY: live session, writable out.
-    assert_eq!(unsafe { cmux_rd_session_pop_message(s.0, &mut m) }, 0, "no probe message");
-    let fb = feedbacks(&s, 2_000, false);
-    let arrivals: Vec<(u16, u32)> = fb
-        .iter()
-        .filter(|f| f.0 == 0)
-        .flat_map(|f| f.1.arrivals.iter().map(|a| (a.transport_seq, a.arrival_us)))
-        .collect();
-    assert_eq!(arrivals, vec![(40, 1_000), (41, 1_100), (42, 1_200), (43, 1_300)]);
 }
 
 #[test]
@@ -346,8 +303,7 @@ fn a_tile_frame_is_released_with_its_flag_and_its_video_reference() {
     let s = session(CMUX_RD_CARRIER_DATAGRAM);
     open(&s, 8);
     let mut p = Packetizer::new(8, MAX_DATAGRAM_VPC);
-    let body =
-        FrameBody { t_capture_us: 1, ref_frame: 900, ltr_token: None, access_unit: vec![5; 2_000] };
+    let body = FrameBody { t_capture_us: 1, ref_frame: 900, access_unit: vec![5; 2_000] };
     for d in p.packetize(1, flags::TILE, &body, 0).expect("packetize").datagrams {
         push(&s, &d, 0);
     }
@@ -403,203 +359,4 @@ fn bulk_frames_on_the_stream_carrier_are_queued_as_bulk_messages() {
     };
     assert_eq!(rc, CMUX_RD_OK);
     assert_eq!(&out[..len], &bytes[..]);
-}
-
-/// The session's stall flag through the C ABI.
-fn stalled(s: &Owned) -> i32 {
-    // SAFETY: live session.
-    unsafe { cmux_rd_session_stalled(s.0) }
-}
-
-fn tick(s: &Owned, now: u64) {
-    // SAFETY: live session.
-    assert!(unsafe { cmux_rd_session_tick(s.0, now) } >= 0);
-}
-
-/// `datagram` framed for the stream carrier and pushed at `now`.
-fn push_framed(s: &Owned, datagram: &[u8], now: u64) {
-    let mut bytes = Vec::new();
-    encode_stream_frame(STREAM_DATAGRAM, datagram, &mut bytes).expect("frame");
-    // SAFETY: live session, readable slice.
-    let rc = unsafe { cmux_rd_session_push_stream(s.0, bytes.as_ptr(), bytes.len(), now) };
-    assert!(rc >= 0, "push_stream {rc}");
-}
-
-/// The host's cursor position datagram: sent at least every second while the
-/// session lives, even with a still pointer on a still screen.
-fn cursor_keepalive(seq: u32) -> Vec<u8> {
-    cmux_rd_proto::CursorPos { shape: 1, x: 10, y: 20, visible: true }.datagram(seq)
-}
-
-/// A network drop under a Mac Screen session: the host's heartbeats stop, so
-/// the session reports stalled within STALL_AFTER_US of the last bytes heard,
-/// and reports live again as soon as any bytes arrive.
-#[test]
-fn a_session_hearing_heartbeats_stalls_after_silence_and_resumes_on_bytes() {
-    let s = session(CMUX_RD_CARRIER_STREAM);
-    assert_eq!(stalled(&s), 0, "a new session is not stalled");
-    push_framed(&s, &cursor_keepalive(1), 0);
-    tick(&s, STALL_AFTER_US - 1);
-    assert_eq!(stalled(&s), 0, "silence shorter than the window");
-    tick(&s, STALL_AFTER_US);
-    assert_eq!(stalled(&s), 1, "silence past the window");
-    // Frames (not only heartbeats) count as heard once heartbeats armed the check.
-    for d in frames(0, 1, 500) {
-        push_framed(&s, &d, 2 * STALL_AFTER_US);
-    }
-    assert_eq!(stalled(&s), 0, "bytes heard: live again without a tick");
-    tick(&s, 3 * STALL_AFTER_US - 1);
-    assert_eq!(stalled(&s), 0);
-    tick(&s, 3 * STALL_AFTER_US);
-    assert_eq!(stalled(&s), 1, "silent again after the frame");
-    push_framed(&s, &cursor_keepalive(2), 3 * STALL_AFTER_US + 10);
-    assert_eq!(stalled(&s), 0, "the next heartbeat clears it");
-    // SAFETY: NULL is refused.
-    assert_eq!(unsafe { cmux_rd_session_stalled(std::ptr::null()) }, CMUX_RD_ERR_NULL);
-}
-
-/// The caller arms one timer from next_deadline_us: it must wake at the stall
-/// time, and once the stall is reported it must not ask for a wake in the
-/// past (a timer loop).
-#[test]
-fn the_stall_time_is_a_session_deadline_until_it_is_reported() {
-    let s = session(CMUX_RD_CARRIER_STREAM);
-    push_framed(&s, &cursor_keepalive(1), 0);
-    feedbacks(&s, 0, true);
-    // The keepalive feedback at 1 s moves the feedback deadline to 2 s.
-    feedbacks(&s, 1_000_000, true);
-    // SAFETY: live session.
-    let next = unsafe { cmux_rd_session_next_deadline_us(s.0) };
-    assert_eq!(next, STALL_AFTER_US, "woken at the stall time, before the next keepalive");
-    tick(&s, STALL_AFTER_US);
-    assert_eq!(stalled(&s), 1);
-    // SAFETY: live session.
-    let next = unsafe { cmux_rd_session_next_deadline_us(s.0) };
-    assert!(next > STALL_AFTER_US, "no wake in the past once stalled: {next}");
-}
-
-/// An idle, unchanging screen sends no frames and no stats. A host without
-/// heartbeats (no cursor channel, no clock answers) gives no way to tell
-/// idle from dead, so the session never calls it stalled.
-#[test]
-fn a_still_screen_without_heartbeats_never_stalls() {
-    let s = session(CMUX_RD_CARRIER_STREAM);
-    let mut bytes = Vec::new();
-    encode_stream_frame(1, br#"{"t":"welcome"}"#, &mut bytes).expect("frame");
-    // SAFETY: live session, readable slice.
-    assert!(unsafe { cmux_rd_session_push_stream(s.0, bytes.as_ptr(), bytes.len(), 0) } >= 0);
-    for d in frames(0, 2, 500) {
-        push_framed(&s, &d, 0);
-    }
-    tick(&s, 60_000_000);
-    assert_eq!(stalled(&s), 0, "a minute of a still screen is not a stall");
-}
-
-/// The stage ledger (D8) through the C ABI: host times from a `FrameTimes`
-/// datagram, release from reassembly, decode and present from the caller's
-/// notes; the summary is one JSON object on the host clock.
-#[test]
-fn the_stage_ledger_joins_host_times_with_decode_and_present_notes() {
-    use cmux_rd_proto::FrameTimes;
-    let s = session(CMUX_RD_CARRIER_DATAGRAM);
-    for d in frames(0, 1, 3_000) {
-        assert!(push(&s, &d, 10_000) >= 0);
-    }
-    let times = FrameTimes {
-        display_us: 1_000,
-        encode_start_us: 3_000,
-        encoded_us: 6_000,
-        first_sent_us: 6_100,
-        last_sent_us: 9_000,
-    };
-    assert!(push(&s, &times.datagram(0, 1), 10_100) >= 0);
-    assert_eq!(pop_all(&s).len(), 1);
-    // SAFETY: live session.
-    unsafe {
-        assert_eq!(cmux_rd_session_note_frame_decoded(s.0, 0, 1, 2_000, 12_000), CMUX_RD_OK);
-        assert_eq!(cmux_rd_session_note_frame_presented(s.0, 0, 1, 20_000), CMUX_RD_OK);
-        assert_eq!(cmux_rd_session_note_frame_presented(s.0, 9, 1, 20_000), CMUX_RD_ERR_STREAM);
-    }
-    let mut len = 0usize;
-    // SAFETY: live session; a zero-capacity buffer only reports the size.
-    assert_eq!(
-        unsafe { cmux_rd_session_stage_ledger(s.0, std::ptr::null_mut(), 0, &mut len) },
-        CMUX_RD_ERR_BUFFER
-    );
-    let mut buf = vec![0u8; len];
-    // SAFETY: live session, writable buffer of `len` bytes.
-    assert_eq!(
-        unsafe { cmux_rd_session_stage_ledger(s.0, buf.as_mut_ptr(), buf.len(), &mut len) },
-        CMUX_RD_OK
-    );
-    let v: serde_json::Value = serde_json::from_slice(&buf[..len]).expect("json");
-    assert_eq!(v["schema"], "cmux.rd-stage-ledger/1");
-    assert_eq!(v["frames_with_host_times"], 1);
-    let p50 = |name: &str| {
-        v["stages"].as_array().expect("stages").iter().find(|r| r["stage"] == name).expect(name)
-            ["p50_ms"]
-            .clone()
-    };
-    assert_eq!(p50("Capture"), 2.0);
-    assert_eq!(p50("Encode"), 3.0);
-    assert_eq!(p50("Send"), 3.0);
-    assert_eq!(p50("Decode"), 2.0);
-    assert_eq!(p50("Present"), 8.0);
-    // No clock estimate yet: Network and Total cross the clocks, so they say why they are empty.
-    assert!(p50("Network").is_null());
-    assert!(p50("Total").is_null());
-}
-
-/// The session report through the C ABI: connect start to the first frame on
-/// glass, and Present over every presented frame; Total waits for a clock
-/// offset, as in the ledger.
-#[test]
-fn the_session_report_counts_first_frame_from_connect_and_present_per_frame() {
-    use cmux_rd_proto::FrameTimes;
-    let s = session(CMUX_RD_CARRIER_DATAGRAM);
-    // SAFETY: live session.
-    unsafe {
-        assert_eq!(cmux_rd_session_note_connect_started(s.0, 2_000), CMUX_RD_OK);
-        assert_eq!(
-            cmux_rd_session_note_connect_started(s.0, 5_000),
-            CMUX_RD_OK,
-            "the first call counts"
-        );
-    }
-    for d in frames(0, 1, 3_000) {
-        assert!(push(&s, &d, 10_000) >= 0);
-    }
-    let times = FrameTimes {
-        display_us: 1_000,
-        encode_start_us: 3_000,
-        encoded_us: 6_000,
-        first_sent_us: 6_100,
-        last_sent_us: 9_000,
-    };
-    assert!(push(&s, &times.datagram(0, 1), 10_100) >= 0);
-    assert_eq!(pop_all(&s).len(), 1);
-    // SAFETY: live session.
-    unsafe {
-        assert_eq!(cmux_rd_session_note_frame_decoded(s.0, 0, 1, 2_000, 12_000), CMUX_RD_OK);
-        assert_eq!(cmux_rd_session_note_frame_presented(s.0, 0, 1, 20_000), CMUX_RD_OK);
-    }
-    let mut len = 0usize;
-    // SAFETY: live session; a zero-capacity buffer only reports the size.
-    assert_eq!(
-        unsafe { cmux_rd_session_report(s.0, std::ptr::null_mut(), 0, &mut len) },
-        CMUX_RD_ERR_BUFFER
-    );
-    let mut buf = vec![0u8; len];
-    // SAFETY: live session, writable buffer of `len` bytes.
-    assert_eq!(
-        unsafe { cmux_rd_session_report(s.0, buf.as_mut_ptr(), buf.len(), &mut len) },
-        CMUX_RD_OK
-    );
-    let v: serde_json::Value = serde_json::from_slice(&buf[..len]).expect("json");
-    assert_eq!(v["schema"], "cmux.rd-session-report/1");
-    assert_eq!(v["first_frame_ms"], 18.0);
-    assert_eq!(v["frames_presented"], 1);
-    assert_eq!(v["present"]["n"], 1);
-    assert_eq!(v["present"]["p95_ms"], 8.0);
-    assert!(v["total"].is_null(), "no clock offset yet");
 }

@@ -52,15 +52,10 @@ struct SidebarPriorityMotionTests {
         near(r.minX, s.minX) && near(r.minY, s.minY) && near(r.width, s.width) && near(r.height, s.height)
     }
 
-    /// Lets the display run frames until `done` holds (the spring settled), calling `sample` after each. The deadline
-    /// only bounds a failure: in the full parallel run other suites hold the main thread for seconds at a time, and
-    /// the frames that move the rows run there too, so a two-second window ended with the rows not moved yet.
-    private static func runFrames(until done: () -> Bool, sample: () -> Void = {}) async throws {
-        let deadline = ContinuousClock.now + .seconds(30)
-        while !done(), ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(16))
-            sample()
-        }
+    /// Lets the display run frames until `done` holds (the spring settled), at most two seconds.
+    private static func runFrames(until done: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !done(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(16)) }
     }
 
     /// Lets the display run frames for `duration`, calling `sample` after each.
@@ -223,8 +218,7 @@ struct SidebarPriorityMotionTests {
         Self.withSidebarMotion { view.show(Self.panel(["a", "b", "c"], previews: ["b"])) }
         let whole = SidebarPriorityRowView.height(hasPreview: true)
         var spilled: [CGFloat] = []
-        // Watched until b is whole, not for a fixed 900 ms, which a loaded main actor spent before b grew at all.
-        try await Self.runFrames(until: { Self.near(b.frame.height, whole) }) {
+        try await Self.runFrames(for: .milliseconds(900)) {
             if b.frame.height < whole - 0.5, !b.clipsToBounds { spilled.append(b.frame.height) }
         }
         #expect(spilled.isEmpty, "b drew unclipped while it opened, at heights \(spilled.prefix(3)) of \(whole)")

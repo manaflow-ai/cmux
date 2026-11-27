@@ -23,7 +23,6 @@ pub mod folds;
 mod fsio;
 #[cfg(any(test, feature = "gate-rounds"))]
 pub mod gate_rounds;
-pub mod image_dims;
 pub mod index;
 mod json;
 pub mod log;

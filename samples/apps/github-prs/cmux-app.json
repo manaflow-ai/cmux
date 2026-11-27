@@ -4,7 +4,7 @@
   "id": "cmux/github-prs",
   "name": { "en": "GitHub PRs", "ja": "GitHub PR" },
   "version": "1.0.0",
-  "description": "Your pull requests in the sidebar: the open ones with their review state and drafts, and what changed in the last 24 hours. Click one to open it in a browser tab.",
+  "description": "Your pull requests as sidebar sections: review state, recent activity, drafts, and one click to open.",
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "GPL-3.0-or-later",
@@ -17,7 +17,7 @@
     "actions:run": "Open a pull request in a browser tab when you click it."
   },
   "optionalScopes": {
-    "integration:github:read": "Use the GitHub account you connected in cmux, so private repositories show too. The app never sees your token."
+    "integration:github:read": "Use your connected GitHub account (private repositories) without seeing its token."
   },
   "contributes": {
     "sidebarSections": [

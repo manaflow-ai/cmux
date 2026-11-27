@@ -146,11 +146,18 @@ struct CloudWorkPickTests {
         #expect(pick.rootFiles == ["package.json"])
     }
 
-    /// A chat's bare create is sized for the chat; the request stays a bare create (``CloudMachineRequest/isDefault``).
+    /// New Cloud Machine from a chat sizes the machine for the chat only when the setup keeps
+    /// the chat's own repository; the request stays a bare create (``CloudMachineRequest/isDefault``).
     @MainActor
-    @Test func aChatsCreateIsSizedForTheChat() {
+    @Test func theSetupIsSizedOnlyForTheChatsOwnRepository() throws {
         let pick = CloudWorkPick(root: "/r", repoKey: "github.com/octo/paint", repo: CloudMachineRepo(owner: "octo", name: "paint", ref: "main"),
                                  rootFiles: ["Package.swift"])
+        let same = try CloudWorkspaceSetupWizard.Plan.make(source: .repository, repositoryText: "Octo/Paint")
+        #expect(CloudChatPick.request(same, sizedFor: pick).autosize == pick.autosize)
+        let other = try CloudWorkspaceSetupWizard.Plan.make(source: .repository, repositoryText: "octo/brush")
+        #expect(CloudChatPick.request(other, sizedFor: pick).autosize == nil)
+        let empty = try CloudWorkspaceSetupWizard.Plan.make(source: .empty, repositoryText: "")
+        #expect(CloudChatPick.request(empty, sizedFor: pick).autosize == nil)
         #expect(CloudChatPick.request(sizedFor: nil).autosize == nil)
         #expect(CloudChatPick.request(sizedFor: pick).autosize == pick.autosize)
         #expect(CloudChatPick.request(sizedFor: pick).isDefault)

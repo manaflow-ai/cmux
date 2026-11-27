@@ -7,29 +7,6 @@ use crate::server::wait::Until;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-/// Which text of a turn a watch's `match` is looked for in. A coordinator's "wake me on the
-/// helper's DONE reply" watch was spent four times in a day by an interim reply that only
-/// promised the marker, or by text in the turn before a tool call (2026-11-27): `reply` and
-/// `replyStart` keep it armed until the turn's final reply says it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum MatchIn {
-    /// Any reply text of the turn, before or after its tool calls: what a match always was.
-    #[default]
-    Turn,
-    /// Only the turn's final reply: the text after its last tool call, thought or plan.
-    Reply,
-    /// The turn's final reply begins with the text (leading whitespace aside).
-    ReplyStart,
-}
-impl MatchIn {
-    pub fn is_turn(&self) -> bool {
-        *self == MatchIn::Turn
-    }
-}
-/// A watch's `match` and where it is looked for; `None` for a watch without a match.
-type Filter<'a> = Option<(&'a str, MatchIn)>;
-
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Cursor {
@@ -47,16 +24,6 @@ pub struct Cursor {
     pub await_fresh: bool,
 }
 impl Cursor {
-    /// Whether the turn read so far satisfies the filter.
-    fn hit(&self, filter: Filter) -> bool {
-        match filter {
-            None => true,
-            Some((_, MatchIn::Turn | MatchIn::Reply)) => self.matched,
-            Some((pattern, MatchIn::ReplyStart)) => {
-                self.reply_open && self.reply.trim_start().starts_with(pattern)
-            }
-        }
-    }
     pub(super) fn text(&mut self, text: &str, pattern: Option<&str>) {
         if let Some(pattern) = pattern {
             let joined = format!("{}{text}", self.tail);
@@ -100,8 +67,6 @@ pub const WATCH_KINDS: &[&str] = &[
     "permission_reissued",
     "permission_decision",
     "turn_result",
-    "harness_sandbox_failed",
-    "remote_sandbox",
     "status",
 ];
 
@@ -134,14 +99,7 @@ fn selected(until: &[String], s: &Value) -> Option<&'static str> {
 /// Each candidate is journal-backed. Two turns ending between handler runs
 /// yield two entries; a later turn cannot hide an earlier permission/resolve.
 pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>, bool), RpcError> {
-    let mut s = summary(hub, key);
-    // A start's reply can beat the linked peer's inventory notification. The watch
-    // already holds the returned exact id: ask its journal before calling it closed.
-    let linked = hub.resolve_remote(key).map(|(peer, id, _)| (peer, id)).or_else(|| {
-        let (host, id) = key.split_once('/')?;
-        Some((hub.peer(host)?, id.to_owned()))
-    });
-    let filter: Filter = w.match_text.as_deref().map(|p| (p, w.match_in));
+    let s = summary(hub, key);
     let c = w
         .cursors
         .get_mut(key)
@@ -154,25 +112,13 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
     {
         let events: Vec<crate::store::EventRecord> = if let Ok(local) = hub.resolve(key) {
             hub.events(&local.id, c.seq, 256).map_err(|e| RpcError::internal(e.to_string()))?
-        } else if let Some((peer, id)) = linked {
-            let answer = tokio::time::timeout(
+        } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
+            let page = tokio::time::timeout(
                 std::time::Duration::from_millis(250),
                 peer.request(method::MUX_EVENTS, remote_page(&id, c.seq, w.match_text.as_deref())),
             )
             .await
-            .map_err(|_| RpcError::internal("peer watch page timed out"))?;
-            let page = match answer {
-                Ok(page) => {
-                    s["missing"] = json!(false);
-                    page
-                }
-                Err(error)
-                    if error.code == RpcError::not_found("").code && s["missing"] == true =>
-                {
-                    json!({"events": []})
-                }
-                Err(error) => return Err(error),
-            };
+            .map_err(|_| RpcError::internal("peer watch page timed out"))??;
             end = page["lastSeq"].as_u64();
             more = page["hasMore"] == true;
             let events: Vec<crate::store::EventRecord> =
@@ -183,24 +129,6 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
             // them and the next page never asks for them again.
             through = page.get("pageThrough").and_then(Value::as_u64);
             events
-        } else if let Some(row) = hub.mesh_book_row(key)
-            && let Some(mesh) = hub.mesh.get()
-            && hub.mesh_may_route(key)
-        {
-            let id = &row.receipt.mux_session_id;
-            let page = crate::server::mesh_relay::read::read(
-                mesh.as_ref(),
-                &row.peer,
-                id,
-                method::MUX_EVENTS,
-                &remote_page(id, c.seq, w.match_text.as_deref()),
-            )
-            .await?;
-            end = page["lastSeq"].as_u64();
-            more = page["hasMore"] == true;
-            through = page.get("pageThrough").and_then(Value::as_u64);
-            serde_json::from_value(page["events"].clone())
-                .map_err(|e| RpcError::internal(format!("hub watch events: {e}")))?
         } else {
             Vec::new()
         };
@@ -211,7 +139,7 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                 continue;
             }
             if c.initial.as_ref().is_some_and(|i| e.seq > i["lastSeq"].as_u64().unwrap_or(0)) {
-                initial(&w.until, filter, key, c, &mut found);
+                initial(&w.until, w.match_text.is_some(), key, c, &mut found);
             }
             c.seq = e.seq;
             match (e.dir.as_str(), e.kind.as_str()) {
@@ -228,12 +156,6 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                     if !c.reply_open {
                         c.reply.clear();
                         c.reply_open = true;
-                        if !w.match_in.is_turn() {
-                            // A new reply segment: text before the tool call it follows is not
-                            // the final reply, so it no longer counts.
-                            c.matched = false;
-                            c.tail.clear();
-                        }
                     }
                     if let Some(omitted) = e.msg.pointer("/_meta/acpmux/omitted") {
                         c.stub_text(omitted, w.match_text.as_deref());
@@ -248,12 +170,7 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                     }
                 }
                 ("in", "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan") => {
-                    c.reply_open = false;
-                    if !w.match_in.is_turn() {
-                        // A turn that ends on this has no final reply text to match.
-                        c.matched = false;
-                        c.tail.clear();
-                    }
+                    c.reply_open = false
                 }
                 ("mux", "permission_request" | "permission_reissued")
                     if w.until.iter().any(|u| u == "permission") =>
@@ -264,30 +181,9 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                 ("mux", "permission_decision") => {
                     c.permission_wakes.remove(&format!("permission:{}", e.msg["permissionId"]));
                 }
-                ("mux", "harness_sandbox_failed" | "remote_sandbox")
-                    if w.until.iter().any(|u| u == "blocked") =>
-                {
-                    if let Some(error) =
-                        e.msg.get("error").or_else(|| e.msg.get("refused")).and_then(Value::as_str)
-                    {
-                        c.reply = format!(
-                            "{error}\nCheck the chat's permission level on its machine; restart it with Full access only when authorized, or choose a folder and tools its sandbox permits."
-                        );
-                        candidates.push(("blocked", format!("sandbox:{}", e.seq)));
-                    }
-                }
                 ("mux", "turn_result") => {
                     c.turn_mark = format!("turn:{}", e.msg["turnId"]);
                     c.unread = e.msg.get("unread").unwrap_or(&s["unread"]) == &Value::Bool(true);
-                    let blocked = w.until.iter().any(|u| u == "blocked")
-                        && (e.msg["status"] == "failed"
-                            || crate::session_liveness::blocked_reply(&c.reply).is_some());
-                    if blocked {
-                        if let Some(error) = e.msg["errorText"].as_str() {
-                            c.reply = error.to_owned();
-                        }
-                        candidates.push(("blocked", c.turn_mark.clone()));
-                    }
                     let status = if e.msg["pendingPermissions"].as_u64().unwrap_or(0) > 0 {
                         "waiting"
                     } else {
@@ -297,7 +193,7 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                         selected(&w.until, &json!({"status": status, "unread": c.unread}))
                     {
                         // Permission wakes have their own journal identity.
-                        if state != "permission" && !blocked {
+                        if state != "permission" {
                             candidates.push((state, c.turn_mark.clone()));
                         }
                     }
@@ -317,9 +213,9 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                 }
                 _ => {}
             }
-            emit(filter, key, &s, c, &mut candidates, &mut found);
+            emit(w.match_text.is_some(), key, &s, c, &mut candidates, &mut found);
         }
-        emit(filter, key, &s, c, &mut candidates, &mut found);
+        emit(w.match_text.is_some(), key, &s, c, &mut candidates, &mut found);
         // `pageThrough` never passes a record the page held back for its byte bound (the page
         // then ends on its own last record), so nothing the watch reads is skipped.
         if let Some(through) = through.filter(|t| *t > c.seq && end.is_none_or(|end| *t <= end)) {
@@ -335,24 +231,18 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
         c.initial = Some(s.clone());
         c.await_fresh = false;
     }
-    initial(&w.until, filter, key, c, &mut found);
+    initial(&w.until, w.match_text.is_some(), key, c, &mut found);
     if s["missing"] == true
         && let Some(state) = selected(&w.until, &s)
     {
-        emit(filter, key, &s, c, &mut vec![(state, "closed".into())], &mut found);
+        emit(w.match_text.is_some(), key, &s, c, &mut vec![(state, "closed".into())], &mut found);
     }
     Ok((found, false))
 }
-fn initial(until: &[String], filter: Filter, key: &str, c: &mut Cursor, found: &mut Vec<String>) {
+fn initial(until: &[String], filtered: bool, key: &str, c: &mut Cursor, found: &mut Vec<String>) {
     if let Some(s) = c.initial.take()
         && let Some(state) = selected(until, &s)
     {
-        // A match watch looks for its text in turns that end after it was armed: the turn that
-        // had already ended (the journal read from its start) is no news. Without this a watch
-        // armed on a helper whose last reply held the text fired at once and was spent.
-        if filter.is_some() && matches!(state, "ready" | "done") {
-            return;
-        }
         let mark = if state == "closed" {
             "closed".into()
         } else if matches!(state, "ready" | "done") && !s["lastTurn"]["turnId"].is_null() {
@@ -362,11 +252,11 @@ fn initial(until: &[String], filter: Filter, key: &str, c: &mut Cursor, found: &
         } else {
             format!("initial:{}", c.seq)
         };
-        emit(filter, key, &s, c, &mut vec![(state, mark)], found);
+        emit(filtered, key, &s, c, &mut vec![(state, mark)], found);
     }
 }
 fn emit(
-    filter: Filter,
+    filtered: bool,
     key: &str,
     s: &Value,
     c: &mut Cursor,
@@ -378,7 +268,7 @@ fn emit(
         if c.initial.is_some() {
             continue;
         }
-        if c.last_resolve == mark || !c.hit(filter) {
+        if c.last_resolve == mark || (filtered && !c.matched) {
             continue;
         }
         if state == "permission" && !c.permission_wakes.insert(mark.clone()) {
@@ -387,15 +277,41 @@ fn emit(
         c.last_resolve = mark;
         let name = s["name"].as_str().unwrap_or(key);
         let reply: String = crate::secret_scan::mask(&c.reply).chars().take(400).collect();
-        let next = if state == "blocked" {
-            "\nIf the remote sandbox refused the work, choose Full access on the starting machine only when authorized, or retry with a folder and tools that sandbox permits."
-        } else {
-            ""
-        };
-        found.push(format!("{name} ({key}) is {state}. Last reply: {reply}{next}\nacpmux last {key}\nacpmux history {key}\nacpmux pending"));
+        found.push(format!("{name} ({key}) is {state}. Last reply: {reply}\nacpmux last {key}\nacpmux history {key}\nacpmux pending"));
     }
 }
 
 #[cfg(test)]
-#[path = "watch_events_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn chunk(text: &str, ids: usize) -> Value {
+        let mut msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "c",
+            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}});
+        // Short id fields that, read first, would fill the stub before its text.
+        for n in 0..ids {
+            msg[format!("field{n:03}Id")] = json!("i".repeat(200));
+        }
+        msg
+    }
+
+    /// A `match` at the longest a watch takes, split across two long reply chunks that both come
+    /// as stubs, is still found: each stub keeps at least the pattern's length of its text's ends,
+    /// before any field (review of #40800: a 5000-char pattern across an 80 KB chunk was lost).
+    #[test]
+    fn a_longest_match_across_two_stubbed_chunks_is_found() {
+        let pattern =
+            format!("{}{}", "a".repeat(1500), "b".repeat(crate::hub::MAX_MATCH_BYTES - 1500));
+        let first = format!("{}{}", "x".repeat(80 * 1024), "a".repeat(1500));
+        let second =
+            format!("{}{}", "b".repeat(crate::hub::MAX_MATCH_BYTES - 1500), "y".repeat(80 * 1024));
+        let mut c = Cursor::default();
+        for text in [&first, &second] {
+            let stub = super::super::paging::stub_msg(&chunk(text, 60), 90 * 1024, Some(&pattern));
+            let omitted = &stub["_meta"]["acpmux"]["omitted"];
+            assert_eq!(omitted["matched"], false, "neither chunk holds it alone");
+            c.stub_text(omitted, Some(&pattern));
+        }
+        assert!(c.matched, "the match across the two chunks was lost");
+    }
+}

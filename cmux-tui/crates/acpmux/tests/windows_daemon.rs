@@ -7,8 +7,6 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-#[path = "windows_daemon/machine_join.rs"]
-mod machine_join;
 // This process starts no agent.
 const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 

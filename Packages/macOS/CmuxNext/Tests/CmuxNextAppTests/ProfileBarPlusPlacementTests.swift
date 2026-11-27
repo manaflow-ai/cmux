@@ -21,11 +21,9 @@ import Testing
         [120, 160, 240, 400].map { Case(count: count, width: CGFloat($0)) }
     } + [240, 400].map { Case(count: 12, width: CGFloat($0)) }
 
-    /// Spaces stay hidden until a second one (Lawrence 2026-11-20: "hide spaces by default").
-    @Test func theStripMountsFromTheSecondSpace() {
+    @Test func oneProfileStillMountsTheProfileBar() {
+        #expect(ProfileBarLogic.isVisible(profileCount: 1))
         #expect(!ProfileBarLogic.isVisible(profileCount: 0))
-        #expect(!ProfileBarLogic.isVisible(profileCount: 1))
-        #expect(ProfileBarLogic.isVisible(profileCount: 2))
     }
 
     /// A bar with `count` spaces (the first current), at rest, in a window.

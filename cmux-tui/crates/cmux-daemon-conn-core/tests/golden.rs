@@ -299,17 +299,3 @@ fn error_classes_cover_every_kind_and_bad_input_is_refused() {
     );
     assert_eq!(cmux_daemon_conn_abi_version(), ABI_VERSION);
 }
-
-#[test]
-fn an_identify_reply_without_a_string_generation_is_refused() {
-    use cmux_daemon_conn_core::identity::Identity;
-    let line = |generation: &str| {
-        format!(r#"{{"id":1,"ok":true,"data":{{"app":"cmux-tui","protocol":12{generation}}}}}"#)
-    };
-    assert!(Identity::from_reply(&line("")).is_err(), "no generation");
-    assert!(Identity::from_reply(&line(r#","generation":null"#)).is_err(), "a null generation");
-    assert!(Identity::from_reply(&line(r#","generation":7"#)).is_err(), "a number");
-    let identity =
-        Identity::from_reply(&line(r#","generation":"g1""#)).expect("a string generation");
-    assert_eq!(identity.generation, json!("g1"));
-}

@@ -133,7 +133,6 @@ impl Scope {
 
     /// A generated [`crate::Client`] for this scope with `bearer` (the team
     /// header comes from the scope, so the two cannot disagree).
-    #[cfg(feature = "http")]
     pub fn client(
         &self,
         bearer: &str,
@@ -190,7 +189,7 @@ fn plain_id(id: &str) -> bool {
 /// `https://host[:port]`, or `http://` only to this machine; no user, path,
 /// query or fragment.
 fn bare_origin(raw: &str) -> Option<String> {
-    let url = url::Url::parse(raw).ok()?;
+    let url = reqwest::Url::parse(raw).ok()?;
     let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
     let scheme_ok = url.scheme() == "https" || (url.scheme() == "http" && local);
     let bare = url.host_str().is_some()
@@ -246,7 +245,7 @@ impl From<Machine> for MachineFields {
     }
 }
 
-#[cfg(all(test, feature = "http"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::backend::Backend;

@@ -71,8 +71,8 @@ struct ContextMenuStandardTests {
         }
     }
 
-    /// The tab bar's +: the kinds of tab (Mac Screen too), then the ways to pick one. No Point at
-    /// Element: the + is not an object to point at (InspectElementScopeTests).
+    /// The tab bar's +: the kinds of tab (Mac Screen too), then the ways to pick one. No Inspect
+    /// Element: it inspects web content only (InspectElementScopeTests).
     @Test func newTabMenuListsTheKindsFirst() {
         let entries = menus.entries(for: .newTab)
         let ids = entries.map { entry -> String in

@@ -68,16 +68,8 @@ struct NewTabSpareHiddenFitTests {
     }
 
     /// A window resize (no spring): the spare takes its pane's new size before the next Cmd-T, which shows it at that size
-    /// with no refit in its turn. The key must take the pool's spare: the tab of a New Tab key takes the view of an
-    /// untouched New Tab page first (`AgentTabStore.idlePage`), and the app starts on one, so the row counts each
-    /// New Tab page of the app as used before its key (`NewTabOpenFramesTests.useEachNewTabPage`). Without that the
-    /// key took no spare, and the row's check of a refit said nothing.
-    ///
-    /// `used` false, the second form (`NewTabHoldMovesItsPageTests.theIdlePage`): the New Tab page that the pane shows
-    /// stays untouched. Want: after the same window resize the key's tab takes that page's view, the open's record
-    /// says no refit, and the view has the same size one frame after the key as before it (its pane laid it out at
-    /// the resize; the take changes no size).
-    @Test(arguments: [true, false]) func afterAWindowResizeTheSpareIsAtThePanesSizeAndCmdTTakesItWithNoRefit(used: Bool) async throws {
+    /// with no refit in its turn.
+    @Test func afterAWindowResizeTheSpareIsAtThePanesSizeAndCmdTTakesItWithNoRefit() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-resize-fit")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
@@ -96,27 +88,7 @@ struct NewTabSpareHiddenFitTests {
             try await PasswordManagerRouteTests.until({ spare.frame.size == size }, within: .seconds(2),
                                                       report: { "the spare is \(spare.frame.size), its pane's content is \(size)" })
             let openings = pool.openings.count
-            if !used {
-                let idle = try await NewTabHoldMovesItsPageTests.theIdlePage(of: pane, services)
-                let atTheKey = idle.frame.size, left = pane.currentTabKey
-                NewTabPage.open(in: pane, seed: nil)
-                let key = NewTabHoldMovesItsPageTests.afterAKey(in: pane, left: left, services, openings: openings)
-                await NewTabPageAtItsFrameTests.frame(services)
-                print("""
-                    NewTabSpareHiddenFitTests: the second form, a New Tab key after a window resize from an untouched New Tab page: \
-                    the new tab took that page's view: \(key.took === idle); the open's record says `idle`: \
-                    \(key.record.map { String($0.idle) } ?? "no record"), `refit`: \(key.record.map { String($0.refit) } ?? "no record"); \
-                    the view's size at the key: \(atTheKey), one frame after it: \(idle.frame.size); the pane's content size for a \
-                    New Tab page: \(size); the pool kept its page: \(pool.spare?.view === spare)
-                    """)
-                #expect(key.took === idle, "the new tab did not take the page view of the untouched New Tab page that its pane showed")
-                #expect(key.record?.idle == true && key.record?.refit == false, "the record of an open that took an idle page view does not say `idle` and no refit")
-                #expect(idle.frame.size == atTheKey, "the page view that the new tab took changed its size at the take: \(atTheKey) -> \(idle.frame.size)")
-                return
-            }
-            NewTabOpenFramesTests.useEachNewTabPage(services)
             NewTabPage.open(in: pane, seed: nil)
-            #expect(pool.spare?.view !== spare, "Cmd-T did not take the parked spare: the row's check of a refit says nothing")
             let opened = try #require(pool.openings.dropFirst(openings).first, "Cmd-T recorded no opening")
             #expect(opened.spare, "Cmd-T loaded cold instead of taking the parked spare")
             #expect(!opened.refit, "Cmd-T found the spare at another size than its pane's")

@@ -6,19 +6,19 @@ use std::sync::Arc;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use cmux_remote_protocol::{
-    Lane, MUX_CONTROL_LINE_CODECS, MUX_INPUT_V1_FEATURE, MUX_LINE_CODEC_ZLIB,
-    MUX_LINE_ZLIB_V1_FEATURE, ProcessEvent, ProcessId, ProcessReplayRange, RouteId, RpcError,
+    Lane, MUX_INPUT_V1_FEATURE, ProcessEvent, ProcessId, ProcessReplayRange, RouteId, RpcError,
     RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse, Service, ServiceControl,
     TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
     WorkspaceRequest, WorkspaceResponse,
 };
+use cmux_tui_core::resource::TerminalPublicId;
 #[cfg(unix)]
-use cmux_terminal_host_protocol::terminal_host::{
+use cmux_tui_core::terminal_host::{
     CapabilityRights, CapabilityToken, ClientHello, ClientRole, HostHello, HostIncarnation,
     TerminalId,
 };
 #[cfg(unix)]
-use cmux_terminal_host_protocol::terminal_host_protocol::{
+use cmux_tui_core::terminal_host_protocol::{
     FLAG_SMART_RENDERER, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame, FrameDecoder,
     HEADER_LEN, MAX_FRAME_PAYLOAD, MessageKind, PROTOCOL_VERSION, encode_frame, frame_payload_len,
 };
@@ -422,12 +422,9 @@ impl DaemonServices {
                     let scope = scope.clone();
                     let request_slots = request_slots.clone();
                     let grant = service_authority.grant().cloned();
-                    let mux_role = service_authority.mux_role();
                     handlers.spawn_local(async move {
                         let _permit = permit;
-                        services
-                            .serve_stream(scope, request_slots, grant, mux_role, incoming)
-                            .await
+                        services.serve_stream(scope, request_slots, grant, incoming).await
                     });
                 }
                 completed = handlers.join_next(), if !handlers.is_empty() => {
@@ -493,7 +490,6 @@ impl DaemonServices {
         scope: ClientScope,
         request_slots: Arc<RequestAdmission>,
         grant: Option<Arc<CarrierGrant>>,
-        mux_role: Option<Option<cmux_link::token::VmKind>>,
         incoming: IncomingStream,
     ) -> Result<(), ServicesError> {
         let workspace = self.workspace.clone();
@@ -531,10 +527,9 @@ impl DaemonServices {
             Service::MuxControl => {
                 Self::serve_mux_control_with_budget(
                     mux_socket,
-                    mux_role,
+                    grant.as_deref(),
                     incoming.stream,
                     mux_upload_budget,
-                    mux_line_zlib_requested(&incoming.metadata),
                 )
                 .await
             }
@@ -999,25 +994,20 @@ impl DaemonServices {
 
     /// One `mux-control` stream, spliced to the session daemon's unix socket. A
     /// grant-admitted session's stream first carries the grant's signed role
-    /// (`mux_carrier_role.rs`), before any of the person's bytes, and a session this
-    /// machine's own user opened (`cmux ssh`: kernel or SSH evidence) the owner's role
-    /// (`ServiceAuthority::mux_role`). `line_zlib`:
-    /// the client listed zlib in its open metadata, so large lines to it go
-    /// compressed and `opened` says so.
+    /// (`mux_carrier_role.rs`), before any of the person's bytes.
     #[cfg(unix)]
     async fn serve_mux_control_with_budget(
         mux_socket: Option<PathBuf>,
-        mux_role: Option<Option<cmux_link::token::VmKind>>,
+        grant: Option<&CarrierGrant>,
         stream: ServiceStream,
         upload_budget: MuxUploadBudget,
-        line_zlib: bool,
     ) -> Result<(), ServicesError> {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
         let mut socket = connect_owned_unix_socket(path).await?;
-        if let Some(role) = mux_role
-            && let Err(refused) = crate::mux_carrier_role::stamp(&mut socket, role).await
+        if let Some(grant) = grant
+            && let Err(refused) = crate::mux_carrier_role::stamp(&mut socket, grant.vm_kind).await
         {
             let (code, message) = match refused {
                 crate::mux_carrier_role::StampRefused::NotTaken => (
@@ -1033,18 +1023,17 @@ impl DaemonServices {
             return Ok(());
         }
         let stream = Arc::new(stream);
-        send_opened_with(&stream, Lane::Interactive, line_zlib).await?;
+        send_opened(&stream, Lane::Interactive).await?;
         let (reader, writer) = socket.into_split();
-        pump_mux_server_with_budget(stream, reader, writer, upload_budget, line_zlib).await
+        pump_mux_server_with_budget(stream, reader, writer, upload_budget).await
     }
 
     #[cfg(not(unix))]
     async fn serve_mux_control_with_budget(
         _mux_socket: Option<PathBuf>,
-        _mux_role: Option<Option<cmux_link::token::VmKind>>,
+        _grant: Option<&CarrierGrant>,
         stream: ServiceStream,
         _upload_budget: MuxUploadBudget,
-        _line_zlib: bool,
     ) -> Result<(), ServicesError> {
         stream
             .reject(
@@ -1058,17 +1047,8 @@ impl DaemonServices {
 
 /// Validated `terminal-bytes-v1` open metadata.
 struct TerminalBytesRequest {
-    /// A terminal's public id (`term_` and 32 lowercase hex digits, cmux-tui-core's `TerminalPublicId`).
-    terminal: String,
+    terminal: TerminalPublicId,
     viewer_size_priority: bool,
-}
-
-/// cmux-tui-core's `TerminalPublicId::parse`, here so this crate builds without cmux-tui-core.
-fn terminal_public_id(value: &str) -> Option<&str> {
-    let payload = value.strip_prefix("term_")?;
-    (payload.len() == 32
-        && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
-    .then_some(value)
 }
 
 fn terminal_bytes_metadata(
@@ -1088,12 +1068,15 @@ fn terminal_bytes_metadata(
             ));
         }
     };
-    let terminal =
-        terminal_public_id(metadata.get("terminal").ok_or_else(|| {
-            ServicesError::Metadata("terminal byte stream requires terminal".into())
-        })?)
-        .ok_or_else(|| ServicesError::Metadata("terminal byte stream terminal is invalid".into()))?
-        .to_owned();
+    let terminal = TerminalPublicId::parse(
+        metadata
+            .get("terminal")
+            .ok_or_else(|| {
+                ServicesError::Metadata("terminal byte stream requires terminal".into())
+            })?
+            .clone(),
+    )
+    .map_err(|_| ServicesError::Metadata("terminal byte stream terminal is invalid".into()))?;
     Ok(TerminalBytesRequest { terminal, viewer_size_priority })
 }
 
@@ -1329,7 +1312,14 @@ struct MessageReadState {
 
 impl MessageStream {
     pub fn new(stream: Arc<ServiceStream>) -> Self {
-        let lane = crate::service::default_lane(stream.service());
+        let lane = match stream.service() {
+            Service::MuxControl | Service::TerminalBytes | Service::ComputerUse => {
+                Lane::Interactive
+            }
+            Service::ProcessStream => Lane::Bulk,
+            Service::WorkspaceRpc => Lane::Control,
+            Service::TcpTunnel | Service::LocalSocket | Service::Acpmux => Lane::Tunnel,
+        };
         Self::with_lane(stream, lane)
     }
 
@@ -1428,32 +1418,12 @@ impl MessageStream {
     }
 }
 
-/// Whether a `mux-control` open lists zlib among the line codecs its client
-/// reads (`MUX_CONTROL_LINE_CODECS`).
-fn mux_line_zlib_requested(metadata: &BTreeMap<String, String>) -> bool {
-    metadata
-        .get(MUX_CONTROL_LINE_CODECS)
-        .is_some_and(|codecs| codecs.split(',').any(|codec| codec.trim() == MUX_LINE_CODEC_ZLIB))
-}
-
 async fn send_opened(stream: &ServiceStream, lane: Lane) -> Result<(), ServicesError> {
-    send_opened_with(stream, lane, false).await
-}
-
-async fn send_opened_with(
-    stream: &ServiceStream,
-    lane: Lane,
-    line_zlib: bool,
-) -> Result<(), ServicesError> {
     let payload = if stream.service() == Service::MuxControl {
-        let mut features = vec![MUX_INPUT_V1_FEATURE];
-        if line_zlib {
-            features.push(MUX_LINE_ZLIB_V1_FEATURE);
-        }
         serde_json::to_vec(&serde_json::json!({
             "type": "opened",
             "service": stream.service(),
-            "features": features,
+            "features": [MUX_INPUT_V1_FEATURE],
         }))?
     } else {
         serde_json::to_vec(&ServiceControl::Opened { service: stream.service() })?
@@ -1555,7 +1525,6 @@ async fn read_mux_uploads<R>(
     interactive: mpsc::Sender<MuxUploadMessage>,
     control: mpsc::Sender<MuxUploadMessage>,
     bulk: mpsc::Sender<MuxUploadMessage>,
-    line_zlib: bool,
 ) -> Result<(), ServicesError>
 where
     R: AsyncRead + Unpin,
@@ -1589,20 +1558,11 @@ where
                 actual: Lane::Tunnel,
             });
         }
-        let maximum = crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES;
-        let packets = if line_zlib && line.len() >= crate::mux_codec::ZLIB_BLOCKING_LINE_BYTES {
-            // Tens of milliseconds of deflate stay off the runtime's workers.
-            let owned = std::mem::take(&mut line);
-            tokio::task::spawn_blocking(move || {
-                crate::mux_codec::encode_line_for_client(message, &owned, maximum, true)
-            })
-            .await
-            .map_err(|error| {
-                ServicesError::Remote(format!("mux line compression failed: {error}"))
-            })??
-        } else {
-            crate::mux_codec::encode_line_for_client(message, &line, maximum, line_zlib)?
-        };
+        let packets = crate::mux_codec::encode_line_with_limit(
+            message,
+            &line,
+            crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
+        )?;
         let encoded_bytes =
             packets.iter().try_fold(0_usize, |total, packet| total.checked_add(packet.len()));
         let Some(encoded_bytes) = encoded_bytes else {
@@ -1644,7 +1604,6 @@ async fn pump_mux_server_with_budget<R, W>(
     local_reader: R,
     mut local_writer: W,
     upload_budget: MuxUploadBudget,
-    line_zlib: bool,
 ) -> Result<(), ServicesError>
 where
     R: AsyncRead + Unpin,
@@ -1666,7 +1625,6 @@ where
                 interactive_tx,
                 control_tx,
                 bulk_tx,
-                line_zlib,
             );
             let send_interactive =
                 send_mux_uploads(remote.clone(), Lane::Interactive, interactive_rx);

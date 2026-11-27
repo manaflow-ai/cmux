@@ -8,11 +8,8 @@ use std::path::{Path, PathBuf};
 /// Names a `cmux` child (`cmux acp`, the acpmux daemon it may start and the agents that daemon
 /// runs) keeps on purpose, each group with why.
 const ALLOWED: &[&str] = &[
-    // Not a credential: the Computer Use worker's experimental keyboard handoff switch
-    // (cmux-computer-use platform/macos/key_focus.rs, "1" or unset); "KEY" is the keyboard.
-    "CMUX_CU_KEY_HANDOFF",
     // The agents' own logins: the harnesses the daemon runs read them (acpmux login_env.rs,
-    // agent_login.rs, byo_endpoint.rs, harness_health/agent_files.rs, provider_cloud_auth.rs).
+    // agent_login.rs, byo_endpoint.rs, harness_health/agent_files.rs).
     "AI_GATEWAY_API_KEY",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -27,12 +24,6 @@ const ALLOWED: &[&str] = &[
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CMUX_BYO_API_KEY",
     "CODEX_API_KEY",
-    // Codex's ChatGPT-plan logins: acpmux's machine auth (cli/machine_auth.rs) and its credentialed
-    // spawns (agent_credentials.rs) read them, like CODEX_API_KEY. A daemon a `cmux` child starts
-    // serves every later agent, so stripping them would leave those agents signed out.
-    "CHATGPT_ACCESS_TOKEN",
-    "CODEX_ACCESS_TOKEN",
-    "CMUX_CHATGPT_ACCESS_TOKEN",
     "COPILOT_GITHUB_TOKEN",
     "CURSOR_API_KEY",
     "CURSOR_AUTH_TOKEN",
@@ -43,7 +34,6 @@ const ALLOWED: &[&str] = &[
     "GOOGLE_API_KEY",
     "GOOGLE_GENERATIVE_AI_API_KEY",
     "GROK_API_KEY",
-    "GROK_CODE_XAI_API_KEY",
     "GROQ_API_KEY",
     "HF_TOKEN",
     "KIMI_API_KEY",
@@ -73,7 +63,7 @@ const ALLOWED: &[&str] = &[
     "SSH_AUTH_SOCK",
     "SSH_PRIVATE_KEY",
     "STRIPE_API_KEY",
-    // No secret: which login a harness uses, a mode, a scheme, a program or a switch.
+    // No secret: which login a harness uses, a mode, a scheme or a switch.
     "CLAUDE_CODE_SKIP_BEDROCK_AUTH",
     "CLAUDE_CODE_SKIP_FOUNDRY_AUTH",
     "CLAUDE_CODE_SKIP_VERTEX_AUTH",
@@ -85,8 +75,6 @@ const ALLOWED: &[&str] = &[
     "CMUX_DEV_AUTH_REPLACE_SESSION",
     "CMUX_GEMINI_AUTH",
     "CMUX_GROK_AUTH",
-    // The ssh program `cmux device add` runs (acpmux cli/ssh_join.rs), like GIT_SSH.
-    "CMUX_JOIN_SSH",
     "CMUX_LINK_TOKEN_VERIFIER",
     "CMUX_RELAY_JOIN_TICKET_TTL_SECONDS",
     "CMUX_RELAY_JOIN_TIMEOUT_SECONDS",
@@ -118,7 +106,7 @@ const ALLOWED: &[&str] = &[
     "CMUX_LAUNCH_CREDENTIAL",
     "MUX_AGENT_TOKEN_FILE",
     // No environment variable: redaction and secret-scan fixtures, a vault's secret names,
-    // a server's error codes, the X authority file, ssh's and git's own names.
+    // the X authority file, ssh's and git's own names.
     "ACCESSTOKEN",
     "ACCESS_KEY",
     "APIKEY",
@@ -139,42 +127,17 @@ const ALLOWED: &[&str] = &[
     "LESSKEYIN",
     "OPENAI_ORG_TOKEN",
     "OPENROUTER_REFERER_TOKEN",
-    "OTHER_API_KEY",
     "OTHER_KEY",
     "OTHER_TOKEN",
     "PRIVATE_KEY",
     "PRIVATE_TOKEN",
     "PROFILE_KEY",
-    "REFRESH_TOKEN_NOT_FOUND",
     "ROUTER_KEY",
     "SEEDAWSKEY",
-    // The suffixes of a minted R2 key's two store names (`cmux keys mint`, cli/key_broker.rs):
-    // PREFIX_ACCESS_KEY_ID and PREFIX_SECRET_ACCESS_KEY name a GitHub secret, a Keychain item or
-    // a vault entry. The values reach `gh secret set`, `security -i` or `acpmux machine vault
-    // keep` on stdin, never as a child's environment, and nothing reads these bare names.
-    "ACCESS_KEY_ID",
-    "SECRET_ACCESS_KEY",
     "SSH_AUTH_INFO_0",
     "TOP_LEVEL_KEY",
     "VAULT_SECRET",
     "XAUTHORITY",
-    // Not secrets. acpmux's marker holds the NAME of a credential's variable, never its value
-    // (agent_credentials.rs MARKER).
-    "ACPMUX_LAUNCH_CREDENTIAL",
-    // Path and Keychain-service overrides of the secret index and the key audit log
-    // (cli/cloud_secret.rs, cli/key_broker.rs): where a secret is kept, not the secret.
-    "CMUX_NEXT_CLOUD_SECRETS_FILE",
-    "CMUX_NEXT_CLOUD_SECRETS_SERVICE",
-    "CMUX_NEXT_KEYS_AUDIT_FILE",
-    // The auth server's error codes (cmux-stack-auth auth_error.rs), not environment names.
-    "INVALID_APPLE_CREDENTIALS",
-    "INVALID_TOKEN",
-    "OAUTH_CANCELLED",
-    "OAUTH_ERROR",
-    "OAUTH_PROVIDER_ACCOUNT_ID_ALREADY_USED_FOR_SIGN_IN",
-    "PASSKEY_AUTHENTICATION_FAILED",
-    "PASSKEY_WEBAUTHN_ERROR",
-    "UNAUTHORIZED",
 ];
 
 /// cmux-tui's whole tree: its crates, relays, bindings and build support (not vendored code).

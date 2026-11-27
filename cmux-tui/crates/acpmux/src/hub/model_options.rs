@@ -15,7 +15,15 @@ pub fn web_url(cfg: &crate::config::Config) -> Option<String> {
     })
 }
 
-pub use crate::config::web_url_for_session;
+/// `web_url` opening one session: `?session=<id>` before the fragment.
+pub fn web_url_for_session(url: &str, session: &str) -> String {
+    let (base, fragment) = url.split_once('#').map_or((url, None), |(b, f)| (b, Some(f)));
+    let joiner = if base.contains('?') { '&' } else { '?' };
+    match fragment {
+        Some(f) => format!("{base}{joiner}session={session}#{f}"),
+        None => format!("{base}{joiner}session={session}"),
+    }
+}
 
 /// Current value of a select config option, by id.
 pub fn current_option(m: &SessionMeta, id: &str) -> Option<String> {
@@ -32,13 +40,6 @@ pub fn current_effort(m: &SessionMeta) -> Option<String> {
         return Some("ultracode".into());
     }
     current_option(m, "effort")
-}
-
-/// The effort a Claude Code process is spawned with (`--effort`): the one it reported, else a
-/// new chat's start effort (`SessionMeta::effort_request`). Not the pool's key
-/// (`pool::started_on`), whose spares start on the harness's own level.
-pub fn spawn_effort(m: &SessionMeta) -> Option<String> {
-    current_effort(m).or_else(|| m.effort_request.clone())
 }
 
 /// The option id a harness uses for thinking effort, given the name a
@@ -86,4 +87,20 @@ pub fn current_model(m: &SessionMeta) -> Option<String> {
         .and_then(|x| x.get("currentModelId"))
         .and_then(Value::as_str)
         .map(str::to_owned)
+}
+
+#[cfg(test)]
+mod web_url_tests {
+    use super::web_url_for_session;
+
+    #[test]
+    fn a_session_link_puts_the_session_in_the_query_and_keeps_the_fragment() {
+        let url = web_url_for_session("http://127.0.0.1:1/#token=t", "s1");
+        assert_eq!(url, "http://127.0.0.1:1/?session=s1#token=t");
+        assert_eq!(web_url_for_session("http://h/", "s1"), "http://h/?session=s1");
+        assert_eq!(
+            web_url_for_session("http://h/?a=1#token=t", "s"),
+            "http://h/?a=1&session=s#token=t"
+        );
+    }
 }

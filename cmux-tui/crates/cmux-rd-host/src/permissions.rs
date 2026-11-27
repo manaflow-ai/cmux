@@ -1,11 +1,7 @@
-//! A fresh permission snapshot for the process responsible for this one, and the one request
-//! that asks macOS for a grant. On a Mac the app runs both from the Screen Sharing helper
-//! (`<app> Helper.app`, started with responsibility disclaimed;
-//! plans/cmux-next/screen-sharing-helper.md), so macOS checks and names the helper, never the
-//! app: a grant restarts at most the helper, never cmux. A fresh process each time, because a
-//! running one can keep an old Screen Recording answer after the person changes it.
-//! `permissions` creates no capture session, posts no input and never requests permission;
-//! `request-permission` asks for exactly the one grant named, then prints the same snapshot.
+//! A fresh, read-only permission snapshot for the process responsible for launching this CLI.
+//! The app launches this exactly as it launches `rd serve`: a long-running app can retain an
+//! old Screen Recording preflight answer after the person changes the grant in System Settings.
+//! No capture session is created, no input is posted, and neither query requests permission.
 
 use crate::Res;
 use serde::Serialize;
@@ -18,122 +14,6 @@ struct Permissions {
 }
 
 pub(crate) fn run() -> Res<()> {
-    write_snapshot(&mut std::io::stdout().lock(), read())
-}
-
-/// The System Settings item that holds this process's Screen Recording grant: the innermost
-/// app bundle around `executable` (`cmux NIGHTLY Screen Sharing.app/Contents/MacOS/...` is
-/// "cmux NIGHTLY Screen Sharing"), else the one holder the handbook names, "cmux Computer Use"
-/// (cmuxterm-hq docs/handbook/screen-share-grant-lost-on-a-fleet-mac.md).
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub(crate) fn listed_as(executable: &std::path::Path) -> String {
-    executable
-        .ancestors()
-        .filter_map(|p| p.file_name()?.to_str()?.strip_suffix(".app"))
-        .next()
-        .unwrap_or("cmux Computer Use")
-        .to_owned()
-}
-
-/// This Mac's short name (`cosmic-gray.local` is `cosmic-gray`), for the words a viewer reads.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub(crate) fn host_name() -> String {
-    let name = kernel_host_name();
-    let short = name.strip_suffix(".local").unwrap_or(&name);
-    if short.is_empty() {
-        "this Mac".into()
-    } else {
-        short.to_owned()
-    }
-}
-
-#[cfg(unix)]
-fn kernel_host_name() -> String {
-    let mut buf = [0u8; 256];
-    // SAFETY: gethostname writes at most `buf.len()` bytes into our own buffer.
-    let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
-    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    if ok {
-        String::from_utf8_lossy(&buf[..end]).into_owned()
-    } else {
-        String::new()
-    }
-}
-
-/// Windows has no `gethostname` in libc: the computer name Settings > System shows.
-#[cfg(not(unix))]
-fn kernel_host_name() -> String {
-    std::env::var("COMPUTERNAME").unwrap_or_default().trim().to_owned()
-}
-
-/// The reason a share ends with when Screen Recording is not granted: the cause, the Mac and
-/// the one click that fixes it (a person's; nothing here grants anything).
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub(crate) fn screen_recording_missing(host: &str, item: &str) -> String {
-    format!(
-        "Screen Recording not granted on {host}. On {host}, open System Settings > Privacy & \
-         Security > Screen & System Audio Recording and turn on \"{item}\"."
-    )
-}
-
-/// The reason a share ends with when Screen Recording reads as on but macOS lists no display to
-/// capture (an empty SCShareableContent): a grant macOS holds for an older copy of the item.
-/// Its own words, so it is never read as a missing grant or a helper that stopped.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub(crate) fn no_display_listed(host: &str, item: &str) -> String {
-    format!(
-        "Screen Recording is on for \"{item}\" on {host}, but macOS listed no display to capture. \
-         On {host}, open System Settings > Privacy & Security > Screen & System Audio Recording, \
-         turn \"{item}\" off and on again."
-    )
-}
-
-/// [`no_display_listed`] for this process on this Mac.
-#[cfg(target_os = "macos")]
-pub(crate) fn no_display_here() -> String {
-    let exe = std::env::current_exe().unwrap_or_default();
-    no_display_listed(&host_name(), &listed_as(&exe))
-}
-
-/// At capture start: Err with [`screen_recording_missing`] when this process (the helper, its
-/// own responsible process) has no Screen Recording grant, so the session ends with the cause
-/// on the wire (`ended: failed: <words>`) instead of a capture that never delivers a picture.
-/// Ok when it is granted or cannot be read (the capture then says what it saw).
-#[cfg(target_os = "macos")]
-pub(crate) fn require_screen_recording() -> Res<()> {
-    if platform::cg::available().is_err() {
-        return Ok(());
-    }
-    // SAFETY: resolved above; no arguments, returns a plain bool, never prompts.
-    if unsafe { platform::cg::CGPreflightScreenCaptureAccess() } {
-        return Ok(());
-    }
-    let exe = std::env::current_exe().unwrap_or_default();
-    Err(screen_recording_missing(&host_name(), &listed_as(&exe)).into())
-}
-
-/// One grant `request-permission` may ask for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Grant {
-    ScreenRecording,
-    Accessibility,
-}
-
-impl Grant {
-    pub(crate) fn parse(word: &str) -> Option<Self> {
-        match word {
-            "screen-recording" => Some(Self::ScreenRecording),
-            "accessibility" => Some(Self::Accessibility),
-            _ => None,
-        }
-    }
-}
-
-/// `request-permission screen-recording|accessibility`: macOS's own prompt for this one grant
-/// (macOS shows it at most once per grant; after that the caller opens System Settings), then
-/// the snapshot. The person still answers macOS: nothing here grants anything.
-pub(crate) fn run_request(grant: Grant) -> Res<()> {
-    request(grant)?;
     write_snapshot(&mut std::io::stdout().lock(), read())
 }
 
@@ -165,97 +45,57 @@ fn read() -> Res<Permissions> {
 }
 
 #[cfg(target_os = "macos")]
-fn request(grant: Grant) -> Res<()> {
-    use platform::{ax, cf, cg};
-    match grant {
-        Grant::ScreenRecording => {
-            cg::available()?;
-            // SAFETY: resolved above; no arguments, returns a plain bool (false until the
-            // person grants it, including on the call that shows the prompt).
-            let _ = unsafe { cg::CGRequestScreenCaptureAccess() };
-        }
-        Grant::Accessibility => {
-            ax::available()?;
-            cf::available()?;
-            // SAFETY: every symbol is resolved above. The key and the dictionary are made
-            // here and released below; kCFBooleanTrue is a constant CoreFoundation owns.
-            unsafe {
-                let key = cf::CFStringCreateWithCString(
-                    std::ptr::null(),
-                    c"AXTrustedCheckOptionPrompt".as_ptr(),
-                    platform::CF_STRING_ENCODING_UTF8,
-                );
-                if key.is_null() {
-                    return Err("could not make the Accessibility prompt option".into());
-                }
-                let keys = [key];
-                let values = [cf::kCFBooleanTrue()];
-                let options = cf::CFDictionaryCreate(
-                    std::ptr::null(),
-                    keys.as_ptr(),
-                    values.as_ptr(),
-                    1,
-                    cf::kCFTypeDictionaryKeyCallBacks(),
-                    cf::kCFTypeDictionaryValueCallBacks(),
-                );
-                cf::CFRelease(key);
-                if options.is_null() {
-                    return Err("could not make the Accessibility prompt options".into());
-                }
-                let _ = ax::AXIsProcessTrustedWithOptions(options);
-                cf::CFRelease(options);
-            }
-        }
-    }
-    Ok(())
-}
-
-#[cfg(not(target_os = "macos"))]
-fn request(_grant: Grant) -> Res<()> {
-    Err("permission requests are supported only on macOS".into())
-}
-
-#[cfg(target_os = "macos")]
 mod platform {
     use cmux_encode::framework;
-    pub(super) use std::ffi::{c_char, c_void};
-
-    /// kCFStringEncodingUTF8.
-    pub(super) const CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 
     framework! {
         pub mod cg = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics" {
             fn CGPreflightScreenCaptureAccess() -> bool;
-            fn CGRequestScreenCaptureAccess() -> bool;
         }
     }
 
     framework! {
         pub mod ax = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices" {
             fn AXIsProcessTrusted() -> u8;
-            fn AXIsProcessTrustedWithOptions(options: *const c_void) -> u8;
-        }
-    }
-
-    framework! {
-        pub mod cf = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation" {
-            static kCFBooleanTrue: *const c_void;
-            ref kCFTypeDictionaryKeyCallBacks: c_void;
-            ref kCFTypeDictionaryValueCallBacks: c_void;
-            fn CFStringCreateWithCString(allocator: *const c_void, text: *const c_char, encoding: u32) -> *const c_void;
-            fn CFDictionaryCreate(
-                allocator: *const c_void,
-                keys: *const *const c_void,
-                values: *const *const c_void,
-                count: isize,
-                key_callbacks: *const c_void,
-                value_callbacks: *const c_void,
-            ) -> *const c_void;
-            fn CFRelease(value: *const c_void);
         }
     }
 }
 
 #[cfg(test)]
-#[path = "permissions_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn permission_probe_read_failure_emits_no_snapshot() {
+        let mut output = Vec::new();
+        let result = write_snapshot(&mut output, Err("framework unavailable".into()));
+        assert!(result.is_err());
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn permission_probe_snapshot_keeps_grants_independent() {
+        for (screen_recording, accessibility) in [(true, false), (false, true)] {
+            let mut output = Vec::new();
+            write_snapshot(&mut output, Ok(Permissions { screen_recording, accessibility }))
+                .expect("snapshot");
+            let value: serde_json::Value = serde_json::from_slice(&output).expect("JSON");
+            assert_eq!(value["screen_recording"], screen_recording);
+            assert_eq!(value["accessibility"], accessibility);
+            assert_eq!(output.last(), Some(&b'\n'));
+        }
+    }
+
+    #[test]
+    fn permission_probe_rejects_options_that_could_imply_prompting() {
+        assert_eq!(crate::run_cli(&["permissions".into(), "--request".into(), "1".into()]), 2);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn permission_probe_unsupported_platform_emits_no_snapshot() {
+        let mut output = Vec::new();
+        assert!(write_snapshot(&mut output, read()).is_err());
+        assert!(output.is_empty());
+    }
+}

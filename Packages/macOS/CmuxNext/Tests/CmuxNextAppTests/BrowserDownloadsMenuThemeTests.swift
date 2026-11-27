@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
-import CmuxNextActions
 import CmuxNextDesign
 import Foundation
 import Testing
@@ -12,14 +11,12 @@ import Testing
 @MainActor @Suite(.serialized) struct BrowserDownloadsMenuThemeTests {
     @Test func aDownloadRowsMenuIsThemedWithIconsAndItsRowsRun() throws {
         let list = BrowserDownloadList()
-        let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
-        BrowserToolbarHandlers.bindDownloads(into: registry, list: { list })
         let file = FileManager.default.temporaryDirectory.appending(path: "report-\(UUID().uuidString).pdf")
         list.add(.ended(sourceURL: URL(string: "https://example.com/report.pdf"), filename: "report.pdf", destination: file,
                         status: .finished, receivedBytes: 10, totalBytes: 10), tab: "tab-a") { _ in }
         let download = try #require(list.items.first)
         let row = BrowserDownloadRowEventView()
-        row.menuProvider = { BrowserDownloadsMenu.actions(download, list: list, registry: registry) }
+        row.menuProvider = { BrowserDownloadsMenu.actions(download, list: list) }
         let menu = try #require(row.themedMenu())
 
         #expect(menu.items.map(\.title).contains(BrowserHitStrings.downloadCopyLink))
@@ -33,7 +30,7 @@ import Testing
         let running = BrowserDownload(sourceURL: URL(string: "https://example.com/big.zip"), filename: "big.zip")
         list.add(running, tab: "tab-a") { _ in }
         let runningRow = BrowserDownloadRowEventView()
-        runningRow.menuProvider = { BrowserDownloadsMenu.actions(running, list: list, registry: registry) }
+        runningRow.menuProvider = { BrowserDownloadsMenu.actions(running, list: list) }
         let cancel = try #require(runningRow.themedMenu()?.items.first { $0.title == BrowserHitStrings.downloadCancel })
         #expect(cancel.view == nil)
         _ = try #require(cancel.target as? NSObject).perform(try #require(cancel.action), with: cancel)

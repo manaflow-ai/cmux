@@ -38,11 +38,6 @@ pub(super) struct Command {
 /// `Some(exit code)` when `args` is `machine doctor …` for a joined machine or this one.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
-    // `cmux machine doctor --help`: this verb's usage, exit 0 (before, the machine overview).
-    if asks_help(&command_args) {
-        println!("{USAGE}");
-        return Some(0);
-    }
     let parsed = parse(&command_args)?;
     let command = match parsed {
         Ok(command) => command,
@@ -92,7 +87,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     // machine on any platform, signed in or not). A pasted secret is never handed on.
     if found.is_none()
         && plain_name(key)
-        && let Some(code) = super::app_commands::run_app_action_fallback(args)
+        && let Some(code) = super::run_app_action_fallback(args)
     {
         // Not a joined machine: the app's ssh Check Machine, as before. When the joined list
         // could not be read, say so: the checks above did not run.
@@ -121,12 +116,6 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 /// `machine doctor …` as this module's command; `None` for another verb, or
 /// for a flag only the app's Check Machine takes.
-/// `machine doctor ... -h|--help`.
-pub(super) fn asks_help(args: &[String]) -> bool {
-    matches!(args, [scope, verb, rest @ ..] if scope == "machine" && verb == "doctor"
-        && rest.iter().take_while(|w| *w != "--").any(|w| matches!(w.as_str(), "-h" | "--help")))
-}
-
 pub(super) fn parse(args: &[String]) -> Option<Result<Command, String>> {
     let [scope, verb, rest @ ..] = args else { return None };
     if scope != "machine" || verb != "doctor" {

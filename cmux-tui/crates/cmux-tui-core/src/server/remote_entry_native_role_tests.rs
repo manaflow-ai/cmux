@@ -99,6 +99,3 @@ fn legacy_entry_and_local_connections_keep_the_existing_host_gate() {
 
 #[path = "remote_entry_native_dispatch_tests.rs"]
 mod dispatch;
-
-#[path = "remote_entry_native_member_tests.rs"]
-mod member;

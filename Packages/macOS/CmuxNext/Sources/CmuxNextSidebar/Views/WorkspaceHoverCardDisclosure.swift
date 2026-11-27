@@ -18,7 +18,7 @@ final class WorkspaceHoverCardDisclosure: NSView {
     private let chevron = NSImageView()
     private let label = ChromeLabel(labelWithString: "")
     /// The hover and pressed fill, wider than the view by the rows' outset.
-    let fillLayer = CALayer()
+    private let fillLayer = CALayer()
     private var tracking: NSTrackingArea?
     private var isHovered = false { didSet { paint() } }
     private var pressed = false { didSet { paint() } }
@@ -35,20 +35,9 @@ final class WorkspaceHoverCardDisclosure: NSView {
     }
 
     var isExpanded = false {
-        didSet { if isExpanded != oldValue { chevron.image = chevronImage(expanded: isExpanded) } }
-    }
-    /// The chevron's image now (tests).
-    var shownChevron: NSImage? { chevron.image }
-    /// The chevron's two images at the size they were made for, made once, not on every press.
-    private var chevronImages: (side: CGFloat, collapsed: NSImage, expanded: NSImage)?
-
-    private func chevronImage(expanded: Bool) -> NSImage {
-        let side = Metrics.smallIconSize
-        if chevronImages?.side != side {
-            chevronImages = (side, NSImage.icon(.disclosureCollapsed, size: side), NSImage.icon(.disclosureExpanded, size: side))
+        didSet {
+            chevron.image = NSImage.icon(isExpanded ? .disclosureExpanded : .disclosureCollapsed, size: Metrics.smallIconSize)
         }
-        guard let images = chevronImages else { return NSImage.icon(.disclosureCollapsed, size: side) }
-        return expanded ? images.expanded : images.collapsed
     }
 
     init() {
@@ -59,7 +48,7 @@ final class WorkspaceHoverCardDisclosure: NSView {
         layer?.masksToBounds = false
         layer?.addSublayer(fillLayer)
         chevron.imageScaling = .scaleProportionallyDown
-        chevron.image = chevronImage(expanded: false)
+        chevron.image = NSImage.icon(.disclosureCollapsed, size: Metrics.smallIconSize)
         chevron.translatesAutoresizingMaskIntoConstraints = false
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -97,8 +86,6 @@ final class WorkspaceHoverCardDisclosure: NSView {
         heightConstraint?.constant = card.disclosureHeight
         chevronX?.constant = WorkspaceHoverCardView.iconSize / 2
         labelX?.constant = WorkspaceHoverCardView.textInset
-        // The icon size is a tunable: a new one makes the chevron's images again.
-        chevron.image = chevronImage(expanded: isExpanded)
     }
 
     /// A click from code (tests, the gallery, VoiceOver).

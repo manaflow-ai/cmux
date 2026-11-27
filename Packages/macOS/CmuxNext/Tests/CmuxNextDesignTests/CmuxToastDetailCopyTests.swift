@@ -70,7 +70,7 @@ struct CmuxToastDetailCopyTests {
         #expect(detail.stringValue == "The machine is out of disk space.")
         #expect(code.stringValue == "Error code: fs.no_space")
         #expect(code.isSelectable && !code.isHidden)
-        #expect(code.accessibilityHelp() == Self.noSpace, "the raw reason is gone")
+        #expect(code.themedToolTip == Self.noSpace, "the raw reason is gone")
         #expect((code.font?.pointSize ?? 0) < (detail.font?.pointSize ?? 0), "the code is not secondary")
         #expect(button.accessibilityLabel() == CmuxToastStrings.hideDetails)
         #expect(view.frame.width >= CmuxToastView.expandedMinWidth - 0.5)
@@ -81,7 +81,7 @@ struct CmuxToastDetailCopyTests {
         // One title line: Hide Details and close on it, at the trailing edge.
         #expect(abs(buttonFrame.midY - closeFrame.midY) < 0.5)
         #expect(abs(buttonFrame.midY - titleFrame.midY) < 1, "\(buttonFrame) \(titleFrame)")
-        #expect(abs(view.bounds.maxX - closeFrame.maxX - view.geometry.padding) <= 0.5, "close left the trailing inset: \(closeFrame)")
+        #expect(view.bounds.maxX - closeFrame.maxX <= Metrics.space4 + 0.5, "close left the trailing edge: \(closeFrame)")
         #expect(buttonFrame.maxX <= closeFrame.minX)
         // The plain words under the title, the code under them (the view is not flipped).
         #expect(detailFrame.maxY <= titleFrame.minY - Metrics.space2 + 0.5, "\(detailFrame) \(titleFrame)")

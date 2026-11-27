@@ -4,15 +4,17 @@
 //! the Mac with no record of a live ask, so a person's Allow once went out unsigned
 //! and the peer refused it ("That answer didn't go through", 2026-11-03). Each is
 //! held here and applied again once the peer lists that session; the rule it must
-//! pass is unchanged. Bounded by time, not count: each notice is held for `HOLD_FOR`.
+//! pass is unchanged. Bounded: at most `MAX_HELD` notices per peer, each for `HOLD_FOR`.
 
-use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use crate::peer::PeerNotice;
 
 /// How long a held ask waits for its session to be listed.
 const HOLD_FOR: Duration = Duration::from_secs(120);
+/// How many held asks the daemon keeps per peer; that peer's oldest go first, so one peer
+/// never pushes out another's.
+const MAX_HELD: usize = 64;
 
 struct Held {
     peer: String,
@@ -24,8 +26,7 @@ struct Held {
 
 #[derive(Default)]
 pub(crate) struct HeldAsks {
-    /// Oldest first: every change keeps the order, so the expired ones are a prefix.
-    held: std::sync::Mutex<VecDeque<Held>>,
+    held: std::sync::Mutex<Vec<Held>>,
 }
 
 impl HeldAsks {
@@ -33,11 +34,13 @@ impl HeldAsks {
     pub(crate) fn hold(&self, peer: &str, generation: u64, session: &str, notice: PeerNotice) {
         let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
-        // Constant time per hold: only the expired front is touched.
-        while held.front().is_some_and(|h| now.duration_since(h.at) >= HOLD_FOR) {
-            held.pop_front();
+        held.retain(|h| now.duration_since(h.at) < HOLD_FOR);
+        if held.iter().filter(|h| h.peer == peer).count() >= MAX_HELD
+            && let Some(oldest) = held.iter().position(|h| h.peer == peer)
+        {
+            held.remove(oldest);
         }
-        held.push_back(Held {
+        held.push(Held {
             peer: peer.to_owned(),
             generation,
             session: session.to_owned(),
@@ -72,16 +75,16 @@ impl HeldAsks {
         }
         let now = Instant::now();
         let mut out = Vec::new();
-        let mut keep = VecDeque::with_capacity(held.len());
+        let mut keep = Vec::with_capacity(held.len());
         for h in held.drain(..) {
             if h.peer != peer {
-                keep.push_back(h);
+                keep.push(h);
             } else if h.generation != generation || now.duration_since(h.at) >= HOLD_FOR {
                 // A replaced peer's, or one whose session never came: dropped.
             } else if listed(&h.session) {
                 out.push(h.notice);
             } else {
-                keep.push_back(h);
+                keep.push(h);
             }
         }
         *held = keep;
@@ -101,5 +104,69 @@ impl Held {
 }
 
 #[cfg(test)]
-#[path = "held_asks_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn ask(id: &str) -> PeerNotice {
+        PeerNotice::Notification {
+            method: "_acpmux/permission_pending".into(),
+            params: json!({"sessionId": id}),
+            link: 1,
+        }
+    }
+
+    #[test]
+    fn only_a_listed_sessions_asks_of_the_same_peer_and_generation_come_back() {
+        let held = HeldAsks::default();
+        held.hold("p", 1, "s1", ask("s1"));
+        held.hold("p", 1, "s2", ask("s2"));
+        held.hold("q", 1, "s1", ask("s1"));
+        held.hold("p", 0, "s1", ask("s1"));
+        let back = held.take_listed("p", 1, |s| s == "s1");
+        assert_eq!(back.len(), 1);
+        assert!(held.take_listed("p", 1, |s| s == "s1").is_empty());
+        assert_eq!(held.take_listed("p", 1, |_| true).len(), 1);
+        assert_eq!(held.take_listed("q", 1, |_| true).len(), 1);
+    }
+
+    #[test]
+    fn a_resolved_ask_is_forgotten() {
+        let held = HeldAsks::default();
+        let pending = |id: &str, p: &str| PeerNotice::Notification {
+            method: "_acpmux/permission_pending".into(),
+            params: json!({"sessionId": id, "permissionId": p}),
+            link: 1,
+        };
+        let record = |id: &str, p: &str| PeerNotice::Notification {
+            method: "_acpmux/event".into(),
+            params: json!({"sessionId": id, "kind": "permission_request", "msg": {"permissionId": p}}),
+            link: 1,
+        };
+        held.hold("p", 1, "s", pending("s", "a"));
+        held.hold("p", 1, "s", record("s", "a"));
+        held.hold("p", 1, "s", pending("s", "b"));
+        held.hold("p", 1, "t", pending("t", "a"));
+        held.forget("p", "s", Some("a"));
+        assert_eq!(held.take_listed("p", 1, |id| id == "s").len(), 1);
+        held.hold("p", 1, "s", pending("s", "c"));
+        held.forget("p", "s", None);
+        assert!(held.take_listed("p", 1, |id| id == "s").is_empty());
+        assert_eq!(held.take_listed("p", 1, |_| true).len(), 1);
+    }
+
+    #[test]
+    fn held_asks_are_bounded() {
+        let held = HeldAsks::default();
+        held.hold("q", 1, "s", ask("s"));
+        for i in 0..MAX_HELD + 10 {
+            held.hold("p", 1, &format!("s{i}"), ask("s"));
+        }
+        assert_eq!(held.take_listed("p", 1, |_| true).len(), MAX_HELD);
+        assert_eq!(
+            held.take_listed("q", 1, |_| true).len(),
+            1,
+            "one peer's asks pushed out another's"
+        );
+    }
+}

@@ -34,7 +34,7 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let scope = ThemeScope(level: .room)
@@ -44,8 +44,8 @@ import Testing
         calendar.timeZone = try #require(TimeZone(identifier: "Europe/London"))
         terminal.reload = {}
         terminal.notificationCenter = center
-        terminal.backdropClock.now = { Self.today }
-        terminal.backdropClock.calendar = { [calendar] in calendar }
+        terminal.now = { Self.today }
+        terminal.calendar = { [calendar] in calendar }
         terminal.follow(settings)
         return Harness(settings: settings, terminal: terminal, center: center, scope: scope, directory: directory, calendar: calendar)
     }
@@ -59,7 +59,7 @@ import Testing
         var shown: [BackdropSelection?] = []
         for step in 0..<steps {
             let now = Self.today.addingTimeInterval(Double(step) * seconds)
-            harness.terminal.backdropClock.now = { now }
+            harness.terminal.now = { now }
             harness.center.post(name: .NSSystemClockDidChange, object: nil)
             for _ in 0..<50 { await Task.yield() }
             shown.append(harness.scope.backdropSelection)

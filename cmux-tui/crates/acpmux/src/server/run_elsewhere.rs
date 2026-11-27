@@ -89,9 +89,6 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         if let Some(why) = why {
             reply.insert("why".into(), json!(why));
         }
-        if let Some(kind) = re::fetch_kind(command) {
-            reply.insert("fetch".into(), json!(kind));
-        }
         if let Ok(plan) = &plan {
             reply.insert("tree".into(), plan.view());
         }
@@ -137,16 +134,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
     // The task's own shell removes the script when the run ends; a start acpmux refuses (a stopped
     // chat, too many tasks) leaves it here, readable only by this user.
     let started = hub
-        .bg_start(
-            &session,
-            &task,
-            Some(plan.root.clone()),
-            Some(description),
-            false,
-            false,
-            None,
-            Default::default(),
-        )
+        .bg_start(&session, &task, Some(plan.root.clone()), Some(description), false, false, None)
         .await?;
     Ok(json!({
         "task": started,

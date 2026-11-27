@@ -1,6 +1,6 @@
 //! The list source owns delivery and resumes. No replay prefix is retained.
-use super::{ConnError, ConnectionMetrics, Later, Offer, OfferSink, Reply, Source};
-use crate::hub::{Hub, HubError, ListReceiver, RawRead, Relayed};
+use super::{ConnError, ConnectionMetrics, Offer, OfferSink, Source};
+use crate::hub::{Hub, ListReceiver, RawRead};
 use crate::wire::{Cursor, Frame, FrameKind, Page, ReplayMark, Sub};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -80,23 +80,6 @@ impl HubSource {
     pub fn task_count(&self) -> usize {
         self.tasks.lock().map_or(0, |tasks| tasks.len())
     }
-
-    /// The view of the sub a local page is asked on: a page needs its sid held, and a folders
-    /// page a window already out.
-    fn held_view(&self, page: &Page) -> Result<Option<crate::wire::ListView>, ConnError> {
-        let tasks = self
-            .tasks
-            .lock()
-            .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?;
-        let task =
-            tasks.get(&page.sid).ok_or_else(|| ConnError::UnknownSubscription(page.sid.clone()))?;
-        if task.view == Some(crate::wire::ListView::Folders)
-            && !task.window_out.load(Ordering::Acquire)
-        {
-            return Err(HubError::InvalidPage.into());
-        }
-        Ok(task.view)
-    }
 }
 
 impl Source for HubSource {
@@ -155,54 +138,22 @@ impl Source for HubSource {
         if self.peer && page.view != Some(crate::wire::ListView::Live) {
             return Ok(self.hub.peer_page(page)?);
         }
-        let held_view = self.held_view(page)?;
+        let tasks = self
+            .tasks
+            .lock()
+            .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?;
+        let task =
+            tasks.get(&page.sid).ok_or_else(|| ConnError::UnknownSubscription(page.sid.clone()))?;
+        if task.view == Some(crate::wire::ListView::Folders)
+            && !task.window_out.load(Ordering::Acquire)
+        {
+            return Err(crate::hub::HubError::InvalidPage.into());
+        }
+        let held_view = task.view;
         if self.peer {
             return Ok(self.hub.peer_page(page)?);
         }
         Ok(self.hub.page_for_view(page, held_view)?)
-    }
-
-    /// A local page that names another origin (row 8b): the relay answers it when it takes
-    /// that origin now, and [`Source::page`] at once otherwise.
-    fn later(&self, request: Later<'_>, _person: Option<&[u8]>, reply: Reply) -> Option<Reply> {
-        let Later::Page(page) = request else { return Some(reply) };
-        // A peer's pages, and a page whose sid is not held, are answered (or refused) at once.
-        if self.peer || self.held_view(page).is_err() {
-            return Some(reply);
-        }
-        let Some(relayed) = self.hub.relayed_page(page) else { return Some(reply) };
-        match relayed {
-            Err(error) => {
-                let code = match error {
-                    HubError::InvalidPage | HubError::InvalidParams(_) => "invalid_params",
-                    _ => "request_failed",
-                };
-                reply.error(code, &error.to_string());
-            }
-            Ok(Relayed::Done(frame)) => reply.answer(frame),
-            Ok(Relayed::Busy) => reply.error(
-                crate::hub::RELAY_BUSY,
-                "the origin has the most relayed requests in flight; ask again",
-            ),
-            // The connection holds one relayed page unanswered (decision 299): another that
-            // would wait answers `busy` now, and its slots go back as it drops.
-            Ok(Relayed::Sent(relayed)) if !reply.may_wait() => {
-                drop(relayed);
-                reply.error(
-                    crate::hub::RELAY_BUSY,
-                    "this connection has a relayed page unanswered; ask again",
-                );
-            }
-            Ok(Relayed::Sent(relayed)) => {
-                self.scope.spawn(async move {
-                    match relayed.answer().await {
-                        Ok(frame) => reply.answer(frame),
-                        Err(error) => reply.error(&error.code, &error.message),
-                    }
-                });
-            }
-        }
-        None
     }
 
     fn resume(&self, sid: &str, cursor: Cursor) {

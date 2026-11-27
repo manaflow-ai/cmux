@@ -72,23 +72,11 @@ ALLOWED_RULES = {
     # no track, its thumb drawn only while it scrolls). Under `auto` WebKit adds that scroller's
     # lane over rows laid out without it, so a row's trailing 8 px took no press (cmuxterm-hq#7707);
     # `scroll` keeps the lane, as MINIMAL_SCROLLER_CSS does, and draws nothing at rest.
-    # Its harness rail scrolls with no scrollbar (Lucas 2026-11-22): the system scroller drew a wide
-    # track over the tiles on hover. Hidden the same way as the session rail's list.
-    "webviews/src/agent-session/acpmux/quickModelColumns.css": {
-        "overflow": "card scroller keeps its lane",
-        "custom": "harness rail scrollbar hidden",
-    },
+    "webviews/src/agent-session/acpmux/quickModelColumns.css": {"overflow": "card scroller keeps its lane"},
     "webviews/src/agent-session/acpmux/conversation/EditDiffHunks.tsx": {"overflow-style": "@pierre/diffs option"},
     "webviews/src/agent-session/acpmux/conversation/usePierreCode.ts": {"overflow-style": "@pierre/diffs option"},
     "webviews/src/agent-session/acpmux/conversation/CodeToolbarButtons.gallery.tsx": {"overflow-style": "@pierre/diffs option"},
     "webviews/src/pages/github/GitHubFileDiff.tsx": {"overflow-style": "@pierre/diffs option"},
-    # The thumbnail grid links system frameworks only, so it pins overlay with its own twin of
-    # OverlayScrollView (FileGridScrollView).
-    "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/FileGridView.swift": {"style": "OverlayScrollView twin, system frameworks only", "scroll-view": "is the OverlayScrollView twin"},
-    # The terminal's scroller pins overlay in its own scrollerStyle override (the first such pin).
-    # As an OverlayScrollView subclass its nonisolated deinit and its clip observer's weak self
-    # failed Swift 6's sending check, so it stays an NSScrollView with the same override.
-    "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalScroller.swift": {"scroll-view": "pins overlay with its own override"},
     # The vendored MessagesLab compose box, overlay as SCROLLBARS-THIN asks (as NativeScroll.swift).
     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift": {"style": "Home compose, vendored"},
     # Gallery only (PathPicker parity, #19533): a fixed gutter keeps the field's width the same
@@ -108,13 +96,6 @@ SWIFT_RULES = [
     ("indicators", re.compile(r"\.scrollIndicators\(\s*\.(never|hidden)"), "hidden scroll indicators; use .automatic"),
     ("indicators", re.compile(r"\.scrollIndicators\(\s*\.visible"), "always-visible scroll indicators; use .automatic"),
     ("autohide", re.compile(r"\bautohidesScrollers\s*=\s*false\b"), "an empty scroller track; use SystemScrollers.follow"),
-]
-# CmuxNext only: a scroll view is an OverlayScrollView (SystemScrollers.swift), whose style AppKit
-# cannot reset to legacy when a mouse comes or goes (Universal Control): a legacy style takes the
-# scroller's width from the clip and every row reflows (handbook: layout-width-depends-on-scroller-style).
-NEXT_SWIFT_RULES = [
-    ("scroll-view", re.compile(r"(?<![\w.])NSScrollView\s*\((?:\)|frame:)"), "a plain NSScrollView reflows on a scroller-style flip; use OverlayScrollView"),
-    ("scroll-view", re.compile(r"\bclass\s+\w+\s*:\s*NSScrollView\b"), "a scroll view subclass of NSScrollView reflows on a scroller-style flip; subclass OverlayScrollView"),
 ]
 WEB_RULES = [
     ("overflow", re.compile(r"overflow(-[xy])?\s*:\s*scroll\b"), "overflow: scroll; use auto"),
@@ -185,7 +166,6 @@ for base in SWIFT_ROOTS:
         problems += scan(rel, path, SWIFT_RULES, strip=False)
         if base == "Packages/macOS/CmuxNext/Sources":
             problems += swiftui_scrolls(rel, path)
-            problems += scan(rel, path, NEXT_SWIFT_RULES, strip=False)
 for base in WEB_ROOTS:
     for rel, path in files(base, WEB_EXT):
         problems += scan(rel, path, WEB_RULES, strip=True)

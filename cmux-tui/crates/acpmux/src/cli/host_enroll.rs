@@ -18,8 +18,6 @@ use std::sync::Arc;
 
 #[path = "host_enroll_daemon.rs"]
 mod daemon_step;
-#[path = "host_enroll_install.rs"]
-mod install_step;
 #[path = "host_enroll_update.rs"]
 mod update_step;
 use daemon_step::daemon;
@@ -84,9 +82,7 @@ const INSTALL_FROM_APP: &str = "Install cmux on {host} from the app (Machines > 
 /// `--harness local`: every profile in this machine's harness folder (what
 /// Add Machine copies, so a remote chat starts with the agents this Mac has).
 pub(crate) const LOCAL_HARNESSES: &str = "local";
-/// The remote's harness folder: cmux NEXT's own `cmux-next` on a Mac
-/// (`cmux_config::NEXT_DIR`), `cmux` elsewhere.
-const REMOTE_HARNESS_DIR: &str = "d=${XDG_CONFIG_HOME:-$HOME/.config}/cmux; case $(uname -s) in Darwin) d=$d-next;; esac; d=$d/harnesses";
+const REMOTE_HARNESS_DIR: &str = "d=${XDG_CONFIG_HOME:-$HOME/.config}/cmux/harnesses";
 
 /// Set by a caller that stops a run by its process group (the app's Add
 /// Machine card, `HostCLI.stop`).
@@ -140,12 +136,7 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         emit(&result);
         done.push(result);
     }
-    // Last: install missing agent CLIs during Add Machine (safe and
-    // non-secret), then report readiness and the person-owned sign-in offer.
-    // `host doctor` remains read-only and calls `step` directly.
-    if plan.lends_github && fix && gate(Step::Agents, &done).is_none() {
-        let _ = crate::cli::host_agents::install_missing(&remote, &plan.name, &mut emit);
-    }
+    // Last: whether an agent is ready there, with the install and sign-in offers.
     let agents = gate(Step::Agents, &done)
         .unwrap_or_else(|| crate::cli::host_agents::step(&remote, &plan.name));
     emit(&agents);
@@ -209,18 +200,6 @@ pub(crate) fn pick_target(peers: &[Value], target: &str) -> (String, String, Opt
         .or_else(|| ssh_peers.iter().find(|(_, host, _)| host == target))
         .cloned()
         .unwrap_or_else(|| (hosts::short_name(target), target.to_owned(), None))
-}
-
-/// A line for `doctor NAME` when the hub already carries NAME: its chats work over the hub, and
-/// the ssh steps that follow test a direct route from this machine, which the hub makes optional.
-pub(crate) fn hub_route_note(peers: &[Value], name: &str) -> Option<String> {
-    let row = peers.iter().find(|p| p.get("name").and_then(Value::as_str) == Some(name))?;
-    let connected = row.get("state").and_then(Value::as_str) == Some("connected");
-    (connected && row.get("via").and_then(Value::as_str) == Some("hub")).then(|| {
-        format!(
-            "note   route     {name} is connected through the hub (cmux Remote), so its chats work without ssh from here. The steps below test a direct ssh route from this machine; a failure there does not mean the hub link is down."
-        )
-    })
 }
 
 /// How a running daemon stays current: [`update_step::update`], given the
@@ -452,32 +431,6 @@ fn tailnet_acl_hint(host: &str) -> Option<String> {
     ))
 }
 
-/// The reach failure's class, and the stderr that shows it. Under OpenSSH's default policy
-/// (`StrictHostKeyChecking ask`) with `BatchMode`, a never-seen host prints only "Host key
-/// verification failed.", which a CheckHostIP conflict or another verification error also
-/// prints, so that line alone is never taken as an unknown key. Without the opt-in, that bare
-/// failure is asked again under strict checking (records and updates nothing), which names an
-/// unknown key outright; only then does the fix offer first-contact acceptance. With the opt-in,
-/// OpenSSH would have recorded an unknown key, so a bare failure there is something else.
-fn with_unknown_key_evidence(
-    r: &dyn Remote,
-    accept_new_host_key: bool,
-    stderr: String,
-) -> (SshFailure, String) {
-    let class = SshFailure::of(&stderr);
-    if class != SshFailure::HostKeyUntrusted || accept_new_host_key {
-        return (class, stderr);
-    }
-    match r.strict_host_key_check() {
-        Ok(strict)
-            if !strict.ok && SshFailure::of(&strict.stderr) == SshFailure::HostKeyUnknown =>
-        {
-            (SshFailure::HostKeyUnknown, strict.stderr)
-        }
-        _ => (class, stderr),
-    }
-}
-
 fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
     let host = r.host();
     match r.first_contact(accept_new_host_key) {
@@ -485,8 +438,8 @@ fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
             StepResult::new(Step::Reach, StepState::Ok, format!("ssh {host} works"))
         }
         Ok(out) => {
-            let (class, stderr) = with_unknown_key_evidence(r, accept_new_host_key, out.stderr);
-            let last = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+            let class = SshFailure::of(&out.stderr);
+            let last = out.stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
             let detail = format!("{}: {}", class.label(), last.trim());
             if class != SshFailure::KeyRejected {
                 return fail(Step::Reach, detail, class.fix(host));
@@ -511,7 +464,7 @@ fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
 }
 
 /// The build in a `--version` line: `acpmux 0.1.0 (BUILD)`.
-pub(super) fn build_of(line: &str) -> Option<&str> {
+fn build_of(line: &str) -> Option<&str> {
     let (_, rest) = line.split_once('(')?;
     rest.trim_end().strip_suffix(')').map(str::trim).filter(|b| !b.is_empty())
 }
@@ -531,7 +484,7 @@ const PROBE_BINS: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~
 /// starts there runs in (`linux_sandbox::bwrap::probe`'s flags): `ok`,
 /// `broken` (installed, but too old or user namespaces are off), `missing`,
 /// or `n/a` off Linux.
-const PROBE_BWRAP: &str = super::host_sandbox::PROBE;
+const PROBE_BWRAP: &str = r#"printf 'bwrap\t%s\n' "$(if [ "$(uname -s)" != Linux ]; then echo n/a; elif /usr/bin/bwrap --unshare-user --unshare-net --disable-userns --ro-bind / / true >/dev/null 2>&1; then echo ok; elif [ -x /usr/bin/bwrap ]; then echo broken; else echo missing; fi)"; "#;
 
 /// [`PROBE_BWRAP`], [`PROBE_BINS`], then the remote daemon config.
 fn probe_script() -> String {
@@ -666,6 +619,11 @@ fn cmux_session_daemon(acp: bool, exe: Option<&str>, daemon_bin: &str) -> bool {
 }
 
 impl Probe {
+    /// The file `path` resolves to on the host, else `path` itself.
+    fn resolved<'a>(&'a self, path: &'a str) -> &'a str {
+        self.real.get(path).map(String::as_str).unwrap_or(path)
+    }
+
     fn in_use(&self) -> Option<InUse> {
         if let Some(run) = &self.running {
             let app_bin = self.bins.iter().any(|(path, _)| app_owned(path));
@@ -807,12 +765,8 @@ fn same_platform(uname: &str, os: &str, arch: &str) -> bool {
     kernel == os && machine == arch
 }
 
-/// Whether this caller's binary cannot run on the probed host.
-fn foreign_platform(uname: &str) -> bool {
-    !uname.is_empty() && !same_platform(uname, std::env::consts::OS, std::env::consts::ARCH)
-}
-
-/// An unsupported platform needs a target-specific update bundle or rebuild.
+/// A stale peer on another platform needs a target-specific update bundle or a
+/// rebuild there; plain `host update` cannot use this machine's binary.
 pub(super) fn platform_skew(
     step: Step,
     host: &str,
@@ -901,15 +855,6 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
             "Give --remote-binary as ~/… or an absolute path.",
         );
     }
-    // Enrollment checks usability; the host's updater owns its build. A live
-    // daemon on another platform must reach the peer handshake unchanged.
-    if foreign_platform(&probed.uname) && probed.running.is_some() {
-        return StepResult::new(
-            Step::Install,
-            StepState::Ok,
-            format!("{host} already runs acpmux for {}", probed.uname),
-        );
-    }
     let found = match installed(r, bin) {
         Ok(found) => found,
         Err(e) => return fail(Step::Install, format!("{e:#}"), "Check again."),
@@ -938,17 +883,6 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     };
     if current(&found) {
         return StepResult::new(Step::Install, StepState::Ok, format!("{bin} is build {want}"));
-    }
-    if foreign_platform(&probed.uname) && found.0.is_some() && found.1.is_some() {
-        return StepResult::new(
-            Step::Install,
-            StepState::Ok,
-            format!(
-                "{bin} is installed for {} (build {})",
-                probed.uname,
-                found.0.as_deref().unwrap_or("?")
-            ),
-        );
     }
     let why = describe(&found);
     if !fix {
@@ -989,13 +923,8 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     // safe remote-only operation even when this invoking binary is for a
     // different platform. Any binary push must stop on platform skew.
     let link_only = bin != DAEMON_BIN && found.0.as_deref() == Some(want);
-    if !link_only && foreign_platform(&uname) {
-        if let Some(target) = crate::cli::peer_status::target_from_uname(&uname) {
-            return install_step::bootstrap(r, bin, target);
-        }
-        if let Some(step) = platform_skew(Step::Install, host, name, &uname, true) {
-            return step;
-        }
+    if !link_only && let Some(step) = platform_skew(Step::Install, host, name, &uname, true) {
+        return step;
     }
     // Every change below holds the host's update lock, so neither another
     // update nor the host's self-update timer finds its binary replaced under it.

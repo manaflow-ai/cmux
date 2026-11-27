@@ -314,7 +314,7 @@ fn logical_writes(pid: u32) -> Option<u64> {
     }
 }
 
-/// Measurement, not a check (ignored: `cargo test --test it
+/// Measurement, not a check (ignored: `cargo test --test terminal_host_recovery
 /// kill_all_heavy -- --ignored --nocapture`): the daemon's disk writes
 /// under the HEAVY load of the reopen films, 12 panes of a full-screen TUI
 /// that repaints 40 rows with new content at about 60 Hz. Prints
@@ -523,7 +523,7 @@ fn kill_all_right_after_a_host_reconnect_restores_the_output_of_the_gap() {
     );
 }
 
-/// Measurement, not a check (ignored: `cargo test --test it
+/// Measurement, not a check (ignored: `cargo test --test terminal_host_recovery
 /// kill_all_restore_time_of_12_terminals -- --ignored --nocapture`): the time
 /// from the new daemon's spawn to each respawned terminal's restored text,
 /// for 12 terminals killed at once, each with about 600 KB of output in its

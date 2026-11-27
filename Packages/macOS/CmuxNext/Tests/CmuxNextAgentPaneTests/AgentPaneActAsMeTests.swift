@@ -48,8 +48,7 @@ struct AgentPaneActAsMeTests {
         }
         for method in ["_acpmux/permission_respond", "_acpmux/permission_group_respond", "acp.trust.set", "session/set_mode",
                        "session/set_config_option", "_acpmux/harness_enable", "_acpmux/secret_submit", "_acpmux/btw",
-                       "_acpmux/agent_login/start", "session/new", "_acpmux/presets",
-                       "cloud.environment.update", "cloud.environment.create"] {
+                       "_acpmux/agent_login/start", "session/new", "_acpmux/presets"] {
             gestures.recordPosted(driver: Self.driver)
             #expect(!gestures.consumePosted(for: method), "the grant reached \(method)")
             #expect(!gestures.consume(), "a posted gesture stood in for the person's on \(method)")
@@ -84,27 +83,6 @@ struct AgentPaneActAsMeTests {
         gestures.recordPosted(driver: Self.driver)
         clock.now += AgentPaneUserGestures.lifetime + 1
         #expect(!gestures.consumePosted(for: "session/prompt"))
-    }
-
-    /// Only an administrator's profile lets posted input save a Cloud environment (the GUI probe's Mac).
-    @Test func aManagedGrantAlsoCoversACloudEnvironmentSave() {
-        #expect(AgentPaneActAsMe.managedCovers == ["cloud.environment.update", "cloud.environment.create"])
-        let managed = AgentPaneActAsMe()
-        managed.setManaged(true)
-        let person = AgentPaneActAsMe()
-        person.turnOn(.init())
-        for method in AgentPaneActAsMe.managedCovers.sorted() {
-            #expect(managed.lets(method) == .managed, "\(method)")
-            #expect(person.lets(method) == nil, "the person's grant reached \(method)")
-            #expect(AgentPaneActAsMe().lets(method) == nil, "\(method)")
-            let gestures = Self.gestures(managed)
-            gestures.recordPosted(driver: Self.driver)
-            #expect(gestures.consumePosted(for: method), "\(method)")
-            #expect(!gestures.consumePosted(for: method), "one posted click saved twice")
-        }
-        for method in ["_acpmux/permission_respond", "acp.trust.set", "session/set_mode", "session/new"] {
-            #expect(managed.lets(method) == nil, "the managed grant reached \(method)")
-        }
     }
 
     @Test func turningOffHoldsAManagedGrantOffForThisRun() {
@@ -169,26 +147,24 @@ struct AgentPaneActAsMeTests {
 
     // MARK: The relay
 
-    /// A send needs no gesture (Leo, 2026-11-17: "go remove this"), so a posted one goes through the
-    /// relay on or off, and spends no grant: nothing is let through, so nothing is logged.
-    @Test func aPostedSendGoesThroughTheRelayOnOrOffAndUsesNoGrant() async throws {
+    @Test func aPostedSendGoesThroughTheRelayOnlyWhileOn() async throws {
         let pane = try await AgentPaneDelayedSendGestureTests.paneWithChat()
         defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
         let grant = AgentPaneActAsMe()
         pane.transport.gestures.actAsMe = grant
 
         pane.transport.gestures.recordPosted(driver: Self.driver)
-        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 2, promptId: "p-1")]) == nil)
+        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 2, promptId: "p-1")]) == .gestureRequired)
 
         grant.turnOn(.init())
         pane.transport.gestures.recordPosted(driver: Self.driver)
         #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 3, promptId: "p-2")]) == nil)
         _ = await pane.inbox.frame(containing: #""id":3"#)
-        #expect(grant.letThroughs.isEmpty)
+        #expect(grant.letThroughs.map(\.method) == ["session/prompt"])
 
         grant.turnOff()
         pane.transport.gestures.recordPosted(driver: Self.driver)
-        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 4, promptId: "p-3")]) == nil)
+        #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 4, promptId: "p-3")]) == .gestureRequired)
     }
 
     @Test func aPostedGestureGivesASendTicketOnlyWhileOn() throws {
@@ -348,8 +324,6 @@ struct AgentPaneActAsMeTests {
         _ = NSApplication.shared
         let grant = AgentPaneActAsMe()
         let card = AgentPaneActAsMeCard(grant: grant)
-        // SECURITY: out of every capture cmux makes (CaptureExcludedWindows reads it) and refused by Computer Use.
-        #expect(card.sharingType == .none)
         card.content.rebuild()
         card.setContentSize(card.content.fittingSize)
         card.contentView?.layoutSubtreeIfNeeded()

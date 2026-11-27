@@ -239,6 +239,7 @@
   ],
   "types": {
     "Endpoint": {
+      "additionalProperties": false,
       "description": "How a page or peer reaches a provider directly.",
       "properties": {
         "kind": {
@@ -413,6 +414,7 @@
       "type": "object"
     },
     "HelloEventRef": {
+      "additionalProperties": false,
       "description": "One event stream a provider serves.",
       "properties": {
         "name": {
@@ -429,6 +431,7 @@
       "type": "object"
     },
     "HelloIr": {
+      "additionalProperties": false,
       "description": "The IR (or IR fragment) a provider was generated from.",
       "properties": {
         "sha256": {
@@ -446,6 +449,7 @@
       "type": "object"
     },
     "HelloOpRef": {
+      "additionalProperties": false,
       "description": "One op a provider serves.",
       "properties": {
         "kind": {
@@ -491,6 +495,7 @@
       "type": "object"
     },
     "InterfaceListing": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "type": "string"
@@ -516,6 +521,7 @@
       "type": "object"
     },
     "InterfacesListParams": {
+      "additionalProperties": false,
       "properties": {
         "name": {
           "default": null,
@@ -529,6 +535,7 @@
       "type": "object"
     },
     "InterfacesListResult": {
+      "additionalProperties": false,
       "properties": {
         "interfaces": {
           "items": {
@@ -551,6 +558,7 @@
       "type": "string"
     },
     "PageManifest": {
+      "additionalProperties": false,
       "description": "A page registration (manifest entry).",
       "properties": {
         "consumes": {
@@ -608,6 +616,7 @@
       "description": "Who serves a page's namespace.",
       "oneOf": [
         {
+          "additionalProperties": false,
           "description": "Rust, inside the cmux-tui daemon.",
           "properties": {
             "kind": {
@@ -621,6 +630,7 @@
           "type": "object"
         },
         {
+          "additionalProperties": false,
           "description": "Spawned by the router with a socketpair fd.",
           "properties": {
             "args": {
@@ -645,6 +655,7 @@
           "type": "object"
         },
         {
+          "additionalProperties": false,
           "description": "Self-started; connects to the router socket with an app credential.",
           "properties": {
             "kind": {
@@ -664,6 +675,7 @@
       "type": "object"
     },
     "PagesListResult": {
+      "additionalProperties": false,
       "properties": {
         "pages": {
           "items": {
@@ -678,6 +690,7 @@
       "type": "object"
     },
     "ProviderHello": {
+      "additionalProperties": false,
       "description": "A provider's admission request, its first call on the router connection.",
       "properties": {
         "app": {
@@ -746,6 +759,7 @@
       "type": "object"
     },
     "ProviderInfo": {
+      "additionalProperties": false,
       "description": "A live provider of a namespace.",
       "properties": {
         "app_id": {
@@ -769,6 +783,7 @@
       "type": "object"
     },
     "ProviderWelcome": {
+      "additionalProperties": false,
       "description": "The router's admission reply.",
       "properties": {
         "provider": {
@@ -787,6 +802,7 @@
       "type": "object"
     },
     "ResolveParams": {
+      "additionalProperties": false,
       "properties": {
         "namespace": {
           "description": "A namespace (or an op name inside one).",
@@ -799,6 +815,7 @@
       "type": "object"
     },
     "ResolveResult": {
+      "additionalProperties": false,
       "description": "Where to reach the namespace's provider, and a data-plane token for it.",
       "properties": {
         "app_id": {
@@ -842,6 +859,7 @@
       "type": "object"
     },
     "TokenRefreshParams": {
+      "additionalProperties": false,
       "properties": {
         "token": {
           "description": "A page token or a data-plane token the router minted, not yet expired.",
@@ -854,6 +872,7 @@
       "type": "object"
     },
     "TokenRefreshResult": {
+      "additionalProperties": false,
       "properties": {
         "exp": {
           "format": "uint64",

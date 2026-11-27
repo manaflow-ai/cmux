@@ -14,7 +14,7 @@ import Testing
         let url = home.appending(path: "cmux-next.json")
         for managed in [false, true] {
             try Data("{}".utf8).write(to: url)
-            let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+            let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                               managedReader: FixedManagedPreferenceReader(ManagedPreferences(forced: managed ? [key: "top"] : [:])),
                                               managedWatchFiles: [])
             await settings.reload()

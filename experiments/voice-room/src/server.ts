@@ -30,8 +30,6 @@ export interface RoomConfig {
   /** A digest runs at least this often while people talk. */
   digestMaxDelayMs: number;
   publicDir: string;
-  /** Clock injection for deterministic accounting tests. */
-  now?: () => number;
 }
 
 interface SocketData {
@@ -41,18 +39,15 @@ interface SocketData {
 }
 
 export function startRoom(config: RoomConfig) {
-  const clock = config.now ?? Date.now;
   mkdirSync(config.dataDir, { recursive: true });
   const logPath = join(config.dataDir, "log.jsonl");
   const usage: ModelUsage = { inputTokens: 0, outputTokens: 0, calls: 0 };
   const complete = metered(config.complete, usage);
-  const startedAt = clock();
+  const startedAt = Date.now();
   const roster = new Roster();
   const dedupe = new CrossMicDedupe();
   const sockets = new Map<string, ServerWebSocket<SocketData>>();
   let paused = false;
-  let activeSince: number | null = startedAt;
-  let activeMilliseconds = 0;
   let digestedThrough = 0;
   let digestTimer: ReturnType<typeof setTimeout> | null = null;
   let firstUndigestedAt = 0;
@@ -89,11 +84,9 @@ export function startRoom(config: RoomConfig) {
   }
 
   function usageReport() {
-    const now = clock();
-    const active = activeMilliseconds + (activeSince === null ? 0 : now - activeSince);
-    const hours = Math.max(active / 3_600_000, 1 / 60);
+    const hours = Math.max((Date.now() - startedAt) / 3_600_000, 1 / 60);
     const cost = costUSD(usage, HAIKU_4_5_PRICE);
-    return { ...usage, costUSD: cost, activeSeconds: active / 1000, costPerHourUSD: cost / hours };
+    return { ...usage, costUSD: cost, costPerHourUSD: cost / hours };
   }
 
   function state() {
@@ -111,7 +104,7 @@ export function startRoom(config: RoomConfig) {
   }
 
   function scheduleDigest() {
-    const now = clock();
+    const now = Date.now();
     if (!firstUndigestedAt) firstUndigestedAt = now;
     if (digestTimer) clearTimeout(digestTimer);
     const wait = Math.max(0, Math.min(config.digestDelayMs, firstUndigestedAt + config.digestMaxDelayMs - now));
@@ -171,13 +164,6 @@ export function startRoom(config: RoomConfig) {
   function setPaused(on: boolean, by: string) {
     if (paused === on) return;
     paused = on;
-    const now = clock();
-    if (paused) {
-      activeMilliseconds += now - (activeSince ?? now);
-      activeSince = null;
-    } else {
-      activeSince = now;
-    }
     broadcast({ t: "paused", paused, by });
   }
 

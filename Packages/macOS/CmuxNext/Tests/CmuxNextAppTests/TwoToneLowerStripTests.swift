@@ -2,14 +2,13 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextDesignTokens
 @testable import CmuxNextTabs
-import CmuxNextTestSupport
 import Testing
 
 /// A lower split pane's strip is inside the content card, where a tab in the content's own colour would vanish, so it
 /// kept a gray pill while the top row's selected tab was a folder into the content. Leo, 2026-11-12: "fixing up the
 /// whole, like, polish of the two-tone mode". While the top row's tabs are folders (`CornerFlushChrome.markTopRow`), a
 /// strip inside the card tones its own row, less its selected tab, so that tab is a folder into its pane too.
-@MainActor @Suite(.serialized, .closesItsWindows) struct TwoToneLowerStripTests {
+@MainActor @Suite(.serialized) struct TwoToneLowerStripTests {
     @Test func aTonedStripInsideTheCardRunsItsSelectedTabIntoTheContent() throws {
         // The flush corner pinned on (Debug Settings), so the test always asserts.
         // Compact density keeps the pill before any override is read (`CornerFlush.current`): pin Default's.

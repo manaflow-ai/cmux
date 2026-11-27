@@ -5,11 +5,9 @@ nonisolated struct RustDropRequest: Encodable {
     var ungroupedFirst: Bool; var groupEdgeFraction: Double; var groupExitFraction: Double; var sectionTopFraction: Double
     /// The middle band of a loose workspace row that drops onto it.
     var workspaceOntoStart: Double; var workspaceOntoEnd: Double
-    /// The machines the one dragged row's chat can move to (a drop there moves it).
-    var moveTo: [String] = []
     enum CodingKeys: String, CodingKey {
         case y, payload, rows, sections; case ungroupedFirst = "ungrouped_first"; case groupEdgeFraction = "group_edge_fraction"; case groupExitFraction = "group_exit_fraction"; case sectionTopFraction = "section_top_fraction"
-        case workspaceOntoStart = "workspace_onto_start"; case workspaceOntoEnd = "workspace_onto_end"; case moveTo = "move_to"
+        case workspaceOntoStart = "workspace_onto_start"; case workspaceOntoEnd = "workspace_onto_end"
     }
 }
 

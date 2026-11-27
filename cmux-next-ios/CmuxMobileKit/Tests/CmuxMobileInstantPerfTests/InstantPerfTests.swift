@@ -1,6 +1,6 @@
 import CmuxMobileAgentChat
 import CmuxMobileChief
-@testable import CmuxMobileLive
+import CmuxMobileLive
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -51,24 +51,26 @@ struct InstantPerfTests {
 
     @Test("home_list_first_screen")
     func homeListFirstScreen() async throws {
-        func firstScreen(_ size: InstantPerfSize) throws -> Duration {
+        func firstScreen(_ size: InstantPerfSize) async throws -> [Double] {
             let wire = HomeInboxFixture.firstWindowWire(size)
-            var list: MacHomeList?
-            var reply: MacHomeReply?
-            let elapsed = try ContinuousClock().measure {
-                let read = try MacHomeReply(line: wire)
-                reply = read
-                list = MacHomeList(read.rows)
+            return try await InstantPerfReport.sample {
+                var list: MacHomeList?
+                var reply: MacHomeReply?
+                let elapsed = try ContinuousClock().measure {
+                    let read = try MacHomeReply(line: wire)
+                    reply = read
+                    list = MacHomeList(read.rows)
+                }
+                let shown = (list?.pinned.count ?? 0) + (list?.rows.count ?? 0)
+                let count = HomeInboxFixture.rowCount(size)
+                #expect(shown == min(count, MacHomeRows.firstWindow), "the first screen lost rows: \(shown)")
+                if case .window(_, _, let total) = reply {
+                    #expect(total == count, "the window does not know the list's size")
+                } else {
+                    Issue.record("not a window: \(String(describing: reply))")
+                }
+                return elapsed
             }
-            let shown = (list?.pinned.count ?? 0) + (list?.rows.count ?? 0)
-            let count = HomeInboxFixture.rowCount(size)
-            #expect(shown == min(count, MacHomeRows.firstWindow), "the first screen lost rows: \(shown)")
-            if case .window(_, _, let total) = reply {
-                #expect(total == count, "the window does not know the list's size")
-            } else {
-                Issue.record("not a window: \(String(describing: reply))")
-            }
-            return elapsed
         }
         /// The whole list behind the first screen (one read, off the main actor in the app): reported, not timed against the target.
         func wholeList(_ size: InstantPerfSize) async throws -> Double {
@@ -77,42 +79,14 @@ struct InstantPerfTests {
                 try ContinuousClock().measure { _ = MacHomeList(try MacHomeReply(line: wire).rows) }
             })
         }
-        // Their runs in turn (one warm-up each), so a busy spell on a shared host slows both sides
-        // of the ratio, not only the one timed second (docs: timing on a busy host).
-        _ = try firstScreen(.small)
-        _ = try firstScreen(.god)
-        var small: [Double] = []
-        var god: [Double] = []
-        for _ in 0..<max(InstantPerfReport.defaultRuns, 1) {
-            small.append(InstantPerfReport.ms(try firstScreen(.small)))
-            god.append(InstantPerfReport.ms(try firstScreen(.god)))
-        }
+        let small = try await firstScreen(.small)
+        let god = try await firstScreen(.god)
         let godWhole = try await wholeList(.god)
         InstantPerfReport.record(
             "home_list_first_screen", target: 16, small: small, god: god,
             note: String(format: "first window %ld B (20 of 20 rows) vs %ld B (20 of 5,000 rows); the whole god list (%ld B) follows off the main actor: %.1f ms",
                          HomeInboxFixture.firstWindowWire(.small).count, HomeInboxFixture.firstWindowWire(.god).count,
                          HomeInboxFixture.wire(.god).count, godWhole))
-    }
-
-    /// The small and the god first windows must differ in the list behind them alone (its
-    /// `total`, its pins, its dates), never in what their 20 rows say: `home_list_first_screen`
-    /// and its under-load twin time the two side by side, and the time to read a window follows
-    /// its previews' bytes. When each list drew its previews from its own seed, the god window
-    /// carried 17.3 KB against the small one's 13.4 KB and the bench read that as god 1.33x to
-    /// 1.47x of small (iOS simulator, kit run 45000194533) with no cost of the 5,000 rows in it.
-    /// `HomeInboxFixture.rows` now draws a preview from its row's index; this keeps it so.
-    @Test("the small and the god first windows say the same words")
-    func firstWindowsSayTheSame() {
-        func previews(_ size: InstantPerfSize) -> [String] {
-            HomeInboxFixture.rows(size).prefix(MacHomeRows.firstWindow).map { $0["preview"] as? String ?? "" }
-        }
-        let small = previews(.small)
-        let god = previews(.god)
-        let bytes = (small: small.reduce(0) { $0 + $1.utf8.count }, god: god.reduce(0) { $0 + $1.utf8.count })
-        #expect(small == god, "the first windows' previews differ: small \(bytes.small) B, god \(bytes.god) B")
-        let wire = (small: HomeInboxFixture.firstWindowWire(.small).count, god: HomeInboxFixture.firstWindowWire(.god).count)
-        #expect(abs(wire.god - wire.small) * 20 <= wire.small, "the first windows' bytes differ by over 5%: small \(wire.small) B, god \(wire.god) B")
     }
 
     @Test("home_list_one_row_update")
@@ -237,23 +211,14 @@ struct InstantPerfTests {
             let newest = try #require(log.lastTurn(before: log.count))
             let fake = InstantPerfAcpmux(log, end: cut)
             let link = fake.link()
-            let (hub, opened) = try await Self.openedChat(fake, link: link)
-            // A hole wider than one page opens the chat again on its newest page: the coordinator
-            // builds its store again then (`onReset`), and so does this.
-            final class Chat { var store: AgentChatStore; init(_ store: AgentChatStore) { self.store = store } }
-            let chat = Chat(opened)
-            let source = hub.source(sessionID: "s1", summary: Self.summary)
-            source.onReset = { [weak source] in
-                guard let source else { return }
-                chat.store = AgentChatStore(source: source)
-            }
+            let (hub, store) = try await Self.openedChat(fake, link: link)
             // The phone goes away; the Mac writes the rest of the log meanwhile.
             await hub.bind(nil)
             fake.end = log.count
             let start = ContinuousClock.now
             await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
-            let shown = await Self.waitUntil { Self.shows(chat.store, newest) }
-            return (hub, chat.store, start, shown)
+            let shown = await Self.waitUntil { Self.shows(store, newest) }
+            return (hub, store, start, shown)
         }
         func reconnect(_ log: AgentChatLog, missing: Int, runs: Int) async throws -> (runs: [Double], missed: Int, bytes: Int) {
             let cut = log.boundary(near: log.count - missing)
@@ -267,9 +232,8 @@ struct InstantPerfTests {
             }
             return (samples, log.count - cut, log.bytes[cut...].reduce(0, +))
         }
-        /// After the newest turn showed, a narrow gap fills in the background and a wide one opens
-        /// none (untimed by the metric): how long it takes, and that every turn shown is there
-        /// once, in order.
+        /// After the newest turn showed, the gap fills in the background (untimed by the
+        /// metric): how long it takes, and that every turn is then shown once, in order.
         func fill(_ log: AgentChatLog, missing: Int) async throws -> Double {
             let run = try await reconnected(log, cut: log.boundary(near: log.count - missing))
             #expect(run.shown)
@@ -289,9 +253,8 @@ struct InstantPerfTests {
         InstantPerfReport.record(
             "chat_reconnect_catch_up", target: 150, small: small.runs, god: god.runs,
             // Green since the tail-first reattach: a gap longer than one page reads the newest
-            // page (as an open does) and one empty read after it, and shows them. A hole wider than
-            // one page (god's) is not read: the chat opens on that page, with older history above.
-            note: String(format: "missed \(small.missed) records (\(Self.mb(small.bytes))) vs \(god.missed) records (\(Self.mb(god.bytes))); timed from the link coming back (bind) to the newest turn shown. God's reconnect settled (no gap left open) in %.0f ms (untimed)", godFill))
+            // page (as an open does) and one empty read after it, shows them, and fills the gap after.
+            note: String(format: "missed \(small.missed) records (\(Self.mb(small.bytes))) vs \(god.missed) records (\(Self.mb(god.bytes))); timed from the link coming back (bind) to the newest turn shown. God's gap then filled in the background in %.0f ms (untimed)", godFill))
     }
 
     @Test("chat_older_page")

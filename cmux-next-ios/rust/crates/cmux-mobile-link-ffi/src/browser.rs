@@ -264,9 +264,7 @@ async fn peer_close(receiver: &mut ChannelReceiver) -> (String, String) {
         }
         ("link_closed".to_owned(), String::new())
     };
-    tokio::time::timeout(SEND_STALL, closed)
-        .await
-        .unwrap_or_else(|_| ("link_closed".to_owned(), String::new()))
+    tokio::time::timeout(SEND_STALL, closed).await.unwrap_or_else(|_| ("link_closed".to_owned(), String::new()))
 }
 
 impl Viewer {
@@ -320,7 +318,7 @@ impl Viewer {
                         }
                     }
                     Some(Command::Decoded(us)) => {
-                        let _ = self.session.note_decode(0, None, us);
+                        let _ = self.session.note_decode(0, us);
                     }
                     Some(Command::Close) | None => {
                         let _ = sender.close("eof", "closed by the app").await;

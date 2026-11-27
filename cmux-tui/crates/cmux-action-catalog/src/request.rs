@@ -7,33 +7,13 @@ use crate::model::*;
 use serde_json::{Map, Value};
 
 /// The list requests `op:` suggestion sources name.
-pub static LIST_SOURCES: &[ListSource] = &[
-    ListSource {
-        lane: RequestLane::Session,
-        operation: "closed.list",
-        items: None,
-        value: "id",
-        title: "name",
-    },
-    // acpmux's ACP session list (its first page, newest first): the sessions `agent open` and
-    // `agent open-tab` take by id. A row with no title shows its id.
-    ListSource {
-        lane: RequestLane::Acpmux,
-        operation: "session/list",
-        items: Some("sessions"),
-        value: "sessionId",
-        title: "title",
-    },
-    // The session's terminals (`cmux terminal list`, every one with or without a tab), by
-    // title: the terminal Show Terminal in New Tab puts in a tab.
-    ListSource {
-        lane: RequestLane::Session,
-        operation: "terminal.list",
-        items: None,
-        value: "id",
-        title: "title",
-    },
-];
+pub static LIST_SOURCES: &[ListSource] = &[ListSource {
+    lane: RequestLane::Session,
+    operation: "closed.list",
+    items: None,
+    value: "id",
+    title: "name",
+}];
 
 /// The list request a suggestion `source` names (`op:closed.list`), if it is one.
 pub fn list_source(source: &str) -> Option<&'static ListSource> {

@@ -43,12 +43,8 @@ pub(super) async fn as_session_fork<'m>(
     }
     if let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         meta.remove("throughSeq");
-        // A `session/fork`'s own `requestId` names the whole fork (`hub/fork_request.rs`); one
-        // sent with a boundary only this canonical operation mints goes with it.
-        let boundary = meta.remove("beforePromptId").is_some();
-        if boundary || m != method::SESSION_FORK {
-            meta.remove("requestId");
-        }
+        meta.remove("beforePromptId");
+        meta.remove("requestId");
         meta.remove("startLater");
     }
     Ok(m)
@@ -66,35 +62,12 @@ pub(super) fn starts_later(params: &Value) -> bool {
 /// it (`peer_forward.rs`).
 pub const RETARGET_FEATURE: &str = "sessionForkRetarget";
 
-/// Listed in `initialize`'s `_meta.acpmux.features`: every fork takes a `requestId` (`session/fork`'s
-/// `_meta.acpmux.requestId`, `acp.session.fork`'s `requestId` without `beforePromptId` too), and a
-/// retry with it answers the fork the first request made (`hub/fork_request.rs`). An older build
-/// refuses `acp.session.fork`'s without a boundary, so a client sends one only where listed.
-pub const FORK_REQUEST_FEATURE: &str = "forkRequestId";
-
 /// Why a switch of a peer's chat cannot go to that peer: it did not list [`RETARGET_FEATURE`].
 pub(super) fn retarget_unsupported(peer: &str) -> RpcError {
     RpcError::invalid_params(format!(
         "{peer} runs an acpmux that cannot switch a chat onto another harness: update it, then pick the model again"
     ))
     .with_data(serde_json::json!({"reason": "peer.retarget_unsupported", "peer": peer}))
-}
-
-/// Whether `session/fork` params ask for a subagent's fork, a start mode, or a model of the chat's
-/// own harness (`hub/fork_subagent.rs`).
-pub(super) fn asks_start(params: &Value) -> bool {
-    let set =
-        |key: &str| params.pointer(&format!("/_meta/acpmux/{key}")).is_some_and(|v| !v.is_null());
-    set("subagentId") || set("mode") || (set("model") && !set("harness"))
-}
-
-/// Why a subagent's fork (or a start mode) of a peer's chat cannot go to that peer: it did not
-/// list `fork_subagent::FEATURE`.
-pub(super) fn start_unsupported(peer: &str) -> RpcError {
-    RpcError::invalid_params(format!(
-        "{peer} runs an acpmux that cannot fork a subagent or start a fork in a picked mode or model: update it, then try again"
-    ))
-    .with_data(serde_json::json!({"reason": "peer.fork_subagent_unsupported", "peer": peer}))
 }
 
 /// Whether `session/fork` params ask for a switch onto another harness.
@@ -124,9 +97,13 @@ pub(super) fn retarget(params: &Value) -> Result<Option<crate::hub::Retarget>, R
             "_meta.acpmux.model must be one model id: ASCII letters, digits and ._-/:@[]+, not starting with -",
         ));
     }
-    // A model with no harness starts the fork on that model of the chat's own harness
-    // (`fork_subagent::ForkStart`), not a switch.
-    Ok(text("harness")?.map(|harness| crate::hub::Retarget { harness, model, remote: false }))
+    Ok(match text("harness")? {
+        Some(harness) => Some(crate::hub::Retarget { harness, model, remote: false }),
+        None if model.is_some() => {
+            return Err(RpcError::invalid_params("_meta.acpmux.model needs _meta.acpmux.harness"));
+        }
+        None => None,
+    })
 }
 
 /// The earlier turn a `session/fork` from `acp.session.fork` forks through.
@@ -165,30 +142,6 @@ fn carried_meta(params: &Value) -> serde_json::Map<String, Value> {
     mux
 }
 
-/// The `acp.session.fork` fields a live fork alone takes, carried into `session/fork`'s
-/// `_meta.acpmux`: a switch onto another harness or model, the start mode, and the subagent to
-/// fork (`hub/fork_subagent.rs`).
-const LIVE_ONLY: [&str; 4] = ["harness", "model", "mode", "subagentId"];
-
-/// A fork request's top-level `name` beside a chat id (`sessionId`, `session`) as
-/// `_meta.acpmux.name`, unless that is set: forwarded to a peer, a top-level `name` is dropped as
-/// a session selector (`peer_forward.rs`), and the child took `<parent>-fork` (cmux#50023).
-pub(super) fn name_to_meta(params: &mut Value) {
-    let has_chat =
-        ["sessionId", "session"].iter().any(|key| params.get(*key).is_some_and(Value::is_string));
-    let Some(name) = params.get("name").filter(|n| n.is_string()).cloned() else { return };
-    if !has_chat || params.pointer("/_meta/acpmux/name").is_some() {
-        return;
-    }
-    let Some(obj) = params.as_object_mut() else { return };
-    let Some(meta) = obj.entry("_meta").or_insert_with(|| json!({})).as_object_mut() else {
-        return;
-    };
-    if let Some(mux) = meta.entry("acpmux").or_insert_with(|| json!({})).as_object_mut() {
-        mux.insert("name".into(), name);
-    }
-}
-
 /// The `session/fork` params for an `acp.session.fork` request, or why the
 /// fork cannot happen at that turn.
 async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
@@ -196,15 +149,15 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // `live`: the whole chat as it is now (Fork Conversation), its running turn cut off
     // there (`hub/fork.rs`).
     let live = params.get("live").and_then(Value::as_bool).unwrap_or(false);
-    // A switch (`harness`, `model`), a start mode or a subagent forks the chat (or its subagent)
-    // as it is now: with `live` only, never at a turn or before a prompt, which would drop them
-    // and make an ordinary fork.
-    let switch = LIVE_ONLY.iter().any(|key| params.get(*key).is_some_and(|v| !v.is_null()));
+    // A switch (`harness`, `model`) forks the chat as it is now: with `live` only, never at a turn
+    // or before a prompt, which would drop the target and make an ordinary fork.
+    let switch =
+        ["harness", "model"].iter().any(|key| params.get(*key).is_some_and(|v| !v.is_null()));
     if switch
         && (!live || params.get("throughSeq").is_some() || params.get("beforePromptId").is_some())
     {
         return Err(RpcError::invalid_params(
-            "harness, model, mode and subagentId fork the chat as it is now: send them with live, without throughSeq or beforePromptId",
+            "harness and model fork the chat as it is now: send them with live, without throughSeq or beforePromptId",
         ));
     }
     // A chat on another computer (a peer's, a Cloud machine's) forks there as it is now: the
@@ -217,10 +170,13 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
         && params.get("throughSeq").is_none()
         && params.get("beforePromptId").is_none()
     {
-        let mut mux = carried_meta(params);
-        mux.extend(cancel_token(params));
-        // `requestId` too: that machine's fork is the one a retry finds (`hub/fork_request.rs`).
-        for key in ["harness", "model", "mode", "subagentId", "requestId"] {
+        let mut mux = cancel_token(params);
+        for key in ["via", "requireFullAccess"] {
+            if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+                mux.insert(key.into(), value.clone());
+            }
+        }
+        for key in ["harness", "model"] {
             if let Some(value) = params.get(key).filter(|v| v.is_string()) {
                 mux.insert(key.into(), value.clone());
             }
@@ -253,43 +209,32 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
         // Only this canonical operation may mint the internal boundary. All guards still run.
         return Ok(json!({"sessionId": session.id, "_meta": {"acpmux": mux}}));
     }
-    // Without a boundary, `requestId` names the fork itself: a retry gets the fork it made.
-    let request = match params.get("requestId") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(r)) if !r.trim().is_empty() && r.len() <= 512 => Some(r.clone()),
-        Some(_) => {
-            return Err(crate::hub::fork_before::refused(
-                "fork.invalid_request",
-                "requestId must be a nonempty string of at most 512 bytes",
-            ));
-        }
-    };
+    if params.get("requestId").is_some() {
+        return Err(crate::hub::fork_before::refused(
+            "fork.invalid_boundary",
+            "requestId requires beforePromptId",
+        ));
+    }
     let working = matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting);
     let can_cut = {
         let harness = session.meta().harness;
         let cfg = hub.config.read().await;
         cfg.profile(&harness).and_then(|p| crate::config::turn_cut(&harness, p)).is_some()
     };
-    // An explicit cut is never widened to the whole working chat.
-    if !live && working && !can_cut && params.get("throughSeq").is_some() {
-        return Err(RpcError::invalid_params(
-            "this agent's chat is working and can be forked only as it is now: fork it live, or through a turn once this one ends",
-        )
-        .with_data(json!({"reason": "fork.cut_unavailable"})));
-    }
-    // A working chat with no cut requested can fork as it is now.
+    // A working chat of an agent that forks only at its end forks as it is now.
     if live || (working && !can_cut) {
         let mut out = json!({"sessionId": session.id});
-        let mut mux = carried_meta(params);
-        mux.extend(cancel_token(params));
-        // A pick of another harness's model, sent (`hub/fork.rs` `Retarget`).
-        for key in LIVE_ONLY {
-            if let Some(value) = params.get(key).filter(|v| v.is_string()) {
+        let mut mux = cancel_token(params);
+        for key in ["via", "requireFullAccess"] {
+            if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
                 mux.insert(key.into(), value.clone());
             }
         }
-        if let Some(request) = &request {
-            mux.insert("requestId".into(), json!(request));
+        // A pick of another harness's model, sent (`hub/fork.rs` `Retarget`).
+        for key in ["harness", "model"] {
+            if let Some(value) = params.get(key).filter(|v| v.is_string()) {
+                mux.insert(key.into(), value.clone());
+            }
         }
         mux.insert("startLater".into(), json!(true));
         out.set("_meta", json!({"acpmux": mux}));
@@ -335,9 +280,6 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     if earlier {
         mux.insert("throughSeq".into(), json!(through));
     }
-    if let Some(request) = request {
-        mux.insert("requestId".into(), json!(request));
-    }
     mux.insert("startLater".into(), json!(true));
     let mut out = json!({"sessionId": session.id});
     out.set("_meta", json!({"acpmux": mux}));
@@ -355,5 +297,148 @@ fn cancel_token(params: &Value) -> serde_json::Map<String, Value> {
 }
 
 #[cfg(test)]
-#[path = "fork_through_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::config::{Config, StoreMode};
+    use crate::session_identity::SessionReceipt;
+
+    /// A hub with no chat of its own, and peer hb (listed, never run) listing a working chat:
+    /// `Hub::resolve_remote` needs the peer as well as its row (`hub/own_host.rs` `add_peer`).
+    fn hub_with_a_peer_chat() -> Arc<Hub> {
+        let mut config: Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let row = crate::hub::RemoteSession {
+            peer: "hb".into(),
+            summary: json!({"sessionId": "peer-chat-1", "name": "hb/chat", "status": "running"})
+                .into(),
+            receipt: SessionReceipt {
+                host_id: "hb".into(),
+                mux_session_id: "peer-chat-1".into(),
+                agent_session_id: None,
+                generation: 1,
+            },
+        };
+        hub.remote_sessions.write().insert("hb/peer-chat-1".into(), row);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("hb", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("hb".to_owned(), peer);
+        hub
+    }
+
+    /// The child's `name` survives the rebuilt `session/fork` (Try another approach labels its sibling).
+    #[test]
+    fn a_turn_fork_keeps_the_childs_name() {
+        let top = carried_meta(
+            &json!({"sessionId": "s", "throughSeq": 3, "name": "Try another approach · Repo"}),
+        );
+        assert_eq!(top.get("name"), Some(&json!("Try another approach · Repo")));
+        // The `_meta` name wins, as `session/fork` reads it; a non-string top-level name is dropped.
+        let meta = carried_meta(
+            &json!({"name": "top", "_meta": {"acpmux": {"name": "meta", "via": "hb"}}}),
+        );
+        assert_eq!(meta.get("name"), Some(&json!("meta")));
+        assert_eq!(meta.get("via"), Some(&json!("hb")));
+        assert!(carried_meta(&json!({"name": 7})).get("name").is_none());
+        assert!(carried_meta(&json!({"sessionId": "s"})).is_empty());
+    }
+
+    /// Leo, 2026-11-11: "why are only some chats forkable". A fork of a peer's chat through a turn
+    /// or before a prompt stays `acp.session.fork` with its params as sent, so it is forwarded
+    /// whole and the peer that holds the chat forks it. A `live` one (a Cloud machine's too) is
+    /// that machine's `session/fork`, onto another harness when the pick names one (Leo
+    /// 2026-11-11: "across any and all conditions of workspaces/folders/models/provides/harnesses").
+    #[tokio::test]
+    async fn a_peer_chats_fork_is_left_for_the_peer() {
+        let hub = hub_with_a_peer_chat();
+        assert!(
+            hub.resolve_remote("hb/peer-chat-1").is_some(),
+            "the fixture lists the peer's chat"
+        );
+        for sent in [
+            json!({"sessionId": "hb/peer-chat-1", "throughSeq": 3}),
+            json!({"sessionId": "hb/peer-chat-1", "beforePromptId": "p", "requestId": "r"}),
+        ] {
+            let mut params = sent.clone();
+            let m = as_session_fork(&hub, method::ACP_SESSION_FORK, &mut params).await.unwrap();
+            assert_eq!(m, method::ACP_SESSION_FORK, "{sent}");
+            assert_eq!(params, sent);
+        }
+        let mut live =
+            json!({"sessionId": "hb/peer-chat-1", "live": true, "harness": "codex", "model": "m"});
+        let m = as_session_fork(&hub, method::ACP_SESSION_FORK, &mut live).await.unwrap();
+        assert_eq!(m, method::SESSION_FORK);
+        assert_eq!(live["sessionId"], "hb/peer-chat-1");
+        assert_eq!(live["_meta"]["acpmux"]["harness"], "codex");
+        assert_eq!(live["_meta"]["acpmux"]["model"], "m");
+        assert_eq!(live["_meta"]["acpmux"]["startLater"], true);
+        // A chat neither here nor on a peer is still this daemon's unknown session.
+        let mut params = json!({"sessionId": "nowhere", "live": true});
+        assert!(as_session_fork(&hub, method::ACP_SESSION_FORK, &mut params).await.is_err());
+    }
+
+    /// A switch onto another harness forks the chat as it is now: `harness` or `model` with a turn
+    /// or a prompt boundary, or without `live`, is refused rather than dropped (a fork that ignored
+    /// the picked harness would send the message to the old model).
+    #[tokio::test]
+    async fn a_switch_needs_live_and_no_boundary() {
+        let hub = hub_with_a_peer_chat();
+        for params in [
+            json!({"sessionId": "hb/peer-chat-1", "harness": "codex"}),
+            json!({"sessionId": "hb/peer-chat-1", "live": true, "throughSeq": 3, "harness": "codex"}),
+            json!({"sessionId": "hb/peer-chat-1", "beforePromptId": "p", "requestId": "r", "model": "m"}),
+        ] {
+            let err = to_session_fork(&hub, &params).await.unwrap_err();
+            assert!(err.message.contains("send them with live"), "{params}: {}", err.message);
+        }
+    }
+
+    /// A Web switch of a peer's chat passes this daemon's guard to that peer (forwarded `via: web`,
+    /// where the peer's own guard applies the Web's rules); an unknown chat is still refused.
+    #[tokio::test]
+    async fn a_web_switch_of_a_peer_chat_goes_to_the_peer() {
+        let hub = hub_with_a_peer_chat();
+        let mut fork = to_session_fork(
+            &hub,
+            &json!({"sessionId": "hb/peer-chat-1", "live": true, "harness": "codex"}),
+        )
+        .await
+        .unwrap();
+        let web = crate::hub::Control::Web;
+        super::super::remote_guard::web_starts_asking(
+            &hub,
+            web,
+            false,
+            None,
+            method::SESSION_FORK,
+            &mut fork,
+        )
+        .await
+        .unwrap();
+        let mut unknown = json!({"sessionId": "nope", "_meta": {"acpmux": {"harness": "codex"}}});
+        let refused = super::super::remote_guard::web_starts_asking(
+            &hub,
+            web,
+            false,
+            None,
+            method::SESSION_FORK,
+            &mut unknown,
+        )
+        .await;
+        assert!(refused.is_err());
+    }
+
+    /// A switch's model is one model id: a flag or shell text is refused before it reaches a
+    /// launch command's `${model}`.
+    #[test]
+    fn a_switch_model_is_one_model_id() {
+        let with = |model: &str| json!({"_meta": {"acpmux": {"harness": "codex", "model": model}}});
+        assert!(retarget(&with("claude-opus-5-5[1m]")).is_ok());
+        assert!(retarget(&with("provider/model:tag")).is_ok());
+        for bad in ["m;id", "--dangerously-skip-permissions", "a b", "$(x)", "m`x`"] {
+            assert!(retarget(&with(bad)).is_err(), "{bad}");
+        }
+    }
+}

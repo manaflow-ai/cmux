@@ -10,15 +10,13 @@ use cmux_mobile_host::config::{AcpmuxTarget, ServiceConfig};
 use cmux_mobile_host::control::Event;
 use cmux_mobile_host::host::{AnswerContext, IceSource, serve_signaling};
 use cmux_mobile_host::pairing::{
-    DeniedDevice, DeviceTrust, MacIdentity, Pairing, TrustedDevice, TunnelKeys, challenge_message,
-    challenge_message_v2, mac_proof_message, mac_proof_message_v2,
+    DeniedDevice, DeviceTrust, MacIdentity, Pairing, TrustedDevice, challenge_message, mac_proof_message,
 };
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
 use cmux_mobile_link::{
     Channel, ChannelEvent, Connected, DialError, DialOptions, LinkConfig, SignalingClient, TransportKind,
 };
 use futures_util::{SinkExt, StreamExt};
-use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[path = "support/fake_rb_host.rs"]
@@ -27,7 +25,6 @@ mod fake_rb_host;
 mod fake_surface_source;
 
 struct Fixture {
-    services: Arc<ServiceConfig>,
     _server: FakeSignaling,
     _dirs: Vec<tempfile::TempDir>,
     phone: SignalingClient,
@@ -60,40 +57,18 @@ fn options() -> DialOptions {
 /// `browser_url`: the page the Mac's one browser tab shows (`list-workspaces`).
 fn fake_daemon(dir: &std::path::Path, browser_url: String) -> Arc<std::sync::Mutex<Vec<serde_json::Value>>> {
     let listener = tokio::net::UnixListener::bind(dir.join("main.sock")).unwrap();
-    let dir = dir.to_path_buf();
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let recorded = Arc::clone(&seen);
     tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
             let recorded = Arc::clone(&recorded);
             let browser_url = browser_url.clone();
-            let dir = dir.clone();
             tokio::spawn(async move {
                 let (read, mut write) = stream.into_split();
                 let mut lines = BufReader::new(read).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let request: serde_json::Value = serde_json::from_str(&line).unwrap();
                     recorded.lock().unwrap().push(request.clone());
-                    // A scripted terminal: an attach gets its vt-state (40x8, a prompt), then
-                    // `scripted` output lines, enough to scroll, then the socket stays open.
-                    if request["cmd"] == "attach-surface"
-                        && let Some(count) = request["scripted"].as_u64()
-                    {
-                        let answer = serde_json::json!({"id": request["id"], "ok": true, "data": {}});
-                        write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
-                        let surface = request["surface"].clone();
-                        let state = serde_json::json!({"event": "vt-state", "surface": surface, "cols": 40,
-                            "rows": 8, "data": b64(SCRIPTED_PROMPT)});
-                        write.write_all(format!("{state}\n").as_bytes()).await.unwrap();
-                        for i in 0..count {
-                            let data = b64(scripted_line(i).as_bytes());
-                            let event =
-                                serde_json::json!({"event": "output", "surface": surface, "data": data});
-                            write.write_all(format!("{event}\n").as_bytes()).await.unwrap();
-                            tokio::time::sleep(Duration::from_millis(5)).await;
-                        }
-                        continue;
-                    }
                     // A busy terminal: an attach streams output until the socket closes.
                     if request["cmd"] == "attach-surface" && request["busy"] == true {
                         let answer = serde_json::json!({"id": request["id"], "ok": true, "data": {}});
@@ -116,10 +91,6 @@ fn fake_daemon(dir: &std::path::Path, browser_url: String) -> Arc<std::sync::Mut
                     }
                     let mut data =
                         serde_json::json!({"cmd": request["cmd"], "host": request["agent_session"]["host"]});
-                    // A daemon that hangs on its tab list (`stall-list` in the socket folder).
-                    if request["cmd"] == "list-workspaces" && dir.join("stall-list").exists() {
-                        continue;
-                    }
                     if request["cmd"] == "list-workspaces" {
                         data["workspaces"] = serde_json::json!([{"screens": [{"panes": [{"tabs": [
                             {"surface": 9, "kind": "browser", "url": browser_url},
@@ -215,16 +186,6 @@ async fn fixture_with(fake: FakeOptions, pairing: bool) -> Fixture {
 
 /// `loaded`: whether the app already sent its (empty) `devices` list.
 async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixture {
-    fixture_viewport(fake, pairing, loaded, None).await
-}
-
-/// `viewport_sync`: the host's viewport sync gate (`ServiceConfig::viewport_sync`).
-async fn fixture_viewport(
-    fake: FakeOptions,
-    pairing: bool,
-    loaded: bool,
-    viewport_sync: Option<cmux_mobile_host::viewport_sync::SelectorConfig>,
-) -> Fixture {
     let server = FakeSignaling::start(fake).await;
     let sockets = tempfile::tempdir().unwrap();
     let root = tempfile::tempdir().unwrap();
@@ -256,7 +217,6 @@ async fn fixture_viewport(
             Some(fake_surface_source::launcher(Arc::clone(&surface_inputs))),
             4,
         ),
-        viewport_sync,
     };
     let mut services = services;
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -285,12 +245,11 @@ async fn fixture_viewport(
         events = Some(tokio::sync::Mutex::new(events_rx));
     }
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
-    let services = Arc::new(services);
     tokio::spawn(serve_signaling(
         mac,
         AnswerContext {
             owner_user_id: "alice".into(),
-            services: Arc::clone(&services),
+            services: Arc::new(services),
             ice: IceSource::Fixed(Vec::new()),
             include_loopback: true,
             exclude_cgnat: false,
@@ -301,7 +260,6 @@ async fn fixture_viewport(
     let phone_id = uuid::Uuid::new_v4().to_string();
     let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
     Fixture {
-        services,
         _server: server,
         phone,
         phone_id,
@@ -364,14 +322,9 @@ fn phone_rb(body: serde_json::Value) -> Bytes {
 }
 
 async fn drain(channel: &mut Channel) -> (Vec<u8>, String) {
-    drain_within(channel, Duration::from_secs(10)).await
-}
-
-/// `drain`, with a longer wait per message for replies that follow heavy disk work.
-async fn drain_within(channel: &mut Channel, wait: Duration) -> (Vec<u8>, String) {
     let mut bytes = Vec::new();
     loop {
-        match tokio::time::timeout(wait, channel.recv()).await.expect("in time") {
+        match tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.expect("in time") {
             Some(ChannelEvent::Data(data)) => bytes.extend_from_slice(&data),
             Some(ChannelEvent::Closed(info)) => return (bytes, info.code),
             None => return (bytes, "none".into()),
@@ -510,12 +463,6 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
             "cloud-acpmux-v1",
             "needs-you-v1",
             "appearance-v1",
-            "pair-requests-v1",
-            "phone-frames-v1",
-            "tab-snapshots-v1",
-            "phone-page-v1",
-            "mailbox-send-v1",
-            "bundle-v1",
             "browser-stream-v1",
             "browser-video-track-v1",
             "surface-stream-v1",
@@ -1056,8 +1003,7 @@ async fn an_upload_past_the_old_100_mib_cap_is_saved_whole() {
         }
         sent += take as u64;
     }
-    // The host writes and syncs 100 MiB before it answers; a loaded CI runner can take well over 10 s.
-    let (reply, code) = drain_within(&mut upload, Duration::from_secs(90)).await;
+    let (reply, code) = drain(&mut upload).await;
     assert_eq!(code, "eof", "{}", String::from_utf8_lossy(&reply));
     assert_eq!(sent, size);
     let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
@@ -1065,696 +1011,6 @@ async fn an_upload_past_the_old_100_mib_cap_is_saved_whole() {
     let path = std::path::PathBuf::from(reply["path"].as_str().unwrap());
     assert!(path.starts_with(&fixture.uploads), "{path:?}");
     assert_eq!(std::fs::metadata(&path).unwrap().len(), size);
-}
-
-/// A daemon that never answers its tab list cannot hold an upload unopened: past
-/// hostd's 5 s bound it answers `unavailable`, on which the phone uses the uploads folder.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn an_upload_to_a_tab_folder_is_bounded_when_the_daemon_stalls() {
-    let fixture = fixture(FakeOptions::default()).await;
-    std::fs::write(fixture.services.tui_socket_dir.join("stall-list"), "").unwrap();
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let started = std::time::Instant::now();
-    let mut upload = connected
-        .link
-        .open("upload", serde_json::json!({"name": "x", "size": 1, "cwd": fixture.outside.to_str().unwrap()}))
-        .await
-        .unwrap();
-    let (_, code) = tokio::time::timeout(std::time::Duration::from_secs(20), drain(&mut upload))
-        .await
-        .expect("the upload waited on the daemon past its bound");
-    assert_eq!(code, "unavailable");
-    assert!(started.elapsed() < std::time::Duration::from_secs(15), "{:?}", started.elapsed());
-}
-
-fn sha256(bytes: &[u8]) -> Vec<u8> {
-    Sha256::digest(bytes).to_vec()
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn upload_invalid_resume_arguments_create_no_folders() {
-    let fixture = fixture(FakeOptions::default()).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let before = std::fs::read_dir(&fixture.uploads).map(|entries| entries.count()).unwrap_or(0);
-    for extra in [
-        serde_json::json!({"upload_id": "invalid"}),
-        serde_json::json!({"upload_id": "11111111-1111-1111-1111-111111111111", "offset": 4}),
-        serde_json::json!({"upload_id": "11111111-1111-1111-1111-111111111111", "sha256": "invalid"}),
-    ] {
-        let mut args = serde_json::json!({"name": "bad.bin", "size": 3});
-        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-        let mut upload = connected.link.open("upload", args).await.unwrap();
-        assert_eq!(drain(&mut upload).await.1, "bad_request");
-        assert_eq!(std::fs::read_dir(&fixture.uploads).map(|entries| entries.count()).unwrap_or(0), before);
-    }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn resumable_upload_reports_have_acks_and_path() {
-    const MIB: usize = 1 << 20;
-    let fixture = fixture(FakeOptions::default()).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let upload_id = "11111111-1111-1111-1111-111111111111";
-    let mut upload = connected
-        .link
-        .open("upload", serde_json::json!({"name": "whole.bin", "size": MIB + 3, "upload_id": upload_id}))
-        .await
-        .unwrap();
-    let mut buffer = Vec::new();
-    assert_eq!(next_line(&mut upload, &mut buffer).await, serde_json::json!({"have": 0}));
-    upload.send(Bytes::from(vec![0x5a; MIB])).await.unwrap();
-    assert_eq!(next_line(&mut upload, &mut buffer).await, serde_json::json!({"ack": MIB}));
-    upload.send(Bytes::from_static(b"end")).await.unwrap();
-    let (reply, code) = drain(&mut upload).await;
-    assert_eq!(code, "eof");
-    assert!(reply.ends_with(b"\n"));
-    let lines: Vec<serde_json::Value> = reply
-        .split(|byte| *byte == b'\n')
-        .filter(|line| !line.is_empty())
-        .map(|line| serde_json::from_slice(line).unwrap())
-        .collect();
-    assert_eq!(lines[0], serde_json::json!({"ack": MIB + 3}));
-    let path = std::path::PathBuf::from(lines[1]["path"].as_str().unwrap());
-    assert_eq!(lines[1]["size"], MIB + 3);
-    assert_eq!(std::fs::metadata(&path).unwrap().len(), (MIB + 3) as u64);
-    // Model losing the final reply: the phone knows only its last ack (or
-    // none), and reopens the same upload. No payload or duplicate is needed.
-    for offset in [0, MIB, MIB + 3] {
-        let mut retry = connected
-            .link
-            .open(
-                "upload",
-                serde_json::json!({
-                    "name": "whole.bin", "size": MIB + 3, "upload_id": upload_id, "offset": offset
-                }),
-            )
-            .await
-            .unwrap();
-        assert_eq!(next_line(&mut retry, &mut Vec::new()).await, serde_json::json!({"have": MIB + 3}));
-        let (reply, code) = drain(&mut retry).await;
-        assert_eq!(code, "eof");
-        let done: serde_json::Value = serde_json::from_slice(&reply).unwrap();
-        assert_eq!(done["path"], path.to_string_lossy().as_ref());
-    }
-    assert!(!path.with_file_name("whole 2.bin").exists());
-    let mut invalid_offset = connected
-        .link
-        .open(
-            "upload",
-            serde_json::json!({
-                "name": "whole.bin", "size": MIB + 3, "upload_id": upload_id, "offset": MIB + 4
-            }),
-        )
-        .await
-        .unwrap();
-    assert_eq!(drain(&mut invalid_offset).await.1, "bad_request");
-    let mut changed = connected
-        .link
-        .open(
-            "upload",
-            serde_json::json!({
-                "name": "different.bin", "size": MIB + 3, "upload_id": upload_id
-            }),
-        )
-        .await
-        .unwrap();
-    assert_eq!(drain(&mut changed).await.1, "bad_request");
-    // A later replacement at the same path is not this upload's completion.
-    std::fs::rename(&path, path.with_extension("saved")).unwrap();
-    std::fs::write(&path, vec![0; MIB + 3]).unwrap();
-    let mut replaced = connected
-        .link
-        .open(
-            "upload",
-            serde_json::json!({
-                "name": "whole.bin", "size": MIB + 3, "upload_id": upload_id
-            }),
-        )
-        .await
-        .unwrap();
-    assert_eq!(drain(&mut replaced).await.1, "io");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn resumable_upload_reopens_from_the_last_ack() {
-    const HALF: usize = 1 << 20;
-    let fixture = fixture(FakeOptions::default()).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let upload_id = "22222222-2222-2222-2222-222222222222";
-    let mut first = connected
-        .link
-        .open("upload", serde_json::json!({"name": "resume.bin", "size": HALF * 2, "upload_id": upload_id}))
-        .await
-        .unwrap();
-    let mut buffer = Vec::new();
-    assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"have": 0}));
-    let first_bytes = vec![0x31; HALF];
-    first.send(Bytes::from(first_bytes.clone())).await.unwrap();
-    let last_ack = next_line(&mut first, &mut buffer).await["ack"].as_u64().unwrap();
-    assert_eq!(last_ack, HALF as u64);
-    first.close("cancelled", "retry").await;
-    let (_reply, code) = drain(&mut first).await;
-    assert!(code == "bad_request" || code == "link_closed", "unexpected close code {code}");
-    connected.link.close("redial");
-    let new_link = connect(&fixture, TransportKind::WireGuard).await.expect("redial");
-    assert_ne!(connected.session_id, new_link.session_id);
-
-    let mut second = new_link
-        .link
-        .open(
-            "upload",
-            serde_json::json!({"name": "resume.bin", "size": HALF * 2, "upload_id": upload_id, "offset": last_ack.to_string()}),
-        )
-        .await
-        .unwrap();
-    let mut buffer = Vec::new();
-    assert_eq!(next_line(&mut second, &mut buffer).await, serde_json::json!({"have": HALF}));
-    let second_bytes = vec![0x32; HALF];
-    second.send(Bytes::from(second_bytes.clone())).await.unwrap();
-    let (reply, code) = drain(&mut second).await;
-    assert_eq!(code, "eof", "reply: {}", String::from_utf8_lossy(&reply));
-    let path = reply
-        .split(|byte| *byte == b'\n')
-        .filter(|line| !line.is_empty())
-        .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
-        .find_map(|line| line.get("path").and_then(serde_json::Value::as_str).map(std::path::PathBuf::from))
-        .expect("path");
-    let mut expected = first_bytes;
-    expected.extend(second_bytes);
-    assert_eq!(sha256(&std::fs::read(path).unwrap()), sha256(&expected));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn resumable_upload_reports_a_resume_gap() {
-    const PART: usize = 1 << 20;
-    let fixture = fixture(FakeOptions::default()).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let upload_id = "33333333-3333-3333-3333-333333333333";
-    let mut first = connected
-        .link
-        .open("upload", serde_json::json!({"name": "gap.bin", "size": PART + 1, "upload_id": upload_id}))
-        .await
-        .unwrap();
-    let mut buffer = Vec::new();
-    assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"have": 0}));
-    first.send(Bytes::from(vec![0x61; PART])).await.unwrap();
-    assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"ack": PART}));
-    first.close("cancelled", "retry").await;
-    let _ = drain(&mut first).await;
-
-    let mut retry = connected
-        .link
-        .open(
-            "upload",
-            serde_json::json!({"name": "gap.bin", "size": PART + 1, "upload_id": upload_id, "offset": PART + 1}),
-        )
-        .await
-        .unwrap();
-    let mut buffer = Vec::new();
-    assert_eq!(
-        next_line(&mut retry, &mut buffer).await,
-        serde_json::json!({"error": "resume_gap", "have": PART})
-    );
-    let (reply, code) = drain(&mut retry).await;
-    assert_eq!(reply, b"");
-    assert_eq!(code, "resume_gap");
-}
-
-/// The lines of a finished resumable upload's replies.
-fn reply_lines(reply: &[u8]) -> Vec<serde_json::Value> {
-    reply
-        .split(|byte| *byte == b'\n')
-        .filter(|line| !line.is_empty())
-        .map(|l| serde_json::from_slice(l).unwrap())
-        .collect()
-}
-
-/// Sends `bytes` whole as a resumable upload with `sha256`; the final reply.
-async fn upload_with_hash(
-    link: &cmux_mobile_link::Link,
-    id: &str,
-    name: &str,
-    bytes: &[u8],
-    hash: &str,
-) -> serde_json::Value {
-    let mut upload = link
-        .open(
-            "upload",
-            serde_json::json!({"name": name, "size": bytes.len().to_string(), "upload_id": id, "offset": "0", "sha256": hash}),
-        )
-        .await
-        .unwrap();
-    let mut buffer = Vec::new();
-    let first = next_line(&mut upload, &mut buffer).await;
-    if first.get("path").is_some() {
-        return first;
-    }
-    assert_eq!(first, serde_json::json!({"have": 0}));
-    upload.send(Bytes::copy_from_slice(bytes)).await.unwrap();
-    let (reply, code) = drain(&mut upload).await;
-    assert_eq!(code, "eof", "{}", String::from_utf8_lossy(&reply));
-    let mut lines = reply_lines(&buffer);
-    lines.extend(reply_lines(&reply));
-    lines.into_iter().find(|line| line.get("path").is_some()).expect("final")
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn resumable_upload_with_a_known_sha256_answers_the_stored_copy_without_bytes() {
-    let fixture = fixture(FakeOptions::default()).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let bytes = vec![0x7e_u8; (1 << 20) + 9];
-    let hash = format!("{:x}", Sha256::digest(&bytes));
-    let first =
-        upload_with_hash(&connected.link, "44444444-4444-4444-4444-444444444444", "a.bin", &bytes, &hash)
-            .await;
-    assert!(first.get("deduped").is_none(), "{first}");
-    let stored = std::path::PathBuf::from(first["path"].as_str().unwrap());
-
-    // Same content, a new upload (another name too): the stored copy, at once, before any byte.
-    let mut again = connected
-        .link
-        .open(
-            "upload",
-            serde_json::json!({"name": "b.bin", "size": bytes.len().to_string(), "upload_id": "55555555-5555-5555-5555-555555555555", "offset": "0", "sha256": hash.to_uppercase()}),
-        )
-        .await
-        .unwrap();
-    let (reply, code) = drain(&mut again).await;
-    assert_eq!(code, "eof");
-    let lines = reply_lines(&reply);
-    assert_eq!(lines.len(), 1, "no have, no ack: {lines:?}");
-    assert_eq!(lines[0]["path"], first["path"]);
-    assert_eq!(lines[0]["deduped"], true);
-    assert_eq!(lines[0]["size"], bytes.len());
-
-    // Losing a cache-hit reply must remain replayable even if the optional
-    // index disappears. The upload ID has its own durable completion receipt.
-    let folder = stored.parent().unwrap();
-    let parts =
-        folder.join(format!(".parts-{:x}", Sha256::digest(fixture.phone_id.to_ascii_lowercase().as_bytes())));
-    let index = parts.join(format!(".sha256-{}", folder.file_name().unwrap().to_str().unwrap()));
-    std::fs::remove_file(index.join(&hash)).unwrap();
-    let mut replay = connected
-        .link
-        .open(
-            "upload",
-            serde_json::json!({
-                "name": "b.bin", "size": bytes.len(), "upload_id": "55555555-5555-5555-5555-555555555555",
-                "sha256": hash
-            }),
-        )
-        .await
-        .unwrap();
-    let (reply, code) = drain(&mut replay).await;
-    assert_eq!(code, "eof");
-    assert_eq!(reply_lines(&reply).last().unwrap()["path"], first["path"]);
-    assert!(!folder.join("b.bin").exists());
-    std::fs::write(index.join(&hash), stored.file_name().unwrap().as_encoded_bytes()).unwrap();
-
-    // The stored file changed (same size): the bytes cross again, into a new file.
-    std::fs::write(&stored, vec![0x00_u8; bytes.len()]).unwrap();
-    let mut changed = connected
-        .link
-        .open(
-            "upload",
-            serde_json::json!({
-                "name": "a.bin", "size": bytes.len(), "upload_id": "44444444-4444-4444-4444-444444444444",
-                "sha256": hash
-            }),
-        )
-        .await
-        .unwrap();
-    assert_eq!(drain(&mut changed).await.1, "io");
-    let third =
-        upload_with_hash(&connected.link, "66666666-6666-6666-6666-666666666666", "a.bin", &bytes, &hash)
-            .await;
-    assert!(third.get("deduped").is_none(), "{third}");
-    let third_path = std::path::PathBuf::from(third["path"].as_str().unwrap());
-    assert_ne!(third_path, stored);
-    assert_eq!(std::fs::read(&third_path).unwrap(), bytes);
-
-    // Deleted: full again.
-    std::fs::remove_file(&third_path).unwrap();
-    let fourth =
-        upload_with_hash(&connected.link, "77777777-7777-7777-7777-777777777777", "a.bin", &bytes, &hash)
-            .await;
-    assert!(fourth.get("deduped").is_none(), "{fourth}");
-    assert_eq!(std::fs::read(fourth["path"].as_str().unwrap()).unwrap(), bytes);
-
-    // A malformed hash is refused.
-    let mut bad = connected
-        .link
-        .open(
-            "upload",
-            serde_json::json!({"name": "c.bin", "size": "3", "upload_id": "88888888-8888-8888-8888-888888888888", "sha256": "../etc"}),
-        )
-        .await
-        .unwrap();
-    let (_, code) = drain(&mut bad).await;
-    assert_eq!(code, "bad_request");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn resumable_upload_dedup_index_alias_preserves_outside_entry() {
-    use std::os::unix::fs::symlink;
-
-    let fixture = fixture(FakeOptions::default()).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let bytes = b"aliased-index";
-    let hash = format!("{:x}", Sha256::digest(bytes));
-    let first =
-        upload_with_hash(&connected.link, "99999999-9999-9999-9999-999999999999", "a.bin", bytes, &hash)
-            .await;
-    let stored = std::path::PathBuf::from(first["path"].as_str().unwrap());
-    let folder = stored.parent().unwrap();
-    let parts =
-        folder.join(format!(".parts-{:x}", Sha256::digest(fixture.phone_id.to_ascii_lowercase().as_bytes())));
-    let index = parts.join(format!(".sha256-{}", folder.file_name().unwrap().to_str().unwrap()));
-    let outside = fixture.outside.join("dedup-index-target");
-    std::fs::create_dir(&outside).unwrap();
-    let sentinel = outside.join(&hash);
-    std::fs::write(&sentinel, b"outside").unwrap();
-    std::fs::remove_dir_all(&index).unwrap();
-    symlink(&outside, &index).unwrap();
-
-    let second =
-        upload_with_hash(&connected.link, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "b.bin", bytes, &hash)
-            .await;
-    assert!(second.get("deduped").is_none(), "an aliased index must not answer a cache hit: {second}");
-    assert_ne!(second["path"], first["path"]);
-    assert_eq!(std::fs::read(&sentinel).unwrap(), b"outside", "the aliased index escaped its folder");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn resumable_upload_dedup_index_ignores_fifo_and_oversized_entries() {
-    use std::io::Write;
-    use std::os::unix::ffi::OsStrExt;
-
-    let fixture = fixture(FakeOptions::default()).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let bytes = b"special-index-entry";
-    let hash = format!("{:x}", Sha256::digest(bytes));
-    let first =
-        upload_with_hash(&connected.link, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "a.bin", bytes, &hash)
-            .await;
-    let stored = std::path::PathBuf::from(first["path"].as_str().unwrap());
-    let folder = stored.parent().unwrap();
-    let parts =
-        folder.join(format!(".parts-{:x}", Sha256::digest(fixture.phone_id.to_ascii_lowercase().as_bytes())));
-    let index = parts.join(format!(".sha256-{}", folder.file_name().unwrap().to_str().unwrap()));
-    let entry = index.join(&hash);
-
-    std::fs::remove_file(&entry).unwrap();
-    let entry_name = std::ffi::CString::new(entry.as_os_str().as_bytes()).unwrap();
-    assert_eq!(unsafe { libc::mkfifo(entry_name.as_ptr(), 0o600) }, 0);
-    let fifo_entry = entry.clone();
-    let fifo_writer = std::thread::spawn(move || {
-        let Ok(mut fifo) = std::fs::OpenOptions::new().write(true).open(&fifo_entry) else { return };
-        let _ = fifo.write_all(b"not-a-published-file\n");
-    });
-    let fifo_result = tokio::time::timeout(
-        Duration::from_secs(3),
-        upload_with_hash(&connected.link, "cccccccc-cccc-cccc-cccc-cccccccccccc", "b.bin", bytes, &hash),
-    )
-    .await
-    .expect("FIFO index entry must not block lookup");
-    fifo_writer.join().unwrap();
-    assert!(fifo_result.get("deduped").is_none(), "a FIFO is not a cache entry: {fifo_result}");
-
-    std::fs::remove_file(&entry).unwrap();
-    std::fs::write(&entry, vec![b'x'; 8192]).unwrap();
-    let oversized = tokio::time::timeout(
-        Duration::from_secs(3),
-        upload_with_hash(&connected.link, "dddddddd-dddd-dddd-dddd-dddddddddddd", "c.bin", bytes, &hash),
-    )
-    .await
-    .expect("oversized index entry must be bounded");
-    assert!(oversized.get("deduped").is_none(), "an oversized entry is not a cache hit: {oversized}");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn old_phone_upload_reply_has_legacy_framing() {
-    let fixture = fixture(FakeOptions::default()).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let mut upload =
-        connected.link.open("upload", serde_json::json!({"name": "old.bin", "size": 3})).await.unwrap();
-    upload.send(Bytes::from_static(b"old")).await.unwrap();
-    let (reply, code) = drain(&mut upload).await;
-    assert_eq!(code, "eof");
-    assert!(!reply.ends_with(b"\n"));
-    assert_eq!(serde_json::from_slice::<serde_json::Value>(&reply).unwrap()["size"], 3);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn resumable_upload_offset_truncates_existing_part() {
-    const PART: usize = 1 << 20;
-    let fixture = fixture(FakeOptions::default()).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let upload_id = "44444444-4444-4444-4444-444444444444";
-    let mut first = connected
-        .link
-        .open("upload", serde_json::json!({"name": "truncate.bin", "size": PART + 1, "upload_id": upload_id}))
-        .await
-        .unwrap();
-    let mut buffer = Vec::new();
-    assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"have": 0}));
-    first.send(Bytes::from(vec![0x61; PART])).await.unwrap();
-    assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"ack": PART}));
-    first.close("cancelled", "retry").await;
-    let _ = drain(&mut first).await;
-
-    let mut retry = connected
-        .link
-        .open(
-            "upload",
-            serde_json::json!({"name": "truncate.bin", "size": 6, "upload_id": upload_id, "offset": 3}),
-        )
-        .await
-        .unwrap();
-    let mut buffer = Vec::new();
-    assert_eq!(next_line(&mut retry, &mut buffer).await, serde_json::json!({"have": 3}));
-    retry.send(Bytes::from_static(b"XYZ")).await.unwrap();
-    let (reply, code) = drain(&mut retry).await;
-    assert_eq!(code, "eof", "reply: {}", String::from_utf8_lossy(&reply));
-    let path = reply
-        .split(|byte| *byte == b'\n')
-        .filter(|line| !line.is_empty())
-        .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
-        .find_map(|line| line.get("path").and_then(serde_json::Value::as_str).map(std::path::PathBuf::from))
-        .expect("path");
-    assert_eq!(std::fs::read(path).unwrap(), b"aaaXYZ");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn resumable_upload_stall_keeps_part_and_refuses() {
-    let fixture = fixture(FakeOptions::default()).await;
-    let upload_id = "55555555-5555-5555-5555-555555555555";
-    let (client, server) = tokio::io::duplex(64 << 10);
-    let phone =
-        cmux_mobile_link::Link::new(client, cmux_mobile_link::Role::Phone, LinkConfig::default(), None);
-    let mac = cmux_mobile_link::Link::new(server, cmux_mobile_link::Role::Mac, LinkConfig::default(), None);
-    let services = Arc::clone(&fixture.services);
-    let peer = cmux_mobile_host::services::Peer {
-        device_id: fixture.phone_id.clone(),
-        session_id: "stall-test".into(),
-        video: None,
-        session_exposure: None,
-        route: None,
-        path: None,
-        viewport: None,
-    };
-    let host = tokio::spawn(async move {
-        let incoming = mac.accept().await.unwrap();
-        cmux_mobile_host::services::serve_with_upload_timeout(
-            services,
-            peer,
-            Arc::default(),
-            incoming,
-            Duration::from_millis(250),
-        )
-        .await;
-        mac
-    });
-    let mut upload = phone
-        .open("upload", serde_json::json!({"name": "stall.bin", "size": 2, "upload_id": upload_id}))
-        .await
-        .unwrap();
-    let mut buffer = Vec::new();
-    assert_eq!(next_line(&mut upload, &mut buffer).await, serde_json::json!({"have": 0}));
-    upload.send(Bytes::from_static(b"x")).await.unwrap();
-    let (reply, code) = drain(&mut upload).await;
-    assert_eq!(code, "stalled");
-    assert!(reply.ends_with(b"\n"));
-    let lines: Vec<serde_json::Value> = reply
-        .split(|byte| *byte == b'\n')
-        .filter(|line| !line.is_empty())
-        .map(|line| serde_json::from_slice(line).unwrap())
-        .collect();
-    assert_eq!(
-        lines,
-        vec![
-            serde_json::json!({"ack": 1}),
-            serde_json::json!({"error": "stalled", "message": "upload stalled waiting for data"})
-        ]
-    );
-    let _mac = host.await.unwrap();
-    let parts = upload_parts(&publish_folder(&fixture.uploads), &fixture.phone_id);
-    assert_eq!(std::fs::read(parts.join(format!(".{upload_id}.part"))).unwrap(), b"x");
-}
-
-fn upload_parts(folder: &std::path::Path, device: &str) -> std::path::PathBuf {
-    folder.join(format!(".parts-{:x}", Sha256::digest(device.to_ascii_lowercase().as_bytes())))
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn resumable_upload_root_alias_does_not_clean_workspace_parent() {
-    use std::os::unix::fs::{PermissionsExt, symlink};
-    let fixture = fixture(FakeOptions::default()).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let workspace = fixture.root.join("workspace");
-    std::fs::create_dir(&workspace).unwrap();
-    let scope = format!("device-{:x}", Sha256::digest(fixture.phone_id.to_ascii_lowercase().as_bytes()));
-    let attachments = workspace.join(".cmux/attachments");
-    std::fs::create_dir_all(&attachments).unwrap();
-    symlink(&workspace, attachments.join(format!("phone-{scope}"))).unwrap();
-    // The formerly derived parent was outside the authorized workspace.
-    let outside_parts = fixture.root.join(".parts");
-    std::fs::create_dir_all(&outside_parts).unwrap();
-    let sentinel = outside_parts.join(".private.part");
-    let file = std::fs::File::create(&sentinel).unwrap();
-    file.set_modified(std::time::SystemTime::now() - Duration::from_secs(25 * 3600)).unwrap();
-    let mut upload = connected
-        .link
-        .open(
-            "upload",
-            serde_json::json!({
-                "name": "inside.bin", "size": 1, "cwd": workspace,
-                "upload_id": "88888888-8888-8888-8888-888888888888"
-            }),
-        )
-        .await
-        .unwrap();
-    assert_eq!(next_line(&mut upload, &mut Vec::new()).await, serde_json::json!({"have": 0}));
-    let parts = upload_parts(&workspace, &fixture.phone_id);
-    assert_eq!(std::fs::metadata(&parts).unwrap().permissions().mode() & 0o777, 0o700);
-    assert_eq!(
-        std::fs::metadata(parts.join(".88888888-8888-8888-8888-888888888888.part"))
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777,
-        0o600
-    );
-    upload.send(Bytes::from_static(b"x")).await.unwrap();
-    assert_eq!(drain(&mut upload).await.1, "eof");
-    assert!(sentinel.exists(), "cleanup must not touch the workspace parent");
-}
-
-/// The publish folder of the fixture's only phone.
-fn publish_folder(uploads: &std::path::Path) -> std::path::PathBuf {
-    std::fs::read_dir(uploads)
-        .unwrap()
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| path.file_name() != Some(std::ffi::OsStr::new(".parts")))
-        .expect("publish folder")
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn another_phone_cannot_resume_an_earlier_upload_part() {
-    const HALF: usize = 1 << 20;
-    let fixture = fixture(FakeOptions::default()).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let upload_id = "77777777-7777-7777-7777-777777777777";
-    let mut first = connected
-        .link
-        .open("upload", serde_json::json!({"name": "moved.bin", "size": HALF * 2, "upload_id": upload_id}))
-        .await
-        .unwrap();
-    let mut buffer = Vec::new();
-    assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"have": 0}));
-    let first_bytes = vec![0x41; HALF];
-    first.send(Bytes::from(first_bytes.clone())).await.unwrap();
-    let last_ack = next_line(&mut first, &mut buffer).await["ack"].as_u64().unwrap();
-    assert_eq!(last_ack, HALF as u64);
-    first.close("cancelled", "retry").await;
-    let _ = drain(&mut first).await;
-    connected.link.close("redial");
-
-    let original_part =
-        upload_parts(&publish_folder(&fixture.uploads), &fixture.phone_id).join(format!(".{upload_id}.part"));
-    // Knowing another phone's upload id must not grant access to its bytes.
-    let (client, server) = tokio::io::duplex(64 << 10);
-    let phone =
-        cmux_mobile_link::Link::new(client, cmux_mobile_link::Role::Phone, LinkConfig::default(), None);
-    let mac = cmux_mobile_link::Link::new(server, cmux_mobile_link::Role::Mac, LinkConfig::default(), None);
-    let services = Arc::clone(&fixture.services);
-    let peer = cmux_mobile_host::services::Peer {
-        device_id: uuid::Uuid::new_v4().to_string(),
-        session_id: "second-link".into(),
-        video: None,
-        session_exposure: None,
-        route: None,
-        path: None,
-        viewport: None,
-    };
-    let host = tokio::spawn(async move {
-        let incoming = mac.accept().await.unwrap();
-        cmux_mobile_host::services::serve_with_upload_timeout(
-            services,
-            peer,
-            Arc::default(),
-            incoming,
-            Duration::from_secs(5),
-        )
-        .await;
-        mac
-    });
-    let mut second = phone
-        .open(
-            "upload",
-            serde_json::json!({"name": "moved.bin", "size": HALF * 2, "upload_id": upload_id, "offset": last_ack.to_string()}),
-        )
-        .await
-        .unwrap();
-    let mut buffer = Vec::new();
-    assert_eq!(
-        next_line(&mut second, &mut buffer).await,
-        serde_json::json!({"error": "resume_gap", "have": 0})
-    );
-    assert_eq!(drain(&mut second).await.1, "resume_gap");
-    assert_eq!(std::fs::read(original_part).unwrap(), first_bytes);
-    let _mac = host.await.unwrap();
-    drop(phone);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn resumable_upload_cleans_old_parts_and_discards_oversize_data() {
-    let fixture = fixture(FakeOptions::default()).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let id = "66666666-6666-6666-6666-666666666666";
-    let args = serde_json::json!({"name": "video", "upload_id": id, "size": 1});
-    let mut upload = connected.link.open("upload", args.clone()).await.unwrap();
-    assert_eq!(next_line(&mut upload, &mut Vec::new()).await, serde_json::json!({"have": 0}));
-    let folder = publish_folder(&fixture.uploads);
-    let parts = upload_parts(&publish_folder(&fixture.uploads), &fixture.phone_id);
-    let yesterday = std::time::SystemTime::now() - Duration::from_secs(25 * 3600);
-    for name in [".stale.part", ".part", "other.part"] {
-        std::fs::File::create(parts.join(name)).unwrap().set_modified(yesterday).unwrap();
-    }
-    std::fs::write(parts.join(".fresh.part"), b"keep").unwrap();
-    let mut overlapping = connected.link.open("upload", args).await.unwrap();
-    assert_eq!(drain(&mut overlapping).await.1, "busy");
-    assert!(!parts.join(".stale.part").exists());
-    for name in [".part", "other.part", ".fresh.part"] {
-        assert!(parts.join(name).is_file());
-    }
-    upload.send(Bytes::from_static(b"xx")).await.unwrap();
-    let (reply, code) = drain(&mut upload).await;
-    assert_eq!(code, "bad_request");
-    assert!(reply.ends_with(b"\n"));
-    assert!(!parts.join(format!(".{id}.part")).exists());
-    assert!(!folder.join("video").exists());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1811,8 +1067,7 @@ async fn auth(
     auth_presenting(link, fixture, keys, signer, action, None).await
 }
 
-/// `auth`, with an older phone's `pairToken` (the retired Mac pairing code's pre-approval) sent
-/// beside the signature when `pair_token` is set.
+/// `auth`, with the pairing code's pre-approval sent beside the signature when `pair_token` is set.
 async fn auth_presenting(
     link: &cmux_mobile_link::Link,
     fixture: &Fixture,
@@ -1835,8 +1090,7 @@ async fn auth_as(
     kind: &str,
 ) -> Channel {
     let mut args = serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
-                                      "name": "Test iPhone", "action": action,
-                                      "bundleId": "dev.cmux.mobile.test-tag"});
+                                      "name": "Test iPhone", "action": action});
     if !kind.is_empty() {
         args["kind"] = serde_json::json!(kind);
         args["name"] = serde_json::json!("Studio");
@@ -1861,17 +1115,22 @@ async fn auth_as(
     channel
 }
 
-/// The Mac's pairing code is retired: an older phone that still sends a `pairToken` (well formed
-/// or not) beside its signature is asked as every phone is, and the token never reaches the app.
+/// A pairing code's pre-approval rides with the signature to the app, which decides; hostd only
+/// checks its shape, and a phone without one is asked exactly as before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn an_older_phones_pairing_code_token_is_ignored() {
+async fn a_scanned_pairing_code_reaches_the_app_with_the_request() {
     let fixture = fixture_with(FakeOptions::default(), true).await;
     let keys = phone_keys();
     let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let token = "Zm9vYmFyLWJhel9xdXV4";
 
-    let mut channel =
+    let mut bad =
         auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some("no spaces allowed"))
             .await;
+    assert_eq!(drain(&mut bad).await.1, "bad_request");
+
+    let mut channel =
+        auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some(token)).await;
     assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
     let request = fixture.events.as_ref().unwrap().lock().await.recv().await.unwrap();
     assert_eq!(
@@ -1882,11 +1141,11 @@ async fn an_older_phones_pairing_code_token_is_ignored() {
             identity_key: keys.identity_hex.clone(),
             approval_key: keys.approval_hex.clone(),
             registered_at_ms: None,
-            bundle_id: Some("dev.cmux.mobile.test-tag".into()),
+            pair_token: Some(token.into()),
             kind: cmux_mobile_host::peer::PeerKind::Phone,
         }
     );
-    // The person allowed it on the Mac: the phone is served.
+    // The app allowed it (as it does for a live token): the phone is served.
     fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
     assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
 }
@@ -1920,7 +1179,7 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
             identity_key: keys.identity_hex.clone(),
             approval_key: keys.approval_hex.clone(),
             registered_at_ms: None,
-            bundle_id: Some("dev.cmux.mobile.test-tag".into()),
+            pair_token: None,
             kind: cmux_mobile_host::peer::PeerKind::Phone,
         }
     );
@@ -2011,8 +1270,8 @@ async fn a_mac_opens_only_what_this_mac_granted_it() {
             identity_key: keys.identity_hex.clone(),
             approval_key: String::new(),
             registered_at_ms: None,
-            // A machine's bundle id is dropped.
-            bundle_id: None,
+            // A pairing code never pre-approves a machine.
+            pair_token: None,
             kind: PeerKind::Mac,
         }
     );
@@ -2328,122 +1587,6 @@ async fn the_mac_proves_its_key_and_a_chief_answer_needs_the_phones_signature() 
 /// by the Mac before the daemon socket closes, so the daemon never takes the
 /// close for a dropped link and holds the grid (PROTOCOL.md "Terminal size
 /// claims").
-/// A v2 `auth` (`proofVersion` 2) on a WireGuard link: the challenge says v2, and the Mac's
-/// proof covers the tunnel's two static keys as both ends of the real tunnel see them.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn the_identity_proofs_cover_the_wireguard_keys() {
-    let fixture = fixture_with(FakeOptions::default(), true).await;
-    let keys = phone_keys();
-    fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let tunnel = connected.tunnel_keys.clone().expect("a WireGuard link has tunnel keys");
-    assert_ne!(tunnel.dialer, tunnel.answerer);
-    let phone_nonce = "pinnonce0123456789abcdef";
-    let (mut channel, challenge) = open_v2(&connected.link, &keys, phone_nonce).await;
-    assert_eq!(challenge["proofVersion"], "2");
-    let nonce = challenge["challenge"].as_str().unwrap().to_owned();
-    let mac_key = fixture.mac_key.as_deref().unwrap();
-    let mac_signature = challenge["macSignature"].as_str().unwrap();
-    // The proof holds over this phone's own tunnel keys (so the Mac's tunnel has the same ones),
-    // and neither over v1's message nor over other keys.
-    let proof = mac_proof_message_v2(&fixture.mac_id, &fixture.phone_id, phone_nonce, &nonce, &tunnel);
-    assert!(cmux_mobile_host::pairing::verify(mac_key, &proof, mac_signature));
-    let v1 = mac_proof_message(&fixture.mac_id, &fixture.phone_id, phone_nonce, &nonce);
-    assert!(!cmux_mobile_host::pairing::verify(mac_key, &v1, mac_signature));
-    let swapped = TunnelKeys { dialer: tunnel.answerer.clone(), answerer: tunnel.dialer.clone() };
-    let other = mac_proof_message_v2(&fixture.mac_id, &fixture.phone_id, phone_nonce, &nonce, &swapped);
-    assert!(!cmux_mobile_host::pairing::verify(mac_key, &other, mac_signature));
-    sign_v2(&mut channel, &fixture, &keys, &nonce, &tunnel).await;
-    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
-}
-
-/// A hub in the signaling path that ran its own tunnel to each side and relayed `auth` between
-/// them: the phone's tunnel then has the hub's key as its answerer, the Mac's the hub's as its
-/// dialer. The phone signs the keys it handshook with; the Mac, checking the keys it handshook
-/// with, refuses, and its proof does not hold for the phone's keys either.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_relayed_auth_with_other_wireguard_keys_is_refused() {
-    let fixture = fixture_with(FakeOptions::default(), true).await;
-    let keys = phone_keys();
-    fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
-    // The hub's tunnel to the Mac: the real link, whose dialer key is the hub's.
-    let hub_to_mac = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let mac_side = hub_to_mac.tunnel_keys.clone().unwrap();
-    // The phone's tunnel to the hub: the phone's own key, and the hub's other key as answerer.
-    let hub_key = |seed: u8| {
-        use base64::Engine as _;
-        base64::engine::general_purpose::STANDARD.encode([seed; 32])
-    };
-    let phone_side = TunnelKeys { dialer: hub_key(1), answerer: hub_key(2) };
-    assert_ne!(phone_side, mac_side);
-    let phone_nonce = "pinnonce0123456789abcdef";
-    let (mut channel, challenge) = open_v2(&hub_to_mac.link, &keys, phone_nonce).await;
-    let nonce = challenge["challenge"].as_str().unwrap().to_owned();
-    // The phone checks the Mac's proof over its own tunnel's keys: it does not hold.
-    let proof = mac_proof_message_v2(&fixture.mac_id, &fixture.phone_id, phone_nonce, &nonce, &phone_side);
-    let mac_key = fixture.mac_key.as_deref().unwrap();
-    assert!(!cmux_mobile_host::pairing::verify(mac_key, &proof, challenge["macSignature"].as_str().unwrap()));
-    // Relayed anyway, the phone's signature over its keys is refused by the Mac.
-    sign_v2(&mut channel, &fixture, &keys, &nonce, &phone_side).await;
-    let (code, _) = close_reason(&mut channel).await;
-    assert_eq!(code, "unpaired");
-    // A v1 signature on a link that asked for v2 is refused too (no downgrade inside the Mac).
-    let (mut channel, challenge) = open_v2(&hub_to_mac.link, &keys, phone_nonce).await;
-    let nonce = challenge["challenge"].as_str().unwrap();
-    let message = challenge_message(
-        &fixture.mac_id,
-        &fixture.phone_id,
-        nonce,
-        &keys.identity_hex,
-        &keys.approval_hex,
-        "pair",
-    );
-    let signature = hex(keys.identity.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
-    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
-    let (code, _) = close_reason(&mut channel).await;
-    assert_eq!(code, "unpaired");
-}
-
-/// Opens a v2 `auth` with the phone's nonce and returns the channel and its challenge.
-async fn open_v2(
-    link: &cmux_mobile_link::Link,
-    keys: &PhoneKeys,
-    phone_nonce: &str,
-) -> (Channel, serde_json::Value) {
-    let mut channel = link
-        .open(
-            "auth",
-            serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
-                               "name": "Test iPhone", "action": "pair", "macNonce": phone_nonce,
-                               "proofVersion": "2"}),
-        )
-        .await
-        .unwrap();
-    let challenge = json_frame(channel.recv().await);
-    (channel, challenge)
-}
-
-/// Signs a v2 challenge over `tunnel` and sends the signature.
-async fn sign_v2(
-    channel: &mut Channel,
-    fixture: &Fixture,
-    keys: &PhoneKeys,
-    nonce: &str,
-    tunnel: &TunnelKeys,
-) {
-    let message = challenge_message_v2(
-        &fixture.mac_id,
-        &fixture.phone_id,
-        nonce,
-        &keys.identity_hex,
-        &keys.approval_hex,
-        "pair",
-        tunnel,
-    );
-    let signature = hex(keys.identity.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
-    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_terminal_channel_the_phone_closes_releases_its_sizes() {
     let fixture = fixture(FakeOptions::default()).await;
@@ -2571,765 +1714,4 @@ async fn a_file_past_the_old_64_mib_cap_streams_whole_in_bounded_chunks() {
             cmux_mobile_link::link::DATA_CHUNK
         );
     }
-}
-
-/// One `{"op":"traffic"}` request on the link socket and its answer line.
-async fn traffic_over(path: &std::path::Path) -> serde_json::Value {
-    let stream = tokio::net::UnixStream::connect(path).await.expect("link socket");
-    let (read, mut write) = stream.into_split();
-    write.write_all(b"{\"op\":\"traffic\"}\n").await.unwrap();
-    let mut line = String::new();
-    BufReader::new(read).read_line(&mut line).await.unwrap();
-    serde_json::from_str(&line).unwrap()
-}
-
-/// `(in_bytes, out_bytes)` of one service row of a traffic answer.
-fn traffic_row(answer: &serde_json::Value, service: &str) -> (u64, u64) {
-    let row = answer["services"].as_array().unwrap().iter().find(|row| row["service"] == service).unwrap();
-    (row["in_bytes"].as_u64().unwrap(), row["out_bytes"].as_u64().unwrap())
-}
-
-/// `cmux device traffic` end to end: a phone dials this host over WireGuard
-/// through the fake signaling server and moves known bytes through `echo`;
-/// the host's real link socket (`<session>.link.sock`, link_socket.rs) then
-/// answers `{"op":"traffic"}` with them under `control`, both ways. With
-/// CMUX_TRAFFIC_CLI naming a cmux-tui binary, the CLI's own
-/// `device traffic --json` and table read the same socket. Other tests of
-/// this binary share the process's counters, so the checks are lower bounds.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn device_traffic_reads_back_a_phones_bytes_over_the_link_socket() {
-    use cmux_mobile_host::auth::{TokenSource, Tokens};
-    use cmux_mobile_host::link_socket::{Dialer, serve, socket_path};
-    let fixture = fixture(FakeOptions::default()).await;
-    let dir = tempfile::tempdir().unwrap();
-    let daemon_socket = dir.path().join("traffic.sock");
-    let path = socket_path(&daemon_socket);
-    let dialer = Arc::new(Dialer {
-        device_id: "this-mac".into(),
-        device_name: "This Mac".into(),
-        base_url: "http://127.0.0.1:9".into(),
-        tokens: Arc::new(Tokens::new(TokenSource::Access("unused".into()))),
-        ice: IceSource::Fixed(Vec::new()),
-        signaling: tokio::sync::watch::channel(None).1,
-        identity: tokio::sync::watch::channel(None).1,
-        activity: Arc::new(cmux_mobile_host::activity::Activity::memory()),
-        links: Default::default(),
-        build_space: None,
-        pairing: None,
-    });
-    let server = tokio::spawn(serve(path.clone(), dialer));
-    for _ in 0..200 {
-        if path.exists() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    let before = traffic_over(&path).await;
-    assert_eq!(before["ok"], true, "{before}");
-    assert_eq!(before["pid"], std::process::id(), "{before}");
-
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let mut echo = connected.link.open("echo", serde_json::json!({})).await.unwrap();
-    const BYTES: usize = 300_000;
-    echo.send(Bytes::from(vec![7u8; BYTES])).await.unwrap();
-    let mut got = 0;
-    while got < BYTES {
-        match echo.recv().await {
-            Some(ChannelEvent::Data(data)) => got += data.len(),
-            other => panic!("echo ended early: {other:?}"),
-        }
-    }
-
-    let after = traffic_over(&path).await;
-    eprintln!("link socket {{\"op\":\"traffic\"}}: {after}");
-    let (in_before, out_before) = traffic_row(&before, "control");
-    let (in_after, out_after) = traffic_row(&after, "control");
-    assert!(in_after - in_before >= BYTES as u64, "control IN grew {} < {BYTES}", in_after - in_before);
-    assert!(out_after - out_before >= BYTES as u64, "control OUT grew {} < {BYTES}", out_after - out_before);
-    let total_in = |a: &serde_json::Value| a["total"]["in_bytes"].as_u64().unwrap();
-    assert!(total_in(&after) - total_in(&before) >= BYTES as u64, "{after}");
-
-    if let Some(cli) = std::env::var_os("CMUX_TRAFFIC_CLI") {
-        // As typed in a cmux terminal (the session socket from the environment),
-        // and with --socket for the table.
-        let json = tokio::process::Command::new(&cli)
-            .args(["device", "traffic", "--json"])
-            .env("CMUX_TUI_SOCKET", &daemon_socket)
-            .output()
-            .await
-            .expect("cmux device traffic --json");
-        let stdout = String::from_utf8_lossy(&json.stdout);
-        eprintln!("cmux device traffic --json (rc {:?}): {stdout}", json.status.code());
-        eprintln!("stderr: {}", String::from_utf8_lossy(&json.stderr));
-        assert!(json.status.success());
-        let answer: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
-        assert_eq!(answer["pid"], std::process::id());
-        let (cli_in, cli_out) = traffic_row(&answer, "control");
-        assert!(cli_in >= in_after && cli_out >= out_after, "{answer}");
-        let table = tokio::process::Command::new(&cli)
-            .arg("--socket")
-            .arg(&daemon_socket)
-            .args(["device", "traffic"])
-            .output()
-            .await
-            .expect("cmux device traffic");
-        let text = String::from_utf8_lossy(&table.stdout);
-        eprintln!("cmux device traffic (rc {:?}):\n{text}", table.status.code());
-        assert!(table.status.success());
-        assert!(text.lines().any(|line| line.starts_with("control")), "{text}");
-        assert!(text.lines().any(|line| line.starts_with("total")), "{text}");
-    }
-    server.abort();
-}
-
-// ---- Answering a pairing request from another paired device (src/pair_requests.rs) ----
-
-/// `auth` as `device` (not the fixture's phone), signed by its own identity key.
-async fn auth_device(
-    link: &cmux_mobile_link::Link,
-    fixture: &Fixture,
-    device: &str,
-    keys: &PhoneKeys,
-) -> Channel {
-    let mut channel = link.open("auth", open_auth_args(keys)).await.unwrap();
-    let challenge = json_frame(channel.recv().await);
-    let message = challenge_message(
-        &fixture.mac_id,
-        device,
-        challenge["challenge"].as_str().unwrap(),
-        &keys.identity_hex,
-        &keys.approval_hex,
-        "pair",
-    );
-    let signature = hex(keys.identity.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
-    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
-    channel
-}
-
-/// One `pair-requests` request: its answer and the close code.
-async fn pair_requests(
-    link: &cmux_mobile_link::Link,
-    args: serde_json::Value,
-) -> (serde_json::Value, String) {
-    let mut channel = link.open("pair-requests", args).await.unwrap();
-    let (bytes, code) = drain(&mut channel).await;
-    (serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null), code)
-}
-
-/// Leo, 2026-11-22: "ok surely we dont need to be bottled this hard by a click". A probe phone of
-/// the same account waits for its pairing; the person's phone, already paired with this Mac,
-/// lists it and allows it over its own link, and the Mac pairs it with no gesture on the Mac. A
-/// device of another account never reaches the Mac, a token alone opens nothing, and an answer
-/// with nothing waiting says so.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_paired_device_of_the_same_account_approves_a_waiting_request() {
-    let fixture = fixture_with(FakeOptions::default(), true).await;
-    let trust = fixture.trust.as_ref().unwrap();
-    let base_url = fixture._server.base_url.clone();
-
-    // The person's phone, paired already.
-    let leo = phone_keys();
-    trust.send_replace(Some(trusting(&fixture, &leo)));
-    let leo_link = connect(&fixture, TransportKind::WireGuard).await.expect("dial").link;
-    let mut channel = auth(&leo_link, &fixture, &leo, &leo.identity, "pair").await;
-    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
-
-    // Nothing waits yet.
-    let (answer, code) = pair_requests(&leo_link, serde_json::json!({"action": "list"})).await;
-    assert_eq!((answer, code.as_str()), (serde_json::json!({"requests": []}), "eof"));
-    let (_, code) = pair_requests(
-        &leo_link,
-        serde_json::json!({"action": "answer", "deviceId": "nobody", "fingerprint": "abcdef01", "allow": true}),
-    )
-    .await;
-    assert_eq!(code, "no_waiting_request");
-
-    // A probe phone of the same account asks to pair and waits.
-    let probe_id = uuid::Uuid::new_v4().to_string();
-    let probe_client = SignalingClient::connect(&base_url, "user:alice", "team", &probe_id).await.unwrap();
-    let probe_link = cmux_mobile_link::dial::connect(
-        &probe_client,
-        &fixture.mac_id,
-        TransportKind::WireGuard,
-        &options(),
-        LinkConfig::default(),
-    )
-    .await
-    .expect("dial")
-    .link;
-    // Before its own `auth` passed, the probe opens nothing, this service included.
-    let (_, code) = pair_requests(&probe_link, serde_json::json!({"action": "list"})).await;
-    assert_eq!(code, "unpaired");
-    let probe = phone_keys();
-    let mut probe_auth = auth_device(&probe_link, &fixture, &probe_id, &probe).await;
-    assert_eq!(json_frame(probe_auth.recv().await), serde_json::json!({"pending": true}));
-    assert!(matches!(
-        fixture.events.as_ref().unwrap().lock().await.recv().await,
-        Some(Event::PairRequest { phone_device_id, .. }) if phone_device_id == probe_id
-    ));
-
-    // The person's phone lists it with the fingerprint the Mac's prompt shows, and allows it.
-    let (answer, code) = pair_requests(&leo_link, serde_json::json!({"action": "list"})).await;
-    assert_eq!(code, "eof");
-    let listed = &answer["requests"][0];
-    assert_eq!(listed["deviceId"], probe_id.as_str());
-    assert_eq!(listed["kind"], "phone");
-    let fingerprint = listed["fingerprint"].as_str().unwrap().to_owned();
-    assert_eq!(fingerprint, cmux_mobile_host::pair_requests::fingerprint(&probe.approval_hex));
-    let (answer, code) = pair_requests(
-        &leo_link,
-        serde_json::json!({"action": "answer", "deviceId": probe_id, "fingerprint": &fingerprint[..8], "allow": true}),
-    )
-    .await;
-    assert_eq!((answer, code.as_str()), (serde_json::json!({"ok": true}), "eof"));
-    assert_eq!(
-        fixture.events.as_ref().unwrap().lock().await.recv().await,
-        Some(Event::PairAnswer {
-            phone_device_id: probe_id.clone(),
-            identity_key: probe.identity_hex.clone(),
-            approval_key: probe.approval_hex.clone(),
-            allow: true,
-            by_device_id: fixture.phone_id.clone(),
-        })
-    );
-    // The app approves it as the person's Allow would: the probe's waiting `auth` passes.
-    let mut both = trusting(&fixture, &leo);
-    both.devices.push(TrustedDevice {
-        id: probe_id.clone(),
-        identity_key: probe.identity_hex.clone(),
-        approval_key: probe.approval_hex.clone(),
-        ..Default::default()
-    });
-    trust.send_replace(Some(both));
-    assert_eq!(json_frame(probe_auth.recv().await), serde_json::json!({"ok": true}));
-
-    // Once answered, nothing waits: a second answer is a clear error.
-    let (_, code) = pair_requests(
-        &leo_link,
-        serde_json::json!({"action": "answer", "deviceId": probe_id, "fingerprint": fingerprint, "allow": true}),
-    )
-    .await;
-    assert_eq!(code, "no_waiting_request");
-
-    // A device of another account never gets a link to this Mac at all.
-    let mallory =
-        SignalingClient::connect(&base_url, "user:mallory", "team", &uuid::Uuid::new_v4().to_string())
-            .await
-            .unwrap();
-    let quick = DialOptions { timeout: Duration::from_secs(5), ..options() };
-    let refused = cmux_mobile_link::dial::connect(
-        &mallory,
-        &fixture.mac_id,
-        TransportKind::WireGuard,
-        &quick,
-        LinkConfig::default(),
-    )
-    .await;
-    assert!(refused.is_err(), "another account's device reached the Mac");
-}
-
-/// Every line the link socket answers to one request, until it ends.
-async fn link_socket_lines(path: &std::path::Path, request: serde_json::Value) -> Vec<serde_json::Value> {
-    let stream = tokio::net::UnixStream::connect(path).await.expect("link socket");
-    let (read, mut write) = stream.into_split();
-    write.write_all(format!("{request}\n").as_bytes()).await.unwrap();
-    let mut lines = BufReader::new(read).lines();
-    let mut out = Vec::new();
-    while let Ok(Ok(Some(line))) = tokio::time::timeout(Duration::from_secs(60), lines.next_line()).await {
-        out.push(serde_json::from_str(&line).unwrap_or_else(|_| panic!("not JSON: {line}")));
-    }
-    out
-}
-
-/// `cmux mobile pair-requests` end to end: another Mac of the same account, paired here as a
-/// machine, reaches this Mac through its own hostd's link socket (link_socket.rs, as `cmux machine
-/// NAME doctor` does), lists the probe phone waiting to pair and allows it; with `closeLine` each
-/// refusal comes back as a last `{"error":CODE}` line (not a bare end). Without Control the
-/// machine opens nothing; with CMUX_PAIR_REQUESTS_CLI naming a cmux-tui binary, the CLI's own
-/// `mobile pair-requests list|allow` drive the same socket.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_paired_mac_lists_and_allows_a_waiting_request_over_its_link_socket() {
-    use cmux_mobile_host::auth::{TokenSource, Tokens};
-    use cmux_mobile_host::link_socket::{Dialer, serve, socket_path};
-    use cmux_mobile_host::peer::{Grant, PeerKind};
-    let fixture = fixture_with(FakeOptions::default(), true).await;
-    let trust = fixture.trust.as_ref().unwrap();
-    let base_url = fixture._server.base_url.clone();
-
-    // The other Mac: its own hostd's dialer, paired here as a Mac.
-    let studio_id = uuid::Uuid::new_v4().to_string();
-    let studio_identity = MacIdentity::generate().unwrap();
-    let studio_key = studio_identity.public_key().to_owned();
-    let granting = |grants: Vec<Grant>| DeviceTrust {
-        devices: vec![TrustedDevice {
-            id: studio_id.clone(),
-            identity_key: studio_key.clone(),
-            approval_key: String::new(),
-            kind: PeerKind::Mac,
-            grants,
-        }],
-        denied: vec![],
-    };
-    trust.send_replace(Some(granting(vec![Grant::View])));
-    let signaling = SignalingClient::connect(&base_url, "user:alice", "team", &studio_id).await.unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let daemon_socket = dir.path().join("studio.sock");
-    let path = socket_path(&daemon_socket);
-    let dialer = Arc::new(Dialer {
-        device_id: studio_id.clone(),
-        device_name: "Studio".into(),
-        base_url: "http://127.0.0.1:9".into(),
-        tokens: Arc::new(Tokens::new(TokenSource::Access("unused".into()))),
-        ice: IceSource::Fixed(Vec::new()),
-        signaling: tokio::sync::watch::channel(Some(signaling)).1,
-        identity: tokio::sync::watch::channel(Some(studio_identity)).1,
-        activity: Arc::new(cmux_mobile_host::activity::Activity::memory()),
-        links: Default::default(),
-        build_space: None,
-        pairing: None,
-    });
-    let server = tokio::spawn(serve(path.clone(), dialer));
-    for _ in 0..200 {
-        if path.exists() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    let open = |args: serde_json::Value| {
-        serde_json::json!({"op": "open", "peer": fixture.mac_id, "service": "pair-requests",
-                           "args": args, "closeLine": true})
-    };
-
-    // Paired with View only: refused, and the code reaches the socket.
-    let lines = link_socket_lines(&path, open(serde_json::json!({"action": "list"}))).await;
-    assert_eq!(lines.first().map(|l| l["ok"].clone()), Some(serde_json::json!(true)), "{lines:?}");
-    assert_eq!(lines.last().unwrap()["error"], "not_granted", "{lines:?}");
-
-    // With Control: nothing waits yet, and an answer says so.
-    trust.send_replace(Some(granting(vec![Grant::View, Grant::Control])));
-    let lines = link_socket_lines(&path, open(serde_json::json!({"action": "list"}))).await;
-    assert_eq!(lines.get(1), Some(&serde_json::json!({"requests": []})), "{lines:?}");
-    assert_eq!(lines.len(), 2, "a clean end adds no line: {lines:?}");
-    let lines = link_socket_lines(
-        &path,
-        open(serde_json::json!({"action": "answer", "deviceId": "nobody", "fingerprint": "abcdef01", "allow": true})),
-    )
-    .await;
-    assert_eq!(lines.last().unwrap()["error"], "no_waiting_request", "{lines:?}");
-
-    // A probe phone of the same account asks to pair and waits.
-    let probe_id = uuid::Uuid::new_v4().to_string();
-    let probe_client = SignalingClient::connect(&base_url, "user:alice", "team", &probe_id).await.unwrap();
-    let probe_link = cmux_mobile_link::dial::connect(
-        &probe_client,
-        &fixture.mac_id,
-        TransportKind::WireGuard,
-        &options(),
-        LinkConfig::default(),
-    )
-    .await
-    .expect("dial")
-    .link;
-    let probe = phone_keys();
-    let mut probe_auth = auth_device(&probe_link, &fixture, &probe_id, &probe).await;
-    assert_eq!(json_frame(probe_auth.recv().await), serde_json::json!({"pending": true}));
-    assert!(matches!(
-        fixture.events.as_ref().unwrap().lock().await.recv().await,
-        Some(Event::PairRequest { phone_device_id, .. }) if phone_device_id == probe_id
-    ));
-    let fingerprint = cmux_mobile_host::pair_requests::fingerprint(&probe.approval_hex);
-
-    // A wrong key is refused by name.
-    let lines = link_socket_lines(
-        &path,
-        open(serde_json::json!({"action": "answer", "deviceId": probe_id, "fingerprint": "00000000", "allow": true})),
-    )
-    .await;
-    assert_eq!(lines.last().unwrap()["error"], "fingerprint_mismatch", "{lines:?}");
-
-    if let Some(cli) = std::env::var_os("CMUX_PAIR_REQUESTS_CLI") {
-        let run = |args: Vec<String>| {
-            let cli = cli.clone();
-            let daemon_socket = daemon_socket.clone();
-            async move {
-                let out = tokio::process::Command::new(&cli)
-                    .args(&args)
-                    .env("CMUX_TUI_SOCKET", &daemon_socket)
-                    .output()
-                    .await
-                    .expect("cmux mobile pair-requests");
-                let (stdout, stderr) = (
-                    String::from_utf8_lossy(&out.stdout).into_owned(),
-                    String::from_utf8_lossy(&out.stderr).into_owned(),
-                );
-                eprintln!("cmux {} (rc {:?}):\n{stdout}{stderr}", args.join(" "), out.status.code());
-                (out.status.code(), stdout, stderr)
-            }
-        };
-        let words = |text: String| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-        let (rc, stdout, _) =
-            run(words(format!("mobile pair-requests list --mac {} --json", fixture.mac_id))).await;
-        assert_eq!(rc, Some(0));
-        let listed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
-        assert_eq!(listed["requests"][0]["deviceId"], probe_id.as_str());
-        let (rc, stdout, _) = run(words(format!("mobile pair-requests list --mac {}", fixture.mac_id))).await;
-        assert_eq!(rc, Some(0));
-        assert!(stdout.contains(&format!("allow {probe_id} --fingerprint {fingerprint}")), "{stdout}");
-        let (rc, _, stderr) = run(words(format!(
-            "mobile pair-requests allow {probe_id} --fingerprint 00000000 --mac {}",
-            fixture.mac_id
-        )))
-        .await;
-        assert_eq!(rc, Some(1));
-        assert!(stderr.contains("pair-requests list"), "the refusal names a next step: {stderr}");
-        let (rc, stdout, _) = run(words(format!(
-            "mobile pair-requests allow {probe_id} --fingerprint {} --mac {}",
-            &fingerprint[..8],
-            fixture.mac_id
-        )))
-        .await;
-        assert_eq!(rc, Some(0));
-        assert!(stdout.contains("allowed"), "{stdout}");
-    } else {
-        // The Mac's list shows the probe with the fingerprint its prompt shows; Studio allows it.
-        let lines = link_socket_lines(&path, open(serde_json::json!({"action": "list"}))).await;
-        assert_eq!(lines[1]["requests"][0]["deviceId"], probe_id.as_str(), "{lines:?}");
-        assert_eq!(lines[1]["requests"][0]["fingerprint"], fingerprint.as_str(), "{lines:?}");
-        let lines = link_socket_lines(
-            &path,
-            open(serde_json::json!({"action": "answer", "deviceId": probe_id,
-                                    "fingerprint": &fingerprint[..8], "allow": true})),
-        )
-        .await;
-        assert_eq!(lines.get(1), Some(&serde_json::json!({"ok": true})), "{lines:?}");
-    }
-    assert_eq!(
-        fixture.events.as_ref().unwrap().lock().await.recv().await,
-        Some(Event::PairAnswer {
-            phone_device_id: probe_id.clone(),
-            identity_key: probe.identity_hex.clone(),
-            approval_key: probe.approval_hex.clone(),
-            allow: true,
-            by_device_id: studio_id.clone(),
-        })
-    );
-    server.abort();
-}
-
-/// `cmux mobile pair-requests` with no `--mac`, on the Mac the request waits on: the owner-only
-/// link socket (`{"op":"pair-requests"}`, link_socket.rs) lists the waiting request and answers it
-/// as the app's Allow would, with no link and no remote peer involved. The fingerprint is still
-/// required and checked. With CMUX_PAIR_REQUESTS_CLI naming a cmux-tui binary, the CLI's own
-/// `mobile pair-requests list|allow` (no `--mac`) drive the same socket.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn this_mac_lists_and_allows_its_own_waiting_request_over_its_link_socket() {
-    use cmux_mobile_host::auth::{TokenSource, Tokens};
-    use cmux_mobile_host::link_socket::{Dialer, serve, socket_path};
-    use cmux_mobile_host::pair_requests::{WaitingRequest, fingerprint};
-    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let sink = Arc::clone(&events);
-    let pairing = Pairing::new(
-        "this-mac".into(),
-        tokio::sync::watch::channel(None).1,
-        Arc::new(move |event| sink.lock().unwrap().push(event)),
-    );
-    let waiting = Arc::clone(&pairing.waiting);
-    let probe = phone_keys();
-    let probe_id = uuid::Uuid::new_v4().to_string();
-    let _held = waiting.hold(WaitingRequest {
-        device_id: probe_id.clone(),
-        name: "Probe iPhone".into(),
-        kind: cmux_mobile_host::peer::PeerKind::Phone,
-        identity_key: probe.identity_hex.clone(),
-        approval_key: probe.approval_hex.clone(),
-        since: std::time::Instant::now(),
-    });
-    let dir = tempfile::tempdir().unwrap();
-    let daemon_socket = dir.path().join("local.sock");
-    let path = socket_path(&daemon_socket);
-    let dialer = Arc::new(Dialer {
-        device_id: "this-mac".into(),
-        device_name: "This Mac".into(),
-        base_url: "http://127.0.0.1:9".into(),
-        tokens: Arc::new(Tokens::new(TokenSource::Access("unused".into()))),
-        ice: IceSource::Fixed(Vec::new()),
-        signaling: tokio::sync::watch::channel(None).1,
-        identity: tokio::sync::watch::channel(None).1,
-        activity: Arc::clone(&pairing.activity),
-        links: Default::default(),
-        build_space: None,
-        pairing: Some(pairing),
-    });
-    let server = tokio::spawn(serve(path.clone(), dialer));
-    for _ in 0..200 {
-        if path.exists() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "the local path is owner-only");
-    }
-    let local = |args: serde_json::Value| serde_json::json!({"op": "pair-requests", "args": args});
-    let fingerprint = fingerprint(&probe.approval_hex);
-
-    let lines = link_socket_lines(&path, local(serde_json::json!({"action": "list"}))).await;
-    assert_eq!(lines.len(), 1, "{lines:?}");
-    assert_eq!(lines[0]["requests"][0]["deviceId"], probe_id.as_str(), "{lines:?}");
-    assert_eq!(lines[0]["requests"][0]["fingerprint"], fingerprint.as_str(), "{lines:?}");
-    // A wrong key, or none, is refused as over a link.
-    let lines = link_socket_lines(
-        &path,
-        local(serde_json::json!({"action": "answer", "deviceId": probe_id, "fingerprint": "00000000", "allow": true})),
-    )
-    .await;
-    assert_eq!(lines[0]["error"], "fingerprint_mismatch", "{lines:?}");
-    let lines = link_socket_lines(
-        &path,
-        local(serde_json::json!({"action": "answer", "deviceId": probe_id, "allow": true})),
-    )
-    .await;
-    assert_eq!(lines[0]["error"], "bad_request", "{lines:?}");
-    assert!(events.lock().unwrap().is_empty());
-
-    if let Some(cli) = std::env::var_os("CMUX_PAIR_REQUESTS_CLI") {
-        let run = |args: &str| {
-            let out = std::process::Command::new(&cli)
-                .args(args.split_whitespace())
-                .env("CMUX_TUI_SOCKET", &daemon_socket)
-                .output()
-                .expect("cmux mobile pair-requests");
-            let (stdout, stderr) = (
-                String::from_utf8_lossy(&out.stdout).into_owned(),
-                String::from_utf8_lossy(&out.stderr).into_owned(),
-            );
-            eprintln!("cmux {args} (rc {:?}):\n{stdout}{stderr}", out.status.code());
-            (out.status.code(), stdout, stderr)
-        };
-        let (rc, stdout, _) = run("mobile pair-requests list");
-        assert_eq!(rc, Some(0));
-        assert!(stdout.contains(&format!("allow {probe_id} --fingerprint {fingerprint}\n")), "{stdout}");
-        let (rc, _, stderr) = run(&format!("mobile pair-requests allow {probe_id} --fingerprint 00000000"));
-        assert_eq!(rc, Some(1));
-        assert!(stderr.contains("cmux mobile pair-requests list"), "{stderr}");
-        let (rc, stdout, _) =
-            run(&format!("mobile pair-requests allow {probe_id} --fingerprint {}", &fingerprint[..8]));
-        assert_eq!(rc, Some(0));
-        assert!(stdout.contains("allowed"), "{stdout}");
-    } else {
-        let lines = link_socket_lines(
-            &path,
-            local(serde_json::json!({"action": "answer", "deviceId": probe_id,
-                                     "fingerprint": &fingerprint[..8], "allow": true})),
-        )
-        .await;
-        assert_eq!(lines, vec![serde_json::json!({"ok": true})]);
-    }
-    assert_eq!(
-        *events.lock().unwrap(),
-        vec![Event::PairAnswer {
-            phone_device_id: probe_id.clone(),
-            identity_key: probe.identity_hex.clone(),
-            approval_key: probe.approval_hex.clone(),
-            allow: true,
-            by_device_id: "this-mac".into(),
-        }]
-    );
-    server.abort();
-}
-
-/// The scripted terminal's first screen and its `i`th output batch (`fake_daemon`).
-const SCRIPTED_PROMPT: &[u8] = b"$ ";
-
-fn scripted_line(i: u64) -> String {
-    format!("line {i}\r\n")
-}
-
-fn b64(bytes: &[u8]) -> String {
-    use base64::Engine as _;
-    base64::engine::general_purpose::STANDARD.encode(bytes)
-}
-
-fn unb64(line: &serde_json::Value, field: &str) -> Vec<u8> {
-    use base64::Engine as _;
-    line[field]
-        .as_str()
-        .map_or_else(Vec::new, |data| base64::engine::general_purpose::STANDARD.decode(data).unwrap())
-}
-
-/// A screen's visible text, row by row (wide tails and blanks are "").
-fn screen_text(screen: &cmux_terminal_projection::sync::ScreenState) -> String {
-    (0..screen.rows)
-        .map(|row| screen.row(row).iter().map(|cell| cell.text.as_str()).collect::<String>())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn history_text(term: &cmux_terminal_projection::Terminal) -> String {
-    let rows =
-        term.history.iter().map(|row| row.cells.iter().map(|&cell| term.cell_text(cell)).collect::<String>());
-    rows.collect::<Vec<_>>().join("\n")
-}
-
-/// The phone's projection of one surface: `vt-state` resets it, `output` feeds it.
-struct PhoneScreen {
-    term: Option<cmux_terminal_projection::Terminal>,
-    outputs: usize,
-}
-
-impl PhoneScreen {
-    fn take(&mut self, line: &serde_json::Value) {
-        match line["event"].as_str() {
-            Some("vt-state") => {
-                let cols = line["cols"].as_u64().unwrap() as usize;
-                let rows = line["rows"].as_u64().unwrap() as usize;
-                let mut term = cmux_terminal_projection::Terminal::new(
-                    cols,
-                    rows,
-                    cmux_terminal_projection::DEFAULT_HISTORY_LIMIT,
-                );
-                for byte in unb64(line, "data").into_iter().chain(unb64(line, "pending")) {
-                    term.advance(byte);
-                }
-                self.term = Some(term);
-            }
-            Some("output") => {
-                self.outputs += 1;
-                let term = self.term.as_mut().expect("an output after the vt-state");
-                for byte in unb64(line, "data") {
-                    term.advance(byte);
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-/// The screen and scrollback the scripted terminal ends on (the host's model of it).
-fn scripted_terminal(count: u64) -> cmux_terminal_projection::Terminal {
-    let mut term =
-        cmux_terminal_projection::Terminal::new(40, 8, cmux_terminal_projection::DEFAULT_HISTORY_LIMIT);
-    let script = (0..count).flat_map(|i| scripted_line(i).into_bytes());
-    for byte in SCRIPTED_PROMPT.iter().copied().chain(script) {
-        term.advance(byte);
-    }
-    term
-}
-
-const SCRIPTED: u64 = 30;
-
-fn scripted_attach() -> Bytes {
-    let attach = serde_json::json!({"id": 1, "cmd": "attach-surface", "surface": 7, "cols": 40, "rows": 8,
-        "scripted": SCRIPTED});
-    Bytes::from(format!("{attach}\n"))
-}
-
-/// Viewport sync end to end over WireGuard (the datagram path forced): the phone's projection,
-/// fed only `output`/`vt-state` lines from its wrapped receiver, ends on the host's screen,
-/// injected outputs carried it, and the rows that scrolled off reached its scrollback.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn viewport_sync_brings_the_phone_to_the_hosts_screen_over_wireguard() {
-    let selector = cmux_mobile_host::viewport_sync::SelectorConfig::datagram_first();
-    let fixture = fixture_viewport(FakeOptions::default(), false, true, Some(selector)).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    assert!(connected.overlay.is_some(), "a WireGuard link rides an overlay");
-    let daemon =
-        connected.link.open("daemon", serde_json::json!({"pseq": true, "viewport_sync": 1})).await.unwrap();
-    let (sender, receiver) = daemon.split();
-    let mut phone =
-        cmux_mobile_link::viewport::PhoneViewport::new(connected.overlay.as_ref(), true).wrap(receiver);
-    sender.send(scripted_attach()).await.unwrap();
-    let expected = scripted_terminal(SCRIPTED);
-    let expected_screen = cmux_terminal_projection::sync::ScreenState::capture(&expected);
-    let mut screen = PhoneScreen { term: None, outputs: 0 };
-    let mut buffer = Vec::new();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
-    loop {
-        let shown = screen.term.as_ref().map(cmux_terminal_projection::sync::ScreenState::capture);
-        if let Some(shown) = &shown
-            && shown.cells == expected_screen.cells
-            && shown.cursor == expected_screen.cursor
-        {
-            break;
-        }
-        let event = tokio::time::timeout_at(deadline, phone.recv()).await;
-        let data = match event {
-            Ok(Some(ChannelEvent::Data(data))) => data,
-            other => {
-                let shown = shown.as_ref().map(screen_text).unwrap_or_default();
-                let expected = screen_text(&expected_screen);
-                panic!(
-                    "the phone never showed the host's screen: {other:?}\nshown:\n{shown}\nexpected:\n{expected}"
-                );
-            }
-        };
-        buffer.extend_from_slice(&data);
-        while let Some(newline) = buffer.iter().position(|&b| b == b'\n') {
-            let line: Vec<u8> = buffer.drain(..=newline).collect();
-            let line: serde_json::Value = serde_json::from_slice(&line).unwrap();
-            let event = line["event"].as_str().unwrap_or_default();
-            assert!(!event.starts_with("viewport-"), "the wrapper swallows viewport lines: {line}");
-            screen.take(&line);
-        }
-    }
-    // On the datagram path the host forwards no output line: every one the phone fed came from
-    // the wrapper (its datagrams and the history lines).
-    assert!(screen.outputs > 0, "an injected output");
-    let history = history_text(screen.term.as_ref().unwrap());
-    assert!(history.contains("$ line 0") && history.contains("line 20"), "the scrolled rows: {history:?}");
-}
-
-/// Reads `daemon`'s lines until `count` outputs passed; every line read, in order.
-async fn read_outputs(daemon: &mut Channel, count: u64) -> Vec<serde_json::Value> {
-    let mut buffer = Vec::new();
-    let mut lines = Vec::new();
-    let mut outputs = 0;
-    while outputs < count {
-        let line = next_line(daemon, &mut buffer).await;
-        outputs += u64::from(line["event"] == "output");
-        lines.push(line);
-    }
-    lines
-}
-
-/// An old phone (no args) on a host with the gate on: the plain stream, unstamped, and no
-/// viewport line.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn viewport_sync_an_old_phone_gets_the_plain_stream() {
-    let selector = cmux_mobile_host::viewport_sync::SelectorConfig::datagram_first();
-    let fixture = fixture_viewport(FakeOptions::default(), false, true, Some(selector)).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let mut daemon = connected.link.open("daemon", serde_json::json!({})).await.unwrap();
-    daemon.send(scripted_attach()).await.unwrap();
-    let lines = read_outputs(&mut daemon, SCRIPTED).await;
-    assert!(
-        lines.iter().all(|line| !line["event"].as_str().unwrap_or_default().starts_with("viewport-")),
-        "{lines:?}"
-    );
-    assert!(lines.iter().all(|line| line.get("pseq").is_none()), "no pseq without the arg: {lines:?}");
-    let outputs: Vec<Vec<u8>> =
-        lines.iter().filter(|line| line["event"] == "output").map(|line| unb64(line, "data")).collect();
-    assert_eq!(outputs, (0..SCRIPTED).map(|i| scripted_line(i).into_bytes()).collect::<Vec<_>>());
-}
-
-/// A new phone (both args) on a host with the gate off: the plain stream, stamped.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn viewport_sync_off_on_the_host_gives_the_plain_stream() {
-    let fixture = fixture_viewport(FakeOptions::default(), false, true, None).await;
-    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let mut daemon =
-        connected.link.open("daemon", serde_json::json!({"pseq": true, "viewport_sync": 1})).await.unwrap();
-    daemon.send(scripted_attach()).await.unwrap();
-    let lines = read_outputs(&mut daemon, SCRIPTED).await;
-    assert!(
-        lines.iter().all(|line| !line["event"].as_str().unwrap_or_default().starts_with("viewport-")),
-        "{lines:?}"
-    );
-    let outputs: Vec<&serde_json::Value> = lines.iter().filter(|line| line["event"] == "output").collect();
-    assert!(outputs.iter().all(|line| line["pseq"].is_u64()), "pseq with the arg: {outputs:?}");
-    let bytes: Vec<Vec<u8>> = outputs.iter().map(|line| unb64(line, "data")).collect();
-    assert_eq!(bytes, (0..SCRIPTED).map(|i| scripted_line(i).into_bytes()).collect::<Vec<_>>());
 }

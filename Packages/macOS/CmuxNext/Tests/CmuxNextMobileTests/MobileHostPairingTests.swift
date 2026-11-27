@@ -18,14 +18,6 @@ import Testing
         #expect(MobileHostEvent(line: #"{"type":"pair_request","phone_device_id":"p1"}"#) == nil)
     }
 
-    /// Another paired device's answer (hostd `pair-requests`): every field or nothing.
-    @Test func parsesAnAnswerFromAnotherPairedDevice() {
-        let line = #"{"type":"pair_answer","phone_device_id":"p1","identity_key":"\#(Self.identity)","approval_key":"\#(Self.approval)","allow":true,"by_device_id":"p0"}"#
-        #expect(MobileHostEvent(line: line) == .pairAnswer(phoneDeviceID: "p1", identityKey: Self.identity,
-                                                           approvalKey: Self.approval, allow: true, byDeviceID: "p0"))
-        #expect(MobileHostEvent(line: #"{"type":"pair_answer","phone_device_id":"p1","allow":true}"#) == nil)
-    }
-
     @Test func readsTheRegistrationDate() {
         let line = #"{"type":"pair_request","phone_device_id":"p1","name":"Aziz's iPhone","identity_key":"\#(Self.identity)","approval_key":"\#(Self.approval)","registered_at_ms":1800000000500}"#
         guard case .pairRequest(let request)? = MobileHostEvent(line: line) else {
@@ -67,52 +59,6 @@ import Testing
         #expect(prompts.receive(Self.phone("new"), at: later) == .ask)
         prompts.forget(id: "new")
         #expect(prompts.request(id: "new") == nil)
-    }
-
-    /// HOLD on #45895 (2026-11-18): another build's dev iPhone apps wait quietly, unanswered until a
-    /// restart. They never take one of the ``MobileHostPairPrompts/limit`` places, so however many
-    /// there are, the next real phone still asks (prompt and announcement: `.ask`).
-    @Test func quietRequestsNeverCrowdOutARealPhone() {
-        var prompts = MobileHostPairPrompts()
-        let start = Date(timeIntervalSince1970: 1_000)
-        for index in 1...(MobileHostPairPrompts.quietLimit + 2) {
-            #expect(prompts.receive(Self.phone("dev\(index)"), at: start, quietly: true) == .waitsQuietly)
-        }
-        // The quiet places hold the newest; the oldest went (counted as blocked).
-        #expect(prompts.pending.map(\.phoneDeviceID) == (3...(MobileHostPairPrompts.quietLimit + 2)).map { "dev\($0)" })
-        #expect(prompts.blocked == 2)
-        #expect(prompts.prompted.isEmpty)
-        // Every loud place is still free.
-        for index in 1...MobileHostPairPrompts.limit {
-            #expect(prompts.receive(Self.phone("real\(index)"), at: start) == .ask)
-        }
-        #expect(prompts.prompted.map(\.phoneDeviceID) == (1...MobileHostPairPrompts.limit).map { "real\($0)" })
-        #expect(prompts.receive(Self.phone("flood"), at: start) == .blocked)
-        // Another quiet one evicts a quiet one, never a real phone's request.
-        #expect(prompts.receive(Self.phone("dev-late"), at: start, quietly: true) == .waitsQuietly)
-        #expect(prompts.prompted.count == MobileHostPairPrompts.limit)
-        #expect(prompts.pending.count == MobileHostPairPrompts.limit + MobileHostPairPrompts.quietLimit)
-    }
-
-    /// A quiet request is only a Settings row: nothing answers it but the person. A retry stays
-    /// quiet, an answer to another phone leaves it waiting, and it never moves into the prompt.
-    @Test func aQuietRequestIsAnsweredOnlyByThePerson() {
-        var prompts = MobileHostPairPrompts()
-        let start = Date(timeIntervalSince1970: 1_000)
-        #expect(prompts.receive(Self.phone("dev"), at: start, quietly: true) == .waitsQuietly)
-        #expect(prompts.receive(Self.phone("dev"), at: start, quietly: true) == .repeated)
-        #expect(prompts.receive(Self.phone("real"), at: start) == .ask)
-        #expect(prompts.answer(id: "real", allowed: true, at: start)?.phoneDeviceID == "real")
-        #expect(prompts.prompted.isEmpty)
-        #expect(prompts.request(id: "dev") != nil)
-        #expect(prompts.waitsQuietly(id: "dev"))
-        // The person's own answer in Settings still works.
-        #expect(prompts.answer(id: "dev", allowed: true, at: start)?.phoneDeviceID == "dev")
-        #expect(prompts.pending.isEmpty && !prompts.waitsQuietly(id: "dev"))
-        // Forgetting one frees its quiet place.
-        #expect(prompts.receive(Self.phone("dev2"), at: start, quietly: true) == .waitsQuietly)
-        prompts.forget(id: "dev2")
-        #expect(prompts.pending.isEmpty && !prompts.waitsQuietly(id: "dev2"))
     }
 
     @Test func keysAreHex() {
@@ -691,16 +637,12 @@ import Testing
     }
 
     /// cmux NEXT nightly is signed without a provisioning profile, so the data-protection Keychain
-    /// refuses its writes with errSecMissingEntitlement: the seal goes to the login Keychain, and a phone
-    /// allowed once stays paired across a relaunch or an update (https://github.com/manaflow-ai/cmux/issues/26396).
-    /// The read is answered errSecItemNotFound, as macOS 26 and 27 answer it (2026-11-18: a tagged DEV
-    /// build's phone was not trusted after every relaunch); an OS that answers the read with
-    /// errSecMissingEntitlement too is covered as well.
-    @Test(arguments: [errSecItemNotFound, errSecMissingEntitlement])
-    func aBuildWithoutTheKeychainEntitlementKeepsItsPhoneAcrossARelaunch(readAnswer: OSStatus) throws {
+    /// answers errSecMissingEntitlement: the seal goes to the login Keychain, and a phone allowed once
+    /// stays paired across a relaunch or an update (https://github.com/manaflow-ai/cmux/issues/26396).
+    @Test func aBuildWithoutTheKeychainEntitlementKeepsItsPhoneAcrossARelaunch() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let keychain = FakeKeychain(entitled: false, readAnswer: readAnswer)
+        let keychain = FakeKeychain(entitled: false)
         _ = try Self.saved(directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls, loginKeychain: testLoginKeychain))
         #expect(keychain.items(dataProtection: false) == 1 && keychain.items(dataProtection: true) == 0)
 
@@ -856,10 +798,6 @@ final class FakeKeychain: @unchecked Sendable {
     private var store: [Key: Data] = [:]
     private var loginRefusal: OSStatus?
     let entitled: Bool
-    /// What an unentitled build's data-protection read answers. macOS 26 and 27 answer a read with
-    /// errSecItemNotFound, never errSecMissingEntitlement (only writes and deletes say that; probed on
-    /// macOS 27, 2026-11-18), so a seal that waited for that answer never read its login item back.
-    let readAnswer: OSStatus
 
     /// From now on every login Keychain call answers `status` (nil: answers again), as a login item
     /// this launch may not read without UI does (errSecAuthFailed, 2026-11-03).
@@ -867,9 +805,8 @@ final class FakeKeychain: @unchecked Sendable {
         lock.withLock { loginRefusal = status }
     }
 
-    init(entitled: Bool, readAnswer: OSStatus = errSecItemNotFound) {
+    init(entitled: Bool) {
         self.entitled = entitled
-        self.readAnswer = readAnswer
     }
 
     func items(dataProtection: Bool) -> Int {
@@ -893,7 +830,6 @@ final class FakeKeychain: @unchecked Sendable {
         MobileHostSecItems(
             copy: { [self] query in
                 switch key(query) {
-                case .failure(let refusal) where refusal.status == errSecMissingEntitlement: return (readAnswer, nil)
                 case .failure(let refusal): return (refusal.status, nil)
                 case .success(let key):
                     let data = lock.withLock { store[key] }

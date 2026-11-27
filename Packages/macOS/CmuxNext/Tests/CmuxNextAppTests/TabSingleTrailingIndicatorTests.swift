@@ -32,12 +32,11 @@ import Testing
     }
 
     private static func cell(_ kind: Kind, unread: Bool = true, status: TabStatus = .none, busy: Bool = false,
-                             audio: Bool = false, selected: Bool = false, width: CGFloat = 220, scale: CGFloat = 1) -> TabCell {
+                             audio: Bool = false, selected: Bool = false, width: CGFloat = 220) -> TabCell {
         var item = TabItem(id: TabID(kind.rawValue), title: "A page title", icon: icon(kind), isUnread: unread, isBusy: busy, status: status)
         if busy { item.indicator = kind == .agentChat ? .working(progress: nil) : .busy(progress: nil) }
         if audio { item.audio = .playing }
         let cell = TabCell(item: item)
-        cell.scale = scale
         cell.isSelected = selected
         cell.frame = CGRect(x: 0, y: 0, width: width, height: 32)
         cell.layoutLayers()
@@ -88,11 +87,6 @@ import Testing
 
     @Test(arguments: Kind.allCases) func aLoadingTabKeepsItsIconAndShowsTheIndicatorOnTheRight(kind: Kind) throws {
         let cell = Self.cell(kind, unread: true, busy: true, audio: true)
-        // The order of every trailing mark, so the look that draws the unread dot beside the spinner
-        // (TabBusyUnreadMarkTests covers the one combined mark the default draws).
-        var metrics = cell.metrics
-        metrics.busyUnreadMark = .pair
-        cell.metrics = metrics
         let icon = Self.iconFrame(cell)
         #expect(cell.iconLayer.opacity == 1, "\(kind): the loading indicator hides the icon")
         let marks = Self.marks(cell)
@@ -120,16 +114,10 @@ import Testing
         }
     }
 
-    /// Every density scales Default's 7 pt gap, with the title origin on its display's pixel grid.
-    @Test(arguments: DensityPreset.allCases, [CGFloat(1), 2])
-    func theIconToTitleGapIsChromeLike(preset: DensityPreset, scale: CGFloat) {
-        DensityTokens.$scoped.withValue(preset.tokens) {
-            let cell = Self.cell(.browserWithFavicon, scale: scale)
-            let iconEnd = Self.iconFrame(cell).maxX
-            let gap = cell.titleLayer.frame.minX - iconEnd
-            let reference = (7 * CGFloat(preset.scaleFactor) * 2).rounded() / 2
-            let expected = ((iconEnd + reference) * scale).rounded() / scale - iconEnd
-            #expect(gap == expected, "\(preset) at \(scale)x: gap \(gap), expected \(expected)")
-        }
+    /// Chrome's favicon to title gap (6 pt at the standard density).
+    @Test func theIconToTitleGapIsChromeLike() {
+        let cell = Self.cell(.browserWithFavicon)
+        let gap = cell.titleLayer.frame.minX - Self.iconFrame(cell).maxX
+        #expect(gap == (Metrics.compactTabs ? Metrics.space2 : Metrics.space3), "gap \(gap)")
     }
 }

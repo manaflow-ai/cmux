@@ -34,7 +34,6 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::resource_name::NameSource": "NameSource",
     "AgentSessionParams": "AgentSessionSource",
     "ConversationTabSplitParams": "ConversationTabSplit",
-    "TabPlaceRequest": "TabPlace",
     "crate::model::ColumnDock": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",
     "RowMarkerPoint": "RowMarkerPoint",
@@ -42,10 +41,8 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "ExpectAgent": "SendExpectAgent",
     "LayoutSizeWire": "LayoutSizeValue",
     "cmd_workspaces::KnownTree": "ListWorkspacesKnown",
-    "list_workspaces_delta::DeltaCursor": "ListWorkspacesSince",
     "frontend_browser_history::FirstTabParams": "WorkspaceFirstTab",
     "crate::command_context::Intent": "TerminalCommandContextIntent",
-    "crate::remote_host::AppPermissions": "RemoteHostAppPermissions",
 }
 
 # Request fields the server takes as raw JSON and then decodes element by
@@ -184,11 +181,7 @@ def _parse_rust_fields(body: str, label: str) -> dict[str, RuntimeField]:
         name, rust_type = field.groups()
         if name in fields:
             fail(f"duplicate {label} field {name!r}")
-        # `#[serde(skip)]` is never read from the wire: the field is state of the
-        # handler, not a part of the request.
-        skipped = any(part.strip() == "skip" for value in attributes for part in value.split(","))
-        if not skipped:
-            fields[name] = RuntimeField(rust_type, tuple(attributes))
+        fields[name] = RuntimeField(rust_type, tuple(attributes))
         attributes.clear()
     if attributes:
         fail(f"orphan serde attributes in {label}")
@@ -208,8 +201,7 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
     index = 0
     while index < len(lines):
         line = lines[index]
-        # A unit variant, or a struct variant with no fields (`Variant {},`).
-        unit = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*)(?: \{\})?,", line)
+        unit = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*),", line)
         if unit:
             commands[camel_to_kebab(unit.group(1))] = {}
             index += 1
@@ -241,12 +233,6 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
                 _rust_struct_fields(module_source, request_type),
                 f"Command::{variant}",
             )
-            index += 1
-            continue
-        # A fieldless struct variant: `Variant {},`.
-        empty = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*) \{\s*\},", line)
-        if empty:
-            commands[camel_to_kebab(empty.group(1))] = {}
             index += 1
             continue
         structured = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*) \{", line)

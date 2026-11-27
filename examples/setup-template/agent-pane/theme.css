@@ -1,6 +1,0 @@
-/* Example chat paint. Inspect it in the app in both light and dark appearances.
-   `cmux setup check .` does not validate stylesheet tokens; see its skipped checks. */
-:root {
-  --cv-user-bubble-radius: 10px;
-  --cv-text-muted: #a1a1aa;
-}

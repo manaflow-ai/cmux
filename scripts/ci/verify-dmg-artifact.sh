@@ -7,11 +7,6 @@ set -euo pipefail
 
 # Keep the digest receipt separate from the verification log, matching the
 # former smoke-dmg caller contract.
-#
-# --app-ticket-online: the DMG carries the only stapled ticket (notarize-nightly-dmg.sh
-# with CMUX_STAPLE_APP_IN_DMG=false). The app inside need not carry its own; Gatekeeper
-# must still call it notarized ("source=Notarized Developer ID"), which for an app
-# without a stapled ticket is Apple's online answer.
 if { true >&3; } 2>/dev/null; then
   exec 4>&3
 else
@@ -20,7 +15,7 @@ fi
 exec 1>&2
 
 if [ "$#" -lt 2 ]; then
-  echo "usage: $0 <dmg> <channel> [--expect-sha256 HEX] [--require-stapled-app | --stapled-app-fallback ID | --app-ticket-online]" >&2
+  echo "usage: $0 <dmg> <channel> [--expect-sha256 HEX] [--require-stapled-app | --stapled-app-fallback ID]" >&2
   exit 2
 fi
 
@@ -36,7 +31,6 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "--expect-sha256 needs a value" >&2; exit 2; }
       EXPECTED="$2"; shift 2 ;;
     --require-stapled-app) REQUIRE_STAPLED_APP=true; shift ;;
-    --app-ticket-online) REQUIRE_STAPLED_APP=online; shift ;;
     --stapled-app-fallback)
       [ "$#" -ge 2 ] && [[ "$2" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "--stapled-app-fallback needs the pending submission id" >&2; exit 2; }
       STAPLED_APP_FALLBACK_ID="$2"; shift 2 ;;
@@ -80,14 +74,7 @@ if [ -n "$STAPLED_APP_FALLBACK_ID" ]; then
 elif [ "$REQUIRE_STAPLED_APP" = true ]; then
   "$XCRUN_TOOL" stapler validate "$APP"
 fi
-if [ "$REQUIRE_STAPLED_APP" = online ]; then
-  assessment="$("$SPCTL_TOOL" -a -vv --type execute "$APP" 2>&1)" || { printf '%s\n' "$assessment"; exit 1; }
-  printf '%s\n' "$assessment"
-  grep -Fq 'source=Notarized Developer ID' <<<"$assessment" \
-    || { echo "Gatekeeper accepted $APP, but not as notarized (an app without its own ticket must be)" >&2; exit 1; }
-else
-  "$SPCTL_TOOL" -a -vv --type execute "$APP"
-fi
+"$SPCTL_TOOL" -a -vv --type execute "$APP"
 "$VERIFY_METADATA_TOOL" "$APP" "$CHANNEL"
 "$VERIFY_LICENSES_TOOL" "$APP"
 detach

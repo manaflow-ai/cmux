@@ -843,7 +843,6 @@ fn a_headless_session_lists_no_start_tab() {
         },
         label: "start-tab".into(),
         terminal: None,
-        workspace: None,
         profile: cmux_browser_host::host::AGENT_PROFILE.into(),
     };
     let driver = engines.driver("headless", Arc::new(|_| {}), &session).expect("headless driver");

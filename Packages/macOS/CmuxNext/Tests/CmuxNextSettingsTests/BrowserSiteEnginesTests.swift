@@ -14,18 +14,9 @@ struct BrowserSiteEnginesTests {
         "https://www.primevideo.com/", "https://www.amazon.com/gp/video/detail/B0", "https://tv.apple.com/",
         "https://music.apple.com/us/browse",
     ])
-    func protectedMediaSitesStayInTheDefaultEngine(_ address: String) {
-        // Widevine plays in Chromium (the plain helper loads Google's CDM), so no site needs WebKit.
-        #expect(engine(.fallback, address) == nil)
-        #expect(engine(Self.protectedMediaOnWebKit, address) == .webkit)
+    func protectedMediaSitesOpenInWebKitByDefault(_ address: String) {
+        #expect(engine(.fallback, address) == .webkit)
     }
-
-    /// The list the default was before Chromium played protected media: a person may still set it.
-    static let protectedMediaOnWebKit = BrowserSiteEngines(rules: [
-        "spotify.com": .webkit, "netflix.com": .webkit, "disneyplus.com": .webkit, "max.com": .webkit,
-        "hulu.com": .webkit, "primevideo.com": .webkit, "amazon.com/gp/video": .webkit, "tv.apple.com": .webkit,
-        "music.apple.com": .webkit,
-    ])
 
     @Test(arguments: [
         "https://music.youtube.com/", "https://www.amazon.com/", "https://www.amazon.com/gp/videos", "https://apple.com/",
@@ -34,7 +25,6 @@ struct BrowserSiteEnginesTests {
     ])
     func otherSitesFollowTheDefaultEngine(_ address: String) {
         #expect(engine(.fallback, address) == nil)
-        #expect(engine(Self.protectedMediaOnWebKit, address) == nil)
     }
 
     @Test func theMostSpecificRuleWins() {

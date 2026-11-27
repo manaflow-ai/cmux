@@ -363,8 +363,7 @@ struct AgentPaneVideoInfoTests {
             #expect(Self.errorCode(reply) == nil, "\(reply)")
             let value = try #require(reply["value"] as? [String: Any])
             #expect(value["width"] as? Int == 320 && value["height"] as? Int == 180)
-            // The poster first; its key frames follow from `video.probes`.
-            #expect(value["more"] as? Bool == true)
+            #expect((value["frames"] as? [[String: Any]])?.count == 4)
         }
 
         // Not a video by its name, on the deny list, outside home and the folders, missing, or a
@@ -443,10 +442,6 @@ struct AgentPaneVideoInfoTests {
     @Test func theRequestsTakeOnlyTheirSource() {
         #expect(AgentPaneReplyRequest(method: "video.info", params: ["src": "/a.mov"]) == .videoInfo("/a.mov"))
         #expect(AgentPaneReplyRequest(method: "video.quickLook", params: ["src": "/a.mov"]) == .quickLookVideo("/a.mov"))
-        #expect(AgentPaneReplyRequest(method: "video.probes", params: ["src": "/a.mov"]) == .videoProbes("/a.mov"))
-        #expect(AgentPaneReplyRequest(method: "video.probes", params: ["src": "/a.mov", "times": [0]]) == nil)
-        #expect(AgentPaneReplyRequest.videoProbes("/a.mov").isPassive)
-        #expect(AgentPageOps.method(for: "cmux.agent.video.probes") == "video.probes")
         #expect(AgentPaneReplyRequest(method: "video.info", params: ["src": "/a.mov", "frames": 9]) == nil)
         #expect(AgentPaneReplyRequest(method: "video.info", params: [:]) == nil)
         #expect(AgentPaneReplyRequest.videoInfo("/a.mov").isPassive)
@@ -464,131 +459,5 @@ struct AgentPaneVideoInfoTests {
         #expect(AgentPaneReplyRequest(method: "video.frames", params: ["src": "/a.mov"]) == nil)
         #expect(AgentPaneReplyRequest.videoFrames("/a.mov", times: [0]).isPassive)
         #expect(AgentPageOps.method(for: "cmux.agent.video.frames") == "video.frames")
-    }
-
-    /// A chat on this Mac whose home is `folder/home`, its videos' copies in `folder/videos`, with a
-    /// `seconds` long clip on its Desktop.
-    private static func desktopClip(in folder: URL, seconds: Int = 2) async throws -> (model: AgentPaneModel, clip: URL, videos: URL) {
-        let home = folder.appendingPathComponent("home", isDirectory: true)
-        let desktop = home.appendingPathComponent("Desktop", isDirectory: true)
-        try FileManager.default.createDirectory(at: desktop, withIntermediateDirectories: true)
-        let clip = desktop.appendingPathComponent("Screen Recording.mov")
-        try await Self.movie(at: clip, width: 320, height: 180, seconds: seconds)
-        let model = AgentPaneModel(host: NoHost())
-        model.replyLinks.home = home.path
-        let videos = folder.appendingPathComponent("videos", isDirectory: true)
-        model.replyLinks.videoFolder = videos
-        return (model, clip, videos)
-    }
-
-    /// Leo, 2026-11-18: "dragging and dropping attachments of any size should never take time to
-    /// load. It should just be able to show you the thing". `video.info` answers the length, size and
-    /// poster from one frame, with `more`; the key frames and probes come from `video.probes`.
-    @Test func theFirstAnswerIsThePosterAndTheKeyFramesAndProbesFollow() async throws {
-        let folder = try Self.folder()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let (model, clip, _) = try await Self.desktopClip(in: folder)
-
-        let first = await Self.ask(model, "video.info", ["src": clip.path])
-        let info = try #require(first["value"] as? [String: Any], "\(first)")
-        #expect(info["width"] as? Int == 320 && info["height"] as? Int == 180)
-        let poster = try #require((info["poster"] as? String)?.split(separator: ",").last.map(String.init))
-        let image = try Self.image(poster)
-        #expect(image.width == 320 && image.height == 180)
-        #expect(try Self.isRed(image))
-        #expect(info["more"] as? Bool == true, "the first answer waited for the key frames and probes")
-        #expect((info["frames"] as? [Any])?.isEmpty != false && (info["probes"] as? [Any])?.isEmpty != false)
-
-        let rest = await Self.ask(model, "video.probes", ["src": clip.path])
-        let value = try #require(rest["value"] as? [String: Any], "\(rest)")
-        let frames = try #require(value["frames"] as? [[String: Any]])
-        #expect(frames.count == 4)
-        #expect(try Self.isRed(Self.image(try #require(frames.first?["data"] as? String))))
-        #expect((value["probes"] as? [[String: Any]])?.count == 12)
-        // Another machine's chat: refused, as `video.info` is.
-        model.remoteChat = true
-        #expect(Self.errorCode(await Self.ask(model, "video.probes", ["src": clip.path])) == AgentPaneReplyError.mediaRefused.rawValue)
-    }
-
-    /// A video's reads (`video.info`, `video.probes`, `video.frames`) share one private copy of the
-    /// file as it is: one clone (or, on a disk that cannot clone, one byte copy) per drop, not one
-    /// per read. A file changed since gets a new copy.
-    @Test func aVideosReadsShareOneCopyOfTheFile() async throws {
-        let folder = try Self.folder()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let (model, clip, videos) = try await Self.desktopClip(in: folder)
-        func copies() -> Int { ((try? FileManager.default.contentsOfDirectory(atPath: videos.path)) ?? []).count }
-
-        #expect(Self.errorCode(await Self.ask(model, "video.info", ["src": clip.path])) == nil)
-        #expect(copies() == 1)
-        _ = await Self.ask(model, "video.probes", ["src": clip.path])
-        #expect(Self.errorCode(await Self.ask(model, "video.frames", ["src": clip.path, "times": [200, 1800]])) == nil)
-        #expect(copies() == 1)
-        // The file recorded again at the same path: its own copy, of the new file.
-        try FileManager.default.removeItem(at: clip)
-        try await Self.movie(at: clip, width: 640, height: 360, seconds: 1)
-        let again = await Self.ask(model, "video.info", ["src": clip.path])
-        #expect((again["value"] as? [String: Any])?["width"] as? Int == 640, "\(again)")
-        #expect(copies() == 2)
-    }
-
-    /// A `seconds` long 1920×1080 H.264 movie at 30 frames a second with a key frame every 10 s,
-    /// as a screen recording has: moving gray bands (each row one value), cheap to draw.
-    nonisolated private static func screenRecording(at url: URL, seconds: Int) async throws {
-        let width = 1920, height = 1080, rate = 30
-        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: [AVVideoMaxKeyFrameIntervalKey: rate * 10, AVVideoAverageBitRateKey: 8_000_000],
-        ])
-        input.expectsMediaDataInRealTime = false
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height,
-        ])
-        writer.add(input)
-        #expect(writer.startWriting(), "\(String(describing: writer.error))")
-        writer.startSession(atSourceTime: .zero)
-        for index in 0..<(seconds * rate) {
-            while !input.isReadyForMoreMediaData { await Task.yield() }
-            var buffer: CVPixelBuffer?
-            CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA, nil, &buffer)
-            let pixels = try #require(buffer)
-            CVPixelBufferLockBaseAddress(pixels, [])
-            let base = try #require(CVPixelBufferGetBaseAddress(pixels))
-            let stride = CVPixelBufferGetBytesPerRow(pixels)
-            for row in 0..<height { memset(base + row * stride, Int32((row / 8 + index * 4) & 0xff), width * 4) }
-            CVPixelBufferUnlockBaseAddress(pixels, [])
-            #expect(adaptor.append(pixels, withPresentationTime: CMTime(value: CMTimeValue(index), timescale: CMTimeScale(rate))))
-        }
-        input.markAsFinished()
-        await writer.finishWriting()
-        #expect(writer.status == .completed, "\(String(describing: writer.error))")
-    }
-
-    /// The harness for the PR's numbers: how long a dropped 30 s 1080p recording's `video.info` takes
-    /// to answer (its copy, then what the answer holds), three times, each with a new pane and copy.
-    @Test func benchFirstAnswerOfA30SecondRecording() async throws {
-        let folder = try Self.folder()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let source = folder.appendingPathComponent("source.mov")
-        try await Self.screenRecording(at: source, seconds: 30)
-        var times: [Double] = []
-        for run in 0..<3 {
-            let home = folder.appendingPathComponent("home-\(run)", isDirectory: true)
-            let desktop = home.appendingPathComponent("Desktop", isDirectory: true)
-            try FileManager.default.createDirectory(at: desktop, withIntermediateDirectories: true)
-            let clip = desktop.appendingPathComponent("Screen Recording.mov")
-            try FileManager.default.copyItem(at: source, to: clip)
-            let model = AgentPaneModel(host: NoHost())
-            model.replyLinks.home = home.path
-            model.replyLinks.videoFolder = folder.appendingPathComponent("videos-\(run)", isDirectory: true)
-            let started = ContinuousClock.now
-            let reply = await Self.ask(model, "video.info", ["src": clip.path])
-            let took = (ContinuousClock.now - started).components
-            times.append(Double(took.seconds) * 1000 + Double(took.attoseconds) / 1e15)
-            #expect((reply["value"] as? [String: Any])?["width"] as? Int == 1920, "\(reply)")
-        }
-        print("BENCH video.info first answer, 30 s 1080p recording, ms: \(times.map { String(format: "%.1f", $0) }.joined(separator: " "))")
     }
 }

@@ -61,10 +61,8 @@ final class TerminalHostGridNoteCaptureUITests: XCTestCase {
                 let probe = app.staticTexts["debug.terminal-demo"]
                 XCTAssertTrue(probe.waitForExistence(timeout: 30), "\(scene.id): the terminal demo did not open")
                 if scene.keyboard {
-                    let field = app.textViews["terminal.composer.field"]
-                    XCTAssertTrue(field.waitForExistence(timeout: 5))
-                    field.tap()
-                    XCTAssertTrue(app.buttons["terminal.key.keyboard"].waitForExistence(timeout: 5), "\(scene.id): keyboard up")
+                    let key = app.buttons["terminal.key.keyboard"]
+                    if key.waitForExistence(timeout: 5) { key.tap() }
                 }
                 // The demo's output and frames land; it has no signal to wait on.
                 RunLoop.current.run(until: Date().addingTimeInterval(scene.keyboard ? 2.5 : 1.5))

@@ -139,10 +139,7 @@ async fn a_prompts_images_are_named_in_its_message_and_read_back_after_a_restart
     let sent = user_messages(&mut c, &session).await;
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0]["text"], "what is this");
-    assert_eq!(
-        sent[0]["images"],
-        json!([{"id": id, "mimeType": "image/png", "name": "shot.png", "width": 1, "height": 1}])
-    );
+    assert_eq!(sent[0]["images"], json!([{"id": id, "mimeType": "image/png", "name": "shot.png"}]));
     // The log names the image; its bytes are kept apart, once.
     assert!(!sent[0].to_string().contains(PNG));
 

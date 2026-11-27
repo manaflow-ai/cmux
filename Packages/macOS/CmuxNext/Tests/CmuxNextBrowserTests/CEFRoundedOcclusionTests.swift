@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
-import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-27 ("dialog sides has weird bg"): a Chromium page is a child window above the
@@ -9,7 +8,7 @@ import Testing
 /// ground in the four corners outside the bars' rounded glass. The bars now leave the page's clip
 /// shape as rounded holes: the page shows (and takes the mouse) around their corners, and the
 /// bar shows (and takes the mouse) inside them.
-@MainActor @Suite(.closesItsWindows) struct CEFRoundedOcclusionTests {
+@MainActor @Suite struct CEFRoundedOcclusionTests {
     static let page = CGRect(x: 0, y: 0, width: 800, height: 600)
     static let bar = CEFClipShape.RoundedRect(rect: CGRect(x: 100, y: 500, width: 600, height: 80), radius: 16)
 

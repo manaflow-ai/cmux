@@ -961,7 +961,6 @@ fn single_surface_mux_forwarder_drops_unrelated_output_titles_and_agents() {
     assert!(matches!(
         forward_mux_event(
             MuxEvent::AgentChanged {
-                terminal_id: None,
                 surface: 42,
                 state: "working".into(),
                 source: "hook".into(),
@@ -988,7 +987,6 @@ fn single_surface_mux_forwarder_drops_unrelated_output_titles_and_agents() {
     assert!(matches!(
         forward_mux_event(
             MuxEvent::AgentChanged {
-                terminal_id: None,
                 surface: 41,
                 state: "working".into(),
                 source: "hook".into(),

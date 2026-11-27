@@ -319,10 +319,8 @@ tabs after.
   foreground; put at the end or the start it is the quick opener. Known gap: the expectation
   ends at the pane's next selection change that is not a close's own, or when the pane no
   longer lists the opener, so a create that fails or lands in another strip leaves it until then.
-- A link's tab (a web link's tab, a chat's GitHub page) gets no opener in the close rule
-  (2026-11-23, `TabCloseSelection.linkOpened`): closing it selects by position (R1 without the
-  opener steps), as for every other tab kind. A foreground one still ends the pane's older
-  relations. `BrowserTabOpeners` keeps the link's opener for where the new tab goes (Chrome's slot).
+- `made`, a link's tab or a tab an action inside another tab opens: `BrowserPageRequests`
+  (`inheritsFromOpener`), a task opener, when the two tabs are in one pane.
 - `selected`: every change of `TabSelectionMemory` reports to the state. A person's gesture is
   marked before the change: `PaneController.select` (a click, a shortcut, the palette) and
   `TabSelectionMemory.jump` (tab search, a pinned row, a notification, a link to a tab,

@@ -136,36 +136,6 @@ pub fn default_reader(env: impl Fn(&str) -> Option<String>) -> Box<dyn ManagedRe
     platform_reader()
 }
 
-/// The administrator's values for `keys` only, from the same sources as
-/// [`default_reader`]: for a launch path that reads one or two settings and
-/// must not load the embedded schema to list every published key.
-pub fn read_keys(keys: &[&str], env: impl Fn(&str) -> Option<String>) -> ManagedPreferences {
-    let reader = if cfg!(debug_assertions)
-        && let Some(path) = env(FILE_OVERRIDE_KEY).filter(|path| !path.is_empty())
-    {
-        override_reader(expand_tilde(&path, env("HOME")))
-    } else {
-        keys_reader(keys)
-    };
-    let mut values = reader.read();
-    values.forced.retain(|key, _| keys.contains(&key.as_str()));
-    values.recommended.retain(|key, _| keys.contains(&key.as_str()));
-    values
-}
-
-#[cfg(target_os = "macos")]
-fn keys_reader(keys: &[&str]) -> Box<dyn ManagedReader> {
-    Box::new(super::CfManagedReader {
-        domain: super::DOMAIN.to_string(),
-        keys: keys.iter().map(|key| key.to_string()).collect(),
-    })
-}
-
-#[cfg(not(target_os = "macos"))]
-fn keys_reader(_keys: &[&str]) -> Box<dyn ManagedReader> {
-    platform_reader()
-}
-
 fn expand_tilde(path: &str, home: Option<String>) -> PathBuf {
     let path = PathBuf::from(path);
     match (path.strip_prefix("~"), home) {
@@ -192,27 +162,4 @@ fn platform_reader() -> Box<dyn ManagedReader> {
 #[cfg(not(target_os = "macos"))]
 fn platform_reader() -> Box<dyn ManagedReader> {
     Box::new(JsonFileManagedReader { path: PathBuf::from(super::LINUX_MANAGED_FILE) })
-}
-
-#[cfg(all(test, target_os = "macos"))]
-mod read_keys_tests {
-    use super::*;
-
-    #[test]
-    fn only_the_asked_keys_come_back_from_the_profile() {
-        let dir = std::env::temp_dir().join(format!("cmux-read-keys-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("managed.plist");
-        let mut forced = plist::Dictionary::new();
-        forced.insert("agents.cmuxMcp".into(), plist::Value::String("off".into()));
-        forced.insert("appearance.borders".into(), plist::Value::Boolean(true));
-        plist::Value::Dictionary(forced).to_file_xml(&path).unwrap();
-        let shown = path.display().to_string();
-        let values = read_keys(&["agents.cmuxMcp"], |name| {
-            (name == FILE_OVERRIDE_KEY).then(|| shown.clone())
-        });
-        let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(values.forced.get("agents.cmuxMcp"), Some(&Value::String("off".into())));
-        assert!(!values.forced.contains_key("appearance.borders"));
-    }
 }

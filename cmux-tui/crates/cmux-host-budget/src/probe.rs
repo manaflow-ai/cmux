@@ -1,16 +1,6 @@
 //! The real host's readings. The parsers of Linux's
-//! `/proc` files, the perf-level fold and the macOS tick, thermal and HID folds are
-//! plain functions, so every platform tests them (`probe_tests.rs`).
-//!
-//! RFD 0072's signals beyond the budget's: CPU busy (two readings, the delta since
-//! the last sample), thermal pressure, HID idle and timer lateness. Power (AC,
-//! battery, lid) is not read here: acpmux's `host_power` already reads it, so
-//! [`Sample::on_ac`] and [`Sample::battery_percent`] are for its caller to fill.
-//!
-//! Core count, settled from code: `performance_cores` sums every perf level not
-//! named `Efficiency`. RFD 0072's run A read `hw.perflevel0.physicalcpu` alone, which
-//! is 5 on a 15-CPU M5 Pro (level 0 is its 5 Super cores; level 1, Performance, has
-//! 10). The budget's 15 is the sum, so the two readings agree.
+//! `/proc` files and the perf-level fold are plain functions, so every platform
+//! tests them.
 
 use super::{Probe, Sample};
 
@@ -21,13 +11,7 @@ impl Probe for HostProbe {
     fn sample(&self) -> Sample {
         let logical_cpus = std::thread::available_parallelism()
             .map_or(1, |n| u32::try_from(n.get()).unwrap_or(u32::MAX));
-        let mut sample = platform::sample(logical_cpus);
-        if let Some(l) = crate::lateness::global_stats() {
-            sample.lateness_p50_ms = Some(l.p50_ms);
-            sample.lateness_p95_ms = Some(l.p95_ms);
-            sample.lateness_over_5ms_share = Some(l.share_over_5ms);
-        }
-        sample
+        platform::sample(logical_cpus)
     }
 }
 
@@ -78,43 +62,6 @@ pub fn parse_vmstat_oom_kill(text: &str) -> Option<u64> {
     text.lines().find_map(|l| l.strip_prefix("oom_kill ")?.trim().parse().ok())
 }
 
-/// `/proc/vmstat`'s reclaim counters since boot: the memory stall the kernel counts even with
-/// PSI off (Freestyle guests boot with `CONFIG_PSI_DEFAULT_DISABLED`, cmuxterm-hq RFD 0133 and
-/// RFD 0182 B1). A task that has to free memory before it can allocate is an `allocstall_*`;
-/// the pages it scans doing so are `pgscan_direct`; a page read back soon after it was evicted
-/// is a `workingset_refault_*` (thrashing: with no swap, the binaries' own pages).
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Reclaim {
-    /// Allocations that stalled on direct reclaim (every `allocstall_*` zone).
-    pub alloc_stalls: u64,
-    /// Pages scanned by direct reclaim (`pgscan_direct`).
-    pub direct_scanned: u64,
-    /// Evicted pages read back (`workingset_refault_anon` + `_file`, or the older `workingset_refault`).
-    pub refaults: u64,
-}
-
-/// [`Reclaim`] from `/proc/vmstat`; none when the file has no `allocstall` line.
-pub fn parse_vmstat_reclaim(text: &str) -> Option<Reclaim> {
-    let mut r = Reclaim::default();
-    let mut seen = false;
-    for line in text.lines() {
-        let Some((key, value)) = line.split_once(' ') else { continue };
-        let Ok(n) = value.trim().parse::<u64>() else { continue };
-        if key.starts_with("allocstall") {
-            r.alloc_stalls = r.alloc_stalls.saturating_add(n);
-            seen = true;
-        } else if key == "pgscan_direct" {
-            r.direct_scanned = n;
-        } else if matches!(
-            key,
-            "workingset_refault" | "workingset_refault_anon" | "workingset_refault_file"
-        ) {
-            r.refaults = r.refaults.saturating_add(n);
-        }
-    }
-    seen.then_some(r)
-}
-
 /// `/proc/meminfo`: (SwapTotal - SwapFree) / SwapTotal; none without swap.
 pub fn parse_meminfo_swap_used(text: &str) -> Option<f64> {
     let kb = |key: &str| {
@@ -143,68 +90,6 @@ pub fn cpu_busy(before: (u64, u64), after: (u64, u64)) -> Option<f64> {
     Some(total.saturating_sub(idle) as f64 / total as f64)
 }
 
-/// macOS `host_cpu_load_info` ticks as `[user, system, idle, nice]`: the share busy
-/// between two readings (0..1). The counters are 32-bit and wrap, so the
-/// differences wrap too. None when no tick passed.
-#[cfg(any(target_os = "macos", test))]
-pub fn cpu_busy_ticks(before: [u32; 4], after: [u32; 4]) -> Option<f64> {
-    let d: Vec<u64> =
-        before.iter().zip(&after).map(|(b, a)| u64::from(a.wrapping_sub(*b))).collect();
-    let total: u64 = d.iter().sum();
-    let idle = *d.get(2)?;
-    (total > 0).then(|| (total - idle) as f64 / total as f64)
-}
-
-/// The word for macOS's `com.apple.system.thermalpressurelevel` state
-/// (`OSThermalNotification.h`): 0 nominal, 1 moderate, 2 heavy, 3 trapping,
-/// 4 sleeping, else unknown.
-pub fn thermal_pressure_word(level: u32) -> &'static str {
-    match level {
-        0 => "nominal",
-        1 => "moderate",
-        2 => "heavy",
-        3 => "trapping",
-        4 => "sleeping",
-        _ => "unknown",
-    }
-}
-
-/// `/sys/class/thermal/thermal_zone*/temp` files' text (millidegrees C): the
-/// hottest zone in degrees. A zone reading 0 or under, or over 200 C, is a sensor
-/// that says nothing and is left out.
-pub fn parse_thermal_millic_max<'a>(temps: impl IntoIterator<Item = &'a str>) -> Option<f64> {
-    temps
-        .into_iter()
-        .filter_map(|t| t.trim().parse::<i64>().ok())
-        .filter(|m| (1..=200_000).contains(m))
-        .max()
-        .map(|m| m as f64 / 1000.0)
-}
-
-/// IORegistry's `HIDIdleTime` (nanoseconds) as seconds; a negative one is none.
-#[cfg(any(target_os = "macos", test))]
-pub fn hid_idle_seconds(nanos: i64) -> Option<f64> {
-    (nanos >= 0).then(|| nanos as f64 / 1e9)
-}
-
-/// Seconds since the owner's last keyboard or pointer input on this machine, read now
-/// (macOS `HIDIdleTime`). None where it cannot be read (not macOS, or IOKit refused): a caller
-/// that gates on the owner being away treats None as not away.
-pub fn owner_idle_seconds() -> Option<f64> {
-    #[cfg(target_os = "macos")]
-    {
-        platform::hid_idle()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        None
-    }
-}
-
-#[cfg(test)]
-#[path = "probe_tests.rs"]
-mod tests;
-
 #[cfg(target_os = "macos")]
 mod platform {
     use super::Sample;
@@ -229,135 +114,6 @@ mod platform {
             available_ram_fraction: sysctl_i32(c"kern.memorystatus_level")
                 .map(|p| f64::from(p) / 100.0),
             swapout_bytes: swapout_bytes(),
-            cpu_busy: cpu_busy_since_last(),
-            thermal_pressure_level: thermal_level(),
-            hid_idle_seconds: hid_idle(),
-            ..Sample::default()
-        }
-    }
-
-    /// The host's mach port, one send right for the daemon's life.
-    fn host_port() -> libc::mach_port_t {
-        static HOST: std::sync::OnceLock<libc::mach_port_t> = std::sync::OnceLock::new();
-        // SAFETY: no arguments; returns this host's name port.
-        #[allow(deprecated)]
-        *HOST.get_or_init(|| unsafe { libc::mach_host_self() })
-    }
-
-    /// The CPUs' busy share since the last call (`host_statistics64` HOST_CPU_LOAD_INFO,
-    /// two readings); none on the first.
-    fn cpu_busy_since_last() -> Option<f64> {
-        static LAST: std::sync::Mutex<Option<[u32; 4]>> = std::sync::Mutex::new(None);
-        // SAFETY: an all-zero host_cpu_load_info is a valid value of this plain C struct.
-        let mut info: libc::host_cpu_load_info = unsafe { std::mem::zeroed() };
-        let mut count = libc::HOST_CPU_LOAD_INFO_COUNT;
-        // SAFETY: `info` is HOST_CPU_LOAD_INFO_COUNT integers of writable storage, as `count` says.
-        let rc = unsafe {
-            libc::host_statistics64(
-                host_port(),
-                libc::HOST_CPU_LOAD_INFO,
-                (&raw mut info).cast(),
-                &raw mut count,
-            )
-        };
-        if rc != libc::KERN_SUCCESS {
-            return None;
-        }
-        let now = info.cpu_ticks;
-        let mut last = LAST.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let busy = last.and_then(|before| super::cpu_busy_ticks(before, now));
-        *last = Some(now);
-        busy
-    }
-
-    unsafe extern "C" {
-        fn notify_register_check(name: *const libc::c_char, token: *mut libc::c_int) -> u32;
-        fn notify_get_state(token: libc::c_int, state: *mut u64) -> u32;
-    }
-
-    /// `com.apple.system.thermalpressurelevel`'s state ([`super::thermal_pressure_word`]).
-    fn thermal_level() -> Option<u32> {
-        static TOKEN: std::sync::OnceLock<Option<libc::c_int>> = std::sync::OnceLock::new();
-        let token = (*TOKEN.get_or_init(|| {
-            let mut token: libc::c_int = 0;
-            // SAFETY: a NUL-terminated name and a valid out pointer.
-            let rc = unsafe {
-                notify_register_check(
-                    c"com.apple.system.thermalpressurelevel".as_ptr(),
-                    &raw mut token,
-                )
-            };
-            (rc == 0).then_some(token)
-        }))?;
-        let mut state: u64 = 0;
-        // SAFETY: a token from notify_register_check and a valid out pointer.
-        let rc = unsafe { notify_get_state(token, &raw mut state) };
-        (rc == 0).then(|| u32::try_from(state).ok()).flatten()
-    }
-
-    mod iokit {
-        use std::ffi::c_void;
-        #[link(name = "IOKit", kind = "framework")]
-        unsafe extern "C" {
-            pub fn IOServiceMatching(name: *const libc::c_char) -> *mut c_void;
-            pub fn IOServiceGetMatchingService(main_port: u32, matching: *mut c_void) -> u32;
-            pub fn IORegistryEntryCreateCFProperty(
-                entry: u32,
-                key: *const c_void,
-                allocator: *const c_void,
-                options: u32,
-            ) -> *const c_void;
-            pub fn IOObjectRelease(object: u32) -> i32;
-        }
-        #[link(name = "CoreFoundation", kind = "framework")]
-        unsafe extern "C" {
-            pub fn CFStringCreateWithCString(
-                allocator: *const c_void,
-                c_str: *const libc::c_char,
-                encoding: u32,
-            ) -> *const c_void;
-            pub fn CFGetTypeID(cf: *const c_void) -> usize;
-            pub fn CFNumberGetTypeID() -> usize;
-            pub fn CFNumberGetValue(number: *const c_void, kind: i32, out: *mut c_void) -> u8;
-            pub fn CFRelease(cf: *const c_void);
-        }
-    }
-
-    /// Seconds since the last keyboard or pointer input: `HIDIdleTime` (nanoseconds) of
-    /// the IORegistry's `IOHIDSystem`.
-    pub(super) fn hid_idle() -> Option<f64> {
-        const UTF8: u32 = 0x0800_0100;
-        const SINT64: i32 = 4;
-        // SAFETY: IOKit and CoreFoundation calls with NUL-terminated names and valid out
-        // pointers; every object created is released, and the matching dictionary is
-        // consumed by IOServiceGetMatchingService.
-        unsafe {
-            let matching = iokit::IOServiceMatching(c"IOHIDSystem".as_ptr());
-            if matching.is_null() {
-                return None;
-            }
-            let entry = iokit::IOServiceGetMatchingService(0, matching);
-            if entry == 0 {
-                return None;
-            }
-            let key =
-                iokit::CFStringCreateWithCString(std::ptr::null(), c"HIDIdleTime".as_ptr(), UTF8);
-            let mut nanos: i64 = -1;
-            if !key.is_null() {
-                let value = iokit::IORegistryEntryCreateCFProperty(entry, key, std::ptr::null(), 0);
-                if !value.is_null() {
-                    if iokit::CFGetTypeID(value) == iokit::CFNumberGetTypeID() {
-                        let ok = iokit::CFNumberGetValue(value, SINT64, (&raw mut nanos).cast());
-                        if ok == 0 {
-                            nanos = -1;
-                        }
-                    }
-                    iokit::CFRelease(value);
-                }
-                iokit::CFRelease(key);
-            }
-            iokit::IOObjectRelease(entry);
-            super::hid_idle_seconds(nanos)
         }
     }
 
@@ -460,32 +216,7 @@ mod platform {
             available_ram_fraction: read("/proc/meminfo")
                 .and_then(|s| super::parse_meminfo_available(&s)),
             swapout_bytes,
-            cpu_busy: read("/proc/stat")
-                .and_then(|s| super::parse_proc_stat_cpu(&s))
-                .and_then(busy_since_last),
-            thermal_max_c: thermal_max_c(),
-            ..Sample::default()
         }
-    }
-
-    /// The busy share since the last call (two `/proc/stat` readings); none on the first.
-    fn busy_since_last(now: (u64, u64)) -> Option<f64> {
-        static LAST: std::sync::Mutex<Option<(u64, u64)>> = std::sync::Mutex::new(None);
-        let mut last = LAST.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let busy = last.and_then(|before| super::cpu_busy(before, now));
-        *last = Some(now);
-        busy
-    }
-
-    /// The hottest `/sys/class/thermal` zone, in degrees C.
-    fn thermal_max_c() -> Option<f64> {
-        let zones = std::fs::read_dir("/sys/class/thermal").ok()?;
-        let texts: Vec<String> = zones
-            .filter_map(Result::ok)
-            .filter(|e| e.file_name().to_string_lossy().starts_with("thermal_zone"))
-            .filter_map(|e| std::fs::read_to_string(e.path().join("temp")).ok())
-            .collect();
-        super::parse_thermal_millic_max(texts.iter().map(String::as_str))
     }
 }
 

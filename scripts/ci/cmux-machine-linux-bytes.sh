@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Settle which bytes a commit's Linux cmux-tui and cmux-tui-hook have in R2, before anything names
-# them. Used by cmux-machine-channel.yml's point and cmux-tui-artifacts.yml's publish.
+# them. Used by point-machine-channel-early and publish (.github/workflows/cmux-tui-artifacts.yml).
 # The early job uploads the Cloud machine channel's thin-LTO copy to cmux-tui/<sha>/machine/;
 # publish uploads the shipped fat build to cmux-tui/<sha>/. The two never share an object, so the
 # machine channel's bytes never become the shipped ones. Each can run in several runs or attempts
@@ -51,14 +51,7 @@ if [[ "$mode" == early ]]; then
     echo "::notice title=machine channel waits for publish::$prefix/$1 holds another build's bytes; point-machine-channel moves the channel after publish"
     exit 3
   }
-  # The claim names the whole set: any differing binary gives other bytes. A set of fewer than the
-  # four (point-machine-channel-early's x86_64 build alone) claims under its own name, so the later
-  # point of all four (point-machine-channel-early-linux) claims early-claim.json as before; its
-  # x86_64 uploads then write identical bytes, or conflict and skip.
-  claim=early-claim.json
-  if ((${#files[@]} < 4)); then
-    claim="early-claim-$(printf '%s\n' "${files[@]}" | sed 's/^cmux-tui-hook-//; s/^cmux-tui-//' | sort -u | paste -sd+).json"
-  fi
+  # The claim names the whole set: any differing binary gives other bytes.
   python3 -c '
 import hashlib, json, os, sys
 d, names = sys.argv[1], sys.argv[2:]
@@ -69,11 +62,11 @@ def sha(n):
             h.update(chunk)
     return h.hexdigest()
 sys.stdout.write(json.dumps({n: sha(n) for n in names}, sort_keys=True, separators=(",", ":")) + "\n")
-' "$assets" "${files[@]}" > "$tmp/$claim"
+' "$assets" "${files[@]}" > "$tmp/early-claim.json"
   rc=0
-  r2 --write-once --conflict-exit-code 75 --file "$tmp/$claim" --key "$prefix/$claim" \
+  r2 --write-once --conflict-exit-code 75 --file "$tmp/early-claim.json" --key "$prefix/early-claim.json" \
     --cache-control "public, max-age=31536000, immutable" || rc=$?
-  if [[ $rc == 75 ]]; then skip "$claim"; fi
+  if [[ $rc == 75 ]]; then skip early-claim.json; fi
   [[ $rc == 0 ]] || exit "$rc"
   pids=()
   for file in "${files[@]}"; do

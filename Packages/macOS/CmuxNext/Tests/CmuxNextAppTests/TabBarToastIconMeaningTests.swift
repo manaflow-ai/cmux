@@ -5,12 +5,12 @@ import CmuxNextTestSupport
 import Testing
 
 /// The tab bar's + and a toast's buttons say what they do (affordance audit 2026-10-21): the +
-/// names New Tab and its shortcut, one line (a1315's cut 1: a tooltip is the name and the shortcut); an Undo toast's button shows the
+/// names New Tab, its shortcut and that holding it opens more; an Undo toast's button shows the
 /// Cmd-Z that also runs it (the web toast stack draws the buttons and their identifiers).
 @MainActor @Suite(.serialized, .closesItsWindows) struct TabBarToastIconMeaningTests {
-    @Test func theNewTabPlusSaysNewTabAndShowsItsShortcut() {
+    @Test func theNewTabPlusSaysHoldForMoreAndShowsItsShortcut() {
         let strip = TabStripView(model: TabStripModel(tabs: [TabItem(id: TabID("t0"), title: "zsh")], selectedID: TabID("t0")))
-        #expect(strip.newTabButton.themedToolTip == Strings.axNewTab)
+        #expect(strip.newTabButton.themedToolTip == Strings.newTabHoldHint)
         #expect(strip.newTabButton.accessibilityLabel() == Strings.axNewTab)
 
         // The shortcut is read when the pointer comes onto the +, so a rebinding shows at once.
@@ -22,7 +22,7 @@ import Testing
         shortcut = "⌃⌘T"
         strip.newTabButton.isHovered = true
         #expect(strip.newTabButton.themedToolTipShortcut == "⌃⌘T")
-        #expect(strip.newTabButton.themedToolTip == Strings.axNewTab)
+        #expect(strip.newTabButton.themedToolTip == Strings.newTabHoldHint)
     }
 
     /// The screen bar's + makes a screen: it keeps no New Tab tooltip.
