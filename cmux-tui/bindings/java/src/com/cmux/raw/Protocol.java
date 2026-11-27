@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226";
+    public static final String IR_SHA256 = "eacbdb081ca129fd0a1d92dbb49f3fc1445a56a232c52a75e21e512cf03388b4";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -23,6 +23,8 @@ public final class Protocol {
             case "agent-inventory-changed" -> AgentInventoryChangedEvent.fromWire(value);
             case "agent-inventory-watch-ended" -> AgentInventoryWatchEndedEvent.fromWire(value);
             case "agent-presence-changed" -> AgentPresenceChangedEvent.fromWire(value);
+            case "agent-session-share-changed" -> AgentSessionShareChangedEvent.fromWire(value);
+            case "apps-cloud-machine" -> AppsCloudMachineEvent.fromWire(value);
             case "bell" -> BellEvent.fromWire(value);
             case "bookmarks-changed" -> BookmarksChangedEvent.fromWire(value);
             case "browser-state" -> BrowserStateEvent.fromWire(value);
@@ -51,6 +53,7 @@ public final class Protocol {
             case "conversation-inbox-changed" -> ConversationInboxChangedEvent.fromWire(value);
             case "conversation-live" -> ConversationLiveEvent.fromWire(value);
             case "conversation-run-changed" -> ConversationRunChangedEvent.fromWire(value);
+            case "conversation-scheduled-changed" -> ConversationScheduledChangedEvent.fromWire(value);
             case "conversation-typing" -> ConversationTypingEvent.fromWire(value);
             case "daemon-shutdown" -> DaemonShutdownEvent.fromWire(value);
             case "detached" -> DetachedEvent.fromWire(value);
@@ -74,6 +77,7 @@ public final class Protocol {
             case "pane-closed" -> PaneClosedEvent.fromWire(value);
             case "participant-avatar-changed" -> ParticipantAvatarChangedEvent.fromWire(value);
             case "personal-changed" -> PersonalChangedEvent.fromWire(value);
+            case "phone-open-link" -> PhoneOpenLinkEvent.fromWire(value);
             case "program-status-changed" -> ProgramStatusChangedEvent.fromWire(value);
             case "render-delta" -> RenderDeltaEvent.fromWire(value);
             case "render-state" -> RenderStateEvent.fromWire(value);

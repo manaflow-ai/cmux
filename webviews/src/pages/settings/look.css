@@ -53,13 +53,7 @@
   --ds-radius-xl: var(--page-size-14);
 }
 
-/* Titles as Codex and ChatGPT weigh them: the sidebar's "Settings" at the title size, under the
-   page's own title ("Notifications") at the heading size (the type scale's nearest steps). */
-:root[data-settings-look="refined"] .settings .sidebar-title {
-  font-size: var(--text-title);
-  line-height: var(--text-title--line-height);
-}
-
+/* The page's own title ("Notifications") at the heading size. */
 :root[data-settings-look="refined"] .settings .section-title {
   font-size: var(--text-heading);
   line-height: var(--text-heading--line-height);
@@ -322,8 +316,12 @@
 
 /* Text and number fields: the same shape as the menus beside them. A focused field's edge steps up
    to the focus ink; a refused value keeps its danger edge. */
+/* Over a see-through window the fill lies over the field's glass surface (ui/controls.css,
+   --ui-input-glass-underlay; unset elsewhere, so the field stays clear). */
 :root[data-settings-look="refined"] .settings .ui-input[data-variant="filled"] {
-  background: var(--look-control-fill);
+  background:
+    linear-gradient(var(--look-control-fill), var(--look-control-fill)),
+    var(--ui-input-glass-underlay, transparent);
   box-shadow: var(--look-control-edge);
 }
 
@@ -381,7 +379,8 @@
 }
 
 /* More Options: the card's row that opens the rows behind it in place (MoreOptions.tsx). Quiet at
-   rest (muted label, count and chevron). */
+   rest: its count and chevron are muted. Its label is a button's, in the text ink: muted, it read 1.8:1
+   over a busy picture in dark (control-contrast-11, #aaaaaa on #7c7c7c). */
 .more-options {
   --more-options-inset: var(--ds-space-2);
   --more-options-inset-top: var(--ds-space-1);
@@ -430,7 +429,8 @@
 }
 
 .more-options:hover,
-.more-options[data-open] {
+.more-options[data-open],
+.more-options .more-options-label {
   color: var(--text);
 }
 

@@ -205,7 +205,7 @@ import Testing
         let url = Self.planURL("action-surfaces.json")
         // The catalog as Rust declares it (its order, plain titles): swift_parity.rs pairs these rows with
         // the crate's actions by position. `ActionCatalog.all` lists debug rows last as "Debug: <name>".
-        let current = ActionSurfaceExport.json(Self.exportedCatalog, titles: try Self.titleCatalog())
+        let current = ActionExports.surfacesJSON(titles: try Self.titleCatalog())
         if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
             try current.write(to: url, atomically: true, encoding: .utf8)
         }
@@ -222,18 +222,16 @@ import Testing
     @Test(.enabled(if: ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"].contains { ProcessInfo.processInfo.environment[$0] == "1" })) func reportIsFresh() throws {
         let url = Self.planURL("actions.md")
         let text = try String(contentsOf: url, encoding: .utf8)
-        let current = ActionSurfaceReport(Self.exportedCatalog, menus: .shared).markdown
-        let start = try #require(text.range(of: ActionSurfaceReport.begin), "actions.md has no generated block")
-        let end = try #require(text.range(of: ActionSurfaceReport.end), "actions.md has no generated block end")
+        let current = try #require(ActionExports.report(replacingBlockIn: text), "actions.md has no generated block")
         if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
-            try (String(text[..<start.lowerBound]) + current + String(text[end.upperBound...])).write(to: url, atomically: true, encoding: .utf8)
+            try current.write(to: url, atomically: true, encoding: .utf8)
             return
         }
-        #expect(String(text[start.lowerBound..<end.upperBound]) == current, "actions.md is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
+        #expect(text == current, "actions.md is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
     }
 
     /// What the exports list: the Rust catalog's descriptors in its order, with their plain titles, not the palette's "Debug: <name>" ones.
-    nonisolated static var exportedCatalog: [ActionDescriptor] { RustActionCatalog.shared.descriptors }
+    static var exportedCatalog: [ActionDescriptor] { ActionExports.exportedCatalog }
 
     /// Every string catalog of CmuxNextActions, from the source tree.
     static func titleCatalog() throws -> ActionTitleCatalog {
@@ -242,8 +240,8 @@ import Testing
             .appendingPathComponent("Sources/CmuxNextActions")
         let files = try FileManager.default.contentsOfDirectory(at: sources, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "xcstrings" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        return try ActionTitleCatalog(catalogs: files.map { ($0.deletingPathExtension().lastPathComponent, try Data(contentsOf: $0)) })
+            .map { (name: $0.lastPathComponent, data: try Data(contentsOf: $0)) }
+        return try ActionExports.titleCatalog(files: files)
     }
 
     /// Nearly every title names its key, and a named key's English text is

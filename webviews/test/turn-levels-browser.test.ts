@@ -10,6 +10,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 
 await requireBrowserLane("turn-levels-browser.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -45,6 +46,10 @@ await requireBrowserLane("turn-levels-browser.test.ts", async () => {
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
         try {
+          const live = variant === "live";
+          // The live case clicks a finished run while its turn runs: the `runs` arm of live-turn-work, since the
+          // shipped `open` keeps every finished call on its own line until the turn ends (#48766).
+          if (live) await pinLiveTurnRuns(page);
           const port = (gallery.httpServer!.address() as { port: number }).port;
           await page.goto(
             `http://127.0.0.1:${port}` + galleryFrame(entry, { variant, colorScheme, frame: "component" }),
@@ -53,7 +58,6 @@ await requireBrowserLane("turn-levels-browser.test.ts", async () => {
             ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
           );
           expect(await page.locator("html").getAttribute("data-gallery-ready")).toBe("1");
-          const live = variant === "live";
           await page.locator(".cv-tool.is-run").first().waitFor();
           const runs = (await lines(page)).map((text) => text.trim());
           console.log(`TURN_LEVELS ${JSON.stringify({ variant, colorScheme, runs })}`);
@@ -70,7 +74,8 @@ await requireBrowserLane("turn-levels-browser.test.ts", async () => {
             // second aside is a row of its own.
             expect(runs).toEqual(["Ran 4 commands and read a file", "Ran 3 commands"]);
             const outer = (await page.locator(".cv-worked").textContent())?.trim() ?? "";
-            expect(outer).toBe("Worked for 2m 17s");
+            // worked-line's default arm, `outcome`, says what the turn did after its time.
+            expect(outer).toBe("Worked for 2m 17s · Ran 8 commands");
             // Every commentary paragraph ends a run and draws as its own paragraph, never a note
             // folded into a run (turns.ts, Codex parity #42247).
             expect(await page.locator(".cv-tool-note").count()).toBe(0);

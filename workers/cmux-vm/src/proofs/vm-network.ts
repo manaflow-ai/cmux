@@ -4,6 +4,7 @@ import { Effect, Redacted } from "effect";
 import type { InitialVmNetwork } from "../api/initial-network.ts";
 import type { Principal } from "../domain/principal.ts";
 import { badRequest, missingScope } from "../errors.ts";
+import { compileAllowlist } from "../egress-allowlist.ts";
 import { httpsOrigin } from "../network-origin.ts";
 import { TenantPolicy } from "../policy.ts";
 import { keyHasScope } from "./key-has-scope.ts";
@@ -17,10 +18,11 @@ interface HttpsProxy {
 export interface VmNetworkAllowed<C> extends Proof<"VmNetworkAllowed", [C]> {}
 
 interface NetworkEvidence {
-  readonly config: { readonly publicEgress: boolean; readonly httpsProxies: ReadonlyArray<HttpsProxy> };
+  /** allowedDomains: null without an allowlist; else the exact names steered at create (never a proxy's hostname). */
+  readonly config: { readonly publicEgress: boolean; readonly httpsProxies: ReadonlyArray<HttpsProxy>; readonly allowedDomains: ReadonlyArray<string> | null };
   /** Digest only: credentials never enter the idempotency ledger. */
   readonly fingerprint: string;
-  readonly receipt: { readonly publicEgress: boolean; readonly httpsProxyHosts: ReadonlyArray<string> };
+  readonly receipt: { readonly publicEgress: boolean; readonly httpsProxyHosts: ReadonlyArray<string>; readonly allowedDomains?: ReadonlyArray<string> };
 }
 
 const Allowed = defineProof("VmNetworkAllowed");
@@ -85,15 +87,25 @@ export const vmNetworkAllowed = <C>(caller: Named<C, Principal>, input: InitialV
       proxies.push(Object.freeze({ hostname, destination: Object.freeze({ host: destination.hostname, port: Number(destination.port || 443) }), headers: Redacted.make(headers) }));
     }
     proxies.sort((a, b) => compare(a.hostname, b.hostname));
-    const config = Object.freeze({ publicEgress: input.publicEgress, httpsProxies: Object.freeze(proxies) });
+    let allowedDomains: ReadonlyArray<string> | null = null;
+    if (input.egress !== undefined) {
+      if (input.publicEgress) return yield* Effect.fail(badRequest("An egress allowlist cannot be combined with public egress"));
+      const compiled = compileAllowlist(input.egress.presets, input.egress.domains);
+      if (compiled === null) return yield* Effect.fail(badRequest("The egress allowlist names an unknown preset, a name that is not an exact host name, or too many names"));
+      // A proxy already steers its hostname; a second rule for the same name would race it.
+      allowedDomains = Object.freeze(compiled.filter((domain) => !hostnames.has(domain)).sort(compare));
+    }
+    const config = Object.freeze({ publicEgress: input.publicEgress, httpsProxies: Object.freeze(proxies), allowedDomains });
     const canonical = [config.publicEgress, proxies.map((proxy) =>
-      [proxy.hostname, proxy.destination.host, proxy.destination.port, Object.entries(Redacted.value(proxy.headers))])];
+      [proxy.hostname, proxy.destination.host, proxy.destination.port, Object.entries(Redacted.value(proxy.headers))]),
+    ...(allowedDomains === null ? [] : [allowedDomains])];
     const fingerprint = yield* Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(canonical)))).pipe(
       Effect.map((digest) => Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")),
     );
     const proof: VmNetworkAllowed<C> = Object.freeze({ ...Allowed.prove(caller) });
     evidence.set(proof, Object.freeze({ config, fingerprint,
-      receipt: Object.freeze({ publicEgress: config.publicEgress, httpsProxyHosts: Object.freeze(proxies.map((proxy) => proxy.hostname)) }),
+      receipt: Object.freeze({ publicEgress: config.publicEgress, httpsProxyHosts: Object.freeze(proxies.map((proxy) => proxy.hostname)),
+        ...(allowedDomains === null ? {} : { allowedDomains }) }),
     }));
     return proof;
   });

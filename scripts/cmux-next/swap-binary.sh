@@ -8,6 +8,12 @@
 #       (a fleet Mac) the executable and resource bundles of REF, built Release as the nightly builds them, into OUT:
 #       OUT/app/Contents/... (the overlay, post-processed by REF's own strip-release-bundle.sh, as the nightly is),
 #       OUT/cmux.unstripped and OUT/build.json. --like APP takes the Xcode whose build APP's DTXcodeBuild names.
+#       --swift-flags FLAGS adds Swift flags (the nightly's decide import defines, -DCMUX_NO_*).
+#       --live-code: the NIGHTLY live code variant (docs/cmux-next/live-code.md): REF's live code settings
+#       (scripts/live-code/lib/xcodebuild-args.sh, -DCMUX_LIVE_CODE) and its two passes (lib/two-pass.sh: link, list
+#       the CmuxNext exports, relink with them interposable, check the binds), in its own root so its -Onone
+#       objects never share a cache with the regular swap. The executable keeps its global symbols (strip -S -x);
+#       OUT/modules/ gets what a patch compiles against (scripts/ci/nightly-steps/live-code-variant.sh modules).
 #   swap-binary.sh check FROM_SHA REF [--repo DIR]
 #       exit 0 when every file the diff FROM_SHA..REF changes reaches the app only through what build makes; else
 #       exit 3, `swap-binary: not carried: PATH ...` (Info.plist, entitlements, the project, helpers, web bundles...)
@@ -73,8 +79,8 @@ check_paths() {
 
 fetch_commit() { # REPO SHA: SHA in REPO, fetched when missing
   git -C "$1" cat-file -e "$2^{commit}" 2>/dev/null && return 0
-  git -C "$1" fetch -q --no-tags origin "$2" 2>/dev/null \
-    || git -C "$1" fetch -q --no-tags "${CMUX_SWAP_BINARY_FETCH_URL:-https://github.com/manaflow-ai/cmux.git}" "$2"
+  git -C "$1" fetch -q --no-tags --no-recurse-submodules origin "$2" 2>/dev/null \
+    || git -C "$1" fetch -q --no-tags --no-recurse-submodules "${CMUX_SWAP_BINARY_FETCH_URL:-https://github.com/manaflow-ai/cmux.git}" "$2"
 }
 
 cmd_check() {
@@ -174,12 +180,14 @@ PY
 }
 
 cmd_build() {
-  local ref="${1:?REF}" out="${2:?OUT}" like="" repo
+  local ref="${1:?REF}" out="${2:?OUT}" like="" repo live="" extra_flags=""
   shift 2
   repo="$(git -C "$here" rev-parse --show-toplevel)"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --like) like="${2:?--like APP}"; shift 2 ;;
+      --live-code) live=1; shift ;;
+      --swift-flags) extra_flags="${2?--swift-flags FLAGS}"; shift 2 ;;
       --repo) repo="${2:?--repo DIR}"; shift 2 ;;
       *) usage 1 ;;
     esac
@@ -189,7 +197,9 @@ cmd_build() {
   cmux_next_require_fleet swap-binary.sh "xcodebuild" "none (a measurement step)" \
     "cmux-ci run --class exclusive --label measure --display --script scripts/measure/swap-binary-proof.sh --ref <feat-cmux-next sha> --arg head=<sha>"
   [[ "$(uname)" == Darwin ]] || die "build runs on a Mac"
-  local root="${CMUX_SWAP_BINARY_ROOT:-$HOME/Library/Caches/cmux-next/swap-binary}" cold=""
+  local root="${CMUX_SWAP_BINARY_ROOT:-$HOME/Library/Caches/cmux-next/swap-binary${live:+-live-code}}" cold=""
+  # Package.swift links CmuxNextApp statically for a live code build (appLinksStatically): one image to repoint.
+  [[ -z "$live" ]] || export CMUX_LIVE_CODE_BUILD=1
   mkdir -p "$root" "$out"; root="$(cd "$root" && pwd -P)"; out="$(cd "$out" && pwd -P)"
   # One build per host root (host_build_lock.py: flock on fd 9, never waited for); a busy root builds in a new one.
   exec 9>>"$root/lock"
@@ -204,7 +214,7 @@ cmd_build() {
     # A shallow step checkout may refuse a local clone: then an empty repository that fetches REF from GitHub.
     rm -rf "$src"; git clone -q --no-checkout "$repo" "$src" 2>/dev/null || { rm -rf "$src"; git init -q "$src"; }
   fi
-  fetch_commit "$src" "$ref" || git -C "$src" fetch -q --no-tags "$repo" "$ref" || die "cannot fetch $ref"
+  fetch_commit "$src" "$ref" || git -C "$src" fetch -q --no-tags --no-recurse-submodules "$repo" "$ref" || die "cannot fetch $ref"
   ref="$(git -C "$src" rev-parse "$ref^{commit}")"
   git -C "$src" -c advice.detachedHead=false checkout -q --force --detach "$ref"
   git -C "$src" clean -qfdx
@@ -221,6 +231,26 @@ cmd_build() {
     # shellcheck disable=SC1091
     while IFS= read -r s; do settings+=("$s"); done < <(source "$src/scripts/cmux-next/lib/swift-size-opt.sh"; swift_size_opt_xcodebuild_args)
   fi
+  [[ -z "$extra_flags" ]] || defines="${defines:+$defines }$extra_flags"
+  local dead_strip=YES live_args=()
+  if [[ -n "$live" ]]; then
+    [[ -f "$src/scripts/live-code/lib/two-pass.sh" ]] || die "$ref has no scripts/live-code/lib/two-pass.sh (no live code build)"
+    # shellcheck disable=SC1091
+    source "$src/scripts/live-code/lib/two-pass.sh"
+    defines="${defines:+$defines }$(live_code_swift_flags | paste -sd ' ' -)"
+    dead_strip=NO
+  fi
+  # live_args LIST: REF's live code settings for this wrapper build. Not EXCLUDED_SOURCE_FILE_NAMES (it skips the app
+  # target's Embed Frameworks copy, which the wrapper has none of) nor DEAD_CODE_STRIPPING (set above).
+  live_args_for() {
+    live_args=()
+    [[ -n "$live" ]] || return 0
+    local a
+    while IFS= read -r a; do
+      case "$a" in EXCLUDED_SOURCE_FILE_NAMES=*|DEAD_CODE_STRIPPING=*) ;; *) live_args+=("$a") ;; esac
+    done < <(live_code_xcodebuild_args Release "${1:-}")
+  }
+  live_args_for ""
   local scheme log="$out/xcodebuild.log" t0=$SECONDS status=0
   scheme="$(cd "$root/app-exe" && xcodebuild -list -json -clonedSourcePackagesDirPath "$root/dd/SourcePackages" 2>"$out/list.err" | python3 -I -c '
 import json, sys
@@ -231,11 +261,12 @@ print(next((n for n in ("cmux-next-exe", "CmuxNextAppExecutable-Package", "CmuxN
     (cd "$root/app-exe" && xcodebuild -scheme "$scheme" -configuration Release \
       -destination 'generic/platform=macOS' -derivedDataPath "$root/dd" \
       -skipPackagePluginValidation -skipMacroValidation -showBuildTimingSummary \
-      ARCHS=arm64 ONLY_ACTIVE_ARCH=YES DEAD_CODE_STRIPPING=YES \
+      ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "DEAD_CODE_STRIPPING=$dead_strip" \
       COMPILATION_CACHE_ENABLE_CACHING=YES COMPILATION_CACHE_LIMIT_SIZE=10737418240 \
       COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
       "OTHER_SWIFT_FLAGS=\$(inherited)${defines:+ $defines}" ${settings[@]+"${settings[@]}"} \
-      build >"$log" 2>&1)
+      ${live_args[@]+"${live_args[@]}"} \
+      build >"${xcb_log:-$log}" 2>&1)
   }
   # The kept DerivedData's explicit modules, as check-release-compile.sh keeps them right: cleared when a binary
   # target's headers changed (swiftpm-binary-module-guard.sh), and once more after a stale-module failure.
@@ -258,6 +289,16 @@ print(next((n for n in ("cmux-next-exe", "CmuxNextAppExecutable-Package", "CmuxN
   fi
   local products="$root/dd/Build/Products/Release"
   [[ -f "$products/cmux-next-exe" ]] || die "no executable in $products"
+  if [[ -n "$live" ]]; then
+    # Pass 2: the same build with the exported CmuxNext symbols interposable; only the link reruns.
+    live_code_list "$products/cmux-next-exe" "$out" || die "the live code build of $ref exports no CmuxNext symbol"
+    live_args_for "$out/interposable.txt"
+    status=0; xcb_log="$out/xcodebuild-relink.log" xcb || status=$?
+    [[ $status == 0 ]] || { grep -E 'error:|BUILD FAILED' "$out/xcodebuild-relink.log" | head -30 >&2 || true; die "the live code relink of $ref failed"; }
+    live_code_check "$products/cmux-next-exe" "$out" \
+      || die "the relinked executable binds CmuxNext symbols it does not export, or no bind was read ($out/missing-2.txt)"
+    build_s=$((SECONDS - t0))
+  fi
   rm -rf "$out/app"; mkdir -p "$out/app/Contents/MacOS" "$out/app/Contents/Resources"
   cp "$products/cmux-next-exe" "$out/cmux.unstripped"
   cp "$products/cmux-next-exe" "$out/app/Contents/MacOS/cmux"
@@ -275,15 +316,30 @@ print(next((n for n in ("cmux-next-exe", "CmuxNextAppExecutable-Package", "CmuxN
     echo "SB-WARN the executable loads $fw dynamically; the overlay carries it" >&2
   done < <(otool -L "$products/cmux-next-exe" | awk 'NR > 1 && $1 ~ /^@rpath\// { print $1 }')
   # As the nightly ships it: the symbol map, the executable stripped, the strings tables binary (REF's own script).
-  if [[ -f "$src/scripts/strip-release-bundle.sh" ]]; then
-    bash "$src/scripts/strip-release-bundle.sh" "$out/app" >"$out/strip.log" 2>&1 || { tail -20 "$out/strip.log" >&2; die "strip-release-bundle.sh failed"; }
+  # A live code executable keeps its global symbols: a patch binds to them by name (strip -S -x, not a full strip).
+  local strip_tool=""
+  if [[ -n "$live" ]]; then
+    strip_tool="$root/strip-keep-globals"
+    printf '#!/bin/sh\n# swap-binary.sh --live-code: every strip keeps global symbols\nfor a; do last=$a; done\nexec strip -S -x "$last"\n' > "$strip_tool"
+    chmod +x "$strip_tool"
   fi
+  if [[ -f "$src/scripts/strip-release-bundle.sh" ]]; then
+    CMUX_STRIP_TOOL="${strip_tool:-${CMUX_STRIP_TOOL:-strip}}" bash "$src/scripts/strip-release-bundle.sh" "$out/app" >"$out/strip.log" 2>&1 \
+      || { tail -20 "$out/strip.log" >&2; die "strip-release-bundle.sh failed"; }
+  fi
+  [[ -z "$live" ]] || { rm -rf "$out/modules"; mkdir -p "$out/modules"
+    # What a patch compiles against: each module's interface and binary module, beside the logs the build wrote.
+    (cd "$products" && find . -maxdepth 2 \( -name '*.swiftmodule' -o -name '*.swiftinterface' \) -print0 \
+      | xargs -0 -I{} ditto {} "$out/modules/{}") || die "cannot copy the modules from $products"
+    # The .o index: every object the link read, by path, size and SHA-256.
+    find "$root/dd/Build/Intermediates.noindex" -name '*.o' -type f -print0 | xargs -0 shasum -a 256 > "$out/objects.sha256" || true; }
   python3 -I - "$out/build.json" "$ref" "$build_s" "$(xcodebuild -version | tr '\n' ' ')" "$defines" "${cold:-0}" \
-    "$(grep -c '^SwiftCompile normal' "$log" || true)" <<'PY'
+    "$(grep -c '^SwiftCompile normal' "$log" || true)" "${live:-0}" <<'PY'
 import json, sys
-p, ref, secs, xcode, defines, cold, compiles = sys.argv[1:]
+p, ref, secs, xcode, defines, cold, compiles, live = sys.argv[1:]
 json.dump({"ref": ref, "build_s": int(secs), "xcode": xcode.strip(), "swift_defines": defines, "cold_root": cold == "1",
-           "swift_compiles": int(compiles or 0), "configuration": "Release", "archs": "arm64"}, open(p, "w"), indent=2)
+           "swift_compiles": int(compiles or 0), "configuration": "Release", "archs": "arm64",
+           "live_code": live == "1"}, open(p, "w"), indent=2)
 PY
   echo "SB-BUILD ref=$ref build_s=$build_s swift_compiles=$(grep -c '^SwiftCompile normal' "$log" || true) out=$out"
 }
@@ -299,6 +355,10 @@ cmd_place() {
   exe="$(plist_read "$app/Contents/Info.plist" CFBundleExecutable || true)"
   [[ -n "$exe" && -f "$app/Contents/MacOS/$exe" ]] || die "$app has no executable"
   local replaced=() added=() item name
+  # Globs in byte order, the same on every host: a UTF-8 locale (a Mac shell) folds case, so
+  # CmuxNext_CmuxNextApp.bundle and cmux-symbols.bin swapped places in SB-PLACE (test_swap_binary).
+  # LC_ALL, not LC_COLLATE: a caller's LC_ALL overrides a function's LC_COLLATE, which then did nothing.
+  local LC_ALL=C
   # A file replaced, never rewritten in place: the copy is a clone whose blocks the original shares.
   rm -f "$app/Contents/MacOS/$exe"; cp "$build/app/Contents/MacOS/cmux" "$app/Contents/MacOS/$exe"
   replaced+=("MacOS/$exe")

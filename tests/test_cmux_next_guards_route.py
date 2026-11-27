@@ -31,6 +31,19 @@ def callers():
 
 
 class CmuxNextGuardsRouteTests(unittest.TestCase):
+    def test_control_plane_guards_use_the_small_linux_pool(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        jobs = workflow["jobs"]
+        for name in ("fast-check-route", "security-holes", "workflow-start-lint"):
+            with self.subTest(job=name):
+                runs_on = jobs[name]["runs-on"]
+                self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", runs_on)
+                self.assertIn("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'", runs_on)
+                self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'", runs_on)
+
+        # static-checks executes the larger, multi-step nightly capability and generated-string checks.
+        self.assertTrue(jobs["static-checks"]["runs-on"].endswith("|| 'cmux-linux' }}"))
+
     def test_feat_cmux_next_runs_release_notary_on_pushes(self):
         # A push runs every release-notary step in parallel, judged at the tip. The ci-guards.yml matrix leg ran them
         # one after another (915 s on 4 vCPU) and ended cancelled at its 15 minutes, with no verdict, on every push.
@@ -48,7 +61,11 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertIn("feat-cmux-next", push.get("branches") or [])
         self.assertFalse(push.get("paths"))
         job = workflow["jobs"]["release-notary"]
-        self.assertEqual(job["if"], "${{ !cancelled() && github.event_name != 'pull_request' }}")
+        # base-coalesce.yml: a push runs it once per 30-minute window on the tip (needs.coalesce.outputs.run).
+        # The land tier (tests/test_head_tier.py) wraps it: the condition, then the land condition and label guard.
+        self.assertTrue(job["if"].startswith(
+            "${{ (!cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request')) && "),
+            job["if"])
         self.assertEqual(job["timeout-minutes"], 15)
         script = next(step["run"] for step in job["steps"] if step.get("name") == "Run the release-notary guards")
         call = next(line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line)
@@ -104,10 +121,23 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         jobs = workflow["jobs"]
         # nightly-guards runs on every event (the submodule forward-only guard, Guard status), never with the
         # release-notary matrix leg: a push runs the group in parallel in the release-notary job.
-        self.assertEqual(jobs["nightly-guards"]["if"], "${{ !cancelled() }}")
+        self.assertTrue(jobs["nightly-guards"]["if"].startswith(  # then the land tier (tests/test_head_tier.py)
+            "${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false')) && "),
+            jobs["nightly-guards"]["if"])
         self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"], "${{ 'false' }}")
         group = jobs["ci-guard-group"]
-        self.assertEqual(group["if"], "${{ !cancelled() }}")
+        # Inside the land tier's and the label filter's wrapping (tests/test_head_tier.py), so a contained clause, not a prefix.
+        self.assertIn(  # then the land tier (tests/test_head_tier.py)
+                        "((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
+                        "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
+                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))))) && ",
+                        group["if"])
+        # The route feeds only the group and own-change-checks, both skipped on a pull request into feat-cmux-next
+        # without full-ci, so the route skips there too (1,115 runner starts in 5.1 h of 11-25 no job read).
+        self.assertIn("(github.event_name == 'pull_request' && (github.event_name != 'pull_request' || "
+                      "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || "
+                      "(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))))",
+                      jobs["fast-check-route"]["if"])
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]
         calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]
@@ -119,6 +149,22 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertIn("--root .guard-base", calls[1])
         self.assertIn('python3 scripts/ci/guards_new_reds.py "$RUNNER_TEMP/guards-head.json" "$RUNNER_TEMP/guards-base.json"',
                       script)
+
+    def test_marking_a_draft_ready_does_not_cancel_its_run(self):
+        # The jobs that judge a head skip ready_for_review (the land tier): the draft's run already judges that same
+        # head. In the PR's shared group (cancel-in-progress) the ready_for_review run cancelled the draft's run and
+        # then skipped, so the head had no guard verdict: 4 of the 10 heads marked ready while their run was going,
+        # 03:34Z-04:40Z 2026-11-27 (cmux#60334's b44fdf65, run 45929725137). So that event gets a group of its own.
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        triggers = workflow.get(True) or workflow.get("on") or {}
+        self.assertIn("ready_for_review", triggers["pull_request"]["types"])
+        skips = [name for name, job in workflow["jobs"].items()
+                 if "github.event.action != 'ready_for_review'" in str(job.get("if") or "")]
+        self.assertTrue(skips)
+        group = workflow["concurrency"]["group"]
+        self.assertIn("${{ github.event_name == 'pull_request' && github.event.action == 'ready_for_review' && "
+                      "format('-ready-{0}', github.run_id) || '' }}", group)
+        self.assertEqual(workflow["concurrency"]["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}")
 
     def test_a_push_runs_every_guard_group_a_pull_request_can_run(self):
         # The merge gate excuses a pull request's guard group red only by the base's newest push run of the same job
@@ -160,6 +206,57 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         names = [s.get("name") for s in steps]
         self.assertLess(names.index(init[0]["name"]), names.index("Validate app bundle license compliance"))
 
+
+    def test_ios_placeholder_bounds_runs_only_where_the_diff_reaches_its_inputs(self):
+        # ci-runner-min-per-day-50k (Leo, 2026-11-27: "whatever we need to cut, we cut."): the job ran on every pull
+        # request event, about 6,000 runs a day. workflow-start-lint's route step, on the depth-2 checkout it already
+        # takes, says whether the diff reaches the check's inputs; a miss skips the job (a skipped check run passes
+        # land-judge and GitHub's required checks). A push and vars.IOS_PLACEHOLDER_BOUNDS_EVERY_HEAD == '1' run it.
+        import os  # noqa: PLC0415
+        import subprocess  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        jobs = workflow["jobs"]
+        bounds = jobs["ios-placeholder-bounds"]
+        self.assertIn("workflow-start-lint", bounds["needs"])
+        self.assertIn("(needs.workflow-start-lint.outputs.ios_placeholder != 'false' || "
+                      "vars.IOS_PLACEHOLDER_BOUNDS_EVERY_HEAD == '1')", bounds["if"])
+        self.assertIn("!cancelled()", bounds["if"])
+        lint = jobs["workflow-start-lint"]
+        self.assertEqual(lint["outputs"]["ios_placeholder"], "${{ steps.touched.outputs.ios_placeholder }}")
+        # A label other than full-ci or ready-to-land changes no file: the lint skips that event.
+        self.assertIn("github.event.action == 'labeled' && !contains(fromJSON('[\"full-ci\",\"ready-to-land\"]'), "
+                      "github.event.label.name)", lint["if"])
+        step = next(s for s in lint["steps"] if s.get("id") == "touched")
+        cases = [
+            ("pull_request", "cmux-next-ios/App/View.swift", "true"),
+            ("pull_request", "cmux-next-ios/design/placeholders.json", "true"),
+            ("pull_request", "scripts/ci/ios_placeholder_bounds.py", "true"),
+            ("pull_request", "tests/test_ios_placeholder_bounds.py", "true"),
+            ("pull_request", ".github/workflows/cmux-next-guards.yml", "true"),
+            ("pull_request", "cmux-tui/crates/acpmux/src/lib.rs", "false"),
+            ("pull_request", ".github/workflows/ci.yml", "false"),
+            ("pull_request", "docs/cmux-next-ios.md", "false"),
+            ("push", "cmux-tui/crates/acpmux/src/lib.rs", "true"),
+        ]
+        for event, changed, want in cases:
+            with self.subTest(event=event, changed=changed), tempfile.TemporaryDirectory() as tmp:
+                git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+                subprocess.run(["git", "init", "-q", tmp], check=True)
+                Path(tmp, "base.txt").write_text("base\n")
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "base"], check=True)
+                Path(tmp, changed).parent.mkdir(parents=True, exist_ok=True)
+                Path(tmp, changed).write_text("change\n")
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "change"], check=True)
+                out = Path(tmp, "github_output")
+                env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(out), "EVENT_NAME": event}
+                subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=tmp, env=env, check=True,
+                               capture_output=True)
+                lines = out.read_text().splitlines()
+                self.assertIn(f"ios_placeholder={want}", lines)
 
 if __name__ == "__main__":
     unittest.main()

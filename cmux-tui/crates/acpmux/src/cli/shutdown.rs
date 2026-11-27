@@ -40,27 +40,139 @@ pub(crate) async fn restart(json_out: bool) -> Result<()> {
     // A daemon started with `--listen`/`--token` keeps those values only in
     // memory for that run. Refuse an unsaved token before stopping; save only
     // the bound listener when the configured credential already matches.
-    let client = connect(false).await?;
-    let before = client.request(method::MUX_STATUS, json!({})).await?;
-    preserve_restart_listener(&before)?;
-    drop(client);
-    run_on(&*TokioClock::new(), false, json_out, true, true).await?;
-    let client = crate::daemon::connect(true).await?;
-    let status = client.request(method::MUX_STATUS, json!({})).await?;
-    anyhow::ensure!(
-        before.get("listen") == status.get("listen")
-            && before.get("webUrl") == status.get("webUrl"),
-        "the daemon started with different listener settings; inspect `daemon status`"
-    );
+    // Bounded: a daemon whose queue nobody accepts from never answers the hello.
+    let reach = restart_reach();
+    let reached = tokio::time::timeout(reach, async {
+        let client = connect(false).await?;
+        let before = client.request(method::MUX_STATUS, json!({})).await?;
+        anyhow::Ok(before)
+    })
+    .await
+    .unwrap_or_else(|_| Err(anyhow!("the daemon did not answer within {reach:?}")));
+    let before = match reached {
+        Ok(before) => {
+            preserve_restart_listener(&before)?;
+            Some(before)
+        }
+        // The lock held and the socket refusing (2026-11-27, a Mac at load 60): there is no socket
+        // to ask that daemon to stop through, so it is stopped by its pid, once proven this home's
+        // acpmux daemon (`daemon/hung_holder.rs`), and the restart starts the next one.
+        Err(e) => {
+            stop_unanswering_holder(e).await?;
+            None
+        }
+    };
+    // The binary the next daemon should run: this command's own, or a newer install
+    // (`daemon/start_exe.rs`), never whatever `acpmux` PATH names.
+    let choice = crate::daemon::start_exe::current(&crate::config::home())?;
+    let mut status = Value::Null;
+    for attempt in 1..=RESTART_ATTEMPTS {
+        // A holder stopped by its pid left nothing to shut down on the first attempt.
+        if before.is_some() || attempt > 1 {
+            run_on(&*TokioClock::new(), false, json_out, true, true).await?;
+        }
+        let client = crate::daemon::connect(true).await?;
+        status = client.request(method::MUX_STATUS, json!({})).await?;
+        let Some(stale) = stale_winner(&choice, &status) else { break };
+        // Another client of an older build started its own binary between the old daemon's
+        // exit and this start (air-blue, 2026-11-22). Restart again; say so either way.
+        if attempt == RESTART_ATTEMPTS {
+            return Err(anyhow!(
+                "the daemon came back as {stale}, an older build than {} ({}); a client of that \
+                 build restarted it first. Update or remove that binary, then run `daemon restart` again",
+                choice.this.exe.display(),
+                choice.why
+            ));
+        }
+        eprintln!("restart: the daemon came back as {stale}, an older build; restarting it again");
+        tracing::warn!("restart: the daemon came back as {stale}, an older build; again");
+    }
+    if let Some(before) = &before {
+        anyhow::ensure!(
+            before.get("listen") == status.get("listen")
+                && before.get("webUrl") == status.get("webUrl"),
+            "the daemon started with different listener settings; inspect `daemon status`"
+        );
+    }
+    let exe = status.get("exe").and_then(Value::as_str).unwrap_or("unknown");
     if json_out {
-        print_json(&json!({"restarted": true, "status": status}));
+        print_json(&json!({
+            "restarted": true,
+            "status": status,
+            "start": {"exe": choice.this.exe, "why": choice.why},
+        }));
     } else {
         println!(
-            "restarted; daemon pid {}",
-            status.get("pid").and_then(serde_json::Value::as_u64).unwrap_or(0)
+            "restarted; daemon pid {} runs {exe} ({})",
+            status.get("pid").and_then(serde_json::Value::as_u64).unwrap_or(0),
+            choice.why
         );
     }
     Ok(())
+}
+
+/// How long `restart` tries to reach the daemon before it treats a held lock as a hung holder:
+/// above `connect`'s own wait for a starting daemon (8 s) and a hello on a loaded machine.
+// timeout: hazard is a daemon holding its lock with a socket nobody accepts on; fallback is the
+// verified pid stop (`daemon/hung_holder.rs`).
+const RESTART_REACH: Duration = Duration::from_secs(30);
+
+/// [`RESTART_REACH`]; in a debug build under `ACPMUX_TEST_STALL_MS`, that bound (the tests).
+fn restart_reach() -> Duration {
+    #[cfg(all(unix, debug_assertions))]
+    if std::env::var_os("ACPMUX_TEST_STALL_MS").is_some() {
+        return crate::daemon::hung_holder::Bounds::current().serving;
+    }
+    RESTART_REACH
+}
+
+/// `restart` could not reach the daemon (`reached`): when a live process holds the lock, that
+/// holder is stopped by its pid (SIGTERM, then SIGKILL), only once proven to be this home's
+/// acpmux daemon; without a holder, or one not proven, the error stands.
+async fn stop_unanswering_holder(reached: anyhow::Error) -> Result<()> {
+    #[cfg(unix)]
+    {
+        let home = crate::config::home();
+        if crate::daemon::live_holder_pid(&home.join("daemon.lock")).is_none() {
+            return Err(reached);
+        }
+        let why = format!("restart: the daemon holds its lock but does not answer ({reached:#})");
+        match crate::daemon::hung_holder::replace(&home, &why).await {
+            Ok(pid) => {
+                eprintln!(
+                    "restart: daemon {pid} held the lock without answering its socket; stopped it"
+                );
+                Ok(())
+            }
+            Err(refusal) => Err(reached.context(format!(
+                "the lock's holder does not answer and was not stopped: {refusal}"
+            ))),
+        }
+    }
+    #[cfg(not(unix))]
+    Err(reached)
+}
+
+/// How many times `restart` stops and starts the daemon when an older build keeps winning.
+const RESTART_ATTEMPTS: u32 = 2;
+
+/// The daemon `status` names, as `<exe> (build <b>)`, when it is an older build than `choice`
+/// (`start_exe::stale_winner`); None when it runs the chosen build or cannot be told apart.
+fn stale_winner(choice: &crate::daemon::start_exe::Choice, status: &Value) -> Option<String> {
+    use crate::daemon::start_exe;
+    let exe = status
+        .get("exe")
+        .and_then(Value::as_str)
+        .map(|e| crate::self_command::undeleted(std::path::PathBuf::from(e)))?;
+    let build = status.get("build").and_then(Value::as_str);
+    let stale = start_exe::stale_winner(
+        choice,
+        crate::hub::build(),
+        Some(&exe),
+        build,
+        start_exe::commit_time_of(&exe),
+    );
+    stale.then(|| format!("{} (build {})", exe.display(), build.unwrap_or("unknown")))
 }
 
 fn preserve_restart_listener(status: &Value) -> Result<()> {

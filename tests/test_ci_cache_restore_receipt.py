@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import shutil
 import tempfile
 import unittest
@@ -16,43 +17,44 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("receipt", ROOT / "scripts/ci/cache_restore_receipt.py")
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import ci_steps as STEPS  # noqa: E402
 
 
 class CacheRestoreReceiptTests(unittest.TestCase):
     def test_contract_runs_when_its_inspected_files_change(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cache-receipts.yml").read_text())
-        events = workflow.get("on", workflow.get(True))
-        inspected = {
+        # The contract is the `cache-receipts` step of the PR pipeline (ci/steps.toml); its `inputs` route it.
+        step = STEPS.load().steps["cache-receipts"]
+        inspected = [
             ".github/actions/cache-restore/action.yml", ".github/actions/cache-save/action.yml",
             ".github/workflows/ci.yml", ".github/workflows/ci-macos.yml", ".github/workflows/nightly.yml",
-            ".github/workflows/seed-derived-data.yml",
-            ".github/workflows/ci-cache-receipts.yml", "scripts/check-test-determinism.py",
+            "scripts/check-test-determinism.py",
             "scripts/ci/cache_restore_receipt.py", "tests/test_ci_cache_restore_receipt.py",
             "tests/test_ci_pull_request_caches_are_read_only.py",
-        }
-        for event in ("pull_request", "push"):
-            with self.subTest(event=event):
-                self.assertTrue(inspected.issubset(set(events[event]["paths"])))
+            # The table and its runner: a change to the step itself runs it.
+            "ci/steps.toml", "scripts/ci/ci_steps.py",
+        ]
+        self.assertTrue(step.blocks)
+        self.assertEqual(step.job, "linux")
+        for path in inspected:
+            with self.subTest(path=path):
+                self.assertTrue(STEPS.routed(step, [path]))
+        self.assertFalse(STEPS.routed(step, ["README.md"]))
 
     def test_contract_uses_runner_python_without_setup_action(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cache-receipts.yml").read_text())
-        steps = workflow["jobs"]["receipt-contract"]["steps"]
-        self.assertFalse(
-            any("actions/setup-python" in str(step.get("uses", "")) for step in steps),
-            "receipt contract should use the runner Python already present in CI",
-        )
-        prepare = next(step for step in steps if step.get("name") == "Prepare receipt-test Python")
-        self.assertIn("python3 -m venv", prepare["run"])
-        self.assertIn("PyYAML==6.0.3", prepare["run"])
-        execution_runs = [
-            str(step["run"])
-            for step in steps
-            if "tests/test_ci_cache_restore_receipt.py" in str(step.get("run", ""))
-            or "scripts/check-test-determinism.py" in str(step.get("run", ""))
-        ]
-        self.assertEqual(len(execution_runs), 2)
-        for command in execution_runs:
-            self.assertIn("$CACHE_RECEIPT_PYTHON", command)
+        table = STEPS.load()
+        step = table.steps["cache-receipts"]
+        # The job's setup makes the one venv with the workflow parser; its bin leads the steps' PATH,
+        # so the step's `python3` is that Python.
+        self.assertIn("python3 -m venv", table.setup["linux"])
+        self.assertIn("PyYAML==6.0.3", table.setup["linux"])
+        self.assertIn('"$CI_TOOLS"', table.setup["linux"])
+        self.assertNotIn("setup-python", table.setup["linux"])
+        commands = [line for line in step.run.splitlines() if line.strip()]
+        self.assertEqual(commands, [
+            "python3 tests/test_ci_cache_restore_receipt.py",
+            "python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_receipt.py --strict",
+        ])
 
     def test_read_only_guard_accepts_receipts_but_rejects_extra_effects(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -70,16 +72,43 @@ class CacheRestoreReceiptTests(unittest.TestCase):
             shutil.copyfile(ROOT / "scripts/ci/gh_expressions.py", fixture / "scripts/ci/gh_expressions.py")
             action_path = fixture / ".github/actions/cache-restore/action.yml"
             original = action_path.read_text()
-            for mutation, valid in ((None, True), ("receipt_command", False), ("overlapping_route", False)):
+            workflow_path = fixture / ".github/workflows/cmux-tui-build-package.yml"
+            original_workflow = workflow_path.read_text()
+            for mutation, valid in (
+                (None, True), ("receipt_command", False), ("overlapping_route", False),
+                ("next_writer_or", False), ("next_writer_wrong_branch", False),
+                ("next_writer_wrong_bucket", False),
+            ):
                 action = yaml.safe_load(original)
+                workflow_path.write_text(original_workflow)
                 if mutation == "receipt_command":
                     action["runs"]["steps"][-1]["run"] += "\necho unexpected-write"
                 elif mutation == "overlapping_route":
                     next(step for step in action["runs"]["steps"] if step.get("id") == "warp")["if"] = "always()"
+                elif mutation and mutation.startswith("next_writer_"):
+                    workflow = yaml.safe_load(original_workflow)
+                    job = workflow["jobs"]["cross-build-windows"]
+                    if mutation == "next_writer_or":
+                        job["environment"] = job["environment"].replace(
+                            "&& github.event_name", "|| github.event_name"
+                        )
+                    elif mutation == "next_writer_wrong_branch":
+                        job["environment"] = job["environment"].replace(
+                            "refs/heads/feat-cmux-next", "refs/heads/main"
+                        )
+                    else:
+                        job["env"]["CI_CACHE_R2_BUCKET"] = "cmux-ci-cache"
+                    workflow_path.write_text(yaml.safe_dump(workflow))
                 action_path.write_text(yaml.safe_dump(action))
                 result = subprocess.run(["python3", str(fixture / "tests/test_ci_pull_request_caches_are_read_only.py")], capture_output=True, text=True)
                 with self.subTest(mutation=mutation):
                     self.assertEqual(result.returncode == 0, valid, result.stdout + result.stderr)
+                    if mutation and mutation.startswith("next_writer_"):
+                        self.assertIn("cmux-tui-build-package.yml cross-build-windows:", result.stdout)
+                        if mutation == "next_writer_wrong_bucket":
+                            self.assertIn("must write only the cmux-ci-cache-next bucket", result.stdout)
+                        else:
+                            self.assertIn("must declare environment:", result.stdout)
 
     def test_all_routes_distinguish_exact_prefix_unavailable_and_error(self):
         for route in ("github", "warp", "r2"):

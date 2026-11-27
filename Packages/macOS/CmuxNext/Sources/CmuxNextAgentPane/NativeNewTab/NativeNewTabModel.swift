@@ -1,3 +1,4 @@
+public import AppKit
 public import Observation
 
 /// The native New Tab page's state: the typed text, the selected kind and the dropdown's
@@ -7,7 +8,7 @@ public import Observation
 /// cannot go stale. Construct one per page with the page and an action bundle:
 ///
 /// ```swift
-/// let model = NativeNewTabModel(page: page, actions: NativeNewTabActions(submit: { text, kind, search in … }))
+/// let model = NativeNewTabModel(page: page, actions: NativeNewTabActions(submit: { text, kind, search, event in … }))
 /// ```
 @MainActor @Observable
 public final class NativeNewTabModel {
@@ -39,6 +40,9 @@ public final class NativeNewTabModel {
     /// of a row): the host reads them again when the page showed with a list that was read before it (the kept
     /// list, ``AgentPaneNewTabActions/kept``), and does nothing when the page's own listing read its list.
     @ObservationIgnored private var paletteRefresh: PaletteActionsRequest?
+    /// The host's favicon revision and a cheap context refresh. Both run only in the view's background observation task,
+    /// never while the field ranks a keystroke.
+    @ObservationIgnored var favicons: NativeNewTabFavicons?
     /// Which ask an answer belongs to: an adoption (a new tab's context) drops an earlier page's answer.
     @ObservationIgnored private var paletteAsk = 0
 
@@ -53,7 +57,7 @@ public final class NativeNewTabModel {
     ///   - chats: The device's newest chats (the host's Chats feed), for the chat rows.
     public init(page: AgentPaneNewTab, actions: NativeNewTabActions, ranker: NativeNewTabRanker = NativeNewTabRanker(),
                 paletteActions: PaletteActionsRequest? = nil, paletteRefresh: PaletteActionsRequest? = nil,
-                chats: [AgentPaneDeviceChat] = []) {
+                chats: [AgentPaneDeviceChat] = [], favicons: NativeNewTabFavicons? = nil) {
         self.page = page
         self.chats = chats
         self.kind = page.kind
@@ -61,6 +65,7 @@ public final class NativeNewTabModel {
         self.ranker = ranker
         self.paletteActions = paletteActions
         self.paletteRefresh = paletteRefresh
+        self.favicons = favicons
     }
 
     /// Asks for the dropdown's palette actions if they are not there yet (the host calls it on the frame after the
@@ -133,6 +138,19 @@ public final class NativeNewTabModel {
     /// The open tabs and workspaces changed while the page shows; the typed text stays.
     public func update(_ page: AgentPaneNewTab) { self.page = page }
 
+    /// Replaces only the host's favicon-bearing snapshot after the favicon store changes. The host calls this from
+    /// an observation task, so a missing icon can arrive later without making the input path wait.
+    public func refreshFaviconPage() {
+        guard let favicons else { return }
+        let refreshed = favicons.page(page)
+        guard refreshed.omnibar.tabs != page.omnibar.tabs || refreshed.omnibar.history != page.omnibar.history ||
+                refreshed.omnibar.bookmarks != page.omnibar.bookmarks else { return }
+        page = refreshed
+    }
+
+    /// Reads the host's revision inside an observation scope. It is deliberately separate from ``rows``.
+    public func faviconRevisionTick() -> Int { favicons?.revision() ?? 0 }
+
     /// Down (`1`) or Up (`-1`): moves the highlight, wrapping at the ends.
     public func move(_ step: Int) {
         let count = rows.count
@@ -141,24 +159,26 @@ public final class NativeNewTabModel {
     }
 
     /// Return: the highlighted row, or for an empty field the selected kind as it is (the open
-    /// tabs listed under an empty field run only once Up or Down highlights one).
-    public func commit() {
-        if text.isEmpty, highlighted == nil { return actions.submit("", kind, false) }
-        if let index = selectedIndex { return activate(rows[index]) }
-        actions.submit("", kind, false)
+    /// tabs listed under an empty field run only once Up or Down highlights one). `event`: the Return key press.
+    public func commit(event: NSEvent? = nil) {
+        if text.isEmpty, highlighted == nil { return actions.submit("", kind, false, event) }
+        if let index = selectedIndex { return activate(rows[index], event: event) }
+        actions.submit("", kind, false, event)
     }
 
     /// Runs `row`, as Return or a click on it does. Only a palette action's row is a first use that asks for the
     /// actions again (a run of another row opens something else, and a listing would run in that open's frames);
-    /// the host runs an action only when the palette still lists it under the title the row shows.
-    public func activate(_ row: NativeNewTabRow) {
+    /// the host runs an action only when the palette still lists it under the title the row shows. `event`: the key
+    /// or click that ran it (``NativeNewTabActions/submit``), nil for an accessibility press.
+    public func activate(_ row: NativeNewTabRow, event: NSEvent? = nil) {
         switch row {
-        case .ask(let text): actions.submit(text, .agent, false)
-        case .run(let text): actions.submit(text, .terminal, false)
-        case .open(let text): actions.submit(text, .browser, false)
+        case .ask(let text): actions.submit(text, .agent, false, event)
+        case .run(let text): actions.submit(text, .terminal, false, event)
+        case .open(let text): actions.submit(text, .browser, false, event)
         case .tab(let tab): actions.jump(.tab, tab.id)
         case .workspace(let workspace): actions.jump(.workspace, workspace.id)
-        case .page(let page): actions.submit(page.url, .browser, false)
+        case .page(let page): actions.submit(page.url, .browser, false, event)
+        case .bookmark(let page): actions.submit(page.url, .browser, false, event)
         case .action(let action):
             used()
             actions.action(action.id, action.title)

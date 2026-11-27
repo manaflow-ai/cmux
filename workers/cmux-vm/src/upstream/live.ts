@@ -17,6 +17,7 @@ import { vmInstanceIdentity } from "./live-identity.ts";
 import { makeDurableCreate, makeRecoverCreation, makeInspectCancellation, makeDeleteCancellation } from "./live-create.ts";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
+import type { CreateAdmissionClient } from "../limits/create-admission.ts";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import {
   UpstreamClient,
@@ -28,6 +29,7 @@ import {
   type UpstreamClientService,
 } from "./client.ts";
 import { execResultStream } from "./exec-stream.ts";
+import { awaitBackground, BACKGROUND_AFTER_HEADER, BACKGROUND_AFTER_SECS, DEFAULT_BACKGROUND_POLL_MS } from "./live-background.ts";
 import { timedUpstream, timedUpstreamBody } from "./timing.ts";
 
 const DirListing = Schema.Struct({
@@ -69,7 +71,21 @@ export interface UpstreamConfig {
   readonly environment: Environment;
   readonly fetch?: (request: Request) => Promise<Response>;
   readonly timeoutMs?: number;
+  /** How often a background request's stored result is polled (live-background.ts); tests set 1. */
+  readonly backgroundPollMs?: number;
+  /** How often a disk grow re-reads a VM that is still starting (GROW_START_POLLS times); tests set 1. */
+  readonly startPollMs?: number;
+  /** The environment's provider create queue (limits/create-admission.ts); none sends every create at once. */
+  readonly createAdmission?: CreateAdmissionClient;
 }
+
+/**
+ * A disk grow needs a running VM. One asked of a VM the provider still reports "starting" (a
+ * Cloud chat grows its disk right after the machine first answers, while the provider's state can
+ * lag: production 2026-11-26 01:08-01:29Z, 18 such 409s) waits for it, at most this many reads.
+ */
+const GROW_START_POLLS = 30;
+const DEFAULT_START_POLL_MS = 2_000;
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 /** Booting, snapshotting and shutting down can take longer than a read. */
@@ -206,7 +222,12 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
   return {
     ...vmInstanceIdentity,
     resizeVm: (_vm, { owns }, size) => Effect.flatMap(idOf(owns), (id) => Effect.gen(function* () {
-      const current = yield* getVmById("resizeVm", id);
+      let current = yield* getVmById("resizeVm", id);
+      const growsDisk = size.diskMib !== undefined && size.diskMib > current.resources.storage;
+      for (let read = 0; growsDisk && current.state === "starting" && read < GROW_START_POLLS; read += 1) {
+        yield* Effect.sleep(config.startPollMs ?? DEFAULT_START_POLL_MS);
+        current = yield* getVmById("resizeVm", id);
+      }
       if (size.diskMib !== undefined && size.diskMib > current.resources.storage && current.state !== "running") {
         return yield* Effect.fail(new UpstreamError({ operation: "resizeVm", status: 409 }));
       }
@@ -268,23 +289,35 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       Effect.flatMap(idOf(owns), (id) => deleteById("deleteSnapshot", `/v5/snapshots/${encodeURIComponent(id)}`)),
 
     exec: (_vm, { owns }, spec) =>
-      Effect.flatMap(idOf(owns), (id) => send("execVm", vmPath(id, "/exec-await"), {
-        method: "POST",
-        json: {
-          command: spec.command,
-          ...(spec.env === undefined ? {} : { env: spec.env }),
-          ...(spec.stdinBase64 === undefined ? {} : { stdin: spec.stdinBase64 }),
-          ...(spec.timeoutMs === undefined ? {} : { timeoutMs: spec.timeoutMs }),
-          ...(spec.linuxUser === undefined ? {} : { linuxUser: spec.linuxUser }),
-        },
-        timeoutMs: (spec.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS) + 30_000,
-      }).pipe(
-        Effect.flatMap((response) =>
-          response.body === null
-            ? Effect.fail(new UpstreamError({ operation: "execVm", status: response.status }))
-            : Effect.succeed(response.body.pipeThrough(execResultStream())),
-        ),
-      )),
+      Effect.flatMap(idOf(owns), (id) => {
+        const budgetMs = (spec.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS) + 30_000;
+        const deadlineAt = Date.now() + budgetMs;
+        return send("execVm", vmPath(id, "/exec-await"), {
+          method: "POST",
+          json: {
+            command: spec.command,
+            ...(spec.env === undefined ? {} : { env: spec.env }),
+            ...(spec.stdinBase64 === undefined ? {} : { stdin: spec.stdinBase64 }),
+            ...(spec.timeoutMs === undefined ? {} : { timeoutMs: spec.timeoutMs }),
+            ...(spec.linuxUser === undefined ? {} : { linuxUser: spec.linuxUser }),
+          },
+          // Held open past about 120 s, the provider's edge cuts the call (524) while the command runs on: past
+          // BACKGROUND_AFTER_SECS the provider answers 202 instead, and the stored result is polled (live-background.ts).
+          headers: { [BACKGROUND_AFTER_HEADER]: String(BACKGROUND_AFTER_SECS) },
+          timeoutMs: budgetMs,
+        }).pipe(
+          Effect.flatMap((response) =>
+            response.status === 202
+              ? awaitBackground(send, "execVm", response, base.origin, deadlineAt, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS)
+              : Effect.succeed(response),
+          ),
+          Effect.flatMap((response) =>
+            response.body === null
+              ? Effect.fail(new UpstreamError({ operation: "execVm", status: response.status }))
+              : Effect.succeed(response.body.pipeThrough(execResultStream())),
+          ),
+        );
+      }),
 
     readFile: (_vm, { owns }, path, range) =>
       Effect.flatMap(idOf(owns), (id) => send("readFile", vmPath(id, "/fs/read"), {
@@ -326,8 +359,17 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
 }
 
 /**
- * The live client from Worker configuration. The key is wrapped in Redacted at
- * once. Built eagerly, so a bad base URL throws here (src/index.ts answers 503).
+ * The client's configuration from Worker configuration: every field as given, the key wrapped in Redacted at once.
+ * The whole config is spread, never rebuilt field by field: the layer used to copy three named fields, so the
+ * provider create queue src/index.ts passed (`createAdmission`, cmux#61073) never reached the client and staging sent
+ * every create of a burst at once (2026-11-27 08:46Z, no vm_create line with admitWaitMs). The test harness builds
+ * its client through this too, so a dropped field fails the Worker tests.
  */
-export const upstreamLayer = (config: { readonly baseUrl: string; readonly apiKey: string; readonly environment: Environment }): Layer.Layer<UpstreamClient> =>
-  Layer.succeed(UpstreamClient, makeUpstreamClient({ baseUrl: config.baseUrl, apiKey: Redacted.make(config.apiKey), environment: config.environment }));
+export const upstreamConfigOf = (config: Omit<UpstreamConfig, "apiKey"> & { readonly apiKey: string }): UpstreamConfig => ({
+  ...config,
+  apiKey: Redacted.make(config.apiKey),
+});
+
+/** The live client from Worker configuration. Built eagerly, so a bad base URL throws here (src/index.ts answers 503). */
+export const upstreamLayer = (config: Omit<UpstreamConfig, "apiKey"> & { readonly apiKey: string }): Layer.Layer<UpstreamClient> =>
+  Layer.succeed(UpstreamClient, makeUpstreamClient(upstreamConfigOf(config)));

@@ -311,69 +311,69 @@ public struct AgentChatDriveControl: Sendable {
 
     /// The refusals, in this package's Localizable.xcstrings (`agentPane.chatDrive.*`).
     nonisolated enum Text {
-        static var unknownParam: String { String(localized: "agentPane.chatDrive.unknownParam", defaultValue: "%@ isn't a parameter of agent.chat.drive.", bundle: .module) }
-        static var needsTab: String { String(localized: "agentPane.chatDrive.needsTab", defaultValue: "Name the chat tab to drive.", bundle: .module) }
-        static var seconds: String { String(localized: "agentPane.chatDrive.seconds", defaultValue: "seconds must be a whole number from 1 to %lld", bundle: .module) }
+        static var unknownParam: String { String(localized: "agentPane.chatDrive.unknownParam", defaultValue: "%@ isn't a parameter of agent.chat.drive.", bundle: .localizedModule) }
+        static var needsTab: String { String(localized: "agentPane.chatDrive.needsTab", defaultValue: "Name the chat tab to drive.", bundle: .localizedModule) }
+        static var seconds: String { String(localized: "agentPane.chatDrive.seconds", defaultValue: "seconds must be a whole number from 1 to %lld", bundle: .localizedModule) }
         static var holdMilliseconds: String {
-            String(localized: "agentPane.chatDrive.holdMilliseconds", defaultValue: "hold_ms must be a whole number from 0 to 10000", bundle: .module)
+            String(localized: "agentPane.chatDrive.holdMilliseconds", defaultValue: "hold_ms must be a whole number from 0 to 10000", bundle: .localizedModule)
         }
-        static var allowBusy: String { String(localized: "agentPane.chatDrive.allowBusy", defaultValue: "allow_busy must be true or false", bundle: .module) }
+        static var allowBusy: String { String(localized: "agentPane.chatDrive.allowBusy", defaultValue: "allow_busy must be true or false", bundle: .localizedModule) }
         static var target: String {
             String(localized: "agentPane.chatDrive.target",
                    defaultValue: "target takes one of test_id (1 to 80 letters, digits, - or _), sent_image or tool_screenshot (a whole number from 1)",
-                   bundle: .module)
+                   bundle: .localizedModule)
         }
         static var wheel: String {
             String(localized: "agentPane.chatDrive.wheel",
                    defaultValue: "wheel takes ticks (0 to 200), delta (a whole number of pixels from -2000 to 2000, not 0) and tick_ms (8 to 200)",
-                   bundle: .module)
+                   bundle: .localizedModule)
         }
         static var wheelNeedsTarget: String {
-            String(localized: "agentPane.chatDrive.wheelNeedsTarget", defaultValue: "A wheel needs a target to hold the pointer over.", bundle: .module)
+            String(localized: "agentPane.chatDrive.wheelNeedsTarget", defaultValue: "A wheel needs a target to hold the pointer over.", bundle: .localizedModule)
         }
         static var typeText: String {
             String(localized: "agentPane.chatDrive.typeText",
-                   defaultValue: "type.text can't hold control characters or line separators, or start with !", bundle: .module)
+                   defaultValue: "type.text can't hold control characters or line separators, or start with !", bundle: .localizedModule)
         }
         static var type: String {
             String(localized: "agentPane.chatDrive.type",
-                   defaultValue: "type takes text (1 to 500 characters, at most 2000 UTF-16 units) and allow_draft (true or false)", bundle: .module)
+                   defaultValue: "type takes text (1 to 500 characters, at most 2000 UTF-16 units) and allow_draft (true or false)", bundle: .localizedModule)
         }
         static var tooLong: String {
-            String(localized: "agentPane.chatDrive.tooLong", defaultValue: "The wheel ticks and the hold take longer than seconds allows.", bundle: .module)
+            String(localized: "agentPane.chatDrive.tooLong", defaultValue: "The wheel ticks and the hold take longer than seconds allows.", bundle: .localizedModule)
         }
-        static var noTab: String { String(localized: "agentPane.chatDrive.noTab", defaultValue: "That tab is no longer open.", bundle: .module) }
-        static var notAgentChat: String { String(localized: "agentPane.chatDrive.notAgentChat", defaultValue: "That tab isn't an agent chat.", bundle: .module) }
+        static var noTab: String { String(localized: "agentPane.chatDrive.noTab", defaultValue: "That tab is no longer open.", bundle: .localizedModule) }
+        static var notAgentChat: String { String(localized: "agentPane.chatDrive.notAgentChat", defaultValue: "That tab isn't an agent chat.", bundle: .localizedModule) }
         static var pageNotLoaded: String {
-            String(localized: "agentPane.chatDrive.pageNotLoaded", defaultValue: "That chat's page isn't loaded. Open the chat once, then drive it again.", bundle: .module)
+            String(localized: "agentPane.chatDrive.pageNotLoaded", defaultValue: "That chat's page isn't loaded. Open the chat once, then drive it again.", bundle: .localizedModule)
         }
         static var pageAsleep: String {
             String(localized: "agentPane.chatDrive.pageAsleep",
                    defaultValue: "That chat's page is asleep while it's hidden, and driving doesn't wake it. Show the chat, then drive it again.",
-                   bundle: .module)
+                   bundle: .localizedModule)
         }
         static var noWindow: String {
-            String(localized: "agentPane.chatDrive.noWindow", defaultValue: "That chat isn't in a window, so it can't take a pointer.", bundle: .module)
+            String(localized: "agentPane.chatDrive.noWindow", defaultValue: "That chat isn't in a window, so it can't take a pointer.", bundle: .localizedModule)
         }
         static var personBusy: String {
-            String(localized: "agentPane.chatDrive.personBusy", defaultValue: "The person is using that chat. Try again when they're done with it.", bundle: .module)
+            String(localized: "agentPane.chatDrive.personBusy", defaultValue: "The person is using that chat. Try again when they're done with it.", bundle: .localizedModule)
         }
         static var noDrive: String {
-            String(localized: "agentPane.chatDrive.noDrive", defaultValue: "That chat's page can't be driven. Update cmux, then try again.", bundle: .module)
+            String(localized: "agentPane.chatDrive.noDrive", defaultValue: "That chat's page can't be driven. Update cmux, then try again.", bundle: .localizedModule)
         }
         static var running: String {
-            String(localized: "agentPane.chatDrive.running", defaultValue: "That chat is already being driven. Try again when that run ends.", bundle: .module)
+            String(localized: "agentPane.chatDrive.running", defaultValue: "That chat is already being driven. Try again when that run ends.", bundle: .localizedModule)
         }
         static var turnBusy: String {
-            String(localized: "agentPane.chatDrive.turnBusy", defaultValue: "That chat is running a turn. Try again when it ends, or allow a busy chat.", bundle: .module)
+            String(localized: "agentPane.chatDrive.turnBusy", defaultValue: "That chat is running a turn. Try again when it ends, or allow a busy chat.", bundle: .localizedModule)
         }
-        static var noTarget: String { String(localized: "agentPane.chatDrive.noTarget", defaultValue: "That chat shows no such element.", bundle: .module) }
+        static var noTarget: String { String(localized: "agentPane.chatDrive.noTarget", defaultValue: "That chat shows no such element.", bundle: .localizedModule) }
         static var targetCovered: String {
-            String(localized: "agentPane.chatDrive.targetCovered", defaultValue: "Something covers that element, so the pointer can't reach it.", bundle: .module)
+            String(localized: "agentPane.chatDrive.targetCovered", defaultValue: "Something covers that element, so the pointer can't reach it.", bundle: .localizedModule)
         }
         static var draftNotEmpty: String {
-            String(localized: "agentPane.chatDrive.draftNotEmpty", defaultValue: "That chat's composer holds a draft. Clear it, or allow typing after the draft.", bundle: .module)
+            String(localized: "agentPane.chatDrive.draftNotEmpty", defaultValue: "That chat's composer holds a draft. Clear it, or allow typing after the draft.", bundle: .localizedModule)
         }
-        static var noComposer: String { String(localized: "agentPane.chatDrive.noComposer", defaultValue: "That chat has no composer to type in.", bundle: .module) }
+        static var noComposer: String { String(localized: "agentPane.chatDrive.noComposer", defaultValue: "That chat has no composer to type in.", bundle: .localizedModule) }
     }
 }

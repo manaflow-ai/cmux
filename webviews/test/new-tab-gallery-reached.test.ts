@@ -37,10 +37,13 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
 
   for (const [entry, variant] of [
     ["agent-pane.new-tab", "empty"],
-    ["agent-pane.new-tab", "chats-loading"],
     ["agent-pane.new-tab", "attachment-menu"],
     ["agent-pane.new-tab", "style-switch"],
     ["agent-pane.new-tab", "suggestions-create"],
+    // A dark one-colour favicon in the label colour; with a file attached, only Ask rows (both plays wait
+    // for that state and throw at the cap).
+    ["agent-pane.new-tab", "suggestions-dark-favicon"],
+    ["agent-pane.new-tab", "suggestions-attached"],
   ] as const) {
     test(`${entry}#${variant} reaches its mounted interaction`, async () => {
       const port = (vite!.httpServer!.address() as { port: number }).port;
@@ -69,39 +72,31 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
           ).cmuxGalleryPlayReport,
           attach: document.querySelector('.acpmux-newtab-plus [data-value="add.files"]') !== null,
           multi: document.querySelector<HTMLInputElement>(".nt-composer .acpmux-attach-input")?.multiple ?? false,
-          chatsLoading: document.querySelector(".nt-cards[aria-busy=true]") !== null,
-          chatPlaceholders: document.querySelectorAll(".nt-cards[aria-busy=true] .nt-card").length,
-          chatsEmpty: document.querySelector(".nt-chats-empty")?.textContent ?? "",
-          threads: document.querySelector(".nt-style input[value=threads]:checked") !== null,
+          // Minimal draws no chat list, empty or loading.
+          chatList: document.querySelector(".nt-cards, .nt-chats-empty") !== null,
+          savedMinimal: (
+            (window as unknown as { cmuxGalleryLog?: Array<{ method: string; params?: { template?: string } }> })
+              .cmuxGalleryLog ?? []
+          ).some((call) => call.method === "newTab.setTemplate" && call.params?.template === "minimal"),
         }));
         expect(receipt.ready).toBe("1");
         expect(receipt.report?.error).toBeUndefined();
         const steps = receipt.report?.steps ?? [];
         // State fixtures wait for their content; only interaction plays record input steps.
-        if (variant !== "empty" && variant !== "chats-loading" && variant !== "suggestions-create")
-          expect(steps.length).toBeGreaterThan(0);
+        if (variant !== "empty" && variant !== "suggestions-create") expect(steps.length).toBeGreaterThan(0);
         for (const step of steps) {
           expect(step.popupProblems ?? []).toEqual([]);
           expect(step.anchorMoves ?? []).toEqual([]);
         }
         // Graded as every play test is (support/galleryPlay.ts): a thrown play, a moved anchor and a
         // unexpected layout shift fail it; the runner's frame timing does not (cx-mfkky).
-        if (variant !== "empty" && variant !== "chats-loading")
-          expect(playFailures(JSON.stringify(receipt.report))).toEqual([]);
+        if (variant !== "empty") expect(playFailures(JSON.stringify(receipt.report))).toEqual([]);
         if (variant === "attachment-menu") {
           expect(receipt.attach).toBe(true);
           expect(receipt.multi).toBe(true);
         }
-        if (variant === "empty") {
-          expect(receipt.chatsLoading).toBe(false);
-          expect(receipt.chatsEmpty).toBe("No chats yet");
-        }
-        if (variant === "chats-loading") {
-          expect(receipt.chatsLoading).toBe(true);
-          expect(receipt.chatPlaceholders).toBe(3);
-          expect(receipt.chatsEmpty).toBe("");
-        }
-        if (variant === "style-switch") expect(receipt.threads).toBe(true);
+        if (variant === "empty") expect(receipt.chatList).toBe(false);
+        if (variant === "style-switch") expect(receipt.savedMinimal).toBe(true);
       } finally {
         await page.close();
       }

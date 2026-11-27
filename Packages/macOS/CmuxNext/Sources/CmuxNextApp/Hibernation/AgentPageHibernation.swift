@@ -31,6 +31,12 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     /// The agent tab store once the App made it (no agent tab yet: nothing to release).
     private let store: () -> AgentTabStore?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hibernation")
+    /// The chat renderer recycle's App (``startRendererRecycle(services:)``; nil while it is off) and its state.
+    private weak var recycleServices: AppServices?
+    private var recycleState = CEFChatRendererRecycle()
+    private var recycleRunning = false
+    private let recycleSettle = DemandTimer(owner: "AgentPageHibernation.recycleSettle")
+    private lazy var recycleInput = WindowServerInputEvents()
     /// The clocks and what they decide.
     private(set) lazy var pages: HiddenChatPages<AgentPageHibernation> = HiddenChatPages(
         host: self, deadline: DemandTimer(owner: "AgentPageHibernation"), freezeDeadline: DemandTimer(owner: "AgentPageFreeze"))
@@ -59,6 +65,13 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     /// while its tab does not draw (restored or opened in the background) starts its hidden clock at
     /// the next plan, as an adopted browser tab does.
     var isRendering: (String) -> Bool = { _ in true }
+    /// Builds a shown chat again when that lets a later renderer exit (``RendererPackingRun``); nil in tests.
+    private(set) var packing: RendererPackingRun<AgentPageHibernation>?
+    /// The engine's live pages and a chat's browser id; the pane showing tab `key` lets its page go, runs `swap` and
+    /// shows the tab again, its new page held off the window until it painted (false: no pane shows it). The App's.
+    var livePages: () -> [RendererPacking.LivePage] = { [] }
+    var browserID: (AgentPaneView) -> Int32? = { _ in nil }
+    var reshow: (_ key: String, _ swap: () -> Void) -> Bool = { _, _ in false }
     private func scopedKey(_ storageKey: String, in tabs: AgentTabStore) -> AgentTabKey {
         let parsed = AgentTabKey(relaunchStorageKey: storageKey)
         return parsed.machine.isEmpty ? tabs.tabKey(parsed.key) : parsed
@@ -101,6 +114,19 @@ final class AgentPageHibernation: HiddenChatPagesHost {
             self?.sync(cache.presentationChanges.changedKeys) { cache.isRendering($0) }
         }
         followTurns(AgentTurnStateStore.shared)
+        let cef = cache.cef
+        livePages = { cef.rendererPages.map { .init(browser: $0.browserID, origin: $0.origin, rendererClients: $0.rendererClients, exited: $0.exited) } }
+        browserID = { cef.browserID(showing: $0.focusTarget) }
+        reshow = { [weak services] key, swap in
+            guard let services, let tabs = services.madeAgentTabs, let pane = services.cache.presenter(of: key) as? PaneController,
+                  pane.currentTabKey == key else { return false }
+            pane.letGo(key, parks: false)
+            swap()
+            tabs.rebuiltAway.insert(key)
+            if services.presentation.showNow(pane) { tabs.rebuiltAway.remove(key) } // shown: its page is held already
+            return true
+        }
+        packing = RendererPackingRun(host: self, cap: CEFEngine.cmuxPagesPerRenderer, timer: DemandTimer(owner: "AgentPageRendererPacking"))
     }
 
     /// A turn that ends, or the watch coming back, makes its hidden page due again (a busy page
@@ -148,10 +174,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     func pageIsUntouchedNewTab(_ key: String) -> Bool {
         guard let tabs = store() else { return false }
         let scoped = scopedKey(key, in: tabs)
-        guard let view = tabs.existingView(scoped.key, machine: scoped.machine),
-              let page = view.model.newTab, !view.model.userTouched, !view.model.remoteChat,
-              page.draft?.isEmpty != false, view.model.sessionId == nil, tabs.sessions[scoped] == nil,
-              !view.model.shell.hasRuns, !view.showsCrashNotice,
+        guard let view = tabs.existingView(scoped.key, machine: scoped.machine), view.isUntouchedNewTab, tabs.sessions[scoped] == nil,
               let (record, _) = tabs.record(for: tabs.resolvedKey(scoped)), record.session == nil,
               tabs.hostKind(record, listedHere: true) == .local,
               tabs.daemon(for: tabs.resolvedKey(scoped))?.isLocal != false else { return false }
@@ -214,20 +237,248 @@ final class AgentPageHibernation: HiddenChatPagesHost {
                 tabs.launchImages.drop(tabID)
                 return replan()
             }
-            let storageScoped = AgentTabKey(relaunchStorageKey: key)
-            if storageScoped.machine.isEmpty { displace(storageScoped.key) }
-            // The tab keeps its session and every other state: the next show builds the page again.
-            let scoped = tabs.views.entries.first(where: { $0.value === view })?.key ?? storageScoped
-            let stored = tabs.resolvedKey(scoped)
-            if let session = view.model.sessionId { tabs.sessions[stored] = session }
-            tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
-            tabs.views[stored] = nil
-            tabs.retirer.retire(view)
-            tabs.stopCustomizationWhenUnused()
-            pages.released(key)
-            // Notice, not info: the field log keeps it (the page is built again when shown).
-            logger.notice("released agent page \(key, privacy: .public) cause=\(cause, privacy: .public); it is built again when shown")
+            letGo(key, page: view, wake: wake, in: tabs, cause: cause)
         }
     }
 
+    /// Tab `key`'s captured page goes: its pane lets go of it, the tab keeps its session and `wake`, and the
+    /// next show builds the page again.
+    private func letGo(_ key: String, page view: AgentPaneView, wake: AgentPaneWakeState?, in tabs: AgentTabStore, cause: String) {
+        let storageScoped = AgentTabKey(relaunchStorageKey: key)
+        if storageScoped.machine.isEmpty { displace(storageScoped.key) }
+        // The tab keeps its session and every other state: the next show builds the page again.
+        let scoped = tabs.views.entries.first(where: { $0.value === view })?.key ?? storageScoped
+        let stored = tabs.resolvedKey(scoped)
+        if let session = view.model.sessionId { tabs.sessions[stored] = session }
+        tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
+        tabs.views[stored] = nil
+        tabs.retirer.retire(view)
+        tabs.stopCustomizationWhenUnused()
+        pages.released(key)
+        packing?.schedule() // the release may have made room in an older renderer
+        // Notice, not info: the field log keeps it (the page is built again when shown).
+        logger.notice("released agent page \(key, privacy: .public) cause=\(cause, privacy: .public); it is built again when shown")
+    }
+
+    // MARK: Chat renderer recycle (``startRendererRecycle(services:)``)
+
+    /// Why tab `key`'s page keeps the chat renderer, shown or not, or nil when it can go now: the hidden-page
+    /// policy without its on-screen clause (this Mac's chat with a session, no shell run, no crash notice, its
+    /// turn known and idle, not pinned or paired), not archived in flight, and no release of it running.
+    func recycleExemption(_ key: String) -> String? {
+        if let exemption = keepsPage(key, onScreen: false) { return exemption.rawValue }
+        if pageArchived(key) { return "archived" }
+        return pages.releaseRuns(key) ? "a release runs" : nil
+    }
+
+    /// Captures tab `key`'s page for the recycle, as a release does but with no first frame required: its wake
+    /// state, its frame when `frame` (the shown chats; a hidden Chromium page is never captured), and why it stays
+    /// (unsaved sends, no answer). Nil when there is no page or a release of it runs.
+    func captureForRecycle(_ key: String, frame: Bool) async -> (page: AgentPaneView, wake: AgentPaneWakeState?, frame: CGImage?, size: NSSize, kept: String?)? {
+        guard let tabs = store(), let view = hibernationPage(key), pages.beginRelease(key) != nil else { return nil }
+        let tabID = { let scoped = scopedKey(key, in: tabs); return tabs.launchImages.slot(scoped.key, machine: scoped.machine) }()
+        let takeSnapshot = snapshot
+        var taken: (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)?
+        let captured = await AgentPaneHibernationCapture(view: view).capture(key: tabID, images: tabs.launchImages, requiresFrame: false, wake: wakeState) { page in
+            guard frame else { return nil }
+            taken = await takeSnapshot(page)
+            return taken
+        }
+        pages.endRelease(key)
+        return (view, captured.wake, taken?.image, taken?.size ?? .zero, captured.kept)
+    }
+
+    /// The recycle let tab `key`'s captured page go (it is still the tab's page): as a release does.
+    func letGoForRecycle(_ key: String, page view: AgentPaneView, wake: AgentPaneWakeState?) -> Bool {
+        guard let tabs = store(), hibernationPage(key) === view else { return false }
+        letGo(key, page: view, wake: wake, in: tabs, cause: "renderer-recycle")
+        return true
+    }
+
+}
+
+extension AgentPageHibernation: RendererPackingHost {
+    func packingMayMove(_ key: String, _ page: AgentPaneView) -> Bool {
+        guard AgentTabKey(relaunchStorageKey: key).machine.isEmpty, page.pageDrawsOverCovers, page.model.hasPainted,
+              AgentPaneHibernationCapture(view: page).isOnScreen, pageTurnsKnown(), !pageTurnBusy(key) else { return false }
+        return pageMayRelease(key, onScreen: false)
+    }
+    func packingBrowser(_ page: AgentPaneView) -> Int32? { browserID(page) }
+    func packingLivePages() -> [RendererPacking.LivePage] { livePages() }
+    /// The release's steps on a shown page: its picture is taken by hand (a visible Chromium page captures safely).
+    func packingRebuild(_ key: String, _ page: AgentPaneView, stillIdle: @escaping @MainActor () -> Bool) async -> String? {
+        guard let tabs = store() else { return "no agent tabs" }
+        let scoped = scopedKey(key, in: tabs)
+        let slot = tabs.launchImages.slot(scoped.key, machine: scoped.machine)
+        let wake = await wakeState(page)
+        if let kept = AgentPaneWakeState.keepReason(wake, hasHandshake: page.model.hasHandshake) { return kept }
+        guard let frame = await snapshot(page), await tabs.launchImages.hold(slot, frame.image, size: frame.size, appearance: frame.appearance) else { return "no frame" }
+        guard let stored = tabs.views.entries.first(where: { $0.value === page }).map({ tabs.resolvedKey($0.key) }), stillIdle() else {
+            tabs.launchImages.drop(slot)
+            return "in use"
+        }
+        if let session = page.model.sessionId { tabs.sessions[stored] = session }
+        tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
+        guard reshow(scoped.key, { tabs.views[stored] = nil; tabs.retirer.retire(page) }) else {
+            tabs.wakeStates[stored] = nil
+            tabs.launchImages.drop(slot)
+            return "no pane shows it"
+        }
+        return nil
+    }
+}
+
+extension AgentPageHibernation {
+    /// The App's side of ``CEFChatRendererRecycle``: after each renderer check (`CEFPageRendererGC`), a chat renderer
+    /// past its bound whose pages are all spares or idle chats, while the person is away, is emptied and its shown
+    /// chats are built again in a fresh process.
+    ///
+    /// 1. Every chat in it is captured as a hidden idle chat's release captures it (``AgentPageHibernation``), with
+    ///    no first frame required; the shown chats keep their frame. Any page kept (unsaved sends, no answer) ends it.
+    /// 2. In one main-actor turn the spare pool holds empty, the next Cmd-N's reservation pauses and its page goes,
+    ///    the closed chats kept for Reopen Closed are torn down, and every chat lets go of its page (its tab keeps its
+    ///    session and wake state). The shown panes draw the chat's frame meanwhile.
+    /// 3. Once the old renderer exited (at most ``AgentPageRetirer/delay`` plus ``CEFChatRendererRecycle/exitLimit``),
+    ///    each pane still selecting its chat shows it again through the normal show path, and the pools refill.
+    /// 4. ``recycleSettleDelay`` later one notice in `app.hibernation` gives the resident size before and after.
+    ///
+    /// Started only when `CMUX_NEXT_CHAT_RENDERER_RECYCLE=1` (``AppServices/startHibernation(settings:)``).
+    func startRendererRecycle(services: AppServices) {
+        recycleServices = services
+        services.cache.cef.afterPageRendererChecks { [weak self] in await self?.checkChatRenderer() }
+    }
+
+    /// How long after the rebuild the fresh renderer's resident size is read (the bench's chats draw within 2 s).
+    static let recycleSettleDelay: Duration = .seconds(10)
+
+    /// One renderer check ended: recycles the first chat renderer that is due and may go.
+    func checkChatRenderer() async {
+        guard !recycleRunning, let services = recycleServices, let tabs = services.madeAgentTabs else { return }
+        let agentPages = self
+        let cef = services.cache.cef
+        let all = cef.rendererPages
+        let chatRenderers = Set(all.filter { $0.origin == CEFChatRendererRecycle.chatOrigin }.compactMap(\.rendererClients.first))
+        guard !chatRenderers.isEmpty else { return }
+        recycleRunning = true
+        defer { recycleRunning = false }
+        for renderer in chatRenderers.sorted() {
+            guard let sample = await ChromiumHelperProcess.renderer(client: renderer),
+                  recycleState.isDue(renderer: renderer, resident: sample.resident, now: .now, live: chatRenderers) else { continue }
+            let pages = cef.rendererPages.filter { $0.rendererClients.first == renderer }
+            switch CEFChatRendererRecycle.decide(recycleClassify(pages, tabs: tabs, agentPages: agentPages), personIdle: recyclePersonIdle, shuttingDown: recycleShuttingDown) {
+            case .skip(let why):
+                logger.info("chat renderer \(renderer) at \(sample.resident >> 20) MB not recycled: \(why, privacy: .public)")
+            case .recycle(let release, let show):
+                await recycleRenderer(renderer: renderer, pid: sample.pid, before: sample.resident, release: release, show: show, tabs: tabs, agentPages: agentPages)
+            }
+            return
+        }
+    }
+
+    private var recyclePersonIdle: Bool {
+        CEFChatRendererRecycle.personIdle(secondsSinceInput: recycleInput.secondsSinceLastInput(), appActive: NSApp.isActive)
+    }
+
+    private var recycleShuttingDown: Bool { recycleServices?.quit.isQuitting != false || recycleServices?.cache.cef.isShuttingDown != false }
+
+    /// What each page of the renderer is to the recycle, by browser id.
+    private func recycleClassify(_ pages: [CEFRendererPage], tabs: AgentTabStore, agentPages: AgentPageHibernation) -> [CEFChatRendererRecycle.Page] {
+        guard let services = recycleServices else { return [] }
+        let duplicates = AgentTabMap<AgentPaneView>.duplicateIDs(tabs.views.entries.map(\.key))
+        var byBrowser: [Int32: CEFChatRendererRecycle.Page] = [:]
+        for (key, view) in tabs.views.entries {
+            guard let browser = Self.recycleBrowserID(of: view) else { continue }
+            let storage = key.relaunchStorageKey(duplicateIDs: duplicates)
+            let newTab = view.model.newTab != nil || tabs.newTabPages[key] != nil
+            let reserved = tabs.tabStores[key] === services.daemon.store && tabs.tabStores[key]?.reservedWorkspace?.tabKey == key.key && view.isUntouchedNewTab
+            byBrowser[browser] = CEFChatRendererRecycle.tabPage(
+                key: storage, newTab: newTab, reservedUntouched: reserved,
+                exemption: newTab ? nil : agentPages.recycleExemption(storage), shown: AgentPaneHibernationCapture(view: view).isOnScreen)
+        }
+        for view in services.newTabSpares.spares + tabs.retirer.keptPages.map({ $0.view }) {
+            if let browser = Self.recycleBrowserID(of: view) { byBrowser[browser] = .spare }
+        }
+        return pages.map { page in
+            if page.origin != CEFChatRendererRecycle.chatOrigin { return .keeps("a page of \(page.origin)") }
+            return byBrowser[page.browserID] ?? .keeps("a page no tab or pool holds")
+        }
+    }
+
+    private static func recycleBrowserID(of view: AgentPaneView) -> Int32? { (view.chromiumPage as? CEFPageChromiumPage)?.tab.browserID }
+
+    private func recycleRenderer(renderer: Int32, pid: Int32, before: Int, release: [String], show: [String],
+                         tabs: AgentTabStore, agentPages: AgentPageHibernation) async {
+        // 1. Capture every chat; one kept ends the recycle.
+        var captured: [(key: String, page: AgentPaneView, wake: AgentPaneWakeState?, frame: CGImage?, size: NSSize)] = []
+        var kept: String?
+        for key in release {
+            guard let capture = await agentPages.captureForRecycle(key, frame: show.contains(key)) else { kept = "\(key) went"; break }
+            captured.append((key, capture.page, capture.wake, capture.frame, capture.size))
+            if let reason = capture.kept { kept = "\(key) kept: \(reason)"; break }
+            // A shown chat with no frame would leave its pane empty until the rebuild.
+            if show.contains(key), capture.frame == nil { kept = "\(key) has no frame"; break }
+        }
+        // The captures awaited: everything is read again.
+        if kept == nil, !recyclePersonIdle { kept = "the person came back" }
+        if kept == nil, recycleShuttingDown { kept = "shutting down" }
+        if kept == nil, let moved = captured.first(where: { agentPages.hibernationPage($0.key) !== $0.page || agentPages.recycleExemption($0.key) != nil }) { kept = "\(moved.key) changed" }
+        guard kept == nil, let services = recycleServices else {
+            for capture in captured { agentPages.dropReleasedFrame(capture.key) }
+            agentPages.replan() // the captures thawed them
+            recycleState.aborted(at: .now)
+            return logger.info("chat renderer \(renderer) at \(before >> 20) MB not recycled: \(kept ?? "", privacy: .public)")
+        }
+
+        // 2. One turn: nothing makes a page in the old renderer, and every page in it goes.
+        let panes: [(tab: String, pane: PaneController, frame: CGImage?, size: NSSize)] = captured.compactMap { capture in
+            let tab = AgentTabKey(relaunchStorageKey: capture.key).key
+            guard show.contains(capture.key), let pane = services.cache.presenter(of: tab) as? PaneController else { return nil }
+            return (tab, pane, capture.frame, capture.size)
+        }
+        let store = services.daemon.store
+        let wasPaused = store.reservationPaused
+        services.newTabSpares.holdEmpty()
+        store.reservationPaused = true
+        services.windows.controllers.forEach { $0.reservedContent.drop() }
+        tabs.releaseReservedWorkspace(on: store, .recycle)
+        tabs.retirer.dropKept()
+        var released = 0
+        for capture in captured where agentPages.letGoForRecycle(capture.key, page: capture.page, wake: capture.wake) { released += 1 }
+        for shown in panes where shown.pane.currentTabKey == nil {
+            shown.pane.leftEmptyByMove = false // a first visit during the wait would build the page in the old renderer
+            guard let frame = shown.frame else { continue }
+            shown.pane.view.showLaunchImage(NSImage(cgImage: frame, size: shown.size))
+            shown.pane.view.launchImageMayClear = { false } // the rebuild's own frame replaces it
+        }
+
+        // 3. The old renderer exits once its last page closed (the retirer closes them after its delay).
+        let exited = await ChromiumHelperProcess.waitForExit(pid, limit: AgentPageRetirer.delay + CEFChatRendererRecycle.exitLimit)
+        for shown in panes where shown.pane.currentTabKey == nil {
+            if shown.pane.stripModel.selectedID?.rawValue == shown.tab, !recycleShuttingDown {
+                services.presentation.showNow(shown.pane)
+            } else {
+                shown.pane.view.clearLaunchImage()
+            }
+        }
+        services.newTabSpares.endHold()
+        store.reservationPaused = wasPaused
+        if !wasPaused { services.windows.controllers.forEach { $0.reservedContent.fill() } }
+        recycleState.recycled(at: .now)
+
+        // 4. The fresh renderer's size once its chats drew.
+        let shownCount = panes.count
+        recycleSettle.schedule(after: Self.recycleSettleDelay) { @MainActor [weak self] in
+            await self?.recycleSettled(before: before, released: released, shown: shownCount, exited: exited)
+        }
+    }
+
+    private func recycleSettled(before: Int, released: Int, shown: Int, exited: Bool) async {
+        guard let cef = recycleServices?.cache.cef,
+              let renderer = cef.rendererPages.first(where: { $0.origin == CEFChatRendererRecycle.chatOrigin })?.rendererClients.first,
+              let sample = await ChromiumHelperProcess.renderer(client: renderer) else {
+            return logger.notice("chat renderer recycled before=\(before >> 20) MB after=none released=\(released) shown=\(shown) exited=\(exited)")
+        }
+        recycleState.settled(renderer: renderer, resident: sample.resident)
+        logger.notice("chat renderer recycled before=\(before >> 20) MB after=\(sample.resident >> 20) MB released=\(released) shown=\(shown) exited=\(exited)")
+    }
 }
