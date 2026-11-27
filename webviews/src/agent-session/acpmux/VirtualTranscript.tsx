@@ -239,8 +239,6 @@ import {
   widthChanged,
 } from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
-import { ThinkingGlyph } from "./conversation/ThinkingGlyph";
-import { useLiveGlyphTrigger } from "./conversation/thinkingGlyphModel";
 import {
   type DrawnHeight,
   type ReportDrawn,
