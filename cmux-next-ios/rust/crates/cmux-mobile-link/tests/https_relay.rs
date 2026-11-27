@@ -786,7 +786,8 @@ async fn with_direct_udp_and_turn_failing_the_relay_carries_the_dial_from_its_st
 /// link up, the phone's first relay join landed, and `wg-resp` forwarded, all
 /// since the dial started. `old_hub`: a hub that never answers `ticketEarly`,
 /// which is also what a phone before this change got in relay first (it never
-/// asked), so the phone's ticket comes only on `wg-resp`.
+/// asked), so the phone's ticket comes only on `wg-resp`; that phone also had no
+/// Bearer join right after its early `wg-relay` (`relay_join_early`), so it is off too.
 async fn relay_first_dial_with_a_slow_answer(
     old_hub: bool,
     mac_first: bool,
@@ -805,6 +806,7 @@ async fn relay_first_dial_with_a_slow_answer(
     let phone = DialOptions {
         drop_udp_to: Some(udp_to_the_peer_lost),
         relay: relay(&rig.server, &rig.phone_id),
+        relay_join_early: !old_hub,
         ..options()
     };
     let started = std::time::Instant::now();
