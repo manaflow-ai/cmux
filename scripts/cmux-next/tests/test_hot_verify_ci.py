@@ -885,12 +885,12 @@ class PullRequestRead(unittest.TestCase):
             gh.chmod(0o755)
             out = t / "out"
             out.write_text("")
-            env = {
+            env = git_fixture_env.fixture_env({
                 "PATH": f"{wrap}:/usr/bin:/bin", "PR": "42", "HEAD_SHA": HEAD, "LAYERS": "web",
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(out),
                 "GITHUB_STEP_SUMMARY": str(t / "summary"), "RUNNER_TEMP": str(t),
                 "GH_TOKEN": "t0", "GH_BUDGET_WAIT_MAX_SECONDS": "0",
-            }
+            })
             done = subprocess.run(["bash", str(PR_SH)], env=env, capture_output=True, text=True, timeout=60)
             lines = dict(l.split("=", 1) for l in out.read_text().splitlines() if "=" in l)
             return done, lines, calls.read_text() if calls.exists() else ""
