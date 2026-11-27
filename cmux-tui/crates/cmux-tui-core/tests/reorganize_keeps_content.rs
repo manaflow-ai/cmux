@@ -10,7 +10,7 @@ use cmux_tui_core::{Actor, Mux, SplitDir, Surface, SurfaceOptions, TabDropEdge};
 use std::sync::Arc;
 use std::time::Duration;
 mod support;
-use support::wait_for;
+use support::{DaemonMuxOps, wait_for};
 
 const ROUNDS: usize = 12;
 /// 200 numbered history lines, then a marker that stays in the viewport; the shell never redraws.
