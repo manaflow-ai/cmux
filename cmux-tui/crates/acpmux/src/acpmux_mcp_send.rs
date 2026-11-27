@@ -40,6 +40,9 @@ const _: () = assert!(
         <= CALL_BUDGET.as_millis(),
     "resolve, settle and relay must fit in the call's budget"
 );
+/// How long a send waits for the next daemon when the one it reached updates or restarts under
+/// it ([`queue`]); it goes to the relay only once that runs out, so the two never add up.
+const RESTART_WAIT: Duration = RELAY_WAIT;
 const _: () = assert!(CALL_BUDGET.as_millis() < 60_000, "the call must end before Codex's 60 s");
 
 pub(super) fn tool() -> Value {
@@ -387,6 +390,25 @@ fn spool_message(text: String) -> Result<(String, Option<Arc<MessageFile>>), Str
 /// file is refused even when it is readable: a message goes to other sessions and peers, so it
 /// carries only the sender's own files.
 pub(super) fn read_message_file(path: &str) -> Result<(String, Option<Arc<MessageFile>>), String> {
+    use cmux_tui_util::retry::{Attempt, Patience};
+    // A file still being written (its size moved while it was read) is read again once it
+    // settles, for a couple of seconds, instead of asking the agent to send it again.
+    let changed = changed_while_read(&std::path::Path::new(path).display());
+    Patience::new("the message file to finish writing", std::time::Duration::from_secs(2))
+        .quiet()
+        .run(|| {
+            read_message_file_once(path)
+                .map_err(|e| if e == changed { Attempt::Retry(e) } else { Attempt::Fail(e) })
+        })
+}
+
+/// [`read_message_file`]'s refusal of a file whose size moved while it was read.
+fn changed_while_read(shown: &impl std::fmt::Display) -> String {
+    format!("{shown} kept changing while it was read: another program is still writing it")
+}
+
+/// One read of [`read_message_file`].
+fn read_message_file_once(path: &str) -> Result<(String, Option<Arc<MessageFile>>), String> {
     use std::io::Read;
     let path = std::path::Path::new(path);
     let shown = path.display();
@@ -428,9 +450,7 @@ pub(super) fn read_message_file(path: &str) -> Result<(String, Option<Arc<Messag
         ));
     }
     if bytes.len() as u64 != meta.len() {
-        return Err(format!(
-            "{shown} changed while it was read; send it again once writing finishes"
-        ));
+        return Err(changed_while_read(&shown));
     }
     let text = String::from_utf8(bytes).map_err(|_| {
         format!("{shown} is not UTF-8 text: send a binary file with acpmux send --attach")
@@ -463,7 +483,7 @@ async fn send_one(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Va
         Err(e) => return refusal(e),
     };
     let target = Target { index: 0, to: to.clone(), key: key.clone(), tag: None, text, file, item };
-    let (prompt, queued) = match queue(daemon, &target, sub, None).await {
+    let (daemon, prompt, queued) = match queue(daemon, &target, sub, None, call_end).await {
         Ok(sent) => sent,
         Err(e) => {
             return match relay(&target, &e, sub, call_end).await {
@@ -486,7 +506,8 @@ async fn send_one(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Va
             };
         }
     };
-    let row = settle(daemon, &target, &prompt, queued, STATUS_WAIT).await;
+    let left = call_end.saturating_duration_since(tokio::time::Instant::now());
+    let row = settle(&daemon, &target, &prompt, queued, STATUS_WAIT.min(left)).await;
     let field = |k: &str| row.get(k).cloned().unwrap_or(Value::Null);
     let text_of = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
     let delivery = text_of("deliveryId");
@@ -573,8 +594,10 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> 
                 let daemon = &daemon;
                 let sub = sub.as_deref();
                 in_order(&targets, chain, deadline, move |target, wait, after| async move {
-                    match queue(daemon, target, sub, after.as_deref()).await {
-                        Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
+                    match queue(daemon, target, sub, after.as_deref(), call_end).await {
+                        Ok((daemon, prompt, queued)) => {
+                            settle(&daemon, target, &prompt, queued, wait).await
+                        }
                         Err(e) => match relay(target, &e, sub, call_end).await {
                             Some(row) => row,
                             None => target.row(false, "failed", Some(format!("{e:#}"))),
@@ -874,7 +897,8 @@ async fn queue(
     target: &Target,
     sub: Option<&Value>,
     after: Option<&str>,
-) -> Result<(PromptId, Value)> {
+    call_end: tokio::time::Instant,
+) -> Result<(Arc<Client>, PromptId, Value)> {
     let mut prompt = PromptId::new(None);
     prompt.subagent = sub.cloned();
     // Outside an acpmux session, where this server's MCP client or harness says it came from
@@ -910,14 +934,25 @@ async fn queue(
         .await?;
         prompt.attachments.extend(blocks);
     }
-    let mut request = prompt.params(&target.key, &target.text, target.item.steer, None);
-    if let Some(after) = after
-        && let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
-    {
-        mux.insert(crate::hub::outbox::AFTER_KEY.into(), json!(after));
-    }
-    let queued = daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await?;
-    Ok((prompt, queued))
+    // Through a daemon update or restart: the same prompt id again, `resend: true`, to the next
+    // daemon until `call_end` (Leo, 2026-11-27: "ok well we should be able to just hold those
+    // messages"). The outbox runs an id once, so the message lands exactly once.
+    let deadline = call_end.min(tokio::time::Instant::now() + RESTART_WAIT);
+    let (daemon, queued) =
+        crate::cli::output::through_restart(daemon, deadline, |daemon, resend| {
+            let mut prompt = prompt.clone();
+            prompt.resend |= resend;
+            let mut request = prompt.params(&target.key, &target.text, target.item.steer, None);
+            if let Some(after) = after
+                && let Some(mux) =
+                    request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
+            {
+                mux.insert(crate::hub::outbox::AFTER_KEY.into(), json!(after));
+            }
+            async move { daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await }
+        })
+        .await?;
+    Ok((daemon, prompt, queued))
 }
 
 /// Wait up to `wait` for a queued message's delivery to settle; its row.
@@ -1037,51 +1072,9 @@ fn batch_result(results: Vec<Value>) -> Value {
 }
 
 #[cfg(test)]
-mod sent_line_tests {
-    use super::sent_line;
-    use serde_json::json;
-
-    /// Leo: "the send/recieve messages are still only the older names". The confirmation names
-    /// the target by its given name, its HOST/NAME beside it; a target without one reads as before.
-    #[test]
-    fn a_send_confirmation_names_the_target_by_its_given_name() {
-        let row = |accepted| {
-            json!({"ok": true, "to": "studio-mac/coord-old", "promptId": "p1",
-                   "deliveryId": "d1", "delivery": "started", "accepted": accepted})
-        };
-        assert_eq!(
-            sent_line(&row(json!({"sessionId": "s1", "displayName": "Mango"}))),
-            "Sent to Mango · studio-mac/coord-old: it started a turn with it (promptId p1)."
-        );
-        assert_eq!(
-            sent_line(&row(json!({"sessionId": "s1"}))),
-            "Sent to studio-mac/coord-old: it started a turn with it (promptId p1)."
-        );
-        // Sent by the given name: said once.
-        let mut by_given = row(json!({"sessionId": "s1", "displayName": "Mango"}));
-        by_given["to"] = json!("Mango");
-        assert_eq!(sent_line(&by_given), "Sent to Mango: it started a turn with it (promptId p1).");
-    }
-}
+#[path = "acpmux_mcp_send_sent_line_tests.rs"]
+mod sent_line_tests;
 
 #[cfg(test)]
-mod budget_nesting_tests {
-    use super::*;
-
-    /// A relay started late in the call gets only what is left, never its full wait.
-    #[tokio::test(start_paused = true)]
-    async fn the_relay_deadline_is_cut_to_the_calls_end() {
-        let start = tokio::time::Instant::now();
-        let call_end = start + CALL_BUDGET;
-        assert_eq!(relay_deadline(call_end), start + RELAY_WAIT);
-        tokio::time::advance(CALL_BUDGET - Duration::from_secs(3)).await;
-        assert_eq!(relay_deadline(call_end), call_end);
-    }
-
-    /// The steps nest: each inner wait is shorter than the call that runs it.
-    #[test]
-    fn inner_waits_are_shorter_than_the_call() {
-        assert!(RESOLVE_WAIT < CALL_BUDGET && RELAY_WAIT < CALL_BUDGET);
-        assert!(CALL_BUDGET < Duration::from_secs(60));
-    }
-}
+#[path = "acpmux_mcp_send_budget_nesting_tests.rs"]
+mod budget_nesting_tests;

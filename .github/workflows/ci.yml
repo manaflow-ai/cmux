@@ -147,8 +147,13 @@ jobs:
       # Empty until the base revision of the router knows this area, so the
       # consumers below read a missing value as "not routed".
       swift_packages: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages || 'false') }}
-      web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.detect.outputs.web) }}
-      agent_session_web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.detect.outputs.agent_session_web) }}
+      # A run that is not a pull request on feat-cmux-next (the hourly full tier's dispatch, next_line.sh) routes web
+      # off: the post-merge batch already runs ci-web.yml's every job on the tip (.github/post-merge-batch.json `web`),
+      # and the hourly copy ran the same eight react-apps-check shards about 37 min each, ten minutes after the batch's
+      # (runs 45971503699 and 45972762730, 2026-11-27): about 7.1k runner-min a day. Leo: "de facto, im asking for 99%
+      # fewer minutes of ci time, period."
+      web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none' || (github.event_name != 'pull_request' && steps.line.outputs.next_line == 'true')) && 'false' || (steps.detect.outputs.web) }}
+      agent_session_web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none' || (github.event_name != 'pull_request' && steps.line.outputs.next_line == 'true')) && 'false' || (steps.detect.outputs.agent_session_web) }}
       release_build: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.next-route.outputs.release_build || steps.detect.outputs.release_build) }}
       owned_head_repos: ${{ steps.owned-head-repos.outputs.repos }}
       linux_guard_tests: ${{ steps.linux_guards.outputs.linux_guard_tests }}
@@ -304,6 +309,8 @@ jobs:
           # carries that run; one with reds reruns only what was not green (head_tier.py's full-ci base merge carry
           # rule); 0 turns that off.
           CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
+          # Heavy jobs run only on the event that hands a head to land (head_tier.py's heavy-at-land rule); 0 turns that off.
+          CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
         run: if [ -f scripts/ci/head_tier.py ]; then python3 -I scripts/ci/head_tier.py; fi
@@ -320,7 +327,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA")" >> "$GITHUB_OUTPUT"
+          REF_NAME: ${{ github.ref_name }}
+        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA" "$REF_NAME")" >> "$GITHUB_OUTPUT"
 
       - name: Reject superseded manual dispatch before routing
         if: github.event_name == 'workflow_dispatch'
@@ -1235,7 +1243,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA")" >> "$GITHUB_OUTPUT"
+          REF_NAME: ${{ github.ref_name }}
+        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA" "$REF_NAME")" >> "$GITHUB_OUTPUT"
 
       - name: Run the fast guard tests
         if: steps.line.outputs.next_line != 'true'
@@ -1268,7 +1277,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA")" >> "$GITHUB_OUTPUT"
+          REF_NAME: ${{ github.ref_name }}
+        run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA" "$REF_NAME")" >> "$GITHUB_OUTPUT"
 
       - name: Run the contributor static preflight
         if: steps.line.outputs.next_line != 'true'
@@ -1370,6 +1380,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
     uses: ./.github/workflows/ci-web.yml
     with:
       web: ${{ needs.changes.outputs.web }}
