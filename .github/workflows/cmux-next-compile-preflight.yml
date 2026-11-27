@@ -24,6 +24,10 @@
 name: cmux-next compile preflight
 
 on:
+  # Register the dispatch entrypoint when this workflow lands off main.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-next-compile-preflight.yml]
   workflow_call:
   workflow_dispatch:
 
@@ -52,6 +56,18 @@ jobs:
       # 40 s no-op run (jobs 140303340556, 140303466828, 2026-11-27 04:00Z), about 300 runs an hour: ~1.8k
       # runner-min/day (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
 
+      # Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
+      # cmux#51044 passed this job at 06:36Z and landed at 07:03Z, then broke feat-cmux-next: the merge commit above was
+      # GitHub's, built on base 2dae74e007e (05:23Z), 73 min and two web PRs (#46544, #60849: the second
+      # `layoutGeometry` import) behind the live tip. So the head is merged onto the base as it is now.
+      - name: Merge the head onto the live base
+        if: github.event_name == 'pull_request'
+        env:
+          GIT_AUTH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 -I scripts/ci/compile_preflight.py merge-live-base . "$BASE_REF" "$PR_NUMBER"
+
       - name: Does this change reach a web bundle
         id: touched
         env:
@@ -69,6 +85,12 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         if: steps.touched.outputs.web == 'true'
         run: scripts/ci/reset-stale-submodules.sh
+
+      # Seconds, before any install: the parse-class break (a binding imported twice in one statement) fails here, not
+      # after the 2-3 min build.
+      - name: Fast fail - no webviews import names a binding twice
+        if: steps.touched.outputs.web == 'true'
+        run: python3 -I tests/test_webviews_no_duplicate_import_names.py
 
       - name: Source key of the web bundles
         id: web-bundle-key
