@@ -24,6 +24,7 @@ import { settledRead, whenSettled } from "./paneSettle";
 import { sameButRows } from "./liveToolOutput";
 import { drewUnderClosedFold, hiddenUnderFold } from "./drawnRows";
 import { isThought } from "./conversation/thoughts";
+import { acpmuxPerf } from "./perf";
 
 /// The line the transcript drew (`from`) and the line as the calls since have it (`to`).
 type Entry = { readonly from: AcpmuxRow; readonly to: AcpmuxRow; readonly seq: number };
@@ -176,7 +177,7 @@ export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
       line && basis && shape && drewShaped(shape.shaped, open) && turnOf(shape.turn, basis.rows)
         ? { shape, line, basis, open }
         : undefined;
-    if (drawn && shape!.stamp !== stamp && acpmuxDebug) acpmuxDebug("open:kept-stale-stamp");
+    if (acpmuxPerf.enabled && drawn && shape!.stamp !== stamp) acpmuxPerf.render("open:kept-stale-stamp");
     if (!drawn)
       lost = `open:${!line ? "noline" : !basis ? "nobasis" : !shape ? "noshape" : !drewShaped(shape.shaped, open) ? `drewShaped/${shapedMiss(shape.shaped, open)}` : "turnOf"}`;
     return;
