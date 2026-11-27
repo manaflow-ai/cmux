@@ -27,7 +27,9 @@
           ".github/actions/",
           ".github/checkout-lean.json",
           ".github/cloud-backend-paths.json",
+          ".github/cloud-harness-matrix/request",
           ".github/cloud-machine-count-probe/request",
+          ".github/cloud-staging-test-sweep/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
@@ -98,7 +100,9 @@
           ".github/actions/tree-result/action.yml",
           ".github/checkout-lean.json",
           ".github/cloud-backend-paths.json",
+          ".github/cloud-harness-matrix/request",
           ".github/cloud-machine-count-probe/request",
+          ".github/cloud-staging-test-sweep/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
@@ -227,7 +231,9 @@
           ".github/actions/tree-result/action.yml",
           ".github/checkout-lean.json",
           ".github/cloud-backend-paths.json",
+          ".github/cloud-harness-matrix/request",
           ".github/cloud-machine-count-probe/request",
+          ".github/cloud-staging-test-sweep/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
@@ -386,7 +392,9 @@
           ".github/actions/tree-result/action.yml",
           ".github/checkout-lean.json",
           ".github/cloud-backend-paths.json",
+          ".github/cloud-harness-matrix/request",
           ".github/cloud-machine-count-probe/request",
+          ".github/cloud-staging-test-sweep/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
@@ -411,6 +419,22 @@
         ],
         "suggested_inputs_more": 677
       },
+      "app-store-shelf-pr": {
+        "why": "runs on every pull request head on purpose: a head that reaches no shelf input ends after a checkout and a diff, so a skipped land tier cannot let a shelf break merge (cmux#46903)",
+        "suggested_inputs": [
+          "first-party-apps/",
+          "scripts/ci/app-store-shelf-check.sh",
+          "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs"
+        ]
+      },
+      "ios-placeholder-bounds": {
+        "why": "runs on every pull request on purpose: land-judge's required list is to name its check run, so it records a pass on every head; seconds of stdlib Python",
+        "suggested_inputs": [
+          "cmux-next-ios/",
+          "scripts/ci/ios_placeholder_bounds.py",
+          "tests/test_ios_placeholder_bounds.py"
+        ]
+      },
       "nightly-guards": {
         "why": "calls a reusable workflow (ci-guards.yml); the callee's own jobs route",
         "suggested_inputs": [
@@ -430,6 +454,14 @@
       "tooling-tests-fail-fast": {
         "why": "head fail-fast: runs only once the job it needs has failed on a same-repo pull request (scripts/ci/head_fail_fast.py); it reads no paths, so it has no inputs to declare",
         "suggested_inputs": []
+      },
+      "workflow-start-lint": {
+        "why": "runs on every pull request on purpose: a feat pull request without full-ci skips fast-check-route, and a broken workflow must be caught there; a change that touches no workflow and not the lint ends at its own first step after a sparse depth-2 checkout",
+        "suggested_inputs": [
+          ".github/",
+          "scripts/ci/install-actionlint.sh",
+          "scripts/ci/workflow_start_lint.py"
+        ]
       }
     },
     ".github/workflows/cmux-next-pr-autofix-closed-cancel.yml": {
@@ -569,6 +601,8 @@
           "Packages/macOS/CmuxNext/Sources/",
           "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift",
+          "cmux-tui/spec/gui-capabilities.json",
+          "scripts/cmux-next/gen-daemon-capabilities.py",
           "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/",
           "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
           "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
@@ -688,7 +722,9 @@
           ".github/actions/tree-result/action.yml",
           ".github/checkout-lean.json",
           ".github/cloud-backend-paths.json",
+          ".github/cloud-harness-matrix/request",
           ".github/cloud-machine-count-probe/request",
+          ".github/cloud-staging-test-sweep/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
@@ -772,6 +808,17 @@
           "scripts/ci/",
           "scripts/ci/affected-jobs.json",
           "scripts/ci/affected_jobs_replay.py"
+        ]
+      },
+      "remote-web-wasm": {
+        "why": "builds the cmux-remote-web crate for wasm32-unknown-unknown on Linux",
+        "suggested_inputs": [
+          ".github/workflows/cmux-tui-spec.yml",
+          ".github/actions/setup-cmux-tui-rust/",
+          "cmux-tui/Cargo.lock",
+          "cmux-tui/Cargo.toml",
+          "cmux-tui/crates/cmux-remote-web/",
+          "scripts/ci/apt-ensure.sh"
         ]
       }
     },
@@ -873,7 +920,9 @@
           ".github/actions/",
           ".github/checkout-lean.json",
           ".github/cloud-backend-paths.json",
+          ".github/cloud-harness-matrix/request",
           ".github/cloud-machine-count-probe/request",
+          ".github/cloud-staging-test-sweep/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
@@ -1037,7 +1086,6 @@
           "Packages/macOS/CmuxNext/Sources/",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Tree/ProtectedFolderEntry.generated.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/",
-          "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StaticStatusGlyph.generated.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift",
@@ -1079,6 +1127,12 @@
       }
     },
     ".github/workflows/pr-router.yml": {
+      "fast-gates": {
+        "why": "a pr-router caller: route starts it (scripts/ci/pr_router.json cmux-next-fast-gates.yml) on every head it starts anything for, as the workflow's own pull_request trigger did: next-autoland and merge_hold read its cmux-next/fast-gates status at every head; its jobs' own `if:`s keep their tier and path rules (fast-check-route)",
+        "suggested_inputs": [
+          ".github/workflows/cmux-next-fast-gates.yml"
+        ]
+      },
       "machine-channel-pr-head": {
         "why": "a pr-router caller: route starts it (scripts/ci/pr_router.json cmux-machine-channel.yml), and its plan job decides by the v2 tree key, not by paths",
         "suggested_inputs": [

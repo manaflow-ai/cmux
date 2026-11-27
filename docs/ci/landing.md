@@ -202,3 +202,13 @@ Where things are:
   `gh-merge-green` refuses a PR that touches a path an open
   `merge-freeze` issue freezes, or when the freeze state can't be read; only the freeze owner's
   `freeze-ok` label lets that PR through ([merge freezes](merge-freeze.md)).
+
+## A unittest test's own output is never a crash
+
+`scripts/ci/test_reds.py` reads a log for crashes. A `unittest -v` test prints its verdict after whatever it printed,
+so the indented lines (and the rest of the `name (mod.Cls.name) ... ` line) are that test's output. A probe that quotes
+`crash report x.ips: EXC_BAD_ACCESS` there is not the process dying. Only the quoted-diagnostic patterns (`SIGNALED`,
+`CRASH_AT_START`) are muted in that span; `Fatal Python error`, a signal exit status and a shell kill still count, and a
+crash, cut-short or truncated log is never excused. hq#26226 (run 45717138906, job 139565977393): 4 named
+`FAILED module` lines read as "the test process crashed (no signal named)" and land-judge refused a normal exit 1.
+Test: `tests/test_test_reds.py::UnittestOutputQuotingADiagnosticIsNotACrash`.

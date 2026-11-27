@@ -11,19 +11,24 @@ const hrefs = (markdown: string) =>
   );
 
 test("a known repository's short name is its pull request chip", () => {
-  const html = renderToStaticMarkup(<Markdown>{"- Relay deploy (subrouter-internal#54):"}</Markdown>);
-  expect(html).toContain('href="https://github.com/manaflow-ai/subrouter-internal/pull/54"');
-  expect(html).toContain('<span class="cv-chip__label">subrouter-internal#54</span>');
+  const html = renderToStaticMarkup(<Markdown>{"- Relay deploy (cmux#54):"}</Markdown>);
+  expect(html).toContain('href="https://github.com/manaflow-ai/cmux/pull/54"');
+  expect(html).toContain('<span class="cv-chip__label">cmux#54</span>');
   expect(html).toContain("cv-chip__icon--gh");
 });
 
-test("every form links: owner/repo#N, a short name and an alias", () => {
-  expect(hrefs("acme/widgets#9, cmux#37758, lw#12 and hq#4879")).toEqual([
+test("every form links: owner/repo#N and cmux's short name", () => {
+  expect(hrefs("acme/widgets#9 and cmux#37758")).toEqual([
     "https://github.com/acme/widgets/pull/9",
     "https://github.com/manaflow-ai/cmux/pull/37758",
-    "https://github.com/teamleaderleo/leo-workspace/pull/12",
-    "https://github.com/manaflow-ai/cmuxterm-hq/pull/4879",
   ]);
+});
+
+// No team's own repositories are known names: a person's lw#12 or hq#4879 is theirs (Leo
+// 2026-11-26: "identify all the weird opinoinated fleet things we shipped into the app and remove
+// them").
+test("a team's short names stay text", () => {
+  expect(hrefs("lw#12, hq#4879, subrouter-internal#54 and leo-workspace#843")).toEqual([]);
 });
 
 test("code, a link's label and a URL keep a reference as written", () => {

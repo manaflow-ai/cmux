@@ -107,11 +107,16 @@ impl HostedForum {
         let url = var(URL_ENV)
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| cmux_forum_hosted::DEVELOPMENT_BASE_URL.to_owned());
+        Self::at(url, team, key)
+    }
+
+    /// The forum at `url` for `team`, signed in with the agent `key`.
+    fn at(url: String, team: String, key: String) -> Slot {
         // reqwest is built without a default TLS provider (as `github_status.rs` does).
         let _ = rustls::crypto::ring::default_provider().install_default();
         let headers = cmux_build_space::headers()
             .map_err(|_| "The hosted forum is off: this build's space is unusable.".to_owned())?;
-        let http = reqwest::Client::builder()
+        let http = cmux_egress::client_builder("acpmux::hub::forum_hosted")
             .default_headers(headers)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
@@ -360,5 +365,35 @@ mod tests {
         let err = forum.refusal(&ForumError::Transport("echo cfk_secret_value".into()));
         assert!(!err.message.contains("cfk_secret_value"), "{}", err.message);
         assert!(!format!("{err:?}").contains("cfk_secret_value"));
+    }
+
+    /// Seeded secrets on the wire (cmux_egress::capture): the agent key rides only in the token
+    /// exchange's `Authorization`, the team only in `x-cmux-team`, and the post's text only in
+    /// bodies. tests/egress_seeded.json names this test for `acpmux::hub::forum_hosted`.
+    #[tokio::test]
+    async fn seeded_secrets_ride_only_where_the_forum_needs_them() {
+        cmux_egress::capture::install().unwrap();
+        let key = "cfk_SEEDforumHostedKey-4b1e";
+        let team = "SEEDforumTeam-91ac";
+        let forum = HostedForum::at(
+            cmux_forum_hosted::DEVELOPMENT_BASE_URL.to_owned(),
+            team.to_owned(),
+            key.to_owned(),
+        )
+        .unwrap();
+        let client = forum.client("seeded-session");
+        // The capture server answers `200 {}`: the exchange decodes no token and the call ends.
+        let _ = client.spaces().await;
+        let host = "cmux-platform-development.debussy.workers.dev";
+        let sent = cmux_egress::capture::requests_to(host);
+        assert!(!sent.is_empty(), "the exchange reached the capture server");
+        let places = cmux_egress::capture::leaks(key);
+        assert!(!places.is_empty(), "{sent:?}");
+        assert!(
+            places.iter().all(|p| p.ends_with(" /v1/forum/token: header authorization")),
+            "{places:?}"
+        );
+        let places = cmux_egress::capture::leaks(team);
+        assert!(places.iter().all(|p| p.ends_with(": header x-cmux-team")), "{places:?}");
     }
 }

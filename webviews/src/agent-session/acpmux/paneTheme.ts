@@ -12,6 +12,7 @@ import { configureReceivedLook } from "./conversation/receivedLook";
 import { configureMessageLineLook } from "./conversation/messageLineLook";
 import { configureNoticeBodyLook, configureNoticeLook } from "./conversation/noticeLook";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
+import { configureAgentSignature } from "./conversation/agentSignatureModel";
 
 /** The same host theme before mount and on subsequent bridge pushes. */
 export function applyPaneTheme(theme: Record<string, unknown>): void {
@@ -30,6 +31,7 @@ export function applyPaneTheme(theme: Record<string, unknown>): void {
   configureTurnActionsPlacement(theme.turnActionsPlacement);
   configureSubagentTrayPlacement(theme.subagentTrayPlacement);
   configureSelectionReply(theme.selectionReply);
+  configureAgentSignature(theme.agentSignature);
 }
 
 const USER_THEME_ID = "acpmux-user-theme";

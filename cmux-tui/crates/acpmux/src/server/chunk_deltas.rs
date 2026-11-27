@@ -21,6 +21,7 @@
 
 use super::*;
 use crate::rpc::method;
+use std::borrow::Cow;
 
 /// The notification a compact chunk goes as.
 pub(crate) const CHUNK: &str = method::MUX_CHUNK;
@@ -63,6 +64,9 @@ fn shape_of(params: &Value) -> Value {
         obj.remove("seq");
         obj.remove("at");
         obj.remove("chunkRef");
+        // The stream's cursor before the record (`prev`, `Conn::stream_prev`) differs on every
+        // record; a compact frame carries its own.
+        obj.remove("prev");
     }
     if let Some(content) = shape.pointer_mut("/msg/params/update/content")
         && let Some(obj) = content.as_object_mut()
@@ -94,32 +98,89 @@ impl ChunkDeltas {
     /// The frame for one `_acpmux/event`'s `params` of chat `session_id`: the event as it is, or,
     /// for a client that asked, a text chunk as `_acpmux/chunk` when the chat's template matches
     /// it, or the event with a new `chunkRef` (and the template it starts) when none does.
-    pub(super) fn frame(&self, session_id: &str, mut params: Value) -> Message {
+    pub(super) fn frame(&self, session_id: &str, params: Value) -> Message {
+        let prev = params.get("prev").and_then(Value::as_u64).unwrap_or(0);
+        self.frame_of(session_id, Cow::Owned(params), prev)
+    }
+
+    /// [`Self::frame`] of params every connection shares (`HubEvent::event_params`): copied only
+    /// for a frame that carries them whole, so a compact chunk reads them in place. `prev` (this
+    /// connection's stream cursor before the record, `Conn::stream_prev`; 0 for none) is the one
+    /// field that differs per connection: it goes on the frame, never in the shared params.
+    pub(super) fn frame_shared(&self, session_id: &str, params: &Value, prev: u64) -> Message {
+        self.frame_of(session_id, Cow::Borrowed(params), prev)
+    }
+
+    fn frame_of(&self, session_id: &str, params: Cow<'_, Value>, prev: u64) -> Message {
+        let whole = |params: Cow<'_, Value>| {
+            let mut params = params.into_owned();
+            if prev > 0 {
+                params.set("prev", json!(prev));
+            }
+            params
+        };
         if !self.enabled() {
-            return Message::notification(method::MUX_EVENT, params);
+            return Message::notification(method::MUX_EVENT, whole(params));
         }
         let Some(text) = chunk_text(&params) else {
-            return Message::notification(method::MUX_EVENT, params);
+            return Message::notification(method::MUX_EVENT, whole(params));
         };
         let seq = params.get("seq").and_then(Value::as_u64).unwrap_or(0);
         let at = params.get("at").and_then(Value::as_u64).unwrap_or(0);
-        let shape = shape_of(&params);
         let mut templates = self.templates.lock_or_recover();
+        // Compared in place: the shape is copied only for a template it starts.
         if let Some(t) = templates.get_mut(session_id)
             && seq > t.seq
             && at >= t.at
-            && t.shape == shape
+            && same_shape(&t.shape, &params)
         {
-            let delta = json!({"ref": t.chunk_ref, "seq": seq, "dt": at.saturating_sub(t.at), "text": text});
+            let mut delta = json!({"ref": t.chunk_ref, "seq": seq, "dt": at.saturating_sub(t.at), "text": text});
+            if prev > 0 {
+                delta.set("prev", json!(prev));
+            }
             t.seq = seq;
             t.at = at;
             return Message::notification(CHUNK, delta);
         }
+        let shape = shape_of(&params);
         let chunk_ref = self.next_ref.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         templates.insert(session_id.to_owned(), Template { chunk_ref, shape, seq, at });
+        let mut params = whole(params);
         params.set("chunkRef", json!(chunk_ref));
         Message::notification(method::MUX_EVENT, params)
     }
+}
+
+/// `shape == shape_of(params)`, without building `shape_of(params)`.
+fn same_shape(shape: &Value, params: &Value) -> bool {
+    same_less(shape, params, &["seq", "at", "chunkRef", "prev"], &["msg", "params", "update", "content"])
+}
+
+/// `shape` equals `value` less its keys `skip`, and less the `text` at `path` below it, as
+/// [`shape_of`] takes them out: an object only, and a path only as far as it is objects.
+fn same_less(shape: &Value, value: &Value, skip: &[&str], path: &[&str]) -> bool {
+    let (Some(s), Some(v)) = (shape.as_object(), value.as_object()) else {
+        return shape == value;
+    };
+    let mut kept = 0;
+    for (k, x) in v {
+        if skip.contains(&k.as_str()) {
+            continue;
+        }
+        kept += 1;
+        let Some(sx) = s.get(k) else {
+            return false;
+        };
+        let same = match path.split_first() {
+            Some((head, [])) if k == head => same_less(sx, x, &["text"], &[]),
+            Some((head, rest)) if k == head => same_less(sx, x, &[], rest),
+            _ => sx == x,
+        };
+        if !same {
+            return false;
+        }
+    }
+    kept == s.len()
 }
 
 #[cfg(test)]

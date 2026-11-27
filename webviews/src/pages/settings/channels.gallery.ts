@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // Updates > Channels (ChannelsCard) mid-switch: the clicked Switch or Go Back stays shown with a
 // spinner and the host's stage, a thin bar runs under its row (the download's share, else a quiet
-// sweep), and every other Switch and Go Back waits. One variant per stage, and a refusal.
+// sweep), and every other Switch and Go Back waits. One variant per stage, a refusal, and a
+// build's PR list open.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import { mockChannels, mockGoBack } from "./mockChannels";
 import type { ChannelsProgress } from "./ops";
@@ -41,6 +42,16 @@ export default settingsPageEntry({
       running('[data-channel-switch="nightly"] .row'),
       "Go Back into the kept build: no download, straight to the restart; the Switches below wait.",
     ),
+    "prs-open": {
+      section: "updates",
+      focus: "channels",
+      options: { values: { "updates.channel": "nightly" } },
+      steps: [
+        { selector: `${nightlyRow("3422")} [data-channel-prs-toggle]`, action: "click" },
+        { selector: `${nightlyRow("3422")} [data-channel-prs]`, action: "wait" },
+      ],
+      note: "Which PRs went into a build: its count opens every one as #N and title, linked to GitHub.",
+    },
     refused: {
       section: "updates",
       focus: "channels",
