@@ -44,6 +44,20 @@ fn held(id: &str, from: &str, class: PromptClass, at: u64) -> Item {
     item
 }
 
+#[tokio::test]
+async fn closing_the_hub_cancels_a_queued_restore_review() {
+    let (hub, sessions) = hub_with_chats(&["lane-closing"]);
+    let session = &sessions[0];
+    let at = now_ms().saturating_sub(RESULT_DEADLINE_MS + 1);
+    session.inbox().items.push(held("r1", "other", PromptClass::Result, at));
+    let before = hub.scope.len();
+    review_after_restore(session);
+    assert_eq!(hub.scope.len(), before + 1, "the hub owns the restore review");
+    let report = hub.scope.close(std::time::Duration::from_secs(1)).await;
+    assert!(report.still_running.is_empty(), "the restore review ignored shutdown");
+    assert!(!tried(session), "a restore review ran after the hub closed");
+}
+
 /// The restart this module fixes: a blocker held for an idle chat, then the daemon restarts. Its
 /// inbox comes back from the log with no timer and no arrival to review it; before the fix it
 /// sat until something else started a turn (NOW, 2026-11-25: 219 messages, the soonest 46 hours
@@ -142,5 +156,5 @@ fn only_new_messages_a_day_past_their_deadline_expire() {
         seen,
         surge,
     ];
-    assert_eq!(expired_ids(&items, now), ["past"]);
+    assert_eq!(expired_ids(&items, now, Item::due), ["past"]);
 }
