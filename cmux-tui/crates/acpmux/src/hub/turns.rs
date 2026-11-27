@@ -745,7 +745,23 @@ impl Hub {
                 let hub = Arc::clone(self);
                 let session = Arc::clone(session);
                 self.scope.spawn_named("quiet-restart-teardown", async move {
-                    hub.end_quiet_stale(&session, "prompt-restart", None).await
+                    loop {
+                        if hub.end_quiet_stale(&session, "prompt-restart", None).await {
+                            return true;
+                        }
+                        // A required route/credential/gateway handoff must never fall through
+                        // to `ensure_child`: the existing child still has the failed environment.
+                        // Keep the setup future pending so a listened prompt reaches the normal
+                        // unanswered queue, while a daemon prompt waits for the quiet gate and
+                        // then makes forward progress when the background work ends.
+                        let required = session.respawn_required.load(Ordering::SeqCst);
+                        let marked = session.respawn_when_quiet.load(Ordering::SeqCst);
+                        let child = session.child.lock().await.is_some();
+                        if !required || !marked || !child || session.turn().is_some() {
+                            return false;
+                        }
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
                 })
             };
             // Acceptance callers defer through the enclosing admission deadline. Restored

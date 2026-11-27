@@ -113,6 +113,37 @@ async fn automatic_restart_ordinary_prompt_hibernates_required_stale_agent() {
 }
 
 #[tokio::test]
+async fn automatic_restart_does_not_reuse_required_stale_agent_while_work_runs() {
+    let (hub, session) = live_chat().await;
+    let old = session.child.lock().await.clone().expect("live fake child");
+    *session.work_below_since.lock().unwrap() = 1;
+    hub.respawn_when_quiet_required(&session);
+
+    let mut prompt = Box::pin(hub.prompt(
+        &session,
+        vec![json!({"type": "text", "text": "wait for background work"})],
+        "test",
+        false,
+    ));
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(250), &mut prompt).await.is_err(),
+        "required restart reused the old child while background work was active"
+    );
+    assert!(Arc::ptr_eq(&old, session.child.lock().await.as_ref().unwrap()));
+    assert!(old.is_alive().await);
+
+    *session.work_below_since.lock().unwrap() = 0;
+    tokio::time::timeout(std::time::Duration::from_secs(10), &mut prompt)
+        .await
+        .expect("prompt should make progress once background work ends")
+        .expect("replacement prompt");
+    let current = session.child.lock().await.clone().expect("replacement child");
+    assert!(!Arc::ptr_eq(&old, &current), "prompt reused the stale child after work ended");
+    assert!(!old.is_alive().await);
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
 async fn automatic_restart_retry_preserves_held_prompts_but_waits_for_admission() {
     let (hub, session) = live_chat().await;
     hub.append(
