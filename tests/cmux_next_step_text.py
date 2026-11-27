@@ -5,6 +5,7 @@ run `bash -e scripts/ci/cmux-next-steps/<step>.sh` instead of an inline `run: |`
 workflow. Tests that check a step's commands read them through step_run.
 """
 from __future__ import annotations
+# guard-inputs: scripts/ci/cmux-next-steps/
 
 from pathlib import Path
 import re

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# guard-inputs: tests_v2/cmux.py
+# (it globs for sockets in /tmp and Application Support, outside the tree)
 """cmux v2 Python Client
 
 A client library for programmatically controlling cmux via the Unix socket.
