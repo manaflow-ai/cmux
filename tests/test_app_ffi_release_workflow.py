@@ -838,6 +838,8 @@ class RePinPublication(unittest.TestCase):
                 self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
                 self.assertEqual(state["published"], [])
                 self.assertEqual(state["writes"], 0)
+                # A kept PR gets the stack-blocker and ready-to-land labels too (cmux#60965 sat unlabelled).
+                self.assertEqual(state.get("label_names"), [["stack-blocker", "ready-to-land"]])
 
     def test_a_failed_read_leaves_the_re_pin_branch_alone(self):
         # 2026-11-16: the open-PR read hit the App's rate limit and moved #44074 from 8f7f9e7d to 1b93c4a6 (run
