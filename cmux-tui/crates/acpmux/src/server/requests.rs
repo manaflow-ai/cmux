@@ -1576,12 +1576,15 @@ async fn dispatch_request_with_identity(
     {
         return crate::hub::file_uploads::web::handle(hub, m, params).await;
     }
-    // These methods can dispatch session/new or session/prompt while their poll is on the worker
-    // stack. Enter the large method match only for the child, after ordinary routing above.
+    // These methods can dispatch session/new or session/prompt, or fork and prompt through the
+    // hub, while their poll is on the worker stack. Keep the large method match out of their
+    // parent chain, after ordinary routing above. The composer includes ask and btw: both
+    // enter the fork machinery (request_stack exercises them on a default 2 MiB worker).
     match m {
         method::MUX_DISPATCH => heap(|| dispatch_brief(hub, conn, params)).await,
         method::MUX_STEER => heap(|| briefs::steer(hub, conn, params)).await,
         method::SESSION_FORK => heap(|| fork_session(hub, conn, params, resolved)).await,
+        m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         method::CHAT_FIX_FROM_LINK => {
             heap(|| super::fix_from_link::handle(hub, conn, params, false)).await
         }
@@ -3462,7 +3465,6 @@ async fn dispatch_method(
                 .await
                 .map_err(|e| RpcError::internal(format!("review brief stopped: {e}")))?
         }
-        m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         // Only the person writes the library: an agent's or a remote client's save could
         // replace a prompt the person types, or shadow one from `agentPane.savedPrompts`.
         method::MUX_PROMPTS_SAVE | method::MUX_PROMPTS_DELETE if !conn.is_person() => {
