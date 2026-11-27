@@ -42,6 +42,7 @@ pub mod language;
 pub mod location;
 pub mod managed;
 pub mod migrations;
+pub mod notifications;
 pub mod owner;
 pub mod project;
 pub mod project_actions;

@@ -82,16 +82,32 @@ run write || fail "write exited $?"
 [[ ! -e "$CROOT/DerivedData/Build" ]] || fail "write kept earlier build products"
 [[ -e "$CROOT/DerivedData/SourcePackages/pkg" ]] || fail "write removed the package checkouts"
 
-# 4. The node down: read builds the old way, write refuses with 3 and builds nothing.
+# 4. The node down: read builds in the host's plain root (kept, cache off), write refuses with 3
+#    and builds nothing. CMUX_NEXT_RELEASE_PLAIN_ROOT=off builds the old way.
+PROOT="$FLEET/next-release-plain"
 run read STUB_NODE=down || fail "read (node down) exited $?"
-[[ "$(called dd)" == "$TMP/fallback-dd" ]] || fail "read with the node down built into $(called dd)"
+[[ "$(called script)" == "$PROOT/src/scripts/cmux-next/check-release-compile.sh" ]] || fail "read with the node down ran $(called script)"
+[[ "$(called dd)" == "$PROOT/DerivedData" ]] || fail "read with the node down built into $(called dd)"
+[[ "$(git -C "$PROOT/src" rev-parse HEAD)" == "$HEAD" ]] || fail "the plain tree is not at HEAD"
 settings | grep -q UNSET || fail "read with the node down passed cache settings"
+grep -q "CMUX_NEXT_RELEASE_DERIVED_DATA=$PROOT/DerivedData" "$TMP/genv" || fail "read with the node down did not export the plain DerivedData"
+[[ "$(called fsmode)" == checksum-only ]] || fail "the plain root did not judge changes by content"
+mkdir -p "$PROOT/DerivedData/Build"; touch "$PROOT/DerivedData/Build/kept.o"
+run read STUB_NODE=down || fail "read (node down, kept) exited $?"
+[[ -e "$PROOT/DerivedData/Build/kept.o" ]] || fail "the plain root's DerivedData was not kept"
+run read STUB_NODE=down CMUX_NEXT_RELEASE_PLAIN_ROOT=off || fail "read (plain off) exited $?"
+[[ "$(called dd)" == "$TMP/fallback-dd" ]] || fail "CMUX_NEXT_RELEASE_PLAIN_ROOT=off built into $(called dd)"
+exec 8>>"$PROOT/lock"
+python3 -I "$WS/scripts/cmux-next/host_build_lock.py" acquire "$PROOT/lock" --fd 8 || fail "test could not take the plain lock"
+run read STUB_NODE=down || fail "read (plain busy) exited $?"
+[[ "$(called dd)" == "$TMP/fallback-dd" ]] || fail "read with a busy plain root built into $(called dd)"
+exec 8>&-
 status=0; run write STUB_NODE=down || status=$?
 [[ $status -eq 3 && ! -e "$TMP/called" ]] || fail "write with the node down exited $status or built"
-# No socket (a helper that still answers): the node is not there, so read falls back at once.
+# No socket (a helper that still answers): the node is not there, so read uses the plain root.
 mv "$FLEET/fleet-cas.sock" "$TMP/sock.away"
 run read || fail "read (no socket) exited $?"
-[[ "$(called dd)" == "$TMP/fallback-dd" ]] || fail "read with no socket built into $(called dd)"
+[[ "$(called dd)" == "$PROOT/DerivedData" ]] || fail "read with no socket built into $(called dd)"
 mv "$TMP/sock.away" "$FLEET/fleet-cas.sock"
 
 # 5. Another build holds the root: read builds the old way at once, write refuses with 75.
