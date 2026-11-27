@@ -15,6 +15,8 @@ import {
   cmuxTuiDaemonSettleScript,
   cmuxTuiAcpmuxLinkCommand,
   cmuxTuiPinnedManifestUrl,
+  CMUX_TUI_EXIT_NO_WORK_USER,
+  cmuxTuiAgentLayoutSelector,
   cmuxTuiLayoutSelector,
   cmuxTuiPinCheckCommand,
   cmuxTuiManifestUrl,
@@ -437,6 +439,62 @@ describe("cmux-tui install and daemon commands", () => {
     });
     expect(out).toBe("root:/root:/root/.cmux/bin/cmux-tui");
   });
+});
+
+describe("agent layout selector fails closed", () => {
+  /** Runs `snippet` with stub binaries first on PATH; returns status, stdout and stderr. */
+  async function run(snippet: string, stubs: Record<string, string>) {
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-agent-layout-"));
+    const fakeBin = join(root, "bin");
+    mkdirSync(fakeBin, { recursive: true });
+    try {
+      for (const [name, body] of Object.entries(stubs)) {
+        const file = join(fakeBin, name);
+        writeFileSync(file, body);
+        chmodSync(file, 0o755);
+      }
+      const result = await runChild("/bin/sh", ["-c", snippet], {
+        env: { ...process.env, PATH: [fakeBin, "/usr/bin", "/bin"].join(":") },
+      });
+      return { status: result.status, stdout: (result.stdout ?? "").trim(), stderr: (result.stderr ?? "").trim() };
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  const report = '; printf %s:%s:%s "$CMUX_TUI_USER" "$CMUX_TUI_HOME" "$CMUX_TUI_BIN"';
+  const ok = "#!/bin/sh\nexit 0\n";
+
+  test("never names the root layout", () => {
+    const selector = cmuxTuiAgentLayoutSelector();
+    expect(selector).not.toContain("CMUX_TUI_USER=root");
+    expect(selector).not.toContain("/root");
+    expect(selector).toContain(`exit ${CMUX_TUI_EXIT_NO_WORK_USER}`);
+  });
+
+  test("a usable work user runs the agent as that user", async () => {
+    const out = await run(`${cmuxTuiAgentLayoutSelector()}${report}`, { id: ok, setpriv: ok, sudo: ok });
+    expect(out.status).toBe(0);
+    expect(out.stdout).toBe("cmux:/home/cmux:/home/cmux/.cmux/bin/cmux-tui");
+  });
+
+  for (const [name, stubs] of [
+    ["a missing work user", { id: "#!/bin/sh\nexit 1\n", setpriv: ok }],
+    ["no setpriv", { id: ok }],
+    ["a work home it cannot write", { id: ok, setpriv: '#!/bin/sh\ncase "$*" in *test*) exit 1;; esac\nexit 0\n', sudo: ok }],
+    ["no passwordless sudo", { id: ok, setpriv: '#!/bin/sh\ncase "$*" in *sudo*) exit 1;; esac\nexit 0\n', sudo: ok }],
+  ] as const) {
+    test(`${name} fails the start with a clear error, never root`, async () => {
+      const snippet = `${cmuxTuiAgentLayoutSelector()}${report}`;
+      // `command -v setpriv` must miss for the no-setpriv case: drop it from the PATH entirely.
+      const out = name === "no setpriv"
+        ? await run(snippet.replace("command -v setpriv", "command -v cmux-no-such-setpriv"), stubs)
+        : await run(snippet, stubs);
+      expect(out.status).toBe(CMUX_TUI_EXIT_NO_WORK_USER);
+      expect(out.stdout).toBe("");
+      expect(out.stderr).toContain("agents never run as root");
+    });
+  }
 });
 
 describe("cmux-tui attach bundle", () => {

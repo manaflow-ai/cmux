@@ -29,13 +29,34 @@ use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::io;
-use std::mem::size_of_val;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
-use std::os::fd::{AsRawFd, RawFd};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
+#[cfg(unix)]
+use std::os::fd::RawFd;
+#[cfg(windows)]
+use std::os::windows::io::RawSocket;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// Outer WireGuard media may not wait in the rd-link handoff longer than cmux-wg's media
+/// scheduler budget. Control and handshake records use the command queue and are never aged
+/// by this limit.
+const MEDIA_MAX_AGE: Duration = Duration::from_millis(50);
+
+struct QueuedMedia {
+    queued_at: Instant,
+    datagram: Vec<u8>,
+}
+
+impl QueuedMedia {
+    fn take_payload_if_fresh(self, now: Instant) -> Option<Vec<u8>> {
+        (!self.stale_at(now)).then_some(self.datagram)
+    }
+    fn stale_at(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.queued_at) > MEDIA_MAX_AGE
+    }
+}
 
 #[path = "media_queue.rs"]
 mod media_queue;
@@ -43,9 +64,16 @@ mod media_queue;
 mod no_path;
 #[path = "socket.rs"]
 mod socket;
+#[cfg(unix)]
+#[path = "net_unix.rs"]
+mod sys;
+#[cfg(windows)]
+#[path = "net_windows.rs"]
+mod sys;
 
 use media_queue::{MediaFrame, MediaQueue};
 use socket::send_to_observed;
+use sys::{Wake, grow_udp_buffers, interface_addresses, mark_interactive_video, wait_readable};
 
 /// STUN requests are retried this often until each server answers or gives up.
 const STUN_RETRY_US: u64 = 300_000;
@@ -250,6 +278,7 @@ enum Command {
     TurnLater(Later<TurnServer>),
     Control(Vec<u8>),
     Datagram(Vec<u8>),
+    ControlBarrier(mpsc::Sender<()>),
     NetworkChange,
     PeerLost(Option<u64>),
     Close,
@@ -276,90 +305,46 @@ pub struct Net {
     departure_overflows: Arc<AtomicU64>,
     commands: mpsc::Sender<Command>,
     events: mpsc::Receiver<NetEvent>,
-    command_wake: Pipe,
-    event_wake: Pipe,
+    command_wake: Arc<Wake>,
+    event_wake: Arc<Wake>,
     thread: Option<thread::JoinHandle<()>>,
     local_addr: SocketAddr,
     media_queue: Arc<Mutex<MediaQueue>>,
+    media: mpsc::SyncSender<QueuedMedia>,
 }
 
-/// A non-blocking pipe used as a wake-up: a byte means "look at the queue".
-struct Pipe {
-    read: RawFd,
-    write: RawFd,
+/// A send-only handle for a running link. The owner remains the sole reader of
+/// `Net::events`; the owner must outlive every handle.
+#[derive(Clone)]
+pub struct NetSender {
+    commands: mpsc::Sender<Command>,
+    command_wake: Arc<Wake>,
+    media: mpsc::SyncSender<QueuedMedia>,
 }
 
-impl Pipe {
-    fn new() -> io::Result<Self> {
-        let mut fds = [0; 2];
-        // SAFETY: pipe(2) fills the two-element array we own.
-        if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        for fd in fds {
-            // SAFETY: fcntl on descriptors we just created.
-            unsafe {
-                libc::fcntl(fd, libc::F_SETFL, libc::fcntl(fd, libc::F_GETFL) | libc::O_NONBLOCK);
-                libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
-            }
-        }
-        Ok(Self { read: fds[0], write: fds[1] })
+impl NetSender {
+    pub fn send_datagram(&self, datagram: Vec<u8>) {
+        // Handshake/control traffic is not media: preserve it on the reliable
+        // command queue, where the media age budget cannot discard it.
+        self.command(Command::Datagram(datagram));
     }
-
-    fn wake(&self) {
-        // SAFETY: one byte from a local to our write end; a full pipe already holds a wake-up.
-        unsafe { libc::write(self.write, [1u8].as_ptr().cast(), 1) };
-    }
-
-    fn drain(&self) {
-        let mut scratch = [0u8; 64];
-        // SAFETY: reads into a local buffer from our non-blocking read end.
-        while unsafe { libc::read(self.read, scratch.as_mut_ptr().cast(), scratch.len()) } > 0 {}
-    }
-}
-
-impl Drop for Pipe {
-    fn drop(&mut self) {
-        // SAFETY: closing the two descriptors this value owns, once.
-        unsafe {
-            libc::close(self.read);
-            libc::close(self.write);
+    pub fn send_media(&self, datagram: Vec<u8>) {
+        // Best-effort media: keep the overlay from building an unbounded outer
+        // queue, and timestamp before the bounded handoff so a stalled driver
+        // cannot deliver stale frames after cmux-wg's 50 ms budget.
+        let queued = QueuedMedia { queued_at: Instant::now(), datagram };
+        if self.media.try_send(queued).is_ok() {
+            self.command_wake.wake();
         }
     }
-}
-
-/// Every non-loopback address of this machine's up interfaces.
-fn interface_addresses() -> Vec<IpAddr> {
-    let mut out = Vec::new();
-    let mut head: *mut libc::ifaddrs = std::ptr::null_mut();
-    // SAFETY: getifaddrs allocates a list we walk read-only and free once.
-    unsafe {
-        if libc::getifaddrs(&mut head) != 0 {
-            return out;
-        }
-        let mut cursor = head;
-        while !cursor.is_null() {
-            let entry = &*cursor;
-            cursor = entry.ifa_next;
-            if entry.ifa_addr.is_null() || entry.ifa_flags & (libc::IFF_UP as u32) == 0 {
-                continue;
-            }
-            let ip = match i32::from((*entry.ifa_addr).sa_family) {
-                libc::AF_INET => {
-                    let sin = &*(entry.ifa_addr as *const libc::sockaddr_in);
-                    IpAddr::V4(Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr)))
-                }
-                _ => continue,
-            };
-            if !ip.is_loopback() && !ip.is_unspecified() {
-                out.push(ip);
-            }
-        }
-        libc::freeifaddrs(head);
+    pub fn send_control(&self, record: Vec<u8>) {
+        self.command(Command::Control(record));
     }
-    out.sort();
-    out.dedup();
-    out
+    fn command(&self, command: Command) {
+        if self.commands.send(command).is_ok() {
+            self.command_wake.wake();
+        }
+    }
 }
 
 /// A candidate kind's slot in the driver's counts: host, srflx, relay.
@@ -378,6 +363,7 @@ fn now_us(start: Instant) -> u64 {
 /// A clock that keeps counting while the machine sleeps, unlike `Instant`
 /// (macOS: `CLOCK_MONOTONIC` counts sleep, `Instant` reads uptime; Linux:
 /// `CLOCK_BOOTTIME`). Only its differences matter ([`SleepWatch`]).
+#[cfg(unix)]
 fn with_sleep_us() -> u64 {
     #[cfg(target_vendor = "apple")]
     const CLOCK: libc::clockid_t = libc::CLOCK_MONOTONIC;
@@ -392,58 +378,27 @@ fn with_sleep_us() -> u64 {
         + u64::try_from(ts.tv_nsec).unwrap_or_default() / 1_000
 }
 
-/// Grow both queues so a keyframe burst is not dropped before the driver can
-/// read it. The kernel may cap the request; the default is still useful on
-/// platforms that accept the larger value.
-fn grow_udp_buffers(socket: &UdpSocket) {
-    for option in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
-        // SAFETY: the descriptor is open for the borrow of `socket`, and the
-        // option value points at a live integer of the length passed.
-        unsafe {
-            libc::setsockopt(
-                socket.as_raw_fd(),
-                libc::SOL_SOCKET,
-                option,
-                (&UDP_BUFFER_SIZE as *const i32).cast(),
-                size_of_val(&UDP_BUFFER_SIZE) as libc::socklen_t,
-            );
-        }
-    }
+/// Windows: `GetTickCount64` keeps counting through sleep and hibernation; its
+/// 10-16 ms tick is far finer than the gaps [`SleepWatch`] looks for.
+#[cfg(windows)]
+fn with_sleep_us() -> u64 {
+    // SAFETY: GetTickCount64 takes no arguments and cannot fail.
+    unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() }.saturating_mul(1000)
 }
 
 /// The keep-awake interval ([`crate::endpoint::KEEP_AWAKE_US`]);
 /// `CMUX_RD_KEEP_AWAKE_MS` overrides it for measurements, 0 turns it off.
+/// `CMUX_RD_BRAID_PATHS=0`: the path code before RFD 0164 B10
+/// ([`Endpoint::set_braid_paths`]), for one release.
+fn braid_paths() -> bool {
+    std::env::var("CMUX_RD_BRAID_PATHS").map_or(true, |v| v.trim() != "0")
+}
+
 fn keep_awake_us() -> Option<u64> {
     match std::env::var("CMUX_RD_KEEP_AWAKE_MS").ok().and_then(|v| v.trim().parse::<u64>().ok()) {
         Some(ms) => Some(ms.saturating_mul(1000)).filter(|us| *us > 0),
         None => Some(crate::endpoint::KEEP_AWAKE_US),
     }
-}
-
-/// Apple platforms: the socket's traffic is interactive video
-/// (`SO_NET_SERVICE_TYPE` = `NET_SERVICE_TYPE_VI`, the class video calls use),
-/// so Wi-Fi sends it in the video access category and the system treats the
-/// flow as latency sensitive. Best effort: a refusal changes nothing else.
-fn mark_interactive_video(socket: &UdpSocket) {
-    #[cfg(target_vendor = "apple")]
-    {
-        // <sys/socket.h>; the libc crate does not export them.
-        const SO_NET_SERVICE_TYPE: libc::c_int = 0x1116;
-        const NET_SERVICE_TYPE_VI: libc::c_int = 3;
-        // SAFETY: the descriptor is open for the borrow of `socket`, and the
-        // option value points at a live integer of the length passed.
-        unsafe {
-            libc::setsockopt(
-                socket.as_raw_fd(),
-                libc::SOL_SOCKET,
-                SO_NET_SERVICE_TYPE,
-                (&NET_SERVICE_TYPE_VI as *const libc::c_int).cast(),
-                size_of_val(&NET_SERVICE_TYPE_VI) as libc::socklen_t,
-            );
-        }
-    }
-    #[cfg(not(target_vendor = "apple"))]
-    let _ = socket;
 }
 
 impl Net {
@@ -458,14 +413,18 @@ impl Net {
             Endpoint::new(config.role, &config.session, &config.local, config.expected_remote, 0)?;
         endpoint.set_local_networks(cmux_transport::local_networks());
         endpoint.set_keep_awake(keep_awake_us());
+        endpoint.set_braid_paths(braid_paths());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
         let (departure_tx, departure_rx) = mpsc::sync_channel(MAX_DEPARTURE_RECEIPTS);
         let departure_overflows = Arc::new(AtomicU64::new(0));
         let media_queue = Arc::new(Mutex::new(MediaQueue::default()));
-        let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
-        let event_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
+        let (media_tx, media_rx) = mpsc::sync_channel(256);
+        let command_wake = Arc::new(Wake::new().map_err(|e| LinkError::Io(e.to_string()))?);
+        let event_wake = Arc::new(Wake::new().map_err(|e| LinkError::Io(e.to_string()))?);
         let mut driver = Driver {
+            media: media_rx,
+            barriers: Vec::new(),
             departures: departure_tx,
             departure_overflows: Arc::clone(&departure_overflows),
             departure_wake: false,
@@ -474,9 +433,9 @@ impl Net {
             commands: command_rx,
             media_queue: Arc::clone(&media_queue),
             pending_datagrams: VecDeque::new(),
-            command_fd: command_wake.read,
+            command_wake: Arc::clone(&command_wake),
             events: event_tx,
-            event_fd: event_wake.write,
+            event_wake: Arc::clone(&event_wake),
             stun: (if config.relay_only { &[][..] } else { &config.stun[..] })
                 .iter()
                 .enumerate()
@@ -536,6 +495,7 @@ impl Net {
             thread: Some(thread),
             local_addr,
             media_queue,
+            media: media_tx,
         })
     }
 
@@ -544,8 +504,23 @@ impl Net {
     }
 
     /// Readable when events are waiting ([`Net::events`]).
+    #[cfg(unix)]
     pub fn event_fd(&self) -> RawFd {
-        self.event_wake.read
+        self.event_wake.raw()
+    }
+
+    /// Readable when events are waiting ([`Net::events`]).
+    #[cfg(windows)]
+    pub fn event_socket(&self) -> RawSocket {
+        self.event_wake.raw()
+    }
+
+    /// Blocks until events are waiting or `timeout` passes (`None`: until events).
+    /// Portable form of polling [`Net::event_fd`] for callers without a loop of their own.
+    pub fn wait(&self, timeout: Option<Duration>) {
+        let ms =
+            timeout.map_or(-1, |t| i32::try_from(t.as_micros().div_ceil(1000)).unwrap_or(i32::MAX));
+        wait_readable(&[self.event_wake.raw()], ms);
     }
 
     /// Every event waiting now (clears the wake-up).
@@ -616,6 +591,22 @@ impl Net {
         self.command(Command::Control(record));
     }
 
+    pub fn sender(&self) -> NetSender {
+        NetSender {
+            commands: self.commands.clone(),
+            command_wake: Arc::clone(&self.command_wake),
+            media: self.media.clone(),
+        }
+    }
+
+    /// Completes once the peer has acknowledged all reliable controls queued
+    /// before this call. Closing/failure drops the receiver without success.
+    pub fn control_barrier(&self) -> mpsc::Receiver<()> {
+        let (tx, rx) = mpsc::channel();
+        self.command(Command::ControlBarrier(tx));
+        rx
+    }
+
     /// The machine's network changed (interface, address, wake from sleep).
     pub fn network_changed(&self) {
         self.command(Command::NetworkChange);
@@ -624,7 +615,7 @@ impl Net {
     /// Fails the link ([`NetEvent::Failed`]) once the established peer sent
     /// nothing for `after` ([`crate::PEER_LOST_US`] for a viewer): a host that
     /// died without a close. `None` (the default) waits forever.
-    pub fn set_peer_lost(&self, after: Option<std::time::Duration>) {
+    pub fn set_peer_lost(&self, after: Option<Duration>) {
         let us = after.map(|d| u64::try_from(d.as_micros()).unwrap_or(u64::MAX));
         self.command(Command::PeerLost(us));
     }
@@ -676,6 +667,8 @@ struct StunQuery {
 }
 
 struct Driver {
+    media: mpsc::Receiver<QueuedMedia>,
+    barriers: Vec<mpsc::Sender<()>>,
     departures: mpsc::SyncSender<DatagramDeparture>,
     departure_overflows: Arc<AtomicU64>,
     departure_wake: bool,
@@ -685,9 +678,9 @@ struct Driver {
     media_queue: Arc<Mutex<MediaQueue>>,
     /// Protected one-datagram sends received before the Noise link is ready.
     pending_datagrams: VecDeque<Vec<u8>>,
-    command_fd: RawFd,
+    command_wake: Arc<Wake>,
     events: mpsc::Sender<NetEvent>,
-    event_fd: RawFd,
+    event_wake: Arc<Wake>,
     stun: Vec<StunQuery>,
     /// `Net::add_stun_later`'s servers, until they resolve.
     stun_later: Option<Later<SocketAddr>>,
@@ -818,9 +811,7 @@ impl Driver {
 
     fn send_event(&self, event: NetEvent) {
         if self.events.send(event).is_ok() {
-            // SAFETY: one byte from a local to the event pipe's write end (owned by `Net`,
-            // which joins this thread before closing it).
-            unsafe { libc::write(self.event_fd, [1u8].as_ptr().cast(), 1) };
+            self.event_wake.wake();
         }
     }
 
@@ -1105,18 +1096,14 @@ impl Driver {
             self.stun_tick(now);
             self.turn_tick(now);
             self.flush(now)?;
-            let mut fds = [
-                libc::pollfd { fd: self.socket.as_raw_fd(), events: libc::POLLIN, revents: 0 },
-                libc::pollfd { fd: self.command_fd, events: libc::POLLIN, revents: 0 },
-            ];
+            if self.endpoint.link().controls_acknowledged() {
+                for barrier in self.barriers.drain(..) {
+                    let _ = barrier.send(());
+                }
+            }
             let timeout = self.deadline_ms(now);
-            // SAFETY: fds is a valid array of pollfd for its length.
-            unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
-            let mut scratch = [0u8; 64];
-            // SAFETY: drains our own non-blocking command pipe into a local buffer.
-            while unsafe { libc::read(self.command_fd, scratch.as_mut_ptr().cast(), scratch.len()) }
-                > 0
-            {}
+            wait_readable(&[sys::raw(&self.socket), self.command_wake.raw()], timeout);
+            self.command_wake.drain();
             let now = now_us(self.start);
             self.watch_wake(now);
             while let Ok(command) = self.commands.try_recv() {
@@ -1127,6 +1114,7 @@ impl Driver {
                     }
                     Command::TurnLater(later) => self.turn_later = Some(later),
                     Command::Control(r) => self.endpoint.send_control(r, now)?,
+                    Command::ControlBarrier(reply) => self.barriers.push(reply),
                     Command::Datagram(datagram) => {
                         // Input, cursor and repair traffic never replaces queued video.
                         if self.endpoint.link().is_established() {
@@ -1201,13 +1189,20 @@ impl Driver {
                     Err(_) => break,
                 }
             }
+            for _ in 0..256 {
+                let Ok(queued) = self.media.try_recv() else { break };
+                if self.endpoint.link().is_established()
+                    && let Some(datagram) = queued.take_payload_if_fresh(Instant::now())
+                {
+                    self.send_media_datagram(&datagram, now)?;
+                }
+            }
             self.flush(now)?;
             self.drain_pending_datagrams(now)?;
             self.drain_media(now)?;
             if std::mem::take(&mut self.departure_wake) {
                 // One wake per driver turn, not a syscall per media datagram.
-                // SAFETY: one byte to the nonblocking event pipe owned by Net.
-                unsafe { libc::write(self.event_fd, [1u8].as_ptr().cast(), 1) };
+                self.event_wake.wake();
             }
         }
     }
@@ -1217,3 +1212,7 @@ impl Driver {
 fn is_handshake(packet: &[u8]) -> bool {
     matches!(packet.first(), Some(&(crate::TAG_HANDSHAKE_1..=crate::TAG_HANDSHAKE_3)))
 }
+
+#[cfg(test)]
+#[path = "net_media_handoff_tests.rs"]
+mod media_handoff_tests;

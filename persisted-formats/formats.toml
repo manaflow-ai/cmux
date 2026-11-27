@@ -1,0 +1,390 @@
+# Every on-disk format the app (Swift) and its webviews leave for the next build to read, and how an update
+# crosses it. cmux-tui's formats (the acpmux store, terminal and agent hosts) are in
+# cmux-tui/persisted-formats/formats.toml; settings keys in schemas/settings/published-keys.txt and retired-keys.json.
+#
+# Leo, 2026-11-24 06:03Z (ask-1f9e8b7422): "we need to make sure in the future these kinds of cutovers always have
+# proper migrations. in the future." Leo, 2026-11-25: "we need to not only build, but use."
+#
+# scripts/ci/persisted_formats.py checks this file on every pull request (ci/steps.toml `persisted-formats`).
+#
+# [[format]]: a version constant, found by `file` (repository-relative) + `const`:
+#   Swift       `static let <x>Version = N` under Packages/*/*/Sources and cmux-next-ios/*/Sources whose name says
+#               it is stored (Record, Format, Schema, State, Store, Journal, Cache, Snapshot, Ledger, Manifest, Index)
+#   TypeScript  `const *_VERSION = N` under webviews/src, unless it says PROTOCOL, WIRE or ABI
+# Its `policy` says what an update does with data an older build wrote, as in cmux-tui's registry:
+#   migrate     The next build reads it. `fixtures` names a folder under persisted-formats/ of files an older build
+#               wrote (v<N>.json, v<N>-2.json ...), never edited or deleted (only below a raised `floor`); the current
+#               version has a fixture; `test` names the test (in the Swift package's Tests, or a webviews *.test.ts)
+#               that loads every fixture through the real reader.
+#   rebuild     Recomputed, or not stored at all; losing it costs time, not work. `why` says so.
+#   unreviewed  Listed when this file was made (2026-11-25). A change to its version must give it a policy first.
+#               This list only shrinks.
+# A constant never goes down, and an entry is never deleted while its constant exists.
+#
+# [[storage_key]]: a localStorage/sessionStorage key webviews/src names (a `cmux.` string in a *Key/*Prefix
+# constant, or a literal passed to getItem/setItem/removeItem). What a key holds is gone after an update once the code
+# stops naming it, so renaming a key (a `.v1` to `.v2` cutover) keeps reading the old key once and moves its value
+# (the old key stays named, so stays registered), or the old entry says `retired = "why losing it costs no work"`.
+# A retired key is never named again, and an entry is never deleted.
+
+[[format]]
+file = "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/DiagnosticReport.swift"
+const = "currentHumanReadableFormatVersion"
+name = "DiagnosticReport#currentHumanReadableFormatVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/DiagnosticReport.swift"
+const = "currentSchemaVersion"
+name = "DiagnosticReport#currentSchemaVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/iOS/CmuxConversation/Sources/CmuxConversationCore/ConversationHistoryDatabase.swift"
+const = "schemaVersion"
+name = "ConversationHistoryDatabase#schemaVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/iOS/CmuxMobilePairedMac/Sources/CmuxMobilePairedMac/MobilePairedMacStore.swift"
+const = "currentSchemaVersion"
+name = "MobilePairedMacStore#currentSchemaVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/IconPicker/IconPickerPrefsStore.swift"
+const = "schemaVersion"
+name = "IconPickerPrefsStore#schemaVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LaunchSnapshot.swift"
+const = "schemaVersion"
+name = "LaunchSnapshot#schemaVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Projection/SavedHostsDocument.swift"
+const = "schemaVersion"
+name = "SavedHostsDocument#schemaVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Projection/WindowStateDocument.swift"
+const = "schemaVersion"
+name = "WindowStateDocument#schemaVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift"
+const = "formatVersion"
+name = "LayoutCache#formatVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReport.swift"
+const = "schemaVersion"
+name = "HangReport#schemaVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HiddenHistory.swift"
+const = "schemaVersion"
+name = "HiddenHistory#schemaVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryTrailLocation.swift"
+const = "schemaVersion"
+name = "HistoryTrailLocation#schemaVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedStatusReport.swift"
+const = "schemaVersion"
+name = "ManagedStatusReport#schemaVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarSnapshotDocument.swift"
+const = "schemaVersion"
+name = "SidebarSnapshotDocument#schemaVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/LiveSnapshotStore.swift"
+const = "formatVersion"
+name = "LiveSnapshotStore#formatVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "webviews/src/agent-session/acpmux/chatSnapshot/shared.ts"
+const = "SNAPSHOT_VERSION"
+name = "shared#SNAPSHOT_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "webviews/src/agent-session/acpmux/cloudWakeHint.ts"
+const = "CLOUD_WAKE_HINT_VERSION"
+name = "cloudWakeHint#CLOUD_WAKE_HINT_VERSION"
+policy = "rebuild"
+why = "not stored: the version of the cloudMachine.wakeHint message the page sends the host"
+
+[[format]]
+file = "webviews/src/agent-session/acpmux/session-info/sessionInfoState.ts"
+const = "SECTIONS_VERSION"
+name = "sessionInfoState#SECTIONS_VERSION"
+policy = "unreviewed"
+
+[[storage_key]]
+key = "cmux.acpmux.addedGitHubRepos.v1"
+
+[[storage_key]]
+key = "cmux.acpmux.anchoredList"
+
+[[storage_key]]
+key = "cmux.acpmux.backgroundFocus"
+
+[[storage_key]]
+key = "cmux.acpmux.detail"
+
+[[storage_key]]
+key = "cmux.acpmux.cloud.signedIn"
+
+[[storage_key]]
+key = "cmux.acpmux.composer-draft."
+
+[[storage_key]]
+key = "cmux.acpmux.harnessCatalog.v1"
+
+[[storage_key]]
+key = "cmux.acpmux.harnessProfiles.v1"
+
+[[storage_key]]
+key = "cmux.acpmux.jumpUpIdle"
+
+[[storage_key]]
+key = "cmux.acpmux.lastChips"
+
+[[storage_key]]
+key = "cmux.acpmux.lastPick"
+
+[[storage_key]]
+key = "cmux.acpmux.modelCatalog"
+
+[[storage_key]]
+key = "cmux.acpmux.modelChipIcon"
+
+[[storage_key]]
+key = "cmux.acpmux.modelPickerOrder"
+
+[[storage_key]]
+key = "cmux.acpmux.newTab.chats"
+
+[[storage_key]]
+key = "cmux.acpmux.newTab.cloudPick.v1"
+
+[[storage_key]]
+key = "cmux.acpmux.newTab.recentFolders.v1"
+
+[[storage_key]]
+key = "cmux.acpmux.newTab.sessions.v1"
+
+[[storage_key]]
+key = "cmux.acpmux.newTab.startedProject.v1"
+
+[[storage_key]]
+key = "cmux.acpmux.presentation"
+
+[[storage_key]]
+key = "cmux.acpmux.queueing"
+
+[[storage_key]]
+key = "cmux.acpmux.recentEmoji"
+
+[[storage_key]]
+key = "cmux.acpmux.recentMentionPaths"
+
+[[storage_key]]
+key = "cmux.acpmux.recentModels"
+
+[[storage_key]]
+key = "cmux.acpmux.recentSlashCommands"
+
+[[storage_key]]
+key = "cmux.acpmux.repoTour.dismissed.v1"
+
+[[storage_key]]
+key = "cmux.acpmux.resolvedAliases"
+
+[[storage_key]]
+key = "cmux.acpmux.resolvedDefaults"
+
+[[storage_key]]
+key = "cmux.acpmux.startModes.v1"
+
+[[storage_key]]
+key = "cmux.acpmux.subagentPanes"
+
+[[storage_key]]
+key = "cmux.acpmux.summaryPanel"
+
+[[storage_key]]
+key = "cmux.acpmux.takenOver"
+
+[[storage_key]]
+key = "cmux.acpmux.transcriptDisclosure"
+
+[[storage_key]]
+key = "cmux.acpmux.transcriptView"
+
+[[storage_key]]
+key = "cmux.agent.dismissedFailures"
+
+[[storage_key]]
+key = "cmux.agentActivity."
+
+[[storage_key]]
+key = "cmux.agentPane.answerClaims.v1"
+
+[[storage_key]]
+key = "cmux.agentPane.artifact.share"
+
+[[storage_key]]
+key = "cmux.agentPane.blockWrap"
+
+[[storage_key]]
+key = "cmux.agentPane.dismissedAsks.v1"
+
+[[storage_key]]
+key = "cmux.agentPane.folderTrust.v1"
+
+[[storage_key]]
+key = "cmux.agentPane.hatListHeight"
+
+[[storage_key]]
+key = "cmux.agentPane.inspector.imessageRevealed"
+
+[[storage_key]]
+key = "cmux.agentPane.inspector.index"
+
+[[storage_key]]
+key = "cmux.agentPane.inspector.more"
+
+[[storage_key]]
+key = "cmux.agentPane.inspector.open"
+
+[[storage_key]]
+key = "cmux.agentPane.inspector.order"
+
+[[storage_key]]
+key = "cmux.agentPane.inspector.pane."
+
+[[storage_key]]
+key = "cmux.agentPane.inspector.sections"
+
+[[storage_key]]
+key = "cmux.agentPane.inspector.width"
+
+[[storage_key]]
+key = "cmux.agentPane.lastNewChatPlace"
+
+[[storage_key]]
+key = "cmux.agentPane.promptTops.v1"
+
+[[storage_key]]
+key = "cmux.agentPane.railCountOffset.v1"
+
+[[storage_key]]
+key = "cmux.agentPane.threadBookmarks.v1"
+
+[[storage_key]]
+key = "cmux.agentPane.toastAnchor."
+
+[[storage_key]]
+key = "cmux.autoWhere.cloudLanding."
+
+[[storage_key]]
+key = "cmux.browser.appLink"
+
+[[storage_key]]
+key = "cmux.chief.chunkReloadAt"
+
+[[storage_key]]
+key = "cmux.chiefViews.layout"
+
+[[storage_key]]
+key = "cmux.cloud.machines.v1"
+
+[[storage_key]]
+key = "cmux.cloud.migration.later"
+
+[[storage_key]]
+key = "cmux.cloud.retention.dismissed"
+
+[[storage_key]]
+key = "cmux.cloudEnvironment.recent"
+retired = "the Cloud Environment chip and its per-folder recent list were removed (behind the off-by-default CLOUD_ENVIRONMENTS_ENABLED flag); a Cloud chat runs on Auto, and the account still lists every environment"
+
+[[storage_key]]
+key = "cmux.cloudStart.keys"
+
+[[storage_key]]
+key = "cmux.composer.copy.v1"
+
+[[storage_key]]
+key = "cmux.diag.frameWatch"
+
+[[storage_key]]
+key = "cmux.diff.fontSize"
+
+[[storage_key]]
+key = "cmux.diff.machine_"
+
+[[storage_key]]
+key = "cmux.diffViewer.layout"
+
+[[storage_key]]
+key = "cmux.diffViewer.options"
+
+[[storage_key]]
+key = "cmux.editor.keySequence"
+
+[[storage_key]]
+key = "cmux.experiments"
+
+[[storage_key]]
+key = "cmux.guest.chunkReloadAt"
+
+[[storage_key]]
+key = "cmux.home.detail"
+
+[[storage_key]]
+key = "cmux.home.presentation:"
+
+[[storage_key]]
+key = "cmux.markdown.fontSize"
+
+[[storage_key]]
+key = "cmux.page.kept:"
+
+[[storage_key]]
+key = "cmux.question.key-request"
+
+[[storage_key]]
+key = "cmux.slots"
+
+[[storage_key]]
+key = "cmux.steerQueue.log"
+
+[[storage_key]]
+key = "cmux.subagentDraft."
+
+[[storage_key]]
+key = "cmux.tunables"
+
+[[storage_key]]
+key = "cmux.webSwap.focus"
+
+[[storage_key]]
+key = "cmux.webSwap.handoff"

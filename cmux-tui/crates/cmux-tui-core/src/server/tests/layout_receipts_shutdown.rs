@@ -13,7 +13,7 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     let before = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::ListWorkspaces { known: None, limit: None, after: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
         &test_writer(),
     )
     .unwrap();
@@ -32,7 +32,7 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     let after_exact = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::ListWorkspaces { known: None, limit: None, after: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
         &test_writer(),
     )
     .unwrap();
@@ -54,7 +54,7 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     let after_legacy = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::ListWorkspaces { known: None, limit: None, after: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
         &test_writer(),
     )
     .unwrap();
@@ -90,7 +90,7 @@ fn workspace_tree_exposes_stable_resource_ids_for_startup_attach_and_receipts() 
     let tree = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::ListWorkspaces { known: None, limit: None, after: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
         &test_writer(),
     )
     .unwrap();
@@ -118,7 +118,7 @@ fn projected_split_ratio_range_failure_is_not_reported_as_unknown() {
     let split = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::ListWorkspaces { known: None, limit: None, after: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
         &test_writer(),
     )
     .unwrap()["workspaces"][0]["screens"][0]["layout"]["split"]
@@ -454,6 +454,7 @@ fn creation_receipts_replay_exact_surfaces_across_control_connections() {
                 device_name: None,
                 device_id: None,
                 api_revision: None,
+                api_version: None,
                 version: None,
                 install: None,
                 remote: None,
@@ -564,6 +565,7 @@ fn browser_receipt_targets_an_exact_empty_workspace_without_focus_state() {
             device_name: None,
             device_id: None,
             api_revision: None,
+            api_version: None,
             version: None,
             install: None,
             remote: None,
@@ -660,6 +662,7 @@ fn creation_selector_fallbacks_are_negotiated_atomic_and_durably_replayed() {
                 device_name: None,
                 device_id: None,
                 api_revision: None,
+                api_version: None,
                 version: None,
                 install: None,
                 remote: None,
@@ -1182,6 +1185,7 @@ fn daemon_shutdown_force_preserves_the_identity_fence() {
             device_name: None,
             device_id: None,
             api_revision: None,
+            api_version: None,
             version: None,
             install: None,
             remote: None,
@@ -1249,6 +1253,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             device_name: None,
             device_id: None,
             api_revision: None,
+            api_version: None,
             version: None,
             install: None,
             remote: None,
@@ -1310,6 +1315,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             device_name: None,
             device_id: None,
             api_revision: None,
+            api_version: None,
             version: None,
             install: None,
             remote: None,

@@ -78,6 +78,16 @@ impl Mux {
     /// terminals preserve a durable exit receipt while all views detach;
     /// local surfaces are removed immediately.
     pub fn surface_exited(self: &Arc<Self>, id: SurfaceId) {
+        self.record_surface_exit(id);
+        // A surface that stays (a kept or exited tab; a local one is gone)
+        // gets no output again: park its mirror and frame until a view
+        // locks it (surface/mirror_park.rs).
+        if let Some(surface) = self.surface(id) {
+            surface.park_exited_mirror();
+        }
+    }
+
+    fn record_surface_exit(self: &Arc<Self>, id: SurfaceId) {
         if self.sidebar_surface_exited(id) {
             self.emit(MuxEvent::SurfaceExited(id, None));
             return;

@@ -97,6 +97,12 @@ impl MeshHub for Loopback {
     fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async move {
             m.validate().map_err(HubError::refused)?;
+            // As the hub does (cmux-platform `Core.ts`): a read names one session.
+            if m.op.as_deref() == Some("read") && m.to.session_id.is_none() && m.to.name.is_none() {
+                let mut e = HubError::refused("a read names one session by sessionId or name");
+                e.code = Some("mesh.invalid".into());
+                return Err(e);
+            }
             self.asks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if let Some(release) = &self.send_release {
                 release.notified().await;
@@ -463,6 +469,7 @@ async fn a_prompt_to_a_listed_hub_chat_runs_there_through_the_hub() {
         daemon_id: "inst_b".into(),
         harness: "fake".into(),
         state: "idle".into(),
+        stuck_reason: None,
         last_seen_at: 1,
         ..Default::default()
     };
@@ -496,6 +503,97 @@ async fn a_prompt_to_a_listed_hub_chat_runs_there_through_the_hub() {
 fn prompt_target_is_listed(hub: &Arc<Hub>, key: &str) -> Option<()> {
     let (host, _) = key.split_once('/')?;
     hub.mesh_book_has_host(host).then_some(())
+}
+
+/// A child with no peer link can report through its journal even if its own tools
+/// cannot open sockets. The starter owns both paging and delivery.
+#[tokio::test]
+async fn a_hub_only_sandbox_refusal_reaches_the_starters_chat() {
+    let b = machine_b();
+    let child = call(
+        &b,
+        method::SESSION_NEW,
+        json!({
+            "cwd": std::env::temp_dir(), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "fake", "name": "blocked-child"}}
+        }),
+    )
+    .await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let a = machine_b();
+    let parent = call(
+        &a,
+        method::SESSION_NEW,
+        json!({
+            "cwd": std::env::temp_dir(), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "fake", "name": "starter"}}
+        }),
+    )
+    .await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    a.mesh.set(Arc::new(Loopback::new(&b, dir.path(), "person-1")));
+    let key = format!("machine-b/{child}");
+    a.set_mesh_book(
+        std::collections::BTreeMap::from([("machine-b".into(), 1)]),
+        vec![crate::mesh::BookSession {
+            name: "blocked-child".into(),
+            session_id: child.clone(),
+            host: "machine-b".into(),
+            daemon_id: "inst_b".into(),
+            harness: "fake".into(),
+            state: "idle".into(),
+            ..Default::default()
+        }],
+    );
+    assert_eq!(crate::hub::watches::resolve(&a, &key).unwrap(), key);
+    let mut events = a.subscribe();
+    a.watches
+        .add(crate::hub::watches::Watch {
+            id: "hub-failure-report".into(),
+            to: parent.clone(),
+            sessions: vec![key.clone()],
+            until: vec!["blocked".into()],
+            match_text: None,
+            once: true,
+            caller: None,
+            active: true,
+            cursors: [(key, Default::default())].into_iter().collect(),
+            offline: Default::default(),
+            ..Default::default()
+        })
+        .unwrap();
+    let remote = b.resolve(&child).unwrap();
+    b.append(
+        &remote,
+        "mux",
+        "harness_sandbox_failed",
+        json!({
+            "error": "cannot create .git/index.lock: Permission denied", "remote": true
+        }),
+    );
+    a.start_watches();
+    let report = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.session_id == parent
+                && event.record.kind == "user_message"
+                && let Some(text) = event.record.msg["text"].as_str()
+                && text.contains("index.lock")
+            {
+                break text.to_owned();
+            }
+        }
+    })
+    .await
+    .expect("hub-only refusal never reached the starter");
+    assert!(report.contains("blocked") && report.contains("Full access"), "{report}");
+    a.shutdown_all().await;
+    b.shutdown_all().await;
 }
 
 /// `acpmux history HOST/NAME` for a session only the hub reaches reads its turns there, as
@@ -639,6 +737,19 @@ async fn rename_reaches_a_session_only_the_hub_reaches_and_no_verb_answers_no_se
     assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
     assert_eq!(on_b(&session).await["name"], "renamed-e2e");
 
+    // A retry goes through too (`acpmux retry machine-b/renamed-e2e`): B runs it on its own
+    // session and answers, here that its last turn did not fail, never that the hub does not
+    // carry it (2026-11-24: lanes the SR2 pool's 503 cut could not be retried from here).
+    let retry =
+        call_error(&a, method::MUX_RETRY, json!({"sessionId": "machine-b/renamed-e2e"})).await;
+    let said = retry["message"].as_str().unwrap_or_default();
+    assert!(said.contains("retry.nothing_failed"), "{retry}");
+    assert!(!said.contains("does not carry") && !said.contains("no session"), "{retry}");
+    // A sender B trusts only to read retries nothing.
+    let refused =
+        read(&read_only, "machine-b", &session, method::MUX_RETRY, &json!({})).await.unwrap_err();
+    assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
+
     // Every other session verb the hub does not carry says so, by name or by id.
     for (m, key) in [
         (method::MUX_PAUSE, "machine-b/renamed-e2e"),
@@ -661,6 +772,184 @@ async fn rename_reaches_a_session_only_the_hub_reaches_and_no_verb_answers_no_se
     // A host the hub does not list is still no session.
     let typo = call_error(&a, method::MUX_PAUSE, json!({"sessionId": "machine-z/own-e2e"})).await;
     assert_ne!(typo.pointer("/data/reason"), Some(&json!("mesh.read_unsupported")), "{typo}");
+}
+
+/// `acpmux session hold|release HOST/ID` and `acpmux session tag HOST/ID` for a session only the
+/// hub reaches run there, as a rename does. 2026-11-26: a fleet pause's wake of a held lane only
+/// the hub reaches from the waking machine refused at `session release` ("the mesh hub does not
+/// carry _acpmux/session_hold"), pass after pass, while its `send` went through. A sender granted
+/// `read` alone holds and tags nothing.
+#[tokio::test]
+async fn hold_release_and_tag_reach_a_session_only_the_hub_reaches() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "held-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let mesh: Arc<dyn MeshHub> = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let _ = a.mesh.set(mesh);
+    let hosts = std::collections::BTreeMap::from([("machine-b".to_owned(), 1)]);
+    let row = crate::mesh::BookSession {
+        name: "held-e2e".into(),
+        session_id: session.clone(),
+        host: "machine-b".into(),
+        daemon_id: "inst_b".into(),
+        harness: "fake".into(),
+        state: "idle".into(),
+        last_seen_at: 1,
+        ..Default::default()
+    };
+    a.set_mesh_book(hosts, vec![row]);
+    let tag_on_b =
+        |key: &str| b.resolve(&session).unwrap().meta().tags.get(key).map(|t| t.value.clone());
+    let by_id = format!("machine-b/{session}");
+    let hold_tag = crate::hub::session_hold::TAG;
+
+    // `acpmux session hold machine-b/ID`, twice (the hub may lease a message again): held once.
+    for _ in 0..2 {
+        let held =
+            call(&a, method::MUX_SESSION_HOLD, json!({"sessionId": by_id, "held": true})).await;
+        assert_eq!(held["held"], true, "{held}");
+        assert_eq!((held["peer"].as_str(), held["via"].as_str()), (Some("machine-b"), Some("hub")));
+    }
+    assert_eq!(tag_on_b(hold_tag).as_deref(), Some("on"));
+    assert!(b.session_held(&b.resolve(&session).unwrap()));
+    // `acpmux session release machine-b/held-e2e`, by name.
+    let released = call(
+        &a,
+        method::MUX_SESSION_HOLD,
+        json!({"sessionId": "machine-b/held-e2e", "held": false}),
+    )
+    .await;
+    assert_eq!(
+        (released["held"].as_bool(), released["was"].as_bool()),
+        (Some(false), Some(true)),
+        "{released}"
+    );
+    assert!(!b.session_held(&b.resolve(&session).unwrap()));
+
+    // `acpmux session tag machine-b/ID k=v`, then `--remove k`.
+    let tagged =
+        call(&a, method::MUX_TAG, json!({"sessionId": by_id, "set": {"fleet-pause.held": "x"}}))
+            .await;
+    assert_eq!(tagged["via"], "hub", "{tagged}");
+    assert_eq!(tag_on_b("fleet-pause.held").as_deref(), Some("x"));
+    call(&a, method::MUX_TAG, json!({"sessionId": by_id, "remove": ["fleet-pause.held"]})).await;
+    assert_eq!(tag_on_b("fleet-pause.held"), None);
+    // The receiver keeps its own rules: the tag only `acpmux register` sets is refused there.
+    let reserved = call_error(
+        &a,
+        method::MUX_TAG,
+        json!({"sessionId": by_id, "set": {crate::hub::register::REGISTERED_TAG: "1"}}),
+    )
+    .await;
+    assert!(
+        reserved["message"].as_str().unwrap_or_default().contains("acpmux register"),
+        "{reserved}"
+    );
+
+    // A sender B trusts only to read holds and tags nothing.
+    let read_only = Loopback {
+        hook: super::super::MeshControlHook::new(
+            vec![MeshControlFrom {
+                same_user: true,
+                ops: vec!["read".into()],
+                ..Default::default()
+            }],
+            Some(dir.path().join("mesh-controls-read.json")),
+        )
+        .with_own_user(Arc::new(|| Some("person-1".to_owned()))),
+        ..Loopback::new(&b, dir.path(), "person-1")
+    };
+    for (m, params) in [
+        (method::MUX_SESSION_HOLD, json!({"held": true})),
+        (method::MUX_TAG, json!({"set": {"taken": "over"}})),
+    ] {
+        let refused = read(&read_only, "machine-b", &session, m, &params).await.unwrap_err();
+        assert!(refused.message.contains("mesh.control_not_allowed"), "{m}: {refused:?}");
+    }
+    assert!(!b.session_held(&b.resolve(&session).unwrap()));
+    assert_eq!(tag_on_b("taken"), None);
+}
+
+/// `acpmux session hold|release HOST/ID` for a chat only the hub reaches holds and releases it
+/// there, with its `held` (a release that dropped it would hold the chat instead). Leo,
+/// 2026-11-26: "we can gradually lift the pause, efficiently"; the lift left 47 of 145 held lanes
+/// asleep because the hub did not carry `_acpmux/session_hold`. A sender granted `read` alone
+/// holds nothing.
+#[tokio::test]
+async fn a_hold_and_its_release_reach_a_session_only_the_hub_reaches() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "held-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let mesh: Arc<dyn MeshHub> = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let _ = a.mesh.set(mesh);
+    let hosts = std::collections::BTreeMap::from([("machine-b".to_owned(), 1)]);
+    let row = crate::mesh::BookSession {
+        name: "held-e2e".into(),
+        session_id: session.clone(),
+        host: "machine-b".into(),
+        daemon_id: "inst_b".into(),
+        harness: "fake".into(),
+        state: "idle".into(),
+        last_seen_at: 1,
+        ..Default::default()
+    };
+    a.set_mesh_book(hosts, vec![row]);
+    let held_on_b = || b.session_held(&b.resolve(&session).unwrap());
+    let by_id = format!("machine-b/{session}");
+
+    let held = call(&a, method::MUX_SESSION_HOLD, json!({"sessionId": by_id, "held": true})).await;
+    assert_eq!((held["held"].as_bool(), held["via"].as_str()), (Some(true), Some("hub")), "{held}");
+    assert!(held_on_b());
+    // The release fleet_pause sends, by id; twice (the hub may lease it again) is once.
+    for _ in 0..2 {
+        let released =
+            call(&a, method::MUX_SESSION_HOLD, json!({"sessionId": by_id, "held": false})).await;
+        assert_eq!(released["held"], false, "{released}");
+        assert!(!held_on_b(), "released on B: {released}");
+    }
+    // By name too, as `acpmux session release machine-b/held-e2e` sends it before resolving.
+    call(&a, method::MUX_SESSION_HOLD, json!({"sessionId": "machine-b/held-e2e", "held": true}))
+        .await;
+    assert!(held_on_b());
+    call(&a, method::MUX_SESSION_HOLD, json!({"sessionId": "machine-b/held-e2e", "held": false}))
+        .await;
+    assert!(!held_on_b());
+
+    // A sender B trusts only to read holds nothing.
+    let read_only = Loopback {
+        hook: super::super::MeshControlHook::new(
+            vec![MeshControlFrom {
+                same_user: true,
+                ops: vec!["read".into()],
+                ..Default::default()
+            }],
+            Some(dir.path().join("mesh-controls-read.json")),
+        )
+        .with_own_user(Arc::new(|| Some("person-1".to_owned()))),
+        ..Loopback::new(&b, dir.path(), "person-1")
+    };
+    let refused =
+        read(&read_only, "machine-b", &session, method::MUX_SESSION_HOLD, &json!({"held": true}))
+            .await
+            .unwrap_err();
+    assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
+    assert!(!held_on_b());
 }
 
 /// [`call`]'s error, for a request that must fail.
@@ -1429,4 +1718,233 @@ async fn a_receipt_gone_after_the_wait_is_not_sent_again() {
     let e = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
     assert_eq!(*hub.calls.lock().unwrap(), [Call::Send, Call::Answer]);
     assert_eq!(e.data.unwrap()["reason"], json!("mesh.read_unanswered"));
+}
+
+/// A machine only the hub reaches answers a health read of itself, as a direct peer's link
+/// reads it (`peer_health.rs`), bounded to one small message. The hub takes a read only when it
+/// names a session, so the read goes through one the hub lists there; the machine answers its
+/// health before it looks that session up. A read of the machine alone is the hub's
+/// `mesh.invalid` (every machine only the hub reaches read "resources unknown", 2026-11-25).
+#[tokio::test]
+async fn a_machine_answers_its_health_through_the_hub_via_any_of_its_sessions() {
+    let b = machine_b();
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+    let health = host_health(&hub, "machine-b", Some("any-session-of-b")).await.unwrap();
+    assert!(health.is_object(), "{health}");
+    assert!(health.get("unsupported").is_none(), "{health}");
+    assert!(health.to_string().len() <= HEALTH_BYTES);
+    // The machine alone: refused by the hub, never sent on.
+    let alone = host_health(&hub, "machine-b", None).await.unwrap_err();
+    assert!(alone.message.contains("names one session"), "{alone:?}");
+    // Another person is refused by B itself.
+    let other = Loopback::new(&b, dir.path(), "person-2");
+    assert!(host_health(&other, "machine-b", Some("any-session-of-b")).await.is_err());
+}
+
+/// Old against new: a build before the health read refuses it as it refuses any method it does
+/// not read (`mesh.read_unsupported`), which the asker keeps as unsupported, never an error.
+#[tokio::test]
+async fn an_old_machine_refuses_the_health_read_and_reads_as_unsupported() {
+    let b = machine_b();
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+    // What a build without `_acpmux/host_health` answers: the refusal of a method it lacks.
+    let old = read(&hub, "machine-b", "own-e2e", "_acpmux/host_health_unknown", &json!({})).await;
+    let refused = old.unwrap_err();
+    assert!(refused.message.starts_with("mesh.read_unsupported"), "{refused:?}");
+    assert_eq!(health_of(Err(refused)).unwrap(), json!({"unsupported": true}));
+    // A new machine's answer, an answer with no reading, and one over the bound.
+    assert_eq!(health_of(Ok(r#"{"health":{"cpus":4}}"#.into())).unwrap(), json!({"cpus": 4}));
+    assert!(health_of(Ok(r#"{"other":1}"#.into())).is_err());
+    assert!(health_of(Ok("not json".into())).is_err());
+    let big = json!({"health": {"x": "y".repeat(HEALTH_BYTES)}}).to_string();
+    assert!(health_of(Ok(big)).is_err());
+    // Any other failure stays a failure.
+    assert!(health_of(Err(RpcError::internal("down"))).is_err());
+    // The body is version 1, so an old build reaches its method check.
+    let body: Value = serde_json::from_str(&health_body()).unwrap();
+    assert_eq!(body["version"], 1);
+    assert_eq!(body["method"], HOST_HEALTH);
+}
+
+/// A receiver that took the read and is slow but working: it renews its lease every 20 s, each
+/// long-poll on the receipt answers with the renewed lease, and the answer comes after 2 min.
+/// With `works: false` it took the read and then nothing moves.
+struct SlowWorker {
+    started: tokio::time::Instant,
+    works: bool,
+}
+
+impl MeshHub for SlowWorker {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        panic!("a read never leases")
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        panic!("a read never acks")
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        panic!("a read never heartbeats")
+    }
+
+    fn send<'a>(&'a self, _: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async { Ok(queued()) })
+    }
+
+    fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        panic!("a read waits on its answer, not the receipt")
+    }
+
+    fn answer<'a>(
+        &'a self,
+        _: &'a str,
+        wait: Duration,
+    ) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        let started = self.started;
+        let works = self.works;
+        Box::pin(async move {
+            const RENEW: Duration = Duration::from_secs(20);
+            const DONE: Duration = Duration::from_secs(120);
+            let now = tokio::time::Instant::now();
+            let at = now.saturating_duration_since(started);
+            if !works {
+                // Leased once, then silent: every long-poll runs out on the same lease.
+                tokio::time::sleep(wait).await;
+                return Ok(serde_json::from_value(json!({
+                    "messageId": "msg_silent", "state": "leased", "leasedUntil": 1
+                }))
+                .unwrap());
+            }
+            if at >= DONE {
+                return Ok(serde_json::from_value(json!({
+                    "messageId": "msg_silent", "state": "delivered", "createdAt": 1,
+                    "result": json!({"ok": true}).to_string()
+                }))
+                .unwrap());
+            }
+            // The next renewal, or the long-poll's own end, whichever is first.
+            let renewals = at.as_secs() / RENEW.as_secs() + 1;
+            let next = started + RENEW * renewals as u32;
+            if next <= now + wait {
+                tokio::time::sleep_until(next).await;
+                return Ok(serde_json::from_value(json!({
+                    "messageId": "msg_silent", "state": "leased", "leasedUntil": renewals
+                }))
+                .unwrap());
+            }
+            tokio::time::sleep(wait).await;
+            Ok(queued())
+        })
+    }
+}
+
+/// Leo, 2026-11-24: "if it's making good progress, it shiukd be allowed to keep going?" A read
+/// whose receiver keeps renewing its lease gets its answer after 2 min; before, the read gave
+/// up at 50 s from its start as unanswered.
+#[tokio::test(start_paused = true)]
+async fn a_read_whose_receiver_keeps_working_is_not_cut_off() {
+    let hub = SlowWorker { started: tokio::time::Instant::now(), works: true };
+    let started = tokio::time::Instant::now();
+    let reply = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await;
+    let reply = reply.expect("the answer after 2 min of steady progress");
+    assert_eq!(reply["ok"], json!(true));
+    assert!(started.elapsed() >= Duration::from_secs(120), "{:?}", started.elapsed());
+}
+
+/// A receiver that took the read and then goes silent is still let go at `READ_WAIT` of silence.
+#[tokio::test(start_paused = true)]
+async fn a_read_whose_receiver_goes_silent_ends_at_the_silence_bound() {
+    let hub = SlowWorker { started: tokio::time::Instant::now(), works: false };
+    let started = tokio::time::Instant::now();
+    let e = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+    let took = started.elapsed();
+    assert_eq!(e.data.unwrap()["reason"], json!("mesh.read_unanswered"));
+    // The lease it took (at the first long-poll's end) was the last progress.
+    assert!(took <= ANSWER_WAIT + READ_WAIT + Duration::from_secs(1), "{took:?}");
+}
+
+fn rss_kib() -> u64 {
+    let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    s.lines()
+        .find_map(|l| l.strip_prefix("VmRSS:"))
+        .and_then(|v| v.split_whitespace().next()?.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Where a hub-only daemon's memory goes per mesh read (acpmux-memory-growth): RSS after N of
+/// each step of a health read.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "diagnostic"]
+async fn diagnose_per_read_memory() {
+    const N: usize = 1500;
+    let b = machine_b();
+    let mut report = vec![];
+    let base = rss_kib();
+    for _ in 0..N {
+        let _ = health_answer(&b).await;
+    }
+    report.push(("health_answer", rss_kib() - base));
+    let base = rss_kib();
+    for _ in 0..N {
+        let _ = crate::server::peer_status::host_health_with(&b, Origin::Peer, None).await;
+    }
+    report.push(("host_health_with", rss_kib() - base));
+    let base = rss_kib();
+    for _ in 0..N {
+        let (tx, mut rx) = super::super::relay_connection(&b);
+        let init = json!({"protocolVersion": 1, "clientCapabilities": {}});
+        super::super::rpc_call(&tx, &mut rx, 1, method::INITIALIZE, init).await.ok();
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    report.push(("relay_conn_initialize", rss_kib() - base));
+    report.push(("live_after_init", super::super::queue_gauge::live().len() as u64));
+    let base = rss_kib();
+    for _ in 0..N {
+        let (tx, mut rx) = super::super::relay_connection(&b);
+        let init = json!({"protocolVersion": 1, "clientCapabilities": {}});
+        super::super::rpc_call(&tx, &mut rx, 1, method::INITIALIZE, init).await.ok();
+        let _ = super::super::rpc_call(&tx, &mut rx, 2, "_acpmux/status", json!({})).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    report.push(("relay_conn_status", rss_kib() - base));
+    report.push(("live_after_status", super::super::queue_gauge::live().len() as u64));
+    let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    call(
+        &b,
+        method::SESSION_PROMPT,
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "pong"}]}),
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+    let attach =
+        json!({"sessionId": format!("machine-b/{session}"), "limit": 200, "maxBytes": 1 << 20});
+    let page =
+        json!({"limit": 5000, "kinds": ["transcript"], "maxBytes": 4 << 20, "beforeSeq": u64::MAX});
+    for (label, m, params) in [
+        ("sess_info", method::MUX_INFO, json!({})),
+        ("sess_attach", method::MUX_ATTACH, attach),
+        ("sess_events", method::MUX_EVENTS, page),
+    ] {
+        let base = rss_kib();
+        for _ in 0..300 {
+            read(&hub, "machine-b", &session, m, &params).await.unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        report.push((label, rss_kib() - base));
+        report.push(("live", super::super::queue_gauge::live().len() as u64));
+    }
+    eprintln!("RSS_GROWTH_KIB over {N}: {report:?}");
 }

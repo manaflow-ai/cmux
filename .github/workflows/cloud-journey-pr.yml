@@ -10,7 +10,8 @@ name: Cloud journey (PR CLI on staging)
 # backend.yml's journey-preview covers backend changes (the pull request's own preview Worker); journey-staging
 # runs the same build after each push.
 #
-# Not covered here: anything that needs the app. `cmux cloud start-chat` and the other `cloud` verbs go to
+# Not covered here: anything that needs the app, except `cmux cloud start-chat`'s direct route (no app, a
+# cmux credential in the environment; the headless start-chat step). The other `cloud` verbs go to
 # the app's control socket (cloud-journey.ts --app-cli needs a running, signed-in app), and a Swift-only change
 # to the app's Cloud handlers or socket validation (CmuxNextApp/Cloud, CmuxNextControl/Routing) has no headless
 # run. The CLI-to-app contract for those is the action argument export (plans/cmux-next/action-surfaces.json)
@@ -24,6 +25,7 @@ on:
   # A manual run on feat-cmux-next: the same journey at the branch tip.
   workflow_dispatch:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     branches: [feat-cmux-next]
     paths:
       - cmux-tui/crates/cmux-tui/src/cli/cloud*
@@ -40,24 +42,50 @@ on:
       - cmux-tui/crates/cmux-host/**
       # The journey's carrier dial runs this pull request's CLI, so a carrier change is timed here.
       - cmux-tui/crates/cmux-tui/src/carrier/**
+      # cmux-autocloud (RFD 0139) chats over the same carrier dial after it.
+      - cmux-tui/crates/cmux-autocloud/**
       - cmux-tui/crates/acpmux/src/cli/cloud_join*
       - cmux-tui/crates/acpmux/src/cli/cloud_join/**
       - scripts/cmux-next/cloud-journey.ts
       - scripts/cmux-next/cloud-journey-guest-diagnostics.ts
+      - scripts/cmux-next/cloud-journey-repo-seed.ts
       - scripts/cmux-next/cloud-journey-ci.sh
+      - scripts/cmux-next/cloud-start-chat-headless.ts
+      - scripts/cmux-next/cloud-journey-cargo-key.sh
       # The login step runs the journey's own preflight and installer, read from this file (loginPrograms).
       - scripts/cmux-next/cloud-journey-login-installer.txt
+      - .github/workflows/cloud-journey-pr.yml
+      # Test-only files never reach the binary the journey runs (`*_tests.rs` is a `#[cfg(test)]` module, `tests/`
+      # are integration tests), so a diff of only those under the paths above does not start it.
+      - '!cmux-tui/**/*_tests.rs'
+      - '!cmux-tui/**/tests/**'
+  # Seeds the R2 dependency cache the journey restores (job `seed`); the inputs of its key.
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-cloud-journey-pr-wall
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - cmux-tui/Cargo.lock
+      - cmux-tui/**/Cargo.lock
+      - cmux-tui/rust-toolchain.toml
+      - scripts/cmux-next/cloud-journey-cargo-key.sh
       - .github/workflows/cloud-journey-pr.yml
 
 permissions:
   contents: read
 
 concurrency:
-  group: cloud-journey-pr-${{ github.event.pull_request.number || github.run_id }}
+  group: cloud-journey-pr-${{ github.event.pull_request.number || github.run_id }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  # The workspace crates build unoptimized with line tables (dependencies keep profile.dev.package."*", opt-level 3):
+  # the cmux-tui crate alone took 18 of the build's 31 minutes at opt-level 1 with full debuginfo (run 45528981033).
+  # Here, not on a step, so `seed` and `journey` build (and key, cloud-journey-cargo-key.sh) the same artifacts.
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-cloud-journey-pr-wall
+  CARGO_PROFILE_DEV_OPT_LEVEL: "0"
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_INCREMENTAL: "0"
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
@@ -66,8 +94,8 @@ jobs:
   # (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci runs it,
   # vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off).
   base-red:
-    if: github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_PR_JOURNEY_FULL_CI_ONLY) == '0') && (github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 6
     permissions:
       actions: read
@@ -75,7 +103,7 @@ jobs:
     outputs:
       base_red: ${{ steps.decide.outputs.base_red }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Only the script, into its own folder: a full checkout took past 3 minutes on a cold runner (run
@@ -83,22 +111,42 @@ jobs:
           # pool VM; the next job's checkout removes this folder as untracked.
           path: .base-red-src
           sparse-checkout: scripts/ci
+      - name: Mint a read token with its own quota
+        id: base-red-token
+        # The repository's GITHUB_TOKEN quota answers 403 under load; this app token is read when it does.
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
       - name: Red on the base right now?
         id: decide
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_FALLBACK: ${{ steps.base-red-token.outputs.token }}
         run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow backend.yml --job "journey-staging" >> "$GITHUB_OUTPUT"
 
+  # On a pull request only with `full-ci` (the label, or CI_PR_JOURNEY_FULL_CI_ONLY=0 for every land-tier head):
+  # backend.yml's journey-staging runs the same journey after each feat-cmux-next push. NOW's pr_verdict at
+  # 2026-11-26 08:57Z: this journey ended 2 of the newest 20 PR verdicts at p50 29.1 min. Leo, 2026-11-21: "we can
+  # infrequenrly have fuller checks."
   journey:
     needs: base-red
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository && needs.base-red.outputs.base_red != 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_PR_JOURNEY_FULL_CI_ONLY) == '0') && (!cancelled() && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository && needs.base-red.outputs.base_red != 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-fleet-linux-x64' }} # frozen-label: credentialed job, frozen to today's label
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
+    # pull-requests: read lists the pull request's files (the repo-seed step).
+    permissions:
+      contents: read
+      pull-requests: read
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -106,8 +154,13 @@ jobs:
         run: git submodule update --init --depth 1 ghostty ghostty-next
       - name: Install Linux cmux-tui build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
       # The Zig is the one ghostty-next's build.zig.zon names, the libghostty-vt
@@ -129,6 +182,37 @@ jobs:
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         uses: ./.github/actions/zig-global-cache
+      # The compiled dependencies come from R2 (public reads, no credentials), seeded by `seed` below on
+      # feat-cmux-next. Why: docs/ci/cmux-next-workflow-notes.md#note-cloud-journey-pr-wall
+      - name: Key the cargo build in R2
+        id: r2-cargo-key
+        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith-') }}
+        continue-on-error: true
+        run: bash scripts/cmux-next/cloud-journey-cargo-key.sh >> "$GITHUB_OUTPUT"
+      - name: Restore the cargo build from R2
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+      - name: Restore the cargo registry from R2
+        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
       - name: Build this pull request's Linux cmux-tui
         id: build-cmux-tui
         working-directory: cmux-tui
@@ -142,8 +226,9 @@ jobs:
         run: |
           target_dir="${CARGO_TARGET_DIR:-target}"
           binary="$target_dir/debug/cmux-tui"
-          cargo build -p cmux-tui --bin cmux-tui --locked
+          cargo build -p cmux-tui --bin cmux-tui -p cmux-autocloud --bin cmux-autocloud --locked
           test -x "$binary"
+          test -x "$target_dir/debug/cmux-autocloud"
           file "$binary" | grep -q 'ELF 64-bit'
           sha256sum "$binary"
           # Bind the caller to the checkout's actual merge, not just the PR head.
@@ -164,23 +249,53 @@ jobs:
           PY
           if [[ "$binary" = /* ]]; then
             echo "path=$binary" >> "$GITHUB_OUTPUT"
+            echo "autocloud=$target_dir/debug/cmux-autocloud" >> "$GITHUB_OUTPUT"
           else
             echo "path=$PWD/$binary" >> "$GITHUB_OUTPUT"
+            echo "autocloud=$PWD/$target_dir/debug/cmux-autocloud" >> "$GITHUB_OUTPUT"
           fi
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+      # A pull request that changes the repo-seed probe (or carries the `repo-seed` label) runs it three times.
+      - name: Does this pull request time a folder chat's repo seed?
+        id: repo-seed
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          LABELED: ${{ contains(github.event.pull_request.labels.*.name, 'repo-seed') }}
+        run: |
+          if [ "$LABELED" = true ] || gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[].filename' 2>/dev/null | grep -qx 'scripts/cmux-next/cloud-journey-repo-seed.ts'; then
+            echo runs=3 >> "$GITHUB_OUTPUT"
+          fi
       - name: Cloud journey (staging, this pull request's CLI)
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
+          AUTOCLOUD_TUI_PATH: ${{ steps.build-cmux-tui.outputs.autocloud }}
           JOURNEY_MODEL: stub
           TARGET: staging
+          CMUX_JOURNEY_REPO_SEED_RUNS: ${{ steps.repo-seed.outputs.runs || '0' }}
         # An empty pair (a misnamed or missing secret) is this check's red in cloud-journey-ci.sh, never a skip.
         run: bash scripts/cmux-next/cloud-journey-ci.sh
+      # cmux#55501: `cmux cloud start-chat` with no app (the direct route lane VMs take), on staging.
+      - name: Headless start-chat (staging, no app, this pull request's CLI)
+        if: ${{ !cancelled() }}
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
+          TARGET: staging
+        run: bun scripts/cmux-next/cloud-start-chat-headless.ts
       - name: Keep caller identity, guest diagnostics and both attempts' step tables
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -193,3 +308,138 @@ jobs:
             ${{ runner.temp }}/cloud-journey/**/summary.md
           if-no-files-found: warn
           retention-days: 3
+
+  # Builds the journey's cmux-tui on feat-cmux-next when its key's inputs change (the push paths above) and saves
+  # the compiled dependencies to R2 for every pull request's `journey` to restore: a cold build was 11 to 31
+  # minutes of the journey's 20 to 37 (run 45528981033: 30.75 of 37). Its own job because R2's write keys live
+  # in next-cache-writer, which `journey` (cmux-next-vm-image-dev) cannot also hold.
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-cloud-journey-pr-wall
+  seed:
+    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }}  # frozen-label: LINUX_RUNNER (#54437)
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    timeout-minutes: 50
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Set up cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Key the cargo build in R2
+        id: r2-cargo-key
+        if: ${{ !startsWith(runner.name, 'blacksmith-') }}
+        run: bash scripts/cmux-next/cloud-journey-cargo-key.sh >> "$GITHUB_OUTPUT"
+      # An exact hit means this key is already seeded: the rest is skipped.
+      - name: Restore the cargo build from R2
+        id: r2-cargo-target
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+      - name: Restore the cargo registry from R2
+        id: r2-cargo-registry
+        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
+      - name: Initialize Ghostty protocol submodules
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+      - name: Install Linux cmux-tui build dependencies
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
+        run: |
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Set up Zig for Ghostty
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/zig-global-cache
+      # The journey's exact build command and environment (the workflow env holds the profile).
+      - name: Build the journey's Linux cmux-tui
+        id: build
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: cargo build -p cmux-tui --bin cmux-tui --locked
+      # Dependencies only, as fast-tier-cargo saves them (scripts/ci/cargo_target_strip.py).
+      - name: Strip the workspace's own output before the R2 save
+        id: r2-cargo-strip
+        if: ${{ success() && steps.build.outcome == 'success' }}
+        env:
+          REGISTRY: ${{ steps.r2-cargo-key.outputs.registry }}
+        run: |
+          set -euo pipefail
+          # --cargo-metadata, not every target name as --workspace-crates: tests/http.rs and tests/digest.rs
+          # are named like the third-party http and digest, so that deleted them and a restore rebuilt 27 crates.
+          cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml > "$RUNNER_TEMP/cargo-metadata.json"
+          python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --cargo-metadata "$RUNNER_TEMP/cargo-metadata.json"
+          # Extracted sources come back from the .crate files in registry/cache.
+          rm -rf "$REGISTRY/src"
+          du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Save the cargo build to R2
+        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' }}
+        timeout-minutes: 6
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+      - name: Save the cargo registry to R2
+        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
+        timeout-minutes: 6
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}

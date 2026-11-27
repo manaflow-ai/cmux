@@ -36,10 +36,7 @@ RUNS_ON_LINE = re.compile(r"^    runs-on:(.*)$")
 # Labels a persistent or owned runner carries: the owned GCP fleet, glaeda's hosts, the JIT pools'
 # labels (persistent runners carry them too, decisions/junctions.md) and the shared Linux label.
 # Write-token pool readers left where they are, each with why.
-NOT_YET_MOVED = {
-    ("herdr-upstream-drift.yml", "drift"): "a scheduled workflow main has no copy of: the pre-push gate refuses any edit "
-                                           "here until it gets a main twin; dispatch-only until then",
-}
+NOT_YET_MOVED: dict = {}
 OWNED_LABEL = re.compile(r"^(?:cmux-fleet-|cmux-gcp-|cmux-linux$|cmux-runner-pool-|glaeda-|self-hosted$)")
 
 
@@ -169,7 +166,8 @@ class EphemeralPoolReaders(unittest.TestCase):
 
     def test_write_token_and_ephemeral_required_jobs_read_ephemeral_pools(self) -> None:
         reads = protected_job_reads()
-        self.assertGreater(len(reads), 20, "the scan found no write-token pool readers: it is reading nothing")
+        # cmux#54437 froze most write-token readers to literal labels; a few still read the pool.
+        self.assertGreater(len(reads), 3, "the scan found no write-token pool readers: it is reading nothing")
         ephemeral = ephemeral_pools()
         for workflow, job, why, read in reads:
             if (workflow, job) in NOT_YET_MOVED:
@@ -181,7 +179,7 @@ class EphemeralPoolReaders(unittest.TestCase):
 
     def test_fork_pull_requests_reach_only_ephemeral_pools(self) -> None:
         lines = fork_reachable_reads()
-        self.assertGreater(len(lines), 20, "the scan found no fork-reachable pool reads: it is reading nothing")
+        self.assertGreater(len(lines), 10, "the scan found no fork-reachable pool reads: it is reading nothing")
         ephemeral = ephemeral_pools()
         for workflow, number, line in lines:
             unwrapped = fork.FORK_WRAPPED_POOL_READ.sub(lambda m: m.group(1) or m.group(2), fork.FORK_WRAPPED_GUARDED_POOL_READ.sub(r"\1", line))

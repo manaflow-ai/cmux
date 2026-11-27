@@ -11,7 +11,7 @@
 //! WireGuard tunnel are left to the live probe: neither runs in CI.
 #![cfg(target_os = "linux")]
 
-mod carrier_support;
+use crate::carrier_support;
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt as _;
@@ -181,6 +181,48 @@ fn a_session_on_the_relay_fails_over_to_ssh_and_keeps_its_stream() {
         ))),
         "{log}"
     );
+    let connects =
+        log.lines().filter(|l| l.starts_with("cloud.connect ") && l.contains(" phase=connect "));
+    assert_eq!(connects.count(), 1, "no new dial: {log}");
+    drop(stdin);
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+}
+
+/// A session on the relay loses it while its ssh route is slow to answer
+/// (11 s, a cold ssh through the team tunnel): the failover onto ssh still
+/// fits the session's resume window, and the same mux connection answers.
+/// Under the 10 s window the failover was cut before ssh spoke, no ssh
+/// resume line was written, and the session closed under the chat
+/// (`carrier_fault.resume_failed: ... connection is closed`, the
+/// cloud-carrier-ssh-failover probe, 2026-11-26 run 45892981109).
+#[test]
+fn a_session_fails_over_to_an_ssh_route_slower_than_ten_seconds() {
+    let world = world_ssh(true);
+    std::fs::write(&world.ssh_slow, b"11").unwrap();
+    let mut child = dial(&world);
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+    std::thread::spawn(move || {
+        for line in stderr.lines().map_while(Result::ok) {
+            eprintln!("dial stderr: {line}");
+        }
+    });
+    let lines = lines(&mut child);
+    let mut stdin = child.stdin.take().unwrap();
+    let (_, pushed) = round_trip(&mut stdin, &lines, 1);
+    assert_eq!(pushed, "{\"event\":\"pushed\",\"conn\":0}\n");
+
+    let cut = std::time::Instant::now();
+    world.cut.send_replace(true);
+    let (_, pushed) = round_trip(&mut stdin, &lines, 2);
+    assert_eq!(pushed, "{\"event\":\"pushed\",\"conn\":0}\n", "the same mux connection");
+    assert!(
+        cut.elapsed() >= Duration::from_secs(11),
+        "the slow ssh carried it: {:?}",
+        cut.elapsed()
+    );
+    let log = log_with(&world, "phase=resume carrier=ssh:0 outcome=ok");
     let connects =
         log.lines().filter(|l| l.starts_with("cloud.connect ") && l.contains(" phase=connect "));
     assert_eq!(connects.count(), 1, "no new dial: {log}");

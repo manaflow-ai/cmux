@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.rowLayout.empty.all" : {
+      "comment" : "Row Layout, All Rows tab, with no layout set: the rows follow the item switches of the Workspace Rows card.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تعرض الصفوف العناصر المفعّلة أعلاه. خصّص كل سطر."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redovi prikazuju stavke uključene iznad. Prilagodi svaki red."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rækker viser de elementer, der er slået til ovenfor. Tilpas hver linje."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeilen zeigen die oben eingeschalteten Elemente. Passe jede Zeile an."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rows show the items switched on above. Customize each line."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las filas muestran los elementos activados arriba. Personaliza cada línea."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les lignes affichent les éléments activés ci-dessus. Personnalisez chaque ligne."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le righe mostrano gli elementi attivati sopra. Personalizza ogni riga."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "行には上でオンにした項目が表示されます。各行をカスタマイズできます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ជួរដេកបង្ហាញធាតុដែលបានបើកខាងលើ។ ប្ដូរតាមបំណងបន្ទាត់នីមួយៗ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "행에는 위에서 켠 항목이 표시됩니다. 각 줄을 사용자화하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rader viser elementene som er slått på ovenfor. Tilpass hver linje."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiersze pokazują elementy włączone powyżej. Dostosuj każdą linię."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "As linhas mostram os itens ativados acima. Personalize cada linha."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Строки показывают элементы, включённые выше. Настройте каждую линию."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แถวจะแสดงรายการที่เปิดไว้ด้านบน ปรับแต่งแต่ละบรรทัดได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Satırlar yukarıda açılan öğeleri gösterir. Her satırı özelleştirin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рядки показують елементи, увімкнені вище. Налаштуйте кожну лінію."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các hàng hiện mục đã bật ở trên. Tùy chỉnh từng dòng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "行会显示上方已打开的项目。可自定义每一行。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "列會顯示上方已開啟的項目。可自訂每一行。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

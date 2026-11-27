@@ -43,7 +43,8 @@ function motionAllowed(): boolean {
 }
 
 export function GlyphIcon({ glyph }: { glyph: SlotGlyph }) {
-  if (glyph === "play") return <Icon name="media.play" size={14} selected />;
+  // Resume's ▶ is the mic's kind of glyph, a line icon, never a solid one (cmux#51039).
+  if (glyph === "play") return <Icon name="media.play" size={16} />;
   if (glyph === "stopping") return <Spinner loading size={14} />;
   if (glyph === "pending") return <Spinner loading look="track" size={14} />;
   if (glyph === "stop") return <StopIcon />;
@@ -205,7 +206,7 @@ const PATHS: Partial<Record<SlotGlyph, readonly [string, string]>> = {
     "M8 3.5h3A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H8",
   ],
   return: RETURN_GLYPH_PATH.split(/(?=M)/).reverse() as unknown as readonly [string, string],
-  arrow: ["M3.9 7.5 8 3.4l4.1 4.1", "M8 12.9V3.4"],
+  arrow: ["M2.9 7 8 1.9 13.1 7", "M8 14.1V1.9"],
 };
 const SAMPLES = 24;
 const sampled = new Map<string, Array<[number, number]>>();
@@ -334,10 +335,25 @@ export function StopPulse({ pulses }: { pulses: number }) {
     return () => clearTimeout(timer);
   }, [playing]);
   const arm = experimentArm(stopPresence);
-  if (playing === undefined || arm === "fade") return null;
+  const shown = playing !== undefined && arm !== "fade";
+  // The button carries the playing pulse's look too, before the frame paints, so the bump that swells
+  // the glyph beside this span is a rule on the button's attribute: as `:has(> .acpmux-stop-pulse)`
+  // with `> :not(.acpmux-stop-pulse)` after it, Chromium restyled the whole page on every `:has()`
+  // change (test/css-invalidation-scope.test.ts).
+  const pulse = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const button = pulse.current?.parentElement;
+    if (!shown || !button) return undefined;
+    button.dataset.stopPulse = arm;
+    return () => {
+      delete button.dataset.stopPulse;
+    };
+  }, [shown, arm, playing]);
+  if (!shown) return null;
   return (
     <span
       key={playing}
+      ref={pulse}
       className="acpmux-stop-pulse"
       data-stop-pulse={arm}
       aria-hidden="true"

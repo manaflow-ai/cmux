@@ -20,6 +20,7 @@ pub mod packed_catalogs;
 pub mod route_table;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;
+pub use cmux_tui_util::retry;
 mod browser;
 pub mod browser_host;
 mod browser_host_history;
@@ -38,6 +39,7 @@ pub mod chief_brains;
 mod chief_registry;
 mod command_context;
 mod conversation_drafts;
+mod conversation_inbox_once;
 mod conversation_live;
 mod conversation_search;
 mod conversation_store;
@@ -62,6 +64,8 @@ pub mod history_search;
 pub(crate) mod language_packs;
 #[cfg(unix)]
 pub mod projection;
+#[cfg(unix)]
+pub mod projection_ns;
 /// Tools few people use (`bin/cmux-mobile-host`), downloaded on first use.
 #[cfg(unix)]
 pub mod tool_packs;
@@ -78,7 +82,6 @@ pub mod launch_credential;
 use cmux_tui_util::machine_name;
 mod model;
 mod mux;
-pub mod net_keepalive;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod output_store;
@@ -109,6 +112,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+mod restore_progress;
 pub mod safe_mode_flag;
 mod scripts;
 mod serial_lanes;
@@ -160,8 +164,8 @@ use cmux_tui_platform::process_identity;
 pub use cmux_tui_platform::process_resources;
 pub mod server;
 pub mod session_state_import;
-pub mod terminal_host;
-pub mod terminal_host_protocol;
+// The terminal host's wire is its own crate (cmux-remote and acpmux build without this one).
+pub use cmux_terminal_host_protocol::{net_keepalive, terminal_host, terminal_host_protocol};
 pub mod terminal_host_runtime;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub mod test_owner;

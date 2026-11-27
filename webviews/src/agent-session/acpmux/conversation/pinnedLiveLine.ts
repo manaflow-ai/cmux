@@ -26,6 +26,7 @@
 // and motion off never move the chase (x stays 0), so this draws nothing.
 import { motionMode } from "../../../ui/motion/motionMode";
 import { LIVE_THINKING } from "./turns";
+import { keyframeKinds } from "./keyframeKinds";
 
 export const PIN_LIVE_ATTR = "data-pin-live";
 
@@ -57,6 +58,10 @@ type Pinned = {
   painted?: number;
   /// The reader took the view: the line and its clips hold where they are drawn.
   held?: boolean;
+  /// The nearest row over the line when it was taken, and its layout bottom: a pass that finds the line
+  /// where it was under the same row keeps the pin as it is (`pinLiveLine`).
+  first: Element | null;
+  firstBottom: number;
 };
 const pinned = new WeakMap<HTMLElement, Pinned>();
 const watchedGlides = new WeakSet<Animation>();
@@ -86,6 +91,14 @@ function rowsAbove(live: HTMLElement, reach: number): { row: HTMLElement; bottom
     if (at.offsetHeight > 0) out.push({ row: at, bottom });
   }
   return out;
+}
+
+/// Whether the nearest row over `live` is the one `rows` was taken under, ending where it did. O(1).
+function sameAbove(rows: Pinned, live: HTMLElement): boolean {
+  let at = live.previousElementSibling;
+  while (at && !(at instanceof HTMLElement && at.classList.contains("acpmux-row"))) at = at.previousElementSibling;
+  if (at !== rows.first) return false;
+  return !at || (at as HTMLElement).offsetTop + (at as HTMLElement).offsetHeight === rows.firstBottom;
 }
 
 /// The row over `from` (it, or its nearest earlier sibling row) as the next one `reachAbove` reads.
@@ -121,8 +134,7 @@ function reachAbove(rows: Pinned, px: number): void {
 /// Ends the clip animations `playing` on a row (Web Animations override its inline clip). O(its own).
 function dropClipGlides(playing: readonly Animation[]) {
   for (const animation of playing) {
-    const effect = animation.effect as KeyframeEffect | null;
-    if (effect?.getKeyframes?.().some((frame) => "clipPath" in frame)) animation.cancel();
+    if (keyframeKinds(animation.effect).clips) animation.cancel();
   }
 }
 
@@ -251,8 +263,7 @@ function translating(row: HTMLElement): Animation[] {
 function translatingOf(animations: readonly Animation[]): Animation[] {
   return animations.filter((animation) => {
     if (animation.playState === "finished" || animation.playState === "idle") return false;
-    const frames = (animation.effect as KeyframeEffect | null)?.getKeyframes?.();
-    return frames?.some((frame) => "translate" in frame || "transform" in frame) ?? false;
+    return keyframeKinds(animation.effect).translates;
   });
 }
 
@@ -266,13 +277,26 @@ export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = fal
     was.held = true;
     return undefined;
   }
-  const found = pin ? thread.querySelector<HTMLElement>(`:scope > .acpmux-row[data-row-id="${LIVE_THINKING}"]`) : null;
+  // The line the pin holds is still the thread's live row: no query for it. O(1).
+  const still = pin && was?.live.parentElement === thread && was.live.dataset.rowId === LIVE_THINKING ? was.live : null;
+  const found =
+    still ?? (pin ? thread.querySelector<HTMLElement>(`:scope > .acpmux-row[data-row-id="${LIVE_THINKING}"]`) : null);
   // A line that plays a translate of its own (a send's rise, a carry home) finishes it first: taken
   // mid-way, the pin's translate would lose to it, or cancelling it would jump the line. The next pass
   // takes it.
   const live = found && (was?.live === found || !moving(found)) ? found : null;
   if (live) {
     const x = threadY(thread);
+    const top = live.offsetTop;
+    // A streamed token that leaves the line where it was, under the same row, keeps the pin: its rows
+    // read, its translate and clips as drawn. Taken again each pass, every token cleared the line's
+    // translate and each clip and the pass wrote them back (two style changes a row), re-read the row
+    // over it and queried the thread for the line (bench/transcript-replay.bench.ts, token).
+    if (was && was.live === live && was.top === top && sameAbove(was, live)) {
+      // Its attribute is on since it was taken (cleared only with the pin).
+      was.held = undefined;
+      return undefined;
+    }
     if (was) clear(was);
     // A row over the line lies under its held place by at most the most the chase holds back.
     const reach = Math.max(Math.abs(x), thread.ownerDocument.defaultView?.innerHeight ?? 0);
@@ -289,11 +313,15 @@ export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = fal
       nextBottom: 0,
       nextHeight: 0,
       reach,
-      top: live.offsetTop,
+      top,
       x: kept ? was.x : x,
       cap,
+      first: null,
+      firstBottom: 0,
     };
     stepUp(rows, live.previousElementSibling);
+    rows.first = rows.next;
+    rows.firstBottom = rows.nextBottom;
     pinned.set(thread, rows);
     thread.setAttribute(PIN_LIVE_ATTR, "");
     // Not drawn here: the placement pass draws it once, after its tail glides start (`refreshPinned`),
