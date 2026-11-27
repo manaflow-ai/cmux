@@ -77,14 +77,14 @@ pub(super) fn parse(id: &str, text: &str) -> Option<Rule> {
     let mut body_at = None;
     let mut offset = 0;
     for line in rest.split_inclusive('\n') {
-        offset += line.len();
+        offset = offset.saturating_add(line.len());
         if line.trim_end() == "---" {
             body_at = Some(offset);
             break;
         }
         front.push(line.trim_end_matches(['\n', '\r']));
     }
-    let body = rest[body_at?..].trim();
+    let body = rest.get(body_at?..)?.trim();
     if body.is_empty() {
         return None;
     }
@@ -221,15 +221,16 @@ impl PathRules {
                 "Repo rule `{RULES_DIR}/{}.md`, loaded because this session touched `{rel}` (said once):\n{}",
                 rule.id, rule.body
             );
-            if used + part.len() > MAX_SAY && !parts.is_empty() {
-                state.counters.deferred += 1;
+            if used.saturating_add(part.len()) > MAX_SAY && !parts.is_empty() {
+                state.counters.deferred = state.counters.deferred.saturating_add(1);
                 continue;
             }
-            used += part.len();
+            used = used.saturating_add(part.len());
             tracing::info!(rule = %rule.id, root = %root.display(), "pathRules: said");
             state.said.insert(key);
-            state.counters.fired += 1;
-            state.counters.said_chars += part.chars().count() as u64;
+            state.counters.fired = state.counters.fired.saturating_add(1);
+            let said = u64::try_from(part.chars().count()).unwrap_or(u64::MAX);
+            state.counters.said_chars = state.counters.said_chars.saturating_add(said);
             parts.push(part);
         }
         (!parts.is_empty()).then(|| parts.join("\n\n"))
