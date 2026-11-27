@@ -1049,6 +1049,14 @@ async fn stream_prompt_once(
             }
         }
     };
+    if let Err(error) = &result {
+        if daemon_closed_error(error) {
+            return Err(prompt.closed(&client, id, "waiting for the turn"));
+        }
+        if waiting_transport_error(error) {
+            return result.map(|_| ());
+        }
+    }
     progress.permissions.error(id, opts.on_permission)?;
     // A steer's reply is the reply of the turn it went into, from the log: the stream may have
     // missed it (a resend after that turn ended, dropped events).
@@ -1413,7 +1421,6 @@ async fn collect_once(
             }
         }
     };
-    permissions.error(id, opts.on_permission)?;
     let result = match result {
         Ok(v) => v,
         // A daemon that answered it is restarting handed the turn to the next one, as one that
@@ -1422,8 +1429,12 @@ async fn collect_once(
             return Err(prompt.closed(&client, id, "waiting for the turn"));
         }
         Err(e) if waiting_transport_error(&e) => return Err(e),
-        Err(e) => return Err(agent_error(&e, id, produced).into()),
+        Err(e) => {
+            permissions.error(id, opts.on_permission)?;
+            return Err(agent_error(&e, id, produced).into());
+        }
     };
+    permissions.error(id, opts.on_permission)?;
     let mut reply = t
         .items
         .iter()

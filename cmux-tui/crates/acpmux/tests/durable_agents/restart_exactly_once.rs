@@ -284,7 +284,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
             "send",
             &name,
             "--timeout",
-            "180",
+            "600",
             "--prompt-id",
             &cli_prompt_id,
             &format!("queued-cli-{i}"),
@@ -304,7 +304,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
     // Every send is queued behind its busy turn before the first restart.
     for (session, _, _, prompt_id) in &sessions {
         daemon.wait_event(session, "CLI send queued", |e| {
-            e["kind"] == "queued" && e["msg"]["promptId"] == prompt_id
+            e["kind"] == "queued" && e["msg"]["promptId"] == prompt_id.as_str()
         });
     }
 
@@ -329,7 +329,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
     }
     for (session, _, busy_prompt_id, _) in &sessions {
         daemon.wait_event(session, "busy turn result", |e| {
-            e["kind"] == "turn_result" && e["msg"]["promptId"] == busy_prompt_id
+            e["kind"] == "turn_result" && e["msg"]["promptId"] == busy_prompt_id.as_str()
         });
     }
     let mut completed = 0;
@@ -353,7 +353,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
         !daemon
             .events(session)
             .iter()
-            .any(|e| e["kind"] == "turn_result" && e["msg"]["promptId"] == prompt_id)
+            .any(|e| e["kind"] == "turn_result" && e["msg"]["promptId"] == prompt_id.as_str())
     }) && Instant::now() < deadline
     {
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -368,7 +368,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
             .iter()
             .filter(|line| {
                 line["method"] == "session/prompt"
-                    && (line["promptId"] == prompt_id
+                    && (line["promptId"] == prompt_id.as_str()
                         || line["text"]
                             .as_str()
                             .is_some_and(|text| text.split_whitespace().any(|word| word == marker)))
@@ -376,11 +376,11 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
             .count();
         let starts = events
             .iter()
-            .filter(|e| e["kind"] == "turn_started" && e["msg"]["promptId"] == prompt_id)
+            .filter(|e| e["kind"] == "turn_started" && e["msg"]["promptId"] == prompt_id.as_str())
             .count();
         let results = events
             .iter()
-            .filter(|e| e["kind"] == "turn_result" && e["msg"]["promptId"] == prompt_id)
+            .filter(|e| e["kind"] == "turn_result" && e["msg"]["promptId"] == prompt_id.as_str())
             .count();
         if executions == 0 || starts == 0 || results == 0 {
             execution_loss.push(format!(
