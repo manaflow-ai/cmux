@@ -10,3 +10,7 @@ use super::*;
 #[cfg(test)]
 #[path = "peer_flap_soak_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "peer_flap_memory_tests.rs"]
+mod memory_tests;

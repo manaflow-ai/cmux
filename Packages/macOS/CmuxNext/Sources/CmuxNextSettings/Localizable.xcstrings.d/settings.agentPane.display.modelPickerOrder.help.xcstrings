@@ -10,6 +10,126 @@
             "state" : "translated",
             "value" : "The order of the harnesses in the model picker. Drag a harness in the picker to move it."
           }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ترتيب الوكلاء في منتقي النموذج. اسحب وكيلًا في المنتقي لنقله."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redoslijed agenata u biraču modela. Prevuci agenta u biraču da ga pomjeriš."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rækkefølgen af agenterne i modelvælgeren. Træk en agent i vælgeren for at flytte den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Reihenfolge der Agent-Umgebungen in der Modellauswahl. Ziehe eine in der Auswahl, um sie zu verschieben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El orden de los agentes en el selector de modelos. Arrastra un agente en el selector para moverlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’ordre des agents dans le sélecteur de modèle. Faites glisser un agent dans le sélecteur pour le déplacer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’ordine degli agenti nel selettore del modello. Trascina un agente nel selettore per spostarlo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "モデル選択でのエージェントの順序です。選択メニューでエージェントをドラッグすると移動できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "លំដាប់ភ្នាក់ងារក្នុងកម្មវិធីជ្រើសម៉ូដែល។ អូសភ្នាក់ងារក្នុងកម្មវិធីជ្រើស ដើម្បីផ្លាស់ទីវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "모델 선택기의 에이전트 순서입니다. 선택기에서 에이전트를 드래그하여 옮기세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rekkefølgen på agentene i modellvelgeren. Dra en agent i velgeren for å flytte den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kolejność agentów w selektorze modelu. Przeciągnij agenta w selektorze, aby go przenieść."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A ordem dos agentes no seletor de modelo. Arraste um agente no seletor para movê-lo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Порядок агентов в меню выбора модели. Перетащите агента в меню, чтобы переместить его."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ลำดับของเอเจนต์ในตัวเลือกโมเดล ลากเอเจนต์ในตัวเลือกเพื่อย้าย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model seçicideki ajanların sırası. Taşımak için seçicide bir ajanı sürükleyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Порядок агентів у меню вибору моделі. Перетягніть агента в меню, щоб перемістити його."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thứ tự các tác tử trong bộ chọn mô hình. Kéo một tác tử trong bộ chọn để di chuyển nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型选择器中智能体的顺序。在选择器中拖动智能体即可移动。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型選擇器中代理的順序。在選擇器中拖曳代理即可移動。"
+          }
         }
       }
     }

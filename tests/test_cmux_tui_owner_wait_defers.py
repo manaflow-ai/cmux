@@ -151,7 +151,10 @@ def run_wait(owner, script=None, **fake):
         env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", KEY=KEY, OWNER_RUN_ID=owner,
                    API_URL="https://api.github.invalid", REPOSITORY="manaflow-ai/cmux", GH_TOKEN="x",
                    SERVER_URL="https://github.invalid", GITHUB_OUTPUT=output, GITHUB_RUN_ID="5", RUNNER_TEMP=tmp,
-                   FAKE_LOG=log)
+                   FAKE_LOG=log,
+                   # The workflow's lease, not the script's fallback, so a lease change is tested.
+                   OWNER_LEASE_MINUTES=str(next(s for s in job("tree-owner-wait")["steps"]
+                                                if s.get("id") == "wait")["env"]["OWNER_LEASE_MINUTES"]))
         env = {**env, "EVENT_NAME": "push", "REF": "refs/heads/feat-cmux-next", "SHA": "f" * 40,
                "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false",
                "DAEMON_POOL": "glaeda-side-light-xcode-26.6", **fake}
@@ -264,7 +267,7 @@ def check_run_feed():
     result, out, log = run_wait("4", script=recheck, FAKE_FEED=feed(jobs=()))
     _check(result.returncode == 0 and "/jobs" in log and api(log) == 1,
            f"an owner with no active job in the feed may have finished its hand-off: its jobs are read from the API ({log.strip()!r})")
-    result, out, log = run_wait("4", FAKE_FEED=feed(owner_minutes=40))
+    result, out, log = run_wait("4", FAKE_FEED=feed(owner_minutes=70))
     _check(result.returncode == 0 and "takeover=true" in out and "feat_builder=true" in out,
            f"the lease reads the feed's start: a stuck branch-or-feat owner is still taken over ({out.strip()!r})")
     result, out, log = run_wait("4", FAKE_FEED=feed(owner_minutes=10, attempt=2))
@@ -291,21 +294,21 @@ def check_lease():
     """
     env = job("tree-owner-wait")["steps"]
     lease = next(s for s in env if s.get("id") == "wait")["env"].get("OWNER_LEASE_MINUTES")
-    _check(lease is not None and 15 <= int(lease) <= 30,
-           f"a live owner's lease is bounded so the newest tree publishes within about 30 minutes ({lease})")
+    _check(lease is not None and 15 <= int(lease) <= 60,
+           f"a live owner's lease outlasts a healthy owner (34-50 minutes on 2026-11-27) and still cuts off an hour-long hang ({lease})")
     for status in ("in_progress", "queued"):
-        result, out, log = run_wait("4", FAKE_OWNER_STATUS=status, FAKE_OWNER_MINUTES="40")
+        result, out, log = run_wait("4", FAKE_OWNER_STATUS=status, FAKE_OWNER_MINUTES="70")
         _check(result.returncode == 0 and "takeover=true" in out and "feat_builder=true" in out and "deferred=false" in out,
                f"a feat-cmux-next push takes over a key whose {status} feat-cmux-next owner is past its lease ({out.strip()!r}, {result.stderr.strip()[-300:]!r})")
     result, out, log = run_wait("4", FAKE_OWNER_MINUTES="10")
     _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out,
            f"a feat-cmux-next owner inside its lease still holds the key ({out.strip()!r})")
-    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", REF="refs/heads/op-next-other")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="70", REF="refs/heads/op-next-other")
     _check(result.returncode == 0 and "takeover=false" in out,
            f"only a feat-cmux-next or nightly-next push takes a stuck owner's key over ({out.strip()!r})")
     # 2026-11-20: nightly 44818589315 failed behind a feat-cmux-next owner queued 140 min on the lane label.
     for status in ("in_progress", "queued"):
-        result, out, log = run_wait("4", FAKE_OWNER_STATUS=status, FAKE_OWNER_MINUTES="40",
+        result, out, log = run_wait("4", FAKE_OWNER_STATUS=status, FAKE_OWNER_MINUTES="70",
                                     REF="refs/heads/nightly-next")
         _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out,
                f"a nightly-next push takes over a key whose {status} owner is past its lease ({out.strip()!r})")
@@ -327,14 +330,14 @@ def check_lease():
                                 FAKE_BUILDER_MINUTES="5", FAKE_BUILDER_BRANCH="nightly-next", REF="refs/heads/nightly-next")
     _check(result.returncode == 0 and "takeover=false" in out and "owner=9" in out,
            f"a nightly-next run defers to a live nightly-next builder ({out.strip()!r})")
-    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", FAKE_TREE_PUBLISHED="1")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="70", FAKE_TREE_PUBLISHED="1")
     _check(result.returncode == 0 and "takeover=false" in out,
            f"a stuck owner that published anyway: no build ({out.strip()!r})")
     # Later pushes defer to the run that took over, while it holds its own lease.
-    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", FAKE_BUILDERS="9", FAKE_BUILDER_MINUTES="5")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="70", FAKE_BUILDERS="9", FAKE_BUILDER_MINUTES="5")
     _check(result.returncode == 0 and "takeover=false" in out and "owner=9" in out,
            f"a later push defers to the feat-cmux-next run that took a stuck owner's key over ({out.strip()!r})")
-    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", FAKE_BUILDERS="9", FAKE_BUILDER_MINUTES="40")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="70", FAKE_BUILDERS="9", FAKE_BUILDER_MINUTES="70")
     _check(result.returncode == 0 and "takeover=true" in out,
            f"a feat-cmux-next builder past its own lease does not hold the key either ({out.strip()!r})")
 

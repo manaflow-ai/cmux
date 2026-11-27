@@ -42,6 +42,8 @@ export { PlatformChief } from "./platform-chief.ts"
 export { AgentGateway } from "./agent-gateway.ts"
 // Named entrypoint for cmux-platform's joined-machine GitHub token route only (integrations/machine-github.ts).
 export { MachineGitHub } from "./integrations/machine-github.ts"
+// Named entrypoint for cmux-platform's edge machine sign-in only (machine-edge-signin.ts): a vm bearer without the install key.
+export { MachineEdgeSignin } from "./machine-edge-signin.ts"
 export { ModelKeys } from "./model-keys.ts"
 export { HandoffDO } from "./handoffs/handoff-do.ts"
 export { HandoffIndexDO } from "./handoffs/index-do.ts"

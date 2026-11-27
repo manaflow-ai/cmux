@@ -185,7 +185,10 @@ fn stop_and_save(global: &GlobalArgs, out: &str, id: Option<&str>, machine: Opti
                 return fail(
                     global,
                     "bad_recording",
-                    format!("{out}: {bytes} bytes saved, the recording has {}", body["bytes"]),
+                    format!(
+                        "{out}: {bytes} bytes saved, the recording has {}",
+                        body.get("bytes").unwrap_or(&Value::Null)
+                    ),
                 );
             }
             // `path` is the worker's own copy; `out` is the caller's file.

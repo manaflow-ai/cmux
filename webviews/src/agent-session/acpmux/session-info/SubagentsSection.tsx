@@ -10,8 +10,8 @@
 // and number, then "40 done",
 // `subagentCountParts`).
 import { useState } from "react";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { useScrollEdges } from "../../../ui/scrollEdges";
-import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 
@@ -25,7 +25,7 @@ import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subag
 import { subagentProgress } from "../subagents/subagentProgress";
 import { namedAction } from "../subagents/trayDetail";
 import { nestAgents } from "../subagents/agentsPillModel";
-import { elapsed, running, useNow } from "../subagents/subagentGroupModel";
+import { running, subagentTime, useNow } from "../subagents/subagentGroupModel";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { subsessionResumeRow } from "../subagents/resumeState";
@@ -130,6 +130,8 @@ export function SubagentsSection({
   harness?: string;
 }) {
   const t = useT();
+  // A retry waits out the shared bound before its line says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   const language = usePaneLanguage();
   const now = useNow(agents.some(running));
   const [more, setMore] = useState(false);
@@ -155,9 +157,9 @@ export function SubagentsSection({
       detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
       status,
-      state: subagentStateText(t, agent, waiting, now),
+      state: subagentStateText(t, agent, waiting, connectionQuiet, now),
       working: Boolean(retrying(agent)),
-      time: formatDuration(elapsed(agent, now)),
+      time: subagentTime(agent, now),
       task: agent.task,
       icon: SUBAGENT_FALLBACK,
       // Another family's mark; the chat's own subagents keep their toned sparkle (foreignHarness).
@@ -172,7 +174,7 @@ export function SubagentsSection({
     identity: child.sessionId,
     name: child.title,
     status: sessionStatus(child),
-    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
+    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child, connectionQuiet)),
     icon: "agent.chat",
     mark: child.harness,
     depth: 0,

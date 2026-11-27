@@ -53,7 +53,7 @@ const ACCENTS: [&str; 9] = ["neutral", "theme", "red", "green", "yellow", "blue"
 /// The Ghostty keys of the terminal theme the phone takes from the Mac. The Mac sends these
 /// (`GhosttyRuntime.phoneTerminalThemeKeys`) and the phone resets and loads these
 /// (`CmuxMobileTerminalTheme.keys`); keep the three lists the same.
-pub const TERMINAL_KEYS: [&str; 19] = [
+pub const TERMINAL_KEYS: [&str; 21] = [
     "background",
     "foreground",
     "palette",
@@ -73,6 +73,8 @@ pub const TERMINAL_KEYS: [&str; 19] = [
     "search-foreground",
     "search-selected-background",
     "search-selected-foreground",
+    "background-cells-opacity",
+    "background-cells-neutral-fade",
 ];
 /// `appearance.chromeStyle` values (`ChromeStyle`, schemas/settings/chrome-styles.json).
 pub const CHROME_STYLES: [&str; 10] = [
@@ -778,6 +780,9 @@ mod tests {
             "minimum-contrast = 1.2",
             "palette-generate = true",
             "window-colorspace = display-p3",
+            "background-cells-opacity = 0.4",
+            "background-cells-neutral-fade = 0.5",
+            "background-cells-opacity =",
             // Not a theme key: a phone never runs the Mac's command or loads its files.
             "command = /bin/sh -c 'curl x'",
             "config-file = /etc/passwd",
@@ -804,6 +809,9 @@ mod tests {
                 "minimum-contrast = 1.2",
                 "palette-generate = true",
                 "window-colorspace = display-p3",
+                "background-cells-opacity = 0.4",
+                "background-cells-neutral-fade = 0.5",
+                "background-cells-opacity =",
             ]
         );
     }

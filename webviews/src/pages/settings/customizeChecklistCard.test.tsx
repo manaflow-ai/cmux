@@ -55,6 +55,22 @@ test("one click turns a Labs switch on through settings.set, and the count follo
   expect(count("labs")).toBe(`1 of ${ids("labs").length} on`);
 });
 
+test("a sidebar look is one switch: on picks it, off puts back the default look (ask-b9d8846cc2)", async () => {
+  await open();
+  // Today's look (cmux) has no switch; the other looks wait off, so nothing changes until a click.
+  expect(ids("looks")).not.toContain("sidebar.look=cmux");
+  expect(ids("looks")).toContain("sidebar.look=claude");
+  expect(toggle("sidebar.look=claude").getAttribute("aria-checked")).toBe("false");
+  await click(toggle("sidebar.look=claude"));
+  await settle();
+  expect(page!.store.getSnapshot().rows.get("sidebar.look")?.value).toBe("claude");
+  expect(toggle("sidebar.look=claude").getAttribute("aria-checked")).toBe("true");
+  await click(toggle("sidebar.look=claude"));
+  await settle();
+  expect(page!.store.getSnapshot().rows.get("sidebar.look")?.value).toBe("cmux");
+  expect(toggle("sidebar.look=claude").getAttribute("aria-checked")).toBe("false");
+});
+
 test("a library entry's switch runs `customize library off`", async () => {
   await open();
   expect(ids("library")).toContain("library:night");

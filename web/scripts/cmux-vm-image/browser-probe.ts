@@ -23,7 +23,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
+import { DEVBOX_WORK_USER } from "../../services/vms/workUser";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
 import { aptClosureProblems, aptDebFetchCommand, aptLocalInstallCommand, aptPins, DEFAULT_LOCK_PATH, programInstallCommand, readInputsLock, type RoleManifestEntry, ROLES_MANIFEST_PATH, rolesManifest, type RolesManifest, sq } from "./lock";
 

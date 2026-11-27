@@ -194,7 +194,7 @@ impl ApiClient {
     /// and verifying against the OS trust store ([`crate::egress`]).
     pub fn http_client() -> reqwest::Client {
         crate::install_crypto_provider();
-        crate::egress::http_client_builder("cmux_mobile_link::api")
+        crate::egress::http_client_builder_with("cmux_mobile_link::api", RouteResolve)
             .timeout(std::time::Duration::from_secs(20))
             .pool_idle_timeout(std::time::Duration::from_secs(90))
             .build()
@@ -326,6 +326,22 @@ pub struct MyDevice {
     /// When the device first registered (ISO 8601).
     #[serde(default)]
     pub created_at: Option<String>,
+}
+
+/// The API's names resolve as a dial's do: DNS, or the literals they last resolved to when DNS
+/// is down ([`crate::route_literals`]). TLS still names and verifies the host.
+struct RouteResolve;
+
+impl reqwest::dns::Resolve for RouteResolve {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            let found = crate::route_literals::RouteLiterals::shared().resolve_host(&host).await?;
+            let addrs: reqwest::dns::Addrs =
+                Box::new(found.into_iter().map(|ip| std::net::SocketAddr::new(ip, 0)));
+            Ok(addrs)
+        })
+    }
 }
 
 /// `GET /v1/ice` results kept while their credentials have plenty of life

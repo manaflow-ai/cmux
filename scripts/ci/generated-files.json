@@ -69,12 +69,35 @@
       "status": "build"
     },
     {
+      "id": "design-scale-swift",
+      "generator": "scripts/cmux-next/gen-design-scale-swift.py",
+      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/DesignScale.generated.swift"],
+      "status": "build"
+    },
+    {
       "id": "settings-sources",
       "generator": "scripts/cmux-next/gen-settings-sources.py",
       "outputs": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+*.generated.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift"
       ],
+      "status": "build"
+    },
+    {
+      "id": "daemon-wire-types",
+      "generator": "cmux-tui/bindings/codegen/swift_app/generate.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/**/*.generated.swift"
+      ],
+      "status": "build"
+    },
+    {
+      "id": "daemon-capabilities",
+      "generator": "scripts/cmux-next/gen-daemon-capabilities.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonCapability.generated.swift"
+      ],
+      "inputs": ["cmux-tui/spec/gui-capabilities.json"],
       "status": "build"
     },
     {

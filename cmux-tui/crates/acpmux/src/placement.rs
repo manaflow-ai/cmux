@@ -426,9 +426,18 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
     if let Some(why) = hold(machine, now_ms) {
         return Some(why);
     }
+    let lanes = machine.get("lanes");
+    // A machine that is never a lane host (`lanes.lane_host` false): a person's own box, no
+    // override (Leo, 2026-11-27, of big-red: "then please don't rely on big-red").
+    if lanes.and_then(|l| l.get("lane_host")) == Some(&Value::Bool(false)) {
+        let why = lanes.and_then(|l| l.get("lane_host_why")).and_then(Value::as_str);
+        return Some(match why.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(why) => format!("never a lane host: {why}"),
+            None => "never a lane host (lanes.lane_host false)".into(),
+        });
+    }
     // leo-workspace lane-place's drain flag: a lane host with `lanes.accept_new` false takes no new
     // lanes, so this pick skips it too and one field drains a host for every placer.
-    let lanes = machine.get("lanes");
     if lanes.and_then(|l| l.get("accept_new")) == Some(&Value::Bool(false)) {
         let why = lanes.and_then(|l| l.get("accept_new_why")).and_then(Value::as_str);
         return Some(match why.map(str::trim).filter(|s| !s.is_empty()) {
@@ -604,7 +613,37 @@ pub fn registry_path() -> Option<PathBuf> {
 }
 
 pub fn load_registry() -> Option<Value> {
-    serde_json::from_slice(&std::fs::read(registry_path()?).ok()?).ok()
+    let mut registry: Value =
+        serde_json::from_slice(&std::fs::read(registry_path()?).ok()?).ok()?;
+    fold_role_holders(&mut registry);
+    Some(registry)
+}
+
+/// Folds the registry's top-level `role_holders` (`{role: [host, ...]}`) into each machine's
+/// `roles`: a machine's roles are its own `roles` array plus every role whose holder list names
+/// it (by machine name), appended in sorted role order without duplicates. A holder that is no
+/// machine is ignored. Idempotent.
+pub fn fold_role_holders(registry: &mut Value) {
+    let Some(holders) = registry.get("role_holders").and_then(Value::as_object).cloned() else {
+        return;
+    };
+    let Some(machines) = registry.get_mut("machines").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let mut roles: Vec<&String> = holders.keys().collect();
+    roles.sort();
+    for role in roles {
+        let Some(list) = holders[role].as_array() else { continue };
+        for host in list.iter().filter_map(Value::as_str) {
+            let Some(m) = machines.get_mut(host).and_then(Value::as_object_mut) else { continue };
+            let entry = m.entry("roles").or_insert_with(|| json!([]));
+            if let Some(arr) = entry.as_array_mut() {
+                if !arr.iter().any(|r| r.as_str() == Some(role)) {
+                    arr.push(json!(role));
+                }
+            }
+        }
+    }
 }
 
 /// The providers `lane_place.placement_preference` may name besides machine names.

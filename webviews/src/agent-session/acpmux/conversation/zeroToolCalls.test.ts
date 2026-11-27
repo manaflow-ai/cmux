@@ -73,7 +73,8 @@ test("a line with no time and no calls says nothing; with calls it counts them",
 // cmux#54927, again: "Worked for 0s" over a turn whose one piece of work was a subagent. cmux#55191
 // dropped that fold, and the "Working for" that stood over the running turn then vanished at its end,
 // its rows loose (Leo, 2026-11-25: "i think it was replacing the "worked for" as it went. let's just
-// fix forward and improve it all"). The fold stays, and reads "<1s", never "0s".
+// fix forward and improve it all"). The fold stays, and reads "0s" (Leo, 2026-11-27: "let's do not <1 but 0s
+// and revert that situatoin").
 const agentNamed = (state: "completed" | "failed") =>
   ({
     id: "n3",
@@ -104,7 +105,7 @@ const spawnCall = (status: string) =>
   }) as never;
 
 for (const state of ["completed", "failed"] as const)
-  test(`a ${state} subagent's turn under a second keeps its fold, "Worked for <1s", never "0s"`, () => {
+  test(`a ${state} subagent's turn under a second keeps its fold, "Worked for 0s"`, () => {
     for (const agentFamily of ["claude", "codex"]) {
       const rows: AcpmuxRow[] = [
         row("prompt", 1, "user", { text: "Move the daemon wiring" }),
@@ -115,25 +116,24 @@ for (const state of ["completed", "failed"] as const)
       const view = turnView([...withSubagentLines(rows)], new Set(), { agentFamily });
       const labels = view.filter((entry) => entry.kind === WORKED).map((entry) => workedLabel(t, entry));
       expect(labels).toHaveLength(1);
-      expect(labels[0]).toStartWith("Worked for <1s");
-      expect(labels.join()).not.toContain("0s");
+      expect(labels[0]).toStartWith("Worked for 0s");
     }
   });
 
-test("a quiet background turn of a subagent's end under a second reads <1s, never 0s", () => {
+test("a quiet background turn of a subagent's end under a second reads 0s, never <1s", () => {
   const rows = subagentOnlyTurn(true).map((entry) =>
     entry.id === `${BACKGROUND_END}-bg` ? { ...entry, durationMs: 0, turnStartedAtMs: 12 } : entry,
   );
   const view = turnView([...withSubagentLines(rows)], new Set(), { agentFamily: "claude" });
-  for (const entry of view.filter((entry) => entry.kind === WORKED)) expect(workedLabel(t, entry)).not.toContain("0s");
+  for (const entry of view.filter((entry) => entry.kind === WORKED)) expect(workedLabel(t, entry)).not.toContain("<1s");
 });
 
-test("a turn's time never reads 0s: under a second is <1s", () => {
-  expect(turnSpan(0)).toBe("<1s");
-  expect(turnSpan(999)).toBe("<1s");
+test("a turn's time under a second reads 0s, never <1s", () => {
+  expect(turnSpan(0)).toBe("0s");
+  expect(turnSpan(999)).toBe("0s");
   expect(turnSpan(1_000)).toBe("1s");
   expect(turnSpan(76_000)).toBe("1m 16s");
-  expect(workedLabel(t, row("worked-x", 1, WORKED, { durationMs: 400, status: "completed" }))).toBe("Worked for <1s");
+  expect(workedLabel(t, row("worked-x", 1, WORKED, { durationMs: 400, status: "completed" }))).toBe("Worked for 0s");
 });
 
 test("the same subagent turn that took 6s keeps its Worked for", () => {
@@ -187,7 +187,7 @@ test("a lone subagent's turn with no recorded time keeps its fold, and its foote
   ];
   const view = turnView([...withSubagentLines(rows)], new Set(), { agentFamily: "claude" });
   expect(view.filter((entry) => entry.kind === WORKED).map((entry) => workedLabel(t, entry))).toEqual([
-    "Worked for <1s",
+    "Worked for 0s",
   ]);
   const footer = view.find((entry) => entry.kind === "turnSummary")!;
   expect(footerLabel(t, footer)).toBeUndefined();

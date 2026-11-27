@@ -281,7 +281,7 @@ impl<E: FrameEncoder> Pump<E> {
             Ok(idr) => {
                 self.stats.encoded += 1;
                 self.stats.idr += u64::from(idr);
-                Some(Encoded { access_unit, idr, t_capture_us })
+                Some(Encoded { access_unit, idr, t_capture_us, ltr_token: None })
             }
             Err(_) => {
                 // The gate opens again; the next damage tries anew.
