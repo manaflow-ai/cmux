@@ -13,7 +13,14 @@ import { TranscriptDisclosureProvider } from "../conversation/transcriptDisclosu
 import { ChevronRight } from "../conversation/icons";
 import { useT } from "../i18n";
 import { AgentCard } from "./AgentCard";
-import { running, STATE_LABEL, SubagentNavContext, SubagentPaneContext, subagentTime, useNow } from "./subagentGroupModel";
+import {
+  running,
+  STATE_LABEL,
+  SubagentNavContext,
+  SubagentPaneContext,
+  subagentTime,
+  useNow,
+} from "./subagentGroupModel";
 import type { Subagent } from "./subagentFold";
 import { SubsessionContext, useSenderChat, type SubsessionState } from "./subsessions";
 
