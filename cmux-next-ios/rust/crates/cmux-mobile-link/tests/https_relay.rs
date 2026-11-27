@@ -937,6 +937,9 @@ async fn dial_with_a_slow_gather(
         relay: relay(&rig.server, &rig.phone_id),
         relay_first: phone_first,
         ice_servers: vec![unreachable_turn],
+        // This fixture measures the early cue against a phone whose offer waits for gathering.
+        // Modern phones send the offer first; that separate path is covered below.
+        init_after_gather: true,
         ..options()
     };
     let started = std::time::Instant::now();
@@ -1417,7 +1420,13 @@ async fn relay_first_dial_with_a_slow_gather(
     stun: Duration,
     join: Duration,
 ) -> (Duration, Duration) {
-    let fake = FakeOptions { relay_join_delay: join, ..FakeOptions::default() };
+    let fake = FakeOptions {
+        relay_join_delay: join,
+        // Isolate the offer's ordering: an early cue would let the Mac join during the
+        // gather in both variants, hiding the latency that sending wg-init first removes.
+        drop_early_wg_relay: true,
+        ..FakeOptions::default()
+    };
     let mac_options =
         DialOptions { drop_udp_to: Some(udp_to_the_peer_lost), relay_first: mac_first, ..options() };
     let rig = rig(fake, mac_options, true).await;
