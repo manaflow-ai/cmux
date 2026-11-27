@@ -316,13 +316,12 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
  * turn gap over the next prompt: "this bare background update tool call floating in teh air is so
  * weird loking proportionally"). The agent's own work that came in after the turn ended ("Background
  * update", "Background task finished", "3 background tasks finished", "Subagent finished") is that
- * turn's tail: 8 under the footer row, as the footer is under the reply, so its centre is as far from
- * the footer's glyph as the reply's last line is (prose-to-footer, 35.375); the next prompt keeps the
- * turn gap under it. Another agent's line there keeps footer-to-received. Measured over gallery entry
+ * turn's tail: flush under the footer row, as Claude Code desktop draws "Message from subagent" right
+ * under the actions (Lucas, 2026-11-27); the next prompt keeps the turn gap under it. Another agent's line there keeps footer-to-received. Measured over gallery entry
  * agent-pane.lone-system-rows by test/transcript-lone-system-rows.test.ts. */
 export const LONE_SYSTEM_ROWS = {
-  /** The footer's glyph centre to the line's centre: 16 + 8 + 11. */
-  footerToLine: 16 + 8 + TRANSCRIPT_LINE_ROW / 2,
+  /** The footer's glyph centre to the line's centre: the footer row's half and the line's, no gap. */
+  footerToLine: 16 + TRANSCRIPT_LINE_ROW / 2,
   /** The line's centre to the next prompt bubble's top edge: 11 + 32 (step-to-prompt). */
   lineToPrompt: TRANSCRIPT_LINE_ROW / 2 + 32,
   /** Another agent's line under the footer: footer-to-received. */
