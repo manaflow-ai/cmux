@@ -1,7 +1,7 @@
 public import CmuxNextDaemon
 public import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// How one create's idempotency key reaches the Cloud API.
 ///
