@@ -166,12 +166,12 @@ import {
   RETRY_FIRST_MS,
 } from "../hostRetry";
 import {
+  acpmuxSendsReady,
   heldStartStop,
   sendsHeldForHost,
   untilHostAnswers,
-  acpmuxSendsReady,
-  paneSends,
   pageClientLink,
+  paneSends,
 } from "../sendWhenReady";
 import { revealedSubagent, SUBAGENT_REVEAL } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
