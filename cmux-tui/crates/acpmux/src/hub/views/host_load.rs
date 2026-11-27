@@ -68,6 +68,9 @@ impl Hub {
             if let Some(heavy) = heavy {
                 obj.insert("heavy".into(), json!(heavy));
             }
+            if let Some(stall) = crate::host_pressure::mem_stall::global() {
+                obj.insert("mem_stall".into(), json!(stall));
+            }
         }
         // The readings the shadow admission verdict uses beside the meter's
         // (`shadow_admission::local_readings`): `cpus`, `pressureAgeMs`, `load`,
