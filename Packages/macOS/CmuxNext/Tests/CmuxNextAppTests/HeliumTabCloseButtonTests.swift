@@ -30,10 +30,15 @@ import Testing
         withDensity(preset) { m, row in
             let outer = min(m.cornerRadius, row / 2)
             let gap = (row - m.closePlateSide) / 2
-            #expect(gap == max(2, outer / 2), "\(preset): plate \(m.closePlateSide) on a \(row) pt tab with a \(outer) pt corner")
+            // Half the corner in, unless that would reach a point short of the favicon's gap before the slot.
+            let reach = m.closeButtonSize + 2 * max(0, m.titleCloseSpacing - 1)
+            #expect(m.closePlateSide == min(row - 2 * max(2, outer / 2), reach),
+                    "\(preset): plate \(m.closePlateSide) on a \(row) pt tab with a \(outer) pt corner")
+            #expect(m.closePlateSide > m.closeButtonSize, "\(preset): the plate is larger than the slot")
             #expect(m.closeCornerRadius == max(0, outer - gap), "\(preset): plate corner \(m.closeCornerRadius), gap \(gap)")
-            // The slot's center is half a row from the pill's end, so the plate's end is `gap` from it too.
-            #expect(m.contentTrailingInset + m.closeButtonSize / 2 == row / 2, "\(preset): x center \(m.contentTrailingInset + m.closeButtonSize / 2) pt in")
+            // The slot's center is half a row from the pill's end (on the half-point grid), so the cell can set the
+            // plate `gap` from the end.
+            #expect(abs(m.contentTrailingInset + m.closeButtonSize / 2 - row / 2) <= 0.25, "\(preset): x center \(m.contentTrailingInset + m.closeButtonSize / 2) pt in")
             // The slot keeps Helium's share of the row, so titles and minimum widths keep their room.
             #expect(m.closeButtonSize == Self.half(15 * CGFloat(preset.scaleFactor)))
             #expect(m.closeGlyphInk == Self.half(8.5 * CGFloat(preset.scaleFactor)), "\(preset): x ink \(m.closeGlyphInk)")
@@ -49,24 +54,26 @@ import Testing
             #expect(m.closePlateSide == 21)
             #expect(m.closeCornerRadius == 4.5)
             #expect(m.contentTrailingInset == 7.5)
+            #expect(m.titleCloseSpacing >= 4, "the plate's 3 pt past the slot stays clear of the favicon")
         }
     }
 
-    /// A capsule tab (`appearance.tabShape` rounded) gets a round plate, concentric with its ends.
+    /// A capsule tab (`appearance.tabShape` rounded) gets a round plate, concentric with its ends; a square tab a square
+    /// one, no larger than the room beside the slot allows.
     @Test func aCapsuleTabGetsACircle() {
-        let plate = BrowserChromeTuning.closePlate(pillHeight: 30, pillRadius: 15, minimumSide: 15)
+        let plate = BrowserChromeTuning.closePlate(pillHeight: 30, pillRadius: 15, slot: 15, maximumSide: 21)
         #expect(plate.side == 15 && plate.corner == 7.5)
-        let square = BrowserChromeTuning.closePlate(pillHeight: 30, pillRadius: 0, minimumSide: 15)
-        #expect(square.side == 26 && square.corner == 0, "a square tab: 2 pt in, square")
+        let square = BrowserChromeTuning.closePlate(pillHeight: 30, pillRadius: 0, slot: 15, maximumSide: 21)
+        #expect(square.side == 21 && square.corner == 0, "a square tab: capped at the room beside the slot, square")
     }
 
-    /// The click target covers the whole plate and keeps Apple's 20 x 20 pt minimum.
+    /// The click target keeps Apple's 20 x 20 pt minimum around the x.
     @Test(arguments: presets)
-    func theClickTargetCoversThePlate(_ preset: DensityPreset) {
+    func theClickTargetStaysTwentyPoints(_ preset: DensityPreset) {
         withDensity(preset) { m, _ in
             let drawn = CGRect(x: 100, y: 5, width: m.closeButtonSize, height: m.closeButtonSize)
             let hit = m.closeHitRect(drawn)
-            #expect(hit.width >= max(20, m.closePlateSide) && hit.height >= max(20, m.closePlateSide), "\(preset): hit \(hit.size)")
+            #expect(hit.width >= 20 && hit.height >= 20, "\(preset): hit \(hit.size)")
             #expect(hit.midX == drawn.midX && hit.midY == drawn.midY)
         }
     }

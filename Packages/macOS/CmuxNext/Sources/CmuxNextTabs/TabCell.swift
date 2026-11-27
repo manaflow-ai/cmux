@@ -586,15 +586,20 @@ final class TabCell {
         if let closeRect {
             let appearing = !hasCloseLayers
             let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
-            // The plate is centered on the x's slot and nests in the pill: as far from the pill's top, bottom and end
-            // as its corner is smaller than the pill's (``TabStripMetrics/closePlateSide``), on a squeezed pill no taller.
+            // The plate nests in the pill (Lawrence msg 48706): as far from its top and bottom as its corner is smaller
+            // than the pill's (``TabStripMetrics/closePlateSide``), and in the trailing slot as far from its end too,
+            // to the pixel; elsewhere (a centered x) around the slot. The x is drawn at the plate's center.
             let plateSide = min(m.closePlateSide, bounds.height)
-            closeBackgroundLayer.frame = CGRect(x: pixel(closeRect.midX - plateSide / 2), y: pixel(midY - plateSide / 2),
-                                                width: plateSide, height: plateSide)
+            let gap = (bounds.height - plateSide) / 2
+            let trailing = abs(bounds.width - closeRect.midX - bounds.height / 2) <= 0.5
+            let plate = CGRect(x: trailing ? pixel(bounds.width - gap - plateSide) : pixel(closeRect.midX - plateSide / 2),
+                               y: pixel(midY - plateSide / 2), width: plateSide, height: plateSide)
+            closeBackgroundLayer.frame = plate
             closeBackgroundLayer.cornerRadius = min(m.closeCornerRadius, plateSide / 2)
             closeGlyphLayer.lineWidth = m.closeGlyphLineWidth
-            let inset = (closeRect.width - m.closeGlyphInk) / 2 + m.closeGlyphPathInset
-            let glyph = closeRect.insetBy(dx: inset, dy: inset)
+            let ink = m.closeGlyphInk, inset = m.closeGlyphPathInset
+            let glyph = CGRect(x: pixel(plate.midX - ink / 2), y: pixel(plate.midY - ink / 2), width: ink, height: ink)
+                .insetBy(dx: inset, dy: inset)
             // The glyph's layer is its own rect, so a strip move animates where it is, not its path.
             closeGlyphLayer.frame = glyph
             closeGlyphLayer.path = Self.closeGlyphPath(in: CGRect(origin: .zero, size: glyph.size))

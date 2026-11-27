@@ -86,8 +86,9 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// density (``BrowserChromeTuning/closePlate(pillHeight:pillRadius:minimumSide:)``), unless the density's
     /// `closeCorner` is tuned or set.
     public var closeCornerRadius: CGFloat
-    /// The side of the x's hover plate on a ``tabHeight`` pill: the pill less half its corner above and below, centered
-    /// on the x's slot (``closeButtonSize``, which keeps the title's and the minimum width's room).
+    /// The side of the x's hover plate on a ``tabHeight`` pill: the pill less half its corner above and below, around the
+    /// x's slot (``closeButtonSize``, which keeps the title's and the minimum width's room), at most a point short of the
+    /// gap before the slot on each side.
     public var closePlateSide: CGFloat
 
     /// The side of the x's ink box (``closeGlyphSize``): the stroke's round caps reach to it, so the path's ends sit
@@ -101,11 +102,11 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// How far inside the ink box the x's two lines end, so their round caps meet the box's corners.
     public var closeGlyphPathInset: CGFloat { closeGlyphLineWidth / 2 * 0.5.squareRoot() }
 
-    /// Where a click or hover counts as on the x whose slot is `drawn`: its whole hover plate (``closePlateSide``) and at
-    /// least Apple's 20 x 20 pt target around it (Lawrence 2026-10-20).
+    /// Where a click or hover counts as on the x drawn at `drawn` (its slot): at least Apple's 20 x 20 pt target around it
+    /// (Lawrence 2026-10-20), as the 16 pt square with 2 pt of slack was before the x took Helium's 14. Not the whole
+    /// plate, so a click beside the x still mutes or selects (the audio badge sits ``titleCloseSpacing`` before it).
     public func closeHitRect(_ drawn: CGRect) -> CGRect {
-        let side = max(20, closePlateSide)
-        return drawn.insetBy(dx: -max(2, (side - drawn.width) / 2), dy: -max(2, (side - drawn.height) / 2))
+        drawn.insetBy(dx: -max(2, (20 - drawn.width) / 2), dy: -max(2, (20 - drawn.height) / 2))
     }
 
     public func nestedCornerRadius(_ rect: CGRect, in pill: CGRect) -> CGFloat {
@@ -240,7 +241,9 @@ public struct TabStripMetrics: Equatable, Sendable {
         // `appearance.tabShape` rounded: a capsule, half the tab's height (block keeps the tab's corner).
         cornerRadius = DesignSettings.shared.tabShape.fillCornerRadius(Metrics.tabCornerRadius, height: Metrics.tabHeight,
                                                                        tabHeight: Metrics.tabHeight)
-        let plate = BrowserChromeTuning.closePlate(pillHeight: tabHeight, pillRadius: cornerRadius, minimumSide: closeButtonSize)
+        // The plate reaches at most a point short of the gap before the slot, so it never meets the favicon or a badge.
+        let plate = BrowserChromeTuning.closePlate(pillHeight: tabHeight, pillRadius: cornerRadius, slot: closeButtonSize,
+                                                   maximumSide: closeButtonSize + 2 * max(0, titleCloseSpacing - 1))
         closePlateSide = plate.side
         closeCornerRadius = BrowserChromeTuning.override(.closeCorner) ?? Metrics.densityToken("tabCloseCornerRadius") ?? plate.corner
         groupChipOuterInset = Metrics.space1
