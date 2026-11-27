@@ -383,7 +383,7 @@ export default componentEntry<UrlChipProps>({
       // the copy is, instead of showing an error where the pull request should be.
       chipHost: prHost({
         pullRequest: pullRequest({ state: "merged", mergeable: "", review: "approved" }),
-        fetchedAt: GALLERY_NOW / 1000 - 23 * 60,
+        fetchedAt: GALLERY_NOW / 1000 - 2 * 3600,
       }),
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
       play: openCard,
