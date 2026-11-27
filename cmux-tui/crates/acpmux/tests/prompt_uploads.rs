@@ -117,7 +117,17 @@ impl Client {
 
     /// Uploads `bytes` as `name` in chunks; answers its upload id.
     async fn upload(&mut self, session: &str, name: &str, bytes: &[u8]) -> String {
-        let begin = json!({"sessionId": session, "fileName": name, "size": bytes.len()});
+        self.upload_file(session, name, bytes, false).await["uploadId"].as_str().unwrap().to_owned()
+    }
+
+    async fn upload_file(
+        &mut self,
+        session: &str,
+        name: &str,
+        bytes: &[u8],
+        for_prompt: bool,
+    ) -> Value {
+        let begin = json!({"sessionId": session, "fileName": name, "size": bytes.len(), "forPrompt": for_prompt});
         let begun = self.call(method::MUX_FILE_PUT_BEGIN, begin).await;
         let id = begun["result"]["uploadId"].as_str().unwrap_or_else(|| panic!("{begun}"));
         let id = id.to_owned();
@@ -130,7 +140,7 @@ impl Client {
             json!({"sessionId": session, "uploadId": id, "fileName": name, "size": bytes.len()});
         let done = self.call(method::MUX_FILE_PUT_FINISH, finish).await;
         assert!(done.get("error").is_none(), "{done}");
-        id
+        begun["result"].clone()
     }
 
     async fn user_messages(&mut self, session: &str) -> Vec<Value> {
@@ -202,6 +212,49 @@ fn links(text: &str) -> Vec<(String, PathBuf)> {
             Some((name.to_owned(), path))
         })
         .collect()
+}
+
+/// A timeout before acceptance leaves the uploaded file available to the same prompt ID.
+#[tokio::test]
+async fn prompt_preparation_deadline_preserves_upload_for_retry() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("upload-deadline-retry").await;
+    let name = "retry.png";
+    let bytes = png(4096, 42);
+    let upload = c.upload_file(&session, name, &bytes, true).await;
+    let mut file = image_ref(upload["uploadId"].as_str().unwrap(), name);
+    file["_meta"]["acpmux"]["upload"]["owned"] = upload["ownerToken"].clone();
+    assert!(upload["ownerToken"].is_string());
+    let id = v7();
+    let params = prompt(&session, &id, "check the image", vec![file]);
+
+    let writer = hub.config.write().await;
+    let started = Instant::now();
+    let refused = tokio::time::timeout(
+        Duration::from_secs(7),
+        c.call(method::SESSION_PROMPT, params.clone()),
+    )
+    .await
+    .expect("the five-second preparation deadline must answer with the writer still held");
+    let data = &refused["error"]["data"];
+    assert_eq!(data["reason"], "deadline_exceeded", "{refused}");
+    assert_eq!(data["wait"], "hub.config.read", "{refused}");
+    assert_eq!(data["retryable"], true, "{refused}");
+    eprintln!("RPC preparation timed out in {:?}", started.elapsed());
+    drop(writer);
+    assert!(c.user_messages(&session).await.is_empty());
+
+    let retried = c.call(method::SESSION_PROMPT, params).await;
+    assert_eq!(retried["result"]["stopReason"], "end_turn", "{retried}");
+    assert!(
+        c.text.contains(&sha(&bytes)),
+        "harness did not receive the original image: {}",
+        c.text
+    );
+    let messages = c.user_messages(&session).await;
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert_eq!(messages[0]["promptId"], id);
 }
 
 /// Leo's case: 50 screenshot-sized images to a chat whose turn runs. No frame is over one MiB, the

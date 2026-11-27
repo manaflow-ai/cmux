@@ -1,5 +1,6 @@
 public import AppKit
 public import Observation
+import os
 
 /// A catalog descriptor joined with its bound handler, if any. The palette
 /// and shortcut settings list entries; unbound entries have no handler yet.
@@ -323,6 +324,14 @@ public final class ActionRegistry {
     /// trapped: a Debug build must still launch on a catalog that lags its Swift; the app logs a
     /// fault.
     public private(set) var uncataloguedBindings: [ActionID] = []
+
+    /// One owner per action, and every bound id in the catalog: tests check both (`noActionIsBoundTwice`,
+    /// `everyBoundActionIsInTheCatalog`); at runtime a Debug dogfood build must not crash, so only a fault.
+    public func logBindingProblems() {
+        for (problem, ids) in [("bound twice", duplicateBindings), ("not in the catalog, left unbound", uncataloguedBindings)] where !ids.isEmpty {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("actions \(problem, privacy: .public): \(ids.map(\.rawValue).joined(separator: ", "), privacy: .public)")
+        }
+    }
 
     /// The descriptor a bind takes for `id`, or nil (noting `id` in ``uncataloguedBindings``)
     /// when the catalog does not have it.

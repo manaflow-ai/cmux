@@ -299,7 +299,7 @@ extension CloudGitHubCompletion {
             await auth.awaitRestored()
             guard auth.isSignedIn else { return auth.gitHubChanges.record(.noAnswer, reason: nil) }
             let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-            let reply = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace)
+            let reply = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO)
                 .gitHubCompleteWithAccount(completion)
             auth.gitHubChanges.record(reply.answer, reason: reply.reason, account: reply.account)
             answered(reply.answer)
@@ -333,13 +333,16 @@ extension CloudOwnerAPIClient {
     }
 
     /// ``gitHubCompleteWithReason(_:)`` and, when connected, the GitHub account's name (``connectedAccount(body:)``).
+    /// Goes through the Rust app server's `owner.github_complete` (no classic route).
     public func gitHubCompleteWithAccount(_ completion: CloudGitHubCompletion) async -> (answer: GitHubCompletion, reason: String?, account: String?) {
-        let body: [String: Any] = ["op": "integration.complete", "params": completion.params, "origin": "user", "idempotency_key": completion.idempotencyKey]
-        guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else { return (.noAnswer, nil, nil) }
-        let result = Self.completion(status: answer.status, body: answer.body, ownerRequest: completion.isOwnerRequest)
+        let args: [String: any Sendable] = ["params": completion.params, "idempotencyKey": completion.idempotencyKey]
+        guard let data = try? await daemon("owner.github_complete", args, timeout: Self.bound(Self.personWait)),
+              let reply = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let status = reply["status"] as? Int else { return (.noAnswer, nil, nil) }
+        let body = reply["body"].flatMap { $0 is NSNull ? nil : (try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed)) } ?? Data()
+        let result = Self.completion(status: status, body: body, ownerRequest: completion.isOwnerRequest)
         switch result {
-        case .refused: return (result, Self.refusalReason(body: answer.body), nil)
-        case .connected: return (result, nil, Self.connectedAccount(body: answer.body))
+        case .refused: return (result, Self.refusalReason(body: body), nil)
+        case .connected: return (result, nil, Self.connectedAccount(body: body))
         case .pendingApproval, .noAnswer: return (result, nil, nil)
         }
     }
