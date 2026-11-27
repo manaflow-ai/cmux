@@ -128,7 +128,11 @@ pub(super) enum Control {
     /// (both sides dial the relay first, so no reassert follows the join).
     /// `answerer`: this side is the Mac, whose join replays no handshake
     /// initiation of its own (see the handler).
-    Relay { carrier: super::RelayCarrier, pending: bool, answerer: bool },
+    Relay {
+        carrier: super::RelayCarrier,
+        pending: bool,
+        answerer: bool,
+    },
     /// Debug and tests: the relay socket dies, as a proxy that resets it.
     KillRelay,
     /// The relay says the peer's socket joined: the pending handshake initiation goes
