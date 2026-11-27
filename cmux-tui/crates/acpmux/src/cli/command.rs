@@ -485,6 +485,13 @@ pub enum Command {
         #[arg(long)]
         clear: bool,
     },
+    /// `acpmux session last-message`.
+    #[command(hide = true)]
+    LastMessage {
+        session: String,
+        #[arg(long, short = 'n', default_value_t = 1)]
+        count: usize,
+    },
     /// Print the last reply of a session (plain text).
     #[command(aliases = aliases::LAST)]
     Last {
@@ -1761,6 +1768,7 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Move(args) => Command::MoveSessions(args),
             SessionCmd::Rebalance(args) => Command::Rebalance(args),
+            SessionCmd::LastMessage { session, count } => Command::LastMessage { session, count },
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
             }

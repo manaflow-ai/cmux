@@ -3431,6 +3431,20 @@ async fn dispatch_method(
         method::MUX_INFO => info::info(hub, conn, &params).await,
         method::MUX_SESSION_RESYNC => super::session_patch::resync(hub, conn, &params),
         method::MUX_PAUSED_FILES => super::paused_files::handle(hub, conn, &params).await,
+        method::MUX_LAST_REPLIES => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let count = params.get("count").and_then(Value::as_u64).unwrap_or(1) as usize;
+            // A first read after a daemon start may read the log's tail: off the runtime's workers.
+            let (replies, seq) = crate::qos::off_worker(|| {
+                hub.last_replies(&s, count).map_err(|e| RpcError::internal(e.to_string()))
+            })?;
+            Ok(json!({
+                "sessionId": s.id,
+                "seq": seq,
+                "replies": replies,
+                "max": crate::hub::reply_slot::KEEP,
+            }))
+        }
         method::MUX_SESSION_FILES => {
             super::session_files::require_local(conn.origin)?;
             let s = hub.resolve(session_key(&params)?)?;

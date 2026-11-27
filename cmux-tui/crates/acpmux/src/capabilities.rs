@@ -388,6 +388,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.
     Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
+    // A chat's newest agent replies from its O(1) slot (`hub/reply_slot.rs`): `acpmux last`
+    // without a read of the log's tail.
+    Capability { id: "last-replies-v1", wire: &[method::MUX_LAST_REPLIES] },
     // A paused machine's file tree and search with no wake; the reply says when it did not
     // answer (setting off, machine running, replica stale), and the client asks the machine.
     Capability { id: PAUSED_READS, wire: &[method::MUX_PAUSED_FILES] },

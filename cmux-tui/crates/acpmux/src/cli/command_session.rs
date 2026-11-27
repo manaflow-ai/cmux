@@ -267,6 +267,14 @@ pub enum SessionCmd {
         #[arg(long)]
         after_turn: bool,
     },
+    /// Print a chat's last agent reply from the daemon's per-chat slot: no read of its log
+    /// (`hub/reply_slot.rs`). A reply ends at a tool call, a thought, a plan or a new prompt.
+    LastMessage {
+        session: String,
+        /// How many replies, newest last (at most 8).
+        #[arg(long, short = 'n', default_value_t = 1)]
+        count: usize,
+    },
     /// Print the last raw events as JSON lines; -f keeps following.
     Tail {
         session: String,

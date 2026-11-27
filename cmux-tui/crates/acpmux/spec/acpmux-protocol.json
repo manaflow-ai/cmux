@@ -1400,6 +1400,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/last_replies",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/paused_files",
       "params": true,
       "result": true

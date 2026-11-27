@@ -632,6 +632,8 @@ pub mod method {
     /// Metadata-only paths for a session's config and state files; local Unix socket only.
     pub const MUX_SESSION_FILES: &str = "_acpmux/session_files";
     pub const MUX_EVENTS: &str = "_acpmux/events";
+    /// A chat's newest agent replies, from its O(1) slot (`hub/reply_slot.rs`).
+    pub const MUX_LAST_REPLIES: &str = "_acpmux/last_replies";
     /// One GitHub action for an agent on a machine the person added, run by the Mac that lends it
     /// its `gh` login; never a credential (`github_broker.rs`).
     pub const MUX_GITHUB_ACTION: &str = "_acpmux/github_action";

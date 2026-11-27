@@ -35,6 +35,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Defaults { .. }
             | Command::Skill
             | Command::Last { .. }
+            | Command::LastMessage { .. }
             | Command::Pending
             | Command::Ls(..)
             | Command::New(..)
@@ -293,6 +294,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 last_replies(&client, &id, count),
             )
             .await?;
+            if json_out {
+                print_json(&json!({"sessionId": id, "replies": replies}));
+            } else {
+                for (i, r) in replies.iter().enumerate() {
+                    if i > 0 {
+                        println!("\n---\n");
+                    }
+                    println!("{r}");
+                }
+            }
+            Ok(())
+        }
+        Command::LastMessage { session, count } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let replies = crate::cli::last_reply::slot_replies(&client, &id, count).await?;
             if json_out {
                 print_json(&json!({"sessionId": id, "replies": replies}));
             } else {

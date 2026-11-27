@@ -19,6 +19,31 @@ const FIRST_PAGE: usize = 256;
 /// The most JSON a page of the daemon's log may hold (`_acpmux/events` `maxBytes`).
 const PAGE_BYTES: usize = 4 << 20;
 
+/// The last `count` agent replies of a session from the daemon's per-chat slot (`_acpmux/last_replies`,
+/// `hub/reply_slot.rs`), oldest first: no read of the log once the slot is seeded. A daemon from
+/// before the slot answers from the log's tail ([`last_replies`]).
+pub(crate) async fn slot_replies(
+    client: &Arc<Client>,
+    id: &str,
+    count: usize,
+) -> Result<Vec<String>> {
+    let query = json!({"sessionId": id, "count": count.max(1)});
+    match client.request(method::MUX_LAST_REPLIES, query).await {
+        Ok(reply) => Ok(reply
+            .get("replies")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default()),
+        Err(e)
+            if format!("{e:#}").contains("Method not found")
+                || format!("{e:#}").contains("-32601") =>
+        {
+            last_replies(client, id, count).await
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// The last `count` assistant replies of a session, oldest first.
 pub(crate) async fn last_replies(
     client: &Arc<Client>,
@@ -67,7 +92,7 @@ pub(crate) async fn last_replies(
 /// reply before it in the whole log: that reply is "suspect". The first records read are
 /// suspect the same way, as nothing older is known. The replies are whole when there are
 /// `count` of them and none is suspect.
-fn replies(events: &[Value], count: usize) -> (Vec<String>, bool) {
+pub(crate) fn replies(events: &[Value], count: usize) -> (Vec<String>, bool) {
     let mut t = Transcript::default();
     // Whether the whole log's last item may be a reply while the records read end in another
     // item. The other way round never happens: an item added here is added there too.

@@ -290,6 +290,7 @@ mod permission_groups;
 pub(crate) mod permission_modes;
 mod permissions;
 pub mod person;
+pub(crate) mod reply_slot;
 /// Four session states, never unknown (`hub/session_state.rs`).
 pub(crate) mod session_state;
 mod wait_edges;
@@ -2565,6 +2566,7 @@ impl Hub {
             meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
             log_deferral: StdMutex::new(Default::default()),
+            reply_slot: StdMutex::new(Default::default()),
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),
             caught_up: AtomicBool::new(true),
@@ -3454,6 +3456,12 @@ impl Hub {
                 m.harness_sandbox.observe(&record.kind, &record.msg, record.at);
             }
         }
+        // The chat's last replies (`reply_slot.rs`): O(1), and only once a read seeded them.
+        session
+            .reply_slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .record(&record);
         // The cost ledger's index: O(1), no IO (its writer thread writes the file).
         self.ledger.observe(session, &record);
         // Its row's sequence numbers and date moved, sent or not: its cached closed row is stale.
