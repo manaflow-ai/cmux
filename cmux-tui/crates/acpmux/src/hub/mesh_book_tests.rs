@@ -426,12 +426,15 @@ async fn a_pushed_reading_fills_the_host_row_and_spares_the_pull() {
     assert_eq!(machine_b["health"], json!({"cpus": 8, "liveSessions": 2}));
     assert_eq!(machine_b["healthAt"], json!(now));
     assert!(
-        !hub.hub_only_hosts().contains(&"machine-b".to_owned()),
+        !hub.mesh_health_hosts(now).pull.contains(&"machine-b".to_owned()),
         "no ask for a machine that pushed"
     );
 
-    // A pull newer than the push replaces it.
+    assert!(hub.mesh_health_hosts(now).listed.contains("machine-b"));
+
+    // A pull newer than the push survives the next refresh and replaces it.
     hub.hub_health.lock().unwrap().answered("machine-b", Some(json!({"cpus": 16})), now + 1);
+    hub.mesh_health_hosts(now).due(&mut hub.hub_health.lock().unwrap(), now);
     let machine_b = hub
         .mesh_book_hosts()
         .into_iter()
@@ -452,7 +455,7 @@ async fn a_pushed_reading_fills_the_host_row_and_spares_the_pull() {
         .find(|row| row["name"] == "machine-b")
         .expect("machine-b row");
     assert!(machine_b.get("health").is_none());
-    assert!(hub.hub_only_hosts().contains(&"machine-b".to_owned()));
+    assert!(hub.mesh_health_hosts(now).pull.contains(&"machine-b".to_owned()));
 }
 
 /// A just-started daemon's `transfer_hub {resolve}` waits for its first book read rather than

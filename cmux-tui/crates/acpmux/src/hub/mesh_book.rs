@@ -326,8 +326,7 @@ impl Hub {
         }
         let pushed = pushed_health(&book, own_user, own_daemon, &skip);
         let (hosts, sessions) = mine(book, own_user, own_daemon, &skip);
-        self.set_mesh_book(hosts, sessions);
-        self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).pushed = pushed;
+        self.set_mesh_book_with_health(hosts, sessions, pushed);
     }
 
     /// Replace the machines the book lists by `daemonId` (`mine_by_key`). Empty when the relay
@@ -398,6 +397,15 @@ impl Hub {
     /// Replace the hub rows: watching clients hear each one that appeared, changed or left, and
     /// the shared list is rebuilt once (`list_guard.rs`). Empty when the relay stops.
     pub(crate) fn set_mesh_book(&self, hosts: BTreeMap<String, u64>, sessions: Vec<BookSession>) {
+        self.set_mesh_book_with_health(hosts, sessions, BTreeMap::new());
+    }
+
+    fn set_mesh_book_with_health(
+        &self,
+        hosts: BTreeMap<String, u64>,
+        sessions: Vec<BookSession>,
+        pushed: BTreeMap<String, (u64, Value)>,
+    ) {
         let now = now_ms();
         let (gone, changed, moved, came, left) = {
             let mut book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
@@ -478,6 +486,7 @@ impl Hub {
                 Default::default()
             };
             book.hosts = hosts;
+            book.pushed = pushed;
             (gone, changed, moved, came, left)
         };
         if !gone.is_empty() || !changed.is_empty() || moved {
@@ -608,11 +617,21 @@ impl Hub {
         rows
     }
 
-    /// Whether `host` pushed its health on a heartbeat within [`PUSHED_FRESH_MS`]: a pull for it
-    /// would only repeat what the book already says.
-    pub(crate) fn mesh_book_pushed_fresh(&self, host: &str) -> bool {
+    /// Members and machines due for a pull, taken from the same book revision.
+    pub(crate) fn mesh_health_hosts(&self, now: u64) -> super::hub_health::HealthHosts {
         let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
-        book.pushed.get(host).is_some_and(|(at, _)| now_ms().saturating_sub(*at) <= PUSHED_FRESH_MS)
+        let listed = book.hosts.keys().cloned().collect();
+        let pull = book
+            .hosts
+            .keys()
+            .filter(|host| {
+                book.pushed
+                    .get(*host)
+                    .is_none_or(|(at, _)| now.saturating_sub(*at) > PUSHED_FRESH_MS)
+            })
+            .cloned()
+            .collect();
+        super::hub_health::HealthHosts { listed, pull }
     }
 
     /// A session the hub lists on machine `host`, the one a machine read goes through: the hub
