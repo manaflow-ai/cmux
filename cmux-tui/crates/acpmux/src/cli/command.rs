@@ -797,6 +797,10 @@ pub enum Command {
     /// archives.
     #[command(subcommand, aliases = aliases::WORKTREE)]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// Keep this machine's disk under budget: status, clean, why, tick (the headless pass a
+    /// timer runs), install-timer. `cmux care ...` is the same.
+    #[command(subcommand)]
+    Care(crate::cli::care::CareCmd),
     /// Download one large file over parallel range requests (16 by default), for a path where
     /// one stream is slow (a Cloud VM's IPv4 from GitHub). Follows redirects; checks the length
     /// and, with --sha256, the hash before the file appears at -o.
