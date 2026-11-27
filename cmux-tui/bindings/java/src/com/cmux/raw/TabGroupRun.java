@@ -15,6 +15,8 @@ public final class TabGroupRun implements WireValue {
     /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
     private final String color;
     private final UInt64 count;
+    /** tab-group-icon-v1: the group's icon string. */
+    private final Field<String> icon;
     private final String id;
     private final String name;
     private final Field<UInt64> pane;
@@ -31,6 +33,7 @@ public final class TabGroupRun implements WireValue {
         this.color = Wire.nonNull(builder.color, "color");
         if (!builder.countSet) throw new IllegalArgumentException("count is required");
         this.count = Wire.nonNull(builder.count, "count");
+        this.icon = builder.icon;
         if (!builder.idSet) throw new IllegalArgumentException("id is required");
         this.id = Wire.nonNull(builder.id, "id");
         if (!builder.nameSet) throw new IllegalArgumentException("name is required");
@@ -50,6 +53,7 @@ public final class TabGroupRun implements WireValue {
     public boolean collapsed() { return collapsed; }
     public String color() { return color; }
     public UInt64 count() { return count; }
+    public Field<String> icon() { return icon; }
     public String id() { return id; }
     public String name() { return name; }
     public Field<UInt64> pane() { return pane; }
@@ -67,6 +71,10 @@ public final class TabGroupRun implements WireValue {
         builder.color(Wire.string(rawColor, "TabGroupRun.color"));
         Object rawCount = Wire.required(object, "count");
         builder.count(Wire.uint64(rawCount, "TabGroupRun.count"));
+        Object rawIcon = Wire.optional(object, "icon");
+        if (!Wire.isMissing(rawIcon)) {
+            builder.icon(rawIcon == null ? null : Wire.string(rawIcon, "TabGroupRun.icon"));
+        }
         Object rawId = Wire.required(object, "id");
         builder.id(Wire.string(rawId, "TabGroupRun.id"));
         Object rawName = Wire.required(object, "name");
@@ -81,7 +89,7 @@ public final class TabGroupRun implements WireValue {
         builder.start(Wire.uint64(rawStart, "TabGroupRun.start"));
         Object rawSurfaces = Wire.required(object, "surfaces");
         builder.surfaces(Wire.array(rawSurfaces, "TabGroupRun.surfaces", item -> Wire.uint64(item, "TabGroupRun.surfaces item")));
-        List<String> known = List.of("collapsed", "color", "count", "id", "name", "pane", "saved_id", "start", "surfaces");
+        List<String> known = List.of("collapsed", "color", "count", "icon", "id", "name", "pane", "saved_id", "start", "surfaces");
         object.forEach((key, item) -> { if (!known.contains(key)) builder.putAdditional(key, Wire.immutableJson(item)); });
         return builder.build();
     }
@@ -92,6 +100,7 @@ public final class TabGroupRun implements WireValue {
         Wire.put(object, "collapsed", collapsed);
         Wire.put(object, "color", color);
         Wire.put(object, "count", count);
+        Wire.put(object, "icon", icon);
         Wire.put(object, "id", id);
         Wire.put(object, "name", name);
         Wire.put(object, "pane", pane);
@@ -105,11 +114,11 @@ public final class TabGroupRun implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof TabGroupRun that)) return false;
-        return Objects.equals(collapsed, that.collapsed) && Objects.equals(color, that.color) && Objects.equals(count, that.count) && Objects.equals(id, that.id) && Objects.equals(name, that.name) && Objects.equals(pane, that.pane) && Objects.equals(savedId, that.savedId) && Objects.equals(start, that.start) && Objects.equals(surfaces, that.surfaces) && Objects.equals(additionalProperties, that.additionalProperties);
+        return Objects.equals(collapsed, that.collapsed) && Objects.equals(color, that.color) && Objects.equals(count, that.count) && Objects.equals(icon, that.icon) && Objects.equals(id, that.id) && Objects.equals(name, that.name) && Objects.equals(pane, that.pane) && Objects.equals(savedId, that.savedId) && Objects.equals(start, that.start) && Objects.equals(surfaces, that.surfaces) && Objects.equals(additionalProperties, that.additionalProperties);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(collapsed, color, count, id, name, pane, savedId, start, surfaces, additionalProperties); }
+    public int hashCode() { return Objects.hash(collapsed, color, count, icon, id, name, pane, savedId, start, surfaces, additionalProperties); }
 
     @Override
     public String toString() { return "TabGroupRun" + toWire(); }
@@ -121,6 +130,7 @@ public final class TabGroupRun implements WireValue {
         private boolean colorSet;
         private UInt64 count;
         private boolean countSet;
+        private Field<String> icon = Field.omitted();
         private String id;
         private boolean idSet;
         private String name;
@@ -147,6 +157,10 @@ public final class TabGroupRun implements WireValue {
         public Builder count(UInt64 value) {
             this.count = value;
             this.countSet = true;
+            return this;
+        }
+        public Builder icon(String value) {
+            this.icon = Field.ofNullable(value);
             return this;
         }
         public Builder id(String value) {

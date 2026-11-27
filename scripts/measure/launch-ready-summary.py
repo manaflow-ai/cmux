@@ -213,7 +213,7 @@ def layout_line(side, runs, params=""):
 
 def summarize(rows, case="kept", seeded="", params="", keys=False):
     """Prints the summary; returns the lines' data: {side: {"failed": [...], "surface": first}}."""
-    expect, result = EXPECT[case], {}
+    expect, result, meds = EXPECT[case], {}, {}
     print("LR-CASE", case, f"expect={expect}" + (f" front={seeded}" if seeded else ""), flush=True)
     for side in dict.fromkeys(r["side"] for r in rows if not r["side"].startswith("foreign-")):  # not a donor
         own = [r for r in rows if r["side"] == side]
@@ -225,13 +225,22 @@ def summarize(rows, case="kept", seeded="", params="", keys=False):
             med[name] = round(statistics.median(vals), 1) if vals else None
         # Which region each launch showed first, counted (a side that opens on a pane is not timed as Home).
         med["first_reveal"] = dict(sorted(Counter(r.get("first_reveal") or "none" for r in done).items()))
+        # other= (a plain app, not cmux): what it logged about its own launch, on its own clock (app_log) and when
+        # it logged it, ms from the process start (app_log_at).
+        for field, prefix in (("app_log", "log."), ("app_log_at", "log_at.")):
+            for name in dict.fromkeys(n for r in done for n in (r.get(field) or {})):
+                vals = [r[field][name] for r in done if (r.get(field) or {}).get(name) is not None]
+                if vals:
+                    med[prefix + name] = round(statistics.median(vals), 1)
         # The settle marks (points, counts) are not times: LR-LAYOUT reports them.
         names = dict.fromkeys(name for r in done for name in r["marks"] if not name.startswith(("layout.", "web.layout.")))
         for name in sorted(names, key=lambda n: statistics.median([r["marks"][n] for r in done if n in r["marks"]])):
             med[name] = round(statistics.median([r["marks"][name] for r in done if name in r["marks"]]), 1)
         failed, prev, prev_label, measured, usable, anchor, skipped = [], None, None, 0, 0, None, 0
         drifted, anchor_drew_home, not_judged = [], False, None
-        if seeded:  # front=: the priming launch's front is the front every measured launch must reopen
+        plain = bool(own) and all(r.get("plain") for r in own)
+        meds[side] = med
+        if seeded and not plain:  # front=: the priming launch's front is the front every measured launch must reopen
             prime = next((r for r in own if r["label"] == "prime"), {})
             anchor = prime.get("front")
             anchor_drew_home = "home.first_page" in (prime.get("marks") or {})
@@ -244,7 +253,7 @@ def summarize(rows, case="kept", seeded="", params="", keys=False):
         # that changed it fails the arm even when a later one changes it back. With that front unreadable the arm is
         # not judged at all: comparing with the launch before instead is the same blind spot.
         anchored = not seeded and case in PRIME_ANCHORED
-        for r in own:
+        for r in ([] if plain else own):  # a plain app has no front to reopen: its restore is not judged
             # The stress3 seed sets the front every later launch must reopen, with front= too: it makes the session
             # and leaves its last workspace's tab (front=tab) in front, so the prime's front is no longer the anchor.
             if (anchored and r["label"] in ("prime", "seed")) or (seeded and r["label"] == "seed"):
@@ -287,6 +296,8 @@ def summarize(rows, case="kept", seeded="", params="", keys=False):
             failed.extend(drifted)
         if not_judged:
             med["reopened"] = "not-judged: " + not_judged
+        if plain:
+            med["reopened"] = "n/a (plain app)"
         med["usable"] = f"{usable}/{measured}"
         surfaces = Counter(first_surface(r) for r in runs)
         first = surfaces.most_common(1)[0][0] if surfaces else "none"
@@ -317,9 +328,10 @@ def summarize(rows, case="kept", seeded="", params="", keys=False):
                                 "launches_that_moved": f"{sum(1 for m in moved if m > 0)}/{len(seen)}"}
             print("LR-FRAMES", side, json.dumps(frames), flush=True)
         perceived_line(side, runs)
-        result[side] = {"failed": failed, "surface": first, "layout": layout, "judged": not not_judged}
+        result[side] = {"failed": failed, "surface": first, "layout": layout, "judged": not not_judged, "plain": plain}
+    over_floor(meds, result)
     # An A/B whose arms first showed different surfaces times different work: not like for like.
-    firsts = {side: data["surface"] for side, data in result.items()}
+    firsts = {side: data["surface"] for side, data in result.items() if not data["plain"]}
     if len(set(firsts.values())) > 1:
         print("LR-SURFACE-DIFF", " ".join(f"{s} first={f}" for s, f in firsts.items()) + ": not like for like", flush=True)
     # Whether this run may be quoted as "every launch reopened the same front": every arm judged and none failed.
@@ -331,6 +343,24 @@ def summarize(rows, case="kept", seeded="", params="", keys=False):
     else:
         print("LR-SAME-FRONT ok: " + ", ".join(result), flush=True)
     return result
+
+
+def over_floor(meds, result):
+    """floor=1: LR-OVER-FLOOR SIDE, each cmux side's finished_launching median minus the floor side's (the empty AppKit
+    app, launched between them in the same run), the number goals/dock-no-bounce.md is held to. Returns {side: ms}."""
+    floor = meds.get("floor") or {}
+    if floor.get("finished_launching") is None:
+        if "floor" in meds:
+            print("LR-OVER-FLOOR none: the floor side has no finished_launching", flush=True)
+        return {}
+    out = {}
+    for side, med in meds.items():
+        if side == "floor" or result.get(side, {}).get("plain") or med.get("finished_launching") is None:
+            continue
+        out[side] = round(med["finished_launching"] - floor["finished_launching"], 1)
+        print("LR-OVER-FLOOR", side, f"finished_launching={out[side]} side={med['finished_launching']}",
+              f"floor={floor['finished_launching']} n={med['n']} floor_n={floor['n']}", flush=True)
+    return out
 
 
 def perceived(runs):

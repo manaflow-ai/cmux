@@ -9,6 +9,10 @@ public final class OmnibarDisplay {
     /// trailing slash kept (Chrome `omnibox.prevent_url_elisions`).
     public package(set) var showsFullURLs = false
 
+    /// `browser.omnibar.quietIcons`: the site-info icon and the star fade
+    /// until the bar is hovered or focused (`AddressBarView.updateQuietIcons`).
+    public package(set) var quietIcons = false
+
     /// The right-click menu's toggle: the App writes the setting, which
     /// comes back through `OmniboxSuggestionEngine.apply`. Nil hides the
     /// menu item (no setting to write).

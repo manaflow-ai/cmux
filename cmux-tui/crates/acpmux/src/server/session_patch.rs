@@ -18,6 +18,16 @@
 //! again whenever it no longer knows what the connection holds (the row's kind changed with an
 //! attach or a detach, or the connection holds more than [`MAX_ROWS`] chats' rows).
 //!
+//! Version 2 (`sessionChangedDelta: 2`, what a peer daemon's link asks, `peer_row_patch.rs`):
+//! a connection that reads text masked (a peer's, `peer_text.rs`) gets patches too, diffed from
+//! the masked row, so a patch carries no text its whole row would not; and
+//! `_acpmux/session_resync {sessionId}` makes the daemon send a chat's row whole now, with the
+//! next `rowSeq` (never a restart, so no patch numbered before it reads as one after it), for
+//! a client that missed a row. A daemon before version 2 reads `2` as not asking (it took only
+//! `true`) and sends whole rows, so a new link and an old daemon work as before. Before this a peer's link got every change
+//! of every attached chat whole: 142 KiB a turn on a desktop pair (transport pair matrix, long
+//! cell, 2026-11-24).
+//!
 //! `patch` is a JSON merge patch (RFC 7386): an object merges key by key, `null` removes the key
 //! (a row field that is `null` and one that is absent mean the same), anything else replaces it.
 //! One addition, for the long lists that grow at one end (the time breakdown's spans):
@@ -33,10 +43,33 @@ use std::sync::atomic::Ordering;
 
 /// The capability id `initialize` lists (`capabilities.rs`).
 pub const CAPABILITY: &str = "session-changed-delta-v1";
+/// Version 2: patches to a masked connection, and `_acpmux/session_resync`.
+pub const CAPABILITY_V2: &str = "session-changed-delta-v2";
+/// What a client that also reads version 2 sends as `sessionChangedDelta`.
+pub const VERSION: u64 = 2;
 
-/// The chats whose last row one connection keeps the shape of; past it, one is let go and its
-/// next change goes out whole.
+/// The chats whose last row a peer daemon's link keeps the shape of; past it, the one sent
+/// longest ago is let go and its next change goes out whole. A link holds as many
+/// (`peer_row_patch.rs`), so the two sides let the same rows go.
 pub(crate) const MAX_ROWS: usize = 256;
+
+/// The same bound for a connection on this machine (the app's agent pane, the phone host, a
+/// script): it holds every row it hears, so this daemon keeps the shapes of up to this many.
+/// With 256 a watcher of a busy fleet never settled: one idle app's 370 chats that changed within two
+/// minutes let a row go on almost every change, and the row it let went out whole on its next
+/// change, so an idle app's two pane sockets took about 53 KB/s each of `session_changed`
+/// (2026-11-27, `wsbucket.py`: 254 whole rows and 309 patches in 30 s). A shape is a few KB of
+/// hashes (`Shape`), so 4096 rows cost a connection on the order of 10 MB, bounded.
+pub(crate) const LOCAL_MAX_ROWS: usize = 4096;
+
+/// The bound for a connection that reads text raw (this machine's) or masked (a peer's link).
+pub(crate) fn bound(raw_text: bool) -> usize {
+    if raw_text { LOCAL_MAX_ROWS } else { MAX_ROWS }
+}
+
+/// The row field a change row leaves out when it has not changed (`views::CENSUS_LEAVES_OUT`,
+/// the time breakdown): left out, the reader keeps what it holds, so a patch never removes it.
+const KEPT_WHEN_LEFT_OUT: &str = crate::hub::views::CENSUS_LEAVES_OUT;
 
 /// A value as hashes: what a row was, without holding the row.
 #[derive(Debug)]
@@ -146,12 +179,19 @@ struct Sent {
     full: bool,
     row_seq: u64,
     shape: Shape,
+    /// The client asked for it whole (`resync`): the next change goes whole, numbered on.
+    resend: bool,
+    /// When it was last sent, in [`SentRows::stamps`]: the row sent longest ago goes first.
+    used: u64,
 }
 
 /// Per connection: whether it asked for patches, and the shape of each chat's last row it heard.
 #[derive(Debug, Default)]
 pub(crate) struct SentRows {
     rows: HashMap<String, Sent>,
+    /// The most rows it keeps ([`bound`]); 0 is [`MAX_ROWS`].
+    bound: usize,
+    stamps: u64,
 }
 
 /// What one row change sends a connection.
@@ -163,32 +203,79 @@ pub(crate) enum Change {
 }
 
 impl SentRows {
+    /// Keeps up to `bound` chats' rows ([`bound`]).
+    pub(crate) fn bounded(bound: usize) -> Self {
+        Self { bound, ..Self::default() }
+    }
+
+    fn limit(&self) -> usize {
+        if self.bound == 0 { MAX_ROWS } else { self.bound }
+    }
+
     /// The change of `session`'s row to `row` (`full`: the row with its tools), and what this
     /// connection holds of it from now on.
     pub(crate) fn change(&mut self, session: &str, full: bool, row: &Value) -> Change {
         let shape = shape_of(row);
+        self.stamps += 1;
+        let used = self.stamps;
         if let Some(sent) = self.rows.get_mut(session)
             && sent.full == full
+            && !sent.resend
         {
+            // A change row that does not owe its time breakdown leaves it out, and its reader
+            // keeps the one it holds (`time_breakdown::State::row_snapshot`,
+            // `PeerRow::keeping_time_breakdown`). Diffed as a removal, it went out as
+            // `"timeBreakdown": null` and the next turn's chart, held nowhere here, went out
+            // whole: up to 512 spans, about 47 KB, every turn of a running chat, 80% of what a
+            // peer's link carried under load (transport pair matrix, duress, 2026-11-25). The
+            // held chart stays held, so the next one splices onto it.
+            let mut shape = shape;
+            if let (Shape::Object(held), Shape::Object(now)) = (&mut sent.shape, &mut shape)
+                && !now.contains_key(KEPT_WHEN_LEFT_OUT)
+                && let Some(chart) = held.remove(KEPT_WHEN_LEFT_OUT)
+            {
+                let patch = diff(&sent.shape, row);
+                now.insert(KEPT_WHEN_LEFT_OUT.to_owned(), chart);
+                sent.row_seq += 1;
+                sent.shape = shape;
+                sent.used = used;
+                return Change::Patch {
+                    patch: patch.unwrap_or_else(|| json!({})),
+                    row_seq: sent.row_seq,
+                };
+            }
             let patch = diff(&sent.shape, row).unwrap_or_else(|| json!({}));
             sent.row_seq += 1;
             sent.shape = shape;
+            sent.used = used;
             return Change::Patch { patch, row_seq: sent.row_seq };
         }
         let row_seq = self.rows.get(session).map_or(1, |sent| sent.row_seq + 1);
-        if self.rows.len() >= MAX_ROWS
+        // The row sent longest ago goes, never any row: a HashMap's first key let go a row that
+        // was just sent as often as an idle one, so a watcher past the bound kept hearing busy
+        // chats whole. A scan, only when a chat past the bound is first heard.
+        if self.rows.len() >= self.limit()
             && !self.rows.contains_key(session)
-            && let Some(gone) = self.rows.keys().next().cloned()
+            && let Some(gone) =
+                self.rows.iter().min_by_key(|(_, sent)| sent.used).map(|(k, _)| k.clone())
         {
             self.rows.remove(&gone);
         }
-        self.rows.insert(session.to_owned(), Sent { full, row_seq, shape });
+        self.rows.insert(session.to_owned(), Sent { full, row_seq, shape, resend: false, used });
         Change::Whole { row_seq }
     }
 
     /// The chat is gone (purged): its next row, under the same id, goes out whole.
     pub(crate) fn forget(&mut self, session: &str) {
         self.rows.remove(session);
+    }
+
+    /// The client no longer holds `session`'s row: the next change goes whole with the next
+    /// `rowSeq`, so no patch numbered before it can read as one of the row after it.
+    pub(crate) fn resend(&mut self, session: &str) {
+        if let Some(sent) = self.rows.get_mut(session) {
+            sent.resend = true;
+        }
     }
 }
 
@@ -200,9 +287,16 @@ pub(super) fn send_row(conn: &Conn, key: &str, full: bool, row: &Value, notice: 
     if !conn.session_delta.load(Ordering::SeqCst) {
         return false;
     }
-    let change = conn.sent_rows.lock_or_recover().change(key, full, row);
+    // A peer reads the row masked: the patch is diffed from the masked row, so it carries no
+    // text the whole row would not (masking a patch alone would miss a field whose summary
+    // keys it leaves out).
+    let masked = (!conn.raw_text).then(|| super::peer_text::masked_row(row)).flatten();
+    let row = masked.as_ref().unwrap_or(row);
     let Value::Object(mut params) = notice else { return false };
-    match change {
+    // Held while it is queued: a resync (`resync`) and the fan-out send rows of one chat from
+    // two tasks, and the client applies them in `rowSeq` order.
+    let mut rows = conn.sent_rows.lock_or_recover();
+    match rows.change(key, full, row) {
         Change::Whole { row_seq } => {
             params.insert("session".into(), row.clone());
             params.insert("rowSeq".into(), json!(row_seq));
@@ -215,7 +309,32 @@ pub(super) fn send_row(conn: &Conn, key: &str, full: bool, row: &Value, notice: 
             conn.send(&Message::notification(method::MUX_SESSION_PATCH, Value::Object(params)));
         }
     }
+    drop(rows);
     true
+}
+
+/// `_acpmux/session_resync {sessionId}` (version 2): the client no longer holds the chat's row
+/// (it missed one, or let it go): the daemon sends the row whole now,
+/// as `session_changed` with the next `rowSeq`. `{"sent": false}` for a connection that did not
+/// ask for patches, which hears every row whole anyway.
+pub(super) fn resync(
+    hub: &crate::hub::Hub,
+    conn: &Conn,
+    params: &Value,
+) -> Result<Value, crate::rpc::RpcError> {
+    let id = params
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| crate::rpc::RpcError::invalid_params("sessionId is required"))?;
+    if !conn.session_delta.load(Ordering::SeqCst) {
+        return Ok(json!({"sent": false}));
+    }
+    conn.sent_rows.lock_or_recover().resend(id);
+    let s = hub.resolve(id)?;
+    let full = conn.sub_opts(id).is_some() || conn.watch_tools.load(Ordering::SeqCst);
+    let row = if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+    let notice = json!({"sessionId": id, "kind": "status", "recordKind": "resync", "seq": s.meta().last_seq});
+    Ok(json!({"sent": send_row(conn, id, full, &row, notice)}))
 }
 
 /// `key`'s chat is gone from `conn`'s view: its next row goes out whole.
@@ -226,136 +345,60 @@ pub(super) fn forget(conn: &Conn, key: &str) {
 }
 
 /// Whether a connection hears row changes as patches: it asked in its `initialize`
-/// (`_meta.acpmux.sessionChangedDelta: true`) and reads raw text. A patch is diffed from the raw
-/// row, and the peer masker (`peer_text.rs`) knows a summary only whole, so a masked connection
-/// always gets whole, masked rows.
-pub(super) fn allowed(initialize: &Value, raw_text: bool) -> bool {
-    raw_text
-        && initialize.pointer("/_meta/acpmux/sessionChangedDelta").and_then(Value::as_bool)
-            == Some(true)
+/// (`_meta.acpmux.sessionChangedDelta`, `true` or a version). A masked connection (a peer's)
+/// gets patches of the masked row (`send_row`).
+pub(super) fn allowed(initialize: &Value) -> bool {
+    match initialize.pointer("/_meta/acpmux/sessionChangedDelta") {
+        Some(Value::Bool(b)) => *b,
+        Some(v) => v.as_u64().is_some_and(|v| v >= 1),
+        None => false,
+    }
+}
+
+/// Applies `patch` (this module's form) to `target`, the row held at its `baseRowSeq`: the
+/// client's side of the contract (a peer's link, `peer_row_patch.rs`). False, with `target`
+/// left part-applied, when the patch does not fit what is held (a splice past its end): the
+/// caller drops the row and reads it whole.
+pub(crate) fn apply(target: &mut Value, patch: &Value) -> bool {
+    match patch {
+        Value::Object(p) if p.len() == 1 && p.contains_key("$splice") => {
+            let args = &p["$splice"];
+            let (Some(from), Some(keep), Some(items)) =
+                (args[0].as_u64(), args[1].as_u64(), args[2].as_array())
+            else {
+                return false;
+            };
+            let (from, keep) = (from as usize, keep as usize);
+            let Some(held) = target.as_array_mut() else { return false };
+            let Some(end) = from.checked_add(keep).filter(|end| *end <= held.len()) else {
+                return false;
+            };
+            held.truncate(end);
+            held.drain(..from);
+            held.extend(items.iter().cloned());
+            true
+        }
+        Value::Object(p) => {
+            if !target.is_object() {
+                *target = Value::Object(Map::new());
+            }
+            let Some(obj) = target.as_object_mut() else { return false };
+            for (k, v) in p {
+                if v.is_null() {
+                    obj.remove(k);
+                } else if !apply(obj.entry(k.clone()).or_insert(Value::Null), v) {
+                    return false;
+                }
+            }
+            true
+        }
+        other => {
+            *target = other.clone();
+            true
+        }
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Applies `patch` (this module's form) to `target`: the client's side of the contract, kept here
-    /// so the tests check the two against each other.
-    fn apply(target: &mut Value, patch: &Value) {
-        match patch {
-            Value::Object(p) if p.len() == 1 && p.contains_key("$splice") => {
-                let args = &p["$splice"];
-                let (from, keep) =
-                    (args[0].as_u64().unwrap() as usize, args[1].as_u64().unwrap() as usize);
-                let held = target.as_array().cloned().unwrap_or_default();
-                let mut out: Vec<Value> = held[from..from + keep].to_vec();
-                out.extend(args[2].as_array().unwrap().iter().cloned());
-                *target = Value::Array(out);
-            }
-            Value::Object(p) => {
-                if !target.is_object() {
-                    *target = Value::Object(Map::new());
-                }
-                let obj = target.as_object_mut().unwrap();
-                for (k, v) in p {
-                    if v.is_null() {
-                        obj.remove(k);
-                    } else {
-                        apply(obj.entry(k.clone()).or_insert(Value::Null), v);
-                    }
-                }
-            }
-            other => *target = other.clone(),
-        }
-    }
-
-    fn roundtrip(old: Value, new: Value) -> Value {
-        let mut rows = SentRows::default();
-        assert!(matches!(rows.change("s", true, &old), Change::Whole { row_seq: 1 }));
-        let Change::Patch { patch, row_seq } = rows.change("s", true, &new) else {
-            panic!("a second row of the same kind is a patch")
-        };
-        assert_eq!(row_seq, 2);
-        let mut held = old;
-        apply(&mut held, &patch);
-        assert_eq!(strip_nulls(held), strip_nulls(new), "patch {patch}");
-        patch
-    }
-
-    /// Absent and null are the same row.
-    fn strip_nulls(v: Value) -> Value {
-        match v {
-            Value::Object(o) => Value::Object(
-                o.into_iter()
-                    .filter(|(_, v)| !v.is_null())
-                    .map(|(k, v)| (k, strip_nulls(v)))
-                    .collect(),
-            ),
-            Value::Array(a) => Value::Array(a.into_iter().map(strip_nulls).collect()),
-            v => v,
-        }
-    }
-
-    fn spans(range: std::ops::Range<u64>, open_end: u64) -> Vec<Value> {
-        range
-            .map(|i| json!({"turnSeq": i, "turnId": format!("t{i}"), "category": "model", "startAt": i * 10, "endAt": if i == open_end { i * 10 + 7 } else { i * 10 + 5 }}))
-            .collect()
-    }
-
-    #[test]
-    fn a_patch_takes_the_held_row_to_the_new_one() {
-        roundtrip(json!({"a": 1, "b": {"c": "x", "d": [1, 2]}}), json!({"a": 2, "b": {"c": "x"}}));
-        roundtrip(json!({"a": null}), json!({"a": {"b": null, "c": 1}}));
-        roundtrip(json!({"a": [1, 2, 3]}), json!({"a": "now a string"}));
-        roundtrip(json!({"a": "x"}), json!({"a": ["x", {"y": null}]}));
-        roundtrip(json!({"a": [1, 2, 3, 4, 5]}), json!({"a": [5, 4, 3]}));
-        roundtrip(json!({"a": 1}), json!({}));
-        let same = roundtrip(json!({"a": 1, "b": null}), json!({"a": 1}));
-        assert_eq!(same, json!({}));
-    }
-
-    /// The breakdown's spans as a running turn moves them: the open span's end moves, and a full
-    /// window drops its oldest when a new one starts. Only the moved items go out.
-    #[test]
-    fn spans_go_out_as_a_splice() {
-        let old = json!({"timeBreakdown": {"totalMs": 1, "spans": spans(0..512, 511)}});
-        let mut grown = spans(0..512, 999);
-        grown[511]["endAt"] = json!(511 * 10 + 9);
-        let new = json!({"timeBreakdown": {"totalMs": 2, "spans": grown}});
-        let patch = roundtrip(old.clone(), new);
-        assert_eq!(patch["timeBreakdown"]["spans"]["$splice"][1], 511, "{patch}");
-        assert!(patch.to_string().len() < 300, "{patch}");
-
-        let slid = json!({"timeBreakdown": {"totalMs": 2, "spans": spans(1..513, 512)}});
-        let patch = roundtrip(old, slid);
-        assert_eq!(patch["timeBreakdown"]["spans"]["$splice"][0], 1, "{patch}");
-        assert!(patch.to_string().len() < 400, "{patch}");
-    }
-
-    #[test]
-    fn a_new_kind_of_row_or_a_forgotten_one_goes_out_whole() {
-        let mut rows = SentRows::default();
-        assert!(matches!(rows.change("s", false, &json!({"a": 1})), Change::Whole { row_seq: 1 }));
-        assert!(matches!(rows.change("s", true, &json!({"a": 1})), Change::Whole { row_seq: 2 }));
-        assert!(matches!(
-            rows.change("s", true, &json!({"a": 2})),
-            Change::Patch { row_seq: 3, .. }
-        ));
-        rows.forget("s");
-        assert!(matches!(rows.change("s", true, &json!({"a": 2})), Change::Whole { row_seq: 1 }));
-        for i in 0..MAX_ROWS + 10 {
-            rows.change(&format!("c{i}"), true, &json!({}));
-        }
-        assert!(rows.rows.len() <= MAX_ROWS);
-    }
-    /// A peer link's rows are masked whole (`peer_text.rs`); a patch of the raw row would skip
-    /// the masker, so a masked connection never gets patches even when it asks.
-    #[test]
-    fn only_a_raw_text_connection_gets_patches() {
-        let asks = json!({"_meta": {"acpmux": {"sessionChangedDelta": true}}});
-        let raw = |o| !crate::server::peer_text::masks(o);
-        assert!(!allowed(&asks, raw(crate::server::Origin::Peer)));
-        assert!(allowed(&asks, raw(crate::server::Origin::Local)));
-        assert!(!allowed(&json!({}), raw(crate::server::Origin::Local)));
-    }
-}
+#[path = "session_patch_tests.rs"]
+mod tests;

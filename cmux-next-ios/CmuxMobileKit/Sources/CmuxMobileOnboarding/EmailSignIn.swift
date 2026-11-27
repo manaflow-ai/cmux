@@ -198,6 +198,7 @@ struct EmailCodeStep: View {
                 try await auth.verifyCode(value)
                 theme.haptics.success()
             } catch {
+                // retry-prompt-ok: the person types the code again; only they have it
                 self.error = CmuxMobileAuthModel.message(for: error) ?? "That code didn't work. Try again."
                 theme.haptics.error()
                 shakes += 1

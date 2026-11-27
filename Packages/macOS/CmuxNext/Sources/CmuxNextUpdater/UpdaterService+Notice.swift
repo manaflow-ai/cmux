@@ -25,7 +25,7 @@ extension UpdaterService {
             if transfer.stage == .downloading, let bytes = shown.detail, let rate = transferRate.text(expected: transfer.expectedBytes) {
                 shown.detail = bytes + "\n" + rate
             }
-        case .checking, .installing, .note, .gettingNewest:
+        case .checking, .installing, .note, .gettingNewest, .healthFailed:
             break
         }
         return shown
@@ -38,7 +38,7 @@ extension UpdaterService {
         switch card {
         case .available(let found): version = found
         case .note(.found(let found)): version = found
-        case .checking, .downloading, .installing, .note, .gettingNewest, nil: return nil
+        case .checking, .downloading, .installing, .note, .gettingNewest, .healthFailed, nil: return nil
         }
         return version.flatMap { UpdateState.ReleaseNotes(displayVersionString: $0)?.url }
             ?? URL(string: "https://github.com/manaflow-ai/cmux/releases")
@@ -52,6 +52,7 @@ extension UpdaterService {
         case .retry: checkForUpdates()
         case .details: presentUpdateUI?()
         case .cancelDownload: cancelDownloadClicked()
+        case .goBack: Task { await goBackAfterHealthFailure() }
         case .releaseNotes: break
         }
     }
@@ -66,6 +67,8 @@ extension UpdaterService {
             closeUpdateCard(.hideVersion)
         case .note:
             dismissIndicatorNote()
+        case .healthFailed:
+            healthFailure = nil
         case .installing:
             // Only the card of an install that never relaunched has an x.
             if installStatus?.stage == .stalled { installCardDismissed = true }

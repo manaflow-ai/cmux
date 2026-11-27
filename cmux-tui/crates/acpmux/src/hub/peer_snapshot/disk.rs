@@ -124,21 +124,59 @@ pub(super) fn head_fits(len: u64) -> bool {
     len < super::HEAD_BYTES
 }
 
+/// Each record's line (with its newline) as a copy's last write encoded it, by seq. A record
+/// that did not serialize has an empty line: left out, as before, and not tried again.
+pub(super) type Lines = BTreeMap<u64, Box<[u8]>>;
+
 /// A copy as written: its head line, then its records.
+#[cfg(test)]
 pub(super) fn encode(head: &Head, records: &BTreeMap<u64, Value>) -> Vec<u8> {
+    encode_with(head, records, &mut Lines::new())
+}
+
+/// [`encode`], serializing only the records `lines` does not hold yet. A copy is written whole
+/// every [`super::FLUSH_AFTER`] while its session runs, and up to [`super::SESSION_EVENTS`]
+/// records long: serializing every record again on each write was 16% of the hub's CPU with
+/// 2,000 sessions (cmux-ci job af351a0fd73574da6179a98b). `lines` comes back holding exactly
+/// the seqs of `records`; the caller drops a seq's line whenever its record changes.
+pub(super) fn encode_with(
+    head: &Head,
+    records: &BTreeMap<u64, Value>,
+    lines: &mut Lines,
+) -> Vec<u8> {
     let mut out = serde_json::to_vec(head).unwrap_or_default();
     out.push(b'\n');
-    // Each record straight into the copy, with no buffer of its own; one that does not
-    // serialize is cut back out, as it was left out before.
-    for r in records.values() {
-        let start = out.len();
-        if serde_json::to_writer(&mut out, r).is_ok() {
-            out.push(b'\n');
-        } else {
-            out.truncate(start);
-        }
+    let mut old = std::mem::take(lines);
+    for (seq, r) in records {
+        let line = old.remove(seq).unwrap_or_else(|| {
+            let mut line = Vec::new();
+            // One that does not serialize is left out, as it was before.
+            if serde_json::to_writer(&mut line, r).is_ok() {
+                line.push(b'\n');
+            } else {
+                line.clear();
+            }
+            line.into_boxed_slice()
+        });
+        out.extend_from_slice(&line);
+        lines.insert(*seq, line);
     }
     out
+}
+
+/// What a copy's file `bytes` (its `encode` of `head`) holds apart from `capturedAt`: a write
+/// whose content matches the one on disk but for when it was captured touches nothing
+/// (`Store::write_one`). A capture time alone never rewrites a file: the live copy keeps it in
+/// memory (what readers are answered from), and on disk it stays the time the content last
+/// changed, which is all a restart uses it for (its least-recently-used order).
+pub(super) fn content_hash(head: &Head, bytes: &[u8]) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let records = bytes.iter().position(|b| *b == b'\n').map_or(&[][..], |h| &bytes[h..]);
+    let head = Head { captured_at: 0, ..head.clone() };
+    let mut hasher = std::hash::DefaultHasher::new();
+    serde_json::to_vec(&head).unwrap_or_default().hash(&mut hasher);
+    records.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn open(path: &Path) -> Result<Option<std::fs::File>> {
@@ -157,6 +195,8 @@ fn open(path: &Path) -> Result<Option<std::fs::File>> {
 fn head_of(line: &str, key: &Key) -> Result<Head> {
     let mut head: Head = serde_json::from_str(line).context("the head line does not parse")?;
     anyhow::ensure!(head.peer == key.0 && head.session_id == key.1, "another session's copy");
+    // A row an older run kept whole costs a copy here what it does not use.
+    super::trim_row(&mut head.summary);
     head.turn_opener = head.turn_opener.filter(|r| {
         super::starts_turn(r)
             && super::of_session(r, key)

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.tailnet.signedOutHelp" : {
+      "comment" : "Tailnet card: what signing in does. Only the person's own account may connect.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reach this Mac from your devices. Only you can connect."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "صِل إلى هذا الـMac من أجهزتك. يمكنك أنت فقط الاتصال."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pristupite ovom Macu s uređaja. Povezati se možete samo vi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nå denne Mac fra dine enheder. Kun du kan forbinde."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Erreiche diesen Mac von deinen Geräten. Nur du hast Zugriff."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Accede a este Mac desde tus dispositivos. Solo tú puedes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Accédez à ce Mac depuis vos appareils. Vous seul."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raggiungi questo Mac dai tuoi dispositivi. Solo tu puoi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ほかのデバイスからこの Mac に接続できます。接続できるのはあなただけです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចូលប្រើ Mac នេះពីឧបករណ៍របស់អ្នក។ មានតែអ្នកទេដែលភ្ជាប់បាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "다른 기기에서 이 Mac에 접속합니다. 본인만 연결할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nå denne Mac-en fra enhetene dine. Bare du kan koble til."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Łącz się z tym Makiem z innych urządzeń. Tylko Ty możesz."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Acesse este Mac de seus dispositivos. Só você pode conectar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Подключайтесь к этому Mac с других устройств. Только вы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เข้าถึง Mac เครื่องนี้จากอุปกรณ์ของคุณ เชื่อมต่อได้เฉพาะคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu Mac’e cihazlarınızdan ulaşın. Yalnızca siz bağlanırsınız."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Підключайтеся до цього Mac з інших пристроїв. Лише ви."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Truy cập máy Mac này từ thiết bị khác. Chỉ bạn kết nối được."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "从你的其他设备访问这台 Mac。只有你能连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "從你的其他裝置存取這台 Mac。只有你能連線。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

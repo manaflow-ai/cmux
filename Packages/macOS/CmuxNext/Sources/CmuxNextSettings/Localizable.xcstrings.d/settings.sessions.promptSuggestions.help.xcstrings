@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sessions.promptSuggestions.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agents suggest next tasks you can start as child chats."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يقترح الوكلاء مهامًا تالية يمكنك بدؤها كمحادثات فرعية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenti predlažu sljedeće zadatke koje možete pokrenuti kao podređene razgovore."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenter foreslår næste opgaver, som du kan starte som underchats."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenten schlagen nächste Aufgaben vor, die du als Unterchats starten kannst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los agentes sugieren próximas tareas que puedes iniciar como chats secundarios."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les agents suggèrent des tâches suivantes que vous pouvez lancer comme chats enfants."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gli agenti suggeriscono le prossime attività, che puoi avviare come chat secondarie."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "エージェントが次のタスクを提案し、子チャットとして開始できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ភ្នាក់ងារណែនាំកិច្ចការបន្ទាប់ ដែលអ្នកអាចចាប់ផ្ដើមជាការជជែករង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트가 하위 채팅으로 시작할 수 있는 다음 작업을 제안합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenter foreslår neste oppgaver som du kan starte som underchatter."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenci proponują kolejne zadania, które możesz uruchomić jako czaty podrzędne."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Os agentes sugerem próximas tarefas que você pode iniciar como chats filhos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Агенты предлагают следующие задачи, которые можно запустить как дочерние чаты."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เอเจนต์แนะนำงานถัดไปที่คุณเริ่มเป็นแชตย่อยได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajanlar, alt sohbet olarak başlatabileceğiniz sonraki görevleri önerir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Агенти пропонують наступні завдання, які можна запустити як дочірні чати."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tác tử gợi ý việc tiếp theo mà bạn có thể bắt đầu thành cuộc trò chuyện con."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "智能体会建议后续任务，你可以将其作为子聊天开始。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理程式會建議後續任務，你可以把它們當成子聊天開始。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
