@@ -111,18 +111,23 @@ def delegated(selection: dict) -> list[dict]:
 
 # ---------- run ----------
 
+def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str = "1") -> str:
+    """Identify one simulator submission, keeping its head, shard and worker visible in fleet logs."""
+    shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
+    workload = json.dumps([head, SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
+    digest = hashlib.sha256(workload.encode()).hexdigest()[:32]
+    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker']}-{digest}"
+
+
 def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--target-worker", step["worker"],
+           "--key", step_key(step, head, pr, strict, attempt), "--target-worker", step["worker"],
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
     if strict:
         cmd.append("--pin-strict")
     for a in step["args"]:
         cmd += ["--arg", a]
-    # Retries of this exact submission share work. A deliberate rerun after a failed step uses a new attempt.
-    identity = json.dumps([attempt, cmd], separators=(",", ":")).encode()
-    cmd += ["--key", f"ios-verify-{pr}-{hashlib.sha256(identity).hexdigest()[:32]}"]
     t0 = time.monotonic()
     p = subprocess.run(cmd, capture_output=True, text=True)
     text = p.stdout + "\n" + p.stderr
@@ -315,13 +320,20 @@ def rerun_gate(repo: str, sha: str) -> str:
     return "gate job has not run yet: it reads the proof when it does"
 
 
+def public_runs(runs: list[dict]) -> list[dict]:
+    """RUNS as the posted record holds them: no output tail and no worker. The record is PR text, and a public repo's
+    PR text names no fleet host (public-body-guard refused the proof on cmux#61688 for naming two); no gate reads the
+    worker, and the step id still leads to it. The worker stays in this run's stderr."""
+    return [{k: v for k, v in r.items() if k not in ("tail", "worker")} for r in runs]
+
+
 def summary_md(record: dict) -> str:
     t = record["timing"]
     lines = [f"**`cmux ios verify`** at `{record['head_sha'][:10]}`: **{record['verdict']}**"
              f" ({len(record['selection']['flows'])} flows, push to proof {t.get('push_to_proof_s')} s)", "",
-             "| run | worker | result | s |", "|---|---|---|---|"]
+             "| run | result | s |", "|---|---|---|"]
     for r in record["runs"]:
-        lines.append(f"| {r['name']} | {r.get('worker', '')} | {r['result']} | {r.get('seconds', '')} |")
+        lines.append(f"| {r['name']} | {r['result']} | {r.get('seconds', '')} |")
     changed = [c["name"] for c in record.get("captures", []) if c["verdict"] in ("changed", "new", "missing")]
     b = record.get("baseline")
     lines += ["", f"Screens: {len(record.get('captures', []))}, " +
@@ -390,7 +402,7 @@ def main(argv: list[str] | None = None) -> int:
         "pr": int(view["number"]), "head_sha": head, "base_ref": view["baseRefName"], "base_sha": base_sha,
         "merged_base": merged,
         "selection": {k: selection[k] for k in ("flows", "kit", "ui", "swift", "scripts", "compile")},
-        "runs": [{k: v for k, v in r.items() if k != "tail"} for r in runs],
+        "runs": public_runs(runs),
         "captures": captures, "baseline": base_meta, "video": video,
         "visual": visual(captures, base_meta, video),
         "verdict": "fail" if any(r["result"] in ("fail", "error") for r in runs) else "pass",
@@ -400,7 +412,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     for r in runs:
         if r["result"] in ("fail", "error"):
-            print(f"FAIL {r['name']}:\n{r.get('tail', '')}\n", file=sys.stderr)
+            print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)
     body = proof_record.render(record, summary_md(record))
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))
