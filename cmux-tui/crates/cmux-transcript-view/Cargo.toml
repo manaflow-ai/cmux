@@ -1,0 +1,18 @@
+[package]
+name = "cmux-transcript-view"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The native read-only transcript (RFD 0121): a chat's rows shaped and laid out for the visible viewport in Rust, run off the renderer main thread (a Worker, as wasm) so the visible frames never wait on the page"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+regex-lite = "0.1"
+serde_json.workspace = true
+
+[lints]
+workspace = true

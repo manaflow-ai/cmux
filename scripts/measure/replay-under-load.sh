@@ -8,7 +8,7 @@
 # pass, with the [his Mac's] reading as a second series."
 #
 #   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE]
-#     [--painter react|dom-floor|worker]   (bench-only viewport painter A/B: webviews/bench/support/viewportPainter.ts)
+#     [--painter react|dom-floor|worker|native]   (bench-only viewport painter A/B: webviews/bench/support/viewportPainter.ts; native = Experiments nativeTranscript)
 #     [--load-qos default|utility|background]
 #
 # --load-qos runs the load (and only the load: never the app, Chromium or the bench) in a lower scheduling class, to
