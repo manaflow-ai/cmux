@@ -3361,3 +3361,45 @@ test("with Cloud picked on a New Tab that starts on the last chat's Cloud machin
   expect(asked).toEqual([["/Users/you/notes"]]);
   expect(container.querySelector(".acpmux-composer-context")?.textContent).not.toContain("cloud-box");
 });
+
+// Lucas 2026-11-26: a picked `/emil-ask-emil` offered `file:///emil-ask-emil` on top, and Return opened
+// that file tab. A draft that uses a skill offers only its Ask rows, and Return asks with it.
+test.each(["/emil-ask-emil ", "/emil-ask-emil fix the header", "use /emil-ask-emil now"])(
+  "%p offers only Ask rows and Return asks the agent with the skill",
+  async (draft) => {
+    const asks: unknown[][] = [];
+    const opened: string[] = [];
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          {...firstRunProps}
+          snapshot={noChat([], { commands: [{ name: "emil-ask-emil", description: "", source: "skill" }] })}
+          onAsk={(...args) => asks.push(args)}
+          onOpen={(url) => void opened.push(url)}
+        />,
+      );
+    });
+    const field = await typePrompt(draft);
+    const types = [...document.querySelectorAll<HTMLElement>(".nt-row")].map((row) => row.dataset.type);
+    expect(types.length).toBeGreaterThan(0);
+    expect(types.every((type) => type === "ask")).toBe(true);
+    await press(field, "Enter");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(opened).toEqual([]);
+    expect(asks.length).toBe(1);
+    expect(asks[0]?.[1]).toBe(draft.trim());
+  },
+);
+
+test("a `/name` the agent has no command for still offers its file", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], { commands: [{ name: "emil-ask-emil", description: "", source: "skill" }] })}
+      />,
+    );
+  });
+  await typePrompt("/tmp ");
+  expect(document.querySelector('.nt-row[data-type="open"]')).toBeTruthy();
+});
