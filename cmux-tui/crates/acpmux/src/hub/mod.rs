@@ -31,6 +31,7 @@ mod app_exit;
 pub mod approvers;
 mod aside;
 pub(crate) mod ask_choices;
+pub mod asks;
 mod asks_below;
 mod atomic_json;
 mod audit_entries;
@@ -1199,6 +1200,9 @@ pub struct Hub {
     pub(crate) usage_answers: usage_answer::UsageAnswers,
     /// What every turn here cost, indexed by day and session (`hub/ledger`, `_acpmux/ledger`).
     pub(crate) ledger: ledger::Ledger,
+    /// Every message the person sent into a chat here, linked to its chat and to the pull
+    /// requests that name it (`hub/asks`, `_acpmux/asks`).
+    pub(crate) asks: asks::AskLedger,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
@@ -1795,6 +1799,7 @@ impl Hub {
         let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
+        let asks = asks::AskLedger::open(home.as_ref().map(|h| h.join("asks")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
@@ -1856,6 +1861,7 @@ impl Hub {
             usage_stats: Default::default(),
             usage_answers: Default::default(),
             ledger,
+            asks,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             review_index: Default::default(),
             audit,
@@ -3440,6 +3446,11 @@ impl Hub {
         }
         // The cost ledger's index: O(1), no IO (its writer thread writes the file).
         self.ledger.observe(session, &record);
+        // The Ask ledger: only the person's own prompts, never a fork's copies or a purged
+        // chat's (the cost ledger's fence). O(1), no IO.
+        if record.kind == "user_message" && !self.ledger.blocks(&session.id) {
+            self.asks.observe(session, &record);
+        }
         // Its row's sequence numbers and date moved, sent or not: its cached closed row is stale.
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
         if matches!(

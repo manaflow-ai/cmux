@@ -6,7 +6,8 @@
 import { copyTextResult } from "../conversation/clipboard";
 import type { WatchedAsk } from "../needsYou/model";
 import { answerAnotherChat } from "../needsYou/useNeedsYou";
-import type { LedgerSaveOutcome, LedgerScreen } from "../ledger/LedgerScreen";
+import type { AsksScreen } from "../asks/AsksScreen";
+import type { LedgerScreen, LedgerSaveOutcome } from "../ledger/LedgerScreen";
 import type { LedgerExportKind } from "../ledger/ledgerModel";
 import type { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
 import type { DirectoryMethod, TeamDirectoryScreen } from "../teamDirectory/TeamDirectoryScreen";
@@ -20,6 +21,8 @@ type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promi
 /// The pane's connection calls these pages use (AcpmuxDirectClient).
 export type HistoryPagesClient = {
   ledger(params: Record<string, unknown>): Promise<unknown>;
+  /// `_acpmux/asks` (asks/asksModel.ts).
+  askLedger?(params: Record<string, unknown>): Promise<unknown>;
   teamAudit(params: Record<string, unknown>): Promise<unknown>;
   teamDirectory(method: DirectoryMethod, params: Record<string, unknown>): Promise<unknown>;
   reviewQueue(params?: Record<string, unknown>): Promise<unknown>;
@@ -101,6 +104,7 @@ export function historyPages({
   queue: ComponentProps<typeof QueueScreen>;
   ledger: ComponentProps<typeof LedgerScreen>;
   team: ComponentProps<typeof TeamAuditScreen>;
+  yourAsks: ComponentProps<typeof AsksScreen>;
   directory: ComponentProps<typeof TeamDirectoryScreen>;
 } {
   const connected = () => {
@@ -175,9 +179,18 @@ export function historyPages({
       save,
     },
     // History shows it only while the `team-audit` experiment is on (newtab/HistoryScreen.tsx).
-    // Export's JSON saves through the same panel as Costs' Save. `loadUsage` stays unset until acpmux
-    // serves the platform's usage export (teamAudit/usageExport.ts `USAGE_EXPORT_METHOD`, a stub).
     team: { load: async (params) => connected().teamAudit(params), save },
+    // Your asks: acpmux's Ask ledger; a chat opens in this tab, a pull request in a browser tab.
+    yourAsks: {
+      load: async (params) => {
+        const current = connected();
+        // l10n-allow: a rejection reason for the wire log only; the page shows its own localized text
+        if (!current.askLedger) throw Object.assign(new Error("method not found"), { code: -32601 });
+        return current.askLedger(params);
+      },
+      openSession: selectSession,
+      openUrl: (url) => void callNative("tab.open", { kind: "browser", text: url }).catch(() => undefined),
+    },
     // People (RFD 0170): the team navigator, Send to and a session's links, each answered by acpmux's
     // `_acpmux/team/*` reads; History shows it only while the `team-directory` experiment is on.
     directory: {

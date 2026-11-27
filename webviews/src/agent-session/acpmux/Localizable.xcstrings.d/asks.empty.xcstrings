@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "asks.empty" : {
+      "comment" : "Agent pane: Your asks, no message typed into a chat yet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا طلبات بعد. ما تكتبه في محادثة يظهر هنا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Još nema zahtjeva. Ono što upišete u chat pojavljuje se ovdje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingen forespørgsler endnu. Det, du skriver i en chat, vises her."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch keine Anfragen. Was du in einen Chat schreibst, erscheint hier."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No asks yet. What you type into a chat shows here."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aún no hay peticiones. Lo que escribas en un chat aparece aquí."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune demande pour l’instant. Ce que vous écrivez dans un chat s’affiche ici."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ancora nessuna richiesta. Ciò che scrivi in una chat appare qui."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "まだ依頼はありません。チャットに入力した内容がここに表示されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មិនទាន់មានសំណើនៅឡើយ។ អ្វីដែលអ្នកវាយក្នុងការជជែកនឹងបង្ហាញនៅទីនេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "아직 요청이 없습니다. 채팅에 입력한 내용이 여기에 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingen forespørsler ennå. Det du skriver i en chat, vises her."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brak próśb. To, co wpiszesz w czacie, pojawi się tutaj."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhum pedido ainda. O que você digita em um chat aparece aqui."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запросов пока нет. Здесь появится то, что вы пишете в чате."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ยังไม่มีคำขอ สิ่งที่คุณพิมพ์ในแชตจะแสดงที่นี่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Henüz istek yok. Bir sohbete yazdıklarınız burada görünür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запитів ще немає. Тут з’явиться те, що ви пишете в чаті."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chưa có yêu cầu nào. Những gì bạn nhập vào cuộc trò chuyện sẽ hiện ở đây."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还没有请求。你在聊天中输入的内容会显示在这里。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "還沒有請求。你在聊天中輸入的內容會顯示在這裡。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

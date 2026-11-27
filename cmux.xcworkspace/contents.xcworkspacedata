@@ -62,6 +62,15 @@
          location = "group:CmuxInstallAuthCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxIrohTransport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxIrxTransport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxLiveCode">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMessagesLab">
       </FileRef>
       <FileRef
@@ -133,6 +142,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxMobileTunnel">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxPushRegistration">
       </FileRef>
       <FileRef
          location = "group:CmuxTabsKit">

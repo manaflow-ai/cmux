@@ -489,6 +489,7 @@ impl Hub {
             // its records.
             self.audit.reopen(&id);
             self.ledger.reopen(&id);
+            self.asks.reopen(&id);
             super::admission::claim(&id);
             (session, stops)
         };

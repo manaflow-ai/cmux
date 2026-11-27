@@ -163,3 +163,13 @@ fn a_traceparent_rides_any_request_and_must_be_w3c_shaped() {
     }});
     assert!(breaks_params_rule(answer.as_object().unwrap(), None));
 }
+
+/// History's Next page must reach the daemon with its view and pagination intact.
+#[test]
+fn the_ask_ledger_next_page_keeps_its_view_and_cursor() {
+    let frame = json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/asks", "params": {
+        "view": "next", "limit": 200, "sessionId": "chat", "before": 100, "beforeId": "ask-123",
+    }});
+    assert!(strip(frame.clone(), &[]).is_none());
+    assert!(!breaks_params_rule(&object(frame), None));
+}
