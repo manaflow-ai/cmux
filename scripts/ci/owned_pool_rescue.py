@@ -521,22 +521,6 @@ DEV_LABEL = re.compile(r"glaeda-(?:aws-)?dev-(?:xl|std|light)-xcode-[0-9]+(?:\.[
 # sweeper finds their failed runs by path (GitHub.failed_runs()); cmux-next.yml
 # is marked as well.
 SIDE_WORKFLOW_PATHS = frozenset({
-    # feat-cmux-next's gateway and fleet evaluation workflows. Their Mac jobs
-    # use the owned gateway label directly, outside ci.yml's placement marker.
-    ".github/workflows/chief-evals.yml",
-    ".github/workflows/cmux-next-fast-tier-batch.yml",
-    ".github/workflows/cmux-next-head-compile.yml",
-    ".github/workflows/cmux-next-ios-energy-nightly.yml",
-    ".github/workflows/cmux-next-ios-keyboard-motion.yml",
-    ".github/workflows/cmux-next-iphone-clips.yml",
-    ".github/workflows/cmux-next-perf-bench.yml",
-    ".github/workflows/cmux-next-stress-bench.yml",
-    ".github/workflows/cmux-next-tab-switch.yml",
-    ".github/workflows/cmux-next-tip-test-compile.yml",
-    ".github/workflows/fleet-compile-check.yml",
-    ".github/workflows/fleet-rd-host-macos.yml",
-    ".github/workflows/ios-base-bisect.yml",
-    ".github/workflows/screen-stream-eval.yml",
     ".github/workflows/agent-brands.yml",  # feat-cmux-next only
     ".github/workflows/app-host-test-rerun.yml",
     ".github/workflows/auth-refresh-tests.yml",
