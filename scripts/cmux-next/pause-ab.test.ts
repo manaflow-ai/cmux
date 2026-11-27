@@ -9,6 +9,7 @@ import {
   accountCensus,
   statusCounts,
   failedCreateIsTransient,
+  pairSkipIsTransient,
   failureFacts,
   stubRestart,
   stubStop,
@@ -319,6 +320,17 @@ describe("a failed create on the drill account", () => {
     expect(failedCreateIsTransient({ ...failed, host: "h1" })).toBe(false);
     expect(failedCreateIsTransient({ ...failed, last_active_at: now })).toBe(false);
     expect(failedCreateIsTransient({ ...failed, status: "running" })).toBe(false);
+  });
+  test("a pair lost to staging load is retried; one lost on the machine is not", () => {
+    expect(pairSkipIsTransient(["turn_end-4 fs/write: 503 vm_unavailable (overloaded)"])).toBe(true);
+    expect(pairSkipIsTransient(["aggressive-10 not running within 300 s"])).toBe(true);
+    expect(pairSkipIsTransient(["aggressive-10 not running within 300 s", "turn_end-10 stub: exit 1"])).toBe(false);
+    expect(pairSkipIsTransient(["create turn_end-3 answered no machine: {}"])).toBe(false);
+    expect(pairSkipIsTransient([])).toBe(false);
+  });
+  test("the sweep takes a retried pair's name too", () => {
+    const old = (Date.UTC(2026, 10, 26, 9, 0)).toString(36);
+    expect(stalePauseAbMachines([{ id: "b", name: `pause-ab-${old}-turn_end-4rr`, status: "running" }], now).map((m) => m.id)).toEqual(["b"]);
   });
   test("the sweep takes a replacement's name too", () => {
     const old = (Date.UTC(2026, 10, 26, 9, 0)).toString(36);

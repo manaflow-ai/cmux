@@ -108,6 +108,13 @@ export function failedCreateIsTransient(m: any): boolean {
   return m?.status === "failed" && m?.error?.code === "cloud.provider.unavailable" && !m?.host && m?.last_active_at == null;
 }
 
+/** A pair's bring-up failed on staging load, not on the machine: 503 vm_unavailable "overloaded" on a guest call,
+ * an account object "overloaded", a provider 503 or a machine not running within 300 s (run 45982507398: pairs 4,
+ * 5 and 10 of 10 lost this way). Such a pair is brought up once more on new machines; anything else stays skipped. */
+export function pairSkipIsTransient(why: string[]): boolean {
+  return why.length > 0 && why.every((w) => /vm_unavailable|overloaded|not running within 300 s|HTTP 503|cloud\.provider\.unavailable/.test(w));
+}
+
 /** A failed machine's own fields minus who and what it is, whole, so the reason it failed is not cut at 300 chars. */
 export function failureFacts(m: any): string {
   const { id: _i, team: _t, creator: _c, name: _n, size: _s, ...rest } = m ?? {};
@@ -211,6 +218,8 @@ export function integrate(samples: Sample[], start: number, end: number): { awak
 export type MachineResult = {
   arm: string;
   name: string;
+  /** Why this pair's first bring-up failed on staging load and was retried once on new machines, or unset. */
+  pair_retried?: string;
   /** Why the first machine of this slot was replaced (a transient failed create), or unset. */
   replaced?: string;
   id: string | null;
@@ -460,7 +469,7 @@ export const PAUSE_AB_STALE_MS = 110 * 60_000;
 export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = PAUSE_AB_STALE_MS, kept?: string[]): { id: string; name: string; why: string }[] {
   const out: { id: string; name: string; why: string }[] = [];
   for (const r of rows) {
-    const m = /^pause-ab-([0-9a-z]+)-[a-z_]+-\d+r?$/.exec(typeof r?.name === "string" ? r.name : "");
+    const m = /^pause-ab-([0-9a-z]+)-[a-z_]+-\d+r*$/.exec(typeof r?.name === "string" ? r.name : "");
     if (!m) continue;
     const id = String(r.id ?? r.machine_id ?? "");
     const keep = (why: string) => kept?.push(`${id || "?"} ${r.name} ${why}`);
@@ -1004,8 +1013,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.record({ step: `pair ${pair} up`, status: "skip", ms: 0, detail: ms[0].skipped! });
         return;
       }
-      const up = await Promise.allSettled(ms.map(bringUp));
-      const why = up.flatMap((u) => (u.status === "rejected" ? [String((u.reason as Error)?.message ?? u.reason).slice(0, 300)] : []));
+      let up = await Promise.allSettled(ms.map(bringUp));
+      let why = up.flatMap((u) => (u.status === "rejected" ? [String((u.reason as Error)?.message ?? u.reason).slice(0, 300)] : []));
+      // A pair lost to staging load (pairSkipIsTransient) gets one more bring-up on new machines while the budget lasts:
+      // the old ones are deleted first, so the retry adds no load and leaves nothing behind.
+      if (why.length && pairSkipIsTransient(why) && Date.now() - bring0 <= bringupBudgetMs) {
+        const first = why.join(" | ");
+        console.log(`pair ${pair} retrying once: ${first}`);
+        await Promise.all(ms.map((r) => (r.id ? api.deleteMachine(r.id, `pab-${tag}-delete-retry-${r.name}`).catch((e: Error) => console.log(`running: delete of ${r.id} before retry: ${String(e?.message ?? e).slice(0, 200)}`)) : null)));
+        for (const r of ms) {
+          Object.assign(r, { id: null, name: `${r.name}r`, replaced: undefined, effective_policy: null, policy_refused: null, pair_retried: first.slice(0, 600) });
+        }
+        up = await Promise.allSettled(ms.map(bringUp));
+        why = up.flatMap((u) => (u.status === "rejected" ? [String((u.reason as Error)?.message ?? u.reason).slice(0, 300)] : []));
+        if (why.length) why.push(`(retry of: ${first.slice(0, 300)})`);
+      }
       if (why.length) {
         for (const r of ms) r.skipped = why.join(" | ");
         console.log(`pair ${pair} skipped: ${why.join(" | ")}`);
@@ -1014,7 +1036,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       J.record({
         step: `pair ${pair} up`, status: "pass", ms: Date.now() - t0,
-        detail: ms.map((r) => `${r.name}=${r.id} ${r.effective_policy}${r.policy_refused ? " (asked policy refused)" : ""}${r.replaced ? ` [replaced: ${r.replaced}]` : ""}; ${guestLine(r.name, r.guest_update_start)}`).join(" | ").slice(0, 1000) + (ttlRefused ? `; ttl_seconds refused: ${ttlRefused}` : ""),
+        detail: ms.map((r) => `${r.name}=${r.id} ${r.effective_policy}${r.policy_refused ? " (asked policy refused)" : ""}${r.replaced ? ` [replaced: ${r.replaced}]` : ""}${r.pair_retried ? ` [pair retried: ${r.pair_retried.slice(0, 160)}]` : ""}; ${guestLine(r.name, r.guest_update_start)}`).join(" | ").slice(0, 1000) + (ttlRefused ? `; ttl_seconds refused: ${ttlRefused}` : ""),
       });
       drives.push(drivePair(ms));
     });
