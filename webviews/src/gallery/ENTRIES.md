@@ -374,8 +374,8 @@ Lawrence can see them side by side and pick one. Three pieces, all next to the c
 
 1. The definition, `<name>.experiment.ts`: `defineExperiment({ id, title, description, arms,
    defaultArm })` from `src/experiments/experiment.ts`. Each arm has a `label` and a one-line
-   `description`. `defaultArm` is the arm that ships. Add the definition to
-   `src/experiments/registry.ts` (one import, one list item).
+   `description`. `defaultArm` is the arm that ships. Export it (`export const`): the file is all
+   `src/experiments/registry.ts` needs, which finds every `*.experiment.ts(x)` on its own.
 2. The component reads its arm with `experimentArm(definition)`. The arm comes from one place: the
    host override `globalThis.cmuxExperiments` (the gallery's stage frame sets it from `arm=`), else
    the debug key `localStorage["cmux.experiments"]` (`{"<id>":"<arm>"}`, for dogfood in the app),
