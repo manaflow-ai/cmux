@@ -74,11 +74,12 @@ fn dev_build_own_settings_defaults_are_what_get_reports() {
 
 #[test]
 fn dev_build_own_settings_defaults_leave_other_builds_and_bad_values_alone() {
-    // NIGHTLY and stable pass nothing: the schema's default.
+    // NIGHTLY and stable pass nothing: the schema's default (phone access is on by default since
+    // #48532, so the test reads the schema's value rather than naming one).
     let shared = state(schema(&BTreeMap::new()), "{}");
     let row = shared.get(&Target::Key(MOBILE.into())).row.expect("the row");
     let schema_default = row.default.clone();
-    assert!(schema_default.is_some(), "the row has a schema default");
+    assert!(schema_default.is_some(), "the row has a default");
     assert_eq!(row.value, schema_default);
     // A value the row refuses and a key no row has are ignored.
     let odd =
