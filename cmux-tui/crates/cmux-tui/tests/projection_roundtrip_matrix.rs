@@ -815,8 +815,12 @@ fn a_second_bring_back_takes_the_later_edits() {
 fn a_bring_back_after_the_server_restarted_takes_the_later_edits() {
     let t = trip_or_skip!("restart", repo);
     write(&t.at("src/a.txt"), "alpha, first\n");
-    t.brought_back();
+    let first = t.brought_back();
+    assert_eq!(read(&t.mac("src/a.txt")), "alpha, first\n", "first Bring Back: {first}");
+    let baseline = read(&t.at(".git/cmux-sync.json"));
     let _server = t.restart_server();
+    assert_eq!(read(&t.at(".git/cmux-sync.json")), baseline, "restart preserves the sync base");
+    assert_eq!(read(&t.mac("src/a.txt")), "alpha, first\n", "restart preserves local edits");
     write(&t.at("src/a.txt"), "alpha, second\n");
     let answer = t.brought_back();
     assert_eq!(read(&t.mac("src/a.txt")), "alpha, second\n", "{answer}");
