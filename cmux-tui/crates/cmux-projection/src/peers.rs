@@ -155,7 +155,8 @@ fn bounded_body(mut response: reqwest::blocking::Response) -> Answer {
     loop {
         let remaining = MAX_HTTP_BODY_BYTES - bytes.len();
         let read_limit = chunk.len().min(remaining.saturating_add(1));
-        let read = match response.read(&mut chunk[..read_limit]) {
+        let Some(window) = chunk.get_mut(..read_limit) else { return Answer::Failed };
+        let read = match response.read(window) {
             Ok(0) => return Answer::Found(bytes),
             Ok(read) if read <= remaining => read,
             _ => return Answer::Failed,
@@ -163,7 +164,8 @@ fn bounded_body(mut response: reqwest::blocking::Response) -> Answer {
         if bytes.len().checked_add(read).is_none() {
             return Answer::Failed;
         }
-        bytes.extend_from_slice(&chunk[..read]);
+        let Some(read) = chunk.get(..read) else { return Answer::Failed };
+        bytes.extend_from_slice(read);
     }
 }
 
