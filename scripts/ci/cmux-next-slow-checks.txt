@@ -28,6 +28,8 @@ bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
 scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 # Why: note-506
 python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"
+# Why: cmux#59531 (a 2-6 s sidebar hang: fileRoot sent to Rust per Chief per row)
+python3 -I scripts/cmux-next/check-bridge-on-main.py --root "$GITHUB_WORKSPACE"
 [overlay-glass]
 python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
 [conn-notices]

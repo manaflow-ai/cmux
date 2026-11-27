@@ -721,5 +721,20 @@ class GitCompareTest(unittest.TestCase):
             ci_receipt.git_compare = saved
 
 
+class LaneAskDeadlineTest(unittest.TestCase):
+    def test_lookup_waits_as_long_as_a_record(self):
+        seen = []
+        original = ci_receipt.deadline_http.request
+        ci_receipt.deadline_http.request = lambda request, deadline: (seen.append(deadline), (200, b"{}", {}))[1]
+        try:
+            ci_receipt.lane_ask({"tree": "t"}, "token", "https://example.invalid/lane-receipt")
+        finally:
+            ci_receipt.deadline_http.request = original
+        self.assertEqual(seen, [ci_receipt.LOOKUP_DEADLINE_S])
+        self.assertGreaterEqual(ci_receipt.LOOKUP_DEADLINE_S, ci_receipt.RECORD_DEADLINE_S)
+
+
+
 if __name__ == "__main__":
     unittest.main()
+

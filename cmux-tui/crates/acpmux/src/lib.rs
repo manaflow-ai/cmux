@@ -188,6 +188,9 @@ pub mod hub;
 /// The live stream to one's own machines through the platform's relay (`hub_carrier.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod hub_carrier;
+/// The process that holds the far end of each held pipe past a daemon restart (`hub_carrier_pipe_host.rs`).
+#[cfg(all(unix, feature = "hub-carrier"))]
+pub mod hub_carrier_pipe_host;
 pub mod hunk_summary;
 pub mod idempotency;
 #[cfg(windows)]
@@ -198,6 +201,7 @@ pub mod terminal_autocompact;
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
 pub mod chat_secrets;
+pub mod exit_record;
 /// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
 #[doc(hidden)]
 pub mod icount;
