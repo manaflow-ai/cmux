@@ -2027,6 +2027,137 @@ Result<ColorHex> Codec<ColorHex>::decode(const Json& value) {
     return ColorHex{std::move(decoded).value()};
 }
 
+Result<Json> Codec<ColumnDock>::encode(const ColumnDock& value) {
+    (void)value;
+    Json::Object object;
+    if (value.allow_tabs) {
+        auto encoded = encode_value(*value.allow_tabs);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("allow_tabs", std::move(encoded).value());
+    }
+    auto encoded_edge = encode_value(value.edge);
+    if (!encoded_edge) return std::move(encoded_edge).error();
+    object.emplace("edge", std::move(encoded_edge).value());
+    auto encoded_mode = encode_value(value.mode);
+    if (!encoded_mode) return std::move(encoded_mode).error();
+    object.emplace("mode", std::move(encoded_mode).value());
+    if (value.permanent) {
+        auto encoded = encode_value(*value.permanent);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("permanent", std::move(encoded).value());
+    }
+    if (value.pinned) {
+        auto encoded = encode_value(*value.pinned);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pinned", std::move(encoded).value());
+    }
+    if (value.role) {
+        auto encoded = encode_value(*value.role);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("role", std::move(encoded).value());
+    }
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<ColumnDock> Codec<ColumnDock>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ColumnDock result{};
+    const Json* field_allow_tabs = value.find("allow_tabs");
+    if (field_allow_tabs) {
+        auto decoded = decode_value<bool>(*field_allow_tabs);
+        if (!decoded) return std::move(decoded).error();
+        result.allow_tabs = std::move(decoded).value();
+    }
+    const Json* field_edge = value.find("edge");
+    if (!field_edge) {
+        return make_error(ErrorCode::decode, "missing required field 'edge'");
+    }
+    if (field_edge) {
+        auto decoded = decode_value<ColumnDockEdge>(*field_edge);
+        if (!decoded) return std::move(decoded).error();
+        result.edge = std::move(decoded).value();
+    }
+    const Json* field_mode = value.find("mode");
+    if (!field_mode) {
+        return make_error(ErrorCode::decode, "missing required field 'mode'");
+    }
+    if (field_mode) {
+        auto decoded = decode_value<ColumnDockMode>(*field_mode);
+        if (!decoded) return std::move(decoded).error();
+        result.mode = std::move(decoded).value();
+    }
+    const Json* field_permanent = value.find("permanent");
+    if (field_permanent) {
+        auto decoded = decode_value<bool>(*field_permanent);
+        if (!decoded) return std::move(decoded).error();
+        result.permanent = std::move(decoded).value();
+    }
+    const Json* field_pinned = value.find("pinned");
+    if (field_pinned) {
+        auto decoded = decode_value<bool>(*field_pinned);
+        if (!decoded) return std::move(decoded).error();
+        result.pinned = std::move(decoded).value();
+    }
+    const Json* field_role = value.find("role");
+    if (field_role) {
+        auto decoded = decode_value<ColumnDockRole>(*field_role);
+        if (!decoded) return std::move(decoded).error();
+        result.role = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "allow_tabs" && key != "edge" && key != "mode" && key != "permanent" && key != "pinned" && key != "role") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
+Result<Json> Codec<ColumnDockEdge>::encode(const ColumnDockEdge& value) {
+    switch (value) {
+        case ColumnDockEdge::left: return Json(std::string("left"));
+        case ColumnDockEdge::right: return Json(std::string("right"));
+        case ColumnDockEdge::top: return Json(std::string("top"));
+        case ColumnDockEdge::bottom: return Json(std::string("bottom"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<ColumnDockEdge> Codec<ColumnDockEdge>::decode(const Json& value) {
+    if (value == Json(std::string("left"))) return ColumnDockEdge::left;
+    if (value == Json(std::string("right"))) return ColumnDockEdge::right;
+    if (value == Json(std::string("top"))) return ColumnDockEdge::top;
+    if (value == Json(std::string("bottom"))) return ColumnDockEdge::bottom;
+    return make_error(ErrorCode::decode, "unknown ColumnDockEdge value");
+}
+
+Result<Json> Codec<ColumnDockMode>::encode(const ColumnDockMode& value) {
+    switch (value) {
+        case ColumnDockMode::docked: return Json(std::string("docked"));
+        case ColumnDockMode::overlay: return Json(std::string("overlay"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<ColumnDockMode> Codec<ColumnDockMode>::decode(const Json& value) {
+    if (value == Json(std::string("docked"))) return ColumnDockMode::docked;
+    if (value == Json(std::string("overlay"))) return ColumnDockMode::overlay;
+    return make_error(ErrorCode::decode, "unknown ColumnDockMode value");
+}
+
+Result<Json> Codec<ColumnDockRole>::encode(const ColumnDockRole& value) {
+    switch (value) {
+        case ColumnDockRole::agent_chat: return Json(std::string("agent_chat"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<ColumnDockRole> Codec<ColumnDockRole>::decode(const Json& value) {
+    if (value == Json(std::string("agent_chat"))) return ColumnDockRole::agent_chat;
+    return make_error(ErrorCode::decode, "unknown ColumnDockRole value");
+}
+
 Result<Json> Codec<ColumnMoveDirection>::encode(const ColumnMoveDirection& value) {
     switch (value) {
         case ColumnMoveDirection::left: return Json(std::string("left"));
@@ -5415,10 +5546,7 @@ Result<LayoutColumnNode> Codec<LayoutColumnNode>::decode(const Json& value) {
     LayoutColumnNode result{};
     const Json* field_dock = value.find("dock");
     if (field_dock) {
-        if (field_dock->is_null()) {
-            return make_error(ErrorCode::decode, "field 'dock' must not be null");
-        }
-        auto decoded = decode_value<JsonValue>(*field_dock);
+        auto decoded = decode_value<ColumnDock>(*field_dock);
         if (!decoded) return std::move(decoded).error();
         result.dock = std::move(decoded).value();
     }

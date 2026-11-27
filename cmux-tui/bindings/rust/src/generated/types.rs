@@ -440,6 +440,58 @@ pub struct CloudConversationPresenceParticipant {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ColumnDock {
+    /// \`pinned-dock-v1\`: a pinned column takes more tabs; omitted when false.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub allow_tabs: Option<bool>,
+    /// left or right (\`dock-columns-v1\`), top or bottom (also \`edge-docks-v1\`).
+    pub edge: ColumnDockEdge,
+    /// \`docked\` takes its width out of the scrolling area; \`overlay\` floats above the scrolling columns.
+    pub mode: ColumnDockMode,
+    /// \`permanent-dock-v1\`: the column stays docked on \`edge\` for every client; omitted when false.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub permanent: Option<bool>,
+    /// \`pinned-dock-v1\`: a pinned column (the Home dock); omitted when false.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
+    /// \`dock-column-role-v1\`: what the column is for; omitted when unset.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub role: Option<ColumnDockRole>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ColumnDockEdge {
+    #[serde(rename = "left")]
+    Left,
+    #[serde(rename = "right")]
+    Right,
+    #[serde(rename = "top")]
+    Top,
+    #[serde(rename = "bottom")]
+    Bottom,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ColumnDockMode {
+    #[serde(rename = "docked")]
+    Docked,
+    #[serde(rename = "overlay")]
+    Overlay,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ColumnDockRole {
+    #[serde(rename = "agent_chat")]
+    AgentChat,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ColumnMoveDirection {
     #[serde(rename = "left")]
@@ -1191,7 +1243,7 @@ pub enum Layout {
 pub struct LayoutColumnNode {
     /// dock-columns-v1: the viewport edge the column is pinned to.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub dock: Option<JsonValue>,
+    pub dock: Option<ColumnDock>,
     pub id: Id,
     pub layout: Layout,
     /// rows-v1: only for a column with two or more rows.

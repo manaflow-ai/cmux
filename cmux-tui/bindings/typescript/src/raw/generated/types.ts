@@ -240,6 +240,28 @@ export type CloudConversationPresenceParticipant = {
 
 export type ColorHex = string;
 
+export type ColumnDock = {
+  /** `pinned-dock-v1`: a pinned column takes more tabs; omitted when false. */
+  "allow_tabs"?: boolean;
+  /** left or right (`dock-columns-v1`), top or bottom (also `edge-docks-v1`). */
+  "edge": ColumnDockEdge;
+  /** `docked` takes its width out of the scrolling area; `overlay` floats above the scrolling columns. */
+  "mode": ColumnDockMode;
+  /** `permanent-dock-v1`: the column stays docked on `edge` for every client; omitted when false. */
+  "permanent"?: boolean;
+  /** `pinned-dock-v1`: a pinned column (the Home dock); omitted when false. */
+  "pinned"?: boolean;
+  /** `dock-column-role-v1`: what the column is for; omitted when unset. */
+  "role"?: ColumnDockRole;
+  [key: string]: unknown;
+};
+
+export type ColumnDockEdge = "left" | "right" | "top" | "bottom";
+
+export type ColumnDockMode = "docked" | "overlay";
+
+export type ColumnDockRole = "agent_chat";
+
 export type ColumnMoveDirection = "left" | "right";
 
 export type ColumnPin = {
@@ -691,7 +713,7 @@ export type Layout = ({ "type": "leaf" } & {
 
 export type LayoutColumnNode = {
   /** dock-columns-v1: the viewport edge the column is pinned to. */
-  "dock"?: JsonValue;
+  "dock"?: ColumnDock;
   "id": Id;
   "layout": Layout;
   /** rows-v1: only for a column with two or more rows. */
