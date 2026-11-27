@@ -385,70 +385,88 @@ pub fn wrap(text: &str, width: f32, advance: &Advance) -> Vec<(usize, usize)> {
     lines
 }
 
-static ALL_PENDING: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)^(?:both|the|all) [^,;:|]+\b(?:still running|still pending|are running|are pending)$",
-    )
-    .expect("pattern")
+/// The narration patterns, compiled once. A pattern that fails to compile leaves this `None`, and
+/// every reply then draws as a normal answer instead of crashing the viewport.
+struct Narration {
+    all_pending: Regex,
+    action: Regex,
+    clause: Regex,
+    ed_adjective_after: Regex,
+    finding_verbs: Regex,
+    ellipsis: Regex,
+    sentence_end: Regex,
+    eed: Regex,
+}
+
+static NARRATION: LazyLock<Option<Narration>> = LazyLock::new(|| {
+    Some(Narration {
+        all_pending: Regex::new(
+            r"(?i)^(?:both|the|all) [^,;:|]+\b(?:still running|still pending|are running|are pending)$",
+        )
+        .ok()?,
+        action: Regex::new(
+            r"(?i)^(?:(?:let me|i['’]ll|i will) (?:check|read|look|inspect|search|run|test|review|verify|wait)|(?:i['’]m |i am )?(?:checking|reading|looking|inspecting|searching|running|testing|reviewing|verifying|waiting))\b",
+        )
+        .ok()?,
+        clause: Regex::new(
+            r"(?i)[,;:|]|\b(?:am|is|are|was|were|has|have|had|can|could|should|would|will|because|but|however|therefore|means?|shows?|reveals?|than)\b",
+        )
+        .ok()?,
+        ed_adjective_after: Regex::new(
+            r"(?i)^(?:the|a|an|its|this|that|these|those|each|every|all|any|my|your|our|their|some|both|for|of|in|on|from|with|to|at|by|and|or|newly|recently)$",
+        )
+        .ok()?,
+        finding_verbs: Regex::new(
+            r"(?i)^(?:found|took|made|gave|got|came|went|ran|saw|left|broke|said|told|kept|held|brought|knew|lost|won|beat|fell|grew|stood|meant|cost|finds|takes|makes|gives|gets|works|fails|passes|helps|saves|costs|beats|wins|needs|breaks|returns|stays|matches|fixes|causes|leads|keeps|hides|drops|skips|hangs|crashes|seems|looks|turns|proves|confirms)$",
+        )
+        .ok()?,
+        ellipsis: Regex::new(
+            r"\.{3,}|…",
+        )
+        .ok()?,
+        sentence_end: Regex::new(
+            r"[.!?](?:\s+|$)",
+        )
+        .ok()?,
+        eed: Regex::new(
+            r"(?i)(?:eed|need)$",
+        )
+        .ok()?,
+    })
 });
-static ACTION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)^(?:(?:let me|i['’]ll|i will) (?:check|read|look|inspect|search|run|test|review|verify|wait)|(?:i['’]m |i am )?(?:checking|reading|looking|inspecting|searching|running|testing|reviewing|verifying|waiting))\b",
-    )
-    .expect("pattern")
-});
-static CLAUSE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)[,;:|]|\b(?:am|is|are|was|were|has|have|had|can|could|should|would|will|because|but|however|therefore|means?|shows?|reveals?|than)\b",
-    )
-    .expect("pattern")
-});
-static ED_ADJECTIVE_AFTER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)^(?:the|a|an|its|this|that|these|those|each|every|all|any|my|your|our|their|some|both|for|of|in|on|from|with|to|at|by|and|or|newly|recently)$",
-    )
-    .expect("pattern")
-});
-static FINDING_VERBS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)^(?:found|took|made|gave|got|came|went|ran|saw|left|broke|said|told|kept|held|brought|knew|lost|won|beat|fell|grew|stood|meant|cost|finds|takes|makes|gives|gets|works|fails|passes|helps|saves|costs|beats|wins|needs|breaks|returns|stays|matches|fixes|causes|leads|keeps|hides|drops|skips|hangs|crashes|seems|looks|turns|proves|confirms)$",
-    )
-    .expect("pattern")
-});
-static ELLIPSIS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.{3,}|…").expect("pattern"));
-static SENTENCE_END: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[.!?](?:\s+|$)").expect("pattern"));
-static EED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:eed|need)$").expect("pattern"));
 
 /// Whether a reply is only short progress narration ("Let me check the logs."), which draws quiet.
 /// The port of webviews turns.ts `isWorkNarration` (Leo, 2026-11-13: unknown prose can be a brief
 /// answer, so every sentence must be a recognizable action with no finding in it).
 pub fn is_work_narration(text: &str) -> bool {
     let text = text.trim();
+    let Some(p) = NARRATION.as_ref() else {
+        return false;
+    };
     if text.is_empty() {
         return false;
     }
-    let joined = ELLIPSIS.replace_all(text, ".");
+    let joined = p.ellipsis.replace_all(text, ".");
     let sentences: Vec<&str> =
-        SENTENCE_END.split(&joined).filter(|part| !part.trim().is_empty()).collect();
+        p.sentence_end.split(&joined).filter(|part| !part.trim().is_empty()).collect();
     !sentences.is_empty()
         && sentences.len() <= 2
         && sentences.iter().all(|part| {
             let note = part.trim();
-            if ALL_PENDING.is_match(note) {
+            if p.all_pending.is_match(note) {
                 return true;
             }
-            let Some(action) = ACTION.find(note) else {
+            let Some(action) = p.action.find(note) else {
                 return false;
             };
             let rest = &note[action.end()..];
-            !CLAUSE.is_match(rest) && !has_finite_verb(rest)
+            !p.clause.is_match(rest) && !has_finite_verb(p, rest)
         })
 }
 
 /// Whether the words after a narration's action hold a finite verb ("Checking the cache found no
 /// errors."): the first word is the action's object, never a verb.
-fn has_finite_verb(rest: &str) -> bool {
+fn has_finite_verb(p: &Narration, rest: &str) -> bool {
     let words: Vec<String> = rest
         .split_whitespace()
         .map(|word| {
@@ -457,10 +475,10 @@ fn has_finite_verb(rest: &str) -> bool {
         .collect();
     words.iter().enumerate().any(|(at, word)| {
         at > 0
-            && (FINDING_VERBS.is_match(word)
+            && (p.finding_verbs.is_match(word)
                 || (is_ed_word(word)
-                    && !EED.is_match(word)
-                    && !ED_ADJECTIVE_AFTER.is_match(&words[at - 1])))
+                    && !p.eed.is_match(word)
+                    && !p.ed_adjective_after.is_match(&words[at - 1])))
     })
 }
 
