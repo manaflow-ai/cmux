@@ -64,7 +64,10 @@ def tail(rpc, sid, limit):
 
 def tick_receipt(rpc, sid, start, stop):
     ticks = defaultdict(list)
-    for event in tail(rpc, sid, 2500):
+    events = tail(rpc, sid, 2500)
+    spawned = {event["msg"]["params"]["update"]["subagentSessionId"] for event in events
+               if event["kind"] == "subagent_spawned"}
+    for event in events:
         when = event["at"] / 1000
         if not start <= when <= stop or event["kind"] != "tool_call_update":
             continue
@@ -72,6 +75,8 @@ def tick_receipt(rpc, sid, start, stop):
         child = params.get("_meta", {}).get("acpmux", {}).get("subagent")
         if isinstance(child, dict):
             child = child.get("id")
+        if not child and params.get("sessionId") in spawned:
+            child = params["sessionId"]
         match = re.fullmatch(r"Checking part, tick (\d+)", params.get("update", {}).get("title", ""))
         if isinstance(child, str) and child and match:
             ticks[child].append((int(match[1]), when))

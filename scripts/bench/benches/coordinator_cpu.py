@@ -23,9 +23,9 @@ class CoordinatorCPU(Bench):
             raise BenchError(f"coordinator-cpu failed on fleet job {result.job_id}: {result.log_path}")
         if result.worker != ctx.args["worker"]:
             raise BenchError(f"expected worker {ctx.args['worker']}, fleet ran on {result.worker}")
-        self.ingest(ctx, result.log_path)
+        self.ingest(ctx, result.log_path, worker=result.worker)
 
-    def ingest(self, ctx: Context, path: Path) -> None:
+    def ingest(self, ctx: Context, path: Path, *, worker: str | None = None) -> None:
         text = Path(path).read_text()
         marker = "COORDINATOR-CPU "
         rows = [line.split(marker, 1)[1] for line in text.splitlines() if marker in line]
@@ -35,7 +35,7 @@ class CoordinatorCPU(Bench):
             raise BenchError(f"{path}: missing COORDINATOR-CPU result or invalid report JSON") from error
         if ctx.build.get("sha") and ctx.build["sha"] != data["app_sha"]:
             raise BenchError(f"expected {ctx.build['sha']}, measured {data['app_sha']}")
-        ctx.host.update({"role": "fleet", "name": data["machine"]})
+        ctx.host.update({"role": "fleet", "name": worker or data["machine"]})
         ctx.notes.append(f"app {data['app_sha']}, harness {data['harness_sha']}, {data['history_rows']} history rows")
         ctx.row("live_renderer_cpu", data["coordinator_live"]["percent"], "%")
 
