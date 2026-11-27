@@ -5,6 +5,8 @@ import Foundation
 /// overrides, each different from the cmux default, so the cmux preset has
 /// none and choosing it removes what another preset wrote. Shortcuts a
 /// terminal shares with cmux (iTerm2's Cmd-D, Cmd-T) need no override.
+/// Rust holds each preset's bindings and plans the switch (cmux-config
+/// app_ops/keymap.rs, `keymap.plan` and `keymap.active`).
 public nonisolated enum ShortcutKeymapPreset: String, CaseIterable, Sendable {
     /// cmux's built-in shortcuts.
     case cmux
@@ -16,61 +18,6 @@ public nonisolated enum ShortcutKeymapPreset: String, CaseIterable, Sendable {
     /// tmux's `ctrl+b` prefix, tmux windows as workspaces and panes as panes.
     case tmux
 
-    /// The bindings this preset writes, in the hand-editable cmux.json forms
-    /// (`"cmd+1"`, `["ctrl+b", "c"]`) so the file stays readable.
-    public var overrides: KeyValuePairs<String, JSONValue> {
-        switch self {
-        case .cmux:
-            return [:]
-        case .iTerm2:
-            return [
-                "selectSurfaceByNumber": "cmd+1",
-                "selectWorkspaceByNumber": "cmd+opt+1",
-                "toggleTerminalCopyMode": "cmd+shift+c",
-                "resizePaneLeft": "cmd+ctrl+left",
-                "resizePaneRight": "cmd+ctrl+right",
-                "resizePaneUp": "cmd+ctrl+up",
-                "resizePaneDown": "cmd+ctrl+down",
-            ]
-        case .terminal:
-            return [
-                "closeOtherTabsInPane": "cmd+opt+w",
-                "renameTab": "cmd+shift+i",
-            ]
-        case .tmux:
-            return [
-                "newTab": ["ctrl+b", "c"],
-                "closeTab": ["ctrl+b", "x"],
-                "closeWorkspace": ["ctrl+b", "shift+7"],
-                "nextSidebarTab": ["ctrl+b", "n"],
-                "prevSidebarTab": ["ctrl+b", "p"],
-                "selectWorkspaceByNumber": ["ctrl+b", "1"],
-                "renameWorkspace": ["ctrl+b", ","],
-                "goToWorkspace": ["ctrl+b", "w"],
-                "splitRight": ["ctrl+b", "shift+5"],
-                "splitDown": ["ctrl+b", "shift+'"],
-                "focusLeft": ["ctrl+b", "left"],
-                "focusRight": ["ctrl+b", "right"],
-                "focusUp": ["ctrl+b", "up"],
-                "focusDown": ["ctrl+b", "down"],
-                "focusNextPane": ["ctrl+b", "o"],
-                "toggleSplitZoom": ["ctrl+b", "z"],
-                "toggleTerminalCopyMode": ["ctrl+b", "["],
-            ]
-        }
-    }
-
-    func binding(for actionID: String) -> ShortcutBinding? {
-        overrides.first { $0.key == actionID }.flatMap { ShortcutBindingFormat.parse($0.value) }
-    }
-
-    /// This preset's actions in its order, then every other action some
-    /// preset changes.
-    var actionIDs: [String] {
-        var seen = Set<String>()
-        return (overrides.map(\.key) + Self.allCases.flatMap { $0.overrides.map(\.key) }).filter { seen.insert($0).inserted }
-    }
-
     /// The edits that switch `bindings` (cmux.json `shortcuts.bindings`) to
     /// this preset. A preset replaces only bindings that are absent or that
     /// some preset wrote; one the user set by hand stays and is listed in
@@ -78,34 +25,15 @@ public nonisolated enum ShortcutKeymapPreset: String, CaseIterable, Sendable {
     /// binding typed by hand that equals a preset's value counts as the
     /// preset's.
     public func plan(from bindings: [String: JSONValue]) -> ShortcutKeymapPlan {
-        var changes: [ShortcutKeymapPlan.Change] = []
-        var kept: [String] = []
-        for id in actionIDs {
-            let current = bindings[id].flatMap(ShortcutBindingFormat.parse)
-            let ownedByPreset = current.map { value in Self.allCases.contains { $0.binding(for: id) == value } } ?? false
-            if let target = overrides.first(where: { $0.key == id }) {
-                guard current != ShortcutBindingFormat.parse(target.value) else { continue }
-                guard bindings[id] == nil || ownedByPreset else {
-                    kept.append(id)
-                    continue
-                }
-                changes.append(.init(actionID: id, write: target.value))
-            } else if ownedByPreset {
-                changes.append(.init(actionID: id, write: nil))
-            }
-        }
-        return ShortcutKeymapPlan(preset: self, changes: changes, kept: kept)
+        let reply = SettingsRust.answer("keymap.plan", ["preset": .string(rawValue), "bindings": .object(bindings)])
+        return ShortcutKeymapPlan(preset: self, reply: reply)
     }
 
     /// The preset `bindings` is on: switching to it changes nothing and at
     /// least one of its overrides is there (cmux when none is). Nil when the
     /// file mixes presets.
     public static func active(in bindings: [String: JSONValue]) -> ShortcutKeymapPreset? {
-        for preset in allCases where preset != .cmux {
-            let applied = preset.overrides.contains { bindings[$0.key].flatMap(ShortcutBindingFormat.parse) == ShortcutBindingFormat.parse($0.value) }
-            if applied, preset.plan(from: bindings).isEmpty { return preset }
-        }
-        return cmux.plan(from: bindings).isEmpty ? .cmux : nil
+        SettingsRust.answer("keymap.active", ["bindings": .object(bindings)])["preset"]?.stringValue.flatMap(Self.init(rawValue:))
     }
 }
 
@@ -123,10 +51,36 @@ public nonisolated struct ShortcutKeymapPlan: Sendable, Equatable {
         }
     }
 
+    /// One file edit that applies a plan: the value at `path`, or nil to remove it.
+    public nonisolated struct Edit: Sendable, Equatable {
+        public let path: [String]
+        public let value: JSONValue?
+    }
+
     public let preset: ShortcutKeymapPreset
     public let changes: [Change]
     /// Actions the preset would change but the user set by hand, left alone.
     public let kept: [String]
+    /// The file edits that apply ``changes``; a removed override also goes
+    /// from the legacy `shortcuts.<id>` form.
+    public let edits: [Edit]
 
     public var isEmpty: Bool { changes.isEmpty }
+
+    init(preset: ShortcutKeymapPreset, reply: JSONValue) {
+        self.preset = preset
+        (changes, kept, edits) = Self.decode(reply)
+    }
+
+    /// A `keymap.plan` or `keymap.digit_plan` reply's changes, kept actions and edits.
+    static func decode(_ reply: JSONValue) -> ([Change], [String], [Edit]) {
+        let changes = reply["changes"]?.arrayValue?.compactMap { change in
+            change["action"]?.stringValue.map { Change(actionID: $0, write: change["write"]) }
+        } ?? []
+        let kept = reply["kept"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        let edits = reply["edits"]?.arrayValue?.compactMap { edit in
+            edit["path"]?.arrayValue.map { Edit(path: $0.compactMap(\.stringValue), value: edit["value"]) }
+        } ?? []
+        return (changes, kept, edits)
+    }
 }
