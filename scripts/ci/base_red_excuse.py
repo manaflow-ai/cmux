@@ -700,14 +700,8 @@ class GitHub(_evidence.GitHub):
             return test_reds.plain(kept.replace("\ufeff", ""))
         try:
             return test_reds.plain(self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", ""))
-        except Refused as error:
-            said = str(error)
-            # main_fix_evidence names the read before gh's stderr (`...failed: gh api ROUTE: unknown flag...`, from
-            # its read_name); the refusal is gh's stderr after that name, as escape_flag_unknown reads it.
-            named = f"{REQUEST_FAILED}{_evidence.read_name(['api', ESCAPE_FLAG, route])}: " \
-                if hasattr(_evidence, "read_name") else REQUEST_FAILED
-            stderr = said[len(named):] if said.startswith(named) else said[len(REQUEST_FAILED):]
-            if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(stderr)):
+        except _evidence.RequestFailed as error:
+            if not escape_flag_unknown(error.stderr):
                 raise
         return test_reds.plain(self.run(["api", route]).replace("\ufeff", ""))
 
@@ -1295,6 +1289,7 @@ BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
 BASE_CHECK_FOR = {
     ("feat-cmux-next", "pr-router.yml", "pr pipeline / linux"): ("cmux-next-base-linux.yml", "base linux"),
     ("feat-cmux-next", "pr-router.yml", "pr pipeline / web-browser"): ("cmux-next-base-linux.yml", "base web-browser"),
+    ("feat-cmux-next", "pr-router.yml", "pr web pipeline / web-browser"): ("cmux-next-base-linux.yml", "base web-browser"),
 }
 # The post-merge batch tier (2026-11-21, cmux#48662): per-push base workflows move onto cmux-next-post-merge.yml,
 # which every ~2 h calls each suite of .github/post-merge-batch.json whose paths changed, as a caller job named by the
@@ -6249,8 +6244,12 @@ GUARD_WORKFLOWS = {
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
+        "app-store-shelf-pr": _PRODUCT,
         "ios-placeholder-bounds": "reads the iOS app's Swift sources and placeholders.json: a red is the change's "
                                   "own unbound placeholder, never a guard's",
+        "spec-checks": "checks cmux-tui's spec and bindings against the server and client sources; a red the base "
+                       "shares is already only a warning in the job (spec_checks.py run --base), so a red is the "
+                       "change's own",
         "pr-red-checks": _PUBLISH,
         "fast-check-route": "decides from the changed paths which guard jobs run; it checks nothing itself",
         "security-holes": "judges the workflow holes and secrets the change's own diff adds against the base's "
@@ -6380,10 +6379,12 @@ PACKAGE_JOBS = {
                   # cmux-mobile-link-ffi depends on cmux-terminal-projection (#42219)
                   "cmux-tui/crates/cmux-terminal-projection/",
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
+                  # The mobile dependency graph reaches the hop relay (#54363) and vault sealing (#56920).
+                  "cmux-tui/crates/cmux-hop-relay/", "cmux-tui/crates/cmux-vault-e2e/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
-                  # cmux-window-rules' tab group tests include_str! the shared vectors (#57843)
-                  "schemas/tab-group-rules/",
+                  # cmux-window-rules tests include both sets of shared vectors (#57843, #57997).
+                  "schemas/tab-group-rules/", "schemas/tab-layout-rules/",
                   # a crate the kit's manifests reach since #58214 (cmux-vnc's vnc_* JSON ops)
                   "cmux-tui/crates/cmux-vnc/",
                   # cmux-mobile-link and cmux-mobile-host send the dev build's space (cmux-build-space, #43648),
@@ -6427,7 +6428,10 @@ PACKAGE_JOBS = {
                   # cmux-mobile-link-ffi reaches cmux-local-url, cmux-mobile-host reaches cmux-phone-page; the
                   # window rules' tab layout tests and cmux-region-pick's tests include_str! these two (2026-11-27)
                   "cmux-tui/crates/cmux-local-url/", "cmux-tui/crates/cmux-phone-page/",
-                  "schemas/tab-layout-rules/vectors.json", "cmux-next-ios/backend/src/placement.ts")
+                  "schemas/tab-layout-rules/vectors.json", "cmux-next-ios/backend/src/placement.ts",
+                  # cmux-mobile-link reaches cmux-hop-relay (#54363); cmux-mobile-link-ffi reaches cmux-vault-e2e
+                  # (#56920)
+                  "cmux-tui/crates/cmux-hop-relay/", "cmux-tui/crates/cmux-vault-e2e/")
     },
 }
 SWIFT_PATH_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
@@ -7990,8 +7994,18 @@ def quarantined_only(view: "FailedView | Unplaced", known: dict) -> bool:
 # whose failure cannot be read is refused.
 WS_CHECK = "ws-check"
 WS_CHECK_REPOS = {"teamleaderleo/leo-workspace": "manaflow-ai/cmuxterm-hq"}  # repo: the repo its runs are in
-WS_CHECK_COMMITS = 30  # base commits read for a verdict, newest first (most main commits get none)
-WS_CHECK_TESTED_TIPS = 20  # base commits whose squash tree a run may have tested (one local merge-tree each)
+# Both windows must hold every main merge that lands while one ws-check run is out. leo-workspace main takes up to
+# WS_CHECK_PEAK_MERGES merges in one run (55 min; 2026-11-21..23, the same figure as the leo-workspace timer's
+# tools/ws_check_timer.py MAIN_PEAK_MERGES, whose MAIN_HISTORY window of 80 is why main~N tips get their verdict at
+# all). At 30 and 20, 2026-11-27: main's newest finished verdict was 43 commits back (f5310494's, 09:55Z, while
+# 30 commits landed in 46 min), so lw#12062 at 0d6d738f was refused "none of the 30 newest main commits has a ws-check
+# verdict to compare with", and its own run, which tested main 25+ commits back, "tested another base or head" (the
+# 20-commit tree window). Every leo-workspace PR with a ws-check red was refused the same way, red_not_excused.
+# The commit list is one call either way (a page of up to 100); each commit past the first readable verdict costs
+# nothing, since the walk stops there.
+WS_CHECK_PEAK_MERGES = 66
+WS_CHECK_COMMITS = 100  # base commits read for a verdict, newest first (most main commits get none)
+WS_CHECK_TESTED_TIPS = 70  # base commits whose squash tree a run may have tested (one local merge-tree each)
 # leo-workspace tools/ws-check describes a failure "N of M steps failed: STEP", cut to 139 characters. It may lead with
 # "base red (main SHA8 fails it too) " (main's own run fails those steps) and end the step with a hint ("STEP; lints
 # before the next push: ..."); ws_check_names_step reads the step text.
@@ -8007,7 +8021,15 @@ WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\
 # steps" and no per-test comparison ran: lw#12133 at fb44c444 ("4 failed after discounting 24 on main 33ce8b65:
 # test_review_pool_routing.py") and lw#12080 stopped red_not_excused on 2026-11-26. Read, its units are judged per
 # test against main like any other ws-check red: a unit that passes on main stays the head's red.
-WS_CHECK_LONG_DESCRIPTION = re.compile(r"(\d+) failed after discounting (\d+) on main ([0-9a-f]{8}): (.*)", re.S)
+# Since lw#12687 (2026-11-27) both discounted forms also count the run's flakes apart (units that failed, passed on main
+# and passed again on the PR's tree: never the PR's, never main's): "... (+K base red discounted, F flaky, main SHA8)" and
+# "N failed after discounting K on main SHA8, F flaky: UNIT". Unread, lw#12864 at 19dbd9c7 ("1 failed after discounting
+# 9 on main 67c96e79, 7 flaky: test_timing_asserts.py") was refused "names no failed steps". A flake is a FAILED label
+# the log keeps as the head's, so the counts split the log's labels as own + discounted + flaky, and the first unit is
+# any of the head's (the flakes, which ws-check leaves out of its own, are not marked in the log this reads).
+WS_CHECK_LONG_DESCRIPTION = re.compile(r"(\d+) failed after discounting (\d+) on main ([0-9a-f]{8})(?:, (\d+) flaky)?: (.*)",
+                                       re.S)
+WS_CHECK_FLAKY_MARKER = re.compile(r" \(\+\d+ base red discounted, (\d+) flaky, main [0-9a-f]{8}\)")
 # leo-workspace tools/ws-check publish_failed ends a main commit's red status with its failed set, " [fails N: HASHES]"
 # (5 base64url characters a label), cutting the text before it so the whole stays at 139. It is no part of the step a
 # description names, so it is dropped before the description is read. 2026-11-27: every red main status carried it
@@ -8065,22 +8087,22 @@ def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[st
         # at e9da65f7, "1 failed after discounting 7 on main 99f45fab: test_text_io_encoding.py" over a log whose
         # pass saw 6 of 8 fail on main, was refused "does not match run 45922084826's WS_CHECK_RESULT".
         found = ws_check_own_base(lines, at, failed)
-        if found is None or not found["head_only"] or not named[4]:
+        if found is None or not found["head_only"] or not named[5]:
             return False
-        own, discounted = int(named[1]), int(named[2])
+        own, discounted, flaky = int(named[1]), int(named[2]), int(named[4] or 0)
         firsts = []
         for label in sorted(found["head_only"]):
             step, bracket, unit = label.partition(" [")
             firsts.append(unit.removesuffix("]") if bracket else step)
         if named[3] != found["main"][:8] or own < 1 or discounted < len(found["on_main"]):
             return False
-        if own + discounted != len(found["on_main"]) + len(found["head_only"]):
+        if own + discounted + flaky != len(found["on_main"]) + len(found["head_only"]):
             return False
         def names(first: str) -> bool:
             # the unit, maybe cut at the status's room, or the unit with more after it (more units, a lane run's tag:
             # cmux#58085's "test_b.py, test_c.py" and "test_b.py cmux-cp-1; log x")
-            return first.startswith(named[4]) or named[4].startswith((first + ", ", first + " "))
-        if discounted == len(found["on_main"]):
+            return first.startswith(named[5]) or named[5].startswith((first + ", ", first + " "))
+        if discounted == len(found["on_main"]) and not flaky:
             return names(firsts[0])
         return any(names(first) for first in firsts)
     count, total, described = int(named[1]), int(named[2]), named[5]
@@ -8092,13 +8114,17 @@ def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[st
     if found is None or not found[0]:
         return False
     own, discounted, main = found
-    if count != len({label.split(" [", 1)[0] for label in own}):
+    flaky = WS_CHECK_FLAKY_MARKER.search(described) if not named[3] else None
+    own_steps = len({label.split(" [", 1)[0] for label in own})
+    # a flake is one of this log's head-only labels that ws-check counts apart: its step may be one the status leaves out
+    if count != own_steps and not (flaky and 1 <= count < own_steps):
         return False
-    marker = f" (+{discounted} base red discounted, main {main[:8]})"
+    flakes = f", {flaky[1]} flaky" if flaky else ""
+    marker = f" (+{discounted} base red discounted{flakes}, main {main[:8]})"
     if named[3]:  # lw#9754's shape: the marker before the unit
         return (int(named[3]), named[4]) == (discounted, main[:8]) and ws_check_names_step(described, own[0])
-    # The marker after the unit, both cut together at 139 characters.
-    return (own[0] + marker).startswith(described)
+    # The marker after the unit, both cut together at 139 characters; with flakes, the unit is any of the head's.
+    return any((label + marker).startswith(described) for label in (own if flaky else own[:1]))
 
 
 def ws_check_names_step(described: str, step: str) -> bool:

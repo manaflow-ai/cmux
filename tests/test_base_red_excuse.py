@@ -3916,6 +3916,18 @@ class PipelineLinuxBaseVerdict(unittest.TestCase):
         self.assertIn(f"excused '{PIPELINE_WEB_BROWSER}'", text)
         self.assertIn("run 40", text)
 
+    def test_split_web_caller_preserves_base_red_comparison(self):
+        name = "pr web pipeline / web-browser"
+        gh = PipelineLinuxBaseGitHub(head=(COMPACTION_STEER,), base=(COMPACTION_STEER,),
+                                     names=(name, BASE_WEB_BROWSER), step=WEB_BROWSER_STEP,
+                                     make_log=web_browser_log)
+        self.assertIn(f"excused '{name}'", self.judge(gh))
+        gh = PipelineLinuxBaseGitHub(head=(COMPACTION_STEER, WEBKIT_SEND), base=(COMPACTION_STEER,),
+                                     names=(name, BASE_WEB_BROWSER), step=WEB_BROWSER_STEP,
+                                     make_log=web_browser_log)
+        with self.assertRaisesRegex(excuse.Refused, "pass or do not run on feat-cmux-next run 40: .*webkit > send"):
+            self.judge(gh)
+
     def test_a_web_browser_test_the_base_leg_passes_blocks(self):
         gh = PipelineLinuxBaseGitHub(head=(COMPACTION_STEER, WEBKIT_SEND), base=(COMPACTION_STEER,),
                                      names=(PIPELINE_WEB_BROWSER, BASE_WEB_BROWSER), step=WEB_BROWSER_STEP,
@@ -8963,6 +8975,21 @@ class WsCheckPerTest(unittest.TestCase):
         # Named as a check, the same.
         self.assertEqual(self.judge(checks=["ws-check"]), audit)
 
+    def test_a_main_verdict_a_runs_worth_of_merges_back_is_still_found(self):
+        # 2026-11-27: lw#12062 at 0d6d738f was refused "none of the 30 newest main commits has a ws-check verdict to
+        # compare with": main took 30 merges in 46 min while one ws-check run takes 55, so its newest finished verdict
+        # was 43 commits back. Both windows hold one run's peak of merges now.
+        self.assertGreaterEqual(excuse.WS_CHECK_COMMITS, excuse.WS_CHECK_PEAK_MERGES)
+        self.assertGreaterEqual(excuse.WS_CHECK_TESTED_TIPS, excuse.WS_CHECK_PEAK_MERGES)
+        self.assertLessEqual(excuse.WS_CHECK_COMMITS, 100)  # one page of GitHub's commit list
+        self.gh.statuses.pop(self.gh.TIP)
+        unverdicted = [f"{n:040x}" for n in range(1, excuse.WS_CHECK_PEAK_MERGES)]
+        self.gh.base_commits = [self.gh.TIP, *unverdicted, self.gh.OLDER, self.gh.MERGE_BASE]
+        self.gh.verdict(self.gh.OLDER, 2, {self.RELAY: self.relay_lint()})
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        self.assertIn(f"main {self.gh.OLDER[:12]} too", "\n".join(audit))
+
     def test_a_step_line_with_its_seconds_is_read(self):
         # leo-workspace#3746 (2026-11-07) ends each step line with its time, "(exit 1, ..., gh calls 0, 62.1 s)";
         # read as "names no exit code", no ws-check red could be excused (leo-workspace#3745).
@@ -9193,13 +9220,15 @@ class WsCheckPerTest(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "names no failed steps"):
             self.judge()
 
-    def discounted_red(self, description, *, base_failed=True, own_unit="test_b.py"):
+    def discounted_red(self, description, *, base_failed=True, own_unit="test_b.py", flaky_unit=None):
         """HEAD red on DEPLOY's units test_a.py (main's red too: its own base pass failed it on main) and OWN_UNIT, main
         red on test_a.py's test_a: the run's WS_CHECK_RESULT lists DEPLOY, its status DESCRIPTION (tools/ws-check
         discount_base_reds counted only OWN_UNIT)."""
         self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a")}})
-        self.gh.verdict(HEAD, 1, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a"),
-                                                own_unit: self.ws_deploy("test_b")}}, description=description)
+        units = {"test_a.py": self.ws_deploy("test_a"), own_unit: self.ws_deploy("test_b")}
+        if flaky_unit:  # a third head-only unit: ws-check's flake (passed on main and again on the PR's tree)
+            units[flaky_unit] = self.ws_deploy("test_c")
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: units}, description=description)
         log = self.gh.logs[11].split("\n")
         at = next(n for n, line in enumerate(log) if "WS_CHECK_RESULT=" in line)
         stamp = "2026-11-05T04:39:27.9954759Z "
@@ -9256,6 +9285,31 @@ class WsCheckPerTest(unittest.TestCase):
                 self.assertNotIn("does not match", str(caught.exception))
                 self.assertNotIn("names no failed steps", str(caught.exception))
 
+    def test_a_discounted_status_counting_flakes_apart_is_read(self):
+        # 2026-11-27: lw#12864 at 19dbd9c7, "1 failed after discounting 9 on main 67c96e79, 7 flaky:
+        # test_timing_asserts.py", was refused "names no failed steps": since lw#12687 ws-check counts flakes apart.
+        main8 = self.gh.TIP[:8]
+        for description in (f"1 failed after discounting 1 on main {main8}, 1 flaky: test_b.py",
+                            f"1 failed after discounting 1 on main {main8}, 1 flaky: test_c.py",  # the flake sorts first
+                            f"1 of 77 steps failed: {self.DEPLOY} [test_b.py] (+1 base red discounted, 1 flaky, "
+                            f"main {main8})",
+                            f"1 of 77 steps failed: {self.DEPLOY} [test_c.py] (+1 base red discounted, 1 flaky, "
+                            f"main {main8})"):
+            with self.subTest(description=description):
+                self.discounted_red(description, flaky_unit="test_c.py")
+                with self.assertRaisesRegex(excuse.Refused, "test_[bc]") as caught:  # read: a head-only red stays
+                    self.judge()
+                self.assertNotIn("does not match", str(caught.exception))
+                self.assertNotIn("names no failed steps", str(caught.exception))
+        for description in (f"1 failed after discounting 1 on main {main8}, 2 flaky: test_b.py",  # the counts
+                            f"1 failed after discounting 1 on main {main8}, 1 flaky: test_d.py",  # no such unit
+                            f"1 of 77 steps failed: {self.DEPLOY} [test_d.py] (+1 base red discounted, 1 flaky, "
+                            f"main {main8})"):
+            with self.subTest(description=description):
+                self.discounted_red(description, flaky_unit="test_c.py")
+                with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
+                    self.judge()
+
     def test_a_long_discounted_status_is_excused_only_when_main_fails_its_unit_too(self):
         main8 = self.gh.TIP[:8]
         self.discounted_red(f"1 failed after discounting 1 on main {main8}: test_b.py")
@@ -9291,7 +9345,7 @@ class WsCheckPerTest(unittest.TestCase):
         # The set dropped, a description naming another step still does not match.
         self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()},
                         description=f"1 of 77 steps failed: {self.DEPLOY} [fails 1: Iaih2]")
-        with self.assertRaisesRegex(excuse.Refused, "none of the 30 newest main commits"):
+        with self.assertRaisesRegex(excuse.Refused, f"none of the {excuse.WS_CHECK_COMMITS} newest main commits"):
             self.judge()
 
     def learned_red(self, description):
@@ -18586,6 +18640,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
             "cmux-next-tab-switch.yml",
+            # Split latency measurements (#61185) and acpmux's transfer_cli product tests (#58314).
+            "cmux-next-split-table.yml", "session-move-tests.yml",
             # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
             "measure-swift-typecheck.yml",
             # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
@@ -18617,13 +18673,15 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-rd-windows-host-build.yml",
             # cmux-shotdiff's self-check on real Chrome renders (#57873): reads the tool's own code.
             "shotdiff.yml",
+            # The Make cmux Yours intro walk (#60998), path-gated on the onboarding page: a red is that page's.
+            "intro-walk-check.yml",
             # Measurements of a product build on pull requests, not gates: iOS first connect on a hosted runner
             # (#57443) and the pause-policy A/B on staging (#54833).
             "ios-launch-tti-hosted.yml", "pause-ab.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "classic-frozen-guard.yml", "labels-sync.yml",
             "merge-freeze.yml", "pr-body-checks.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
-            "cmux-next-pr-closed-cancel.yml", "ci-pr-closed-cancel.yml", "language-boundaries.yml",
+            "cmux-next-pr-closed-cancel.yml", "language-boundaries.yml",
             "required-checks-drift.yml",
             "cmux-next-chromium-currency.yml",
             # Private names (#57782): the ops repo's checker reads the pull request's title, body and diff via the
@@ -18679,13 +18737,18 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
 
     def test_every_pull_request_workflow_is_classified(self):
         listed = [file for files in self.NOT_GUARD_WORKFLOWS.values() for file in files]
-        self.assertEqual(len(listed), len(set(listed)), "a workflow is listed twice")
         guard = set(excuse.GUARD_WORKFLOWS) | {file for file, _ in excuse.GUARD_JOB_IDS}
-        self.assertEqual(sorted(self.pull_request_workflows() - guard - set(listed)), [],
-                         "a workflow that runs on pull requests is neither in excuse.GUARD_WORKFLOWS nor "
-                         "NOT_GUARD_WORKFLOWS: classify its jobs")
-        self.assertEqual(sorted(set(listed) - set(self.workflows)), [], "a classified workflow is gone")
-        self.assertEqual(sorted(set(listed) & guard), [], "a guard workflow is listed as not one")
+        # Report every mismatch in one run: a duplicate must not hide unclassified workflows after a base merge.
+        with self.subTest(check="duplicates"):
+            self.assertEqual(len(listed), len(set(listed)), "a workflow is listed twice")
+        with self.subTest(check="unclassified"):
+            self.assertEqual(sorted(self.pull_request_workflows() - guard - set(listed)), [],
+                             "a workflow that runs on pull requests is neither in excuse.GUARD_WORKFLOWS nor "
+                             "NOT_GUARD_WORKFLOWS: classify its jobs")
+        with self.subTest(check="removed"):
+            self.assertEqual(sorted(set(listed) - set(self.workflows)), [], "a classified workflow is gone")
+        with self.subTest(check="conflicting"):
+            self.assertEqual(sorted(set(listed) & guard), [], "a guard workflow is listed as not one")
 
     def test_every_job_of_a_guard_workflow_is_declared_or_excluded_with_a_reason(self):
         declared = set(excuse.GUARD_JOB_IDS)

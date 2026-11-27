@@ -1752,6 +1752,11 @@ fn open_target(entry: &Value, placed: &Value) -> Option<String> {
                 .map(|tile| format!("widget tile {} in {place}", tile["size"]))
         });
     }
+    // A first-party setting-backed entry (#46903's Auto cleanup, `worktrees.autoCleanup`): its
+    // Install turns that cmux setting on, and the listing's switch shows it; there is no pane.
+    if let Some(key) = manifest["setting"]["key"].as_str() {
+        return Some(format!("setting {key}"));
+    }
     let pane = &manifest["implements"]["cmux.pane/1"];
     if let Some(native) = pane["native"].as_str() {
         let app = entry["id"].as_str().unwrap_or_default();
