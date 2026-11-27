@@ -66,6 +66,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.relativeTimestamps = flag(root, relativeTimestampsPath, fallback: relativeTimestampsDefault, &diagnostics)
         result.settleFinished = flag(root, settleFinishedPath, fallback: settleFinishedDefault, &diagnostics)
         result.showAgentSessions = flag(root, showAgentSessionsPath, fallback: showAgentSessionsDefault, &diagnostics)
+        result.workingShelf = flag(root, workingShelfPath, fallback: workingShelfDefault, &diagnostics)
         result.showColors = flag(root, showColorsPath, fallback: showColorsDefault, &diagnostics)
         result.workspaceColorIndicator = WorkspaceColorsSetting.parseIndicatorStyle(root, fallback: WorkspaceColorsSetting.indicatorStyleDefault, &diagnostics)
         result.showLocalMachine = flag(root, showLocalMachinePath, fallback: showLocalMachineDefault, &diagnostics)

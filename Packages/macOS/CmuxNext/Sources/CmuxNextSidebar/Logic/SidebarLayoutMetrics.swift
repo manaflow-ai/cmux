@@ -178,6 +178,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Settled chats (`sidebar.settleFinished`, `SidebarSettlePlanner`): these rows fold into a "Settled (N)" row at the
     /// end of their list, before the Done row. Empty (the setting off, the default) draws every row in place.
     public var settled: Set<WorkspaceID> = []
+    /// The working shelf (`sidebar.workingShelf`, `SidebarShelfPlanner`): chats whose turn ended and that wait on work
+    /// that wakes them (a background task, a watch, a subagent) fold into a "Working (N)" row at the end of their list,
+    /// before every other fold. Empty (the setting off, the default) draws every row in place.
+    public var shelved: Set<WorkspaceID> = []
     /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
     /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
     public var foldsArchived = true

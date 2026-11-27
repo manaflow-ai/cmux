@@ -80,6 +80,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let agentSession: String?
     /// acpmux's short name (`shortName`, the name without its family prefix: "cloud-demo").
     public let shortName: String?
+    /// What the chat waits on that wakes it by itself (the summary's `backgroundWaits`: background tasks that notify,
+    /// watches to it, background subagents, working sub-sessions); 0 without any.
+    public let backgroundWaits: Int
     /// The git branch of the session's folder (acpmux `gitBranch`), when acpmux knows it.
     public let branch: String?
 
@@ -90,8 +93,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                 sidebarRequiresOpen: Bool = false,
                 turnPrompt: String? = nil, turnActivity: String? = nil,
                 chiefChildren: String? = nil, chiefParticipant: String? = nil,
-                agentSession: String? = nil, shortName: String? = nil, branch: String? = nil) {
+                agentSession: String? = nil, shortName: String? = nil, backgroundWaits: Int = 0, branch: String? = nil) {
         self.id = id
+        self.backgroundWaits = backgroundWaits
         self.branch = branch
         self.agentSession = agentSession
         self.shortName = shortName
@@ -162,6 +166,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  chiefChildren: nonEmpty((summary["tags"] as? [String: Any])?["mux.children"]),
                                  chiefParticipant: nonEmpty((summary["tags"] as? [String: Any])?["cmux.chief.participant"]),
                                  agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]),
+                                 backgroundWaits: (summary["backgroundWaits"] as? NSNumber)?.intValue ?? 0,
                                  branch: nonEmpty(summary["gitBranch"]))
     }
 
