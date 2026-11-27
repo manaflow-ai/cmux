@@ -1967,12 +1967,16 @@ class CmuxNextWiring(unittest.TestCase):
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
                                                             "tree_state": "ready",
+                                                            # The PR's live labels (#57329), as path_route exports them.
+                                                            "labels": ",full-ci,",
                                                             # The generated-files job runs here, for its own label.
                                                             "generated_host": "generated-files"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
                             "release-compile-fast": {"result": "skipped", "outputs": {"verdict": ""}},
                             # The GUI jobs wait for the shared web bundles (#21189).
                             "web-bundles": {"result": "success"},
+                            # PR Mac jobs wait for the Linux cargo fast tier to be not red.
+                            "fast-tier-cargo": {"result": "success"},
                             self.PLACEMENT: {"outputs": outputs}}
         return context
 
@@ -2023,6 +2027,7 @@ class CmuxNextWiring(unittest.TestCase):
             with self.subTest(name):
                 context = self.context(attempt=attempt, fork=fork)
                 context["github"]["event"]["pull_request"]["labels"] = labels
+                context["needs"]["path_route"]["outputs"]["labels"] = "," + ",".join(l["name"] for l in labels) + ","
                 context["github"]["event_name"] = event_name
                 self.assertEqual(evaluate(expression, context), want)
         idle = [runner("mini-a-glaeda-3"), runner("mini-a-glaeda-4", labels=(STD, SIDE, GUI))]
@@ -2581,10 +2586,9 @@ class FeedReplyFullText(unittest.TestCase):
 
 
 class SmallMacChecks(unittest.TestCase):
-    """The zsh HEAD watcher check holds no secrets and changes no session, so a same-repository run takes
-    cmux-mac behind vars.CI_OVERFLOW_MAC; a fork pull request keeps Blacksmith macOS."""
+    """Host-only checks use the shared Mac pool on same-repository runs and an ephemeral Mac on forks."""
 
-    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),)
+    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"), ("pr-pipeline.yml", "ios-macos"))
 
     def context(self, event: str = "pull_request", attempt: str = "1", owned: str = "1",
                 head: str = "manaflow-ai/cmux", owner: str = "manaflow-ai", overflow: str = "") -> dict:
@@ -2821,7 +2825,8 @@ class AppFfiBuildPlacement(unittest.TestCase):
 
     def test_the_build_runs_whatever_the_placement_did(self):
         build = self.workflow()["jobs"]["build"]
-        self.assertEqual(build["needs"], "placement")
+        # portable-tests (#57324): the Linux portable FFI tests gate the Mac build, and placement routes it.
+        self.assertEqual(build["needs"], ["placement", "portable-tests"])
         self.assertIn("!cancelled()", build["if"])
 
 

@@ -11,12 +11,19 @@
 //! - a sender that is not this machine's person, or an entry that does not list `move`, is
 //!   refused before anything runs;
 //! - a folder outside B's `webRoots` is refused, and the chat stays frozen on A;
-//! - a lost ack, or the same move sent again, imports the chat once.
+//! - a lost ack, or the same move sent again, imports the chat once;
+//! - a manifest past one hub message (64 KiB) goes by reference and the target pulls it over the
+//!   circuit, the chat landing whole; a small one still goes inline as version 1;
+//! - a target too old to pull a manifest refuses with the old words, and the source answers a
+//!   clear refusal the client aborts the move on, so the chat is not left frozen.
 
 use super::transfer::texts;
 use super::*;
+use acpmux::hub::transfer_pull::{MANIFEST_PULL_WIRE_VERSION, MAX_BODY, OLD_VERSION_REFUSAL};
 use acpmux::hub::transfer_pull::{PageSource, TransferDial};
-use acpmux::mesh::{Ack, InMessage};
+use acpmux::mesh::{
+    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt,
+};
 use acpmux::mesh_http::MeshControlFrom;
 use acpmux::rpc::RpcError;
 use acpmux::server::mesh_relay::{ControlHook, MeshControlHook};
@@ -361,4 +368,298 @@ async fn op_move_forget_drops_the_move_on_the_target_and_says_whether_it_landed(
     // A move given up is never taken later.
     let refused = b.transfer_pull(A_KEY, Some("machine-a"), &body).await.unwrap_err();
     assert!(refused.message.contains("forgotten"), "{}", refused.message);
+}
+
+/// A's hosted control inbox as a stand-in: each control goes to B's real hook, stamped from A,
+/// and its body is kept. `old` plays a target whose acpmux takes only version 1: it refuses
+/// any other with the words an old build's `run_control` answers.
+struct Mesh {
+    target: std::sync::Weak<Hub>,
+    hook: MeshControlHook,
+    old: bool,
+    sent: std::sync::Mutex<Vec<Value>>,
+}
+
+impl MeshHub for Mesh {
+    fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async move {
+            let body: Value = serde_json::from_str(&m.body).unwrap();
+            self.sent.lock().unwrap().push(body.clone());
+            let answer = if self.old && body["version"] != 1 {
+                Ack::refused(OLD_VERSION_REFUSAL)
+            } else {
+                let message = move_message(&m.idempotency_key, "user-1", &body);
+                self.hook.control(&self.target.upgrade().unwrap(), &message).await.unwrap()
+            };
+            let mut receipt = serde_json::to_value(answer).unwrap();
+            receipt["messageId"] = json!(m.idempotency_key);
+            Ok(serde_json::from_value(receipt).unwrap())
+        })
+    }
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        unreachable!("controls are delivered in send")
+    }
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        unreachable!("send returns the final answer")
+    }
+    fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        unreachable!("send returns the final receipt")
+    }
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a Heartbeat,
+    ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>> {
+        unreachable!("no heartbeat here")
+    }
+}
+
+/// A joined to the stand-in hub that carries its controls to B.
+fn join(a: &Hub, b: &Arc<Hub>, ledger: &Path, old: bool) -> Arc<Mesh> {
+    let mesh = Arc::new(Mesh {
+        target: Arc::downgrade(b),
+        hook: hook(ledger, &["move"]),
+        old,
+        sent: Default::default(),
+    });
+    a.mesh.set(mesh.clone());
+    mesh
+}
+
+/// A request whose error comes back whole, `data` and all (`TestClient::request` keeps only
+/// its message).
+async fn request_whole(c: &mut TestClient, m: &str, params: Value) -> Result<Value, RpcError> {
+    use acpmux::rpc::Message;
+    c.next += 1;
+    let id = c.next;
+    c.tx.send(Message::request(id, m, params).to_line()).await.unwrap();
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(60), c.rx.recv())
+            .await
+            .expect("an answer")
+            .expect("connection open");
+        if let Message::Response { id: rid, result, error } = Message::parse(&line).unwrap()
+            && rid == id
+        {
+            return match error {
+                Some(e) => Err(e),
+                None => Ok(result.unwrap_or(Value::Null)),
+            };
+        }
+    }
+}
+
+/// A chat whose move manifest is past one hub message: a turn running and `n` prompts queued
+/// behind it, each listed in the manifest's summary with its preview.
+async fn long_chat(c: &mut TestClient, n: usize) -> (String, Vec<(String, String)>) {
+    let queued: Vec<(String, String)> = (0..n)
+        .map(|i| (format!("p-{i}"), format!("queued {i}: {}", "the long chat's words ".repeat(12))))
+        .collect();
+    let refs: Vec<(&str, &str)> = queued.iter().map(|(p, t)| (p.as_str(), t.as_str())).collect();
+    (busy_chat(c, &refs).await, queued)
+}
+
+/// `_acpmux/transfer_hub` on A for a move begun with `begin`, as the client sends it.
+fn hub_move(id: &str, begin: &Value, folder: Value) -> Value {
+    json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"],
+           "manifest": begin, "folder": folder, "host": "machine-b"})
+}
+
+#[tokio::test]
+async fn a_manifest_past_one_hub_message_is_pulled_and_the_chat_lands_whole() {
+    let root = Scratch::home("pulled");
+    let ledger = tempfile::tempdir().unwrap();
+    let (a, mut src, b, mut dst) = machines(&root, B_KEY).await;
+    let mesh = join(&a, &b, ledger.path(), false);
+    let (id, queued) = long_chat(&mut src, 160).await;
+    let (begin, _) = begin(&mut src, &id, json!({"cwd": root.text()})).await;
+    let inline = begin.to_string().len();
+    assert!(inline > MAX_BODY, "the manifest is past one hub message: {inline} bytes");
+
+    let answer = request_whole(
+        &mut src,
+        "_acpmux/transfer_hub",
+        hub_move(&id, &begin, json!({"cwd": root.text()})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer["moved"]["sessionId"], id.as_str(), "{answer}");
+    let sent = mesh.sent.lock().unwrap().clone();
+    assert_eq!(sent.len(), 1, "one control");
+    assert_eq!(sent[0]["version"], MANIFEST_PULL_WIRE_VERSION, "by reference");
+    assert!(sent[0].get("manifest").is_none(), "no manifest inline");
+    assert_eq!(sent[0]["manifestPull"]["bytes"], begin.to_string().len(), "{}", sent[0]);
+    assert!(sent[0].to_string().len() <= MAX_BODY);
+
+    let to = json!({"host": "machine-b", "via": "hub", "sessionId": id, "cwd": root.text()});
+    let committed = src
+        .request(
+            "_acpmux/transfer_commit",
+            json!({"sessionId": id, "transferId": begin["transferId"], "to": to, "epoch": begin["epoch"]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(committed["committed"], true, "{committed}");
+    let last = &queued.last().unwrap().1;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    while !texts(&mut dst, &id, "user_message").await.contains(last) {
+        assert!(tokio::time::Instant::now() < deadline, "the moved queue never ran");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let ran_there = texts(&mut dst, &id, "user_message").await;
+    assert_eq!(ran_there[..2], ["hi", "until-cancel"], "history: {ran_there:?}");
+    let expected: Vec<&String> = queued.iter().map(|(_, t)| t).collect();
+    // The cut turn's resume notice runs first (`until-cancel` was running): then the queue.
+    let ran_queue: Vec<&String> = ran_there.iter().filter(|t| t.starts_with("queued ")).collect();
+    assert_eq!(ran_queue, expected, "the queue, once, in order");
+    assert_eq!(records(&mut dst, &id, "transferred_in").await.len(), 1);
+    let left = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(left["status"], "closed", "{left}");
+}
+
+#[tokio::test]
+async fn an_old_target_refuses_a_pulled_manifest_clearly_and_the_chat_is_given_back() {
+    let root = Scratch::home("old-target");
+    let ledger = tempfile::tempdir().unwrap();
+    let (a, mut src, b, mut dst) = machines(&root, B_KEY).await;
+    let mesh = join(&a, &b, ledger.path(), true);
+    let (id, _) = long_chat(&mut src, 160).await;
+    let (begin, _) = begin(&mut src, &id, json!({"cwd": root.text()})).await;
+    let kib = begin.to_string().len().div_ceil(1024);
+
+    let refused = request_whole(
+        &mut src,
+        "_acpmux/transfer_hub",
+        hub_move(&id, &begin, json!({"cwd": root.text()})),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(mesh.sent.lock().unwrap()[0]["version"], MANIFEST_PULL_WIRE_VERSION);
+    let data = refused.data.clone().unwrap_or(Value::Null);
+    assert_eq!(data["refused"], true, "the client aborts on it: {refused:?}");
+    assert_eq!(data["reason"], "transfer.target_too_old", "{refused:?}");
+    assert!(
+        refused
+            .message
+            .contains("the target's acpmux is too old to take a move manifest over 64 KiB")
+            && refused.message.contains("`acpmux machine update machine-b`")
+            && refused.message.contains("or move a smaller chat"),
+        "{}",
+        refused.message
+    );
+    // The chat's own size is named, within a KiB or so of the body the source would have sent.
+    assert!(
+        (kib..kib + 2).any(|k| refused.message.contains(&format!("({k} KiB)"))),
+        "{}",
+        refused.message
+    );
+    assert!(dst.request(method::MUX_INFO, json!({"sessionId": id})).await.is_err(), "not on B");
+
+    // What the client does on a refusal (`session_move_hub.rs` `Moving::run`): the move is
+    // aborted, and the chat runs here again with its queue.
+    let abort =
+        json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]});
+    src.request("_acpmux/transfer_abort", abort).await.unwrap();
+    let here = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_ne!(here["moving"], true, "not frozen: {here}");
+    assert_ne!(here["status"], "closed", "{here}");
+}
+
+#[tokio::test]
+async fn a_manifest_that_fits_still_goes_inline_as_version_1() {
+    let root = Scratch::home("inline");
+    let ledger = tempfile::tempdir().unwrap();
+    let (a, mut src, b, _dst) = machines(&root, B_KEY).await;
+    // An old target takes it: a small move asks nothing new of it.
+    let mesh = join(&a, &b, ledger.path(), true);
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let (begin, _) = begin(&mut src, &id, json!({"cwd": root.text()})).await;
+
+    let answer = request_whole(
+        &mut src,
+        "_acpmux/transfer_hub",
+        hub_move(&id, &begin, json!({"cwd": root.text()})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer["moved"]["sessionId"], id.as_str(), "{answer}");
+    let sent = mesh.sent.lock().unwrap().clone();
+    assert_eq!(sent[0]["version"], 1, "{}", sent[0]);
+    assert_eq!(sent[0]["manifest"], begin, "inline");
+    assert!(sent[0].get("manifestPull").is_none());
+}
+
+/// B's hub as its relay sees it: it takes heartbeats and keeps the session ids each listed; its
+/// inbox stays empty.
+#[derive(Default)]
+struct Beats {
+    listed: std::sync::Mutex<Vec<Vec<String>>>,
+}
+
+impl MeshHub for Beats {
+    fn send<'a>(&'a self, _: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        unreachable!("B sends nothing here")
+    }
+    fn inbox(&self, wait: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        Box::pin(async move {
+            tokio::time::sleep(wait).await;
+            Ok(Vec::new())
+        })
+    }
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        unreachable!("nothing is delivered here")
+    }
+    fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        unreachable!("B sends nothing here")
+    }
+    fn heartbeat<'a>(
+        &'a self,
+        beat: &'a Heartbeat,
+    ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>> {
+        let ids = beat.sessions.iter().map(|r| r.session_id.clone()).collect();
+        self.listed.lock().unwrap().push(ids);
+        Box::pin(async { Ok(HeartbeatReply { daemon_id: "inst_b".into(), ttl_seconds: 90 }) })
+    }
+}
+
+/// The hub routes `HOST/NAME` only to a session a heartbeat listed: a chat moved in through it
+/// is listed before the move answers, so the source addresses it as `HOST/NAME` the moment its
+/// move ends. Before, the listing waited for B's next timed heartbeat (30 s), and the source's
+/// `last`/`send` right after the move found no session (session-move-gcp, 2026-11-26).
+#[tokio::test]
+async fn a_chat_moved_through_the_hub_is_listed_on_the_mesh_before_the_move_answers() {
+    use acpmux::server::mesh_relay::{MeshRelay, RelayOptions};
+    let root = Scratch::home("listed");
+    let ledger = tempfile::tempdir().unwrap();
+    let (_a, mut src, b, _dst) = machines(&root, B_KEY).await;
+    let beats = Arc::new(Beats::default());
+    // B's heartbeat timer is far past the test: only the move's own heartbeat can list the chat.
+    let options = RelayOptions {
+        heartbeat_every: Duration::from_secs(60),
+        inbox_wait: Duration::from_millis(200),
+        min_poll_gap: Duration::from_millis(100),
+        ..RelayOptions::default()
+    };
+    let relay =
+        MeshRelay::start(&b, beats.clone(), Arc::new(hook(ledger.path(), &["move"])), options);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while beats.listed.lock().unwrap().is_empty() {
+        assert!(tokio::time::Instant::now() < deadline, "B never sent its first heartbeat");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let (_, body) = begin(&mut src, &id, json!({"cwd": root.text()})).await;
+    assert!(
+        !beats.listed.lock().unwrap().iter().flatten().any(|s| *s == id),
+        "B listed the chat before it moved"
+    );
+
+    let ack =
+        hook(ledger.path(), &["move"]).control(&b, &move_message("m-1", "user-1", &body)).await;
+    let ack = ack_json(&ack.expect("an answer within the hook's wait"));
+    assert_eq!(ack["state"], "delivered", "{ack}");
+    let listed = beats.listed.lock().unwrap().last().cloned().unwrap_or_default();
+    assert!(listed.contains(&id), "the moved chat is not in B's last heartbeat: {listed:?}");
+    let moved: Value = serde_json::from_str(ack["result"].as_str().unwrap()).unwrap();
+    assert!(moved["timings"]["listedMs"].is_u64(), "{moved}");
+    relay.stop().await;
 }

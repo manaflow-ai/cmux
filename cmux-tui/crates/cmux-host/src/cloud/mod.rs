@@ -81,6 +81,7 @@ pub mod github_minter;
 pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
+pub mod machine_request;
 pub mod mcp_call;
 #[cfg(all(test, unix))]
 mod mcp_call_tests;
@@ -90,6 +91,9 @@ pub mod page_in;
 mod page_in_tests;
 #[cfg(target_os = "linux")]
 mod poster_http;
+pub mod pressure;
+#[cfg(test)]
+mod pressure_tests;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;

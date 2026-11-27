@@ -45,7 +45,7 @@ jobs:
     name: cmux-next size budget (plan)
     # An edit that adds, changes or removes no `size:` line changes nothing measured.
     if: ${{ !(github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -61,14 +61,15 @@ jobs:
       # plan reads git objects and the web inputs only, and a full checkout of both commits was most
       # of its minute and a half.
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # The pull request's merge commit and its first parent (the base).
           fetch-depth: 2
           filter: blob:none
           sparse-checkout-cone-mode: false
-          sparse-checkout: |
+          sparse-checkout: &plan-sparse |
             /webviews/
             /schemas/
             /scripts/
@@ -79,6 +80,38 @@ jobs:
             /Resources/markdown-viewer/
             /release-notes/next/
             /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /.gitmodules
+
+      # A cmux-runner-pool VM checks out from its local git mirror (/var/lib/cmux-git) instead, as
+      # cmux-next-fast-gates.yml does: actions/checkout's blob:none fetch borrowing the mirror copies ~3 GB of
+      # promisor objects (50-140 s of each light job's 1.5-3 min in 2026-11-25 step timings). Unfiltered, the
+      # fetch sends only what the mirror lacks: the same commit (depth 2) and sparse paths. Other runners keep the action.
+      - name: "Pool mirror: Checkout"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: *plan-sparse
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          # --depth routes the fetch through the pool's git shim (the mirror path); only this command sees the token.
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          if [[ -n "${SPARSE//[[:space:]]/}" ]]; then
+            git config core.sparseCheckout true
+            printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
+          fi
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
 
       - name: The base, and whether a web input changed
         id: plan
@@ -142,7 +175,7 @@ jobs:
     needs: plan
     # Only when plan found no published bundles of the base.
     if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' && needs.plan.outputs.base_bytes == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -153,7 +186,7 @@ jobs:
       # no blobs outside it: a published key needs no build. A file left out changes the key,
       # so a narrow pattern can only miss, never reuse the wrong bundles.
       - name: Checkout the base
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.plan.outputs.base }}
@@ -170,6 +203,7 @@ jobs:
             /Resources/markdown-viewer/
             /release-notes/next/
             /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /.gitmodules
       # The base is a feat-cmux-next commit, so cmux-next-web-bundle-publish.yml has usually
       # published its bundles already (same key, same pinned toolchain): fetch, don't rebuild.
       - name: The base's published web bundles
@@ -193,12 +227,25 @@ jobs:
             rm -rf "$RUNNER_TEMP/web"
             git sparse-checkout disable
           fi
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.published.outputs.hit != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: steps.published.outputs.hit != 'true'
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: steps.published.outputs.hit != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         if: steps.published.outputs.hit != 'true'
         with:
           node-version: "24.22.1"
@@ -220,7 +267,7 @@ jobs:
     name: cmux-next size budget (web, head)
     needs: plan
     if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -228,7 +275,7 @@ jobs:
       bytes: ${{ steps.measure.outputs.bytes }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -255,22 +302,33 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
 
       - name: Restore the web bundles from the source-keyed cache
+        timeout-minutes: 5
         id: web-bundle-cache
         if: steps.web-bundle-r2.outputs.cache-hit != 'true'
-        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/web
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
       - name: Setup Node
+        timeout-minutes: 5
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         with:
@@ -317,7 +375,7 @@ jobs:
     needs: [plan, web-base, web-head]
     # Runs when the web builds ran or were skipped; a failed build fails this check below.
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -330,14 +388,46 @@ jobs:
       # runs on Freestyle runners hit the 10-minute timeout (872 runner-min in 5 h). blob:limit=1g
       # takes every blob in the one depth-2 fetch, as the full checkout did, and writes only this folder.
       - name: Checkout
-        if: ${{ needs.plan.outputs.tool == 'true' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: ${{ needs.plan.outputs.tool == 'true' && !startsWith(runner.name, 'cmux-runner-pool-') }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
           filter: blob:limit=1g
           sparse-checkout: |
             scripts/cmux-next
+
+      # A cmux-runner-pool VM checks out from its local git mirror (/var/lib/cmux-git) instead, as
+      # cmux-next-fast-gates.yml does: actions/checkout's blob:none fetch borrowing the mirror copies ~3 GB of
+      # promisor objects (50-140 s of each light job's 1.5-3 min in 2026-11-25 step timings). Unfiltered, the
+      # fetch sends only what the mirror lacks: the same commit (depth 2) and sparse paths. Other runners keep the action.
+      - name: "Pool mirror: Checkout"
+        if: ${{ needs.plan.outputs.tool == 'true' && startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: |
+            /scripts/cmux-next/
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          # --depth routes the fetch through the pool's git shim (the mirror path); only this command sees the token.
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          if [[ -n "${SPARSE//[[:space:]]/}" ]]; then
+            git config core.sparseCheckout true
+            printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
+          fi
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
 
       - name: Check the size budget
         env:

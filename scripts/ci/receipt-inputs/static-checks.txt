@@ -3931,7 +3931,6 @@
 * blob cmux-tui/crates/cmux-layout-reducer-ffi/tests/optimistic.rs
 * blob cmux-tui/crates/cmux-layout-reducer-ffi/tests/scroll.rs
 * blob cmux-tui/crates/cmux-layout-reducer-ffi/tests/shown_resize.rs
-* blob cmux-tui/crates/cmux-layout-reducer-ffi/tests/sidebar_automatic_plan.rs
 * blob cmux-tui/crates/cmux-layout-reducer-ffi/tests/sidebar_bridge.rs
 * blob cmux-tui/crates/cmux-layout-reducer-ffi/tests/sidebar_caps.rs
 * blob cmux-tui/crates/cmux-layout-reducer-ffi/tests/sidebar_change_failure.rs
@@ -5666,10 +5665,11 @@
 * blob webviews/node_modules
 * blob webviews/scripts
 * blob webviews/scripts/pages
+* blob webviews/scripts/pages/catalog.mjs
 * blob webviews/scripts/pages/gen-design-scale.mjs
 * blob webviews/scripts/pages/gen-feature-tips.mjs
 * blob webviews/scripts/pages/gen-strings.mjs
-* blob webviews/src/agent-session/acpmux/Localizable.xcstrings
+* tree webviews/src/agent-session/acpmux/Localizable.xcstrings.d
 * blob webviews/src/agent-session/acpmux/generated/strings.json
 * blob webviews/src/browser-chrome/page-info/Localizable.xcstrings
 * blob webviews/src/browser-chrome/page-info/generated/strings.json

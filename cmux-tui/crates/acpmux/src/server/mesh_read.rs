@@ -66,8 +66,13 @@ const NOT_CARRIED: &[&str] = &[method::MUX_ATTACHMENT, method::MUX_QUEUE_TEXT, m
 /// finds the first's turn under way (`retry.busy`) or the turn no longer failed
 /// (`retry.nothing_failed`), so it sends nothing twice. 2026-11-24: `acpmux retry HOST/NAME` of
 /// a lane only the hub reaches, cut by the SR2 pool's 503, answered "the mesh hub does not carry
-/// _acpmux/retry", so nothing could resume it from here.
-const WRITE_METHODS: &[&str] = &[method::MUX_RENAME, method::MUX_RETRY];
+/// _acpmux/retry", so nothing could resume it from here. A hold or release (`_acpmux/session_hold`
+/// sets the hold tag to `held`) and a tag (`_acpmux/tag` sets and removes the keys it names) leave
+/// a session as once when run twice too. 2026-11-26: a fleet pause's wake of a held lane only the
+/// hub reaches from the waking machine answered "the mesh hub does not carry
+/// _acpmux/session_hold" at `acpmux session release`, every pass, while its `send` went through.
+const WRITE_METHODS: &[&str] =
+    &[method::MUX_RENAME, method::MUX_RETRY, method::MUX_SESSION_HOLD, method::MUX_TAG];
 
 /// Whether `m` reads a page of events, so its params cross and its budget halves.
 fn pages(m: &str) -> bool {
@@ -87,6 +92,8 @@ fn crossing(m: &str) -> &'static [&'static str] {
         method::MUX_SESSION_SEARCH => &["query", "role", "sinceMs", "limit", "withTurnTime"],
         method::MUX_RENAME => &["newName", "to", "newHandle"],
         method::MUX_RETRY => &["subagentId"],
+        method::MUX_SESSION_HOLD => &["held"],
+        method::MUX_TAG => &["set", "remove", "ttlSeconds"],
         _ => &[],
     }
 }
@@ -286,11 +293,23 @@ pub(crate) fn health_of(answer: Result<String, RpcError>) -> Result<Value, RpcEr
 }
 
 /// `host`'s health through the hub, asked of the machine itself, within [`HEALTH_WAIT`].
+///
+/// `via` is one session the hub lists on `host` (`Hub::mesh_book_session_on`): the hub refuses a
+/// read that names no session (`mesh.invalid: a read names one session by sessionId or name`,
+/// cmux-platform `Core.ts`), so a read of the machine alone never reached one (every machine only
+/// the hub reaches read "resources unknown", 2026-11-25). The machine answers its health before
+/// it looks the session up, so any of its sessions carries it. With none, the machine alone is
+/// asked, which a hub that takes machine reads answers.
 pub(crate) async fn host_health(
     mesh: &dyn crate::mesh::MeshHub,
     host: &str,
+    via: Option<&str>,
 ) -> Result<Value, RpcError> {
-    let to = Target { host: Some(host.to_owned()), ..Target::default() };
+    let to = Target {
+        host: Some(host.to_owned()),
+        session_id: via.map(str::to_owned),
+        ..Target::default()
+    };
     // Capped at HEALTH_WAIT in total, progress or not: placement never waits on a slow machine.
     let mut wait = IdleDeadline::<tokio::time::Instant>::new(HEALTH_WAIT, Some(HEALTH_WAIT));
     let answer =

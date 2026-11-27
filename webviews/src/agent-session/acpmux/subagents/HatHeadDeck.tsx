@@ -17,7 +17,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { AgentIdentity } from "./AgentIdentity";
 import { SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { agentTone } from "./agentTones";
-import { trayItemKey, type TrayItem } from "./runningTray";
+import { SILENT_TURN_ICON, trayItemKey, type TrayItem } from "./runningTray";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -36,6 +36,7 @@ function markOf(item: TrayItem, chatHarness: string | undefined): Mark {
     return { harness: item.agent.harness ?? chatHarness, tone: agentTone(item.agent.id), icon: SUBAGENT_FALLBACK };
   if (item.kind === "session")
     return { harness: item.session.harness, tone: agentTone(item.session.sessionId), icon: "agent.chat" };
+  if (item.kind === "turn") return { icon: SILENT_TURN_ICON };
   return { icon: "terminal" };
 }
 
@@ -43,6 +44,7 @@ export function HatHeadDeck({
   items,
   chatHarness,
   look,
+  at = "lead",
   peeked,
   onPeek,
   onOpenItem,
@@ -51,6 +53,9 @@ export function HatHeadDeck({
   items: readonly TrayItem[];
   chatHarness: string | undefined;
   look: "strip" | "cards";
+  /// Where it sits in the row: leading the words in the icon column, or after them (the one-line hat's
+  /// `trail` arm, hatLine.experiment.ts).
+  at?: "lead" | "trail";
   /// The key of the line the header names now (runningTray.ts `trayItemKey`), if one.
   peeked: string | undefined;
   onPeek: (key: string | undefined) => void;
@@ -78,6 +83,7 @@ export function HatHeadDeck({
     <span
       className="acpmux-hat-deck"
       data-look={look}
+      data-at={at}
       data-peeking={peeked !== undefined || undefined}
       aria-hidden="true"
       onPointerLeave={() => {

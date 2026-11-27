@@ -56,7 +56,7 @@ fn scope_id(scope: &str) -> Option<u32> {
         let name = std::ffi::CString::new(scope).ok()?;
         // SAFETY: `name` is a valid NUL-terminated string for the call.
         let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
-        return (index != 0).then_some(index);
+        (index != 0).then_some(index)
     }
     #[cfg(not(unix))]
     None
@@ -124,7 +124,7 @@ pub fn local_link_wants_resolve(instance: String, txt: Vec<LocalTxt>) -> bool {
             return false;
         }
         let known = state.instances.get(&instance).is_some_and(|id| id.eq_ignore_ascii_case(&ad.device_id));
-        !(known && !state.peers.addresses(&ad.device_id, Some(tag), Instant::now()).is_empty())
+        !known || state.peers.addresses(&ad.device_id, Some(tag), Instant::now()).is_empty()
     })
 }
 
@@ -213,7 +213,7 @@ pub async fn dial_hub(
         local: true,
     });
     let options = crate::dial_options(request, Vec::new(), timeline);
-    match crate::dial_on(&socket, request, &options, false).await {
+    match crate::dial_on(&socket, request, &options, false, None).await {
         Ok(connected) => Ok((connected, socket)),
         Err(crate::Attempt::Failed(error)) => Err(error.into()),
         Err(crate::Attempt::Stale) => unreachable!("only a reused socket is probed"),
@@ -231,8 +231,8 @@ pub async fn dial_local(
     request: &ConnectRequest,
     timeline: &Timeline,
 ) -> Option<(cmux_mobile_link::Connected, Arc<WarmSocket>)> {
-    // A simulated distant network (relay only, UDP blocked) is a test of the paths this one skips.
-    if request.relay_only || request.block_udp {
+    // A simulated distant network (relay only, UDP blocked, proxy only) is a test of the paths this one skips.
+    if request.relay_only || request.block_udp || crate::proxy_only(request) {
         return None;
     }
     if request.device_id.trim().is_empty() || request.mac_device_id.trim().is_empty() {
@@ -282,6 +282,9 @@ pub async fn connect_local(
         relay_only: false,
         force_relay: false,
         block_udp: false,
+        // A Mac on this network: no corporate-network simulation (it is a test of the paths this one skips).
+        proxy_only: false,
+        drop_wireguard: false,
         video_lane: true,
         webrtc_media: false,
         ultra: cmux_mobile_link::UltraSetting::parse("auto"),

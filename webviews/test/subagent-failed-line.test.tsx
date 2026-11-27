@@ -1,6 +1,6 @@
 // A failed subagent's line is quiet, on one fixed column grid (design/chat-transcript.md, Leo,
 // 2026-11-03: "this ui is pretty awkward looking"): mark | title | short reason | Retry | time, the
-// title in plain text, no chip; its reason right after the title in red, and a red dot on the mark (cmux#54927).
+// title in plain text, no chip; its reason right after the title in red, and the failure's glyph badged on the mark (cmux#54927).
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -105,8 +105,14 @@ test("failed lines take the quiet grid: plain title, reason in red, Retry and ti
     expect(row.querySelector(".cv-subagent-failed__reason")?.textContent).toBe(
       "Agent terminated early due to an API error",
     );
-    // Retry and the time are the row's own children, so the grid gives them fixed columns.
-    expect(row.querySelector(":scope > .cv-subagent-retry")).not.toBeNull();
+    // Retry shows only under the pointer, so it has no column: it lies over the words' end, just
+    // before the time (Leo, 2026-11-24: "you're early ellipsis-ing because of a button that doesnt
+    // even always show"). The time keeps its column.
+    expect(
+      row.querySelector(":scope > .cv-subagent-done__trail > .cv-subagent-done__controls > .cv-subagent-retry"),
+    ).not.toBeNull();
+    expect(row.querySelector(":scope > .cv-subagent-retry")).toBeNull();
+    expect(row.querySelector(".ui-reveal-text")?.classList.contains("cv-subagent-failed__text")).toBe(true);
     expect(row.querySelector(":scope > .cv-subagent-done__trail .cv-subagent-done__time")?.textContent).toBe("1m 1s");
     // The whole text stays in the line's accessible name.
     expect(row.querySelector(".cv-subagent-done")?.getAttribute("aria-label")).toContain(ERROR);
@@ -116,19 +122,23 @@ test("failed lines take the quiet grid: plain title, reason in red, Retry and ti
 // cmux#54927: the reason split the line's room evenly with the title and floated alone at its
 // middle, and the mark's red never showed on the agent's own glyph. The reason now follows its
 // title in red, and the mark carries a red dot.
-test("the grid's columns are fixed; the reason follows its title in red, the mark a red dot", () => {
-  // The refusal note and the ⋯ menu each have their own track, so a refused Retry's note never draws over ⋯.
-  expect(css).toMatch(/\[data-look="grid"\] > \.cv-subagent-done__note \{\s*grid-column: 3;/);
-  expect(css).toMatch(/\[data-look="grid"\] > \.cv-subagent-done__actions \{\s*grid-column: 4;/);
+test("the grid's columns are fixed, Retry takes none; the reason follows its title in red, the mark a failure badge", () => {
+  // Words | time | chevron: no track is kept for a Retry or ⋯ that shows only under the pointer, and
+  // a refusal's note joins the time's trail only while it shows.
   expect(css).toMatch(
-    /\.cv-tool\.cv-subagent-done-row\[data-look="grid"\] \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(var\(--cv-failed-retry-width, 64px\), max-content\) auto auto\s+minmax\(var\(--cv-failed-time-width, 7ch\), max-content\)/,
+    /\.cv-tool\.cv-subagent-done-row\[data-look="grid"\] \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(var\(--cv-failed-time-width, 7ch\), max-content\) var\(--cv-glyph-slot, 16px\);/,
   );
+  expect(css).not.toMatch(/\[data-look="grid"\] > \.cv-subagent-done__note \{/);
+  expect(css).not.toContain("--cv-failed-retry-width");
+  expect(css).not.toMatch(/\[data-look="grid"\] > \.cv-subagent-done__actions \{/);
+  // The controls lie over the words, out of the trail's flow.
+  expect(css).toMatch(/\.cv-subagent-done__controls \{\s*position: absolute;/);
   // No even split: the reason starts right after the title.
   expect(css).not.toMatch(/\.cv-subagent-failed__text \{[^}]*grid-template-columns/);
   expect(css).toMatch(/\.cv-subagent-failed__reason \{[^}]*color: var\(--agent-status-failure\)/);
-  expect(css).toMatch(
-    /> \.cv-subagent-done\[data-state="failed"\] \.cv-tool__icon::after \{[^}]*background: var\(--agent-status-failure\)/,
-  );
+  // The failure is its own glyph badged on the mark, never a bare red dot (Leo, 2026-11-25: "dot on left weird").
+  expect(css).not.toMatch(/\.cv-tool__icon::after/);
+  expect(css).toMatch(/\.cv-subagent-done__failed-mark \{[^}]*color: var\(--agent-status-failure\)/);
   expect(css).toMatch(
     /:is\(\[data-look="grid"\], \[data-look="quiet"\]\) > \.cv-subagent-done\[data-state="failed"\] \{\s*color: var\(--cv-activity-text\)/,
   );
@@ -154,16 +164,16 @@ test("a failed line that opens its subagent is one button with its task and reas
   expect(line.querySelector(".cv-subagent-failed__reason")?.textContent).toBe(
     "Agent terminated early due to an API error",
   );
-  // Its name says what it opens and why it failed; the cut failure is whole in its title.
+  // Its name says what it opens and the whole failure; no tooltip draws over the next row.
   expect(line.getAttribute("aria-label")).toContain("Auto mode laptop daemon");
-  expect(line.getAttribute("aria-label")).toContain("Agent terminated early due to an API error");
-  expect(line.querySelector(".cv-subagent-failed__text")?.getAttribute("title")).toContain(ERROR);
+  expect(line.getAttribute("aria-label")).toContain(ERROR);
+  expect(row.querySelector("[title]")).toBeNull();
   act(() => line.click());
   expect(opened).toEqual(["a"]);
   // The row's time opens it too (the pointer's wider target); Retry keeps its own click.
   act(() => row.querySelector<HTMLElement>(".cv-subagent-done__time")!.click());
   expect(opened).toEqual(["a", "a"]);
-  await act(async () => row.querySelector<HTMLElement>(":scope > .cv-subagent-retry")!.click());
+  await act(async () => row.querySelector<HTMLElement>(".cv-subagent-done__controls > .cv-subagent-retry")!.click());
   expect(opened).toEqual(["a", "a"]);
 });
 
@@ -179,4 +189,6 @@ test("a failed line's button lifts its words under the pointer as a tool row doe
     /:has\(> button\.cv-subagent-done\):is\(:hover, :focus-within\)\s*> button\.cv-subagent-done\s*> \.cv-tool__text \{\s*color: var\(--cv-text\)/,
   );
   expect(css).not.toContain(".cv-subagent-failed__text > .cv-agent-tag.is-open");
+  // The button fills its grid track; the reason follows its title (cmux#54927), no even split.
+  expect(css).toMatch(/\[data-look="grid"\] > \.cv-subagent-done \{[^}]*justify-self: stretch;[^}]*width: 100%;/);
 });

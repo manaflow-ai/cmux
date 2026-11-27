@@ -2,17 +2,31 @@
 //!
 //! The copy arrives as a bundle, imported as a moved chat is (`transfer.rs` `import_into`).
 //! What Auto mode adds: the chat's last holder may have gone away mid-turn, so the log's open
-//! turn is settled `outcome_unknown` here and its `machine_takeover` continuation queued ahead
-//! of everything that waited ([`Cut::Takeover`]), before the chat's queue runs.
+//! turn is settled `outcome_unknown` here and its continuation queued ahead of everything that
+//! waited, before the chat's queue runs: `machine_takeover` for a takeover
+//! ([`Cut::Takeover`]), `moved` for a chat that came home with a turn open ([`Cut::Move`]). A
+//! chat its holder gave (the person moved it) has no open turn: the giver stopped it and logged
+//! the `moved` continuation, which the restored queue runs here.
 
 use super::*;
-use crate::auto_session::import::{Arrival, InFlight};
+use crate::auto_session::import::{Arrival, CutBy, InFlight};
 use crate::hub::auto_resume::Cut;
 
 impl Hub {
     /// The chat `id` when it is a session of this daemon.
     pub(crate) fn auto_local(&self, id: &str) -> Option<Arc<Session>> {
         self.session_by_id(id)
+    }
+
+    /// Whether a chat of this daemon other than `id` keeps the agent conversation
+    /// `agent_session`: one chat's copy never names another chat's.
+    pub(crate) fn auto_agent_session_taken(&self, id: &str, agent_session: &str) -> bool {
+        if agent_session.is_empty() {
+            return false;
+        }
+        let keeps = |meta: &SessionMeta| meta.agent_session_id.as_deref() == Some(agent_session);
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        sessions.values().any(|session| session.id != id && session.read_meta(keeps))
     }
 
     /// Imports the Cloud copy in `bundle` as the chat `arrival.id`.
@@ -36,16 +50,16 @@ impl Hub {
             self.kill(&old, true).await?;
         }
         // Not `live`: its queue stays empty, so nothing runs when the import publishes it. The
-        // copy is the chat: its agent's own files replace any that are here (`the_chat`), and
-        // so does cmux-harness's journal (`replace_durable`), which a chat that ran here
-        // before left behind. Published frozen and kept so (`hold`): it is only prepared until
-        // the holder loop accepts it (`auto_activate`), so a copy that lost the chat meanwhile
-        // runs nothing.
-        let plain = (false, None, true, false, None);
-        let session = self.import_placing(bundle, None, plain, true, true).await?;
-        if arrival.settle {
-            self.settle_takeover(&session, arrival.in_flight.as_ref());
-        }
+        // copy is the chat: its agent's own files replace those this chat left here
+        // (`the_chat`), and so does cmux-harness's journal (`replace_durable`). Only this
+        // chat's own: for a conversation this chat did not run here, a file that is here is
+        // another's and stays as it is, as after a move by hand. Published frozen and kept so
+        // (`hold`): it is only prepared until the holder loop accepts it (`auto_activate`), so
+        // a copy that lost the chat meanwhile runs nothing.
+        let own = arrival.own_agent;
+        let plain = (super::transfer::Live::No, None, own, false, None);
+        let session = self.import_placing(bundle, None, plain, own, true).await?;
+        self.settle_arrived(&session, arrival.cut, arrival.in_flight.as_ref());
         self.restore_queue(&session);
         self.drop_unsent_subagent_retries(&session);
         // Its queued prompts wait for `auto_activate`, the continuation first.
@@ -57,21 +71,30 @@ impl Hub {
     }
 
     /// Ends the turn the copy's log started and never settled: `turn_result failed
-    /// outcome_unknown`, and its continuation queued. `in_flight` is told to the agent when it
-    /// names that turn. Returns the continuation's prompt id.
-    fn settle_takeover(
+    /// outcome_unknown`, and its continuation queued, once (a continuation the log holds
+    /// already is not logged again, `restart_resume.rs`). `by` says what cut the turn off, for
+    /// the continuation's words. `in_flight` is told to the agent when it names that turn.
+    /// Returns the continuation's prompt id; None when the log left no turn open.
+    fn settle_arrived(
         &self,
         session: &Arc<Session>,
+        by: CutBy,
         in_flight: Option<&InFlight>,
     ) -> Option<String> {
         let OpenTurn { seq, turn_id, prompt_id, trigger, .. } = self.open_turn(session, 0)??;
         let told = in_flight
             .filter(|tool| turn_id.as_str() == Some(tool.turn_id.as_str()))
             .map(|tool| (tool.name.as_str(), tool.args.as_str()));
-        let continued = turn_id
-            .as_str()
-            .and_then(|turn| self.log_continuation_told(session, turn, Cut::Takeover, told));
-        let error = "the machine this turn ran on went away before the turn settled";
+        let (cut, error) = match by {
+            CutBy::Takeover => {
+                (Cut::Takeover, "the machine this turn ran on went away before the turn settled")
+            }
+            CutBy::Move => {
+                (Cut::Move, "this chat moved to another machine before the turn settled")
+            }
+        };
+        let continued =
+            turn_id.as_str().and_then(|turn| self.log_continuation_told(session, turn, cut, told));
         let result = json!({
             "status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id,
             "promptId": prompt_id, "trigger": trigger, "error": error, "errorText": error,

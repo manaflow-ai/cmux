@@ -14,7 +14,7 @@
 //!
 //! | `t` | fields | effect |
 //! | --- | --- | --- |
-//! | `init` | `app {id, version}`, `settings`, `api_version`, `ops`, `known_ops`, `locale?`, `strings`, `main` | first message; evaluates `main`, calls `__cmuxAppInit`; answers `ready` or `init-failed` |
+//! | `init` | `app {id, version}`, `settings`, `api_version`, `ops`, `known_ops`, `locale?`, `strings`, `main` | first message; calls `__cmuxAppInit`, then evaluates `main` (so its top level reads settings); answers `ready` or `init-failed` |
 //! | `mount` | `mount`, `export`, `ctx` | `__cmuxAppMount`; the first `scene` batches, then `mounted {mount, error?}` |
 //! | `unmount` | `mount` | `__cmuxAppUnmount` |
 //! | `dispatch` | `mount`, `node`, `event`, `payload` | `__cmuxAppDispatch`; the supervisor puts the gesture token in `payload.gesture` |
@@ -50,6 +50,8 @@
 pub mod entry;
 #[cfg(feature = "engine")]
 pub mod host_loop;
+pub mod motion;
+pub mod motion_profile;
 pub mod particles;
 pub mod protocol;
 #[cfg(feature = "engine")]

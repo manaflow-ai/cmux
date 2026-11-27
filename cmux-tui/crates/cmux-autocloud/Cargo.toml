@@ -36,3 +36,7 @@ rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+# Seeded-secret tests: gated clients send to a local capture server (src/login.rs).
+cmux-egress = { workspace = true, features = ["capture"] }

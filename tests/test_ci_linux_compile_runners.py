@@ -85,8 +85,6 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-tui-windows-check.yml", "windows-gnu-check", "runs-on", BIG),
     ("cmux-tui.yml", "optchat-chief", "runs-on", BIG),
     ("cmux-vm-clients.yml", "rust", "runs-on", BIG),
-    ("coderouter-ci.yml", "test", "runs-on", BIG),
-    ("coderouter-release.yml", "build-linux", "runs-on", BIG),
     ("macos-cross-parity.yml", "linux-build", "runs-on", BIG),
     ("rust-workspaces.yml", "workspace", "runs-on", BIG),
     ("sdk-publish-crates.yml", "bindings-e2e-rust", "runs-on", BIG),
@@ -183,6 +181,12 @@ FORK_PULL_REQUEST = (
     "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
     " != github.repository && '{label}' || "
 )
+# cmux-linux jobs: a fork pull request takes the GitHub-hosted 'ubuntu-24.04' literal
+# (scripts/ci/one_linux_label.py), not a Blacksmith literal.
+FORK_RUNNER_PULL_REQUEST = (
+    "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
+    " != github.repository && 'ubuntu-24.04' || "
+)
 FORK_PR_LABELS = {
     ("ci-web.yml", "web-typecheck", "runs-on"): SMALL,
     ("ci-web.yml", "webviews-typecheck", "runs-on"): SMALL,
@@ -195,29 +199,34 @@ FORK_PR_LABELS = {
     ("cmux-vm-clients.yml", "sdk", "runs-on"): SMALL,
     ("remote-daemon.yml", "remote-daemon-tests", "runs-on"): SMALL,
 }
+# Jobs whose fork pull request branch still names a Blacksmith literal rather than
+# 'ubuntu-24.04' (they are not on cmux-linux).
+FORK_LITERAL = {
+    ("ci-web.yml", "webviews-typecheck", "runs-on"),
+    ("cloudflare-relay.yml", "cloudflare-relay", "runs-on"),
+}
 PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     # (prefix, closing) for selectors with a special owner/fork expression.
     ("cmux-tui-sdks.yml", "conformance", "runs-on"): (
-        OWNER + FORK_PULL_REQUEST.format(label="blacksmith-8vcpu-ubuntu-2404"), ""),
+        OWNER + FORK_RUNNER_PULL_REQUEST, ""),
     # These read no variable before the move, so a fork pull request took the
     # trusted literal. Reading LINUX_RUNNER now needs the fork pull request
     # branch first (test_ci_fork_runner_routing.py).
     ("cmux-next-car-guards.yml", "linux", "runs-on"): (
-        OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
+        OWNER + FORK_RUNNER_PULL_REQUEST, ""),
     # A fork pull request keeps the 16 vCPU literal it took before the move.
     ("swift-linux-packages.yml", "swift-linux-packages", "runs-on"): (
-        OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
+        OWNER + FORK_RUNNER_PULL_REQUEST, ""),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     # Its pull request run is an advisory copy of the push run (post-merge-checks.json, CI v2 step 5): the 4 vCPU
     # pool, since a compile there only reports, and the 8/16 vCPU sizes stall first.
     ("cmux-mobile-ffi.yml", "rust", "runs-on"): (
-        OWNER + "github.event_name == 'pull_request' && fromJSON(vars.RUNNER_POOLS).linux_4 || ", ""),
+        OWNER + FORK_RUNNER_PULL_REQUEST, ""),
     ("macos-cross-parity.yml", "linux-build", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     # Owner-gated jobs with no fork branch.
     ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on"): ("", ""),
     ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on"): ("", ""),
     ("cmux-tui-headless-debug.yml", "build", "runs-on"): ("", ""),
-    ("coderouter-release.yml", "build-linux", "runs-on"): ("", ""),
 }
 # Selectors with the owner branch and no fork pull request branch.
 OWNER_ONLY = {
@@ -239,14 +248,21 @@ OWNER_ONLY = {
 }
 
 
+def fork_branch(workflow: str, job_id: str, where: str) -> str:
+    """The fork pull request branch: the fork runner variable, or the literal label a job kept."""
+    if (workflow, job_id, where) in FORK_LITERAL:
+        fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
+        return FORK_PULL_REQUEST.format(label=fork_label)
+    return FORK_RUNNER_PULL_REQUEST
+
+
 def expected_selector(workflow: str, job_id: str, where: str, label: str) -> str:
     prefix, closing = PREFIX.get((workflow, job_id, where), (None, ""))
     if prefix is None:
         if (workflow, job_id) in OWNER_ONLY:
             prefix = OWNER
         else:
-            fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
-            prefix = OWNER + FORK_PULL_REQUEST.format(label=fork_label)
+            prefix = OWNER + fork_branch(workflow, job_id, where)
     ref = lambda size: route_ref(size, workflow, job_id)  # noqa: E731
     return "${{ " + prefix + trusted_fallback(label, OTHER.get((workflow, job_id)), ref) + closing + " }}"
 
@@ -343,7 +359,7 @@ class LinuxCompileRunners(unittest.TestCase):
                         self.assertTrue(value.startswith("${{ " + OWNER), value)
                     else:
                         # A fork keeps the Blacksmith size it had; only the own-repository run moved.
-                        fork = re.escape(OWNER + FORK_PULL_REQUEST.format(label="LABEL")).replace("LABEL", r"blacksmith-\d+vcpu-ubuntu-2404")
+                        fork = re.escape(OWNER + fork_branch(workflow, job_id, where))
                         self.assertRegex(value, r"^\$\{\{ " + fork, value)
                     continue
                 # A pool read a fork could reach is wrapped to keep the fork's old label
@@ -352,11 +368,10 @@ class LinuxCompileRunners(unittest.TestCase):
                 if "repository_owner != 'manaflow-ai'" in value:
                     self.assertRegex(value, r"github\.repository_owner != 'manaflow-ai' && '(ubuntu-24\.04|ubuntu-latest)'")
                 if (workflow, job_id) not in OWNER_ONLY and (workflow, job_id, where) not in PREFIX:
-                    fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
                     self.assertIn(
-                        OWNER + FORK_PULL_REQUEST.format(label=fork_label),
+                        OWNER + fork_branch(workflow, job_id, where),
                         value,
-                        f"fork pull requests use {fork_label}",
+                        "fork pull requests use their declared fork runner",
                     )
 
     def test_every_listed_label_is_known_to_actionlint(self) -> None:

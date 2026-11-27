@@ -16,6 +16,9 @@
 //! Every session scope is in [`SESSIONS_SLICE`], which caps all sessions
 //! together, so several sessions at their own ceilings still leave the
 //! machine (the daemon, ssh, the user manager) room ([`slice_settings`]).
+//! Inside it each session has its own slice, `acpmuxsessions-<id>.slice`, which its
+//! harness scope and its background task scopes share: one total per session
+//! (`session_total.rs`).
 //!
 //! The per-session limits come from the profile's env, then the daemon's:
 //! `ACPMUX_SESSION_MEMORY_MB` (default half the machine's memory, less with a lane cap),
@@ -35,7 +38,7 @@
 //! missing or cannot make a scope (no user manager, as in a container), the
 //! harness starts as before; that answer is asked once per `systemd-run` and
 //! limits. macOS gets the process-group half of the valve on the holder track
-//! (cx-t2sqm.3); its harnesses run at background CPU class once started (`cpu_class.rs`).
+//! (cx-t2sqm.3); its harnesses take background CPU class only while the Mac is contended (`cpu_class.rs`).
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 use std::collections::BTreeMap;
@@ -99,7 +102,11 @@ fn prefix(
         .into_iter()
         .find(|properties| can_scope(&runner, properties, env, limits))?;
     let description = format!("acpmux session {session}");
-    Some(scope_argv(&runner.to_string_lossy(), Some(SESSIONS_SLICE), &description, &properties))
+    // The session's own slice under the sessions slice, so its harness and its background tasks
+    // share one total (`session_total.rs`); the sessions slice when it is off or not made.
+    let slice = crate::session_total::ensure_blocking(session, env, limits);
+    let slice = slice.as_deref().unwrap_or(SESSIONS_SLICE);
+    Some(scope_argv(&runner.to_string_lossy(), Some(slice), &description, &properties))
 }
 
 /// The slice every session scope joins. Dash-free: systemd reads dashes in a
@@ -163,16 +170,44 @@ pub(crate) struct SessionLimits {
     pub disk_mb: Option<u64>,
 }
 
+/// The daemon config's `session` limits. It reads config.json's `session` alone: a whole
+/// `Config::load` also found every profile and harness and parsed the cached ACP Registry, on each
+/// budget check, 225 MB of transient blocks over a 1 GB chat's restart (dhat, `chat_size_sweep`).
+/// A config that does not read gives the defaults, as before.
 pub(crate) fn daemon_limits() -> SessionLimits {
     #[cfg(not(target_os = "linux"))]
     return SessionLimits::default();
     #[cfg(target_os = "linux")]
-    crate::config::Config::load()
-        .map_or_else(|_| SessionLimits::default(), |config| session_limits_from_config(&config))
+    daemon_session_config(&crate::config::Config::path())
+        .map_or_else(SessionLimits::default, |session| session_limits_from(&session))
 }
 
+/// config.json's `session`: none when the file does not read or parse, the default one when it is
+/// missing or names none.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn daemon_session_config(path: &std::path::Path) -> Option<crate::config::SessionResourceConfig> {
+    use std::io::Read as _;
+    #[derive(serde::Deserialize)]
+    struct OnlySession {
+        #[serde(default)]
+        session: crate::config::SessionResourceConfig,
+    }
+    match std::fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Default::default()),
+        Err(_) => return None,
+        Ok(_) => {}
+    }
+    let mut text = String::new();
+    crate::config::private_state_file(path).ok()?.read_to_string(&mut text).ok()?;
+    serde_json::from_str::<OnlySession>(&text).ok().map(|c| c.session)
+}
+
+#[cfg(test)]
 fn session_limits_from_config(config: &crate::config::Config) -> SessionLimits {
-    let session = &config.session;
+    session_limits_from(&config.session)
+}
+
+fn session_limits_from(session: &crate::config::SessionResourceConfig) -> SessionLimits {
     SessionLimits {
         memory_mb: session.memory_mb,
         swap_mb: session.swap_mb,
@@ -247,7 +282,7 @@ fn parse_threads_max(text: &str) -> Option<u64> {
 }
 
 /// The kernel's thread limit, None when unreadable.
-fn threads_max() -> Option<u64> {
+pub(crate) fn threads_max() -> Option<u64> {
     std::fs::read_to_string("/proc/sys/kernel/threads-max")
         .ok()
         .as_deref()
@@ -504,7 +539,7 @@ fn limit_sessions_slice(
 /// the one at work. Returns how many settings this call changed. Each `systemctl` call is
 /// bounded by [`PROBE_TIMEOUT`].
 #[cfg(target_os = "linux")]
-fn limit_slice(
+pub(crate) fn limit_slice(
     systemctl: &std::path::Path,
     slice: &str,
     wanted: &[(&str, String)],
@@ -582,7 +617,7 @@ fn probe(runner: &std::path::Path, properties: &[String], env: &BTreeMap<String,
 /// to an unlinked temporary file, never a pipe, so a child that leaves a
 /// process behind holding it cannot make the read wait.
 #[cfg(target_os = "linux")]
-fn run_bounded(
+pub(crate) fn run_bounded(
     program: &std::path::Path,
     args: &[String],
     env: &BTreeMap<String, String>,
@@ -1137,5 +1172,24 @@ mod tests {
         cfg.set_session_resource("session.tasks_max", "3000").unwrap();
         cfg.set_session_resource("session.sessions_tasks_max", "100000").unwrap();
         assert_eq!(session_limits_from_config(&cfg), config);
+    }
+
+    #[test]
+    fn the_daemon_limits_read_the_configs_session_as_a_whole_load_does() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("config.json");
+        assert_eq!(daemon_session_config(&path), Some(Default::default()), "no file: defaults");
+        let mut cfg = crate::config::Config::default();
+        cfg.set_session_resource("session.tasks_max", "3000").unwrap();
+        cfg.set_session_resource("session.memory_mb", "6144").unwrap();
+        std::fs::write(&path, serde_json::to_vec(&cfg).unwrap()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let whole = crate::config::Config::load_from(&path).unwrap();
+        let session = daemon_session_config(&path).unwrap();
+        assert_eq!(session, whole.session);
+        assert_eq!(session_limits_from(&session), session_limits_from_config(&whole));
+        std::fs::write(&path, b"{not json").unwrap();
+        assert_eq!(daemon_session_config(&path), None, "a config that does not read: defaults");
     }
 }

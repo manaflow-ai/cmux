@@ -328,6 +328,18 @@ impl Hub {
         self.bg_running_in(&self.bg_dir(session), |_| true)
     }
 
+    /// The pids of the chat's running tasks: roots of its process trees (`session_usage.rs`).
+    pub(super) fn bg_running_pids(&self, session: &Session) -> Vec<u32> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .map(|t| &t.record)
+            .filter(|r| r.ended_at.is_none() && r.pid > 0 && !bg_gone(&dir, &r.id))
+            .map(|r| r.pid)
+            .collect()
+    }
+
     /// How many of the chat's tasks run that bring their end to the chat (`notify`,
     /// `bg_notify.rs`): each is sure to give the chat another turn.
     pub(super) fn bg_notifying_count(&self, session: &Session) -> usize {
@@ -458,7 +470,7 @@ impl Hub {
             && scope.covers(&record)
             && record.notify
             && to_the_end
-            && view["state"] != "running"
+            && view.get("state").and_then(Value::as_str) != Some("running")
         {
             self.bg_end_told(session, &dir, id);
         }
@@ -829,7 +841,14 @@ async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec
         .spawn()
         .with_context(|| format!("start the task's runner ({})", runner.program().display()))?;
     if let Some(pid) = child.id() {
-        crate::agent_host::scope::place(pid).await;
+        // The task's scope joins its session's slice, which holds the session's total
+        // (`session_total.rs`); the hosts slice when that is off or not made.
+        let slice = if crate::agent_host::scope::moves() {
+            crate::session_total::ensure(&spec.session_id, std::time::Duration::from_secs(2)).await
+        } else {
+            None
+        };
+        crate::agent_host::scope::place_in(pid, slice).await;
     }
     let mut stdin = child.stdin.take().context("runner stdin")?;
     let stdout = child.stdout.take().context("runner stdout")?;

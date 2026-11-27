@@ -17,6 +17,16 @@ public enum DeveloperOptions {
     /// TCP: WireGuard sends no plain UDP and rides TURN over TLS on 443.
     /// Applies live: changing it redials.
     public static let blockUDPKey = "cmuxMobile.dev.blockUDP"
+    /// `UserDefaults` key: proxy only, to simulate a company network whose only
+    /// way out is its HTTP proxy: no UDP, and TURN over TLS leaves only through
+    /// the system's proxy (Settings → Wi-Fi → Configure Proxy, or an MDM
+    /// profile). Applies at the next dial (PROTOCOL.md "Corporate networks").
+    public static let proxyOnlyKey = "cmuxMobile.dev.proxyOnly"
+    /// `UserDefaults` key: drop WireGuard, to simulate a firewall whose packet
+    /// inspection blocks WireGuard: STUN and TURN answer, every WireGuard
+    /// datagram over UDP is dropped, so the link falls through to TURN over
+    /// TLS. Applies at the next dial (PROTOCOL.md "Corporate networks").
+    public static let dropWireGuardKey = "cmuxMobile.dev.dropWireGuard"
     /// `UserDefaults` key: ride cmux's WebSocket relay only (PROTOCOL.md
     /// "WebSocket relay"): WireGuard sends no plain UDP, takes no TURN
     /// allocation and joins the relay at once. Applies at the next dial.
@@ -28,8 +38,19 @@ public enum DeveloperOptions {
     /// `UserDefaults` key: mock approvals wait 2 s so the sending state
     /// can be seen and captured (`-cmuxMobile.dev.slowApproval YES`). DEBUG mock content only.
     public static let slowApprovalKey = "cmuxMobile.dev.slowApproval"
+    /// `UserDefaults` key: the agent chat's send motion (`ChatSendMotion`: A, B, C or off),
+    /// to compare them (`-cmuxMobile.dev.sendMotion B`). DEBUG only.
+    public static let sendMotionKey = "cmuxMobile.dev.sendMotion"
+    /// `UserDefaults` key: the mock agent echoes a prompt after this many milliseconds, as a Mac
+    /// does after a round trip (`-cmuxMobile.dev.mockEchoMs 300`). DEBUG mock content only.
+    public static let mockEchoDelayKey = "cmuxMobile.dev.mockEchoMs"
     /// The key of builds that called it slow mock Face ID; removed with the others.
     static let retiredSlowFaceIDKey = "cmuxMobile.dev.slowFaceID"
+    /// `UserDefaults` key: wake on intent (hidden, default off). The app becoming active with a
+    /// Cloud machine's chat in front forwards `unlock`, so a paused machine starts waking before
+    /// the first key; the rules are Rust's (cmux-mobile-link-ffi `cloud_wake.rs`). No Settings row:
+    /// set it with `-cmuxMobile.dev.wakeOnIntent YES`.
+    public static let wakeOnIntentKey = "cmuxMobile.dev.wakeOnIntent"
     /// `UserDefaults` key: the terminal demo's phases (`-CmuxMobileTerminalDemoPhases`).
     public static let terminalDemoPhasesKey = "CmuxMobileTerminalDemoPhases"
 
@@ -37,8 +58,9 @@ public enum DeveloperOptions {
     /// removes them so a value set by an earlier Debug or Demo install in the
     /// same container can never apply.
     public static let storedKeys = [
-        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, forceRelayKey, browserVideoOnChannelKey, terminalDemoPhasesKey,
-        slowApprovalKey, retiredSlowFaceIDKey, CloudBackendOverride.storedKey,
+        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, forceRelayKey, proxyOnlyKey, dropWireGuardKey,
+        browserVideoOnChannelKey, terminalDemoPhasesKey,
+        slowApprovalKey, retiredSlowFaceIDKey, sendMotionKey, mockEchoDelayKey, wakeOnIntentKey, CloudBackendOverride.storedKey,
     ]
 
     /// Removes every stored developer setting (Production launch).
@@ -66,6 +88,16 @@ public enum DeveloperOptions {
         #endif
     }
 
+    /// How long the mock agent waits before it echoes a prompt (zero unless set). Always
+    /// zero outside DEBUG builds.
+    public static var mockEchoDelay: Duration {
+        #if DEBUG
+        .milliseconds(max(0, UserDefaults.standard.integer(forKey: mockEchoDelayKey)))
+        #else
+        .zero
+        #endif
+    }
+
     /// Whether relay-only links are on. Always off in Release builds.
     public static var relayOnly: Bool {
         #if DEBUG
@@ -80,6 +112,26 @@ public enum DeveloperOptions {
     public static var blockUDP: Bool {
         #if DEBUG
         UserDefaults.standard.bool(forKey: blockUDPKey)
+        #else
+        false
+        #endif
+    }
+
+    /// Whether WireGuard acts as on a network whose only way out is its
+    /// proxy. Always off in Release builds.
+    public static var proxyOnly: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: proxyOnlyKey)
+        #else
+        false
+        #endif
+    }
+
+    /// Whether WireGuard acts as behind a firewall that drops WireGuard over
+    /// UDP. Always off in Release builds.
+    public static var dropWireGuard: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: dropWireGuardKey)
         #else
         false
         #endif
@@ -100,6 +152,15 @@ public enum DeveloperOptions {
     public static var browserVideoOnChannel: Bool {
         #if DEBUG
         UserDefaults.standard.bool(forKey: browserVideoOnChannelKey)
+        #else
+        false
+        #endif
+    }
+
+    /// Whether wake on intent is on (the rules' `enabled` fact). Always off in Release builds.
+    public static var wakeOnIntent: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: wakeOnIntentKey)
         #else
         false
         #endif

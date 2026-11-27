@@ -510,6 +510,7 @@ async fn world(tag: &str, route: Route) -> World {
                     peer_token: Some(peer_token.clone()),
                     vm_boundary: false,
                     github_broker: false,
+                    group: None,
                 };
             let mut b_wg = config();
             b_wg.transport.wireguard = true;
@@ -706,6 +707,21 @@ async fn run(row: Row) -> Times {
         )
         .await;
     let early = cc.reply(outage, OUTAGE_HOLD).await;
+    // A black hole lifts once A's link gave up on it (`downReason` names why), so the row
+    // redials, as its name says. Lifted before acpmux's own deadline, a WireGuard tunnel's TCP
+    // can retransmit and the link heal in place from `degraded`: then nothing redialed, and
+    // whether it did was a race between the retransmit and the request probe (#56198).
+    if matches!(row.cut, Cut::BlackHole) && row.restore {
+        let deadline = Instant::now() + DETECT_BOUND + STEP;
+        while down_reason(&w.a).is_none() {
+            assert!(
+                Instant::now() < deadline,
+                "{}: the black hole never took the link down",
+                row.tag
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
     let restored_at = Instant::now();
     if row.restore {
         w.carrier.restore();
@@ -1277,11 +1293,31 @@ async fn hub_outage_delivers_a_waiting_message_once_when_the_hub_returns() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     // Each message once: the waiting one, and the outage send if A's outbox kept it.
-    assert_eq!(
-        info["turnCount"], turns,
-        "{turns} messages ran {} turns: {info}",
-        info["turnCount"]
-    );
+    if info["turnCount"] != turns {
+        let delivery =
+            sent.as_ref().ok().and_then(|r| r["deliveryId"].as_str()).unwrap_or_default();
+        let status = sender
+            .call(method::MUX_SEND_STATUS, json!({"deliveryId": delivery}))
+            .await
+            .map_or_else(|e| e.to_string(), |v| v.to_string());
+        let hub = {
+            let s = fake.state.lock().unwrap();
+            format!(
+                "keys={:?} waiting={} acks={:?}",
+                s.keys,
+                s.waiting.len(),
+                s.acks.iter().map(|(m, a)| format!("{m}:{a:?}")).collect::<Vec<_>>()
+            )
+        };
+        let events = on_b
+            .call(method::MUX_EVENTS, json!({"sessionId": session, "afterSeq": 0, "limit": 1000}))
+            .await
+            .map_or_else(|e| e.to_string(), |v| v.to_string());
+        panic!(
+            "{turns} messages ran {} turns (outage send {outage_send}); A's status {status}; hub {hub}; B's events {events}; B {info}",
+            info["turnCount"]
+        );
+    }
     let acked = fake.state.lock().unwrap().acks.iter().filter(|(m, _)| m == "msg_waiting").count();
     eprintln!(
         "carrier_faults row=hub-outage cut=Down redeliver_ms={} total_ms={} outage_send={outage_send}",

@@ -18,9 +18,13 @@ the app by itself. The check then reads, from the updated app, what the person h
     cap of 16: every process still alive more than one reap grace after the new owner took them over;
   - --agents acpmux agents at work (the test agent's "steps" turn, a tool call every 150 ms): the same agent
     process after the update, its turn still stepping, no take-over SIGTERM.
+  - the updated build pauses the automatic updater (its log says so, Sparkle's automatic check is off).
+
+report.json has relaunch_s (click to the new build's socket answering) and windows_back_s (click to every
+window back), the two numbers a stopwatch on the film reads.
 
 Leo, 2026-11-25 (c-68068a551d): "the newest nightly does it fix the transition on the next one? like, we need a
-cutover that can... do the restart close andwhatever without being stupid".
+cutover that can... do the restart close andwhatever without being clumsy".
 
 The whole run is filmed (screencapture -v) to --out/restart-to-update.mov, with report.json beside it.
 Host rules match scripts/cmux-next/update-e2e.py: an Aqua GUI session for this user, no cmux NEXT installed or
@@ -508,6 +512,17 @@ def main():
         record("Sparkle relaunched the updated app by itself", bool(back),
                f"{report['relaunch_s']} s after the click" if back else f"no new app process within 180 s (pids {app_pids(app)})")
         settled = wait(lambda: len(windows_seen(topology())) >= len(before["topology_windows"]) and topology(), 60, 0.5)
+        report["windows_back_s"] = round(time.time() - clicked, 1)
+        # Leo, 2026-11-24: "so pasuse the auto updateer for now". The updated build itself, not the PR: its
+        # updater logs the pause at start and keeps Sparkle's own automatic check off (AutomaticUpdatePause).
+        status = rpc("updates.status")
+        # The updated bundle's own id: the NIGHTLY's id moved between builds, so read it, never assume it.
+        with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
+            updated_id = plistlib.load(f).get("CFBundleIdentifier", "")
+        checks = run("defaults", "read", updated_id, "SUEnableAutomaticChecks").stdout.strip()
+        report["pause"] = {"logged": "automatic updates paused" in json.dumps(status), "SUEnableAutomaticChecks": checks}
+        record("the updated build pauses the automatic updater", report["pause"]["logged"] and checks in ("0", "false"),
+               json.dumps(report["pause"]))
         time.sleep(3)
         topo = topology()
         after = {"topology_windows": windows_seen(topo), "workspaces": workspace_names(topo),

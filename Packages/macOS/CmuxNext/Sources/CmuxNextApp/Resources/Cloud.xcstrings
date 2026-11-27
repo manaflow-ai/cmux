@@ -3093,127 +3093,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud is creating the VM. A new machine usually takes under a minute."
+            "value": "cmux Cloud is creating the VM."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud が VM を作成しています。新しいマシンは通常 1 分以内に作成されます。"
+            "value": "cmux Cloud が VM を作成しています。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُنشئ cmux Cloud الجهاز الافتراضي. يستغرق الجهاز الجديد عادةً أقل من دقيقة."
+            "value": "يُنشئ cmux Cloud الجهاز الافتراضي."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud kreira VM. Nova mašina obično traje manje od minute."
+            "value": "cmux Cloud kreira VM."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud opretter VM’en. En ny maskine tager normalt under et minut."
+            "value": "cmux Cloud opretter VM’en."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud erstellt die VM. Eine neue Maschine dauert meist weniger als eine Minute."
+            "value": "cmux Cloud erstellt die VM."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud está creando la VM. Una máquina nueva suele tardar menos de un minuto."
+            "value": "cmux Cloud está creando la VM."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud crée la VM. Une nouvelle machine prend en général moins d’une minute."
+            "value": "cmux Cloud crée la VM."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud sta creando la VM. Una nuova macchina di solito richiede meno di un minuto."
+            "value": "cmux Cloud sta creando la VM."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud កំពុងបង្កើត VM។ ម៉ាស៊ីនថ្មីជាធម្មតាចំណាយពេលតិចជាងមួយនាទី។"
+            "value": "cmux Cloud កំពុងបង្កើត VM។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud가 VM을 만드는 중입니다. 새 머신은 보통 1분 이내에 준비됩니다."
+            "value": "cmux Cloud가 VM을 만드는 중입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud oppretter VM-en. En ny maskin tar vanligvis under ett minutt."
+            "value": "cmux Cloud oppretter VM-en."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud tworzy maszynę wirtualną. Nowa maszyna zwykle zajmuje mniej niż minutę."
+            "value": "cmux Cloud tworzy maszynę wirtualną."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux Cloud está criando a VM. Uma máquina nova costuma levar menos de um minuto."
+            "value": "O cmux Cloud está criando a VM."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud создаёт ВМ. Новая машина обычно готова меньше чем за минуту."
+            "value": "cmux Cloud создаёт ВМ."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud กำลังสร้าง VM โดยปกติเครื่องใหม่ใช้เวลาไม่ถึงหนึ่งนาที"
+            "value": "cmux Cloud กำลังสร้าง VM"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud VM’yi oluşturuyor. Yeni bir makine genellikle bir dakikadan kısa sürer."
+            "value": "cmux Cloud VM’yi oluşturuyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud створює ВМ. Нова машина зазвичай готова менш ніж за хвилину."
+            "value": "cmux Cloud створює ВМ."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud đang tạo VM. Máy mới thường mất chưa đến một phút."
+            "value": "cmux Cloud đang tạo VM."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud 正在创建虚拟机。新机器通常不到一分钟。"
+            "value": "cmux Cloud 正在创建虚拟机。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud 正在建立虛擬機器。新機器通常不到一分鐘。"
+            "value": "cmux Cloud 正在建立虛擬機器。"
           }
         }
       }
@@ -4527,137 +4527,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "機器就緒後，終端機會在這裡自動開啟，屆時即可輸入。"
-          }
-        }
-      }
-    },
-    "cloud.button.retry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retry"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試行"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة المحاولة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokušaj ponovo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prøv igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erneut versuchen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reintentar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Réessayer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riprova"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ព្យាយាមម្ដងទៀត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 시도"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prøv igjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ponów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tentar novamente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Повторить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeniden dene"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Повторити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thử lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重試"
           }
         }
       }

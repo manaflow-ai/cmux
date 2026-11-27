@@ -50,10 +50,6 @@
       "max_bytes": 483000,
       "measured": 438304
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/coderouter/index.html": {
-      "max_bytes": 319000,
-      "measured": 289494
-    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/cookie-import/index.html": {
       "max_bytes": 317000,
       "measured": 287486
@@ -105,10 +101,6 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/keybindings/index.html": {
       "max_bytes": 486000,
       "measured": 441266
-    },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/machines/index.html": {
-      "max_bytes": 862000,
-      "measured": 783167
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/mobile-pairing/index.html": {
       "max_bytes": 303000,

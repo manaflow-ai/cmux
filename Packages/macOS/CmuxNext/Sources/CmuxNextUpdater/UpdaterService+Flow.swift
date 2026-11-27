@@ -51,6 +51,7 @@ extension UpdaterService {
     /// (the download already running, or staged) does nothing.
     public func downloadClicked() {
         syncFlowPhase()
+        updateClicks += 1
         log.append("download clicked (\(flow.phase))")
         if downloadAgainIfCancelled() { return }
         guard case .available = flow.phase else {
@@ -68,6 +69,7 @@ extension UpdaterService {
     public func installClicked() {
         if relaunchIntoInstalledBuild() { return }
         syncFlowPhase()
+        updateClicks += 1
         log.append("restart to update clicked (\(flow.phase))")
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
@@ -152,6 +154,8 @@ extension UpdaterService {
         switch effect {
         case .install:
             stagedRefresh.installStarted()
+            installClickedAt = ContinuousClock.now
+            picturesAtClick?()
             automaticInstallInFlight = false
             automaticInstallFrontmost = nil
             // The staged build's pre-warm, if it still runs, goes at the click's priority from now on.
@@ -212,6 +216,8 @@ extension UpdaterService {
         dropPulledAvailable()
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
+        // Nothing found, staged or installing: the next update's clicks count from zero.
+        if case .hidden = phase { updateClicks = 0 }
         transferRate.record(phase, at: now())
         if userCheckRunning, phase != .checking { userCheckRunning = false }
         #if DEBUG || CMUX_BENCH_HOOKS

@@ -68,9 +68,10 @@ public final class SettingsHarnesses {
     /// The refusal text when this app cannot run updates (the App's localized string).
     @ObservationIgnored private let unsupported: (@MainActor () -> String)?
     /// Opens a provider's sign-in page beside the code in the app's own browser (`LinkOpener.openSignInPage`);
-    /// its answer, run once that sign-in ended, shows the code's page again. Nil opens nothing (SettingsHarnesses+AccountSignIn.swift).
-    @ObservationIgnored let openSignInPage: (@MainActor (URL) async -> (@MainActor () -> Void)?)?
-    /// Each open sign-in page's way back to the code's page, by the daemon's `loginId`.
+    /// its answer, run once that sign-in ended, shows the code's page again and closes the page's own tab while it is still on
+    /// one of the hosts given (the daemon's `pageHosts`). Nil opens nothing (SettingsHarnesses+AccountSignIn.swift).
+    @ObservationIgnored let openSignInPage: (@MainActor (URL, [String]) async -> (@MainActor () -> Void)?)?
+    /// Each open sign-in page's end (back to the code's page, its own tab closed), by the daemon's `loginId`.
     @ObservationIgnored var signInPageBack: [String: @MainActor () -> Void] = [:]
 
     public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
@@ -88,7 +89,7 @@ public final class SettingsHarnesses {
          claudeStatus: (@Sendable (String, String?) async -> Data?)? = nil,
          userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
          unsupported: (@MainActor () -> String)? = nil,
-         openSignInPage: (@MainActor (URL) async -> (@MainActor () -> Void)?)? = nil) {
+         openSignInPage: (@MainActor (URL, [String]) async -> (@MainActor () -> Void)?)? = nil) {
         self.environment = environment
         self.fetch = fetch ?? { try await AcpmuxEnvironment.settingsHarnessRows($0) }
         self.fetchHealth = fetchHealth ?? { try await AcpmuxEnvironment.harnessHealth($0, refresh: $1) }

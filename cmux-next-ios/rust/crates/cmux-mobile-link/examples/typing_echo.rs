@@ -31,8 +31,17 @@
 //! `first_key_ms` is the echo of each burst's first key;
 //! `--foreground-probe on` starts the phone's link with its foreground
 //! probe on, as the app does with a terminal on screen.
+//! `--prewake-lead-ms L` calls `Link::prewake` L ms before each burst's
+//! first key, as the app does when the keyboard takes focus or a finger
+//! touches down (RFD 0142 T2).
+//! `--duress-kbps N` has the Mac stream N KB/s of output on a `bulk` channel
+//! on the main stream while the phone types (an agent printing as you type).
 //! Prints one JSON line: echo percentiles and the keys whose echo took more
-//! than the profile's RTT plus 50 ms.
+//! than the profile's RTT plus 50 ms, and `key_paint`: the phone's key-to-paint
+//! histogram (`cmux_mobile_link::key_paint`, the one the app reads) fed each
+//! key's paint (its echo, then the next 16.7 ms vsync, then one frame, as the
+//! terminal draws), tagged by the profile's network and the link's path, with
+//! the gaps between spikes and the period they share, if any.
 
 use std::io::Write as _;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -40,6 +49,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use cmux_mobile_link::dial::{self, SessionEvents};
+use cmux_mobile_link::key_paint;
 use cmux_mobile_link::testing::{
     FakeOptions, FakeSignaling, LinkProfile, PeriodicLoss, RadioModel, TestTurn, radio_wakes,
     set_link_profile, set_periodic_loss, set_radio_model, set_turn_answer_delay, shape_downlink,
@@ -47,6 +57,8 @@ use cmux_mobile_link::testing::{
 };
 use cmux_mobile_link::{ChannelEvent, DialOptions, Lane, LinkConfig, SignalingClient, TransportKind};
 use tokio::time::{Instant, sleep_until};
+
+const FRAME_US: u64 = 16_667;
 
 struct Args {
     profile: String,
@@ -63,7 +75,9 @@ struct Args {
     foreground_probe: bool,
     idle_air_gap_ms: Option<u64>,
     air_floor_ms: Option<u64>,
+    prewake_lead_ms: Option<u64>,
     periodic_loss: Option<PeriodicLoss>,
+    duress_kbps: u64,
 }
 
 fn args() -> Args {
@@ -82,7 +96,9 @@ fn args() -> Args {
         foreground_probe: false,
         idle_air_gap_ms: None,
         air_floor_ms: None,
+        prewake_lead_ms: None,
         periodic_loss: None,
+        duress_kbps: 0,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(flag) = iter.next() {
@@ -102,9 +118,11 @@ fn args() -> Args {
             "--foreground-probe" => parsed.foreground_probe = value == "on",
             "--idle-air-gap-ms" => parsed.idle_air_gap_ms = value.parse().ok(),
             "--air-floor-ms" => parsed.air_floor_ms = value.parse().ok(),
+            "--prewake-lead-ms" => parsed.prewake_lead_ms = value.parse().ok(),
             // PERIOD_MS:BURST_MS:PERCENT, e.g. 15000:300:40 for a Starlink-like
             // reconfiguration every 15 s (RFD 0142 O5).
             "--periodic-loss" => parsed.periodic_loss = PeriodicLoss::parse(&value),
+            "--duress-kbps" => parsed.duress_kbps = value.parse().unwrap_or(0),
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
@@ -202,6 +220,20 @@ async fn main() {
                 let (sender, mut receiver) = incoming.channel.split();
                 match incoming.service.as_str() {
                     "echo" => *echo.lock().await = Some(sender),
+                    // `--duress-kbps`: the Mac's output stream, 16 KiB at a time.
+                    "bulk" => {
+                        let kbps = incoming.args.get("kbps").and_then(serde_json::Value::as_u64).unwrap_or(0);
+                        tokio::spawn(async move {
+                            let _receiver = receiver;
+                            let chunk = Bytes::from(vec![b'x'; 16 * 1024]);
+                            let every = Duration::from_secs_f64(16.0 / kbps.max(1) as f64);
+                            let mut at = Instant::now();
+                            while kbps > 0 && sender.send(chunk.clone()).await.is_ok() {
+                                at += every;
+                                sleep_until(at.max(Instant::now())).await;
+                            }
+                        });
+                    }
                     "keys" => {
                         let echo = echo.clone();
                         tokio::spawn(async move {
@@ -240,14 +272,33 @@ async fn main() {
     let (keys_tx, _keys_rx) = keys.split();
     let on_input_stream = keys_tx.on_input_stream();
     let dialed_ms = (us() - dial_start) as f64 / 1000.0;
+    if args.duress_kbps > 0 {
+        let (_bulk_tx, mut bulk_rx) =
+            link.open("bulk", serde_json::json!({ "kbps": args.duress_kbps })).await.expect("bulk").split();
+        tokio::spawn(async move {
+            let _bulk_tx = _bulk_tx;
+            while let Some(ChannelEvent::Data(_)) = bulk_rx.recv().await {}
+        });
+    }
+    // The phone's key-to-paint meter, as the app's: the profile's network, the path now.
+    let net = if args.profile.contains("wifi") { "wifi" } else { "lte" };
+    let meter: Arc<Mutex<key_paint::Meter>> = Arc::default();
     // (seq, sent_us, echo_us) per echoed key.
     let echoes: Arc<Mutex<Vec<(u64, u64, u64)>>> = Arc::default();
     {
         let echoes = echoes.clone();
+        let meter = meter.clone();
+        let path = connected.path.clone();
         tokio::spawn(async move {
             while let Some(ChannelEvent::Data(bytes)) = echo_rx.recv().await {
                 if let Some((seq, sent)) = parse(&bytes) {
-                    lock(&echoes).push((seq, sent, us().saturating_sub(sent)));
+                    let now = us();
+                    lock(&echoes).push((seq, sent, now.saturating_sub(sent)));
+                    // Painted at the vsync after the echo is parsed, shown one frame later.
+                    let painted = now.div_ceil(FRAME_US) * FRAME_US + FRAME_US;
+                    let ms = u32::try_from(painted.saturating_sub(sent) / 1000).unwrap_or(u32::MAX);
+                    let at = Duration::from_micros(now);
+                    lock(&meter).record(ms, net, path.borrow().as_str(), at);
                 }
             }
         });
@@ -261,6 +312,9 @@ async fn main() {
     let mut firsts = std::collections::HashSet::new();
     let mut burst_at = next;
     let mut in_burst = 0u64;
+    // When the next pre-wake is due, and how many were sent.
+    let mut prewake_at: Option<Instant> = None;
+    let mut prewakes = 0u64;
     // A fixed rate, never catching up: a stalled send shows as a gap in
     // sent_ms, not as a burst.
     while next < end {
@@ -278,11 +332,22 @@ async fn main() {
                 in_burst = 0;
                 burst_at += Duration::from_secs_f64(every);
                 next = next.max(burst_at);
+                // None for a burst past the end: the loop sends none of its keys.
+                prewake_at = args
+                    .prewake_lead_ms
+                    .filter(|_| burst_at < end)
+                    .map(|lead| burst_at - Duration::from_millis(lead));
             }
         }
         let now = Instant::now();
         while next < now {
             next += interval;
+        }
+        if let Some(at) = prewake_at.take()
+            && at > now
+        {
+            sleep_until(at).await;
+            prewakes += u64::from(link.prewake());
         }
         sleep_until(next).await;
     }
@@ -326,7 +391,7 @@ async fn main() {
          \"dial_ms\":{dialed_ms:.0},\"typing_from_ms\":{:.0},\"keys_on_input_lane\":{on_input_stream},\
          \"keys_sent\":{seq},\"echoed\":{},\"echo_ms\":{{\"p50\":{:.1},\"p95\":{:.1},\"p99\":{:.1},\"max\":{:.1}}},\
          \"turn_answer_ms\":{turn_answer_ms},\"threshold_ms\":{},\"over_threshold\":{},\"datagrams\":[{delivered},{dropped}],\
-         \"final_path\":\"{path:?}\",\"radio\":{},\"radio_tail_ms\":{},\"foreground_probe\":{},\"idle_air_gap_ms\":{},\"air_floor_ms\":{},\"periodic_loss\":{},\"radio_wakes\":{wakes},\"first_key_ms\":{first_key},\"spikes\":[{}]}}",
+         \"final_path\":\"{path:?}\",\"radio\":{},\"radio_tail_ms\":{},\"foreground_probe\":{},\"idle_air_gap_ms\":{},\"air_floor_ms\":{},\"periodic_loss\":{},\"prewake_lead_ms\":{},\"prewakes\":{prewakes},\"radio_wakes\":{wakes},\"first_key_ms\":{first_key},\"duress_kbps\":{},\"key_paint\":{},\"spikes\":[{}]}}",
         args.profile,
         args.row,
         args.seconds,
@@ -350,6 +415,9 @@ async fn main() {
             loss.burst.as_millis(),
             loss.loss_percent
         )),
+        args.prewake_lead_ms.map_or("null".to_string(), |ms| ms.to_string()),
+        args.duress_kbps,
+        serde_json::to_string(&lock(&meter).snapshot()).unwrap_or_default(),
         spikes.join(","),
     );
     std::process::exit(0);

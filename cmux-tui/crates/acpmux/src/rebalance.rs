@@ -32,6 +32,14 @@
 //! reader, never half read. The registry switch `lane_overflow.rebalance.enabled` (absent: off)
 //! decides whether a pass moves anything; with it off a pass only plans (`--force` acts anyway,
 //! on one person's or agent's say).
+//!
+//! One lane per machine (Leo, 2026-11-24: "each guy gets their individual lil machine for now"):
+//! `hosts` turns the switch on per host only (absent: every host `enabled` reaches);
+//! `own_machine` sends each move to a machine of its own, claimed from `lane_overflow.providers`
+//! (freestyle-lanes `one-per-lane`, GCP as the fallback) instead of a host with room; and
+//! `awake_secs` leaves a session idle past it where it is until it next wakes (none is woken just
+//! to move). A pass may run from a hub for a peer (`--machine HOST`): its rows are that host's
+//! `session info`, the move the hub's `session move HOST/ID`.
 
 use serde_json::{Value, json};
 
@@ -48,6 +56,9 @@ pub const MAX_MOVES: usize = 4;
 pub const MIN_IDLE_SECS: u64 = 300;
 /// The capability with which an absent `workingBelow` means false.
 pub const IDLE_FACTS: &str = crate::capabilities::SESSION_IDLE_FACTS;
+/// The row field counting the daemon's background tasks the session runs, carried with
+/// [`crate::capabilities::SESSION_BG_FACTS`]; absent: unknown, the session stays.
+pub const BG_TASKS: &str = "bgTasksRunning";
 
 /// The registry's `lane_overflow.rebalance`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,11 +66,36 @@ pub struct Conf {
     pub enabled: bool,
     pub max_moves: usize,
     pub min_idle_secs: u64,
+    /// The hosts the switch is on for; `None`: every host.
+    pub hosts: Option<Vec<String>>,
+    /// Each move claims a machine of its own instead of a host with room.
+    pub own_machine: bool,
+    /// A session idle longer than this stays until it next wakes; `None`: no bound.
+    pub awake_secs: Option<u64>,
 }
 
 impl Default for Conf {
     fn default() -> Self {
-        Conf { enabled: false, max_moves: MAX_MOVES, min_idle_secs: MIN_IDLE_SECS }
+        Conf {
+            enabled: false,
+            max_moves: MAX_MOVES,
+            min_idle_secs: MIN_IDLE_SECS,
+            hosts: None,
+            own_machine: false,
+            awake_secs: None,
+        }
+    }
+}
+
+impl Conf {
+    /// Whether the switch is on for `host`: `enabled`, and `host` listed when `hosts` is set.
+    pub fn on_for(&self, host: &str) -> bool {
+        let host = crate::placement::canonical(host);
+        self.enabled
+            && self
+                .hosts
+                .as_ref()
+                .is_none_or(|hs| hs.iter().any(|h| crate::placement::canonical(h) == host))
     }
 }
 
@@ -74,7 +110,48 @@ pub fn conf(registry: Option<&Value>) -> Conf {
     if let Some(n) = spec.get("min_idle_secs").and_then(Value::as_u64) {
         c.min_idle_secs = n;
     }
+    if let Some(hs) = spec.get("hosts").and_then(Value::as_array) {
+        c.hosts = Some(hs.iter().filter_map(Value::as_str).map(str::to_owned).collect());
+    }
+    c.own_machine = spec.get("own_machine").and_then(Value::as_bool) == Some(true);
+    c.awake_secs = spec.get("awake_secs").and_then(Value::as_u64);
     c
+}
+
+/// A peer's `session info` as a row a pass judges: its `peer` dropped (the pass runs for that
+/// host), and `workingBelow` from what does run below it when it has none (a field `session
+/// info` does not carry): a background command (`commandsRunning`), a background subagent
+/// (`subagentsRunning`) or a working sub-session (`subagentsWorkingSince`). `backgroundsWork`
+/// is not one: it says the harness can background a turn (Ctrl-B), true for every Claude Code
+/// session, so reading it as work held every peer session. Unknown stays unknown: no
+/// `workingBelow` is invented from a row missing all three.
+pub fn peer_row(info: &Value) -> Value {
+    let mut row = info.clone();
+    if let Some(o) = row.as_object_mut() {
+        o.remove("peer");
+        if !o.contains_key("workingBelow") {
+            let cmds = o.get("commandsRunning").and_then(Value::as_u64);
+            let subs = o.get("subagentsRunning").and_then(Value::as_u64);
+            let since = o.get("subagentsWorkingSince");
+            if cmds.is_some() || subs.is_some() || since.is_some() {
+                let below = cmds.unwrap_or(0) > 0
+                    || subs.unwrap_or(0) > 0
+                    || since.is_some_and(Value::is_u64);
+                o.insert("workingBelow".into(), Value::Bool(below));
+            }
+        }
+    }
+    row
+}
+
+/// Why `row` stays this pass under `conf` ([`held`], then the awake bound); `None`: it may move.
+pub fn stays(row: &Value, idle_facts: bool, now_ms: u64, conf: &Conf) -> Option<&'static str> {
+    held(row, idle_facts, now_ms, conf.min_idle_secs.saturating_mul(1000)).or_else(|| {
+        let awake_ms = conf.awake_secs?.saturating_mul(1000);
+        let at = updated_ms(row)?;
+        (now_ms.saturating_sub(at) > awake_ms)
+            .then_some("asleep (idle past awake_secs): it moves when it next wakes")
+    })
 }
 
 fn local(row: &Value) -> bool {
@@ -146,6 +223,21 @@ pub fn held(row: &Value, idle_facts: bool, now_ms: u64, min_idle_ms: u64) -> Opt
         Some(Value::Bool(false)) => {}
         _ if idle_facts => {}
         _ => return Some("work below it is unknown (its daemon predates session-idle-facts-v1)"),
+    }
+    // The daemon's own background tasks (`bg_start`, `run_wait`, a backgrounded shell) stay on
+    // this host when the session moves: its wake would be lost. The move re-arms none of them
+    // yet, so any one running holds the session; a row without the count (a daemon before
+    // `session-bg-facts-v1`, old or a peer's) is unknown and held too.
+    match row.get(BG_TASKS).and_then(Value::as_u64) {
+        Some(0) => {}
+        Some(_) => {
+            return Some("a background task runs (a move cannot re-arm it at the destination)");
+        }
+        None => {
+            return Some(
+                "its background tasks are unknown (its daemon predates session-bg-facts-v1)",
+            );
+        }
     }
     if set(row, "starting") {
         return Some("it is starting");
@@ -223,6 +315,8 @@ pub struct Plan {
     pub moves: Vec<Move>,
     /// Sessions over the cap that could move but found no host with room: a fresh machine's worth.
     pub spill: usize,
+    /// Those sessions (`target` empty): with `own_machine`, each goes to a machine claimed for it.
+    pub fresh: Vec<Move>,
     /// Each live session that stays, and why (only while over the cap).
     pub held: Vec<(String, &'static str)>,
     pub why: String,
@@ -235,6 +329,8 @@ impl Plan {
             "excess": self.excess, "spill": self.spill, "why": self.why,
             "moves": self.moves.iter().map(|m| json!({"sessionId": m.session_id, "name": m.name,
                 "target": m.target})).collect::<Vec<_>>(),
+            "fresh": self.fresh.iter().map(|m| json!({"sessionId": m.session_id, "name": m.name}))
+                .collect::<Vec<_>>(),
             "held": self.held.iter().map(|(id, why)| json!({"sessionId": id, "why": why}))
                 .collect::<Vec<_>>(),
         })
@@ -262,11 +358,10 @@ pub fn plan(
         p.why = format!("{} live, at or under its cap of {cap}", live.len());
         return p;
     }
-    let min_idle_ms = conf.min_idle_secs.saturating_mul(1000);
     let mut movable: Vec<&Value> = Vec::new();
     for r in &live {
         let id = r.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
-        match held(r, idle_facts, now_ms, min_idle_ms) {
+        match stays(r, idle_facts, now_ms, conf) {
             Some(why) => p.held.push((id, why)),
             None => movable.push(r),
         }
@@ -275,22 +370,24 @@ pub fn plan(
     movable.sort_by_key(|r| updated_ms(r).unwrap_or(u64::MAX));
     let want = p.excess.min(conf.max_moves);
     for r in movable.into_iter().take(want) {
-        let Some(t) = targets.iter_mut().find(|t| t.room >= 1.0) else {
+        let id = r.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let name = r.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
+        let free = if conf.own_machine { None } else { targets.iter_mut().find(|t| t.room >= 1.0) };
+        let Some(t) = free else {
             p.spill += 1;
+            p.fresh.push(Move { session_id: id, name, target: String::new() });
             continue;
         };
         t.room -= 1.0;
-        let id = r.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
-        let name = r.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
         p.moves.push(Move { session_id: id, name, target: t.name.clone() });
     }
     p.why = format!(
-        "{} live over its cap of {cap}: {} to move (at most {} a pass), {} with no host that has \
-         room, {} held",
+        "{} live over its cap of {cap}: {} to move (at most {} a pass), {} {}, {} held",
         live.len(),
         p.moves.len(),
         conf.max_moves,
         p.spill,
+        if conf.own_machine { "to a machine of its own" } else { "with no host that has room" },
         p.held.len()
     );
     p

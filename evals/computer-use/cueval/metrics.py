@@ -158,6 +158,9 @@ def result_fields(body: str) -> dict:
     out["waited_ms"] = st.get("waited_ms")
     out["settle"] = st.get("settle")
     out["unchanged"] = st.get("unchanged", head.get("unchanged"))
+    timing = head.get("timing") if isinstance(head.get("timing"), dict) else {}
+    enc = timing.get("encode_ms", head.get("encode_ms"))
+    out["encode_ms"] = enc if isinstance(enc, (int, float)) else None
     if isinstance(head.get("results"), list):  # batch: the steps' own waits
         waits = [r.get("waited_ms") or (r.get("state") or {}).get("waited_ms") for r in head["results"]
                  if isinstance(r, dict)]

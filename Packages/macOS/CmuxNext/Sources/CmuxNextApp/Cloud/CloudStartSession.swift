@@ -44,12 +44,7 @@ struct CloudStartSession {
 
         /// The command that asks for this again, every word as the shell reads it back.
         var command: String {
-            var words = ["cmux cloud start-session"]
-            if let machineID { words.append("--target machine:" + CloudStartCore.shellQuoted(machineID)) } else { words.append("--name " + CloudStartCore.shellQuoted(name ?? "")) }
-            words.append("--agent " + agent + (model.map { " --model " + CloudStartCore.shellQuoted($0) } ?? ""))
-            if let cwd { words.append("--cwd " + CloudStartCore.shellQuoted(cwd)) }
-            if let fromFolder { words.append("--from-folder " + CloudStartCore.shellQuoted(fromFolder)) }
-            return words.joined(separator: " ")
+            CloudStartCore().launchCommand(.init(machineId: machineID, name: name, agent: agent, cwd: cwd, fromFolder: fromFolder, model: model))
         }
 
         func asked(machine: String) -> CloudStartSessionStrings.Asked {
@@ -192,19 +187,13 @@ struct CloudStartSession {
 
     /// The run's arguments, checked: `--agent` is a harness id, `--cwd` an absolute folder, `--from-folder` one on this Mac.
     static func request(_ invocation: ActionInvocation) throws -> Request {
-        let agent = invocation["agent"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789._-")
-        guard !agent.isEmpty, agent.utf8.count <= 64, agent.unicodeScalars.allSatisfy(allowed.contains), let first = agent.first, first.isLetter || first.isNumber else {
-            throw ActionFailure(message: CloudStartSessionStrings.agentInvalid)
+        let checked = CloudStartCore().launchRun(agent: invocation["agent"]?.stringValue, cwd: invocation["cwd"]?.stringValue, name: invocation["name"]?.stringValue,
+                                                 model: invocation["model"]?.stringValue, machineId: invocation.target.flatMap { $0.kind == .machine ? $0.id : nil })
+        switch checked {
+        case .failure(let invalid): throw ActionFailure(message: invalid == .cwd ? CloudStartSessionStrings.cwdInvalid : CloudStartSessionStrings.agentInvalid)
+        case .success(let run): // the machine checks the model
+            return Request(machineID: run.machineId, name: run.name, agent: run.agent, cwd: run.cwd, fromFolder: try Self.fromFolder(invocation, cwd: run.cwd), model: run.model)
         }
-        var cwd = invocation["cwd"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-        if cwd?.isEmpty == true { cwd = nil }
-        if let cwd, !cwd.hasPrefix("/") || cwd.utf8.count > 4096 || cwd.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) {
-            throw ActionFailure(message: CloudStartSessionStrings.cwdInvalid)
-        }
-        let machineID = invocation.target.flatMap { $0.kind == .machine ? $0.id : nil }
-        let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: try Self.fromFolder(invocation, cwd: cwd), model: invocation["model"]?.stringValue.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }) // the machine checks the model
     }
 
     /// Takes or creates the machine, connects, opens the chat's tab there and starts the session.
@@ -225,11 +214,11 @@ struct CloudStartSession {
     private func recorded(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, capCard: Bool, askedBy: String?,
                           revealing: Bool) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
-        try still(request.name ?? request.machineID ?? ""); if let refused = await services.cloud.setup.refusal(harness: request.agent, model: request.model) { throw ActionFailure(message: CloudStartSessionStrings.setupRequired(agent: request.agent, family: refused.family, localLogin: refused.localLogin, link: "\(services.linkScheme)://settings/cloud/\(refused.settingsRow)", command: request.command)) } // Cloud first use, as the composer's start (CloudStartChat.reply): nothing on this Mac or the team serving the agent takes or creates no machine (its first turn could only fail)
+        try still(request.name ?? request.machineID ?? ""); if let refused = await services.cloud.setup.refusal(harness: request.agent, model: request.model) { throw ActionFailure(message: CloudStartSessionStrings.setupRequired(agent: request.agent, family: refused.family, localLogin: refused.localLogin, link: "\(services.linkScheme)://settings/cloud/\(refused.settingsRow)", command: request.command, gatewayTeam: refused.gateway?.team, gatewayCode: refused.gateway.map { $0.errorCode ?? "not_serving" })) } // Cloud first use, as the composer's start (CloudStartChat.reply): nothing on this Mac or the team serving the agent takes or creates no machine (its first turn could only fail)
         if let local = request.fromFolder, let refused = await services.cloud.move.refusedSource(local, home: NSHomeDirectory(), acpmuxHome: QuitAgents.environment(services)?.home.path, message: { Self.message($0, folder: local) }) { throw ActionFailure(message: refused) } // before any machine
         if let local = request.fromFolder, let cli = services.cloud.move.cli { do { _ = try await CloudMoveCLI(binary: cli).startChatSize(local: local) } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { throw ActionFailure(message: refusal.message) } } // past the copy's limits, or past the largest machine
         let steps = CloudStartSteps(logger: services.cloud.logger)
-        let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) { [setup = services.cloud.setup, agent = request.agent, model = request.model] in await setup.choose(harness: agent, model: model, account: nil).servedWithoutMacGateway } // No login step: only the first turn needs this Mac's gateway, so it comes up beside the steps; a chat its connection or the organization's key serves waits for none
+        let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) { [setup = services.cloud.setup, agent = request.agent, model = request.model] in await setup.choose(harness: agent, model: model, account: nil) } // No login step: only the first turn needs this Mac's gateway, so it comes up beside the steps; a chat its connection, the organization's key or another gateway of the person's serves waits for none (PersonalGateway.servedElsewhere)
         let (session, made) = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         steps.done("machine") // the list read and the take, or the create's answer
         // A machine this run made is its alone until the session runs: a start that fails for good deletes it and says so (hq#11835 row 8), as the composer's start does (CloudStartChat+Machine).
@@ -248,31 +237,24 @@ struct CloudStartSession {
         services.cloud.startGate.enter(id)
         defer { services.cloud.startGate.leave(id) }
         // Remote approvals run beside the copy, as the composer's (awaited on every exit, cancelled on an error one); a machine this run made runs nobody's agent, so its status is not read. Their Cloud API execs need the machine running, which a new one is once connected. On a claimed spare already connecting they start beside the connect (Leo: "<30 seconds from starting a thing to having a response on cloud"), keeping no busy answer: a false one is asked again after the connect.
-        let copy: (chat: String, trusted: Bool)? = try await RemoteApprovalPreparations.owned(early: !made && session.daemon.connection != nil, connect: { try await connected(session, request, account: account, byPerson: byPerson); steps.done("connect"); try still(name) }, prepare: { [services] early in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus, proceed: { account == services.cloud.account }, cacheBusy: !early) }) {
-            let folder = try await copiedIfAsked(request, to: session, account: account); steps.done("copy"); return folder // before the session starts in it
-        }, cwd = copy?.chat ?? request.cwd
-        try still(name); steps.done("approvals"); let credential = await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID; if credential != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: agent)) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them; then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
+        let chatKey = "cloud-start-session-" + UUID().uuidString.lowercased(), daemon = session.daemon, credential = await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID // one key per run, so a relink finds the chat again
+        // The chat's workspace and tab live in the machine's cmux-tui, which the keyed restart leaves running (it restarts acpmux alone), and an unbound agent tab is no
+        // live agent to its rule (`keyed_restart_reason`): so the tab opens beside the restart, not after it (ask-e543f8f962, Leo: "we can assist in the startup locally too").
+        // A daemon this start updates first (one that would drop the owner's model credential) opens it after the update, as before.
+        let opensBeside = { credential == nil || session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: agent)) }
+        let (copy, early): ((chat: String, trusted: Bool)?, OpenedChat?) = try await RemoteApprovalPreparations.owned(early: !made && session.daemon.connection != nil, connect: { try await connected(session, request, account: account, byPerson: byPerson); steps.done("connect"); try still(name) }, prepare: { [services] early in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus, proceed: { account == services.cloud.account }, cacheBusy: !early) }) {
+            let folder = try await copiedIfAsked(request, to: session, account: account); steps.done("copy") // before the session starts in it
+            guard opensBeside() else { return (folder, nil) }
+            let chat = try await openChat(on: session, request, account: account, byPerson: byPerson, cwd: folder?.chat ?? request.cwd, chatKey: chatKey); steps.done("anchor"); return (folder, chat)
+        }
+        let cwd = copy?.chat ?? request.cwd
+        try still(name); steps.done("approvals"); if credential != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: agent)) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them (0 ms when they finished beside the copy and the tab's open); then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
-        let anchor: (id: String, key: WorkspaceKey, pane: PaneModel), opened: (key: String, surface: SurfaceID), chatKey = "cloud-start-session-" + UUID().uuidString.lowercased(), daemon = session.daemon // the chat's own workspace, the chat its only tab (CloudMachineWorkspace.chatTab): no terminal; one key per run, so a relink finds it again
-        do {
-            let made = try await CloudWait.relinkedOnce(epoch: { session.daemon.store.connectionEpoch }, held: session.linkHeld, relink: { guard (try? await connected(session, request, account: account, byPerson: byPerson)) != nil else { return false }; return await CloudMachineWorkspace.live(session.daemon.store, within: Self.connectWait) }) { [services] in
-                try Self.check(account, now: services.cloud.account, request.asked(machine: name)); let open = { (workspace: WorkspaceHandle) in try await services.agentTabs.openFirstPage(workspace: workspace, cwd: cwd, on: daemon, source: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)), mutationID: chatKey) }
-                return try await CloudMachineWorkspace.chatTab(tabKey: chatKey, in: daemon.store, notConnected: ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent)), anchor: { await CloudHandlers.mirroredAnchor(id: $0, on: session) }, open: open) { key in
-                    _ = try await services.machines.local.connection?.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: services.machines.local.store.profile(services.windows.active?.state.profileID ?? .defaultProfile)?.id) // listed in the active window's profile
-                    guard let connection = daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }; return try await WorkspaceCreation.createWithFirstTab(key, name: nil, on: connection, repair: services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)) { try await open($0.workspace) }
-                }
-            }
-            (anchor, opened) = (made.anchor, made.tab)
-        } catch let changed as AccountChanged {
-            throw changed.failure
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
-        }
-        steps.done("anchor")
+        let chat: OpenedChat
+        if let early { chat = early } else { chat = try await openChat(on: session, request, account: account, byPerson: byPerson, cwd: cwd, chatKey: chatKey); steps.done("anchor") }
+        let anchor = chat.anchor, opened = chat.tab
         try still(name)
         let started: AgentTabRemoteStart.Started, tabKey = opened.key
         do {
@@ -321,6 +303,31 @@ struct CloudStartSession {
         ]
     }
 
+    /// The start's chat on its machine: its workspace and tab (opened, or with `chatKey` found again on a relink).
+    typealias OpenedChat = (anchor: (id: String, key: WorkspaceKey, pane: PaneModel), tab: (key: String, surface: SurfaceID))
+
+    /// Opens the start's own chat on `session` in `cwd`: its own workspace, the chat its only tab (CloudMachineWorkspace.chatTab), no terminal.
+    /// It runs beside the keyed restart of the machine's acpmux (``started(on:made:_:_:_:account:byPerson:revealing:steps:gateway:)``): it touches cmux-tui alone.
+    private func openChat(on session: CloudMachineSession, _ request: Request, account: [String?], byPerson: Bool, cwd: String?, chatKey: String) async throws -> OpenedChat {
+        let name = session.machine.title, id = session.machineID, agent = request.agent, daemon = session.daemon
+        do {
+            let made = try await CloudWait.relinkedOnce(epoch: { session.daemon.store.connectionEpoch }, held: session.linkHeld, relink: { guard (try? await connected(session, request, account: account, byPerson: byPerson)) != nil else { return false }; return await CloudMachineWorkspace.live(session.daemon.store, within: Self.connectWait) }) { [services] in
+                try Self.check(account, now: services.cloud.account, request.asked(machine: name)); let open = { (workspace: WorkspaceHandle) in try await services.agentTabs.openFirstPage(workspace: workspace, cwd: cwd, on: daemon, source: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)), mutationID: chatKey) }
+                return try await CloudMachineWorkspace.chatTab(tabKey: chatKey, in: daemon.store, notConnected: ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent)), anchor: { await CloudHandlers.mirroredAnchor(id: $0, on: session) }, open: open) { key in
+                    _ = try await services.machines.local.connection?.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: services.machines.local.store.profile(services.windows.active?.state.profileID ?? .defaultProfile)?.id) // listed in the active window's profile
+                    guard let connection = daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }; return try await WorkspaceCreation.createWithFirstTab(key, name: nil, on: connection, repair: services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)) { try await open($0.workspace) }
+                }
+            }
+            return (made.anchor, made.tab)
+        } catch let changed as AccountChanged {
+            throw changed.failure
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
+        }
+    }
+
     /// The store's tab of the chat this run opened. The person closing it before the store
     /// answered is no account change: the refusal says the tab closed and gives the command.
     static func created(_ pending: AgentTabPending, name: String, id: String, agent: String) async throws -> AgentTabCreated {
@@ -367,16 +374,15 @@ struct CloudStartSession {
 
     /// The start's refusal in the run's words: the machine is up, its agent is not.
     static func startFailure(_ error: any Error, name: String, id: String, agent: String) -> String {
-        if let refusal = error as? AgentRemoteStartRefusal {
-            switch refusal.code {
-            case AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home": return CloudStartSessionStrings.needsFolder(name, id: id, agent: agent)
-            case let code where CloudStartSessionStrings.namedRefusals.contains(code): return CloudStartSessionStrings.namedRefusal(code, name, id: id, agent: agent, agentName: refusal.agentName ?? agent.chiefHarnessName, expired: refusal.signInExpired, harness: refusal.harness ?? agent) // never "its agent didn't (agent_session.refused)" (hq#11225)
-            default:
-                return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(refusal.userMessage))
-            }
+        let refusal = error as? AgentRemoteStartRefusal
+        let message = refusal?.userMessage ?? (error as? AgentTabRefusal)?.message ?? (error as? ActionFailure)?.message ?? String(describing: error)
+        switch (CloudStartCore().launchFailure(code: refusal?.code, message: message, folderNeeded: AgentRemoteStartRefusal.folderNeededCode, named: CloudStartSessionStrings.namedRefusals), refusal) {
+        case (.needsFolder, _): return CloudStartSessionStrings.needsFolder(name, id: id, agent: agent)
+        case (.named(let code), let refusal?): // never "its agent didn't (agent_session.refused)" (hq#11225)
+            return CloudStartSessionStrings.namedRefusal(code, name, id: id, agent: agent, agentName: refusal.agentName ?? agent.chiefHarnessName, expired: refusal.signInExpired, harness: refusal.harness ?? agent)
+        case (.failed(let reason), _): return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: reason)
+        case (.named, nil): return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(message))
         }
-        let reason = (error as? AgentTabRefusal)?.message ?? (error as? ActionFailure)?.message ?? String(describing: error)
-        return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(reason))
     }
 
     /// `body`, the start past its machine. A failure that strands the start (``CloudMoveCLI/StartChatPlan/strands(_:)``) on a

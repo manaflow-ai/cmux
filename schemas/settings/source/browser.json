@@ -83,7 +83,8 @@
           "default": [
             "media",
             "zoom",
-            "downloads"
+            "downloads",
+            "profile"
           ],
           "keywords": [
             "toolbar",
@@ -890,6 +891,29 @@
             "https",
             "www",
             "full",
+            "omnibox"
+          ]
+        },
+        {
+          "key": "browser.omnibar.quietIcons",
+          "note": "Leo 2026-11-22 asked to hide the site-info icon and the star at rest; Austin's #50986 asked for them always visible. Off keeps #50986's full strength.",
+          "title": {
+            "key": "settings.browser.omnibar.quietIcons",
+            "text": "Quiet Address Bar Icons"
+          },
+          "help": {
+            "key": "settings.browser.omnibar.quietIcons.help",
+            "text": "Fades the site info icon and the bookmark star until you point at or click into the address bar."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "star",
+            "bookmark",
+            "site info",
+            "icon",
+            "fade",
+            "hide",
             "omnibox"
           ]
         },

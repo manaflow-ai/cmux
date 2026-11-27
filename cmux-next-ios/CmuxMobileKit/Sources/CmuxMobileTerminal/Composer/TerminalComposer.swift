@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import CmuxMobileArtifacts
 import CmuxMobileDesign
 import CmuxMobileRealtime
 import CmuxMobileTransport
@@ -31,6 +32,15 @@ struct TerminalComposer: View {
     @AppStorage(CmuxMobilePreferences.Key.terminalComposerAutocorrect)
     private var autocorrect = CmuxMobilePreferences.defaultTerminalComposerAutocorrect
 
+    #if DEBUG
+    /// The accessibility probes are opt-in so ordinary debug UI tests keep the same
+    /// view hierarchy and query cost as a production launch. The composer-edge test
+    /// enables them explicitly when it needs to inspect hit routing.
+    private var tapProbeEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("-cmuxMobileComposerTapProbe")
+    }
+    #endif
+
     var body: some View {
         #if DEBUG
         let _ = InputLatencyTrace.shared?.count("composer_body")
@@ -48,6 +58,13 @@ struct TerminalComposer: View {
             card
         }
         .overlay(alignment: .topLeading) { floatingNotes }
+        #if DEBUG
+        .background(alignment: .bottomLeading) {
+            if tapProbeEnabled {
+                KeyBarFiredProbe(model: model)
+            }
+        }
+        #endif
         .padding(.horizontal, ComposerCardMetrics.horizontalInset)
         // Always its own height, never the hosting view's current one (kept
         // from #41900): the hosting view takes a taller row's height a pass
@@ -81,9 +98,14 @@ struct TerminalComposer: View {
         }
         .fullScreenCover(isPresented: $showCamera) {
             TerminalCameraPicker { image in
-                guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-                model.addAttachment(ComposerAttachment(kind: .image, name: "Camera \(Self.stamp()).jpg",
-                                                       thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
+                guard let data = image.jpegData(compressionQuality: AttachmentImageEncoder.jpegQuality) else { return }
+                let name = "Camera \(Self.stamp()).jpg"
+                let thumbnail = image.preparingThumbnail(of: CGSize(width: 168, height: 168))
+                // A camera frame is 12 MP: shrink it as the chat composer does, before it is attached.
+                Task {
+                    let shrunk = await Self.shrinkImage(data, name: name)
+                    model.addAttachment(ComposerAttachment(kind: .image, name: shrunk.name, thumbnail: thumbnail, data: shrunk.data))
+                }
             }
             .ignoresSafeArea()
         }
@@ -182,8 +204,14 @@ struct TerminalComposer: View {
     /// terminal theme's colors over the same Liquid Glass, so it reads as part of the pane.
     private var card: some View {
         ComposerCard(look: look.card, lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight) {
+            // Strip and text share the cap: the field gives the strip its
+            // height, and the page's inset leaves out what reaches above the
+            // field's own height, so no row moves (Leo, 2026-11-23: "simply
+            // have it within the top part of the composer. the inner area grows
+            // at the top. no shift, nothing.").
             if !model.attachments.isEmpty {
                 AttachmentStrip(model: model)
+                    .frame(height: ComposerHeightCap.stripHeight, alignment: .top)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         } leading: {
@@ -207,23 +235,54 @@ struct TerminalComposer: View {
                 onReturn: { send() },
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil,
-                autocorrect: autocorrect
+                autocorrect: autocorrect,
+                stripReserve: ComposerHeightCap.stripReserve(hasAttachments: !model.attachments.isEmpty),
+                fieldRef: model.composerField
             )
         } trailing: {
-            primaryButton
+            HStack(spacing: 0) {
+                // "Beside Send": a waveform just left of send, which stays send
+                // (Claude's and ChatGPT's composers keep voice next to send).
+                if voice.placement.voiceBesideSend, let source = voiceSource {
+                    besideSendVoiceButton(source)
+                }
+                primaryButton
+            }
         }
         .foregroundStyle(look.ink)
+        // The card's own id (ComposerCard is one container element, #55113), so a test
+        // can find the card: ComposerGlassColorUITests samples its glass as the draft grows.
+        .accessibilityIdentifier("terminal.composer.card")
     }
 
     /// The pane's colors: the Mac's terminal theme, else the app default.
     private var look: TerminalPillLook { TerminalPillLook(theme: model.hostTheme) }
 
+    /// "Beside Send": a plain waveform the size of the send circle, so the
+    /// field keeps one filled circle (send); voice mode on fills it.
+    private func besideSendVoiceButton(_ source: any AgentVoiceSource) -> some View {
+        let active = voice.isActive(source.voiceSourceID)
+        return Button {
+            voice.toggle(source)
+        } label: {
+            Image(systemName: "waveform")
+                .font(.system(size: 15, weight: active ? .bold : .regular))
+                .foregroundStyle(active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(look.ink))
+                .symbolEffect(.variableColor.iterative, isActive: active)
+                .composerControlCircle(active ? AnyShapeStyle(Color.cmuxMobileAccent) : AnyShapeStyle(Color.clear))
+        }
+        .buttonStyle(.cmuxPressFillInLabel)
+        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+        .accessibilityIdentifier("terminal.composer.voice")
+    }
+
     /// Send, or with "In Send Button" and nothing to send, voice mode (the
     /// ChatGPT composer): one circle, never a disabled send beside a mic.
     @ViewBuilder private var primaryButton: some View {
         let empty = !model.composerHasText && model.attachments.isEmpty
-        if voice.placement == .sendButton, let source = voiceSource,
-           (empty && !model.isUploading) || voice.isActive(source.voiceSourceID) {
+        if let source = voiceSource,
+           voice.placement.sendCircleIsVoice(nothingToSend: empty && !model.isUploading,
+                                             voiceActive: voice.isActive(source.voiceSourceID)) {
             sendCircleVoiceButton(source)
         } else {
             sendButton
@@ -250,7 +309,11 @@ struct TerminalComposer: View {
         let canSend = model.composerHasText || !model.attachments.isEmpty
         let failed = model.attachmentError != nil
         return Button {
-            send()
+            if model.isUploading {
+                model.cancelAttachmentSend()
+            } else {
+                send()
+            }
         } label: {
             ZStack {
                 if model.isUploading {
@@ -258,7 +321,7 @@ struct TerminalComposer: View {
                 } else {
                     Image(systemName: failed ? "exclamationmark" : "arrow.up")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(failed ? AnyShapeStyle(Color.white) : canSend ? AnyShapeStyle(Color.cmuxMobileOnSend) : AnyShapeStyle(Color(uiColor: .tertiaryLabel)))
+                        .foregroundStyle(failed ? AnyShapeStyle(CmuxMobileTheme.standard.colors.onAccent.color) : canSend ? AnyShapeStyle(Color.cmuxMobileOnSend) : AnyShapeStyle(Color(uiColor: .tertiaryLabel)))
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
@@ -266,19 +329,21 @@ struct TerminalComposer: View {
             // (`Color.cmuxMobileSend`, never a white disk). Tinted glass washed
             // it out to a pale disc (Leo, 2026-11-22: "the send button is
             // themed/coloured slightly oddly"). Empty (disabled): the faint fill.
-            .composerControlCircle(failed ? AnyShapeStyle(Color.red)
+            .composerControlCircle(failed ? AnyShapeStyle(CmuxMobileTheme.standard.colors.danger.color)
                                    : canSend || model.isUploading ? AnyShapeStyle(Color.cmuxMobileSend)
                                    : AnyShapeStyle(Color.cmuxMobileFill))
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
         .buttonStyle(.cmuxPressFillInLabel)
-        .disabled(model.isUploading || !canSend)
+        .disabled(!canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
                 model.sendWithoutReturn()
             }
         }
-        .accessibilityLabel(model.isUploading ? "Sending" : failed ? "Send failed" : "Send")
+
+        .accessibilityLabel(model.isUploading ? CmuxMobileTerminalAccessibility.cancelSending : failed ? "Send failed" : "Send")
+
         .accessibilityIdentifier("terminal.composer.send")
     }
 
@@ -302,9 +367,18 @@ struct TerminalComposer: View {
                                              string: board.hasStrings ? board.string : nil)
         switch route {
         case .image:
-            guard let image = board.image, let data = image.pngData() else { return }
-            model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(Self.stamp()).png",
-                                                   thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
+            let stamp = Self.stamp()
+            let images = board.composerImages()
+            // A pasted screenshot is full resolution: shrink each as the chat composer does, before it is attached.
+            Task {
+                for (index, item) in images.enumerated() {
+                    let ext = UTType(mimeType: item.mimeType)?.preferredFilenameExtension ?? "png"
+                    let suffix = index == 0 ? "" : " \(index + 1)"
+                    let thumbnail = UIImage(data: item.data)?.preparingThumbnail(of: CGSize(width: 168, height: 168))
+                    let shrunk = await Self.shrinkImage(item.data, name: "Pasted image \(stamp)\(suffix).\(ext)")
+                    model.addAttachment(ComposerAttachment(kind: .image, name: shrunk.name, thumbnail: thumbnail, data: shrunk.data))
+                }
+            }
         case .file(let url):
             Task { await loadFiles([url]) }
         case .text(let text):
@@ -317,6 +391,16 @@ struct TerminalComposer: View {
     // MARK: Loading attachments
 
     /// Picked photos and videos keep their bytes (a video its local copy).
+    /// The chat composer's photo size (``AttachmentImageEncoder``: 2048 px, JPEG 0.82), off the
+    /// main actor. The original bytes and name stay when the encoder declines (already small, animated).
+    private static func shrinkImage(_ data: Data, name: String) async -> (data: Data, name: String) {
+        await Task.detached(priority: .userInitiated) {
+            guard let encoded = AttachmentImageEncoder.encode(data) else { return (data, name) }
+            let base = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent
+            return (encoded.data, "\(base).\(encoded.ext)")
+        }.value
+    }
+
     /// Photos has no file name for an item without library access, so the
     /// name says what it is and when it was attached.
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
@@ -333,7 +417,10 @@ struct TerminalComposer: View {
             } else if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
                 let thumbnail = await image.byPreparingThumbnail(ofSize: CGSize(width: 168, height: 168))
                 let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                model.addAttachment(ComposerAttachment(kind: .image, name: "Photo \(stamp)\(suffix).\(ext)", thumbnail: thumbnail, data: data))
+                // The library's original (HEIC or JPEG, 12 MP) shrinks to 2048 px before it is
+                // attached, as the chat composer's photos do, so the link carries the small copy.
+                let shrunk = await Self.shrinkImage(data, name: "Photo \(stamp)\(suffix).\(ext)")
+                model.addAttachment(ComposerAttachment(kind: .image, name: shrunk.name, thumbnail: thumbnail, data: shrunk.data))
             }
         }
     }
@@ -385,6 +472,34 @@ struct TerminalComposer: View {
         return UIImage(cgImage: image)
     }
 }
+
+#if DEBUG
+/// DEBUG, for TerminalComposerTapBleedUITests: which key-row keys fired ("count:id") and how
+/// many touches reached the joystick, so a test can tell that a tap on the composer reached no
+/// key. Its own view: only it reads the counters, never the composer's body.
+private struct KeyBarFiredProbe: View {
+    let model: TerminalModel
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityLabel("Key row probe")
+                .accessibilityValue("\(model.keyBarFired)|joystick:\(model.joystickEngine.touches)")
+                .accessibilityIdentifier("terminal.keyBar.fired")
+            // Where typed keys go: "terminal" while the surface has them, else "composer".
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityLabel("Typing target probe")
+                .accessibilityValue(model.directTyping ? "terminal" : "composer")
+                .accessibilityIdentifier("terminal.typingTarget")
+        }
+        .allowsHitTesting(false)
+    }
+}
+#endif
 
 /// The composer's quiet chrome on the terminal theme's background.
 enum ComposerChrome {
@@ -442,10 +557,11 @@ struct AttachmentStrip: View {
                                 // Opaque, ringed badge (as in Messages): readable over any thumbnail.
                                 Image(systemName: "xmark")
                                     .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(CmuxMobileTheme.standard.colors.label.color)
                                     .frame(width: 22, height: 22)
-                                    // Glass, darkened so it reads over any thumbnail (as in Messages).
-                                    .glassEffect(.regular.tint(.black.opacity(0.5)).interactive(), in: .circle)
+                                    // The theme's floating glass (its surface at the transient veil),
+                                    // so it reads over any thumbnail and follows the Mac's theme.
+                                    .cmuxMobileFloatingGlass(in: .circle, interactive: true)
                                     .frame(width: 44, height: 44)
                                     .contentShape(.rect)
                             }

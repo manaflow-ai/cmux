@@ -210,6 +210,11 @@ packages:
     path: CmuxMobileKit
   CmuxChiefVoiceCore:
     path: ../Packages/Shared/CmuxChiefVoiceCore
+  # Swift live code in the simulator (scripts/live-code/ios-sim.sh); only DEBUG code uses it. Linked
+  # into every configuration, but on iOS its sources compile only with DEBUG, so a Release, TestFlight
+  # or App Store binary holds none of it (Packages/Shared/CmuxLiveCode/Sources/CmuxLiveCode/LiveEngine.swift).
+  CmuxLiveCode:
+    path: ../Packages/Shared/CmuxLiveCode
   CmuxConversation:
     path: ../Packages/iOS/CmuxConversation
 targets:
@@ -234,6 +239,7 @@ targets:
       - package: CmuxMobileKit
         product: CmuxMobileChief
       - package: CmuxChiefVoiceCore
+      - package: CmuxLiveCode
       # Long-press view of every cmux notification (verify/rich-push.md).
       - target: CmuxMobileNotificationContent
       # Opens sealed pushes (verify/notifications-trust.md).
@@ -386,7 +392,7 @@ targets:
         NSPhotoLibraryAddUsageDescription: Save images from your sessions to Photos.
         NSPhotoLibraryUsageDescription: Attach photos to messages for Chief and your agents.
         NSMicrophoneUsageDescription: Talk to Chief on calls and record audio messages for Chief and your agents.
-        NSSpeechRecognitionUsageDescription: Turn your voice notes for Chief into text on this device. Audio is not sent for recognition.
+        NSSpeechRecognitionUsageDescription: Turn your voice notes for Chief into text on this device, and dictate messages. Dictation uses Apple's speech recognition on this device when it can, otherwise Apple's servers.
         # The Action Button Chief call keeps recording while the phone is locked.
         UIBackgroundModes: [audio]
         NSFaceIDUsageDescription: Unlock cmux with Face ID when Require Face ID is on.

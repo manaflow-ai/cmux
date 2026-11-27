@@ -212,7 +212,10 @@ const KINDS: Record<string, (ctx: Ctx, step: FlowStep) => Promise<Result>> = {
     const slug = r.body?.app_slug ?? null;
     ctx.vars.app_slug = typeof slug === "string" ? slug : "";
     const detail = `configured ${r.body?.configured === true}, app_slug ${JSON.stringify(slug)}, connection ${r.body?.connection?.status ?? "none"}`;
-    if (r.body?.configured !== true || slug !== ctx.vars.slug) throw new Error(`${detail}; want configured true and app_slug "${ctx.vars.slug}" (the staging API's GitHub App setting)`);
+    // `slug` pins one App; unset, the slug the API names (read from GitHub's GET /app, so a renamed App passes) is used.
+    const want = ctx.vars.slug ?? "";
+    if (r.body?.configured !== true || typeof slug !== "string" || !slug.trim() || (want && slug !== want)) throw new Error(`${detail}; want configured true and app_slug ${want ? `"${want}"` : "named"} (the staging API's GitHub App setting)`);
+    if (!want) ctx.vars.slug = slug;
     return done(detail);
   },
 
