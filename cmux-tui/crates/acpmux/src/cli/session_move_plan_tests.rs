@@ -169,6 +169,14 @@ fn a_checkout_with_no_origin_moves_as_a_bundle_at_the_same_path() {
     assert!(e.contains("--carry-changes"), "dirty still asks first: {e}");
     let f = plan_folder(cwd, home, Some(&none), "/home/cmux", true, None).unwrap();
     assert!(matches!(f, Folder::Bundle { dirty: true, .. }), "{f:?}");
+    for origin in ["/srv/git/demo.git", "http://127.0.0.1:47380/github.com/o/n.git"] {
+        let odd = Checkout { origin: Some(origin.into()), dirty: false, ..none.clone() };
+        let f = plan_folder(cwd, home, Some(&odd), "/home/cmux", false, None).unwrap();
+        assert!(
+            matches!(f, Folder::Bundle { .. }),
+            "{origin}: an origin with no owner/name bundles: {f:?}"
+        );
+    }
     let outside = Checkout { top: "/srv/demo".into(), ..none.clone() };
     let e = plan_folder(Path::new("/srv/demo"), home, Some(&outside), "/h", true, None);
     assert!(e.unwrap_err().contains("outside this machine's home"));

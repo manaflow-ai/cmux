@@ -192,12 +192,9 @@ pub(crate) fn plan_folder(
         if !plain_branch(branch) {
             return Err(format!("branch {branch:?} is not a plain branch name"));
         }
-        let repo = match c.origin.as_deref() {
-            Some(url) => Some(repo_slug(url).ok_or_else(|| {
-                format!("origin of {} is not an owner/name remote", c.top.display())
-            })?),
-            None => None,
-        };
+        // An origin that names no GitHub-style owner/name (a local mirror path, a proxy URL) is
+        // nowhere the target can clone from, so it moves as a checkout with no origin does.
+        let repo = c.origin.as_deref().and_then(repo_slug);
         if c.dirty && !leave_dirty {
             return Err(format!(
                 "{} has uncommitted changes: commit them, pass --carry-changes to bring them, or --leave-dirty to move without them",
@@ -209,7 +206,7 @@ pub(crate) fn plan_folder(
             return Err(format!("subfolder {subdir:?} is not a plain path"));
         }
         let (Some(repo), Some(url)) = (repo, c.origin.as_deref()) else {
-            // No origin: nowhere to push, so the repository itself goes (`Folder::Bundle`).
+            // No usable origin: nowhere to push, so the repository itself goes (`Folder::Bundle`).
             let top = same_under_home(&c.top, home, target_home)?;
             return Ok(Folder::Bundle { top, branch: branch.to_owned(), subdir, dirty: c.dirty });
         };
