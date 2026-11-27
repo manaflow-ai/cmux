@@ -136,20 +136,19 @@ def cmd_comment(args) -> int:
                  "(16/255 per channel, 1% of pixels, SSIM 0.98).")
     lines.append("")
     shown = (bad + [e for e in moved if e not in bad])[:MAX_ROWS]
-    if shown:
-        lines += ["| state | verdict | before | after | diff |", "|---|---|---|---|---|"]
-        for e in shown:
-            s = states.get(e["name"], {})
-            v = e.get("verdict") or {}
-            ratio = v.get("changed_ratio")
-            what = e.get("status", "?") + (f" ({ratio * 100:.2f}% px, ssim {v.get('ssim')})" if ratio is not None else "")
-            cells = []
-            for kind in ("base", "head", "diff"):
-                f = Path(args.media_dir) / media_name(e["name"], kind)
-                cells.append(f"![{kind}]({_img(args.repo, args.pr, f.name)})" if f.is_file() else "")
-            lines.append(f"| {s.get('label', e['name'])} | {what} | " + " | ".join(cells) + " |")
-        if len(moved) > len(shown):
-            lines.append(f"\n{len(moved) - len(shown)} more in the run's artifact.")
+    for e in shown:
+        s = states.get(e["name"], {})
+        v = e.get("verdict") or {}
+        ratio = v.get("changed_ratio")
+        what = e.get("status", "?") + (f" ({ratio * 100:.2f}% px, ssim {v.get('ssim')})" if ratio is not None else "")
+        lines += [f"#### {s.get('label', e['name'])}: {what}", ""]
+        # One picture per line at full width with a caption above it, never a table of thumbnails.
+        for kind, caption in (("base", "Before (merge base)"), ("head", "After (head)"), ("diff", "Diff (red = changed)")):
+            f = Path(args.media_dir) / media_name(e["name"], kind)
+            if f.is_file():
+                lines += [caption, "", f"![{kind}]({_img(args.repo, args.pr, f.name)})", ""]
+    if len(moved) > len(shown):
+        lines.append(f"{len(moved) - len(shown)} more in the run's artifact.")
     lines.append("")
     if args.run_url:
         lines.append(f"[run]({args.run_url}) | scripts/ci/ui_shot_loop.py | gate: `{CONTEXT}`")
