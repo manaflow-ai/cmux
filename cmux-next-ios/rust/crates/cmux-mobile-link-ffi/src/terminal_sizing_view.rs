@@ -3,14 +3,9 @@
 //! size it asks for, who sets the grid and why, and the Priority Order list
 //! with its device tokens.
 //!
-//! These rules were a Swift copy in CmuxMobileModel's `TerminalSizing.swift`
-//! (`TerminalSizingPresentation`, `HostSizePolicy` token rules). Swift now
-//! hands the daemon's size state here and only renders what comes back
-//! (Leo, 2026-11-25: "i was wondering why we even have swift at all";
-//! Lawrence, 2026-11-02: "move as much from swift into rust as possible").
-//!
-//! Every function is a pure function of its input and linear in the number
-//! of viewers and order tokens (the order is capped at [`MAX_ORDER`]).
+//! The iOS model calls these rules from `TerminalSizing.swift`
+//! (`TerminalSizingPresentation` and the `HostSizePolicy` token helpers).
+//! Foundation formats the owner names for the current locale.
 
 /// The token of the Mac the phone is connected to in the priority order
 /// (`mobile.terminalSizingOrder`).
@@ -45,8 +40,6 @@ pub struct SizingParticipant {
 pub struct SizingViewInput {
     /// False while the daemon has published no size state: no rows, no reason.
     pub has_state: bool,
-    /// `latest`, `smallest`, `largest`, `priority`, `fixed`, `held`, `priority-fallback`.
-    pub reason: String,
     /// The participants that set a dimension.
     pub owners: Vec<String>,
     pub participants: Vec<SizingParticipant>,
@@ -213,16 +206,6 @@ fn symbol(kind: &str) -> &'static str {
     }
 }
 
-/// "A", "A and B", "A, B, and C".
-fn joined_list(items: &[String]) -> String {
-    match items {
-        [] => String::new(),
-        [one] => one.clone(),
-        [a, b] => format!("{a} and {b}"),
-        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
-    }
-}
-
 /// The name of a viewer as the phone shows it: "This Mac", "This iPhone",
 /// its device or display name, or what kind of device it is.
 #[uniffi::export]
@@ -250,16 +233,11 @@ pub fn terminal_sizing_rows(input: SizingViewInput) -> Vec<SizingRow> {
         .collect()
 }
 
-/// Why the grid has its size; none without a size state.
+/// Why the grid has its size. Swift formats the owning viewers' names with
+/// the system list formatter before passing them here.
 #[uniffi::export]
-pub fn terminal_sizing_reason(input: SizingViewInput) -> Option<String> {
-    if !input.has_state {
-        return None;
-    }
-    let owners: Vec<String> =
-        input.participants.iter().filter(|p| input.owners.contains(&p.id)).map(|p| input.title(p)).collect();
-    let named = (!owners.is_empty()).then(|| joined_list(&owners));
-    Some(match (input.reason.as_str(), named) {
+pub fn terminal_sizing_reason(reason: String, named_owners: Option<String>) -> String {
+    match (reason.as_str(), named_owners) {
         ("smallest", n) => {
             n.map_or("Fits the smallest viewer".into(), |n| format!("Fits the smallest viewer: {n}"))
         }
@@ -275,7 +253,7 @@ pub fn terminal_sizing_reason(input: SizingViewInput) -> Option<String> {
             n.map_or("Set by the first device in order".into(), |n| format!("Set by {n}, first in order"))
         }
         (_, n) => n.map_or("Set by the device active last".into(), |n| format!("Set by {n}")),
-    })
+    }
 }
 
 /// The priority list to show: the stored order first, then every viewer not
