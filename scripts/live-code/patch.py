@@ -308,6 +308,20 @@ def module_in_log(log, path):
     return None
 
 
+def is_device_target(target):
+    """An iPhone or iPad, not its Simulator: arm64-apple-ios18.0, never arm64-apple-ios18.0-simulator."""
+    return "-apple-ios" in target and not target.endswith("-simulator")
+
+
+def device_sign_refusal(target, identity):
+    """Why a patch for `target` cannot be signed with `identity`, or None. A device's kernel maps only
+    code its app's team signed, and cmux Dev refuses an ad hoc patch (DevicePatchSignature.swift)."""
+    if is_device_target(target) and identity == "-":
+        return (f"patch.py: {target} is a device: an ad hoc patch never loads there; pass --sign with this Mac's "
+                "Apple Development identity (scripts/live-code/ios-device.sh patch does)")
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--log", required=True, help="reload.sh's xcodebuild log of the running build")
@@ -409,6 +423,9 @@ def main():
             sys.exit(f"patch.py: every file of {next(iter(modules))} holds state; nothing to patch")
     target = argv[argv.index("-target") + 1]
     sdk = argv[argv.index("-sdk") + 1] if "-sdk" in argv else None
+    refusal = device_sign_refusal(target, opts.sign)
+    if refusal:
+        sys.exit(refusal)
     name = f"patch-{time.time_ns()}-{os.getpid()}.dylib"  # unique and in order, even for two saves in a second
     dylib = os.path.join(work, name)
     # The swiftc beside the build's frontend: the same toolchain compiles and links.
