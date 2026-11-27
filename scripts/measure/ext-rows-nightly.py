@@ -55,6 +55,7 @@ def load(name: str, path: Path):
 # call with its JSON answer, the scene in an `ext shot --json` answer.
 reload_nightly = load("ext_reload_nightly", ROOT / "scripts/measure/ext-reload-nightly.py")
 cli_json, scene_of, control_socket = reload_nightly.cli_json, reload_nightly.scene_of, reload_nightly.control_socket
+capture_marker = load("ext_rows_capture", ROOT / "scripts/measure/ext-rows-capture.py").capture_marker
 
 
 @dataclass
@@ -388,8 +389,11 @@ row_sidebar_list.needs_app = True
 def row_web_pane(ctx: Ctx) -> dict:
     """Web panes (#41546 Rust, #43033 Mac host): a `cmux.pane/1` with `web` lists its page (`apps-list`
     `web_pages`) and `app.open` opens it as a page tab (`snapshot.get` topology holds `app:local/customize`)."""
-    html = (f"<!doctype html><html><head><title>{ctx.token} web pane</title></head>"
-            f"<body><h1>{ctx.token} web pane</h1></body></html>\n")
+    # Only page content contains this marker: a tab title or install log cannot
+    # satisfy the drawing check when the page itself is blank or fails to load.
+    marker = f"WEB PANE {ctx.token}"
+    html = ("<!doctype html><html><head><title>Rows web pane</title></head>"
+            f"<body><h1>{marker}</h1></body></html>\n")
     install = install_customize(ctx, {
         "name": "Rows web pane", "description": "A web pane.", "runtime": {"web": {"root": "web"}},
         "implements": {"cmux.pane/1": {"web": "web/index.html", "title": "Rows web pane", "symbol": "globe"}},
@@ -400,14 +404,14 @@ def row_web_pane(ctx: Ctx) -> dict:
     tab = f"app:{CUSTOMIZE_APP}"
     snapshot = wait_for(lambda: (s := ctx.rpc("snapshot.get", {}, timeout=15)) and tab in json.dumps(s) and s,
                         wait=15)
+    drawn = capture_marker(ctx, "web-pane", marker) if snapshot else {"drawn": False}
     return {"checks": {"installed": install["installed"],
                        "web_page_listed": any(p.get("interface") == "cmux.pane/1" for p in pages
                                               if isinstance(p, dict)),
                        "open_answered": isinstance(opened, dict) and "error" not in opened,
-                       "page_tab_open": bool(snapshot)},
+                       "page_tab_open": bool(snapshot), "page_content_drawn": drawn["drawn"]},
             "install": install, "web_pages": pages, "open": opened,
-            "page_tab": find_tab(snapshot, tab) if snapshot else None,
-            "note": "the page's own load is not observable from outside the app in a release build"}
+            "page_tab": find_tab(snapshot, tab) if snapshot else None, "drawing": drawn}
 
 
 row_web_pane.needs_app = True
