@@ -111,9 +111,17 @@ def delegated(selection: dict) -> list[dict]:
 
 # ---------- run ----------
 
+def step_key(step: dict, head: str, pr: int, now: float | None = None) -> str:
+    """The step's idempotency key: one per verify run, never reused by the next. A key of PR, mode and worker alone
+    made every retry read back the first attempt's step (2026-11-27 14:04Z, cmux#45927: a step refused for a full
+    source depot came back in 13 s, same step id, on each later `cmux ios verify`), so a failed proof could never be
+    retried at that PR. The head and the run's start second keep a rerun fresh."""
+    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{step['worker']}-{int(time.time() if now is None else now)}"
+
+
 def run_step(step: dict, head: str, pr: int, strict: bool) -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--key", f"ios-verify-{pr}-{step['mode']}-{step['worker']}", "--target-worker", step["worker"],
+           "--key", step_key(step, head, pr), "--target-worker", step["worker"],
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
     if strict:
