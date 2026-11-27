@@ -3029,7 +3029,7 @@ CmuxNextApp	extension	SidebarLayoutDocument	0	LOGIC	100	0	Packages/macOS/CmuxNex
 CmuxNextApp	extension	SidebarLayoutRemote	0	MIXED	0	38	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarLayoutRemote.swift	Remote protocol + daemon call 60; JSON to SidebarLayoutDocument decode (hand wire type) 37
 CmuxNextApp	extension	SidebarLayoutService	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarLayoutService+LegacyPins.swift	One-time legacy pin migration
 CmuxNextApp	extension	SidebarPriorityFeed	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarPriorityFeed.swift	Priority view wiring
-CmuxNextApp	extension	SleepySceneView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift	AppKit/SwiftUI view, host or thin daemon call site
+CmuxNextFloating	extension	SleepySceneView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepySceneView.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	String	0	MIXED	15	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift	from extension InternalPageID:9: Memory Inspector page host; Place routing (local/server) small LOGIC
 CmuxNextApp	extension	Strings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentRecents/AgentHistoryPage.swift	from enum AgentHistoryPage:8: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	Strings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Strings+TabBar.swift	localized string table
@@ -3366,7 +3366,7 @@ CmuxNextApp	struct	NewTabPageHandler	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextApp	struct	NewTabPageMachine	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabPageMachine.swift	new tab page machine: folder and home
 CmuxNextApp	struct	NewTabSuccession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTabSuccession.swift	from struct NewTabSuccession:16: New Tab succession: order, deadlines, expiry
 CmuxNextApp	struct	NewWorkspaceFocus	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewWorkspaceFocus.swift	how a new workspace takes focus
-CmuxNextApp	struct	NightSky	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift	from struct SleepySceneView:10: AppKit/SwiftUI view, host or thin daemon call site
+CmuxNextFloating	struct	NightSky	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepySceneView.swift	from struct SleepySceneView:10: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	struct	NoKeychain	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Accounts/AccountsService.swift	No keychain fixture
 CmuxNextApp	struct	NotificationsPanelRow	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelRows.swift	Panel row copy of daemon ledger entry
 CmuxNextApp	struct	NotificationsPanelSelection	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelRows.swift	from struct NotificationsPanelRow:7: Panel row copy of daemon ledger entry
@@ -3423,8 +3423,8 @@ CmuxNextApp	struct	SidebarSnapshotFile	0	MIRROR	0	100	Packages/macOS/CmuxNext/So
 CmuxNextApp	struct	SidebarSnapshotRecorder	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSnapshot/SidebarSnapshotRecorder.swift	snapshot recorder with saved key
 CmuxNextApp	struct	SidebarWorkspaceItems	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pins/SidebarTopProjection.swift	from enum SidebarTopProjection:12: SidebarTopProjection: legacy vs layout hidden ids
 CmuxNextApp	struct	SleepyMacLock	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyMacLock.swift	AppKit/SwiftUI view, host or thin daemon call site
-CmuxNextApp	struct	SleepyModeStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyModeStrings.swift	localized string table
-CmuxNextApp	struct	SleepySceneView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift	AppKit/SwiftUI view, host or thin daemon call site
+CmuxNextFloating	struct	SleepyModeStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepyModeStrings.swift	localized string table
+CmuxNextFloating	struct	SleepySceneView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepySceneView.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	struct	StatusRunNotice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/StatusRunNotice.swift	Status run notice text/duration formatter
 CmuxNextApp	struct	SubagentLimit	0	MIXED	69	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentRecents/SubagentLimit.swift	from struct SubagentLimit:13: subagent limit get/set parse (logic ~110); strings platform
 CmuxNextApp	struct	SubagentLimitFlow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/SubagentLimitHandlers.swift	from enum SubagentLimitHandlers:9: thin action binder: parses args, calls model/daemon intent
