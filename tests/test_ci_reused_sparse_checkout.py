@@ -38,9 +38,17 @@ WORKFLOWS = (
     # "not uptodate; will not remove" and then "Module not found ../images/cmux-vm/pin-cmux-tui.ts" (2026-11-20).
     ROOT / ".github/workflows/cloud-vm-image-bake.yml",
     ROOT / ".github/workflows/cloud-vm-image-roll.yml",
+    ROOT / ".github/workflows/ios-reliability-matrix.yml",
 )
 CHECKOUT = re.compile(r"^actions/checkout@")
 POOL = re.compile(r"RUNNER_POOLS|LINUX_RUNNER|linux_runner|mini_runner")
+
+
+def pool_job(path: Path, job: dict) -> bool:
+    # Cover the matrix's stable cmux-linux label as well as the legacy pool expressions.
+    return bool(POOL.search(str(job.get("runs-on", "")))) or (
+        path.name == "ios-reliability-matrix.yml" and "cmux-linux" in str(job.get("runs-on", ""))
+    )
 
 
 def jobs(path: Path) -> dict:
@@ -140,7 +148,7 @@ class Wiring(unittest.TestCase):
             for name, job in jobs(path).items():
                 steps = job.get("steps") or []
                 checkouts = [i for i, s in enumerate(steps) if CHECKOUT.match(s.get("uses", ""))]
-                if not checkouts or not POOL.search(job.get("runs-on", "")):
+                if not checkouts or not pool_job(path, job):
                     continue
                 before = [s.get("name") for s in steps[: checkouts[0]]]
                 if STEP_NAME not in before:
