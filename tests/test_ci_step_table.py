@@ -533,6 +533,15 @@ class StepResultsTest(unittest.TestCase):
         same = ci_steps.StepResults.from_env({**on, "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event)})
         self.assertTrue(same.write)
 
+    def test_from_env_off_actions_when_asked(self) -> None:
+        pool = {"CI_STEP_RESULTS": "on", "CI_STEP_RESULTS_REPO": "o/r", "CI_STEP_RESULTS_SHA": "abc",
+                "CI_STEP_RESULTS_RUN_URL": "http://controller/jobs/7", "CI_STEP_RESULTS_RUNNER": "pool-1"}
+        s = ci_steps.StepResults.from_env(pool)
+        self.assertTrue(s.write)
+        self.assertEqual(s.meta, {"repo": "o/r", "sha": "abc", "run_url": "http://controller/jobs/7", "runner": "pool-1"})
+        self.assertFalse(ci_steps.StepResults.from_env({**pool, "CI_STEP_RESULTS_WRITE": "0"}).write)
+        self.assertIsNone(ci_steps.StepResults.from_env({"CI_STEP_RESULTS": "auto"}), "off Actions: only on asks")
+
     def test_with_an_oidc_request_url_the_store_is_the_public_route_with_a_fresh_token(self) -> None:
         # The Linux pool is off the tailnet: its jobs reach the controller's public route with an Actions OIDC token.
         import http.server
@@ -742,6 +751,31 @@ class SetupTest(unittest.TestCase):
         self.assertNotIn("made-node", out)
         code, out = self.run_job(t, "linux", ["docs/x.md"])
         self.assertNotIn("made-", out)
+
+    def test_tools_only_makes_every_routed_steps_tools_and_runs_no_step(self) -> None:
+        # A pool image bake warms the caches the tools keep (RUNNER_TOOL_CACHE, CARGO_HOME) without a step.
+        t = table('''
+            [setup]
+            linux = "echo setup-ran"
+            [tools]
+            bun = "echo made-bun"
+            node = "echo made-node"
+            [step.a]
+            job = "linux"
+            needs = ["bun"]
+            run = "echo step-a-ran"
+            [step.b]
+            job = "linux"
+            needs = ["node"]
+            run = "echo step-b-ran"
+        ''')
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}):
+            code = ci_steps.run_job(t, "linux", None, None, out, tools_only=True)
+        self.assertEqual(code, 0, out.getvalue())
+        for want in ("setup-ran", "made-bun", "made-node"):
+            self.assertIn(want, out.getvalue())
+        self.assertNotIn("-ran\n", out.getvalue().replace("setup-ran\n", ""), "no step ran")
 
     def test_a_failed_tool_fails_the_job_and_runs_no_step(self) -> None:
         t = table('''
