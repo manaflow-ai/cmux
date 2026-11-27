@@ -2,31 +2,31 @@
   "sourceLanguage" : "en",
   "strings" : {
     "settings.agentPane.composerPlaceholder" : {
-      "comment" : "Settings > Agent Chat > Message Box: the placeholder row's title",
+      "comment" : "Settings > Agent Chat > Message Box: the row that sets the text shown in an empty message box",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "العنصر النائب لمربع الرسالة"
+            "value" : "نص مربع الكتابة الفارغ"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Rezervisani tekst polja za poruku"
+            "value" : "Tekst praznog polja za pisanje"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pladsholder i beskedfeltet"
+            "value" : "Pladsholder i skrivefeltet"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Platzhalter im Nachrichtenfeld"
+            "value" : "Platzhalter im Eingabefeld"
           }
         },
         "en" : {
@@ -68,7 +68,7 @@
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "메시지 입력창 자리 표시자"
+            "value" : "메시지 상자 자리 표시자"
           }
         },
         "nb" : {
@@ -92,7 +92,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Заполнитель поля сообщения"
+            "value" : "Подсказка в поле сообщения"
           }
         },
         "th" : {
@@ -110,13 +110,13 @@
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Заповнювач поля повідомлення"
+            "value" : "Підказка в полі повідомлення"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Văn bản giữ chỗ của ô tin nhắn"
+            "value" : "Văn bản gợi ý trong ô tin nhắn"
           }
         },
         "zh-Hans" : {
