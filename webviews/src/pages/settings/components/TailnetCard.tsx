@@ -81,6 +81,7 @@ function parts(view: TailnetView, busy: boolean, onStep: (verb: TailnetVerb) => 
       return {
         title: t("settingsPage.tailnet.error"),
         help: view.message,
+        // retry-prompt-ok: starting the tailnet again begins its sign-in, which joins this Mac to a network.
         actions: [action("start", t("settingsPage.tailnet.tryAgain"))],
       };
   }

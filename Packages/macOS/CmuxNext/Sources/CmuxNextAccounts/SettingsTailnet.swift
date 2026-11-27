@@ -84,10 +84,7 @@ public final class SettingsTailnet: PageProvider {
         }
         let request = ProcessRequest(binary, arguments, input: stdin, errorOutput: .separate, timeout: .seconds(240))
         let result = try await AsyncProcess().run(request)
-        let lines = String(decoding: result.output, as: UTF8.self).split(separator: "\n")
-        if let line = lines.last(where: { (line: Substring) -> Bool in !line.allSatisfy { (character: Character) -> Bool in character.isWhitespace } }), let answer = try? JSONValue.parse(Data(line.utf8)) {
-            return answer
-        }
+        if let answer = await Self.lastJSONLine(result.output) { return answer }
         let detail = String(decoding: result.errorOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         return ["ok": .bool(false), "error": .string(detail.isEmpty ? "The tailnet command failed (exit \(result.status))." : detail)]
     }
@@ -102,10 +99,19 @@ public final class SettingsTailnet: PageProvider {
         if let tag = params["tag"]?.stringValue, !tag.isEmpty { arguments += ["--tag", tag] }
         let request = ProcessRequest(binary, arguments, input: nil, errorOutput: .separate, timeout: .seconds(30))
         let result = try await AsyncProcess().run(request)
-        let lines = String(decoding: result.output, as: UTF8.self).split(separator: "\n")
-        if let line = lines.last, let answer = try? JSONValue.parse(Data(line.utf8)) {
+        if let answer = await Self.lastJSONLine(result.output) {
             return answer
         }
         return ["ok": .bool(false), "errorCode": .string("acl_unavailable")]
+    }
+
+    /// The CLI's envelope: its last non-blank stdout line, parsed off the main actor (the output is a process's, so
+    /// its size is not bounded here).
+    @concurrent nonisolated private static func lastJSONLine(_ output: Data) async -> JSONValue? {
+        let lines = String(decoding: output, as: UTF8.self).split(separator: "\n")
+        guard let line = lines.last(where: { (line: Substring) -> Bool in !line.allSatisfy { (character: Character) -> Bool in character.isWhitespace } }) else {
+            return nil
+        }
+        return try? JSONValue.parse(Data(line.utf8))
     }
 }

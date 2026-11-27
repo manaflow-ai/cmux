@@ -1144,12 +1144,15 @@ fn keep_unless_other(
 
 /// The node's facts with whether the vault kept it, and why not as a note.
 fn with_kept(mut node: Value, kept: Result<bool, String>) -> Value {
-    node["keptInVault"] = json!(matches!(kept, Ok(true)));
+    let Some(facts) = node.as_object_mut() else { return node };
+    facts.insert("keptInVault".to_owned(), json!(matches!(kept, Ok(true))));
     if let Err(why) = kept {
-        let note = format!("not kept in your vault: {why}");
-        match node.get_mut("notes").and_then(Value::as_array_mut) {
-            Some(notes) => notes.push(json!(note)),
-            None => node["notes"] = json!([note]),
+        let note = json!(format!("not kept in your vault: {why}"));
+        match facts.get_mut("notes").and_then(Value::as_array_mut) {
+            Some(notes) => notes.push(note),
+            None => {
+                facts.insert("notes".to_owned(), json!([note]));
+            }
         }
     }
     node

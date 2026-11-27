@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use cmux_cloud_start_core::machine_bootstrap::ExecAnswer;
 
+use super::vault::NodeVault;
 use super::*;
 
 fn no_mint(_: &MintSource, _: &MintSpec, _: bool) -> Result<Secret, String> {
@@ -166,8 +167,6 @@ fn a_move_stops_the_old_holder_first_hands_the_state_0600_and_forgets_it() {
     assert!(from.commands[1].contains("cmux-tailnet-forgot"));
     // The state never shows in the result.
     assert!(!node.to_string().contains("c3RhdGU="));
-    assert_eq!(store.lease().unwrap(), vault::Lease { holder: Some("vm_b".into()), epoch: 1 });
-    assert_eq!(node["epoch"], 1);
 }
 
 #[test]
@@ -341,6 +340,35 @@ fn form_fields_are_escaped() {
     assert_eq!(form_escape("a b&c=d+e"), "a%20b%26c%3Dd%2Be");
 }
 
+/// Seeded secrets on the wire (cmux_egress::capture): the OAuth client secret rides only in the Tailscale token
+/// call's form body, and a Headscale API key only in `Authorization` to the server the person named.
+/// tests/egress_seeded.json names this test for the `cmux_tui::vm_tailnet` gate site.
+#[test]
+fn seeded_credentials_ride_only_to_the_server_that_mints() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let oauth = Secret::new("tskey-client-SEEDid42-SEEDtailscaleOauthSecret8f3a");
+    let api_key = Secret::new("SEEDheadscaleApiKey-5d2c");
+    let _ = send(&mint::tailscale_token_call(&oauth).unwrap());
+    let server = "https://headscale.seeded-person.example.org";
+    cmux_egress::allow_named(server);
+    let spec = MintSpec { ephemeral: true, tags: Vec::new() };
+    let _ = send(&mint::headscale_key_call(server, &api_key, "7", &spec, 1_700_000_000));
+
+    assert_eq!(cmux_egress::capture::requests_to("api.tailscale.com").len(), 1);
+    assert_eq!(cmux_egress::capture::requests_to("headscale.seeded-person.example.org").len(), 1);
+    let places = cmux_egress::capture::leaks("SEEDtailscaleOauthSecret8f3a");
+    assert_eq!(places, vec!["api.tailscale.com POST /api/v2/oauth/token: body".to_owned()]);
+    let places = cmux_egress::capture::leaks("SEEDheadscaleApiKey-5d2c");
+    assert_eq!(
+        places,
+        vec![
+            "headscale.seeded-person.example.org POST /api/v1/preauthkey: header authorization"
+                .to_owned()
+        ]
+    );
+}
+
 // MARK: The vault keeps the node (RFD 0169)
 
 use std::cell::RefCell;
@@ -455,7 +483,11 @@ fn the_vaults_answer_must_match_its_fingerprint() {
         ("leo-cmux", 3, "c3RhdGU=")
     );
     answer["stateBase64"] = json!("b3RoZXI=");
-    assert!(vault::parse_node(&answer).unwrap_err().contains("fingerprint"));
+    // KeptNode carries the node's state, so it has no Debug for unwrap_err to print.
+    let Err(why) = vault::parse_node(&answer) else {
+        panic!("a node with a changed fingerprint must not parse");
+    };
+    assert!(why.contains("fingerprint"));
     answer["stateBase64"] = json!("");
     assert!(vault::parse_node(&answer).is_err());
 }

@@ -58,6 +58,7 @@ export default settingsPageEntry({
     ),
     error: variant(
       { state: "error", error: "tailnet start was superseded" },
+      // retry-prompt-ok: the tailnet Try Again starts its sign-in again.
       "A failed start: acpmux's own text, and Try Again.",
     ),
     "cloud-off": {
