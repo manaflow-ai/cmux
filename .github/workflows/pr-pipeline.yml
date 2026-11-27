@@ -56,9 +56,9 @@ jobs:
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, web-production-build, the package conventions gate
     # and the four web test shards 6 min each, the cmux_next_ daemon tests 65 min, the iOS matrix protocol 45 min,
     # the App Store shelf 45 min, the acpmux instruction counts 40 min, the compile canary 30 min, the cmux VM Rust
-    # clients 30 min, the nightly and cmux-tui release guards 20 min, the cmux cloud CLI 15 min): 483 min with
-    # 45 shared steps (23 waves): the bound, not what a run takes, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 483
+    # clients 30 min, the nightly and cmux-tui release guards 20 min, the cmux cloud CLI 15 min): 488 min with
+    # 46 shared steps (23 waves) and the setup and tool bounds, so a slow step is reported by the runner, not cut here.
+    timeout-minutes: 488
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
