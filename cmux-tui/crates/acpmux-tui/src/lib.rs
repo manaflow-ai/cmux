@@ -22,6 +22,7 @@
 use cmux_json::JsonSet as _;
 
 pub mod actions;
+mod agent_names;
 mod answering;
 mod capacity_wait;
 pub mod chat_find;
@@ -29,6 +30,7 @@ mod composer_draft;
 #[cfg(all(test, unix))]
 mod composer_draft_tests;
 mod events;
+mod failure_copy;
 pub mod new_line;
 mod reconnect_wait;
 mod run;

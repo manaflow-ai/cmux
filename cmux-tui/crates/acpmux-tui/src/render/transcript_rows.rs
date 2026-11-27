@@ -713,8 +713,14 @@ pub(super) fn transcript_rows_range(
                         let inner = cw.saturating_sub(6);
                         let mut body: Vec<Row> = Vec::new();
                         let calm = held == Some(i);
-                        // A usage limit that names its reset leads with when (cmux#52296).
-                        let reset = if calm { None } else { crate::usage_reset::note(text) };
+                        // A usage limit that names its reset leads with when (cmux#52296); any
+                        // other failure a rule knows leads with the GUI's plain sentence (#41975).
+                        let reset = if calm {
+                            None
+                        } else {
+                            crate::usage_reset::note(text)
+                                .or_else(|| crate::failure_copy::sentence_for(text, None))
+                        };
                         let mut first = 1;
                         if calm {
                             let note =
