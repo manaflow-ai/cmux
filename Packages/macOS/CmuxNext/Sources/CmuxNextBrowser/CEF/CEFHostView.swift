@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The parent view of a pane's Chromium window. The fork's
 /// `CmuxParentViewTracker` keeps the page window over this view, clips it to
@@ -534,7 +535,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         layoutAfterResizePending = true
         layoutAfterResizeSize = bounds.size
         layoutAfterResizeGeneration = layoutInvalidationGeneration
-        DispatchQueue.main.async { [weak self] in
+        MainDelivery().later { [weak self] in
             self?.layoutAfterResizePending = false
         }
     }
