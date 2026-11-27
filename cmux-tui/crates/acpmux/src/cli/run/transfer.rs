@@ -6,6 +6,31 @@ use super::move_end::{Journal, MoveEnd, Reach, Wait, journal_dir};
 use super::*;
 use cmux_json::JsonSet as _;
 
+/// Durations observed while a chat is moved.  The source daemon reports `freeze_ms` for its
+/// claimed transfer through bundle export. `transfer_ms` covers target receive and page/finalize
+/// work, and `thaw_ms` covers target import activation when the receiver reports it. `blackout_ms`
+/// ends at the target landing acknowledgement. Legacy daemons leave unsupported fields null.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct MoveTimings {
+    pub(super) freeze_ms: Option<u64>,
+    pub(super) transfer_ms: Option<u64>,
+    pub(super) thaw_ms: Option<u64>,
+    pub(super) blackout_ms: Option<u64>,
+    pub(super) carried_running_turn: Option<bool>,
+}
+
+impl MoveTimings {
+    pub(super) fn as_json(self) -> Value {
+        json!({
+            "freezeMs": self.freeze_ms,
+            "transferMs": self.transfer_ms,
+            "thawMs": self.thaw_ms,
+            "blackoutMs": self.blackout_ms,
+            "carriedRunningTurn": self.carried_running_turn,
+        })
+    }
+}
+
 #[path = "transfer_live.rs"]
 pub(crate) mod live;
 pub(crate) use live::{Live, move_progress_line, move_undecided_line};
@@ -68,6 +93,29 @@ pub(super) struct Begun {
     pub(super) history_after: Option<u64>,
     /// When the source answered the begin: the freeze runs from `frozenMs` before it.
     pub(super) begun_at: std::time::Instant,
+}
+
+impl Begun {
+    /// The source's freeze up to its begin answer (`frozenMs`); None from a daemon too old to
+    /// time it.
+    pub(super) fn freeze_ms(&self) -> Option<u64> {
+        self.begin.get("frozenMs").and_then(Value::as_u64)
+    }
+
+    /// From the chat marked moving on the source to now: the freeze so far, on the source's
+    /// clock up to its begin answer and this client's after it. None without `frozenMs`.
+    pub(super) fn frozen_for_ms(&self) -> Option<u64> {
+        let elapsed = u64::try_from(self.begun_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.freeze_ms().map(|frozen| frozen.saturating_add(elapsed))
+    }
+
+    /// Whether the move took a running turn along (`carriedRunningTurn`, else a `continues`).
+    pub(super) fn carried_running_turn(&self) -> Option<bool> {
+        self.begin
+            .get("carriedRunningTurn")
+            .and_then(Value::as_bool)
+            .or_else(|| self.begin.get("continues").map(|value| !value.is_null()))
+    }
 }
 
 /// A prefix of the chat staged on the target before the freeze (`hub/transfer_precopy.rs`).
@@ -471,12 +519,30 @@ pub(super) async fn finish_move(
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value> {
+    finish_move_timed(src, dst, dst_init, id, begun, cwd, name, to_meta)
+        .await
+        .map(|(moved, _)| moved)
+}
+
+/// [`finish_move`] with phase timings for the session-move JSON result.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn finish_move_timed(
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
+    dst_init: &Value,
+    id: &str,
+    begun: &Begun,
+    cwd: Option<String>,
+    name: Option<String>,
+    to_meta: Value,
+) -> Result<(Value, MoveTimings)> {
     let dir = journal_dir();
     let journal = (dir.as_path(), to_meta);
-    finish_journaled(src, dst, dst_init, id, begun, cwd, name, journal).await
+    finish_journaled_timed(src, dst, dst_init, id, begun, cwd, name, journal).await
 }
 
 /// [`finish_move`], the move noted in the journal at `dir` while it is under way.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn finish_journaled(
     src: &mut MoveEnd<'_>,
@@ -488,6 +554,23 @@ pub(super) async fn finish_journaled(
     name: Option<String>,
     (dir, to_meta): (&std::path::Path, Value),
 ) -> Result<Value> {
+    finish_journaled_timed(src, dst, dst_init, id, begun, cwd, name, (dir, to_meta))
+        .await
+        .map(|(moved, _)| moved)
+}
+
+/// `finish_journaled` with phase timings for a normal `session move`.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn finish_journaled_timed(
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
+    dst_init: &Value,
+    id: &str,
+    begun: &Begun,
+    cwd: Option<String>,
+    name: Option<String>,
+    (dir, to_meta): (&std::path::Path, Value),
+) -> Result<(Value, MoveTimings)> {
     let journal = match (src.reach(), dst.reach()) {
         (Some(s), Some(d)) => Some(Journal {
             session_id: id.to_owned(),
@@ -503,7 +586,7 @@ pub(super) async fn finish_journaled(
     if let Some(j) = &journal {
         j.note(dir);
     }
-    let result = finish_noted(src, dst, dst_init, id, begun, cwd, name, to_meta).await;
+    let result = finish_noted_timed(src, dst, dst_init, id, begun, cwd, name, to_meta).await;
     if !matches!(result, Err(Unresolved(_))) {
         Journal::done(dir, &begun.transfer_id);
     }
@@ -525,7 +608,7 @@ impl From<anyhow::Error> for Failed {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn finish_noted(
+async fn finish_noted_timed(
     src: &mut MoveEnd<'_>,
     dst: &mut MoveEnd<'_>,
     dst_init: &Value,
@@ -534,7 +617,7 @@ async fn finish_noted(
     cwd: Option<String>,
     name: Option<String>,
     to_meta: Value,
-) -> Result<Value, Failed> {
+) -> Result<(Value, MoveTimings), Failed> {
     let transfer_id = &begun.transfer_id;
     if let Err(e) = receiver_takes(&begun.begin, dst_init) {
         return Err(abort_end(src, id, begun, e).await);
@@ -556,6 +639,8 @@ async fn finish_noted(
     if let Some(name) = &begun.as_harness {
         receive_params.set("asHarness", json!(name));
     }
+    // `transferMs`: the receive and its pages, up to the finish (`thawMs`).
+    let transfer_started = std::time::Instant::now();
     let receive = dst.call("_acpmux/transfer_receive", receive_params, Wait::Page, false);
     let receive = match receive.await {
         Ok(receive) => receive,
@@ -565,14 +650,19 @@ async fn finish_noted(
     let from = live::resume_offsets(src, transfer_id, &receive).await;
     let receive_id = receive.get("receiveId").unwrap_or(&Value::Null);
     let copied = copy(src, dst, dst_init, &from, begin, receive_id, begun.epoch, cwd, name).await;
-    let moved = match copied {
-        Ok(moved) => moved,
+    let (moved, transfer_ms, thaw_ms) = match copied {
+        Ok((moved, thaw_ms)) => {
+            let total = u64::try_from(transfer_started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            (moved, Some(total.saturating_sub(thaw_ms)), Some(thaw_ms))
+        }
         // A finish whose answer was lost may have landed, and the target runs the queue then:
         // the source commits. Only a target that shows no such move lets the chat come back.
         Err(e) => match landed(dst, id, transfer_id).await {
-            Some(true) => {
-                dst.call(method::MUX_INFO, json!({"sessionId": id}), Wait::Page, true).await?
-            }
+            Some(true) => (
+                dst.call(method::MUX_INFO, json!({"sessionId": id}), Wait::Page, true).await?,
+                None,
+                None,
+            ),
             Some(false) => return Err(abort_end(src, id, begun, e).await),
             None => {
                 eprintln!(
@@ -585,6 +675,8 @@ async fn finish_noted(
     // The freeze: from the chat marked moving on the source (`frozenMs` before its begin
     // answered) to the target's finish, and the bytes the bundle carried in it (less what a
     // stage already held). One line per move, and the source's `transferred` record keeps it.
+    // The blackout as the probe reads it: the same span, None from a daemon without `frozenMs`.
+    let blackout_ms = begun.frozen_for_ms();
     let frozen = field(begin, "frozenMs").as_u64().unwrap_or(0);
     let ms = frozen.saturating_add(begun.begun_at.elapsed().as_millis() as u64);
     let bytes: u64 = field(begin, "files")
@@ -615,7 +707,14 @@ async fn finish_noted(
             ),
         }
     }
-    Ok(moved)
+    let timings = MoveTimings {
+        freeze_ms: begun.freeze_ms(),
+        transfer_ms,
+        thaw_ms,
+        blackout_ms,
+        carried_running_turn: begun.carried_running_turn(),
+    };
+    Ok((moved, timings))
 }
 
 /// After a move that left the chat's history behind (`hub/transfer_history.rs`): the source
@@ -713,7 +812,7 @@ async fn copy(
     epoch: u64,
     cwd: Option<String>,
     name: Option<String>,
-) -> Result<Value> {
+) -> Result<(Value, u64)> {
     let id = field(begin, "sessionId").as_str().unwrap_or_default();
     let zstd =
         live::lists(dst_init, "/_meta/acpmux/capabilities", crate::capabilities::TRANSFER_LIVE);
@@ -734,7 +833,9 @@ async fn copy(
     }
     // Not asked again: a finish that landed answers a second one with an error; the caller
     // asks the (reconnected) target whether it landed.
-    dst.call("_acpmux/transfer_finish", finish, Wait::Finish, false).await
+    let thaw_started = std::time::Instant::now();
+    let moved = dst.call("_acpmux/transfer_finish", finish, Wait::Finish, false).await?;
+    Ok((moved, u64::try_from(thaw_started.elapsed().as_millis()).unwrap_or(u64::MAX)))
 }
 
 /// A client of the target's daemon at `socket`, through an ssh forward of it unless `ssh` is

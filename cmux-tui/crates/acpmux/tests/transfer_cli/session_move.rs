@@ -251,6 +251,12 @@ async fn session_move_to_an_added_ssh_machine_preserves_history_queue_and_draft(
     let receipt: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(receipt["moves"][0]["moved"], true, "{receipt}");
     assert_eq!(receipt["moves"][0]["targetSessionId"], id, "{receipt}");
+    // The phases the offload probe reads (`transfer::MoveTimings`).
+    let timings = &receipt["moves"][0]["timings"];
+    for key in ["freezeMs", "transferMs", "thawMs", "blackoutMs"] {
+        assert!(timings[key].is_u64(), "{key}: {receipt}");
+    }
+    assert!(timings["carriedRunningTurn"].is_boolean(), "{receipt}");
 
     let mut dst = Rpc::connect(&target.socket).await;
     let ready = dst

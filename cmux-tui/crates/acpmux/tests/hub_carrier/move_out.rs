@@ -58,6 +58,11 @@ impl Machine {
         for field in ["dialMs", "pagesMs", "finishMs"] {
             ms(field);
         }
+        // The phases the offload probe reads, named as over ssh.
+        assert_eq!(ms("transferMs"), ms("pagesMs"));
+        assert_eq!(ms("thawMs"), ms("finishMs"));
+        ms("blackoutMs");
+        assert_eq!(t["carriedRunningTurn"], false, "{t}");
         eprintln!("{} drove {source} -> {target}: {t}", self.name);
     }
 }

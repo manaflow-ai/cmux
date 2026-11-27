@@ -322,6 +322,9 @@ struct Timing {
     begin_ms: u64,
     answer_ms: u64,
     target: Value,
+    /// From the chat marked moving on the source to the target's answer (`Begun::frozen_for_ms`).
+    blackout_ms: Option<u64>,
+    carried_running_turn: Option<bool>,
 }
 
 impl Timing {
@@ -337,6 +340,22 @@ impl Timing {
                 if let Some(value) = target.get(key) {
                     out.insert(key.to_owned(), value.clone());
                 }
+            }
+            // The phases the probe reads, as `session move` over ssh names them
+            // (`transfer::MoveTimings`): the target's paging and its finish. A key the target
+            // did not time is left out.
+            for (from, to) in [("pagesMs", "transferMs"), ("finishMs", "thawMs")] {
+                if let Some(ms) = target.get(from).and_then(Value::as_u64) {
+                    out.insert(to.to_owned(), json!(ms));
+                }
+            }
+        }
+        if let Some(out) = value.as_object_mut() {
+            if let Some(ms) = self.blackout_ms {
+                out.insert("blackoutMs".to_owned(), json!(ms));
+            }
+            if let Some(carried) = self.carried_running_turn {
+                out.insert("carriedRunningTurn".to_owned(), json!(carried));
             }
         }
         value
@@ -439,7 +458,18 @@ impl Moving<'_> {
                     // beginning is the only honest lower bound in that case. Do not report the
                     // target answer as the freeze boundary.
                     .unwrap_or(0);
-                Ok((sent, answer, Timing { started, begin_ms, answer_ms, target: target_timings }))
+                // The blackout ends at the target's answer: the chat runs there from then.
+                let blackout_ms = begun.frozen_for_ms();
+                let carried_running_turn = begun.carried_running_turn();
+                let timing = Timing {
+                    started,
+                    begin_ms,
+                    answer_ms,
+                    target: target_timings,
+                    blackout_ms,
+                    carried_running_turn,
+                };
+                Ok((sent, answer, timing))
             }
             Err(e) => {
                 let data =

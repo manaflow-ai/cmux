@@ -1106,6 +1106,7 @@ fn outcome(name: &str, error: Option<&str>) -> Outcome {
         preflight: preflight::Preflight::default(),
         arrival_key: None,
         reachable: None,
+        timings: None,
     }
 }
 

@@ -415,6 +415,7 @@ struct Outcome {
     error: Option<String>,
     error_code: Option<&'static str>,
     preflight: preflight::Preflight,
+    timings: Option<super::transfer::MoveTimings>,
 }
 
 impl Outcome {
@@ -434,6 +435,7 @@ impl Outcome {
             error: None,
             error_code: None,
             preflight: preflight::Preflight::default(),
+            timings: None,
         }
     }
 }
@@ -569,7 +571,8 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
                        "error": o.error, "errorCode": o.error_code,
-                       "preflight": o.preflight, "targetSessionId": o.there, "reachable": o.reachable})
+                       "preflight": o.preflight, "targetSessionId": o.there, "reachable": o.reachable,
+                       "timings": o.timings.map(super::transfer::MoveTimings::as_json)})
             })
             .collect();
         rows.splice(0..0, local_rows);
@@ -1034,7 +1037,7 @@ async fn move_steps(
     let finished = waiting(
         &name,
         "copying the chat to the target",
-        super::transfer::finish_move(
+        super::transfer::finish_move_timed(
             &mut src_end,
             &mut dst_end,
             &dst_init,
@@ -1047,13 +1050,14 @@ async fn move_steps(
     )
     .await;
     src_end.close().await;
-    let moved = match finished {
+    let (moved, timings) = match finished {
         Ok(moved) => moved,
         Err(e) => {
             dst_end.close().await;
             return Err(e);
         }
     };
+    o.timings = Some(timings);
     targets.placed(&target.name);
     o.moved = true;
     o.there = moved.get("sessionId").and_then(Value::as_str).map(str::to_owned);

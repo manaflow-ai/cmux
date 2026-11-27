@@ -830,6 +830,7 @@ impl Hub {
             "files": files,
             "session": self.session_summary(session),
             "epoch": epoch,
+            "carriedRunningTurn": carried.is_some(),
             "freezeStartedAtMs": freeze_started_at_ms,
             "frozenMs": u64::try_from(frozen_at.elapsed().as_millis()).unwrap_or(u64::MAX),
         });
