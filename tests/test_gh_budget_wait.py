@@ -634,14 +634,23 @@ class WorkflowTests(unittest.TestCase):
     def test_the_failure_report_waits_through_a_rate_limit(self) -> None:
         # Run 45776501690: report-nightly-failure's github-script died on "API rate limit exceeded", so the
         # failed nightly opened no issue. Every github-script step of the job retries a rate-limited request.
-        # close-nightly-failure-issue too: run 45823496118's close died on one (2026-11-26).
-        scripts = [s for job in ("report-nightly-failure", "close-nightly-failure-issue")
-                   for s in self.jobs[job]["steps"] if "github-script" in str(s.get("uses", ""))]
+        scripts = [s for s in self.jobs["report-nightly-failure"]["steps"] if "github-script" in str(s.get("uses", ""))]
         self.assertTrue(scripts)
         for step in scripts:
             script = step["with"]["script"]
             self.assertIn("require('./scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
             script = (ROOT / "scripts/ci/nightly-steps/report-nightly-failure.cjs").read_text()
+            self.assertIn("github.hook.wrap('request'", script, step.get("name"))
+            self.assertIn("x-ratelimit-reset", script, step.get("name"))
+            self.assertIn("deadline", script, step.get("name"))
+
+    def test_the_failure_close_waits_through_a_rate_limit(self) -> None:
+        # Run 45823496118's close-nightly-failure-issue died on "API rate limit exceeded" (2026-11-26). It has no
+        # checkout, so its github-script carries the same wrap inline.
+        scripts = [s for s in self.jobs["close-nightly-failure-issue"]["steps"] if "github-script" in str(s.get("uses", ""))]
+        self.assertTrue(scripts)
+        for step in scripts:
+            script = step["with"]["script"]
             self.assertIn("github.hook.wrap('request'", script, step.get("name"))
             self.assertIn("x-ratelimit-reset", script, step.get("name"))
             self.assertIn("deadline", script, step.get("name"))
