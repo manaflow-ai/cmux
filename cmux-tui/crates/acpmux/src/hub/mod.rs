@@ -307,6 +307,7 @@ mod policy_source;
 mod pool;
 pub(crate) mod pool_pressure;
 // Files a prompt names, read into it as the turn starts (harness magic).
+mod move_interrupts;
 pub(crate) mod prefetch;
 pub mod presence;
 mod processes;
@@ -1255,7 +1256,7 @@ pub struct Hub {
     /// Leased peers by name, with the generation of the peer each lease
     /// started (`peer_lease.rs`); never saved. Look up a peer Arc briefly, then release this and
     /// the `peers` lock before taking `remote_sessions` or a per-peer writer gate.
-    pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
+    pub(super) peer_leases: StdMutex<HashMap<String, PeerLease>>,
     /// Per-peer cache writers; held through the write so removal cannot be followed by an older
     /// snapshot landing on disk. Each holds what it last left on disk (`peer_cache_disk.rs`), so
     /// a save writes only what changed. Entries are removed with the peer.
@@ -1591,6 +1592,7 @@ pub struct Hub {
     pub(super) cpu_pressure: StdMutex<crate::cpu_class::pressure::Controller>,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Sign in with ChatGPT: its attempts and per-account refresh locks (`crate::chatgpt`).
+    pub(crate) subscriptions: Arc<crate::subscriptions::Service>,
     pub chatgpt: Arc<crate::chatgpt::Service>,
     /// One-click Claude Code tokens (`claude setup-token` in the daemon's own pty).
     pub claude_token: Arc<crate::claude_token::Service>,
@@ -2049,6 +2051,7 @@ impl Hub {
             git_watch: Default::default(),
             cpu_pressure: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
+            subscriptions: Arc::default(),
             chatgpt: Arc::new(crate::chatgpt::Service::default()),
             claude_token: Arc::new(crate::claude_token::Service::default()),
             health: Arc::new(crate::harness_health::HealthService::new()),
@@ -3742,6 +3745,11 @@ impl Hub {
         let stored = |id: &str| {
             known.contains(id) || self.store.session_path(id).is_some_and(|d| d.exists())
         };
+        // The index is still loading and new spawns have yet to be released. A durable host
+        // can outlive this process, so keep its launch files until it exits.
+        if let Some(live) = Self::read_live_host_sessions() {
+            crate::agent::copilot_auth::sweep_inactive(&live);
+        }
         let stale = crate::agent::session_tmp::stale_for_daemon(&stored, &|id| closed.contains(id));
         if stale.is_empty() {
             return;

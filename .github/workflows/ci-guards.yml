@@ -346,6 +346,8 @@ jobs:
 
       # Every connectivity host NEXT's code names (ICE servers, relays, signaling, backend, update hosts) is in
       # config/network/allowlist.json, the list firewall admins allow; docs/network-requirements.md is rendered from it.
+      # On a pull request the coverage check reads only the changed files (tests/guard_delta.py); a branch's own run
+      # reads them all.
       - name: Validate NEXT's connectivity hosts are in the network allowlist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_network_allowlist.py
@@ -1537,6 +1539,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_light_jobs_pool_mirror_checkout.py
 
+      - name: Validate registered ci pool checkout reuse sparse
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pool_checkout_reuse_sparse.py
+
       - name: Validate registered ci pool tokens
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pool_tokens.py
@@ -2009,6 +2015,10 @@ jobs:
       - name: Validate the cmux-vmd autocloud template bake
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_vmd_autocloud_template.py
+
+      - name: Validate the cmux-vmd host artifacts bundle
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_vmd_host_artifacts.py
 
       - name: Validate the Actions artifact pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
