@@ -3,10 +3,18 @@
 //! running and start cmux NIGHTLY on a Mac that is already the person's, over the ssh route
 //! its acpmux peer (or ssh config Host) gives, with acpmux's [`Remote`].
 //!
-//! Steps, in order: `reach`, `app`, `login-item`, `start`, `sign-in`, `share`, `agents`. Every remote
-//! script is a fixed string; data goes on stdin. Nothing here quits, kills, relaunches or
-//! replaces a running app, uses sudo, or turns sharing on: Share This Mac and device access
-//! stay a person's click (hq#11046). A credential goes only over the ssh channel's stdin.
+//! Steps, in order: `reach`, `app`, `daemon`, `login-item`, `start`, `sign-in`, `share`,
+//! `agents`. Every remote script is a fixed string; data goes on stdin. Nothing here quits,
+//! kills, relaunches or replaces a running app, uses sudo, or turns sharing on: Share This Mac
+//! and device access stay a person's click (hq#11046). A credential goes only over the ssh
+//! channel's stdin.
+//!
+//! The kept-alive thing is the daemon, not the app (Leo, 2026-11-16: "if you've connected to a
+//! headlessly running mini why would it need anything?"; cmuxterm-hq
+//! docs/design/remote-screen-share-zero-touch.md Z1): `daemon` installs acpmux's own LaunchAgent
+//! `com.acpmux.daemon` (RunAtLoad, KeepAlive, gui/<uid>), which serves with the app closed,
+//! crashed or never opened. The app keepalive (`login-item`) stays, but nothing the daemon does
+//! depends on it.
 
 use std::process::Stdio;
 use std::sync::LazyLock;
@@ -399,18 +407,22 @@ pub(crate) fn run_device(
         push(&mut run, "app", state, detail, fix);
     }
 
-    // 3. login-item
+    // 3. daemon: launchd keeps acpmux serving (shares, chats) with no app running.
+    let (state, detail, fix) = daemon_step(name, remote, dry_run, &mut run);
+    push(&mut run, "daemon", state, detail, fix);
+
+    // 4. login-item
     let (state, detail, fix) = login_item_step(name, remote, dry_run, &mut run);
     push(&mut run, "login-item", state, detail, fix);
 
-    // 4. start
+    // 5. start
     let (state, detail, fix) = start_step(name, remote, &mut probe, dry_run, &mut run);
     push(&mut run, "start", state, detail, fix);
     if mode == Mode::Start {
         return run;
     }
 
-    // 5. sign-in, 6. share: they ask the running app.
+    // 6. sign-in, 7. share: they ask the running app.
     if probe.running {
         let (state, detail, fix) = sign_in_step(name, remote, asking, dry_run, &mut run);
         push(&mut run, "sign-in", state, detail, fix);
@@ -483,6 +495,62 @@ fn app_step(
     probe.version.clone_from(&now);
     run.changed.push(format!("app {old}->{now}"));
     (StepState::Changed, format!("installed NIGHTLY {now} (was {old})"), String::new())
+}
+
+/// The `daemon` step: acpmux's LaunchAgent `com.acpmux.daemon` installed, loaded in gui/<uid>
+/// and verified ([`DAEMON`]), so launchd keeps the daemon that serves shares running with no app.
+fn daemon_step(name: &str, remote: &dyn Remote, dry_run: bool, run: &mut Run) -> Outcome {
+    const JOB: &str = "the acpmux daemon LaunchAgent";
+    if dry_run {
+        let out = exec(remote, DAEMON_CHECK, None);
+        let program = field(&out.stdout, "program").unwrap_or_default();
+        return if out.ok && field(&out.stdout, "loaded") == Some("1") && !program.is_empty() {
+            (StepState::Ok, format!("{JOB} runs {program}"), String::new())
+        } else {
+            (StepState::Skip, format!("dry run: would install and load {JOB}"), String::new())
+        };
+    }
+    let out = exec(remote, DAEMON, None);
+    if !out.ok {
+        let why = said(&out);
+        if why.starts_with("no acpmux here") {
+            return (StepState::Warn, why, format!("cmux device add {name} --yes"));
+        }
+        return (StepState::Fail, format!("cannot install {JOB}: {why}"), String::new());
+    }
+    let service: Value = field(&out.stdout, "service")
+        .and_then(|text| serde_json::from_str(text).ok())
+        .unwrap_or(Value::Null);
+    let changed = service.get("changed").and_then(Value::as_bool) == Some(true);
+    let at_next_login = service.get("state").and_then(Value::as_str) == Some("atNextLogin");
+    let loaded = field(&out.stdout, "loaded") == Some("1");
+    let program = field(&out.stdout, "program").unwrap_or_default();
+    let by_join = field(&out.stdout, "by") == Some("join");
+    let from = if program.is_empty() { String::new() } else { format!(" from {program}") };
+    let older = if by_join { " (a newer cmux NIGHTLY runs it from the app)" } else { "" };
+    if changed {
+        run.changed.push("daemon".into());
+    }
+    let state = if changed { StepState::Changed } else { StepState::Ok };
+    if at_next_login {
+        return (
+            state,
+            format!("{JOB} is installed{from}; it loads at the next login on {name}{older}"),
+            String::new(),
+        );
+    }
+    if !loaded {
+        return (
+            StepState::Warn,
+            format!("{JOB} is installed{from}, but launchd does not have it loaded"),
+            format!("cmux device setup {name}"),
+        );
+    }
+    (
+        state,
+        format!("launchd keeps the acpmux daemon running{from}, with or without the app{older}"),
+        String::new(),
+    )
 }
 
 fn login_item_step(name: &str, remote: &dyn Remote, dry_run: bool, run: &mut Run) -> Outcome {

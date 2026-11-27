@@ -202,13 +202,15 @@ extension TabStripView {
         }
         newTabMenuButton.isHidden = !model.showsNewTabButton || !showsTypeChooser
 
-        relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding,
-                 token: cellsAnimate && closing && !adding ? .tabClose : nil)
-
         let selected = model.selectedID
-        if let selected, selected != lastSelectedID || added.contains(selected) {
-            reveal(selected, animated: animated)
-        }
+        let revealsSelection = selected.map(added.contains) ?? false
+        // Fold an insert's reveal into the same strip move as its width and neighbour
+        // reflow. Starting a second spring immediately after relayout retargets the
+        // scroll independently and makes crowded strips jitter at the new tab's edge.
+        relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding,
+                 token: cellsAnimate && closing && !adding ? .tabClose : nil,
+                 keepsSelectedInView: revealsSelection)
+        if let selected, selected != lastSelectedID, !revealsSelection { reveal(selected, animated: animated) }
         lastSelectedID = selected
         refreshHoverCard()
         hasSynced = true

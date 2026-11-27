@@ -100,6 +100,8 @@ public struct RootView: View {
     @State private var accountUserID: String?
     /// A Mac's invite for a new machine (`https://cmux.com/pair?i=…`): Pair Another Machine, its code filled in.
     @State private var machineInvite: MachineInvite?
+    /// A chat share page the phone opened (`ChatShareOpener`), in a Safari view signed in as this account.
+    @State private var chatSharePage: ChatShareOpener.Page?
     /// The signed-in shell's one model, kept across this view's updates (`ShellView.init`).
     @State private var shellModel = KeptModel<ShellModel>()
     /// App Store plans (Settings → Plan), built once for the process so its
@@ -327,6 +329,9 @@ public struct RootView: View {
                 MachineInviteSheet(invite: invite) { machineInvite = nil }
             }
         }
+        .sheet(item: $chatSharePage) { page in
+            ChatShareSafariView(url: page.url).ignoresSafeArea()
+        }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
         .task(id: auth.isSignedIn) {
@@ -348,6 +353,12 @@ public struct RootView: View {
             machineInvite = invite
         case .link(let link):
             NotificationRouter.shared.open(link: link)
+        case .chatShare(let share):
+            log.info("opening a chat share \(share.page.rawValue, privacy: .public) link")
+            Task { @MainActor in
+                let token = auth.isSignedIn && !auth.isMock ? try? await auth.accessToken() : nil
+                chatSharePage = await ChatShareOpener.page(for: share, token: token)
+            }
         }
     }
 
@@ -687,6 +698,8 @@ struct ShellView: View {
         .modifier(BillingDemoSheet(billing: billing))
         #endif
         .cmuxMobileToast($shell.toast)
+        // Shake anywhere: copy this launch's log and open the bug report form (ShakeToReport).
+        .shakeToReportBug()
         .modifier(LiveCallHost(shell: shell))
         #if canImport(CmuxMobileLinkFFI)
         // Another device waiting for a linked Mac's Allow: answered here (ask-45c37458ea).
@@ -698,7 +711,7 @@ struct ShellView: View {
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
         }
         .sheet(item: $shell.cloudChats) { item in
-            CloudChatsScreen(shell: shell, attention: item.attention)
+            CloudChatsScreen(shell: shell, attention: item.attention, task: item.task)
         }
         .sheet(item: $shell.messagingChief) { subject in
             ChiefMessageAboutSheet(subject: subject, sending: shell.sendingToChief) { text in shell.sendToChief(text, about: subject) }
@@ -807,7 +820,10 @@ struct ShellView: View {
             // On the model SwiftUI keeps (init also builds throwaway ones).
             FeedRouting.shared.openTerminal = { [weak shell] item in shell?.openTerminal(item) }
         }
-        .onChange(of: live.map(ObjectIdentifier.init)) { _, _ in
+        // `initial`: a restored session shows the shell before its account activates, and activating
+        // sets `accountUserID` (this view's `.id`) and `live` in one update, so the new view starts with
+        // `live` and sees no change, while the kept model still holds nil (no Screen Sharing, cmuxterm-hq#18912).
+        .onChange(of: live.map(ObjectIdentifier.init), initial: true) { _, _ in
             shell.attach(live: live)
             // A tapped notification that waited for the link (cold launch) opens now, or waits for its Mac's tree.
             if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }

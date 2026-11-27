@@ -70,11 +70,13 @@ class TaggedShareHost:
             return f"share host: {error}"
         sessions = status.get("sessions")
         count = len(sessions) if isinstance(sessions, (list, dict)) else sessions if isinstance(sessions, int) else "?"
-        return (f"share host: sharing {status.get('sharing')}, app attached {status.get('appAttached')}, "
-                f"sessions {count}")
+        # state and linkUp say whether its User DO socket is up (the phone's row reads Offline without one).
+        state = status.get("state") if isinstance(status.get("state"), str) and status.get("state").isidentifier() else "?"
+        return (f"share host: state {state}, link up {status.get('linkUp')}, sharing {status.get('sharing')}, "
+                f"app attached {status.get('appAttached')}, sessions {count}")
 
     def share_log(self, limit=12):
-        """The daemon log's share-host lines since the detached baseline (the share host and its
+        """The daemon log's share-host and stop lines since the detached baseline (the share host and its
         session processes write there), URLs and tokens cut, for a failed share check's note."""
         try:
             with self.log.open("rb") as log:
@@ -82,7 +84,8 @@ class TaggedShareHost:
                 text = log.read(4 << 20).decode("utf-8", "replace")
         except OSError as error:
             return f"share-host log: {type(error).__name__}"
-        lines = [share_log_line(line) for line in text.splitlines() if "share-host" in line]
+        # And the daemon's own stop line ("stopping: <why>", daemon.rs): a host that stopped says which rule did it.
+        lines = [share_log_line(line) for line in text.splitlines() if "share-host" in line or "stopping:" in line]
         if not lines:
             return "share-host log: no share-host lines"
         return "share-host log: " + " | ".join(lines[-limit:])

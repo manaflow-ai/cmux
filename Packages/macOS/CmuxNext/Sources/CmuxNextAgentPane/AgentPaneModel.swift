@@ -296,7 +296,7 @@ public final class AgentPaneModel {
     /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
     @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// The header's tools in the pane's tab row (``AgentPaneTabRow``).
-    @ObservationIgnored public let tabRow = AgentPaneTabRow(defaults: .standard)
+    @ObservationIgnored public let tabRow = AgentPaneTabRow(defaults: .standard, firstLaunchWidth: AgentPaneTabRow.firstLaunchWidth)
     /// Page-owned Session Info content drawn by AppKit.
     @ObservationIgnored public let sessionInfo = AgentPaneSessionInfo()
     /// The page's bottom stack (a question, the tray, queued prompts, the composer) in its viewport,
@@ -484,6 +484,11 @@ public final class AgentPaneModel {
     /// Runs a Cloud chat's turn checkpoint or rewind for the session this pane showed when the call
     /// arrived; nil unless the app offers it (signed in, a Cloud chat, `cloud.turnCheckpoints` on).
     @ObservationIgnored public var onCloudTurnRewind: (@MainActor (_ request: AgentPaneCloudTurnRewind, _ session: String) async throws -> [String: Any])?
+    /// Sources > Add Folder: the person picks a Mac folder, its read-only copy goes to the chat's Cloud
+    /// machine and joins the chat's folders; answers `{applied, path, from}` (`applied` "cancelled"
+    /// when no folder was picked). Nil unless the app offers it (a Cloud chat, `cloud.addFolderLive` on).
+    @ObservationIgnored public var onCloudFolderAdd: (@MainActor (_ session: String) async throws -> [String: Any])?
+    public static let cloudFolderAddMethod = "cloud.folder.add"
     /// The application-owned marked-tab list shared by this page and the palette.
     @ObservationIgnored public let attentionTabs: AgentPaneAttentionTabs?
 
@@ -759,8 +764,9 @@ public final class AgentPaneModel {
         // The panel picks this Mac's files: never for a chat on another machine (cx-k21v).
         case .chooseAttachments where remoteChat: return Self.unsupported("chat.attach.choose")
         case .chooseAttachments: return await chooseAttachments()
-        // Nor the paths of files dropped or pasted from this Mac.
-        case .attachDropped where remoteChat: return Self.unsupported("chat.attach.dropped")
+        // Nor the paths of files dropped or pasted from this Mac. Before its handshake a page
+        // reached over a remote route still reads `remoteChat == false`, so refuse it too.
+        case .attachDropped where remoteChat || !hasHandshake: return Self.unsupported("chat.attach.dropped")
         case .attachDropped(let kind, let names, let gestureAt): return await attachDropped(kind, names: names, gestureAt: gestureAt)
         // A chat on another machine, or a page before its handshake, gets the pasteboard's claim
         // only, never this Mac's file metadata (`attachSource`).
@@ -925,7 +931,10 @@ public final class AgentPaneModel {
             return reply
         case .cloudEnvironment(let request):
             guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
-            if request.action == "update" || request.action == "create", !transport.gestures.consume() {
+            // The person's own click; or, on a Mac whose administrator's profile forces "Computer use can act
+            // as me", a click another process posted (``AgentPaneActAsMe/managedCovers``).
+            if request.action == "update" || request.action == "create", !transport.gestures.consume(),
+               !transport.gestures.consumePosted(for: "cloud.environment.\(request.action)") {
                 return Self.transportFailure(.gestureRequired)
             }
             return await onCloudEnvironment(request)
@@ -961,6 +970,18 @@ public final class AgentPaneModel {
                 return AgentPaneReply.success(try await onCloudTurnRewind(request, session))
             } catch {
                 return AgentPaneReply.failure(code: "cloud_turn_rewind_failed", message: error.localizedDescription,
+                                              details: nil, retryable: true, origin: "native")
+            }
+        case .cloudFolderAdd:
+            guard remoteChat, newTab == nil, let session = sessionId, let onCloudFolderAdd else {
+                return Self.unsupported(Self.cloudFolderAddMethod)
+            }
+            // It opens a panel and copies a folder off this Mac: only the person's click starts it.
+            guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            do {
+                return AgentPaneReply.success(try await onCloudFolderAdd(session))
+            } catch {
+                return AgentPaneReply.failure(code: "cloud_folder_add_failed", message: error.localizedDescription,
                                               details: nil, retryable: true, origin: "native")
             }
         case .btwInline(let question, let sessionId):

@@ -23,13 +23,21 @@ Each listed label must name a machine that runs no pull request code (same trust
 - `attempt`: GITHUB_RUN_ATTEMPT, the attempt this pick was made for. The archive takes `dedicated`
   only on that attempt, so a re-run of failed jobs that keeps this job's outputs takes Blacksmith.
 
+- `fallback`: FALLBACK_MAC (an ephemeral Blacksmith Mac, whose image has Xcode 27) when the runner census
+  (CI_RUNNER_STATE) shows no online and idle Mac runner carrying FLEET_XCODE's Xcode label, else empty (the archive
+  takes the fleet's `cmux-mac` + `xcode-27.0`). Leo, 2026-11-26: "refuse to queue a job for a label no live
+  runner has". Run 45717448413's archive asked for cmux-mac + xcode-27.0 at 22:59Z on 11-25 and started at
+  01:22Z on 11-26: 2 h 23 min with no Mac offering Xcode 27, while a Blacksmith Mac takes it in minutes. An
+  unread or stale census keeps the fleet label: the reroute needs a reading, never a guess.
+
 It never fails the job:
 
-    ROUTE_TOKEN=<administration: read> DEDICATED_LABEL=<vars.CI_IOS_INTERNAL_RUNNER> ios_internal_runner.py
+    ROUTE_TOKEN=<administration: read> DEDICATED_LABEL=<vars.CI_IOS_INTERNAL_RUNNER> FALLBACK_MAC=<label> ios_internal_runner.py
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -42,6 +50,9 @@ import pr_runner_pool as pool  # noqa: E402
 
 WAIT_SECONDS = 5 * 60
 LOOK_SECONDS = 30
+# The archive's fleet fallback (ios-internal-nightly.yml's runs-on ends with it): the scheduler grants cmux-mac
+# on demand, so its Xcode label is what needs a live carrier.
+FLEET_XCODE = ("cmux-mac", "xcode-27.0")
 
 
 def labels_of(value: str) -> list[str]:
@@ -85,6 +96,43 @@ def pick(label: str, read: Callable[[], Sequence[Mapping[str, Any]] | None], *,
         sleep(look_seconds)
 
 
+def xcode_carried(labels: Sequence[str], runners: Sequence[Mapping[str, Any]] | None,
+                  idle: bool = False) -> bool | None:
+    """Whether an online (with `idle`, online and idle) runner carries every `xcode-<v>` label of `labels`; None
+    when the runners are unread.
+
+    A standing glaeda runner carries `xcode-<v>` only for an Xcode its host really has (glaeda_fleet_labels), and a
+    granted runner only for the Xcode its Mac asked with, so an online one is a Mac that can run the job."""
+    if runners is None:
+        return None
+    need = {label for label in labels if label.startswith("xcode-")}
+    return any(runner.get("status") == "online" and need <= pool.runner_labels(runner)
+               and not (idle and runner.get("busy")) for runner in runners)
+
+
+def fleet_fallback(env: Mapping[str, str]) -> tuple[str, str]:
+    """(FALLBACK_MAC when the census shows no live carrier of FLEET_XCODE, else "", why)."""
+    fallback = (env.get("FALLBACK_MAC") or "").strip()
+    if not fallback:
+        return "", "FALLBACK_MAC is unset"
+    document = pool.runner_state(env.get("GITHUB_REPOSITORY", ""), raw=env.get("CI_RUNNER_STATE", ""))
+    runners = None if document is None else pool.census_runners(document)
+    carried = xcode_carried(FLEET_XCODE, runners)
+    xcode = " + ".join(FLEET_XCODE)
+    if carried is None:
+        return "", f"no fresh runner census: `{xcode}` kept"
+    if not carried:
+        return fallback, f"no online runner carries `{xcode}`: `{fallback}`"
+    # A busy fleet holds the archive behind every PR's Mac jobs, and no rescue moves it (cmux-mac is not an owned
+    # pool). Run 45936877784's archive asked for cmux-mac + xcode-27.0 at 03:55Z on 11-27 and was still queued at
+    # 04:47Z, 82 runs queued, while builds take 17 to 22 min. Leo, 2026-11-27: "and then idk what im supposed to be
+    # able to do to test and verify on my end either like faster dev loops and testflight or anything"; the
+    # promise is merge to TestFlight in about 30 min, so only an idle carrier keeps the fleet label.
+    if xcode_carried(FLEET_XCODE, runners, idle=True):
+        return "", f"an online runner carrying `{xcode}` is idle"
+    return fallback, f"every online runner carrying `{xcode}` is busy: `{fallback}`"
+
+
 def main(env: Mapping[str, str] = os.environ,
          read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> int:
@@ -116,11 +164,16 @@ def main(env: Mapping[str, str] = os.environ,
 
     dedicated, why = pick(label, read, sleep=sleep, clock=clock)
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
-    line = f"archive runner: {dedicated or 'Blacksmith'} ({why}), attempt {attempt}"
+    fallback, fallback_why = ("", "") if dedicated else fleet_fallback(env)
+    if dedicated:
+        line = f"archive runner: {dedicated} ({why}), attempt {attempt}"
+    else:
+        line = f"archive runner: {fallback or ' + '.join(FLEET_XCODE)} ({why}; {fallback_why}), attempt {attempt}"
     print(line)
+    fallback_output = json.dumps([fallback] if fallback else list(FLEET_XCODE), separators=(",", ":"))
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-            handle.write(f"dedicated={dedicated}\nattempt={attempt}\n")
+            handle.write(f"dedicated={dedicated}\nattempt={attempt}\nfallback={fallback_output}\n")
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
             handle.write(f"- {line}\n")

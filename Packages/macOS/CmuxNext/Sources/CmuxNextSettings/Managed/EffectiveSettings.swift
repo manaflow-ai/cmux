@@ -28,6 +28,7 @@ public nonisolated struct TeamPolicyLayer: Sendable, Equatable {
         // `FontSmoothingSetting.applyBeforeLaunch`, 41 ms before the Dock stopped bouncing (CMUX-631).
         guard !defaults.isEmpty || !enforced.isEmpty else { return self }
         let ids = Set(SettingsSchema.all.map(\.id)).union(EffectiveSettings.legacyKeys.keys)
+            .union(EffectiveSettings.replacedOldKeys)
         var copy = self
         copy.defaults = defaults.filter { ids.contains($0.key) }
         copy.enforced = enforced.filter { ids.contains($0.key) }
@@ -88,6 +89,12 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
         AgentPaneDisplaySettingsSchema.legacySessionInfoPlacementPath.joined(separator: "."):
             AgentPaneDisplaySettingsSchema.sessionInfoPlacementPath.joined(separator: "."),
     ]
+
+    /// The dotted names of the retired keys a row replaced (retired-keys.json `replaced_by`), read from
+    /// managed profiles and team policies too, so an older profile keeps its value and its lock.
+    public static var replacedOldKeys: [String] {
+        SettingsSchema.replacedKeys.values.flatMap { $0.map { $0.old.joined(separator: ".") } }.sorted()
+    }
 }
 
 extension JSONValue {

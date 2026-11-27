@@ -19,6 +19,12 @@ from cmux_next_screen_sharing_proof import Phone as ScreenProofPhone, positive_f
 ROOT = Path(__file__).resolve().parents[2]
 
 
+# How long Settings may take to show its Screen Sharing row (it needs the account's live data).
+SETTINGS_ROW_WAIT = 240
+# The hub lists the share host Online once its user socket is up; that can lag the phone's page.
+SHARE_ROW_WAIT = 90
+
+
 class PairShareFailure(RuntimeError):
     """A fixed, private diagnostic for a failed share leg."""
 
@@ -124,6 +130,23 @@ def _digest(text):
     return hashlib.sha256(text.lower().encode()).hexdigest()[:8]
 
 
+def row_status(node):
+    """The status word of one Mac row's label (ScreenSharingMacRow.status), or "?"."""
+    label = str(node.get("AXLabel", ""))
+    return next((word for word in ("Offline", "Not shared", "Blocked", "Sharing") if word in label), "?")
+
+
+def alert_state(nodes, name):
+    """Which known alert title is on screen after a row tap, in fixed words (no other text)."""
+    titles = {"is offline": f"{name} is offline", "isn't sharing": f"{name} isn't sharing its screen",
+              "doesn't allow": f"{name} doesn't allow this iPhone", "allows View Only": f"{name} allows View Only",
+              "not one of your devices": f"{name} isn't one of your devices", "couldn't reach": f"Couldn't reach {name}",
+              "couldn't share": f"Couldn't share {name}"}
+    labels = {str(node.get("AXLabel", "")) for node in nodes}
+    shown = [key for key, title in titles.items() if title in labels]
+    return f"alert: {', '.join(shown) or 'none'}"
+
+
 def screen_sharing_page_state(nodes, name=None, device_id=None):
     """What the Screen Sharing list showed: its state row (finding, failed, empty) and each Mac
     row as a short id digest, whether its name is the rig Mac's, and its status line; the count of
@@ -138,7 +161,7 @@ def screen_sharing_page_state(nodes, name=None, device_id=None):
             continue
         label = str(node.get("AXLabel", ""))
         named = bool(name) and label.startswith(name)
-        status = next((word for word in ("Offline", "Not shared", "Blocked", "Sharing") if word in label), "?")
+        status = row_status(node)
         rows.append(f"{_digest(identifier[len(prefix):])}{' (rig name)' if named else ''} {status}")
     text = f"page state: {', '.join(states) or 'none'}; Mac rows: {len(rows)}"
     if rows:
@@ -251,7 +274,8 @@ class PairSharePhone(ScreenProofPhone):
         # Back button and the tab bar, no heading). The row appears only once the service does.
         self.ui.launch(["-cmux-mobile-no-restore", "-cmux-mobile-tab", "settings",
                         "-cmux-mobile-browser-meter"])
-        deadline = time.monotonic() + 90
+        # Live data can come minutes after launch (run 45784488782 paired 181 s after its launch).
+        deadline = time.monotonic() + SETTINGS_ROW_WAIT
         while (row := self._screen_sharing_row()) is None and time.monotonic() < deadline:
             time.sleep(1)
         if row is None:
@@ -260,20 +284,27 @@ class PairSharePhone(ScreenProofPhone):
             except Exception:  # noqa: BLE001 - the text below is the diagnostic; the image is extra
                 pass
             nodes = self.ui.find(lambda node: True)
-            raise PairShareFailure("Settings showed no Screen Sharing row in 90 s, so the app built no "
-                                   f"Screen Sharing service ({len(nodes)} nodes{_screen_summary(nodes)})")
+            settings_ids = sorted({str(node.get("AXIdentifier") or node.get("AXUniqueId") or "") for node in nodes}
+                                  - {""})
+            settings_ids = [i for i in settings_ids if i.startswith("settings.")]
+            raise PairShareFailure(f"Settings showed no Screen Sharing row in {SETTINGS_ROW_WAIT} s, so the app built no "
+                                   f"Screen Sharing service ({len(nodes)} nodes; settings rows: "
+                                   f"{', '.join(settings_ids) or 'none'}{_screen_summary(nodes)})")
         self.ui.tap(row)
 
     def _screen_sharing_row(self):
+        # The row's identifier can sit on the link and on its label (run 45768668186 matched no
+        # single node): tap the first visible one, a Button when there is one.
         rows = self.ui.find(lambda node: "settings.screenSharing" in (node.get("AXIdentifier"),
                                                                       node.get("AXUniqueId")))
-        return rows[0] if len(rows) == 1 else None
+        buttons = [row for row in rows if row.get("type") == "Button"]
+        return (buttons or rows or [None])[0]
 
     def request_share(self, name, device_id):
         # The hub and the share host may spell the same id in different case; the phone itself
         # compares ids lowercased (ScreenSharingService).
         exact_id = ("screenSharing.device." + device_id).lower()
-        deadline = time.monotonic() + 90
+        deadline = time.monotonic() + SHARE_ROW_WAIT
         row = None
         nodes = []
         attempt = 0
@@ -283,25 +314,40 @@ class PairSharePhone(ScreenProofPhone):
                                                               str(node.get("AXUniqueId", "")).lower())]
             if len(matches) > 1:
                 raise PairShareFailure("ambiguous Mac row")
-            if matches:
-                row = matches[0]
+            row = matches[0] if matches else None
+            # With the app closed and consent off the share host lists Online and not shared, and
+            # only then does a tap offer Share (an Offline row asks "is offline" instead; run
+            # 45817624546 tapped the row and saw no Share alert). The hub's list can lag the host.
+            if row is not None and row_status(row) == "Not shared":
                 break
             # Alternate a pull to refresh (the page rereads the hub's list) with a scroll the other way.
             gesture = "scroll-down" if attempt % 2 == 0 else "scroll-up"
             attempt += 1
             self.ui.run(["axe", "gesture", gesture, "--udid", self.ui.udid], check=False)
             time.sleep(1)
-        if row is None:
+        if row is None or row_status(row) != "Not shared":
+            shot = "share-row-missing" if row is None else "share-row-not-offered"
             try:
-                self.screenshot("share-row-missing")
+                self.screenshot(shot)
             except Exception:  # noqa: BLE001 - the text below is the diagnostic; the image is extra
                 pass
-            raise PairShareFailure("the rig Mac row was not visible "
+            what = "was not visible" if row is None else f"never read Not shared in {SHARE_ROW_WAIT} s"
+            raise PairShareFailure(f"the rig Mac row {what} "
                                    f"({screen_sharing_page_state(nodes, name, device_id)})")
         self.ui.tap(row)
         title = f"{name} isn't sharing its screen"
-        self.ui.control(lambda node: node.get("type") == "StaticText"
-                        and str(node.get("AXLabel", "")) == title, "Share alert")
+        try:
+            self.ui.control(lambda node: node.get("type") == "StaticText"
+                            and str(node.get("AXLabel", "")) == title, "Share alert")
+        except RuntimeError as error:
+            try:
+                self.screenshot("share-alert-missing")
+            except Exception:  # noqa: BLE001 - the text below is the diagnostic; the image is extra
+                pass
+            after = self.ui.find(lambda node: True)
+            raise PairShareFailure(f"{error} after tapping a Not shared row ({alert_state(after, name)}; "
+                                   f"{screen_sharing_page_state(after, name, device_id)}; "
+                                   f"{viewer_state(after, name)})") from None
         button = self.ui.control(lambda node: node.get("type") == "Button"
                                  and str(node.get("AXLabel", "")) == f"Share {name}",
                                  "Share alert button")

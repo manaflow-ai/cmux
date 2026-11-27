@@ -140,7 +140,7 @@ class MacRowTests(unittest.TestCase):
         self.assertNotIn("rig Mac", text)
 
     def test_an_upper_case_row_id_matches_a_lower_case_device_id(self):
-        row = {"AXIdentifier": "screenSharing.device.ABC-1", "AXLabel": "rig"}
+        row = {"AXIdentifier": "screenSharing.device.ABC-1", "AXLabel": "rig, Not shared"}
         alert = {"type": "StaticText", "AXLabel": "rig isn't sharing its screen"}
         button = {"type": "Button", "AXLabel": "Share rig"}
         phone = PairSharePhone.__new__(PairSharePhone)
@@ -167,9 +167,30 @@ class MacRowTests(unittest.TestCase):
         phone.ui = FakeUI([{"type": "Heading", "AXLabel": "Settings"}])
         phone.ui.launch = lambda args: None
         phone.screenshot = lambda name: None
-        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 100]), \
+        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 300]), \
                 patch("cmux_next_pair_share_phone.time.sleep"):
-            with self.assertRaisesRegex(PairShareFailure, "no Screen Sharing row in 90 s.*headings: Settings"):
+            with self.assertRaisesRegex(PairShareFailure, "no Screen Sharing row in 240 s.*headings: Settings"):
+                phone.launch()
+
+    def test_launch_taps_a_screen_sharing_row_its_label_repeats(self):
+        phone = PairSharePhone.__new__(PairSharePhone)
+        label = {"type": "StaticText", "AXUniqueId": "settings.screenSharing"}
+        button = {"type": "Button", "AXUniqueId": "settings.screenSharing"}
+        phone.ui = FakeUI([label, button])
+        phone.ui.launch = lambda args: None
+        tapped = []
+        phone.ui.tap = tapped.append
+        phone.launch()
+        self.assertEqual(tapped, [button])
+
+    def test_launch_with_no_row_lists_the_settings_rows_it_saw(self):
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([{"type": "Button", "AXUniqueId": "settings.devices"}])
+        phone.ui.launch = lambda args: None
+        phone.screenshot = lambda name: None
+        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 300]), \
+                patch("cmux_next_pair_share_phone.time.sleep"):
+            with self.assertRaisesRegex(PairShareFailure, "settings rows: settings.devices"):
                 phone.launch()
 
     def test_a_missing_row_says_what_the_page_showed(self):
@@ -177,10 +198,47 @@ class MacRowTests(unittest.TestCase):
         phone.ui = FakeUI([{"AXIdentifier": "screenSharing.failed"}])
         phone.ui.run = lambda *args, **kwargs: None
         phone.ui.udid = "sim"
-        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 100]), \
+        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 300]), \
                 patch("cmux_next_pair_share_phone.time.sleep"):
             with self.assertRaisesRegex(PairShareFailure, "page state: failed; Mac rows: 0; wanted "):
                 phone.request_share("rig", "abc-1")
+
+    def test_an_offline_row_is_not_tapped_and_the_failure_says_it_never_read_not_shared(self):
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([{"AXIdentifier": "screenSharing.device.abc-1", "AXLabel": "rig, Offline"}])
+        phone.ui.run = lambda *args, **kwargs: None
+        phone.ui.udid = "sim"
+        taps = []
+        phone.ui.tap = taps.append
+        phone.screenshot = lambda name: None
+        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 300]), \
+                patch("cmux_next_pair_share_phone.time.sleep"):
+            with self.assertRaisesRegex(PairShareFailure, r"never read Not shared in 90 s .*\(rig name\) Offline"):
+                phone.request_share("rig", "abc-1")
+        self.assertEqual(taps, [])
+
+    def test_a_row_that_comes_online_is_tapped_once_it_reads_not_shared(self):
+        row = {"AXIdentifier": "screenSharing.device.abc-1", "AXLabel": "rig, Offline"}
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([row, {"type": "StaticText", "AXLabel": "rig isn't sharing its screen"},
+                           {"type": "Button", "AXLabel": "Share rig"}])
+        phone.ui.udid = "sim"
+        phone.ui.run = lambda *args, **kwargs: row.update(AXLabel="rig, Not shared")
+        taps = []
+        phone.ui.tap = taps.append
+        with patch("cmux_next_pair_share_phone.time.sleep"):
+            phone.request_share("rig", "abc-1")
+        self.assertEqual([t.get("AXLabel") for t in taps], ["rig, Not shared", "Share rig"])
+
+    def test_no_share_alert_names_the_alert_that_came_instead(self):
+        row = {"AXIdentifier": "screenSharing.device.abc-1", "AXLabel": "rig, Not shared"}
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([row, {"type": "StaticText", "AXLabel": "Couldn't share rig"}])
+        phone.ui.tap = lambda node: None
+        phone.screenshot = lambda name: None
+        with self.assertRaisesRegex(PairShareFailure, "Share alert after tapping a Not shared row "
+                                                      r"\(alert: couldn't share; page state: none; Mac rows: 1"):
+            phone.request_share("rig", "abc-1")
 
 
 class ShareLogTests(unittest.TestCase):
@@ -199,6 +257,11 @@ class ShareLogTests(unittest.TestCase):
         self.assertEqual(self.host.share_log(),
                          "share-host log: share-host: session s1: no helper: none at <url> | "
                          "share-host: end not sent: <cut>")
+
+    def test_the_daemons_stop_line_is_kept(self):
+        with self.host.log.open("w") as log:
+            log.write("INFO acpmux: stopping: its app quit (app pid 9)\n")
+        self.assertEqual(self.host.share_log(), "share-host log: INFO acpmux: stopping: its app quit (app pid 9)")
 
     def test_a_missing_log_says_so(self):
         self.assertEqual(self.host.share_log(), "share-host log: FileNotFoundError")
@@ -242,3 +305,54 @@ class ViewerLogTests(unittest.TestCase):
 
     def test_no_lines_says_so(self):
         self.assertEqual(viewer_log(["live data on\n"]), "no viewer session lines")
+
+
+class LaunchLiveStateTests(unittest.TestCase):
+    """The share launch's failure says whether the phone reached live data after that launch."""
+
+    @staticmethod
+    def log(rows):
+        import threading
+        import cmux_next_pair_e2e
+        log = type("Log", (), {"wait_at": cmux_next_pair_e2e.Stream.wait_at})()
+        log.times, log.lines, log.cond = [t for t, _ in rows], [l for _, l in rows], threading.Condition()
+        return cmux_next_pair_e2e.launch_live_state, log
+
+    def test_names_when_each_line_came(self):
+        state, log = self.log([(5, "Stack project p (development)"), (12, "live data on api.example")])
+        self.assertEqual(state(log, 2), "phone since launch: auth config after 3 s, live data after 10 s")
+
+    def test_live_data_from_an_earlier_launch_does_not_count(self):
+        state, log = self.log([(1, "live data on api.example"), (5, "Stack project p")])
+        self.assertEqual(state(log, 2), "phone since launch: auth config after 3 s, live data not logged")
+
+
+class BuildSpaceForTagTests(unittest.TestCase):
+    """The rig's daemon gets the tag's build space, so its share host registers beside the phone."""
+
+    def test_the_rig_tag_is_its_own_space(self):
+        import cmux_next_pair_e2e
+        self.assertEqual(cmux_next_pair_e2e.build_space_for_tag("iospair-8f03f7e6-4242"), "dev:iospair-8f03f7e6-4242")
+
+    def test_a_tag_that_is_not_a_slug_is_left_to_the_app(self):
+        import cmux_next_pair_e2e
+        for tag in ("", None, "Upper", "-edge", "a_b", "x" * 65):
+            self.assertIsNone(cmux_next_pair_e2e.build_space_for_tag(tag), tag)
+
+
+class ShareLaunchKeepsHelpersTests(unittest.TestCase):
+    """The Mac launch the share leg quits keeps its helpers: a tagged DEV build's `__dev-reaper`
+    otherwise SIGTERMs acpmux and its share host as the app exits (run 45886008693), which a shipped
+    app never does, so the phone read the Mac Offline."""
+
+    def test_the_share_launch_keeps_helpers(self):
+        source = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux_next_pair_e2e.py").read_text()
+        self.assertIn('share_launch = dict(env, CMUX_DEV_KEEP_HELPERS="1")', source)
+        self.assertIn('if discovery else share_launch)', source)
+        # The discovery launch keeps them too: the identity restart quits it, and its reaper still
+        # SIGTERMed the share host (run 45918096680).
+        self.assertIn('start_mac(dict(share_launch, CMUX_NEXT_IPHONE_APPROVE_FIRST="1") if discovery', source)
+        self.assertNotIn('start_mac(dict(env, CMUX_NEXT_IPHONE_APPROVE_FIRST="1")', source)
+        # The identity restart is the launch the share leg quits when discovery runs (run 45901838391).
+        self.assertIn('discovery_restart(app, exe, share_launch,', source)
+        self.assertIn('start_mac(env, "-pair")', source)

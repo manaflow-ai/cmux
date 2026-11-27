@@ -194,6 +194,10 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// The daemon's Chrome trace file (acpmux perf_trace.rs, cmux#55505): a launch that sets it keeps it, so the
     /// acpmux daemon this app starts writes the user actions' spans there (scripts/measure/action-trace.sh).
     public static let traceFileKey = "CMUX_TRACE_FILE"
+    /// A tagged DEV build that keeps its helpers across a quit (`DevBuildReaper.keepHelpersKey`): the
+    /// reaper reads this process's environment after the launch strip, so a harness that passes it
+    /// (scripts/ci/cmux_next_pair_e2e.py's share leg) keeps it.
+    public static let devKeepHelpersKey = "CMUX_DEV_KEEP_HELPERS"
     /// The egress gate's mode (`enforce`, `log`, `off`) for this app and every Rust child
     /// (docs/privacy.md, cmux-egress): a value the launch passed wins; else NIGHTLY, DEV and
     /// staging builds enforce, and a release or rc build keeps the gate's own default (log).
@@ -218,7 +222,7 @@ public struct LaunchIdentity: Sendable, Equatable {
 
     /// Keys of cmux variables this process inherited rather than received
     /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs,
-    /// ``liveCodeDirKey``, ``noCustomizationsKey``, ``egressModeKey``, ``traceFileKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
+    /// ``liveCodeDirKey``, ``noCustomizationsKey``, ``egressModeKey``, ``traceFileKey``, ``devKeepHelpersKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
     /// When another cmux started this process (``otherCmuxMarkers``), also
     /// the ``stateRootKnobs`` and that build's files (``BuildStatePaths/environmentKeys``), every `MUX_*` but `MUX_HARNESS`, and every
     /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots. Its
@@ -233,7 +237,8 @@ public struct LaunchIdentity: Sendable, Equatable {
         return processEnvironment.keys.filter { key in
             guard inherited(key) else { return false }
             if key == captureShellHomeKey, isDebugBuild, !fromOtherCmux { return false }
-            if key == liveCodeDirKey || key == noCustomizationsKey || key == egressModeKey || key == traceFileKey, !fromOtherCmux { return false }
+            if key == liveCodeDirKey || key == noCustomizationsKey || key == egressModeKey || key == traceFileKey
+                || key == devKeepHelpersKey, !fromOtherCmux { return false }
             if cloudSelectionKnobs.contains(key) { return fromOtherCmux && !namesThisApp }
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
             if key.hasPrefix("CMUX") { return true }

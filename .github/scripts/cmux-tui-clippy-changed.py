@@ -456,6 +456,8 @@ def name_base_reds(repo: Path, base: str, red_files: list[str]) -> None:
               f"through an API it changed, is this change's to fix)")
     if outside and len(outside) == len(red_files):
         print("cmux-tui-clippy-changed: every clippy error is in a file this change does not touch: likely a base red")
+        if verdict := os.environ.get("CMUX_CLIPPY_BASE_RED_FILE"):
+            Path(verdict).write_text("base red\n", encoding="utf-8")
 
 
 def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, out: Path, compare: str = "") -> int:

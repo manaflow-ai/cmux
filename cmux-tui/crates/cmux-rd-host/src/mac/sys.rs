@@ -19,6 +19,10 @@ pub type CFNumberRef = *const c_void;
 pub type CGEventRef = *mut c_void;
 pub type CGEventSourceRef = *mut c_void;
 pub type CGDisplayModeRef = *mut c_void;
+pub type CGDisplayConfigRef = *mut c_void;
+/// kCGConfigureForAppOnly: a display configuration the window server undoes when this process
+/// exits.
+pub const CONFIGURE_FOR_APP_ONLY: u32 = 0;
 pub type CMSampleBufferRef = *mut c_void;
 pub type CVPixelBufferRef = *mut c_void;
 pub type IOSurfaceRef = *mut c_void;
@@ -150,6 +154,16 @@ framework! {
         fn CGDisplayModeGetPixelHeight(mode: CGDisplayModeRef) -> usize;
         fn CGDisplayModeGetRefreshRate(mode: CGDisplayModeRef) -> f64;
         fn CGDisplayModeRelease(mode: CGDisplayModeRef);
+        // The opt-in refresh raise (capture.rs, CMUX_RD_MAC_MAX_REFRESH): a display's modes and
+        // a mode switch for this process only.
+        fn CGDisplayCopyAllDisplayModes(display: u32, options: CFDictionaryRef) -> CFArrayRef;
+        fn CGDisplayModeGetWidth(mode: CGDisplayModeRef) -> usize;
+        fn CGDisplayModeGetHeight(mode: CGDisplayModeRef) -> usize;
+        fn CGDisplayModeIsUsableForDesktopGUI(mode: CGDisplayModeRef) -> bool;
+        fn CGBeginDisplayConfiguration(config: *mut CGDisplayConfigRef) -> i32;
+        fn CGConfigureDisplayWithDisplayMode(config: CGDisplayConfigRef, display: u32, mode: CGDisplayModeRef, options: CFDictionaryRef) -> i32;
+        fn CGCompleteDisplayConfiguration(config: CGDisplayConfigRef, option: u32) -> i32;
+        fn CGCancelDisplayConfiguration(config: CGDisplayConfigRef) -> i32;
         fn CGRectMakeWithDictionaryRepresentation(dictionary: CFDictionaryRef, rect: *mut CGRect) -> u8;
         // One shared window (window.rs): its frame and whether it is on screen, read again
         // while it is shared, and the display it is on (CGWindowListCopyWindowInfo below).

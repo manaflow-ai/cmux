@@ -41,3 +41,8 @@ cmux-tui/crates/acpmux/src/hub/prefetch.rs	1	keep	a folder-name deny list (secre
 cmux-tui/crates/acpmux-tui/src/actions.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux-tui/src/session_ops.rs	2	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux-tui/src/skills.rs	2	move	unreviewed at S7 (cx-is1kf.8)
+cmux-tui/crates/acpmux/src/memory_mount.rs	1	move	not yet reviewed at S7: the fleet memory mount under ~/.cmux; ask the build's resolver
+cmux-tui/crates/acpmux/src/memory_mount/link.rs	1	move	not yet reviewed at S7: the fleet memory mount under ~/.cmux; ask the build's resolver
+cmux-tui/crates/cmux-home-rules/src/chief_home/home.rs	1	keep	resolver: ChiefHome (the Rust port of ChiefHome.swift's chief root)
+cmux-tui/crates/cmux-home-rules/src/chief_home/migration.rs	1	keep	reads the old per-tag Chiefs (NIGHTLY only; the Rust port of ChiefMigration.swift)
+cmux-tui/crates/cmux-critpath/src/main.rs	1	keep	dev analysis CLI (Leo #55582): reads acpmux session logs under ~/.acpmux/sessions by default, --root overrides; ships in no app, writes nothing there

@@ -1,6 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
-import CmuxNextHostPressure
+import CmuxNextHostPressureTunables
 import CmuxNextSettings
 
 /// `debug.host_pressure {action: "open" | "close" | "state"}` (DEBUG builds): opens or closes the

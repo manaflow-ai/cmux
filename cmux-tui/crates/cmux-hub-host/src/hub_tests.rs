@@ -155,3 +155,35 @@ fn the_machine_credential_is_never_printed() {
     assert!(!format!("{renewal:?}").contains("cmm_secret"));
     assert_eq!(format!("{:?}", Renewal::DeviceAnchor), "DeviceAnchor");
 }
+
+#[test]
+fn a_dev_build_host_registers_in_its_own_space() {
+    // A tagged build's iPhone lists only its space's devices (cmuxterm-hq#18912): every hub
+    // request of a host in that space carries it, sign-in and calls alike.
+    let in_an_hour = now_ms() + 60 * 60 * 1000;
+    let (origin, server) = fake_hub(vec![
+        json!({"session": "sess-3", "userId": "p:u", "expiresAt": in_an_hour}),
+        json!({"device": {}}),
+    ]);
+    let renewal = Renewal::Machine { credential: "cmm_secret".into() };
+    let hub = Hub::with_renewal(&origin, Device::generate("desk").unwrap(), None, renewal)
+        .unwrap()
+        .in_space(Some("dev:pair-e2e"));
+    hub.register("macos").unwrap();
+    let received = server.join().unwrap();
+    assert_eq!(received[0].header("x-cmux-build-space"), Some("dev:pair-e2e"));
+    assert_eq!(received[1].line, "POST /v1/devices HTTP/1.1");
+    assert_eq!(received[1].header("x-cmux-build-space"), Some("dev:pair-e2e"));
+
+    // NIGHTLY, release and Linux hosts have no space and send no header.
+    let (origin, server) = fake_hub(vec![
+        json!({"session": "sess-4", "expiresAt": in_an_hour}),
+        json!({"device": {}}),
+    ]);
+    let hub = Hub::new(&origin, Device::generate("desk").unwrap(), Some("p:u".into()))
+        .unwrap()
+        .in_space(None);
+    hub.register("linux").unwrap();
+    let received = server.join().unwrap();
+    assert!(received.iter().all(|r| r.header("x-cmux-build-space").is_none()));
+}

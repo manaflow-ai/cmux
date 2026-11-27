@@ -101,6 +101,9 @@ fn scope_text(args: &[String]) -> Option<String> {
         ["app", "web-pieces", ..] => {
             return Some(format!("{}\n", super::super::app::WEB_PIECES_USAGE));
         }
+        ["app", "web-cas", ..] => {
+            return Some(format!("{}\n", super::super::app::WEB_CAS_USAGE));
+        }
         ["app", "share", ..] => return Some(format!("{}\n", messages.app_share.usage)),
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,
@@ -167,6 +170,8 @@ usage: cmux app ping | identify | capabilities
 
 const WINDOW_HELP: &str = "\
 usage: cmux window list
+       cmux window record [--target <id>] [--seconds <1-60>] [--fps <1-60>] [--out <file.mp4|folder>]
+                                        (a clip of the window, no Screen Recording permission)
        cmux window <verb...> [--target <id>]   (an app action)";
 
 const ACTION_LIST_USAGE: &str =
