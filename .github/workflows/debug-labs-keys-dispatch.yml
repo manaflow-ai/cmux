@@ -24,8 +24,9 @@ env:
 jobs:
   dispatch:
     if: github.repository == 'manaflow-ai/cmux'
-    # It holds the cmux-bot App key, so no variable may move it (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
+    # It holds the cmux-bot App key, so no variable may move it (tests/test_ci_fork_runner_routing.py), and it
+    # takes an owned one-job JIT VM, the nightly/cron label (tests/test_ci_secret_jobs_secret_jit.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     permissions:
       actions: write
       contents: read
