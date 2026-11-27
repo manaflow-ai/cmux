@@ -22,7 +22,7 @@ on:
       after:
         description: After ref (branch or SHA)
         required: false
-        default: d04607cef7046138aabe5bd5d01d517dc9450078
+        default: 9b3a8cad3aa27cdeaf015c4b92295206d054429b
 
 permissions:
   contents: read
@@ -40,15 +40,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - leg: before
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || 'feat-cmux-next' }}
-          - leg: after
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || 'd04607cef7046138aabe5bd5d01d517dc9450078' }}
+          # Chat-open cause (run 45931115481): only reverting #57970's history-as-head fixed it. The
+          # waiting chat ws-s0 now opens on its permission bar and never builds a composer, so its
+          # ready mark never fired. The second leg adds the mark fix (lane/ios-chat-ready-mark-ask).
+          # Restore the before/after pins (38721c8c / 9b3a8cad) once this reads green.
+          - leg: base+both-fixes
+            ref: edabb86f3748eec650913dddab24d2577d3db762
+            buildfix: false
+          - leg: both-fixes+ready-mark
+            ref: c71eb301f1cfb0a2c7a1a1998ee195cbdd0ad926
+            buildfix: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ matrix.ref }}
+
+      - name: Apply the #59639 build fix (bisect legs that predate it)
+        if: matrix.buildfix
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=2 origin 1387d6fbda5dc26c276250c5fc12d91d5e326485
+          git diff 1387d6fbda5dc26c276250c5fc12d91d5e326485^ 1387d6fbda5dc26c276250c5fc12d91d5e326485 -- cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/AttachmentPrestager.swift | git apply
+          git diff --stat
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -122,6 +136,6 @@ jobs:
           path: |
             artifacts/ios-sim/launch-tti.jsonl
             artifacts/ios-sim/first-connect.json
-            artifacts/ios-sim/SUMMARY.md
+            artifacts/ios-sim/**
           retention-days: 3
           if-no-files-found: warn
