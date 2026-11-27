@@ -8,6 +8,7 @@ import {
   type BrowserDeviceIdentity,
 } from "./browserDevice";
 import { pageAttention } from "./attention";
+import { pageScrollQuiet } from "./scrollQuiet";
 import { replyRowKey } from "./replyRowKey";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
@@ -30,6 +31,7 @@ import { OlderPageDelay } from "./conversation/olderPageDelay";
 import { answeredBy, promptAuthor, queuedAuthor, type Participant } from "./multiplayer/participants";
 import type {
   AcpmuxActivity,
+  AcpmuxModelCall,
   AcpmuxPermission,
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
@@ -117,7 +119,7 @@ import {
 } from "./attachParams";
 export { SETTLED_ATTACH_CAPABILITY, attachedDetail, settledAttachFailed } from "./attachParams";
 import { ChatSource, HOLD_ATTACH_CAPABILITY } from "./rows/chatSource";
-import { holdAttach, holdReads } from "./rows/holdKinds";
+import { holdAttach, holdAttachRefused, holdReads } from "./rows/holdKinds";
 import {
   forgetTail,
   keptEvents,
@@ -563,6 +565,22 @@ const QUEUE_WITHDRAWN_KEPT = 16;
 /// context a harness holds (Claude Code's result repeats its last call's for the context ring;
 /// other harnesses, whatever their family, report only that), which does not add up.
 const isCallUsage = (update: any) => update?._meta?.acpmux?.call === true;
+/// When a marked call went out and came back, as acpmux timed it where it read the call's stream
+/// (claude_stdio/model_calls.rs): unix ms on the daemon's clock, the clock of every event's `at`.
+/// None from an older daemon, or for times that do not read.
+const modelCallTiming = (update: any): AcpmuxModelCall | undefined => {
+  const timing = update?._meta?.acpmux?.timing;
+  const first = Number(timing?.firstTokenAt);
+  const last = Number(timing?.lastTokenAt);
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return undefined;
+  const request = Number(timing?.requestAt);
+  return {
+    ...(Number.isFinite(request) && request <= first && { requestAt: request }),
+    firstTokenAt: first,
+    lastTokenAt: last,
+    ...(timing?.thought === true && { thought: true as const }),
+  };
+};
 /// The generated side of one model call. Older daemons only sent `used`, which is a context
 /// snapshot and must never be mistaken for output; those calls therefore do not contribute.
 const callOutputTokens = (update: any): number | undefined => {
@@ -2220,6 +2238,9 @@ export class AcpmuxDirectClient {
   private loadingOlder?: Promise<void>;
   /// While an older page folds, the first sequence number the pane held before it.
   private foldingBelow: number | undefined;
+  /// While an older page folds: each row its chunks of a held reply drew (by the segment acpmux stamped on them), and
+  /// that held row, which the fold joins them into (`joinStampedReplies`).
+  private stampedJoins = new Map<string, string>();
   /// After a failed older page the next waits until then, so a reader near the top does not retry every frame.
   private olderRetryAt = 0;
   private readonly olderDelay = new OlderPageDelay();
@@ -2253,6 +2274,8 @@ export class AcpmuxDirectClient {
     this.selectedSessionId = host.sessionId;
     this.stopWantAll = onWantAllSessions(() => this.readAllSessions());
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.showChanged);
+    // Listens from the start: another page's scroll is heard only by a page already listening.
+    pageScrollQuiet();
     this.stopAttention = pageAttention()?.subscribe(this.attentionChanged);
     // The chat on screen is handed over when this page goes away as well as when it is left, so a
     // tab closed or reloaded on a chat leaves that chat warm for the next tab (keptAttachments.ts
@@ -5144,10 +5167,17 @@ export class AcpmuxDirectClient {
       this.readAheadOwed = false;
       this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     }
+    // What landed while hidden is published in the show itself, not in the next display frame: a
+    // pane draw set from a frame callback is a default-lane render React runs after that frame
+    // paints, so the first frame back drew the chat as it was when hidden and the next one moved it
+    // (a turn that ended while away: its rows came a frame late and the page jumped 254 px,
+    // settled-page bench workspace_switch.idle). Set in `visibilitychange`, a discrete event, an
+    // urgent draw commits before the first frame.
     if (pageShown() && this.hiddenEmit !== undefined && !this.closed) {
       const connection = this.hiddenEmit;
       this.hiddenEmit = undefined;
-      this.emitInFrame(connection);
+      this.frameSnapshot = undefined;
+      this.emit(connection);
     }
     // Showing the page is the reader's own move, made outside it (a tab, a workspace).
     if (pageShown()) pageAttention()?.touch();
@@ -6646,38 +6676,51 @@ export class AcpmuxDirectClient {
     const attending = readerHere();
     const hold = this.chatRows.holds(sessionId) ? holdAttach(sessionId, visible, undefined, attending) : undefined;
     // `forward: false` drops `afterSeq` (an `undefined` argument would take the default back).
-    const ask = (settled: boolean, forward = true) =>
+    const plainAsk = (settled: boolean, forward = true) =>
       this.typed(
         "_acpmux/attach",
-        hold ??
-          plainAttach(sessionId, {
-            settled,
-            visible,
-            attending,
-            local: guess ? guess.local : this.localOrigin,
-            maxBytes: OPEN_PAGE_BYTES,
-            afterSeq: forward ? afterSeq : undefined,
-          }),
+        plainAttach(sessionId, {
+          settled,
+          visible,
+          attending,
+          local: guess ? guess.local : this.localOrigin,
+          maxBytes: OPEN_PAGE_BYTES,
+          afterSeq: forward ? afterSeq : undefined,
+        }),
       );
     // acpmux answers a settled view it cannot read with a plain page; one that fails the attach over
     // it instead (its error names `settled`) is asked once more without it, so the chat still opens.
+    const plain = () =>
+      capabilities?.has(SETTLED_ATTACH_CAPABILITY) && afterSeq === undefined
+        ? plainAsk(true).catch((error: unknown) => {
+            if (!settledAttachFailed(error)) throw error;
+            return plainAsk(false);
+          })
+        : plainAsk(false);
+    const sent: SentAttach = { attaching: Promise.resolve(), hold: !!hold };
+    // A host whose params rule does not take `hold` (a page newer than its app) refuses the hold as
+    // malformed: the chat falls to v1 and asks the plain attach, so it opens with no error line
+    // (Leo's NIGHTLY 2026-11-16: every chat on the store said "Something went wrong" after a restart).
     // So too a reconnect's forward attach that a host refuses as malformed (a relay whose params rule
     // does not take `afterSeq`, as every one before Leo's 2026-11-22 report): asked again for the
     // newest page, as every reconnect did before #47119, which `attachWatched` lays as that page. A
     // reconnect is recoverable, never "cmux blocked opening this chat" over the composer.
-    const attaching =
-      capabilities?.has(SETTLED_ATTACH_CAPABILITY) && !hold && afterSeq === undefined
-        ? ask(true).catch((error: unknown) => {
-            if (!settledAttachFailed(error)) throw error;
-            return ask(false);
+    const attaching = hold
+      ? this.typed("_acpmux/attach", hold).catch((error: unknown) => {
+          if (!holdAttachRefused(error)) throw error;
+          console.warn("agent pane: the host refused the row store's hold; the chat opens on v1", error);
+          this.chatRows.holdRefused(sessionId);
+          sent.hold = false;
+          return plain();
+        })
+      : afterSeq !== undefined
+        ? plainAsk(false).catch((error: unknown) => {
+            if (!forwardAttachRefused(error)) throw error;
+            this.wire.lifecycle("forward attach refused, asked the newest page", { sessionId, afterSeq });
+            return plainAsk(false, false);
           })
-        : !hold && afterSeq !== undefined
-          ? ask(false).catch((error: unknown) => {
-              if (!forwardAttachRefused(error)) throw error;
-              this.wire.lifecycle("forward attach refused, asked the newest page", { sessionId, afterSeq });
-              return ask(false, false);
-            })
-          : ask(false);
+        : plain();
+    sent.attaching = attaching;
     const out = { sessionId };
     this.attachOut = out;
     const settled = () => {
@@ -6691,7 +6734,8 @@ export class AcpmuxDirectClient {
       },
       () => settled(),
     );
-    return { attaching, reads: reads ? this.startAttachReads(sessionId) : undefined, hold: !!hold };
+    sent.reads = reads ? this.startAttachReads(sessionId) : undefined;
+    return sent;
   }
 
   /// The attach asked with the list for a chat that may draw from the store: the switch is asked
@@ -6717,7 +6761,11 @@ export class AcpmuxDirectClient {
         const out = this.sendAttach(sessionId, generation, false, undefined, guess);
         sent.hold = out.hold;
         sent.switched = true;
-        return out.attaching;
+        // A refused hold that fell to v1 clears `out.hold` before its attach settles.
+        return out.attaching.then((result: unknown) => {
+          sent.hold = out.hold;
+          return result;
+        });
       });
     return sent;
   }
@@ -7539,6 +7587,10 @@ export class AcpmuxDirectClient {
       this.listChangedWhileHidden = true;
       return;
     }
+    // A chat scrolling on another page of the renderer (scrollQuiet.ts), or this one: another chat's
+    // change waits for the scroll to rest and draws then, every one held in one snapshot, so the
+    // wheel's frames are the scrolled chat's own. A New Tab page, which draws every change, too.
+    if (!rebuilt && session.sessionId !== this.selectedSessionId && this.holdForScroll()) return;
     // A shown chat draws other chats' changes at most every OTHER_CHATS_DRAW_MS and never while the
     // person scrolls (`drawOtherChats`). The chats it started or offers (whose counts and cards it
     // draws, experiment or not: App.tsx `spawnedSessions`), the one it waits to reopen and a change
@@ -7584,6 +7636,20 @@ export class AcpmuxDirectClient {
       this.otherChatsDraw = undefined;
       this.drawOtherChats();
     }, wait);
+  }
+
+  /// The wait of other chats' changes held while a chat scrolls, if any: one at a time.
+  private scrollHold?: () => void;
+  /// Holds the drawing of other chats' changes while a chat scrolls; false when none does.
+  private holdForScroll(): boolean {
+    if (this.scrollHold) return true;
+    const quiet = pageScrollQuiet();
+    if (!quiet?.scrolling()) return false;
+    this.scrollHold = quiet.afterScroll(() => {
+      this.scrollHold = undefined;
+      if (!this.closed) this.emitInFrame("session changed");
+    });
+    return true;
   }
 
   /// Other chats that only ran on (their times and latest words, otherChatsLive.ts) since the last
@@ -10195,6 +10261,8 @@ export class AcpmuxDirectClient {
       // count belongs on the running line; adding `used` here counted the whole context again on
       // every tool step (for example, 5 × 100K input became 500K instead of 5K output). What the
       // calls read stays apart, in the split, for the line's "in" and its hover.
+      const timed = isCallUsage(update) ? modelCallTiming(update) : undefined;
+      if (timed) this.timeModelCall(timed);
       if (this.turnTokens !== undefined && isCallUsage(update)) {
         const output = callOutputTokens(update);
         if (output !== undefined) this.turnTokens += output;
@@ -11063,6 +11131,12 @@ export class AcpmuxDirectClient {
         : stamped !== undefined && !this.rows.has(`assistant-${stamped}`)
           ? `assistant-${stamped}`
           : `assistant-${event.seq}`;
+      // An older page's chunks of a reply held below it: their row joins the held one once the page folded.
+      if (!sameMessage && stamped !== undefined && id !== `assistant-${stamped}` && this.foldingBelow !== undefined) {
+        const into = `assistant-${stamped}`;
+        if (this.rows.get(into)?.kind === "assistant" && this.rows.orderOf(into) >= this.foldingBelow)
+          this.stampedJoins.set(id, into);
+      }
       // A chunk the row took already (seq at or below the row's newest) adds nothing again.
       const taken = this.replyChunkSeq.get(id);
       if (taken !== undefined && event.seq <= taken) return;
@@ -11080,6 +11154,7 @@ export class AcpmuxDirectClient {
         at: existing?.at ?? event.at,
         kind: "assistant",
         ...(messageTurnStartedAtMs !== undefined && { turnStartedAtMs: messageTurnStartedAtMs }),
+        ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
         text: `${existing?.text ?? ""}${text}`,
         ...((assistantPhase ?? existing?.assistantPhase) && {
           assistantPhase: assistantPhase ?? existing?.assistantPhase,
@@ -11145,6 +11220,7 @@ export class AcpmuxDirectClient {
         toolCount: existing?.toolCount ?? 0,
         items: appendThought(existing?.items ?? [], text, event.at),
         streaming: true,
+        ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
       });
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
@@ -11224,6 +11300,7 @@ export class AcpmuxDirectClient {
         toolCount: items.filter((entry) => entry.kind === "tool" && !isCompletedPlumbingTool(entry.tool)).length,
         items,
         streaming: item.tool?.status !== "completed" && item.tool?.status !== "failed",
+        ...(existing?.modelCalls && { modelCalls: existing.modelCalls }),
       };
       this.rows.set(id, row, itemIndex < 0 || !row.streaming || summaryChanged);
       this.toolRows.set(callId, id);
@@ -11813,6 +11890,16 @@ export class AcpmuxDirectClient {
     const text = row.text ?? "";
     const claims = readClaims(msg.claims).filter((claim) => text.includes(claim.text));
     if (claims.length) this.rows.set(row.id, { ...row, version: row.version + 1, claims });
+  }
+
+  /// A model call acpmux timed goes on the row its output streamed into, which the turn's footer
+  /// Timeline reads (conversation/waterfallSpans.ts `turnWork`). A call read twice (a catch-up over
+  /// events already read) is kept once.
+  private timeModelCall(call: AcpmuxModelCall): void {
+    const id = this.streamingActivity ?? this.streamingAssistant;
+    const row = id === undefined ? undefined : this.rows.get(id);
+    if (!row || row.modelCalls?.some((held) => held.lastTokenAt === call.lastTokenAt)) return;
+    this.rows.set(id!, { ...row, version: row.version + 1, modelCalls: [...(row.modelCalls ?? []), call] });
   }
 
   private endAssistantSegment(): void {
@@ -17986,6 +18073,50 @@ export class AcpmuxDirectClient {
     }
   }
 
+  /// After an older page folded (`foldOlder`): a reply it brought the start of, whose later chunks are held below
+  /// (one segment acpmux stamped on them all), is one row, the held one, as reading the whole record draws it. The
+  /// page's row goes and its text goes before the held row's, so the row drawn at the bottom keeps its id and node
+  /// and the reply never draws as two rows until the turn's start refolds it.
+  private joinStampedReplies(held: ReadonlyMap<string, AcpmuxRow>): void {
+    const joins = this.stampedJoins;
+    this.stampedJoins = new Map();
+    if (joins.size === 0) return;
+    const current = this.rows.current;
+    this.rows.current = undefined;
+    try {
+      this.joinStampedRows(joins, held);
+    } finally {
+      this.rows.current = current;
+    }
+  }
+
+  private joinStampedRows(joins: ReadonlyMap<string, string>, held: ReadonlyMap<string, AcpmuxRow>): void {
+    for (const [from, into] of joins) {
+      const page = this.rows.get(from);
+      const kept = this.rows.get(into);
+      if (held.has(from) || !held.has(into) || page?.kind !== "assistant" || kept?.kind !== "assistant") continue;
+      this.rows.set(into, {
+        ...kept,
+        version: kept.version + 1,
+        at: Math.min(page.at, kept.at),
+        ...((page.turnStartedAtMs ?? kept.turnStartedAtMs) !== undefined && {
+          turnStartedAtMs: page.turnStartedAtMs ?? kept.turnStartedAtMs,
+        }),
+        text: `${page.text ?? ""}${kept.text ?? ""}`,
+      });
+      this.rows.mergeChanges(from, into, this.rows.orderOf(from));
+      this.rows.delete(from);
+      this.replyChunkSeq.delete(from);
+      if (this.lastReplyRow === from) this.lastReplyRow = into;
+      for (const [messageId, rowIds] of this.messageRows)
+        if (rowIds.includes(from)) {
+          const rest = rowIds.filter((rowId) => rowId !== from);
+          if (rest.length > 0) this.messageRows.set(messageId, rest);
+          else this.messageRows.delete(messageId);
+        }
+    }
+  }
+
   /// Folds whole turns older than every held event into rows above them, without folding the held
   /// events again: the cost of a page stays the page's however much history is loaded. The fold
   /// starts from a clean turn and leaves the live state (an open turn, its stream and typing row,
@@ -18101,6 +18232,7 @@ export class AcpmuxDirectClient {
       this.heldPromptRowKeys = undefined;
     }
     this.endSplitFill(fills, held, pageSeqs, this.streamingAssistant);
+    this.joinStampedReplies(held);
     // A page can split a tool call: its completed update may have been held first, then the
     // older page brings the call opener. Keep the held row as the authoritative later state and
     // remove the page's duplicate item, while retaining page-only calls in the incremental fold.
@@ -18434,6 +18566,8 @@ export class AcpmuxDirectClient {
     this.stopWantAll?.();
     this.stopWantAll = undefined;
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
+    this.scrollHold?.();
+    this.scrollHold = undefined;
     this.stopAttention?.();
     this.stopAttention = undefined;
     if (typeof window !== "undefined") {
