@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "900aaeda1e1f8f40493dfd86e08a2a1ba88407a0c46c4dd8151c8a8386512772"
+	SDKIRSHA256        = "bd90a6b9bab1ac87fa839f672abb7150223a629fcc430d19a5fbb3e684ac462b"
 )
 
 type Authority string
@@ -396,6 +396,7 @@ var eventMetadata = map[string]EventMetadata{
 	"client-attached":                   {Name: "client-attached", Since: 6, Capability: "", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"client-changed":                    {Name: "client-changed", Since: 6, Capability: "", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"client-detached":                   {Name: "client-detached", Since: 6, Capability: "", Streams: []string{"subscribe"}, Emission: "emitted"},
+	"client-disconnected-by":            {Name: "client-disconnected-by", Since: 12, Capability: "", Streams: []string{"control"}, Emission: "emitted"},
 	"client-list-invalidated":           {Name: "client-list-invalidated", Since: 9, Capability: "", Streams: []string{"subscribe"}, Emission: "serialized-never-emitted"},
 	"cloud-conversation-changed":        {Name: "cloud-conversation-changed", Since: 12, Capability: "cloud-conversations-v1", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"cloud-conversation-live":           {Name: "cloud-conversation-live", Since: 12, Capability: "cloud-chief-live-v1", Streams: []string{"subscribe"}, Emission: "emitted"},
@@ -846,7 +847,7 @@ func AllCommandMetadata() []CommandMetadata {
 }
 
 func AllEventMetadata() []EventMetadata {
-	result := make([]EventMetadata, 0, 101)
+	result := make([]EventMetadata, 0, 102)
 	var metadata EventMetadata
 	metadata = eventMetadata["activity-changed"]
 	metadata.Streams = append([]string(nil), metadata.Streams...)
@@ -894,6 +895,9 @@ func AllEventMetadata() []EventMetadata {
 	metadata.Streams = append([]string(nil), metadata.Streams...)
 	result = append(result, metadata)
 	metadata = eventMetadata["client-detached"]
+	metadata.Streams = append([]string(nil), metadata.Streams...)
+	result = append(result, metadata)
+	metadata = eventMetadata["client-disconnected-by"]
 	metadata.Streams = append([]string(nil), metadata.Streams...)
 	result = append(result, metadata)
 	metadata = eventMetadata["client-list-invalidated"]
