@@ -229,7 +229,9 @@ impl Throttle {
     pub fn take(&mut self, rule: &Rule, session: &str, now: Instant) -> bool {
         let Some(every) = rule.every else { return true };
         let key = (rule.name.clone(), session.to_owned());
-        if self.last.get(&key).is_some_and(|at| now.saturating_duration_since(*at) < every) {
+        if let Some(at) = self.last.get(&key)
+            && now.saturating_duration_since(*at) < every
+        {
             return false;
         }
         // Bounded: a long-lived host forgets runs older than an hour once it holds many.
@@ -277,7 +279,10 @@ pub fn answer(event: &str, runs: &[Ran]) -> Value {
         };
         let refused = out.get("decision").and_then(Value::as_str) == Some("block")
             || out.get("continue") == Some(&Value::Bool(false))
-            || out.pointer("/hookSpecificOutput/permissionDecision").and_then(Value::as_str)
+            || out
+                .get("hookSpecificOutput")
+                .and_then(|h| h.get("permissionDecision"))
+                .and_then(Value::as_str)
                 == Some("deny");
         if let Some(Value::Object(hso)) = out.remove("hookSpecificOutput") {
             for (k, v) in hso {
@@ -293,8 +298,8 @@ pub fn answer(event: &str, runs: &[Ran]) -> Value {
                 }
             }
         }
-        if let Some(Value::String(s)) =
-            out.remove("systemMessage").filter(|v| v.as_str().is_some_and(|s| !s.is_empty()))
+        if let Some(Value::String(s)) = out.remove("systemMessage")
+            && !s.is_empty()
         {
             messages.push(s);
         }
