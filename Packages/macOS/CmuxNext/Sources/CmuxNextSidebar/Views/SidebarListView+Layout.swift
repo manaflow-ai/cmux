@@ -413,7 +413,9 @@ extension SidebarListViewComponents {
             // Under a dropped card on its way to its slot, a leaving row goes at once (`isUnderCard`).
             let underCard = isUnderCard(view.frame, cards)
             if adopting, !suppressed.contains(key), !underCard {
-                // A row the drop or the model took away fades where it is (its slot closes on the rows' spring).
+                // A row the drop or the model took away fades where it is (its slot closes on the rows' spring),
+                // without the selection fill: that is on the new selected row already (no second one).
+                view.isSelected = false
                 leaving.append((view, view.frame))
             } else if suppressed.contains(key) || !animate || placeholder || replaced || underCard {
                 recycle(view)
@@ -656,6 +658,7 @@ extension SidebarListViewComponents {
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
         defer { reportGooeySelection() } // a scroll moves the selected row under the window's shade
+        chatHistory.followScroll()
         let realize = realizationRect()
         for index in displayed.rowIndices(from: realize.minY, to: realize.maxY) {
             let row = displayed.rows[index]

@@ -265,7 +265,8 @@ public enum HomeListNote: Equatable, Sendable {
 /// What Home says while its Mac's list is not live (CMUX-489), in the Workspaces tab's words
 /// (the user, 2026-11-13: no card over the list, "make them similar, no different messaging
 /// paradigms"). With rows on screen the list stays exactly as normal under Workspaces' connection
-/// toast ("Offline" and Retry); with none, Home shows Workspaces' empty state for that Mac.
+/// toast ("Offline"); with none, Home shows Workspaces' empty state for that Mac. Neither offers
+/// Retry: Home reads again on its own (``AutoRetry``; Leo, 2026-11-22).
 public struct HomeConnectionStatus: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         /// The Mac is offline (its presence says so): nothing to dial.
@@ -283,7 +284,7 @@ public struct HomeConnectionStatus: Equatable, Sendable {
         public let symbol: String
         public let title: String
         public let message: String
-        /// Offers Retry (not for an offline Mac: there is nothing to dial, as on Workspaces).
+        /// Home dials and reads again on its own (not for an offline Mac: there is nothing to dial).
         public let canRetry: Bool
     }
 
@@ -874,7 +875,7 @@ public final class MacHomeFeed {
                 } catch {
                     guard mine == self.generation else { return }
                     self.problem = Self.reason(error)
-                    // The next event or Retry reads again.
+                    // The next event, or Home's automatic retry (``AutoRetry``), reads again.
                     self.wantsWindow = false
                     self.wantsAll = false
                     self.wantedIDs = []

@@ -1,0 +1,206 @@
+{
+  "about": "The phone's connection contract at the FFI boundary (cmux-next-ios/contract/README.md). Rust reads it in cmux-mobile-link-ffi/tests/connection_contract.rs; Swift reads the same file in CmuxMobileLinkFFILinuxTests/ConnectionContractTests.swift (through the real binding), CmuxMobileLiveTests/ConnectionContractScenarioTests.swift (LinkMachine) and CmuxMobileModelTests/ConnectionContractCopyTests.swift (the Mac view's words). A Rust change to an event, a resolution or a protocol version fails the Rust test until this file says what changed; the file's change then fails the Swift tests until iOS handles it.",
+  "link_event_variants": ["Connecting", "Connected", "PathChanged", "Rtt", "Media", "Disconnected", "Suspect"],
+  "media_state_variants": ["Off", "Connecting", "Up", "Failed"],
+  "reachability_kinds": ["Connected", "Connecting", "NotConnected", "Slow", "Offline", "NoAnswer", "ServiceDown", "AuthRequired", "NotAllowed", "PhoneOffline"],
+  "reachability": [
+    {"name": "mock mode, listed online", "input": {"is_online": true, "live": false}, "expect": {"kind": "Connected"}, "action": null, "status_text": "Online"},
+    {"name": "mock mode, listed offline", "input": {"is_online": false, "live": false}, "expect": {"kind": "Offline"}, "action": "Retry"},
+    {"name": "Mac asleep: listed offline, never dialed", "input": {"is_online": false}, "expect": {"kind": "Offline"}, "action": "Retry"},
+    {"name": "Mac asleep: listed offline, the dial got no answer", "input": {"is_online": false, "connection": "Failed", "failure": "HostUnreachable"}, "expect": {"kind": "Offline"}, "action": "Retry"},
+    {"name": "listed online, the dial got no answer", "input": {"is_online": true, "connection": "Failed", "failure": "HostUnreachable"}, "expect": {"kind": "NoAnswer", "listed_online": true}, "action": "Retry", "status_text": "Online · Not responding"},
+    {"name": "listed online, a redial in flight after no answer", "input": {"is_online": true, "connection": "Connecting", "failure": "HostUnreachable"}, "expect": {"kind": "Connecting"}, "action": null, "status_text": "Connecting…"},
+    {"name": "linked, a stale no-answer kept", "input": {"is_online": true, "connection": "Connected", "failure": "HostUnreachable"}, "expect": {"kind": "Connected"}, "action": null, "status_text": "Online"},
+    {"name": "listed online, the link failed without a failure kind", "input": {"is_online": true, "connection": "Failed"}, "expect": {"kind": "NoAnswer", "listed_online": true}, "action": "Retry"},
+    {"name": "listed online, heartbeat quiet 40 s", "input": {"is_online": true, "quiet_ms": 40000}, "expect": {"kind": "Slow", "quiet_seconds": 40}, "action": "Retry", "status_text": "Not responding · heard 40 s ago"},
+    {"name": "listed online, another Mac linked", "input": {"is_online": true}, "expect": {"kind": "NotConnected"}, "action": null, "status_text": "Online · Not connected"},
+    {"name": "phone offline, not linked", "input": {"is_online": true, "phone_offline": true}, "expect": {"kind": "PhoneOffline"}, "action": "Retry", "status_text": "This iPhone is offline"},
+    {"name": "phone offline, link still up (a path change in flight)", "input": {"is_online": true, "phone_offline": true, "connection": "Connected"}, "expect": {"kind": "Connected"}, "action": null, "status_text": "Online"},
+    {"name": "session refused", "input": {"is_online": true, "connection": "Failed", "failure": "AuthRequired"}, "expect": {"kind": "AuthRequired"}, "action": "SignIn", "status_text": "Signed out"},
+    {"name": "the Mac refused this iPhone", "input": {"is_online": true, "connection": "Failed", "failure": "NotAllowed"}, "expect": {"kind": "NotAllowed"}, "action": "Retry", "status_text": "Didn't allow this iPhone"},
+    {"name": "reached, cmux on the Mac silent", "input": {"is_online": true, "connection": "Connected", "failure": "ServiceDown"}, "expect": {"kind": "ServiceDown"}, "action": "Retry", "status_text": "Reached · cmux not answering"},
+    {"name": "connecting", "input": {"is_online": true, "connection": "Connecting"}, "expect": {"kind": "Connecting"}, "action": null}
+  ],
+  "scenarios": [
+    {
+      "name": "connect",
+      "behaviour": "connect",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connecting", "phase": "connecting", "effects": []},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []},
+        {"do": "link", "event": "Rtt", "millis": 40, "phase": "connected", "effects": []}
+      ]
+    },
+    {
+      "name": "drop, a silent retry, a backoff, then reconnect",
+      "behaviour": "drop+reconnect",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []},
+        {"do": "link", "event": "Disconnected", "reason": "peer closed", "phase": "connecting", "effects": ["close", "dial"]},
+        {"do": "dial_failed", "phase": "connecting", "effects": ["dial"]},
+        {"do": "dial_failed", "phase": "waiting", "effects": ["scheduleRetry"]},
+        {"do": "retry_due", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connecting", "phase": "connecting", "effects": []},
+        {"do": "link", "event": "Connected", "path": "Turn", "phase": "connected", "effects": []}
+      ]
+    },
+    {
+      "name": "a dead link's late events change nothing",
+      "behaviour": "drop+reconnect",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []},
+        {"do": "link", "event": "Disconnected", "reason": "keepalive timeout", "phase": "connecting", "effects": ["close", "dial"]},
+        {"do": "link", "event": "Rtt", "millis": 12, "stale": true, "phase": "connecting", "effects": []},
+        {"do": "link", "event": "Media", "media": "Up", "path": "Direct", "stale": true, "phase": "connecting", "effects": [], "media_after": "off"},
+        {"do": "link", "event": "Disconnected", "reason": "closed", "stale": true, "phase": "connecting", "effects": []},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []}
+      ]
+    },
+    {
+      "name": "a surface opens (attach) while the redial is in flight",
+      "behaviour": "attach-during-reconnect",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []},
+        {"do": "link", "event": "Disconnected", "reason": "peer closed", "phase": "connecting", "effects": ["close", "dial"]},
+        {"do": "open", "phase": "connecting", "effects": []},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []}
+      ]
+    },
+    {
+      "name": "a surface opens (attach) while the redial waits out its backoff",
+      "behaviour": "attach-during-reconnect",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "dial_failed", "phase": "connecting", "effects": ["dial"]},
+        {"do": "dial_failed", "phase": "waiting", "effects": ["scheduleRetry"]},
+        {"do": "open", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []}
+      ]
+    },
+    {
+      "name": "Mac asleep: presence says offline under a live link",
+      "behaviour": "mac-asleep-offline",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []},
+        {"do": "target_offline", "phase": "connected", "effects": ["quickProbe"]},
+        {"do": "probe_failed", "phase": "macOffline", "effects": ["close"]},
+        {"do": "open", "phase": "connecting", "effects": ["dial"]},
+        {"do": "dial_failed", "phase": "macOffline", "effects": []},
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []}
+      ]
+    },
+    {
+      "name": "Mac silent while listed online: suspect, standby beside the redial",
+      "behaviour": "mac-asleep-offline",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []},
+        {"do": "link", "event": "Suspect", "silent_millis": 5000, "phase": "connected", "effects": ["quickProbe"]},
+        {"do": "probe_failed", "phase": "connecting", "effects": ["keepStandby", "dial"]},
+        {"do": "dial_failed", "phase": "connecting", "effects": ["dial"]},
+        {"do": "dial_failed", "phase": "waiting", "effects": ["scheduleRetry"]},
+        {"do": "mac_signaled", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": ["closeStandby"]}
+      ]
+    },
+    {
+      "name": "a blackout the link survives: suspect, then a pong",
+      "behaviour": "drop+reconnect",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []},
+        {"do": "link", "event": "Suspect", "silent_millis": 3000, "phase": "connected", "effects": ["quickProbe"]},
+        {"do": "link", "event": "Rtt", "millis": 25, "phase": "connected", "effects": []}
+      ]
+    },
+    {
+      "name": "network change: a dial restarts, a live link roams in place",
+      "behaviour": "network-change",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "network_changed", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []},
+        {"do": "network_changed", "phase": "connected", "effects": []},
+        {"do": "link", "event": "PathChanged", "path": "Turn", "phase": "connected", "effects": []},
+        {"do": "link", "event": "Rtt", "millis": 30, "phase": "connected", "effects": []},
+        {"do": "link", "event": "Disconnected", "reason": "no path", "phase": "connecting", "effects": ["close", "dial"]},
+        {"do": "dial_failed", "phase": "connecting", "effects": ["dial"]},
+        {"do": "dial_failed", "phase": "waiting", "effects": ["scheduleRetry"]},
+        {"do": "network_changed", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "HttpsRelay", "phase": "connected", "effects": []}
+      ]
+    },
+    {
+      "name": "background a moment: the Mac parks the link, resume roams it",
+      "behaviour": "background-foreground",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []},
+        {"do": "background", "phase": "connected", "effects": ["park"]},
+        {"do": "parked", "phase": "connected", "effects": []},
+        {"do": "resumed", "away_ms": 5000, "phase": "connected", "effects": ["resumeParked"]},
+        {"do": "link", "event": "Rtt", "millis": 20, "phase": "connected", "effects": []}
+      ]
+    },
+    {
+      "name": "background a moment, an older Mac refuses the park: keep and probe",
+      "behaviour": "background-foreground",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []},
+        {"do": "background", "phase": "connected", "effects": ["park"]},
+        {"do": "resumed", "away_ms": 5000, "phase": "connected", "effects": ["quickProbe"]}
+      ]
+    },
+    {
+      "name": "background two minutes: redial with the old link kept beside it",
+      "behaviour": "background-foreground",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []},
+        {"do": "background", "phase": "connected", "effects": ["park"]},
+        {"do": "resumed", "away_ms": 120000, "phase": "connecting", "effects": ["keepStandby", "dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": ["closeStandby"]}
+      ]
+    },
+    {
+      "name": "background during the first dial: the dial starts again on return",
+      "behaviour": "background-foreground",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "background", "phase": "connecting", "effects": []},
+        {"do": "resumed", "away_ms": 60000, "phase": "connecting", "effects": ["close", "dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []},
+        {"do": "foreground", "phase": "connected", "effects": ["probe"]}
+      ]
+    },
+    {
+      "name": "browser media beside a WireGuard link",
+      "behaviour": "media",
+      "steps": [
+        {"do": "target_online", "phase": "connecting", "effects": ["dial"]},
+        {"do": "link", "event": "Connected", "path": "Direct", "phase": "connected", "effects": []},
+        {"do": "link", "event": "Media", "media": "Connecting", "phase": "connected", "effects": [], "media_after": "connecting"},
+        {"do": "link", "event": "Media", "media": "Up", "path": "Turn", "rtt_millis": 16, "phase": "connected", "effects": [], "media_after": "up"},
+        {"do": "link", "event": "Media", "media": "Failed", "reason": "ICE failed", "retry_in_millis": 5000, "phase": "connected", "effects": [], "media_after": "failed"},
+        {"do": "link", "event": "Media", "media": "Off", "phase": "connected", "effects": [], "media_after": "off"}
+      ]
+    }
+  ],
+  "behaviours": ["connect", "drop+reconnect", "attach-during-reconnect", "mac-asleep-offline", "network-change", "background-foreground", "media"],
+  "versions": [
+    {"name": "WG_VERSION", "value": 3, "old_peer": "A version-0 or -2 peer: relay frames, reach and trickle stay beside version 3; a feature checks the version that brought it.", "guards": [["cmux-mobile-link/src/dial/wireguard.rs", "a_version_2_peer_keeps_reach_and_trickle_beside_version_3"], ["cmux-mobile-link/tests/loopback.rs", "wireguard_with_an_older_peer_confirms_by_its_datagrams"]]},
+    {"name": "WG_REACH_VERSION", "value": 2, "old_peer": "A peer below 2 gets relay frames and the three-second relay rule.", "guards": [["cmux-mobile-link/tests/https_relay.rs", "an_older_peer_keeps_the_three_second_relay_rule"], ["cmux-mobile-link/tests/https_relay.rs", "an_older_phone_against_a_new_mac_keeps_the_three_second_relay_rule"]]},
+    {"name": "MULTIPATH_VERSION", "value": 3, "old_peer": "A peer below 3 never gets a second socket's datagrams or the metered message.", "guards": [["cmux-mobile-link/src/dial/wireguard_roam.rs", "metered_messages_old_and_new"]]},
+    {"name": "AD_VERSION", "value": 1, "old_peer": "A newer ad version is skipped; a missing one reads as 1.", "guards": [["cmux-mobile-link/src/local.rs", "lockstep_newer_ad_version_is_skipped_by_this_browser"], ["cmux-mobile-link/src/local.rs", "lockstep_unknown_keys_and_missing_version_read_as_v1"]]},
+    {"name": "HUB_VERSION", "value": 1, "old_peer": "Either side missing hubVersion is version 0: the common signaling subset, unknown fields forwarded, unknown types ignored.", "guards": [["cmux-mobile-link/src/signaling.rs", "lockstep_hello_hub_version_both_ways"], ["cmux-mobile-link/src/local_hub.rs", "lockstep_old_phone_against_new_hub"], ["cmux-mobile-link/src/local_hub.rs", "lockstep_new_phone_against_old_and_new_hub"]]},
+    {"name": "park", "value": null, "old_peer": "An older Mac refuses the park: the phone keeps the link and probes it on return.", "guards": [["cmux-mobile-link/src/link.rs", "an_older_mac_refuses_the_park"]]},
+    {"name": "media lane", "value": null, "old_peer": "An older Mac or phone gets no media lane: browser video stays on the channel.", "guards": [["cmux-mobile-link/tests/media.rs", "wireguard_with_an_older_mac_stays_on_the_channel"], ["cmux-mobile-link/tests/media.rs", "wireguard_with_an_older_phone_stays_on_the_channel"]]}
+  ]
+}

@@ -24,6 +24,7 @@ mod record;
 mod record_ffi;
 mod session;
 mod session_ffi;
+pub mod ui;
 mod upstream_ffi;
 pub mod view;
 mod view_ffi;
@@ -352,7 +353,8 @@ pub unsafe extern "C" fn cmux_rd_receiver_pop_message(
     unsafe { with_receiver(receiver, run) }
 }
 
-/// Records one decode time.
+/// Records one decode time, naming no frame: no LTR token is acknowledged
+/// (the app's call before `cmux_rd_receiver_note_frame_decode`).
 ///
 /// # Safety
 /// `receiver` is valid.
@@ -362,7 +364,27 @@ pub unsafe extern "C" fn cmux_rd_receiver_note_decode(
     decode_us: u32,
 ) -> i32 {
     let run = |h: &mut CmuxRdReceiver| {
-        h.inner.note_decode(decode_us);
+        h.inner.note_decode(None, decode_us);
+        CMUX_RD_OK
+    };
+    // SAFETY: `receiver` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a receiver, so no other access overlaps.
+    unsafe { with_receiver(receiver, run) }
+}
+
+/// Records one decode time of popped frame `frame`, the frame that decoded:
+/// its LTR token is acknowledged to the host.
+///
+/// # Safety
+/// `receiver` is valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_receiver_note_frame_decode(
+    receiver: *mut CmuxRdReceiver,
+    frame: u32,
+    decode_us: u32,
+) -> i32 {
+    let run = |h: &mut CmuxRdReceiver| {
+        h.inner.note_decode(Some(frame), decode_us);
         CMUX_RD_OK
     };
     // SAFETY: `receiver` is NULL or valid by this function's contract, and the
@@ -529,3 +551,5 @@ mod upstream_tests;
 mod view_session_tests;
 #[cfg(test)]
 mod view_tests;
+#[cfg(test)]
+mod view_transport_tests;

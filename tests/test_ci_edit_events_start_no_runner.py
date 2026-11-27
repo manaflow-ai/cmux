@@ -79,11 +79,20 @@ EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
         "edits it does not read); a skip after a title edit is unchanged since the budget landed"),
     ("language-boundaries.yml", "pull_request_target"): (ALL, "keeps its old edit behavior: it runs on every "
         "edit until a change carrying Leo's label gates it (only his label lets this check change)"),
-    ("pr-body-checks.yml", "pull_request"): (ALL, "the description lints read the body, the perf section the "
-        "title too"),
+    ("private-names.yml", "pull_request"): (ALL, "its fetched checker reads the title and body, and a base change "
+        "changes the diff it reads; one small job"),
     ("pr-checks.yml", "pull_request"): (frozenset({"body"}), "its advisory job's PR size step reads the `Size:` "
         "line and UI review its section (the pick step runs only what the edit moved); none of its steps fails a "
         "pull request"),
+    ("cloud-resume-matrix.yml", "pull_request"): (frozenset({"body"}), "opt-in: a `resume-matrix: run` or "
+        "`resume-matrix: full` line in the body starts it, and its job `if:` skips an edit that leaves the body "
+        "as it was (#54761); not a merge gate"),
+    ("cloud-wake-echo.yml", "pull_request"): (frozenset({"body"}), "opt-in: a `wake-echo: run` line in the "
+        "body starts it, and its job `if:` skips an edit that leaves the body as it was (#54761); not a merge "
+        "gate"),
+    ("gallery-advisory.yml", "pull_request"): (frozenset({"body"}), "advisory: re-runs only when a body edit "
+        "adds or drops a `Gallery:` or `Visual-change:` line (#56329); other edits take a -noop concurrency "
+        "group and skip"),
 }
 
 # A comment event whose jobs may start on any comment or review, and why.
