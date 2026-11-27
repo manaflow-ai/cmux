@@ -105,10 +105,10 @@ test("the search filters every group at once and opens All Switches to its match
   expect(card().textContent).toContain("no switch is called this");
 });
 
-// Leo, 2026-11-23, c-dc594b45e0: "I want people to not accidentally soft lock themselves and like
+// Leo, 2026-11-15, c-dc594b45e0: "I want people to not accidentally soft lock themselves and like
 // have good recovery options". Turn All Off shows only while an opt-in switch is on, and puts each
-// back to its default.
-test("Turn All Off shows while a Labs switch is on and puts every one back to its default", async () => {
+// explicitly off, preserving managed and default-on switches.
+test("Turn All Off shows while a Labs switch is on and turns it off", async () => {
   await open();
   const turnOff = () => group("labs")!.querySelector<HTMLButtonElement>('[data-checklist-turn-off="labs"]');
   expect(turnOff()).toBeNull();
@@ -132,6 +132,19 @@ test("the library's Turn All Off runs `customize library off` for each entry tha
   await settle();
   expect(page!.provider.libraryRuns).toEqual(enabled.map((name) => ({ verb: "off", name })));
   expect(group("library")!.querySelector('[data-checklist-turn-off="library"]')).toBeNull();
+});
+
+test("search does not narrow Turn All Off to only the matching switches", async () => {
+  await open();
+  await click(toggle("labs.liveTree"));
+  await click(toggle("customize.fromTheApp"));
+  await settle();
+  await changeValue(card().querySelector<HTMLInputElement>('input[type="search"]')!, "labs.liveTree");
+  expect(ids("labs")).toEqual(["labs.liveTree"]);
+  await click(group("labs")!.querySelector<HTMLButtonElement>('[data-checklist-turn-off="labs"]')!);
+  await settle();
+  expect(page!.store.getSnapshot().rows.get("labs.liveTree")?.value).toBe(false);
+  expect(page!.store.getSnapshot().rows.get("customize.fromTheApp")?.value).toBe(false);
 });
 
 test("code recovery switches off PR layers without changing ordinary library entries", async () => {

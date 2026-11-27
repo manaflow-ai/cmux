@@ -45,7 +45,7 @@ extension SettingsController {
     }
 
     /// Turns every opt-in switch of `groups` off explicitly, overriding recommendations beneath
-    /// the person's value (Leo, 2026-11-23, c-dc594b45e0: "I want people to not accidentally soft lock
+    /// the person's value (Leo, 2026-11-15, c-dc594b45e0: "I want people to not accidentally soft lock
     /// themselves and like have good recovery options"). A switch that ships on is left alone.
     public func turnAllOff(in groups: [QuickToggleGroup]) async throws {
         var firstFailure: (any Error)?
