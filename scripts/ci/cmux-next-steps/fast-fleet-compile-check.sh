@@ -40,7 +40,9 @@ if [[ -z "$GATEWAY" ]]; then
   done
   [[ "$state" == "results service down"* || -z "$last" ]] || state="results service down ($last for $((SECONDS - ok_at)) s)"
   # Why: note-554
-  if [[ "$state" == superseded ]]; then
+  # Why: 2026-11-27-release-compile-stale-push.md (any no-verdict state, not only "superseded": undo with
+  # vars.CMUX_NEXT_STALE_PUSH_MAC_FALLBACK = '0')
+  if [[ "$state" == superseded || "$state" != pass && "$state" != fail && "${STALE_PUSH_GATE:-1}" != 0 ]]; then
     head=""
     if [[ "${SUPERSEDED_GATE:-1}" != 0 ]]; then
       head="$(timeout 30 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
