@@ -242,6 +242,7 @@ impl Hub {
         turn_id: &str,
         e: &RpcError,
         joined: &super::digest::DigestTurn,
+        rules: Option<&super::auto_resume::RefusedRules<'_>>,
     ) -> bool {
         let ends = self.settled_by_shutdown.read().unwrap_or_else(|e| e.into_inner());
         let field = e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str);
@@ -259,7 +260,7 @@ impl Hub {
                 let _ = release.blocking_recv();
             }
         }
-        self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined);
+        self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined, rules);
         drop(ends);
         true
     }

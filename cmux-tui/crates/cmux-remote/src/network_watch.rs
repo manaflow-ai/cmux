@@ -18,6 +18,9 @@ pub async fn forward(mut changes: watch::Receiver<u64>, connection: Weak<ClientC
     while changes.changed().await.is_ok() {
         changes.borrow_and_update();
         let Some(connection) = connection.upgrade() else { return };
+        // The system's proxy answer belongs to the old network (a new Wi-Fi's PAC file, a VPN's
+        // proxy, leaving the office): the redial asks again.
+        cmux_proxy::proxy::forget();
         connection.network_changed();
     }
 }

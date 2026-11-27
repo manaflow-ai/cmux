@@ -34,6 +34,19 @@ pub const GUEST_VERBS: [&str; 7] = [
     "agent-session-detach",
 ];
 
+/// A named invitee with `drive`: the talk guest's watch and write verbs, plus cancel. Drive is
+/// never selected for a link guest because the daemon rejects that role on link terms.
+pub const DRIVER_VERBS: [&str; 8] = [
+    "agent-session-attach",
+    "agent-session-observe",
+    "agent-session-events",
+    "agent-session-prompt",
+    "agent-session-cancel",
+    "agent-session-typing",
+    "agent-session-view",
+    "agent-session-detach",
+];
+
 /// An invitee with the `view` role: watch only (no prompt, no typing).
 pub const VIEWER_VERBS: [&str; 5] = [
     "agent-session-attach",

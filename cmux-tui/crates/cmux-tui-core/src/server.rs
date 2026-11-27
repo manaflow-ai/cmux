@@ -370,6 +370,7 @@ mod chief_registry_resource;
 mod chief_work;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
+mod phone_link;
 mod shell_wire;
 mod url_open;
 #[cfg(test)]
@@ -926,6 +927,13 @@ enum Command {
         /// `install` and `update_command` (server/api_revision_wire.rs).
         #[serde(default)]
         revisions: bool,
+        /// Answered while the owner restores its session too, with
+        /// `lifecycle_ready: false` and `restore` (server/restoring.rs);
+        /// without it, held until the restore ends. A ready owner ignores it.
+        #[serde(default)]
+        // Read from the raw line by server/restoring.rs.
+        #[allow(dead_code)]
+        restore_progress: bool,
     },
     BrowserHostProvider,
     /// cmux Remote (`remote-host-v1`, server/remote_host_command.rs).
@@ -994,6 +1002,12 @@ enum Command {
         request_id: String,
         opened: bool,
     },
+    /// The Mac app asks before it opens a link a terminal program asked a browser for: the phone
+    /// that drives the terminal gets it (`phone_link.rs`). Unix, this Mac's own app only.
+    OfferLinkToPhone {
+        terminal_id: String,
+        url: String,
+    },
     TerminalClipboardSubscribe {
         terminal_ids: Vec<String>,
     },
@@ -1019,6 +1033,12 @@ enum Command {
     /// optional sections (`resource_projection`); unknown names are ignored.
     ServerStats {
         include: Option<Vec<String>>,
+        /// While the owner restores: refused with `server.restoring` and the
+        /// restore's progress at once, instead of held until it ends.
+        #[serde(default)]
+        // Read from the raw line by server/restoring.rs.
+        #[allow(dead_code)]
+        restore_progress: bool,
     },
     /// The terminal hosts this daemon holds and every record root it can
     /// read, each host classified from records, leases and session guards,
@@ -3422,6 +3442,10 @@ mod creation_burst_tests;
 #[cfg(test)]
 #[path = "server/run_public_ids_tests.rs"]
 mod run_public_ids_tests;
+
+#[cfg(test)]
+#[path = "server/tree_schema_tests.rs"]
+mod tree_schema_tests;
 
 #[cfg(test)]
 #[path = "server/open_persistent_bench_tests.rs"]

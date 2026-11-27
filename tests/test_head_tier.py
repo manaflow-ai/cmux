@@ -13,6 +13,19 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
+# CI_HEAVY_AT_LAND is on by default; tests of the other rules read decide() with it off, and the heavy-at-land
+# tests set it themselves.
+_HEAVY_AT_LAND = unittest.mock.patch.dict(os.environ, {"CI_HEAVY_AT_LAND": "0"})
+
+
+def setUpModule() -> None:
+    _HEAVY_AT_LAND.start()
+
+
+def tearDownModule() -> None:
+    _HEAVY_AT_LAND.stop()
+
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
@@ -223,6 +236,45 @@ class LandTierTests(unittest.TestCase):
                 os.environ.pop("CI_LAND_TIER", None)
             else:
                 os.environ["CI_LAND_TIER"] = old
+
+    def test_heavy_at_land_off_changes_nothing(self) -> None:
+        for ev in (land_event(), land_event(labels=("full-ci",)), land_event(base="lane/other"),
+                   land_event(labels=("full-ci",), action="labeled", added="full-ci"), land_event(draft=True),
+                   land_event(head_repo="someone/fork")):
+            self.assertEqual(head_tier.tier("pull_request", ev, land_switch="1"),
+                             head_tier.tier("pull_request", ev, land_switch="1", heavy_at_land_switch="0"))
+
+    def test_heavy_at_land_runs_the_full_tier_only_on_the_handoff_event(self) -> None:
+        on = {"land_switch": "1", "heavy_at_land_switch": "1"}
+        handoff = land_event(labels=("full-ci",), action="labeled", added="full-ci")
+        self.assertEqual(head_tier.tier("pull_request", handoff, **on)[0], "full")
+        later = head_tier.tier("pull_request", land_event(labels=("full-ci",)), **on)
+        self.assertEqual(later[0], "cheap")
+        self.assertIn(head_tier.HEAVY_AT_LAND_REASON, later[1])
+        self.assertEqual(head_tier.tier("pull_request", land_event(base="lane/other"), **on)[0], "cheap")
+        self.assertEqual(head_tier.tier("pull_request", land_event(head_repo="someone/fork"), **on)[0], "full")
+        self.assertEqual(head_tier.tier("push", {}, **on)[0], "full")
+        self.assertEqual(head_tier.tier("pull_request", land_event(), **on),
+                         head_tier.tier("pull_request", land_event(), land_switch="1"))
+
+    def test_decide_reads_heavy_at_land_from_the_environment(self) -> None:
+        ev = land_event(labels=("full-ci",))
+        with unittest.mock.patch.dict(os.environ, {"CI_HEAVY_AT_LAND": "1", "CI_IDLE_BASE_MERGE_SKIP": "0",
+                                                   "CI_SYNC_MERGE_CHEAP": "0", "CI_GREEN_BASE_MERGE_SKIP": "0",
+                                                   "CI_LAND_CARRY": "0"}):
+            self.assertEqual(head_tier.decide("pull_request", ev)[0], "cheap")
+        with unittest.mock.patch.dict(os.environ, {"CI_HEAVY_AT_LAND": "0"}):
+            self.assertEqual(head_tier.decide("pull_request", ev)[0], "full")
+
+    def test_heavy_at_land_is_on_when_the_variable_is_unset(self) -> None:
+        ev = land_event(labels=("full-ci",))
+        with unittest.mock.patch.dict(os.environ, {"CI_IDLE_BASE_MERGE_SKIP": "0", "CI_SYNC_MERGE_CHEAP": "0",
+                                                   "CI_GREEN_BASE_MERGE_SKIP": "0", "CI_LAND_CARRY": "0"}):
+            os.environ.pop("CI_HEAVY_AT_LAND", None)
+            self.assertEqual(head_tier.decide("pull_request", ev)[0], "cheap")
+        for workflow in ("ci.yml", "cmux-next.yml", "cmux-tui-spec.yml", "pr-router.yml"):
+            text = (ROOT / ".github" / "workflows" / workflow).read_text()
+            self.assertIn("CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}", text, workflow)
 
     def test_the_router_starts_only_cheap_callees_then_everything_on_the_land_label(self) -> None:
         ev = land_event()
@@ -445,7 +497,8 @@ class IdleTests(BranchRepo):
     def test_two_base_merges_on_a_branch_idle_three_days_run_nothing(self) -> None:
         facts = head_tier.head_facts(self.event(self.head))
         self.assertEqual(facts, {"base_merge_only": True, "own_last": self.now - 3 * DAY, "by_github": False,
-                                 "previous": self.git("rev-parse", "HEAD^1")})
+                                 "previous": self.git("rev-parse", "HEAD^1"),
+                                 "base_parent": self.git("rev-parse", "HEAD^2")})
         self.assertEqual(head_tier.tier("pull_request", self.event(self.head), facts=facts, now=self.now)[0], "none")
 
     def test_a_recent_own_commit_is_not_idle(self) -> None:
@@ -478,7 +531,8 @@ class IdleTests(BranchRepo):
         head = self.git("rev-parse", "HEAD")
         facts = head_tier.head_facts(self.event(head))
         self.assertEqual(facts, {"base_merge_only": True, "own_last": self.now - 3 * DAY, "by_github": True,
-                                 "previous": self.git("rev-parse", "HEAD^1")})
+                                 "previous": self.git("rev-parse", "HEAD^1"),
+                                 "base_parent": self.git("rev-parse", "HEAD^2")})
         self.assertEqual(head_tier.tier("pull_request", self.event(head), facts=facts,
                                         now=self.now - 3 * DAY + 3600)[0], "full")
 
@@ -585,6 +639,61 @@ class GreenBaseMergeTests(BranchRepo):
                         "Merge feat-cmux-next and fix the build", "Merge pull request #1 from x/feat-cmux-next"):
             self.assertFalse(pattern.match(message), message)
 
+
+    def merge_worded(self, message: str, branch: str = "feat-cmux-next") -> str:
+        """A merge of BRANCH on top of the head, worded MESSAGE (an agent's own `git merge -m`)."""
+        self.git("checkout", "-q", branch)
+        self.git("commit", "-q", "--allow-empty", "-m", f"{branch} moves", when=self.now - 20)
+        self.git("checkout", "-q", "lane/x")
+        self.git("merge", "-q", "--no-ff", "-m", message, branch, when=self.now - 10)
+        return self.git("rev-parse", "HEAD")
+
+    def facts_with_keys(self, sha: str, keys, env: dict | None = None) -> tuple[dict | None, list[str]]:
+        calls: list[str] = []
+        real = head_tier.own_patch_key
+        head_tier.own_patch_key = lambda repo, base, rev, token: calls.append(rev) or keys(rev)
+        try:
+            with unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                                                       **(env or {})}):
+                return head_tier.head_facts(self.event(sha)), calls
+        finally:
+            head_tier.own_patch_key = real
+
+    def test_a_merge_worded_its_own_way_counts_by_its_content(self) -> None:
+        sha = self.merge_worded(f"Merge commit '{'c' * 40}' into lane/x")
+        facts, calls = self.facts_with_keys(sha, lambda rev: "own change")
+        self.assertTrue(facts["base_merge_only"])
+        self.assertEqual(facts["merge_read"], "content")
+        self.assertEqual(facts["previous"], self.head)
+        self.assertEqual(facts["own_last"], self.now - 3 * DAY)  # walked past the worded merge's parents
+        self.assertEqual(calls, [sha, self.head])
+        self.assertEqual(self.tier("pull_request", self.event(sha), facts={**facts, "previous_green": True},
+                                   now=self.now)[0], "none")
+
+    def test_a_merge_that_changes_the_own_change_is_not_a_base_merge(self) -> None:
+        sha = self.merge_worded("Merge feat-cmux-next to resync PR head")
+        for keys in (lambda rev: rev[:7], lambda rev: None if rev == sha else "k", lambda rev: None):
+            facts, _ = self.facts_with_keys(sha, keys)
+            self.assertFalse(facts["base_merge_only"])
+            self.assertNotIn("merge_read", facts)
+
+    def test_a_merge_of_another_branch_adds_its_change(self) -> None:
+        self.git("checkout", "-q", "-b", "lane/other", self.own)
+        sha = self.merge_worded("Merge branch 'lane/other' into lane/x", branch="lane/other")
+        facts, _ = self.facts_with_keys(sha, lambda rev: "own + other" if rev == sha else "own")
+        self.assertFalse(facts["base_merge_only"])
+
+    def test_message_matched_merges_read_no_content(self) -> None:
+        facts, calls = self.facts_with_keys(self.head, lambda rev: "k")
+        self.assertTrue(facts["base_merge_only"])
+        self.assertNotIn("merge_read", facts)
+        self.assertEqual(calls, [])
+
+    def test_content_switch_off_counts_by_message_only(self) -> None:
+        sha = self.merge_worded(f"Merge commit '{'c' * 40}' into lane/x")
+        facts, calls = self.facts_with_keys(sha, lambda rev: "k", env={"CI_CONTENT_BASE_MERGE": "0"})
+        self.assertFalse(facts["base_merge_only"])
+        self.assertEqual(calls, [])
 
 class SamePatchTests(unittest.TestCase):
     """The same-patch rule: a head whose own change equals the previous head's (a rebase onto a newer base), with
@@ -852,7 +961,7 @@ GATED = {name: "pull_request" for name in (
     "release-rails.yml", "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml", "test-ios.yml",
     # 17.4k runner-min per 10.8 h on pull request heads (11-25 05:30Z-16:18Z), every push of every head before:
     # rust-workspaces' plan, reads and workspace matrix; cmux-tui-spec's changes router and acpmux/clippy jobs.
-    "rust-workspaces.yml", "cmux-tui-spec.yml")}
+    "rust-workspaces.yml", "cmux-tui-spec.yml", "session-move-tests.yml")}
 GATED["backend-migrations.yml"] = "pull_request_target"
 # Only the draft tier: its one job runs only when the motion-golden label is the one added (a person asks for it).
 DRAFT_ONLY = {"cmux-next-motion-golden.yml": "pull_request"}
@@ -866,10 +975,21 @@ RERUN_ONLY_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "repair")}
 # chief-evals, cmux-mobile-ffi, cmux-next-terminal and cmux-rd-windows have no pull_request trigger since #54661
 # (advisory-only PR runs off), so no head of theirs is gated.
 NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push")}
-# Runs on every head: deletes the pull request's preview when it closes.
-KEEP_ON_EVERY_HEAD = {("backend.yml", "preview-cleanup")}
-# Runs for a closed pull request (cancels its hot-verify) or a head handed to land.
+# Runs on every head: deletes the pull request's preview when it closes; ios-placeholder-bounds (seconds of Python)
+# records a pass on every pull request so land-judge's required list can name it.
+KEEP_ON_EVERY_HEAD = {("backend.yml", "preview-cleanup"), ("cmux-next-guards.yml", "ios-placeholder-bounds"),
+                      ("cmux-next-guards.yml", "app-store-shelf-pr")}
+# The full-ci base merge carry job (head_tier.full_carry): runs only on the full-ci or ready-to-land label event the
+# land tier itself runs on, before that tier's jobs, so it carries the label condition instead of the land condition. It runs only
+# where those jobs would (full-ci or CI_LAND_FULL_PER_PR; ios-e2e's PR tailnet gate too), or its runner decides nothing.
+FULL_CARRY_JOBS = {(name, "full-carry") for name in ("cmux-next-guards.yml", "ios-e2e.yml", "test-ios.yml",
+                                                     "rust-workspaces.yml")}
+# Runs for a closed pull request (cancels its hot-verify) or a head handed to land. The look plan also runs on every
+# head that carries ready-to-land whatever CI_LAND_FULL_PER_PR says: a look starts on the fleet Mac, not a GitHub
+# runner, and the newest 20 merges land within about an hour while a look takes about 2 h (p50 126 min,
+# 2026-11-27), so a look that starts only at the merge commit is never posted before NOW reads the PR.
 CLOSED_OR_LAND = {("cmux-next-hot-verify.yml", "plan")}
+LAND_LABEL = "contains(github.event.pull_request.labels.*.name, 'ready-to-land')"
 
 
 def draft_tier_condition(event_name: str, keep_labeled: bool = False) -> str:
@@ -962,12 +1082,22 @@ class GatedWorkflowTests(unittest.TestCase):
                     self.assertIn("(github.event_name != 'pull_request' || github.run_attempt > 1)", condition or "",
                                   f"{name}: job {job}")
                     continue
+                if (name, job) in FULL_CARRY_JOBS:
+                    self.assertIn("github.event.action == 'labeled' && contains(fromJSON('[\"full-ci\",\"ready-to-land\"]'), "
+                                  "github.event.label.name)", condition or "", f"{name}: job {job}")
+                    # Only where the land tier's jobs run on that label: a bare ready-to-land skips them anyway.
+                    self.assertIn("(contains(github.event.pull_request.labels.*.name, 'full-ci') || "
+                                  "vars.CI_LAND_FULL_PER_PR == '1')", condition or "", f"{name}: job {job}")
+                    if name == "ios-e2e.yml":
+                        self.assertIn("vars.IOS_E2E_PR_TAILNET == 'true'", condition or "", f"{name}: job {job}")
+                    continue
                 if (name, job) in KEEP_ON_EVERY_HEAD:
                     self.assertNotIn("CI_LAND_TIER", condition or "", f"{name}: job {job}")
                     continue
                 self.assertIsNotNone(condition, f"{name}: job {job} has no if:")
                 if (name, job) in CLOSED_OR_LAND:
-                    self.assertIn(f"(github.event.action == 'closed' || {expected})", condition, f"{name}: job {job}")
+                    self.assertIn(f"(github.event.action == 'closed' || {LAND_LABEL} || {expected})", condition,
+                                  f"{name}: job {job}")
                     continue
                 self.assertIn(expected, condition, f"{name}: job {job}")
                 self.assertNotIn("github.event.pull_request.draft != true ||", condition, f"{name}: job {job}")
@@ -1375,3 +1505,121 @@ class RustWorkspacesTierTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _labeled(label: str, labels: tuple[str, ...] = ()) -> dict:
+    ev = _pr_event(labels, "labeled")
+    ev["label"] = {"name": label}
+    return ev
+
+
+class FullCiBaseMergeCarryTests(unittest.TestCase):
+    """A full-ci pulse (or ready-to-land) on a head that only merges the base carries the previous head's land tier
+    run: all green runs nothing, reds rerun only what was not green, and the full set runs on an overlap, a merge with
+    edits of its own, no land tier run there, or anything unread."""
+
+    GREEN = [_run(1, "ci.yml", "success"), _run(2, "pr-router.yml", "success"), _run(3, "cmux-next-guards.yml", "success")]
+    RED = [_run(1, "ci.yml", "success"), _run(2, "pr-router.yml", "failure"), _run(3, "cmux-next-guards.yml", "failure")]
+
+    def decide(self, ev: dict, runs: list | None = None, workflow: str = "ci.yml", status: str | None = "success",
+               keys: tuple = ("k", "k"), facts: dict | None = None, env: dict | None = None) -> tuple:
+        """decide_with_facts with git and the API stubbed: KEYS are own_patch_key's answers at the head and at the
+        previous head (the PR's own change, with blobs)."""
+        base = {"base_merge_only": True, "own_last": time.time(), "by_github": True, "previous": "b" * 40,
+                "base_parent": "c" * 40}
+        real = head_tier.head_facts, head_tier.runs_at, head_tier.land_status_at, head_tier.own_patch_key
+        answers = {"a" * 40: keys[0], "b" * 40: keys[1]}
+        try:
+            head_tier.head_facts = lambda e, *a, **k: base if facts is None else facts
+            head_tier.runs_at = lambda *a: self.GREEN if runs is None else runs
+            head_tier.land_status_at = lambda *a: status
+            head_tier.own_patch_key = lambda repo, b, sha, token, blobs=False: answers.get(sha) if blobs else None
+            ref = f"manaflow-ai/cmux/.github/workflows/{workflow}@refs/pull/1/merge" if workflow else ""
+            with unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                                                       "GITHUB_WORKFLOW_REF": ref, "CI_LAND_TIER": "1",
+                                                       **(env or {})}):
+                return head_tier.decide_with_facts("pull_request", ev)
+        finally:
+            (head_tier.head_facts, head_tier.runs_at, head_tier.land_status_at, head_tier.own_patch_key) = real
+
+    def test_a_full_ci_pulse_onto_an_all_green_land_tier_run_carries_it(self) -> None:
+        for label in ("full-ci", "ready-to-land"):
+            ev = _labeled(label, ("ready-to-land",))
+            decided, _ = self.decide(ev)
+            self.assertEqual(decided[0], "none", (label, decided))
+            self.assertTrue(head_tier.full_carried(decided))
+            with unittest.mock.patch.dict(os.environ, {"CI_LAND_TIER": "1"}):
+                self.assertEqual(pr_router.land_status(ev, decided), "success")
+            start, _ = pr_router.route(ev, pr_router.load_manifest(), ["README.md"], decided=decided)
+            self.assertEqual(start, [])
+
+    def test_reds_rerun_only_what_was_not_green(self) -> None:
+        ev = _labeled("full-ci")
+        decided, _ = self.decide(ev, self.RED, "ci.yml")  # green there: runs nothing
+        self.assertTrue(head_tier.full_carried(decided), decided)
+        decided, facts = self.decide(ev, self.RED, "cmux-next-guards.yml")  # red there: runs again
+        self.assertEqual(decided[0], "full")
+        decided, facts = self.decide(ev, self.RED, "pr-router.yml")
+        self.assertTrue(head_tier.full_rerun(decided), decided)
+        self.assertEqual(facts["previous_runs"], self.RED)
+        self.assertIs(facts["previous_green"], False)
+        real = pr_router.router_jobs_at
+        try:  # the router reruns only its jobs that were not green there
+            pr_router.router_jobs_at = lambda *a: [RouterRerunPlanTests.job("Swift packages on Linux / test")]
+            carried, _ = pr_router.plan_for(decided, facts, pr_router.load_manifest())
+        finally:
+            pr_router.router_jobs_at = real
+        self.assertEqual(carried, {"swift-linux-packages.yml"})
+        with unittest.mock.patch.dict(os.environ, {"CI_LAND_TIER": "1"}):
+            self.assertEqual(pr_router.land_status(ev, decided), "success")
+
+    def test_case_1_and_2_an_overlap_or_an_edit_of_the_merge_runs_the_full_set(self) -> None:
+        # The PR's own change differs before and after the merge (a base change merged into one of its files, a
+        # conflict resolved, or a file edited in the merge): the keys differ.
+        decided, _ = self.decide(_labeled("full-ci"), keys=("k1", "k2"))
+        self.assertEqual(decided, ("full", "full-ci label"))
+        for keys in ((None, "k"), ("k", None)):  # a compare of 300 files or more, or a binary file: unread
+            self.assertEqual(self.decide(_labeled("full-ci"), keys=keys)[0][0], "full", keys)
+
+    def test_case_2_a_merge_that_is_not_only_a_base_merge_runs_the_full_set(self) -> None:
+        own = {"base_merge_only": False, "own_last": None, "by_github": False}
+        self.assertEqual(self.decide(_labeled("full-ci"), facts=own)[0][0], "full")
+
+    def test_case_3_no_land_tier_run_at_the_previous_head_runs_the_full_set(self) -> None:
+        for status in ("pending", "", "failure"):
+            self.assertEqual(self.decide(_labeled("full-ci"), status=status)[0][0], "full", status)
+
+    def test_any_lookup_error_runs_the_full_set(self) -> None:
+        self.assertEqual(self.decide(_labeled("full-ci"), status=None)[0][0], "full")  # status unread
+        self.assertEqual(self.decide(_labeled("full-ci"), facts={})[0][0], "full")  # git unread
+        real = head_tier.runs_at
+        try:
+            decided, _ = self.decide(_labeled("full-ci"), runs=[])
+            self.assertEqual(decided[0], "full")  # no runs at all is not green
+        finally:
+            head_tier.runs_at = real
+        self.assertIsNone(head_tier.full_carry({"base_merge_only": True, "full_landed": True,
+                                                "own_change_kept": True}))  # runs unread
+
+    def test_the_switch_turns_it_off(self) -> None:
+        decided, _ = self.decide(_labeled("full-ci"), env={"CI_FULL_CI_BASE_MERGE_CARRY": "0"})
+        self.assertEqual(decided, ("full", "full-ci label"))
+
+    def test_other_events_labels_and_forks_are_untouched(self) -> None:
+        self.assertFalse(head_tier.full_carry_rule_applies(_pr_event(("full-ci",))))  # a synchronize
+        self.assertFalse(head_tier.full_carry_rule_applies(_labeled("some-label", ("full-ci",))))
+        fork = _labeled("full-ci")
+        fork["pull_request"]["head"]["repo"] = {"full_name": "someone/cmux"}
+        self.assertFalse(head_tier.full_carry_rule_applies(fork))
+        draft = _labeled("full-ci")
+        draft["pull_request"]["draft"] = True
+        self.assertFalse(head_tier.full_carry_rule_applies(draft))
+        self.assertTrue(head_tier.full_carry_rule_applies(_labeled("full-ci")))
+        # a synchronize with full-ci on keeps the full tier
+        self.assertEqual(self.decide(_pr_event(("full-ci",)))[0], ("full", "full-ci label"))
+
+    def test_the_patch_key_with_blobs_sees_a_merged_base_change(self) -> None:
+        before = {"files": [{"filename": "a.rs", "status": "modified", "sha": "1", "patch": "@@ -1 +1 @@\n-x\n+y"}]}
+        after = {"files": [{"filename": "a.rs", "status": "modified", "sha": "2", "patch": "@@ -5 +5 @@\n-x\n+y"}]}
+        self.assertEqual(head_tier.patch_key(before), head_tier.patch_key(after))
+        self.assertNotEqual(head_tier.patch_key(before, blobs=True), head_tier.patch_key(after, blobs=True))

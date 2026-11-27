@@ -25,10 +25,15 @@ import type { TenantMayGrow } from "../proofs/tenant-may-grow.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 
+/** The operation a create refused by the provider create queue fails with (limits/create-admission.ts); nothing was sent. */
+export const CREATE_QUEUE_FULL = "createQueueFull";
+
 export class UpstreamError extends Data.TaggedError("UpstreamError")<{
   readonly operation: string;
   /** HTTP status from the provider, or null when no response arrived. */
   readonly status: number | null;
+  /** A bounded, internal classification of a provider response. Never contains provider text. */
+  readonly kind?: "capacity_overloaded";
 }> {}
 
 /** The fields of the provider's VM record this service reads. Everything else is ignored. */

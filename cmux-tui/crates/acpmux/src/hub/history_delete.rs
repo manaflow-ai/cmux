@@ -256,7 +256,7 @@ impl Hub {
                 ))
             })
             .collect();
-        chats.sort_by_key(|c| std::cmp::Reverse(c.0));
+        chats.sort_by(|a, b| b.0.cmp(&a.0));
         json!({"undoDays": UNDO_DAYS, "chats": chats.into_iter().map(|(_, row)| row).collect::<Vec<_>>()})
     }
 
