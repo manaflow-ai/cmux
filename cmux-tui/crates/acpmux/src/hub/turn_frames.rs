@@ -769,12 +769,9 @@ fn read(session: &str, params: &Value) -> Value {
     let screen = (surface == "window")
         .then(crate::share_host::status_now)
         .and_then(|status| screen_offer(&surface, &status));
-    let mut reply = json!({"sessionId": session, "turnId": turn_id, "frames": frames, "seq": seq,
-        "live": live, "surface": surface});
-    if let Some(screen) = screen {
-        reply["screen"] = screen;
-    }
-    reply
+    // `screen` rides in the literal (null when nothing streams): no index write on a Value.
+    json!({"sessionId": session, "turnId": turn_id, "frames": frames, "seq": seq,
+        "live": live, "surface": surface, "screen": screen})
 }
 
 /// `_acpmux/turn_frames {sessionId, look: true}`: a frame now (kept as `look` when the page moved),
