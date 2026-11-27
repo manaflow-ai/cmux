@@ -444,76 +444,82 @@ async fn a_peer_lists_a_persons_queued_prompt_with_its_author() {
     cb.tx.send(cancel.to_line()).await.unwrap();
 }
 
-/// Chat presence is this daemon's own (`hub/presence.rs`): a peer's link carries all of that
-/// daemon's clients, so it stands for none of them. A's client attached to B's chat gets no
-/// participants, B records no one for the link (its visible attach included), and typing or an
-/// authored view through the link is refused `presence.peer_unsupported`.
+/// Authored presence crosses either supported peer transport. The daemon link itself is
+/// never a participant, and remote snapshots stay out of the receiving hub's local state.
 #[tokio::test]
-async fn a_peers_link_makes_no_presence_and_typing_through_it_is_refused() {
-    let b = hub(config(PermissionPolicy::Ask)).await;
-    let (port, peer_token) = listen_with_peer_token(b.clone(), "presence").await;
-    let mut cb = client(b.clone()).await;
-    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "shared"}}})).await.unwrap();
-    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
-    let a = hub(config(PermissionPolicy::Ask)).await;
-    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
-        .await
-        .unwrap();
-    let mut ca = client(a.clone()).await;
-    let attached =
-        ca.call("_acpmux/attach", json!({"sessionId": "b/shared", "limit": 0})).await.unwrap();
-    assert_eq!(attached["presence"]["participants"], json!([]), "{attached}");
-    let author =
-        json!({"_meta": {"acpmux": {"author": {"id": "tailnet:ana@example.com", "name": "Ana"}}}});
-    for (m, mut params) in [
-        ("_acpmux/typing", json!({"sessionId": "b/shared", "on": true})),
-        ("_acpmux/view", json!({"sessionId": "b/shared", "visible": true})),
-    ] {
-        params["_meta"] = author["_meta"].clone();
-        let refused = ca.call(m, params).await.unwrap_err();
-        assert!(refused.contains("a peer daemon's link carries none"), "{m}: {refused}");
-    }
-    // B holds no one for the link, though A's client attached showing the chat.
-    let held = cb
-        .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
-        .await
-        .unwrap();
-    assert_eq!(held["presence"]["participants"], json!([]), "{held}");
+async fn authored_presence_is_relayed_over_a_peer_token_link() {
+    shared_presence_over_peer(true).await;
 }
 
-/// A peer added with the dashboard token only serves this daemon's link as Web, not Peer: the
-/// link still stands for no one there (`hub/presence.rs`). Typing in that peer's chat is refused
-/// here, before it is forwarded, and a visible attach or view through the link records no owner
-/// on the peer, before or after the client that sent it leaves.
 #[tokio::test]
-async fn typing_in_a_chat_on_a_dashboard_token_peer_is_refused_before_forwarding() {
+async fn authored_presence_is_relayed_over_a_dashboard_token_link() {
+    shared_presence_over_peer(false).await;
+}
+
+async fn shared_presence_over_peer(peer_auth: bool) {
     let b = hub(config(PermissionPolicy::Ask)).await;
-    let (port, _) = listen_with_peer_token(b.clone(), "presence-web").await;
+    let tag = if peer_auth { "presence" } else { "presence-web" };
+    let (port, peer_token) = listen_with_peer_token(b.clone(), tag).await;
     let mut cb = client(b.clone()).await;
-    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "web-shared"}}})).await.unwrap();
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": tag}}})).await.unwrap();
     let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    cb.call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
+        .await
+        .unwrap();
     let a = hub(config(PermissionPolicy::Ask)).await;
-    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
-        .await
-        .unwrap();
+    a.add_peer(
+        "b",
+        &format!("ws://127.0.0.1:{port}"),
+        Some("tok".into()),
+        peer_auth.then_some(peer_token),
+        true,
+    )
+    .await
+    .unwrap();
+    let key = format!("b/{tag}");
     let mut ca = client(a.clone()).await;
-    ca.call("_acpmux/attach", json!({"sessionId": "b/web-shared", "limit": 0})).await.unwrap();
-    let refused = ca.call("_acpmux/typing", json!({"sessionId": "b/web-shared", "on": true})).await;
-    assert!(refused.unwrap_err().contains("a peer daemon's link carries none"));
+    let attached = ca.call("_acpmux/attach", json!({"sessionId": key, "limit": 0})).await.unwrap();
+    assert_eq!(attached["presence"]["participants"], json!([]), "{attached}");
+    let mut watcher = client(a.clone()).await;
+    watcher
+        .call("_acpmux/attach", json!({"sessionId": key, "limit": 0, "visible": false}))
+        .await
+        .unwrap();
+    let author = json!({"id": "tailnet:ana@example.com", "name": "Ana"});
+    ca.call(
+        "_acpmux/view",
+        json!({"sessionId": key, "visible": true, "_meta": {"acpmux": {"author": author}}}),
+    )
+    .await
+    .unwrap();
+    let seen = watcher.wait("_acpmux/presence", |p| p["participants"][0]["viewing"] == true).await;
+    assert_eq!(seen["sessionId"], remote_id, "{seen}");
+    assert_eq!(seen["participants"][0]["id"], author["id"], "{seen}");
+    assert!(seen.get("_acpmuxPeer").is_none(), "{seen}");
+    assert_eq!(a.presence.snapshot(&remote_id)["participants"], json!([]));
+    ca.call(
+        "_acpmux/typing",
+        json!({"sessionId": key, "on": true, "_meta": {"acpmux": {"author": author}}}),
+    )
+    .await
+    .unwrap();
+    watcher.wait("_acpmux/presence", |p| p["participants"][0]["typing"] == true).await;
     let held = cb
         .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
         .await
         .unwrap();
-    assert_eq!(held["presence"]["participants"], json!([]), "{held}");
-    ca.call("_acpmux/view", json!({"sessionId": "b/web-shared", "visible": true})).await.unwrap();
+    assert_eq!(held["presence"]["participants"][0]["id"], author["id"], "{held}");
+    let attached = watcher
+        .call("_acpmux/attach", json!({"sessionId": key, "limit": 0, "visible": false}))
+        .await
+        .unwrap();
+    assert_eq!(
+        attached["presence"]["participants"], held["presence"]["participants"],
+        "{attached}"
+    );
     drop(ca);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    watcher.wait("_acpmux/presence", |p| p["participants"] == json!([])).await;
     assert_eq!(a.peers()[0]["connected"], true, "the link outlives its client");
-    let held = cb
-        .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
-        .await
-        .unwrap();
-    assert_eq!(held["presence"]["participants"], json!([]), "{held}");
 }
 
 /// A peer that lists a chat under one of this daemon's own raw ids: a client attached to the
