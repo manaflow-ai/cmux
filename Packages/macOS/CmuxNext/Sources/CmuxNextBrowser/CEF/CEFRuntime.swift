@@ -512,7 +512,7 @@ final class CEFRuntime {
             CEFStartSteps.shared.timed("ready_hooks") {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
                 observeDisplays()
-                ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(view) ?? false }
+                ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }
                 ChromiumAccessibilityPress.install { [weak self] window, frame in
                     guard let window else { return }
                     self?.windowRequests.linkClicks.recordAccessibilityPress(in: window, frame: frame)
