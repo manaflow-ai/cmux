@@ -1683,6 +1683,8 @@ jobs:
           fi
 
       - name: Close deferred nightly failure incident
+        # Bookkeeping after publication: never turns a published run red.
+        continue-on-error: true
         if: env.ALREADY_PUBLISHED != 'true' || env.ALREADY_PUBLISHED_SAME_SOURCE == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
