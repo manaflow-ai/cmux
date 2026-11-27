@@ -134,6 +134,7 @@ import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
+import { EXEC_CONFORMANCE_CARGO_CASE, EXEC_CONFORMANCE_STEP, execConformanceCargoInstall, execConformanceCase, execConformanceOn, execConformanceProbe, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { pauseWithReconciliation, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
@@ -6280,6 +6281,41 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const { ok, detail } = repoSeedDetail(parseRepoSeed(out));
           if (!ok) throw new Error(`exit ${r.code} ${detail} ${r.stderr.slice(-200)}`);
           return { value: null, detail };
+        });
+      }
+      // The exec router's identical-result rule on prod (cloud-journey-exec-conformance.ts): `acpmux exec-router
+      // conformance` on this machine with the sign-in's Cloud credentials and AutoCloud on, each case's routed side on a
+      // run VM it forks. Leo, 2026-11-26: "100% identical on prod". Opt-in: CMUX_JOURNEY_EXEC_CONFORMANCE=1.
+      if (execConformanceOn(process.env.CMUX_JOURNEY_EXEC_CONFORMANCE)) {
+        await J.step(EXEC_CONFORMANCE_STEP, async () => {
+          const probe = await exec(execConformanceProbe(), 60_000);
+          const facts = probe.stdout.split("\n").filter((l) => l.startsWith("@@ec")).join(" ");
+          console.log(`[exec-conformance] ${facts}`);
+          const cases = parseCaseNames(`${probe.stdout}\n${probe.stderr}`);
+          if (!cases.length) {
+            // An acpmux without the suite: the image predates f7a86e4a (#58823), the commit that added it.
+            throw new Error(`this image's acpmux has no exec-router conformance (predates f7a86e4a): ${facts} ${probe.stdout.slice(-300)} ${probe.stderr.slice(-200)}`);
+          }
+          if (cases.includes(EXEC_CONFORMANCE_CARGO_CASE) && /cargo=none/.test(probe.stdout)) {
+            const c = await exec(execConformanceCargoInstall(), 300_000);
+            console.log(`[exec-conformance] ${c.stdout.split("\n").filter((l) => l.startsWith("@@ec")).join(" ")} ${c.code ? c.stderr.slice(-200) : ""}`);
+          }
+          const rows: ReturnType<typeof parseRows> = [];
+          for (const name of cases) {
+            // A token fresh for each case (it lives 600 s; the fork backend reads it once per run).
+            if (api.remint) { api.expiresAt = 0; await api.fresh(); }
+            if (api.bearer) J.secrets.push(api.bearer);
+            const r = await exec(execConformanceCase(name, { api: api.origin, token: api.bearer, team: api.team, machine: created.id }, `/tmp/cmux-exec-conformance-${process.pid}`), 300_000);
+            const got = parseRows(r.stdout);
+            for (const row of got) console.log(`[exec-conformance] ${rowText(row)} ${JSON.stringify(row)}`);
+            if (!got.length) console.log(`[exec-conformance] ${name}: no row (exit ${r.code}) ${r.stdout.slice(-400)} ${r.stderr.slice(-400)}`);
+            rows.push(...got);
+          }
+          const v = verdict(cases, rows);
+          console.log(`[exec-conformance] summary: ${v.line}`);
+          console.log(`[exec-conformance] ${EXEC_CONFORMANCE_CARGO_CASE}: ${v.cargo}`);
+          if (!v.ok) throw new Error(v.line);
+          return { value: { total: v.total, identical: v.identical, onRunVm: v.onRunVm }, detail: `${v.line}; ${v.cargo}` };
         });
       }
       // A person's own create that no spare serves: the create above asks the chat start size and claims a ready spare,
