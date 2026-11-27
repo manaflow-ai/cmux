@@ -1,0 +1,54 @@
+/* The Cloud Environment chip (CloudEnvironmentChip.tsx), beside the Where chip while Cloud is the
+   pick. It is the last chip of the strip's leading group, so showing or hiding it moves nothing
+   before it, and the branch chip after the group keeps its place at the strip's end. Both ways are
+   one transition: its column opens from 0 to its width as it fades in, and closes the same way
+   (its gap goes with it), so nothing pops in or jumps after it ends. Reduced motion: at once. */
+.acpmux-cloud-env-slot {
+  display: inline-grid;
+  grid-template-columns: 1fr;
+  min-width: 0;
+  flex: 0 0 auto;
+  opacity: 1;
+  transition:
+    grid-template-columns var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    margin-inline-start var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+.acpmux-cloud-env-slot > .acpmux-cloud-env { min-width: 0; overflow: hidden; }
+.acpmux-cloud-env-slot[data-shown="false"] {
+  grid-template-columns: 0fr;
+  margin-inline-start: calc(-1 * var(--acpmux-location-gap, 4px));
+  opacity: 0;
+  pointer-events: none;
+}
+:root[data-cmux-motion="reduced"] .acpmux-cloud-env-slot,
+:root[data-cmux-motion="off"] .acpmux-cloud-env-slot { transition: none; }
+
+/* "Environment: Auto": the name of the choice is quieter than the choice. */
+.acpmux-cloud-env-prefix { color: var(--agent-muted); }
+.acpmux-cloud-env-label { white-space: nowrap; }
+/* A narrow strip keeps the value ("Auto") and drops "Environment:", then the value, as the other chips do. */
+@container acpmux-strip (width < 472px) {
+  .acpmux-cloud-env-prefix { display: none; }
+}
+@container acpmux-strip (width < 340px) {
+  .acpmux-cloud-env .acpmux-location-label { display: none; }
+}
+
+/* The drop-up: the location menus' rows. */
+.acpmux-cloud-env-row { display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%; }
+.acpmux-cloud-env-gear {
+  margin-inline-start: auto;
+  opacity: 0;
+  transition: opacity var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
+}
+.acpmux-menu-item:is(:hover, [data-highlighted]) .acpmux-cloud-env-gear,
+.acpmux-menu-item:is(:has([data-popup-open]), [data-highlighted]) .acpmux-cloud-env-gear,
+.acpmux-cloud-env-gear:focus-visible { opacity: 1; }
+
+/* The drop-up keeps its side (up) and fits the room above the chip, scrolling if it must; with less
+   than a few rows of room it goes past the window's top (popupHost.ts), never down over the box. */
+.acpmux-menu.acpmux-location-menu.acpmux-cloud-env-menu {
+  max-height: max(120px, var(--available-height, 360px));
+  overflow-y: auto;
+}

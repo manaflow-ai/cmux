@@ -2628,6 +2628,35 @@ export function markdownBlocks(source: string): Token[] {
   }
 }
 
+/// A chat's first open pays, once per page, for setup its layout shares with every later one: the
+/// measuring canvas and its font (measureContext.ts), pretext's segmenter and the font's first
+/// widths, marked's first lex (its rules' regexes are built on first use). `warmChatMeasure` pays it
+/// while the page waits on the daemon's attach answer (direct.ts sendAttach), so the open's first
+/// layout (layoutConversation) does not. Once per page; the cached texts are not the chat's.
+let warmed = false;
+const WARM_TEXT = "Warm the measure: plain words, `code`, numbers 1,234.5 and punctuation (a, b; c) — done.";
+const WARM_MARKDOWN = [
+  "# Heading",
+  "Some **bold**, _emphasis_, `code` and a [link](https://example.com).",
+  "- one\n- two\n  1. nested",
+  "> quoted",
+  "```ts\nconst x = 1;\n```",
+  "| a | b |\n| - | - |\n| 1 | 2 |",
+].join("\n\n");
+export function warmChatMeasure(): void {
+  if (warmed) return;
+  warmed = true;
+  try {
+    markdownBlocks(WARM_MARKDOWN);
+    ensureMeasureContext();
+    const base = currentChatMetrics();
+    for (const font of new Set([base.measureFont, base.replyMeasureFont, base.prompt.measureFont]))
+      layout(prepare(WARM_TEXT, font, { whiteSpace: "pre-wrap" }), 400, base.lineHeight);
+  } catch {
+    // A page without a canvas measures by the fallback (textHeight); nothing to warm.
+  }
+}
+
 export function visibleRowRange(
   rowCount: number,
   scrollTop: number,
