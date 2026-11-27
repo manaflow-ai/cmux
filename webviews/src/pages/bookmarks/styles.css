@@ -34,7 +34,7 @@
   height: 28px;
   padding: 0 8px;
   font-size: var(--text-title);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   border: 1px solid var(--page-separator);
   background: transparent;
   outline: none;
@@ -58,7 +58,7 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: transparent;
   color: var(--page-text-2);
 }
@@ -100,7 +100,7 @@
   align-items: stretch;
   height: 24px;
   min-width: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   color: var(--page-text-2);
 }
 
@@ -121,7 +121,7 @@
   gap: 4px;
   min-width: 0;
   padding-inline-end: 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
 }
 
 .bm-tree-title {
@@ -173,7 +173,7 @@
 .bm-row {
   display: flex;
   min-width: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   outline: none;
 }
 
@@ -235,7 +235,7 @@
 .bm-icon img {
   width: 100%;
   height: 100%;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
 }
 
 /* A template symbol (a folder's SF Symbol) is a mask in the icon box's color, never an <img>. */
@@ -310,7 +310,7 @@
 .bm-crumb {
   padding: 0 4px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: transparent;
   color: inherit;
 }
@@ -405,7 +405,7 @@
   height: 28px;
   min-width: 0;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   border: 1px solid var(--page-separator);
   background: transparent;
   outline: none;

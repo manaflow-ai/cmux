@@ -183,7 +183,7 @@ const homeAsks = (n: number, changed?: { index: number; title: string }): Watche
 
 async function mountHome(n: number) {
   const { host, root } = mountOn();
-  const sessions = homeSessions(n);
+  let sessions = homeSessions(n);
   const draw = (asks: WatchedAsk[], shortcuts = true) =>
     act(async () =>
       root.render(
@@ -199,8 +199,20 @@ async function mountHome(n: number) {
       ),
     );
   await draw(homeAsks(n));
-  return { host, root, draw };
+  // A full relist (a reconnect, a lag): every session a new object with the same values.
+  const relist = () => {
+    sessions = homeSessions(n);
+  };
+  return { host, root, draw, relist };
 }
+
+test("Ready for review: a relist that brings every session as a new object draws no review row", async () => {
+  const { draw, relist } = await mountHome(10);
+  rowRenders.reset();
+  relist();
+  await draw(homeAsks(10));
+  expect(rowRenders.count("HomeRow")).toBe(0);
+});
 
 test("Home inbox and Ready for review: only the rows whose data changed draw again", async () => {
   jest.useFakeTimers();

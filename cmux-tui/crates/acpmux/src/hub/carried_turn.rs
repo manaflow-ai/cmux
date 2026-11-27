@@ -283,6 +283,7 @@ impl Hub {
         from: &str,
         next: &NextTurn,
         slot: Option<RunSlot>,
+        install_turn: crate::harness_health::turns::Turn,
     ) {
         // The turn as it is now: a Web steer may have raised its control since it was put in
         // place (`check_steer`).
@@ -298,7 +299,10 @@ impl Hub {
         let continues = Some(next.continues.clone());
         self.scope.spawn_named(
             "carried-turn",
-            Box::pin(async move { hub.run_carried(session, child, turn, continues, slot).await }),
+            Box::pin(async move {
+                let _install_turn = install_turn;
+                hub.run_carried(session, child, turn, continues, slot).await
+            }),
         );
     }
 
@@ -348,7 +352,10 @@ impl Hub {
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
         self.scope.spawn_named(
             "recovered-carried-turn",
-            Box::pin(async move { hub.run_carried(session, child, turn, continues, None).await }),
+            Box::pin(async move {
+                let _install_turn = hub.harness_turn(&session).await;
+                hub.run_carried(session, child, turn, continues, None).await
+            }),
         );
     }
 

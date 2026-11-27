@@ -13,6 +13,8 @@ cmux setup remove manaflow-ai/codex-profile   # everything you had comes back
 ## What is in it
 
 - `cmux-setup.json`: the settings, with each pending key as a comment naming its pull request.
+- `themes/codex-app.json`: the colors `appearance.themeFile: codex-app` loads (the codex-app recipe's), shipped in
+  the pack so a fresh install finds it.
 - `agent-pane/theme.css`: every composer icon button highlights as a circle (`--cv-composer-icon-radius`).
 - `keybindings.json`: the reference app's keys.
 - `customize/`: one customize app, `local/customize`, with the Chats section, the thread hover card,
@@ -29,6 +31,7 @@ Totals: 6 matched, 18 partial, 3 missing, out of 27.
 | --- | --- | --- |
 | Integrated terminal scoped to the checkout | matched | cmux is terminal-native: every workspace has terminals in its cwd. |
 | Split and full tab views | matched | `tabs.hideLoneChatTab`. |
+| Composer placeholder ("Ask for follow-up changes") | matched | `agentPane.composerPlaceholder`. |
 | Slash commands in the composer | matched | cmux's agent composer offers the harness's slash commands; Codex's list itself is harness-defined. |
 | Automations (scheduled tasks in project or worktree) | matched | cmux has automations (scheduled, catch-up, failure states); look surfaces them in the sidebar like Codex. |
 | Search chats | matched | `tabs.toolbarButtons` carries `agentPane.searchChats`. |

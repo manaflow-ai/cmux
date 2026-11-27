@@ -24,7 +24,9 @@ allows it), and on the person's other machines that run cmux.
 
 ## How to work
 
-1. `list_windows` (or `list_apps`) to find the window.
+1. Pass a known window title or app name as `window_id`. If several windows
+   match, use the intended window's ID from `target_ambiguous`. Use
+   `list_windows` for discovery when the window is unknown.
 2. `screenshot` that window (works when it is covered) or `get_ui_tree` it.
 3. Act on `element_id`s from the tree (best: they work in the background and
    survive layout changes), or on pixels of your latest screenshot of that
@@ -41,9 +43,8 @@ In code mode, do several steps in one `cmux_exec` script, with loops and
 conditions between them, instead of one tool call per step:
 
 ```js
-const [w] = (await cu.list_windows({app_id: "com.apple.Safari"})).windows;
-const window_id = w.window_id;
-const tree = await cu.get_ui_tree({window_id});
+const tree = await cu.get_ui_tree({window_id: "Sign up"});
+const window_id = tree.window_id;
 await cu.set_value({window_id, value: "ada@example.com",
   element_id: cu.find(tree, {role: "text_field", name: /email/i}).id});
 await cu.click({window_id, element_id: cu.find(tree, {role: "button", name: "Submit"}).id});

@@ -181,7 +181,26 @@ jobs:
             echo "workspace repository seeded with the runner's git mirror ($m)" ||
             { rm -rf "$GITHUB_WORKSPACE/.git"; echo "mirror seed failed: actions/checkout clones from github.com"; }
       - name: Checkout the base branch's scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: refs/heads/${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: true
+      # GitHub's git transport stalls now and then ("Operation too slow. Less than 1 bytes/sec transferred the last
+      # 60 seconds", or "could not fetch ... from promisor remote" when the sparse checkout asks for its blobs):
+      # 10 of 13 sampled hot verify reds on 2026-11-25 (runs 45701596650, 45702976944, 45711713795, ...), each green
+      # on a rerun. actions/checkout retries its fetch but not the checkout's blob fetch, so the job drops the stalled
+      # clone and clones once more; a second stall is a real outage and ends red.
+      - name: Drop the stalled clone
+        if: ${{ steps.checkout.outcome == 'failure' }}
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Checkout the base branch's scripts (again)
+        if: ${{ steps.checkout.outcome == 'failure' }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
@@ -350,10 +369,14 @@ jobs:
               echo "hot verify: the look ($LAYERS) runs on feat-cmux-next for ${HEAD_SHA:0:12} (attempt $attempt)" | tee -a "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            why="$(tr '\n' ' ' < "$RUNNER_TEMP/dispatch.err" | cut -c1-200)"
+            # The wrapper's own ::notice lines name the rate limit it moved past; only gh's answer says why it
+            # failed. Run 45707112427 read "refused for the API rate limit ... goes out on GH_TOKEN_SPARE now" in
+            # the notice, stopped retrying, and never showed the spare's own answer.
+            grep -v '^::' "$RUNNER_TEMP/dispatch.err" > "$RUNNER_TEMP/dispatch.why" || true
+            why="$(tail -n 3 "$RUNNER_TEMP/dispatch.why" | tr '\n' ' ' | cut -c1-300)"
             echo "hot verify: attempt $attempt could not start the look: $why"
             # The wrapper already waited out a rate limit on every pool; another try would only wait again.
-            grep -qiE "rate limit|HTTP 429" "$RUNNER_TEMP/dispatch.err" && break
+            grep -qiE "rate limit|HTTP 429" "$RUNNER_TEMP/dispatch.why" && break
             [[ $attempt == 3 ]] || sleep "$pause"
             pause=$(( pause * 2 ))
           done
@@ -401,7 +424,9 @@ jobs:
             echo "workspace repository seeded with the runner's git mirror ($m)" ||
             { rm -rf "$GITHUB_WORKSPACE/.git"; echo "mirror seed failed: actions/checkout clones from github.com"; }
       - name: Checkout the pull request check
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -410,6 +435,27 @@ jobs:
             /scripts/cmux-next/hot-verify-pr.sh
             /scripts/ci/gh_budget_wait.sh
             /scripts/ci/ci_pool_tokens.py
+            /scripts/ci/gh_http.py
+            /scripts/ci/deadline_http.py
+            /.gitmodules
+          sparse-checkout-cone-mode: false
+      # A stalled git transport clones once more (see the plan job).
+      - name: Drop the stalled clone
+        if: ${{ steps.checkout.outcome == 'failure' }}
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Checkout the pull request check (again)
+        if: ${{ steps.checkout.outcome == 'failure' }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            /scripts/cmux-next/hot-verify-pr.sh
+            /scripts/ci/gh_budget_wait.sh
+            /scripts/ci/ci_pool_tokens.py
+            /scripts/ci/gh_http.py
+            /scripts/ci/deadline_http.py
             /.gitmodules
           sparse-checkout-cone-mode: false
       # The pull request read goes out on a CI pool App first (each its own installation hour), then github.token
@@ -469,11 +515,37 @@ jobs:
     timeout-minutes: 5
     permissions:
       actions: write
+      contents: read
     steps:
-      # 2026-11-25 09:15Z: every web layer went red on "HTTP 403: API rate limit exceeded for installation" (job
-      # 139099457954): github.token is the repository's GITHUB_TOKEN hour, which every workflow's jobs share. The
-      # cmux-bot App's installation has its own hour (as the plan job's dispatch uses it): the dispatch moves to it
-      # when github.token is rate-limited.
+      # The dispatch below went red on "HTTP 403: API rate limit exceeded for installation" whenever github.token's
+      # hour was spent (job 139099457954 on 2026-11-25; runs 45817203883, 45818143253 and 45818600252 on 2026-11-26):
+      # every workflow's jobs share that hour. It goes out on a CI pool App first (each has its own hour), rotates
+      # through the others and github.token, and keeps the cmux-bot App's token as the script's last retry.
+      - name: Drop a reused workspace's repository
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Checkout the rate limit helpers
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            /scripts/ci/gh_budget_wait.sh
+            /scripts/ci/ci_pool_tokens.py
+            /scripts/ci/gh_http.py
+            /scripts/ci/deadline_http.py
+            /.gitmodules
+          sparse-checkout-cone-mode: false
+      - name: Mint the CI pool's tokens
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          CI_POOL_PERMISSIONS: '{"actions":"write"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
       - name: Mint the dispatch's spare token
         id: cmux-bot-token
         if: ${{ vars.CMUX_BOT_APP_ID != '' }}
@@ -484,21 +556,34 @@ jobs:
           app-id: ${{ vars.CMUX_BOT_APP_ID }}
           private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-actions: write
+      - name: Wait through GitHub API rate limits in the dispatch's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
       - name: Start the web layer
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
+          # The job ends at 5 minutes: only a short backoff fits once every pool is spent.
+          GH_BUDGET_WAIT_MAX_SECONDS: 120
           PR: ${{ needs.target.outputs.pr }}
         run: |
-          set -euo pipefail
-          dispatch() { gh workflow run cmux-next-web-bundle-publish.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f pr="$PR" 2> "$RUNNER_TEMP/web.err"; }
-          if ! dispatch; then
-            cat "$RUNNER_TEMP/web.err" >&2
-            grep -qiE "rate limit|HTTP 429" "$RUNNER_TEMP/web.err" && [[ -n "${GH_TOKEN_SPARE:-}" ]] || exit 1
-            echo "github.token is rate-limited: dispatching on the cmux-bot App's token" >&2
-            GH_TOKEN="$GH_TOKEN_SPARE" dispatch || { cat "$RUNNER_TEMP/web.err" >&2; exit 1; }
+          set -uo pipefail
+          # gh is gh_budget_wait.sh here: it moves a rate-limited call to each spare pool, waits
+          # (bounded) once every pool refused, and tries a 5xx dispatch again.
+          err="${RUNNER_TEMP:-/tmp}/web-dispatch.err"
+          if gh workflow run cmux-next-web-bundle-publish.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f pr="$PR" 2> "$err"; then
+            echo "web layer of #$PR: publishing (\`cmux customize use pr:$PR\` once files.cmux.com/cmux-next-web/pr/$PR/latest.json names the head)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
-          echo "web layer of #$PR: publishing (\`cmux customize use pr:$PR\` once files.cmux.com/cmux-next-web/pr/$PR/latest.json names the head)" >> "$GITHUB_STEP_SUMMARY"
+          cat "$err" >&2
+          why="$(tail -n 2 "$err" | tr '\n' ' ' | cut -c1-300)"
+          if grep -qiE "rate limit|HTTP 429" "$err"; then
+            echo "::warning title=web layer::#$PR's web bundle was not published: every token is out of its GitHub API hour ($why)"
+            echo "web layer of #$PR: not published (GitHub API rate limit on every token); the look serves the head's web itself" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::error title=web layer::could not start #$PR's web bundle publish: $why"
+          exit 1
 
   # The head's cmux-tui tree key. cmux-tui-artifacts.yml publishes the tree for a same-repository PR head, its
   # completion.json last; the build fleet controller queues the look once that answers (at most 50 minutes). No
@@ -536,7 +621,26 @@ jobs:
             echo "workspace repository seeded with the runner's git mirror ($m)" ||
             { rm -rf "$GITHUB_WORKSPACE/.git"; echo "mirror seed failed: actions/checkout clones from github.com"; }
       - name: Checkout the pull request head (trees only)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.target.outputs.head }}
+          persist-credentials: false
+          filter: blob:none
+          # The key script and its inputs list; the key itself reads git trees, which blob:none keeps.
+          sparse-checkout: |
+            /scripts/ci/cmux_tui_tree_key.py
+            /scripts/cmux-next/cmux-tui-tree-inputs.txt
+            /.gitmodules
+          sparse-checkout-cone-mode: false
+      # A stalled git transport clones once more (see the plan job).
+      - name: Drop the stalled clone
+        if: ${{ steps.checkout.outcome == 'failure' }}
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Checkout the pull request head (trees only) (again)
+        if: ${{ steps.checkout.outcome == 'failure' }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.target.outputs.head }}
           persist-credentials: false
@@ -692,7 +796,10 @@ jobs:
             echo "workspace repository seeded with the runner's git mirror ($m)" ||
             { rm -rf "$GITHUB_WORKSPACE/.git"; echo "mirror seed failed: actions/checkout clones from github.com"; }
       - name: Checkout the publisher
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -707,8 +814,61 @@ jobs:
             scripts/cmux-next/hot-verify-pr.sh
             scripts/ci/gh_budget_wait.sh
             scripts/ci/ci_pool_tokens.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
             .gitmodules
           sparse-checkout-cone-mode: false
+      # A stalled git transport clones once more (see the plan job).
+      - name: Drop the stalled clone
+        if: ${{ steps.checkout.outcome == 'failure' }}
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Checkout the publisher (again)
+        if: ${{ steps.checkout.outcome == 'failure' }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: &publisher-sparse |
+            .github/actions/pr-media-publish
+            scripts/pr-media.py
+            scripts/ci/pr_media_privacy.py
+            scripts/ci/pr_media_gate.py
+            scripts/ci/pr_media_ocr_tesseract.py
+            scripts/ci/pr_media_ocr.swift
+            scripts/cmux-next/hot-verify-ci.py
+            scripts/cmux-next/hot-verify-pr.sh
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/ci_pool_tokens.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
+            .gitmodules
+          sparse-checkout-cone-mode: false
+      - name: "Pool mirror: checkout the publisher"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        timeout-minutes: 8
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: *publisher-sparse
+        # Pool runners use their local mirror directly. actions/checkout adds a blobless promisor fetch, which
+        # can stall while the mirror backfills blobs. The unfiltered fetch only transfers objects the mirror lacks.
+        run: |
+          set -euo pipefail
+          mirror="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}/objects"
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=1 origin "+$SHA:refs/remotes/origin/checkout"
+          git config core.sparseCheckout true
+          printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
       # The pull request read goes out on a CI pool App first (each its own installation hour), then github.token
       # (scripts/ci/ci_pool_tokens.py, gh_budget_wait.sh GH_TOKEN_SPARES). On github.token alone it waited out the
       # spent hour: 2026-11-23 17:43-23:43Z, post the look's read took 569 s at the median and 1,579 s at p90 (242
@@ -720,10 +880,14 @@ jobs:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
           CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          CI_POOL_PERMISSIONS: '{"contents":"read","actions":"write"}'
         run: python3 scripts/ci/ci_pool_tokens.py
       # The cmux-bot App's installation has an hour of its own (the plan job's dispatch uses it the same way): a
       # read refused on github.token moves to it at once instead of sleeping (gh_budget_wait.sh GH_TOKEN_SPARE).
-      # Read-only, and only the pull request read below takes it.
+      # The pull request read, the gallery read and the one-more-look dispatch take it (after the pools). On
+      # github.token alone, 2026-11-26 15:00-19:00Z, the dispatch and the gallery read waited out the spent hour:
+      # post the look took 584 s at the median and 2,290 s at p90 (215 jobs, 2,964 runner-minutes in 4 h), nearly
+      # all of it asleep in those two steps. The job's github.token already holds actions: write.
       - name: Mint the pull request read's spare token
         id: cmux-bot-token
         if: ${{ vars.CMUX_BOT_APP_ID != '' }}
@@ -734,6 +898,7 @@ jobs:
           app-id: ${{ vars.CMUX_BOT_APP_ID }}
           private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-pull-requests: read
+          permission-actions: write
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash scripts/ci/gh_budget_wait.sh --install
       - name: Read the pull request
@@ -803,25 +968,55 @@ jobs:
             echo "needs_build=false" >> "$GITHUB_OUTPUT"
             ls "$RUNNER_TEMP/hv/media" 2>/dev/null | sed 's/^/staged: /' || true
           fi
+      # The dispatch below ran on github.token alone, and gh_budget_wait.sh slept out its spent hour (default 3600 s):
+      # 2026-11-26 13-19Z, 212 of 373 post the look runs spent over 400 s (job 139931240089: 2,654 s), a Linux runner
+      # held for one API call. It goes out on the pools first, then the job's cmux-bot spare (actions: write, minted
+      # above), then github.token, and waits at most 2 minutes once all are spent (#59431, goal ci-min-per-pr-30).
       - name: Dispatch one more look
         if: ${{ steps.check.outputs.ok == 'true' && (steps.result.outputs.tar == 'false' || steps.stage.outputs.again == 'true') && inputs.attempt != '1' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
+          # Only a short backoff once the pools, the spare and github.token are all out of their hour: the look is
+          # advisory.
+          GH_BUDGET_WAIT_MAX_SECONDS: 120
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ inputs.head }}
           LAYERS: ${{ inputs.layers }}
           EVENT_AT: ${{ inputs.event_at }}
           KIND: ${{ inputs.kind }}
         run: |
-          set -euo pipefail
-          gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
-            -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$EVENT_AT" -f kind="${KIND:-head}" -f attempt=1
-          echo "hot verify: the look returned no out.tar or no receipt; one more look runs for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
+          set -uo pipefail
+          # gh is gh_budget_wait.sh (a rate limit waits for its reset). An HTTP 500 from the dispatch API ended this
+          # step red twice in 13 sampled reds on 2026-11-25 (runs 45709542537, 45710724221), green on a rerun: a
+          # failure that is not a rate limit is tried again, at most 3 tries, 20 s doubling.
+          err="${RUNNER_TEMP:-/tmp}/again.err"
+          pause=20
+          for attempt in 1 2 3; do
+            if gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
+                -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$EVENT_AT" -f kind="${KIND:-head}" -f attempt=1 2> "$err"; then
+              echo "hot verify: the look returned no out.tar or no receipt; one more look runs for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            cat "$err" >&2
+            if grep -v '^::' "$err" | grep -qiE "rate limit|HTTP 429"; then
+              echo "::warning title=hot verify::no more look for ${HEAD_SHA:0:12}: every token is out of its GitHub API hour"
+              echo "hot verify: one more look for ${HEAD_SHA:0:12} was not started (GitHub API rate limit on every token)" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            [[ $attempt == 3 ]] || sleep "$pause"
+            pause=$(( pause * 2 ))
+          done
+          echo "::error title=hot verify::could not start one more look for ${HEAD_SHA:0:12}: $(grep -v '^::' "$err" | tail -n 2 | tr '\n' ' ' | cut -c1-300)"
+          exit 1
       - name: Is the gallery advisory also on this head
         id: gallery
         if: ${{ steps.stage.outputs.needs_build == 'false' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           HEAD_SHA: ${{ inputs.head }}
         run: |
           set -uo pipefail

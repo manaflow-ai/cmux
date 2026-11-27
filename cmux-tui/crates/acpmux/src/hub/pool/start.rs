@@ -128,11 +128,8 @@ impl Hub {
             env,
             cwd: draft.cwd.clone(),
             codex_bridge: !claude && crate::codex_app_server::is_profile_launch(&profile.argv),
-            // Pooled entries are drafted for the person's next chat. Keep that chat's
-            // saved switch, while direct agent starts use the agent-safe default.
-            codex_prompt_suggestions: crate::claude_stdio::prompt_suggestions::chat_pick(
-                current_option(draft, crate::claude_stdio::prompt_suggestions::OPTION),
-            ),
+            // Only a person's chat can claim a pooled Codex bridge (lifecycle.rs).
+            codex_prompt_suggestions: true,
             translator,
             socket: agent_host::socket_path(&dir, &session_id),
             hosts_dir: dir,
@@ -245,7 +242,7 @@ impl Hub {
             }
         };
         let started = async {
-            let init = child.request(method::INITIALIZE, initialize_params()).await?;
+            let init = crate::hub::acp_version::initialize(&child, initialize_params()).await?;
             // An agent signed in by its key says so first (`acp_key_auth.rs`).
             let family = crate::config::derive_family(&draft.harness, &spec.spawn);
             if let Some(params) = crate::acp_key_auth::authenticate_params(&family, &init, |k| {
