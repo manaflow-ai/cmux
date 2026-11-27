@@ -577,9 +577,16 @@ pub(crate) fn video_lane_listed(peer_lanes: &[String]) -> bool {
     peer_lanes.iter().any(|lane| lane == crate::media::VIDEO_LANE)
 }
 
-/// Whether both sides support the input lane.
+/// Whether both sides support the input lane. Never with the reliable link:
+/// it carries input on its main carrier, and the Mac's reliable answer never
+/// takes a lane. A lane the phone opened anyway reached the Mac after its
+/// listener had moved on to dormant resumes, was taken for a resumed link,
+/// and ended the live link ("peer closed the link", the loopback
+/// `wireguard_reliable_link_resumes_over_a_new_transport` red, 2026-11-26).
 pub(crate) fn input_lane_agreed(options: &DialOptions, peer_lanes: &[String]) -> bool {
-    options.input_lane && peer_lanes.iter().any(|lane| lane == crate::link::INPUT_LANE)
+    options.input_lane
+        && peer_lanes.iter().any(|lane| lane == crate::link::INPUT_LANE)
+        && !reliable_agreed(options, peer_lanes)
 }
 
 /// Attach the lane to `link` when it opens, or fall back when it fails.
@@ -1065,6 +1072,23 @@ mod tests {
         assert_eq!(route_name(LinkPath::Turn, ip("192.168.1.23")), "relay");
         assert_eq!(route_name(LinkPath::TurnTls, None), "relay");
         assert_eq!(route_name(LinkPath::NoPath, None), "none");
+    }
+
+    #[test]
+    fn the_input_lane_is_never_agreed_beside_the_reliable_link() {
+        let plain = DialOptions::default();
+        let reliable = DialOptions { reliable: true, ..DialOptions::default() };
+        assert!(plain.input_lane && reliable.input_lane);
+        // Today's link: both offer the lane, both agree on it.
+        assert!(input_lane_agreed(&plain, &offered_lanes(&plain, false, false)));
+        // Both on the reliable link: neither side agrees, so the phone opens
+        // no lane the Mac would take for a resumed link.
+        let both = offered_lanes(&reliable, false, false);
+        assert!(both.iter().any(|lane| lane == crate::link::INPUT_LANE));
+        assert!(!input_lane_agreed(&reliable, &both), "phone and Mac alike");
+        // One side without the reliable link: the lane stays, as today.
+        assert!(input_lane_agreed(&reliable, &offered_lanes(&plain, false, false)));
+        assert!(input_lane_agreed(&plain, &both));
     }
 
     #[test]
