@@ -199,7 +199,8 @@ let package = Package(
                 .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 // Predictive local echo: the shared Rust engine (cmux-terminal-prediction).
                 .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
-            ]
+            ],
+            resources: [.process("Resources")]
         ),
         // Live Chief calls and agent voice mode, portable part: the Realtime API's events and session
         // configs, the call's and voice mode's state machines, the speech filter and tools, the OpenAI key in the Keychain (Foundation and Security only).

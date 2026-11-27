@@ -39,6 +39,7 @@ mod scheduler;
 mod start_wait;
 mod state;
 mod terminal;
+mod turn_fold;
 mod usage_reset;
 pub use run::run;
 
