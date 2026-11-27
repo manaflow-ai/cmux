@@ -16,6 +16,8 @@ public struct UpdateSettings: Sendable {
     public static let scheduledCheckIntervalKey = "SUScheduledCheckInterval"
     /// Sparkle's "send anonymous system profile" key.
     public static let sendProfileInfoKey = "SUSendProfileInfo"
+    /// cmux's marker that the automatic-install migration already ran.
+    public static let automaticInstallMigrationKey = "cmux.sparkle.automaticallyUpdateMigration.v1"
     /// cmux's marker that the v2 automatic-checks migration already ran.
     public static let migrationKey = "cmux.sparkle.automaticChecksMigration.v2"
     /// cmux's marker that the v4 stale-interval migration already ran.
@@ -47,11 +49,12 @@ public struct UpdateSettings: Sendable {
     public func apply(to defaults: UserDefaults) {
         defaults.register(defaults: [
             Self.automaticChecksKey: true,
-            Self.automaticallyUpdateKey: false,
+            Self.automaticallyUpdateKey: true,
             Self.scheduledCheckIntervalKey: scheduledCheckInterval,
             Self.sendProfileInfoKey: false,
         ])
 
+        migrateAutomaticInstall(in: defaults)
         migrateStaleInterval(in: defaults)
         guard !defaults.bool(forKey: Self.migrationKey) else { return }
 
@@ -69,14 +72,20 @@ public struct UpdateSettings: Sendable {
             defaults.set(scheduledCheckInterval, forKey: Self.scheduledCheckIntervalKey)
         }
 
-        if defaults.object(forKey: Self.automaticallyUpdateKey) == nil {
-            defaults.set(false, forKey: Self.automaticallyUpdateKey)
-        }
         if defaults.object(forKey: Self.sendProfileInfoKey) == nil {
             defaults.set(false, forKey: Self.sendProfileInfoKey)
         }
 
         defaults.set(true, forKey: Self.migrationKey)
+    }
+
+    /// Earlier releases registered automatic downloads as false for every install. Turn that
+    /// legacy default on once so existing installs join the same update path as new installs.
+    /// The marker makes a later user choice persistent across launches.
+    private func migrateAutomaticInstall(in defaults: UserDefaults) {
+        guard !defaults.bool(forKey: Self.automaticInstallMigrationKey) else { return }
+        defaults.set(true, forKey: Self.automaticallyUpdateKey)
+        defaults.set(true, forKey: Self.automaticInstallMigrationKey)
     }
 
     /// v4: installs whose earlier migrations already ran can still hold the legacy 24h or 1h

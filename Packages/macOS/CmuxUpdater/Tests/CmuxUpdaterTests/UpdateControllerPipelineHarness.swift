@@ -15,9 +15,10 @@ struct Harness {
         let suiteName = "cmux.updater.pipeline-tests.\(UUID().uuidString)"
         let defaults = UserDefaults(testSuiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
-        if automaticDownloads {
-            defaults.set(true, forKey: UpdateSettings.automaticallyUpdateKey)
-        }
+        // The pipeline tests exercise an explicit host choice. Mark the migration complete so
+        // the shared updater default does not turn an intentional notify-only fixture back on.
+        defaults.set(automaticDownloads, forKey: UpdateSettings.automaticallyUpdateKey)
+        defaults.set(true, forKey: UpdateSettings.automaticInstallMigrationKey)
         let updater = FakeUpdater()
         let clock = TestDeadlineClock()
         self.updater = updater
