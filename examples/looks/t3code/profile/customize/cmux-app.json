@@ -30,16 +30,6 @@
       "title": "Open in editor",
       "symbol": "chevron.left.forwardslash.chevron.right"
     },
-    "cmux.composer.toolbar/1": {
-      "options": {
-        "buttons": [
-          {
-            "action": "composer.attachFiles",
-            "label": "Attach files"
-          }
-        ]
-      }
-    },
     "cmux.composer.model.picker/1": {
       "options": {
         "modelMenu": "search",
