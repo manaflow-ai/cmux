@@ -275,6 +275,8 @@ mod peer_list_slot_tests;
 mod peer_notice_cost_tests;
 #[cfg(test)]
 mod peer_rewound_tests;
+#[cfg(test)]
+mod peer_refresh_cost_tests;
 mod peer_row;
 pub(crate) mod peer_snapshot;
 mod peer_table;
