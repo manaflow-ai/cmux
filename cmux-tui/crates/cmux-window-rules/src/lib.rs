@@ -40,6 +40,9 @@
 //!   tab a verb reads, the trail walks, the SSH machine an action names, a
 //!   page fit, Picture in Picture's page, where a file or diff opens, the
 //!   appearance verbs).
+//! - [`notification_policy`]: what a notification does when it arrives
+//!   (read on sight, ring, banner, Dock bounce, timeout, its sound and how
+//!   loud), which interactions clear it, and the burst sound cooldown.
 //! - [`notification_rings`]: the notification service's attention rings and
 //!   reads (which panes ring, what a look or Dismiss Highlight reads, the
 //!   turn-end burst, where an arriving notification goes, a banner reply's
@@ -49,6 +52,8 @@
 //!   where the launch lands: the last workspace and tab, or Home.
 //! - [`editors`]: the code editors Open in Editor knows and which one opens
 //!   a folder (the person's `editor.default`, else the first installed).
+//! - [`empty_workspace`]: what happens to a workspace with no pane (its
+//!   last tab closed: it closes; its terminal was lost: it gets a new one).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
 //! - [`onboarding`]: the onboarding tool window's footer (the primary
@@ -65,9 +70,11 @@ pub mod desktop_attention;
 pub mod desktop_bursts;
 pub mod desktop_center;
 pub mod editors;
+pub mod empty_workspace;
 pub mod files;
 pub mod history;
 pub mod launch;
+pub mod notification_policy;
 pub mod notification_rings;
 pub mod notifications;
 pub mod onboarding;
