@@ -5,7 +5,15 @@
 //! workspace's hover card opens (`workspace_port_links`), the sidebar's
 //! launch order hold (`sidebar_launch_order`), the sidebar list's fold, tree
 //! and row geometry rules (`sidebar_list_rules`), a workspace row's own layout
-//! (`sidebar_row_layout`), the app sidebar
+//! (`sidebar_row_layout`), the session tree's folds, hidden rows and pull
+//! request badge (`sidebar_session_tree`), the sections' window
+//! membership, pins, loose-row edits and workspace order
+//! (`sidebar_sections`), the pending sidebar changes' record writes
+//! (`sidebar_pending_records`), where a sidebar drop or keyboard move lands
+//! and how a remote group's intent reaches the daemon (`sidebar_doc_target`),
+//! what auto-archive reads off the records (`sidebar_archive_marks`), the
+//! session tree's chat history page and heights (`sidebar_chat_history`),
+//! the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
 //! row or dock shows, what a hidden pane leaves, where a moved tab or
@@ -320,6 +328,47 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     &request,
                 ))
                 .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_archive_marks" => {
+                use cmux_layout_reducer::sidebar_archive_marks;
+                let request: sidebar_archive_marks::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_archive_marks::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_chat_history" => {
+                use cmux_layout_reducer::sidebar_chat_history;
+                let request: sidebar_chat_history::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_chat_history::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_doc_target" => {
+                use cmux_layout_reducer::sidebar_doc_target;
+                let request: sidebar_doc_target::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_doc_target::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_pending_records" => {
+                use cmux_layout_reducer::sidebar_pending_records;
+                let request: sidebar_pending_records::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_pending_records::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_sections" => {
+                use cmux_layout_reducer::sidebar_sections;
+                let request: sidebar_sections::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_sections::respond(request)).map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_session_tree" => {
+                use cmux_layout_reducer::sidebar_session_tree;
+                let request: sidebar_session_tree::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_session_tree::respond(request))
+                    .map_err(|_| ERR_INVALID)?
             }
             b"group_hover_summary" => {
                 let request: cmux_layout_reducer::group_hover_summary::Request =
