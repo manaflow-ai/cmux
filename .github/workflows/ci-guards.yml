@@ -842,6 +842,10 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: python3 tests/test_check_ghostty_zig_workflows.py
 
+      - name: Validate Ghostty builds fetch their Zig packages first (cached, retried)
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ci_ghostty_zig_packages_fetched.py
+
       - name: Validate Release helper architecture handoff
         if: ${{ matrix.group == 'release-tooling' }}
         run: python3 tests/test_ci_release_helper_archs.py
