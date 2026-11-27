@@ -29,6 +29,8 @@ jobs:
       HEAD_SHA: ${{ github.event.check_run.head_sha }}
       PR: ${{ github.event.check_run.pull_requests[0].number }}
     steps:
+      # success is green only: controller report_check.go:84-101 (cmuxterm-hq build-fleet/cmd/controller) gives success
+      # for a job done with exit 0, and check-release-compile.sh exits 0 only after xcodebuild passed; 69/75/124 and cancelled are neutral.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
