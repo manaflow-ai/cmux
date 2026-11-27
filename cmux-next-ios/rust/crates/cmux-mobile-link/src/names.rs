@@ -80,6 +80,7 @@ host_services! {
     (Browser, "browser"),
     (Surface, "surface"),
     (Localhost, "localhost"),
+    (TryPr, "try-pr"),
     (SiteData, "site-data"),
     (PhonePage, "phone-page"),
     (PhoneFrames, "phone-frames"),
@@ -115,6 +116,7 @@ pub const SURFACE_STREAM: &str = "surface-stream-v1";
 pub const CLOUD_DESKTOP: &str = "cloud-desktop-v1";
 pub const MAILBOX_SEND: &str = "mailbox-send-v1";
 pub const MAC_DISPLAY: &str = "mac-display-v1";
+pub const TRY_PR: &str = "try-pr-v1";
 pub const SITE_DATA_HANDOFF: &str = "site-data-handoff-v1";
 
 pub const CLOUD_MOBILE_CHAT: &str = "cloud-mobile-chat-v1";
@@ -257,6 +259,11 @@ pub const ALL: &[Capability] = &[
         "(2026-11-23) `surface` also streams this Mac's own display as rd/1 on the link, view only, on the key `d~<display>` (CGDirectDisplayID, 0 the main display); served while Share This Mac is on.",
         // Like `c~`, the `d~...` form is a distinct value of `surface.tab`.
         &["control:surface.tab/d~"],
+    ),
+    host(
+        TRY_PR,
+        "(2026-11-23) The host serves `try-pr`: cmux Dev's Try a pull request picker lists the open iPhone PRs and installs one on the phones attached to this Mac (`try.sh`); listed only when the Mac has `try.sh`.",
+        &["service:try-pr"],
     ),
     host(
         SITE_DATA_HANDOFF,

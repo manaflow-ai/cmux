@@ -197,6 +197,7 @@ pub async fn serve_with_upload_timeout(
             crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await
         }
         Some(HostService::Localhost) => crate::localhost::serve(&args, &sender, receiver).await,
+        Some(HostService::TryPr) => crate::try_pr::serve(&sender, &args).await,
         Some(HostService::SiteData) => {
             let (socket, query) = (config.daemon_socket(), crate::site_data::tabs_query());
             let tabs = daemon_query(&socket, query.as_bytes(), "cmux-mobile-site-data");
@@ -363,6 +364,9 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     if crate::lan::running() {
         // The phone may enroll for the LAN direct path (`lan`, lan.rs).
         out.push(crate::lan::CAPABILITY);
+    }
+    if crate::try_pr::available() {
+        out.push(crate::try_pr::CAPABILITY);
     }
     out
 }
@@ -3651,6 +3655,7 @@ mod tests {
                 SURFACE_STREAM,
                 CLOUD_DESKTOP,
                 MAC_DISPLAY,
+                crate::try_pr::CAPABILITY,
                 names::SITE_DATA_HANDOFF,
             ])
             .collect();

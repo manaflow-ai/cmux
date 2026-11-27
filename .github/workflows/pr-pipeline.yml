@@ -953,6 +953,41 @@ jobs:
       # owned_pool_rescue.py reads this step by name.
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+      # A hosted Mac (the picker's fallback when every owned simulator Mac is busy, or a fork) has no warm
+      # xcframework and no build fleet client, so scripts/ci/ios_link_ffi.sh built the FFI here: 286 s of the 645 s
+      # build on cmux#61812 (2026-11-27, blacksmith-6vcpu-macos-26). ios-link-ffi-cache-seed.yml saves that framework
+      # once per input key on the feat-cmux-next push, under the fleet entry every iOS Mac job restores; this reads
+      # it, then marks it as this job's copy (the stamp ios_fast_verdict.sh checks, the mark ios_link_ffi.sh checks),
+      # so the build step reuses it. An owned Mac keeps its own warm copy and skips this. A miss builds, as before.
+      - name: CmuxMobileLinkFFI.xcframework key (hosted Mac)
+        id: xcf-key
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if [[ "${RUNNER_NAME:-}" == blacksmith* || "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]; then
+            inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
+            echo "fleet_key=cmux-next-ios-link-ffi-xcf-fleet-v1-${inputs}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework
+        id: xcf-fleet-restore
+        if: ${{ steps.xcf-key.outputs.fleet_key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          enableCrossOsArchive: true
+          key: ${{ steps.xcf-key.outputs.fleet_key }}
+      - name: Mark the restored CmuxMobileLinkFFI.xcframework as this job's copy
+        if: ${{ steps.xcf-fleet-restore.outputs.cache-hit == 'true' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          frameworks=cmux-next-ios/CmuxMobileKit/Frameworks
+          key="$(python3 -I scripts/ci/ios_link_ffi_key.py)"
+          mtime="$(python3 -I -c 'import os, sys; print(int(os.stat(sys.argv[1]).st_mtime))' "$frameworks/CmuxMobileLinkFFI.xcframework/Info.plist")"
+          printf '%s %s\n' "$key" "$mtime" > "$frameworks/.ios-fast-verdict-ffi"
+          printf '%s\n' "$key" > "$RUNNER_TEMP/link-ffi-fleet.key"
+          echo "CmuxMobileLinkFFI.xcframework: the build fleet's cached copy ($key)"
       - name: Build the changed iOS target and run its tests
         env:
           PLAN: ${{ needs.ios-fast-runner.outputs.plan }}
