@@ -60,6 +60,7 @@ members = [
     "crates/cmux-browser-host",
     "crates/cmux-git",
     "crates/cmux-git-cache",
+    "crates/cmux-transport-rewrite",
     "crates/cmux-worktree-care",
     "crates/cmux-conductor-import",
     "crates/cmux-migrate",
@@ -261,6 +262,7 @@ default-members = [
     "crates/cmux-browser-host",
     "crates/cmux-git",
     "crates/cmux-git-cache",
+    "crates/cmux-transport-rewrite",
     "crates/cmux-worktree-care",
     "crates/cmux-conductor-import",
     "crates/cmux-migrate",
@@ -460,6 +462,7 @@ ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-git-cache = { path = "crates/cmux-git-cache" }
+cmux-transport-rewrite = { path = "crates/cmux-transport-rewrite" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-tag-cache = { path = "crates/cmux-tag-cache" }
