@@ -161,10 +161,10 @@ pub fn parse(command: &str, started_at_ms: u64) -> Option<Wait> {
     };
     let (mut sha, mut until, mut timeout) = (None, None, None);
     let mut i = 0;
-    while i < rest.len() {
-        let (flag, value) = match rest[i].split_once('=') {
+    while let Some(&arg) = rest.get(i) {
+        let (flag, value) = match arg.split_once('=') {
             Some((f, v)) if f.starts_with("--") => (f, Some(v)),
-            _ => (rest[i], None),
+            _ => (arg, None),
         };
         let value = match value {
             Some(v) => v,
