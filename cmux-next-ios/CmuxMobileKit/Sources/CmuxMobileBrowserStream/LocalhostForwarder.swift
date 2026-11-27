@@ -107,6 +107,8 @@ public final class LocalhostForwarder {
         let password: String
         var listener: NWListener?
         var binding: Task<Result<UInt16, Failure>, Never>?
+        var bindingID: UInt = 0
+        var connections: [ObjectIdentifier: NWConnection] = [:]
 
         init(target: Target, macID: String?) {
             self.target = target
@@ -210,7 +212,7 @@ public final class LocalhostForwarder {
 
     /// Stops named-host proxy routes no tab uses any longer.
     public func retain(proxies keep: Set<ProxyTarget>) {
-        for key in proxies.keys where !keep.contains(.init(target: key.target, macID: key.macID)) {
+        for key in Array(proxies.keys) where !keep.contains(.init(target: key.target, macID: key.macID)) {
             stopProxy(key)
         }
     }
@@ -236,14 +238,9 @@ public final class LocalhostForwarder {
         } else if let binding = route.binding {
             localPort = try await binding.value.get()
         } else {
-            let task = Task { () -> Result<UInt16, Failure> in
-                do { return .success(try await self.bindProxy(route, key: key)) }
-                catch let error as Failure { return .failure(error) }
-                catch { return .failure(.unavailable(String(describing: error))) }
-            }
-            route.binding = task
+            let (task, bindingID) = startProxyBinding(route, key: key)
             let result = await task.value
-            route.binding = nil
+            if route.bindingID == bindingID { route.binding = nil }
             localPort = try result.get()
         }
         return ProxyRoute(target: target, localPort: localPort, username: route.username, password: route.password)
@@ -254,6 +251,22 @@ public final class LocalhostForwarder {
         route.binding?.cancel()
         route.listener?.cancel()
         route.listener = nil
+        for connection in route.connections.values { connection.cancel() }
+        route.connections.removeAll()
+    }
+
+    /// Registers a proxy bind before starting it, so concurrent callers and
+    /// resume cannot create two listeners for the same route.
+    private func startProxyBinding(_ route: ProxyForward, key: ProxyKey) -> (Task<Result<UInt16, Failure>, Never>, UInt) {
+        route.bindingID &+= 1
+        let bindingID = route.bindingID
+        let task = Task { () -> Result<UInt16, Failure> in
+            do { return .success(try await self.bindProxy(route, key: key)) }
+            catch let error as Failure { return .failure(error) }
+            catch { return .failure(.unavailable(String(describing: error))) }
+        }
+        route.binding = task
+        return (task, bindingID)
     }
 
     private func bindProxy(_ route: ProxyForward, key: ProxyKey) async throws(Failure) -> UInt16 {
@@ -354,6 +367,8 @@ public final class LocalhostForwarder {
             route.binding = nil
             route.listener?.cancel()
             route.listener = nil
+            for connection in route.connections.values { connection.cancel() }
+            route.connections.removeAll()
         }
     }
 
@@ -365,7 +380,11 @@ public final class LocalhostForwarder {
             Task { _ = await self.bind(forward, port: port) }
         }
         for (key, route) in proxies where route.listener == nil && route.binding == nil {
-            Task { _ = try? await self.bindProxy(route, key: key) }
+            let (task, bindingID) = startProxyBinding(route, key: key)
+            Task {
+                _ = await task.value
+                if route.bindingID == bindingID { route.binding = nil }
+            }
         }
     }
 
@@ -395,7 +414,9 @@ public final class LocalhostForwarder {
         }
         forward.binding = task
         let result = await task.value
-        forward.binding = nil
+        // A stopped/rebound port may have installed a newer bind while this
+        // task was finishing. Do not clear that newer task's ownership.
+        if forward.binding == task { forward.binding = nil }
         if case .failure(.portInUse) = result, forwards[port] === forward { forwards[port] = nil }
         return result
     }
@@ -476,25 +497,27 @@ public final class LocalhostForwarder {
 
     private func serveProxy(_ connection: NWConnection, key: ProxyKey) async {
         guard let route = proxies[key], !suspended else { connection.cancel(); return }
+        let connectionID = ObjectIdentifier(connection)
+        route.connections[connectionID] = connection
+        defer {
+            route.connections.removeValue(forKey: connectionID)
+            connection.cancel()
+        }
         connection.start(queue: Self.queue)
         guard let (head, remainder) = await Self.proxyHead(connection) else {
             _ = await Self.send(connection, Data("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
-            connection.cancel()
             return
         }
         guard let request = Self.proxyRequest(head) else {
             _ = await Self.send(connection, Data("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
-            connection.cancel()
             return
         }
         guard request.authority.lowercased() == Self.authority(host: route.target.host!, port: route.target.port).lowercased() else {
             _ = await Self.send(connection, Data("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
-            connection.cancel()
             return
         }
         guard request.authorization == Self.authorization(username: route.username, password: route.password) else {
             _ = await Self.send(connection, Data("HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"cmux\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
-            connection.cancel()
             return
         }
         let channel: any LinkChannel
@@ -510,20 +533,17 @@ public final class LocalhostForwarder {
             if let linkError, Self.refusalCodes.contains(linkError.code) {
                 await MainActor.run { self.targetRefusals[route.target] = linkError.message }
             }
-            connection.cancel()
             return
         }
         guard proxies[key] === route, !suspended else {
             await channel.close(code: "superseded", reason: "")
-            connection.cancel()
             return
         }
         guard await Self.send(connection, Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8)) else {
             await channel.close(code: "eof", reason: "")
-            connection.cancel(); return
+            return
         }
         await Self.pumpRaw(connection, channel: channel, initial: remainder)
-        connection.cancel()
     }
 
     private struct ProxyRequest {

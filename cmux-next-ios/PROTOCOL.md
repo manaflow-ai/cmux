@@ -1600,6 +1600,17 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   the chosen probe's round trip) and `last_total_ms` (the newest sample's total) and without
   `phone` (2026-11-23). A phone that wants it (the DEBUG paint-latency overlay) reads one
   line after its report, for at most 2 s; one that does not closes, and the answer is dropped.
+- `try-pr` (`try-pr-v1`, 2026-11-23): cmux Dev's Try a pull request picker (Settings >
+  Developer, DEBUG builds). hostd (`try_pr.rs`) runs `cmux-next-ios/scripts/try.sh` from a
+  checkout on the Mac, found at `$CMUX_MOBILE_TRY_SH` or `~/.config/cmux/try.sh`, through the
+  person's login shell; with neither the capability is not listed. Arguments: `{"op":"list"}`
+  answers one frame, `try.sh list`'s JSON (`{"schema":"cmux.ios-try.list.v1","prs":[{"number",
+  "title", "author", "head", "updated_at", "draft", "build": "ahead"|"building"|"failed"|"cached"|"none"}],
+  "error"?}`); `{"op":"install","pr":"N"}` runs `try.sh N` (or joins the run for N; `busy` while
+  another PR installs), sends `{"line"}` frames as it prints and `{"done":true,"pr","exit"}`.
+  Installing replaces cmux Dev on the phones attached to the Mac, so the channel usually ends
+  with the app; the install runs on, and `{"op":"status"}` answers `{"run":{"pr","started_ms",
+  "lines","exit"?}|null}`, the last one. Phones only.
 - `tabs` (`tab-snapshots-v1`, 2026-11-22): the tab overview's cards for every tab of this
   Mac (title, kind, favicon, thumbnail or terminal screen text), with deltas and
   content-addressed blobs. No open args; machines need the View grant. Both ways the
@@ -1761,6 +1772,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `removal-v1` | hostd `version` | After its owner removes it (signaling 4002 `removed`) the Mac stays off until iPhone connections are allowed again on the Mac; without it the Mac may add itself back. |
 | `file-preview-v1` | hostd `version` | `file-preview` sends a size metadata frame before the file bytes, so the phone can check free storage first. |
 | `localhost-forward-v1` | hostd `version` | (2026-10-30) The host serves `localhost`: a phone browser tab reaches a port on the Mac's loopback. |
+| `localhost-hosts-v1` | hostd `version` | (2026-11-24) The host also forwards a phone browser tab to a private, tailnet or loopback host named by the phone; public and link-local addresses are refused. |
 | `cloud-directory-v1` | hostd `version` | (2026-11-01) The host lists the owner's authenticated Cloud machines through the Mac carrier (`cloud-directory`). |
 | `cloud-acpmux-v1` | hostd `version` | (2026-11-01) The host drives an owned Cloud machine's agents through the Mac carrier (`cloud-acpmux`). |
 | `needs-you-v1` | hostd `version` | The host serves `needs-you`: the Mac app's own open Feed requests. |
@@ -1776,6 +1788,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
 | `cloud-desktop-v1` | hostd `version` | (2026-11-02) `surface` also streams an owned Cloud machine's desktop, view only, on the key `c~<machine_id>~<team_id>`. |
 | `mac-display-v1` | hostd `version` | (2026-11-23) `surface` also streams this Mac's own display as rd/1 on the link, view only, on the key `d~<display>` (CGDirectDisplayID, 0 the main display); served while Share This Mac is on. |
+| `try-pr-v1` | hostd `version` | (2026-11-23) The host serves `try-pr`: cmux Dev's Try a pull request picker lists the open iPhone PRs and installs one on the phones attached to this Mac (`try.sh`); listed only when the Mac has `try.sh`. |
 | `site-data-handoff-v1` | hostd `version` | (2026-11-24) The host serves `site-data`: on Open on iPhone, the tab's cookies and local storage for its own site only (RFD 0089); listed only while the person turned it on on the Mac. |
 | `cloud-mobile-chat-v1` | cmux-tui daemon | On a `cloud-acpmux` carrier hostd requires the Cloud daemon's `identify` to list it before declaring it (phone prompt restrictions). |
 | `conversation-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: conversation tabs read as `conversation` with their record, not `browser`. |

@@ -389,6 +389,26 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/live",
+      "params": {
+        "$ref": "#/types/LiveParams"
+      },
+      "result": {
+        "$ref": "#/types/LiveResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/live_list",
+      "params": {
+        "$ref": "#/types/LiveListParams"
+      },
+      "result": {
+        "$ref": "#/types/LiveListResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/rooms",
       "params": {
         "$ref": "#/types/RoomsParams"
@@ -1169,6 +1189,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/lifecycle",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transcript_offload",
       "params": true,
       "result": true
@@ -1481,6 +1507,24 @@
     {
       "kind": "request",
       "name": "_acpmux/team/listen",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/navigator",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/pick",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/session_info",
       "params": true,
       "result": true
     },
@@ -2971,6 +3015,42 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/consent_remote_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_remote_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_grantor_trust",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_account_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_trust_refresh",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/consent_screen_auto",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_routes",
       "params": true,
       "result": true
@@ -3020,6 +3100,12 @@
     {
       "kind": "request",
       "name": "_acpmux/device_hello",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/device_challenge",
       "params": true,
       "result": true
     },
@@ -5553,6 +5639,53 @@
         "sequence",
         "source",
         "state"
+      ],
+      "type": "object"
+    },
+    "LiveListParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/live_list` takes no params.",
+      "type": "object"
+    },
+    "LiveListResult": {
+      "description": "`_acpmux/live_list`'s answer: the `cmux-presence` records of everyone Live here (none while\nthe owner is not Live).",
+      "properties": {
+        "live": {
+          "type": "boolean"
+        },
+        "people": {
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "live",
+        "people"
+      ],
+      "type": "object"
+    },
+    "LiveParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/live` (RFD 0141 phase 1): turns the owner's Live on or off; no `live` only reads it.",
+      "properties": {
+        "live": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "LiveResult": {
+      "description": "`_acpmux/live`'s answer: Live now.",
+      "properties": {
+        "live": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "live"
       ],
       "type": "object"
     },
