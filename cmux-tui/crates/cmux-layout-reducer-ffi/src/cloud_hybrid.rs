@@ -7,7 +7,10 @@
 //! simulates where a chat's work should sit (cmux-cloud-start-core `balance`).
 //! `cloud_computer_status` folds a
 //! session's facts (that Show, a move, the machine's pause and shape, a refusal, the pins) into the
-//! one `ComputerStatus` the chat header reads (cmux-cloud-start-core `computer_status`, RFD 0080).
+//! one `ComputerStatus` the chat header reads (cmux-cloud-start-core `computer_status`, RFD 0080);
+//! `cloud_computer_status_live` builds those facts from what the header already holds (`place`'s
+//! `at`, `move` and `start`, and the chat's cloud machine as the server lists it), reading the
+//! driver's newest Show itself when the app names the sessions folder and sends no `start`.
 //! `cloud_autosize_rows` adds one AutoSize notice (the Cloud wire's `cloud.machine.autosize`
 //! frame) to the chat's AutoSize rows (cmux-cloud-start-core `autosize_row`, RFD 0080 piece 4).
 
@@ -16,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 use cmux_cloud_start_core::autosize_row::{self, Row};
 use cmux_cloud_start_core::balance;
-use cmux_cloud_start_core::computer_status::{self, Facts};
+use cmux_cloud_start_core::computer_status::{self, Facts, HybridFacts};
 use cmux_cloud_start_core::hybrid::{self, Account, Event, State};
 use cmux_cloud_start_core::hybrid_gui;
 use cmux_cloud_start_core::hybrid_show;
@@ -29,8 +32,10 @@ use crate::ERR_INVALID;
 /// Whether `operation` is one of this module's.
 pub(crate) fn handles(operation: &[u8]) -> bool {
     operation.starts_with(b"cloud_hybrid_")
-        || operation == b"cloud_computer_status"
-        || operation == b"cloud_autosize_rows"
+        || matches!(
+            operation,
+            b"cloud_computer_status" | b"cloud_computer_status_live" | b"cloud_autosize_rows"
+        )
 }
 
 fn read<'a, T: Deserialize<'a>>(request: &'a [u8]) -> Result<T, i32> {
@@ -69,6 +74,16 @@ struct StartAsk {
     /// The cmux-tui sessions folder (the app's `CMUX_TUI_STATE_DIR`).
     state_dir: PathBuf,
     session: String,
+}
+
+/// `cloud_computer_status_live`'s request: the live facts, and the sessions folder whose driver
+/// says `start` when the app sends none.
+#[derive(Deserialize)]
+struct LiveAsk {
+    #[serde(flatten)]
+    live: computer_status::live::Live,
+    #[serde(default, rename = "stateDir")]
+    state_dir: Option<PathBuf>,
 }
 
 /// How much of a driver's log is read, from its end: its Shows are a handful of short lines among
@@ -131,6 +146,20 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         // One session's computer as the chat header shows it: `ComputerStatus`, snake_case.
         b"cloud_computer_status" => {
             let facts: Facts = read(request)?;
+            serde_json::to_value(computer_status::status(&facts)).map_err(|_| ERR_INVALID)?
+        }
+        // The same status from the header's live facts (`computer_status::live`).
+        b"cloud_computer_status_live" => {
+            let ask: LiveAsk = read(request)?;
+            let mut live = ask.live;
+            if let (None, Some(state_dir)) = (&live.start, &ask.state_dir) {
+                live.start = start_of(state_dir, &live.session).map(|start| HybridFacts {
+                    cloud: start.cloud,
+                    reason: start.reason,
+                    since_ms: start.since_ms,
+                });
+            }
+            let facts = computer_status::live::facts(&live);
             serde_json::to_value(computer_status::status(&facts)).map_err(|_| ERR_INVALID)?
         }
         // One AutoSize notice added to the chat's rows: `{rows, added}`; `added` is false for a

@@ -658,6 +658,7 @@ struct TransportPage: View {
     @AppStorage(DeveloperOptions.proxyOnlyKey) private var proxyOnly = false
     @AppStorage(DeveloperOptions.dropWireGuardKey) private var dropWireGuard = false
     @AppStorage(DeveloperOptions.browserVideoOnChannelKey) private var browserVideoOnChannel = false
+    @AppStorage(DeveloperOptions.paintLatencyOverlayKey) private var paintLatencyOverlay = false
     #endif
 
     var body: some View {
@@ -780,6 +781,10 @@ struct TransportPage: View {
                     Text("Browser video on channel")
                 }
                 .accessibilityIdentifier("settings.transport.browserVideoOnChannel")
+                Toggle(isOn: $paintLatencyOverlay) {
+                    Text("Paint latency overlay")
+                }
+                .accessibilityIdentifier("settings.transport.paintLatencyOverlay")
             } header: {
                 Text("Developer")
             }
