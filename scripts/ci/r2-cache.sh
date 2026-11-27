@@ -194,17 +194,36 @@ request_to() { # <body file> <curl args...>
 # One PUT takes at most 5 GiB (R2 answers a larger one HTTP 400, EntityTooLarge): the machine channel's
 # cargo workspace delta with rustc's incremental state packed 15 GB into a 5140 MiB archive, and both
 # legs of seed run 45982767555 (2026-11-27) published nothing. An archive above this many bytes goes up
-# as a multipart upload instead, one part at a time; the object, its key and every restore stay the same.
+# as a multipart upload instead; the object, its key and every restore stay the same. Parts go up
+# CI_CACHE_R2_PART_JOBS at a time: one stream moved the 5853 MB delta in 3 min 18 s (machine channel run
+# 45998862249, x86_64, 2026-11-27), all of it before the channel could point at the new build.
 multipart_bytes="${CI_CACHE_R2_MULTIPART_BYTES:-4294967296}"
 part_bytes="${CI_CACHE_R2_PART_BYTES:-536870912}"
+part_jobs="${CI_CACHE_R2_PART_JOBS:-6}"
 [[ "$multipart_bytes" =~ ^[0-9]+$ ]] || multipart_bytes=4294967296
 [[ "$part_bytes" =~ ^[0-9]+$ ]] && ((part_bytes >= 5242880)) || part_bytes=536870912
+[[ "$part_jobs" =~ ^[0-9]+$ ]] && ((part_jobs >= 1)) || part_jobs=6
+
+# Uploads one part and writes "<status> <etag>" to <work>/part.<n>.result.
+upload_part() { # <archive> <url> <query> <work> <part number> <offset>
+  local archive="$1" url="$2" query="$3" work="$4" n="$5" offset="$6" status attempt
+  tail -c "+$((offset + 1))" "$archive" | head -c "$part_bytes" > "$work/part.$n"
+  for attempt in 1 2 3; do
+    status="$(request --dump-header "$work/part.$n.headers" -T "$work/part.$n" \
+      "$url?partNumber=$n&$query")" || status=000
+    [[ "$status" == 000 || "$status" == 5?? ]] && ((attempt < 3)) || break
+    echo "r2-cache: part $n attempt $attempt got HTTP $status; retrying" >&2
+    sleep "$((attempt * 5))"
+  done
+  rm -f "$work/part.$n"
+  printf '%s %s\n' "$status" "$(header etag "$work/part.$n.headers")" > "$work/part.$n.result"
+}
 
 # Prints the HTTP status: 200 once the object exists, anything else when it does not. No If-None-Match
 # on the completion (R2 does not document it there); the caller reads the stored generation back from a
 # HEAD, as after a lost conditional PUT, so a concurrent writer of the same key is handled the same way.
 multipart_upload() { # <archive> <url> <generation> <work dir>
-  local archive="$1" url="$2" generation="$3" work="$4" size upload_id status number=1 offset=0 etag attempt
+  local archive="$1" url="$2" generation="$3" work="$4" size upload_id status number=1 offset=0 etag
   size="$(wc -c < "$archive" | tr -d ' ')"
   status="$(request_to "$work/create.xml" -X POST -H "x-amz-meta-generation: $generation" \
     -H 'content-type: application/octet-stream' --data-binary '' "$url?uploads=")" || status=000
@@ -217,29 +236,27 @@ multipart_upload() { # <archive> <url> <generation> <work dir>
   # The id is opaque and may hold base64's + / =, which a query string must escape.
   local query
   query="uploadId=$(printf '%s' "$upload_id" | sed -e 's/%/%25/g' -e 's/+/%2B/g' -e 's:/:%2F:g' -e 's/=/%3D/g')"
-  printf '<CompleteMultipartUpload>' > "$work/complete.xml"
-  while ((offset < size)); do
-    tail -c "+$((offset + 1))" "$archive" | head -c "$part_bytes" > "$work/part"
-    for attempt in 1 2 3; do
-      status="$(request --dump-header "$work/part-headers" -T "$work/part" \
-        "$url?partNumber=$number&$query")" || status=000
-      [[ "$status" == 000 || "$status" == 5?? ]] && ((attempt < 3)) || break
-      echo "r2-cache: part $number attempt $attempt got HTTP $status; retrying" >&2
-      sleep "$((attempt * 5))"
+  local parts=$(((size + part_bytes - 1) / part_bytes)) result
+  # Batches of part_jobs, each waited on whole: plain wait, so macOS's bash 3.2 runs it too.
+  while ((number <= parts)); do
+    for ((offset = 0; offset < part_jobs && number <= parts; offset++, number++)); do
+      upload_part "$archive" "$url" "$query" "$work" "$number" "$(((number - 1) * part_bytes))" &
     done
-    etag="$(header etag "$work/part-headers")"
+    wait
+  done
+  printf '<CompleteMultipartUpload>' > "$work/complete.xml"
+  for ((number = 1; number <= parts; number++)); do
+    result="$(cat "$work/part.$number.result" 2>/dev/null || echo 000)"
+    status="${result%% *}" etag="${result#* }"
+    [[ "$result" == *' '* ]] || etag=""
     if [[ "$status" != 200 || -z "$etag" ]]; then
       echo "r2-cache: part $number got HTTP $status; aborting the upload" >&2
-      rm -f "$work/part"
       request -X DELETE "$url?$query" >/dev/null 2>&1 || true
       echo "$status"
       return 0
     fi
     printf '<Part><PartNumber>%d</PartNumber><ETag>%s</ETag></Part>' "$number" "$etag" >> "$work/complete.xml"
-    offset=$((offset + part_bytes))
-    number=$((number + 1))
   done
-  rm -f "$work/part"
   printf '</CompleteMultipartUpload>' >> "$work/complete.xml"
   status="$(request_to "$work/completed.xml" -X POST -H 'content-type: application/xml' \
     --data-binary "@$work/complete.xml" "$url?$query")" || status=000
@@ -251,7 +268,7 @@ multipart_upload() { # <archive> <url> <generation> <work dir>
     echo "$status"
     return 0
   fi
-  echo "r2-cache: uploaded $((number - 1)) parts" >&2
+  echo "r2-cache: uploaded $parts parts, $part_jobs at a time" >&2
   echo 200
 }
 

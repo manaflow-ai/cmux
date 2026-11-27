@@ -730,7 +730,7 @@ impl Hub {
         }
         Err(super::subsession_guard::refusal(
             "start.starter_changing",
-            "session/new refused: the session that started this one kept changing its permissions while it started; start it again".into(),
+            "session/new refused: the session that started this one kept changing its permissions while it started, so this one did not start".into(),
             json!({"starter": starter}),
         ))
     }
