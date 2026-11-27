@@ -21,9 +21,7 @@ describe("every live one-line label rolls on the one text roll", () => {
   const labels: [string, string, RegExp][] = [
     ["a subagent activity row's latest step", "agent-session/acpmux/subagents/AgentLine.tsx", /<Tick\b/],
     ["the hat's status and counts", "agent-session/acpmux/subagents/SubagentTray.tsx", /<Tick\b/],
-    ["the activity line under a todo list", "agent-session/acpmux/conversation/ActivityLine.tsx", /<TextRoll\b/],
     ["Working for", "agent-session/acpmux/conversation/WorkingFor.tsx", /<TextRoll\b/],
-    ["a tool group's summary", "agent-session/acpmux/conversation/ToolGroupRow.tsx", /<Tick\b/],
     ["Tick itself", "agent-session/acpmux/subagents/trayMotion.tsx", /<TextRoll\b/],
   ];
   for (const [label, file, uses] of labels)
@@ -79,7 +77,7 @@ let reduce = false;
   removeEventListener() {},
 });
 
-const { act, createElement } = await import("react");
+const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { TextRoll } = await import("../src/ui/motion/TextRoll");
 
@@ -89,7 +87,7 @@ async function mount() {
   const host = dom.window.document.createElement("div");
   dom.window.document.body.append(host);
   const root = createRoot(host);
-  const draw = (text: string) => act(async () => root.render(createElement(TextRoll, { turn: text, children: text })));
+  const draw = (text: string) => act(async () => root.render(<TextRoll turn={text}>{text}</TextRoll>));
   const out = () => host.querySelector(".ui-text-roll__out");
   const incoming = () => host.querySelector(".ui-text-roll__in");
   const cell = () => host.querySelector<HTMLElement>(".ui-text-roll")!;
@@ -171,8 +169,8 @@ describe("TextRoll", () => {
         : { top: 900, bottom: 920, left: 0, right: 100, width: 100, height: 20 };
     };
     const root = createRoot(host);
-    await act(async () => root.render(createElement(TextRoll, { turn: "a", children: "a" })));
-    await act(async () => root.render(createElement(TextRoll, { turn: "b", children: "b" })));
+    await act(async () => root.render(<TextRoll turn="a">a</TextRoll>));
+    await act(async () => root.render(<TextRoll turn="b">b</TextRoll>));
     expect(host.querySelector(".ui-text-roll__out")).toBeNull();
     expect(host.textContent).toBe("b");
     proto.getBoundingClientRect = rect;

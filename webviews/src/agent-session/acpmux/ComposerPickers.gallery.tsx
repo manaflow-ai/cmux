@@ -551,7 +551,11 @@ export default componentEntry<Props>({
     longFrameFailMs: { value: 33, reason: "Composer picker actions should remain responsive on the gallery host." },
     settleMaxMs: { value: 250, reason: "Local picker opens and toggles should settle within a quarter second." },
   },
-  covers: ["agent-session/acpmux/ComposerPickers.tsx#ComposerPickers", "agent-session/acpmux/QuickModelMenu.tsx"],
+  covers: [
+    "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
+    "agent-session/acpmux/ComposerChevron.tsx#ChevronIcon",
+    "agent-session/acpmux/QuickModelMenu.tsx",
+  ],
   load: async () => GalleryComposerPickers,
   styles: () =>
     Promise.all([

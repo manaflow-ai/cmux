@@ -68,6 +68,7 @@ export interface PopoverProps {
   style?: React.CSSProperties;
   /** False keeps a surface on the page's own glass. */
   hostGlass?: boolean;
+  "data-page-glass"?: string;
   /** Fade a capped popup body when more content lies beyond its scroll edges. */
   fade?: boolean;
   /** The popup rule this popover follows instead of the shared one (ui/popupSettle.ts): "results" for
@@ -106,6 +107,7 @@ export function Popover({
   className,
   style,
   hostGlass = true,
+  "data-page-glass": pageGlass,
   fade = false,
   popupSettle,
   side = "bottom",
@@ -176,6 +178,7 @@ export function Popover({
             style={style}
             // The App's popover glass under the page (glass/hostGlass.ts).
             data-host-glass={hostGlass ? "popover" : undefined}
+            data-page-glass={hostGlass ? undefined : pageGlass}
             data-surface-role="popover"
             data-host-glass-cover={hostGlass ? "" : undefined}
             id={id}

@@ -105,8 +105,8 @@ export default agentPaneEntry({
   height: 640,
   widths: { narrow: 420, normal: 900, wide: 1600 },
   covers: [
-    "agent-session/acpmux/VirtualTranscript.tsx#JumpToLatest",
-    "agent-session/acpmux/VirtualTranscript.tsx#JumpUp",
+    "agent-session/acpmux/transcript/JumpButtons.tsx#JumpToLatest",
+    "agent-session/acpmux/transcript/JumpButtons.tsx#JumpUp",
     "agent-session/acpmux/jumpPair.css",
     "agent-session/acpmux/jumpPair.experiment.ts",
   ],

@@ -1,4 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
+import { focusRoute } from "../../../ui/focusRoute";
 import { ChevronDown } from "../conversation/icons";
 import { useT, type StringKey } from "../i18n";
 import { profileName, type CustomizeBarState, type CustomizePart, type CustomizeVerb } from "./customizeBarModel";
@@ -13,6 +14,10 @@ export type CustomizeBarOutcome =
   | { kind: "applied" }
   | { kind: "saved"; name: string }
   | { kind: "failed"; message: string };
+
+function focusProfileName(node: HTMLInputElement | null) {
+  focusRoute(node, "person", "name the saved profile");
+}
 
 const PART_KEY: Record<CustomizePart, StringKey> = {
   settings: "customizeBar.part.settings",
@@ -95,8 +100,7 @@ export function CustomizeBar({
   const nameForm = naming ? (
     <form className="acpmux-customize-bar-name" onSubmit={save}>
       <input
-        // biome-ignore lint/a11y/noAutofocus: the field opens on the person's own click on Save as profile.
-        autoFocus
+        ref={focusProfileName}
         value={typed}
         placeholder={t("customizeBar.saveName")}
         aria-label={t("customizeBar.saveName")}

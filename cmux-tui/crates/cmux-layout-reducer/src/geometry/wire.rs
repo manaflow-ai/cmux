@@ -25,8 +25,8 @@ use super::strip_math::{self, StripStart, UniformEdge};
 use super::width_ledger::{self, LedgerColumn, LedgerRecord};
 use super::window_frame::{self, MOVED_WINDOW_GAP, WindowDock};
 use super::{DockEdge, Point, Rect, Size, SplitAxis};
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -464,6 +464,15 @@ struct CornersRequest {
     inset: f64,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CornersResponse {
+    #[serde(flatten)]
+    corners: FloatingPaneCorners,
+    largest: f64,
+    content_radius: f64,
+}
+
 fn yes() -> bool {
     true
 }
@@ -735,7 +744,7 @@ fn parse<T: DeserializeOwned>(request: Value) -> Result<T, String> {
     serde_json::from_value(request).map_err(|error| error.to_string())
 }
 
-fn to_value<T: serde::Serialize>(value: T) -> Result<Value, String> {
+fn to_value<T: Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|error| error.to_string())
 }
 
@@ -1132,10 +1141,11 @@ pub fn call(operation: &str, request: Value) -> Result<Value, String> {
                     r.floor,
                 ),
             };
-            let mut value = to_value(corners)?;
-            value["largest"] = json!(corners.largest());
-            value["contentRadius"] = json!(corners.content_radius(r.inset));
-            Ok(value)
+            to_value(CornersResponse {
+                corners,
+                largest: corners.largest(),
+                content_radius: corners.content_radius(r.inset),
+            })
         }
         "drop_preview" => {
             let r: DropPreviewRequest = parse(request)?;

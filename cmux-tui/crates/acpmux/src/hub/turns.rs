@@ -2667,6 +2667,9 @@ impl Hub {
             self.settle_view_at_turn_end(session);
             self.lane_turn_ended(session, false, turn);
             self.inbox_turn_ended(session, turn_id, turn, false);
+            // Stop can take an admitted /compact before its prompt reaches the agent.
+            // Settle its continuation just as when the agent answers the cancel.
+            self.schedule_auto_resume(session, turn_id, None);
             return;
         }
         let mut e = e.clone();

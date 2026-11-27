@@ -103,7 +103,13 @@ class HeadlessDebugDaemon(unittest.TestCase):
             self.assertEqual(produced[field], consumed[field], field)
         self.assertEqual(produced["workspaces"], "cmux-tui -> target")
         self.assertEqual(str(produced["cache-workspace-crates"]).lower(), "true")
-        self.assertNotIn("save-if", produced)
+        expected_save_if = (
+            "${{ github.event_name != 'pull_request' && github.event_name != "
+            "'pull_request_target' && github.event_name != 'merge_group' && "
+            "contains(fromJSON('[\"refs/heads/main\",\"refs/heads/feat-cmux-next\","
+            "\"refs/heads/nightly-next\"]'), github.ref) }}"
+        )
+        self.assertEqual(produced["save-if"], expected_save_if)
         # Pull request caches stay read-only, like the exact binary's.
         self.assertIs(consumed["save-if"], False)
 
