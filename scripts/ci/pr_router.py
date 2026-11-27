@@ -42,7 +42,8 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              for review, so every callee must listen to `ready_for_review` (`check` says so).
 A `full-ci` label makes the head full tier (as ready-to-land does) and beats fast-track; its callees still
 start only when a changed file reaches them, or when the changed files are unknown. A lane VM's land handoff
-adds full-ci to every PR, and starting every callee for it repeated the base's push run (cmux#58044).
+adds full-ci to every PR, and starting every callee for it repeated the base's push run (cmux#58044). Into feat-cmux-next
+`full-ci` applies only on its own `labeled` event (head_tier.full_ci_applies; CI_FULL_CI_ONE_SHOT=0 makes it sticky).
 
 Whatever the router cannot read (no merge commit, a git error) starts every callee the event's type allows:
 it routes more, never less. Stdlib only, plus workflow_paths_cover_inputs (the one GitHub paths-glob
@@ -213,11 +214,11 @@ def route(event: dict, callees: dict, files: list[str] | None,
     cheap = tier == "cheap"
     landing_affected = head_tier.land_affected((tier, tier_reason))
     pr = event.get("pull_request") or {}
-    labels = head_tier.labels_of(event)
     # Fast-track (scripts/ci/fast_track.py): a docs, plans, skills, copy or tests-only change gets the cheap tier.
     # full-ci asks for the full tier, so it beats fast-track.
     fast = False
-    if not cheap and tier != "none" and files is not None and fast_track.enabled() and FULL_CI not in labels:
+    if (not cheap and tier != "none" and files is not None and fast_track.enabled()
+            and not head_tier.full_ci_applies(event)):
         fast, fast_reason = fast_track.classify(files)
         cheap = fast
     action = str(event.get("action") or "")
@@ -307,8 +308,8 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = "no changed file is one of its inputs"
             continue
         if "table_jobs" in config:
-            steps = table_steps(config, files, full=tier == "full" or FULL_CI in labels,
-                                full_ci=full_ci_kept(event))
+            full_ci = head_tier.full_ci_applies(event) and full_ci_kept(event)
+            steps = table_steps(config, files, full=tier == "full" or full_ci, full_ci=full_ci)
             if steps == []:
                 why[name] = "the change routes no step of " + ", ".join(config["table_jobs"])
                 continue
@@ -414,8 +415,8 @@ RERUN_SHORT_SECONDS = 60
 GREEN_JOB = frozenset({"success", "skipped"})
 
 
-def caller_names(text: str) -> dict[str, str]:
-    """{callee file: its caller job's `name:`} from pr-router.yml: the prefix of the callee's job names in a run."""
+def caller_names(text: str) -> dict[str, list[str]]:
+    """All caller prefixes per callee; split invocations must not overwrite one another's receipts."""
     names, current, name = {}, None, ""
     for line in text.splitlines():
         if m := re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line):
@@ -423,7 +424,7 @@ def caller_names(text: str) -> dict[str, str]:
         elif current and (m := re.match(r"^    name:\s*(.+?)\s*$", line)):
             name = m.group(1).strip("'\"")
         elif current and name and (m := re.match(r"^    uses: \./\.github/workflows/([^\s@]+)\s*$", line)):
-            names[m.group(1)] = name
+            names.setdefault(m.group(1), []).append(name)
     return names
 
 
@@ -450,7 +451,7 @@ def proved(jobs: list) -> bool:
     return all(t is not None for t in took) and sum(took) >= RERUN_SHORT_SECONDS
 
 
-def rerun_plan(jobs: list | None, names: dict[str, str], table: list[str]) -> tuple[set[str], set[str]]:
+def rerun_plan(jobs: list | None, names: dict[str, list[str]], table: list[str]) -> tuple[set[str], set[str]]:
     """(callee files, table jobs) the red-head base merge rule keeps off: those whose every job passed at the
     previous head's router run (proved). JOBS: that run's jobs (the jobs API); None (unread) keeps nothing off."""
     if not isinstance(jobs, list):
@@ -461,9 +462,11 @@ def rerun_plan(jobs: list | None, names: dict[str, str], table: list[str]) -> tu
                 or str(j.get("name") or "").startswith(prefix + " / ")
                 or str(j.get("name") or "").startswith(prefix + " ("))]
 
-    carried = {callee for callee, name in names.items() if proved(under(name))}
-    pipeline = names.get("pr-pipeline.yml", "")
-    rows = {job for job in table if pipeline and proved(under(f"{pipeline} / {job}"))}
+    carried = {callee for callee, prefixes in names.items()
+               if proved([job for prefix in prefixes for job in under(prefix)])}
+    pipeline = names.get("pr-pipeline.yml", [])
+    rows = {job for job in table if pipeline
+            and proved([row for prefix in pipeline for row in under(f"{prefix} / {job}")])}
     return carried, rows
 
 

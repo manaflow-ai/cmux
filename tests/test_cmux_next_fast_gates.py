@@ -104,6 +104,65 @@ def step_named(steps: list[dict], fragment: str) -> dict:
 
 
 
+class PhonePairRouting(unittest.TestCase):
+    """Run the production route on divergent histories, including GitHub's merge ref."""
+
+    def route(self, base_files, pr_files, event):
+        manifest_path = "scripts/ci/pr_router.json"
+        manifest = (ROOT / manifest_path).read_text()
+        script = step_named(job(workflow(), "resolve")["steps"], "Route phone and Mac compatibility")["run"]
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            git(repo, "init", "-q", "-b", "base")
+            ancestor = commit(repo, {manifest_path: manifest}, "common ancestor")
+            # origin is local: dispatch exercises the real fetch without any network.
+            git(repo, "remote", "add", "origin", repo.as_uri())
+            base = commit(repo, base_files(manifest), "base advanced")
+            git(repo, "checkout", "-q", "-b", "topic", ancestor)
+            head = commit(repo, pr_files(manifest), "stale PR")
+            git(repo, "checkout", "-q", "base")
+            git(repo, "merge", "-q", "--no-ff", "topic", "-m", "GitHub merge ref")
+            self.assertEqual(git(repo, "rev-parse", "HEAD^1"), base)
+            self.assertEqual(git(repo, "rev-parse", "HEAD^2"), head)
+            output = repo / "outputs"
+            result = subprocess.run(
+                ["bash", "-c", script], cwd=repo, text=True, capture_output=True, timeout=20,
+                env=dict(os.environ, BASE=base, HEAD_SHA=head, EVENT_NAME=event,
+                         GH_TOKEN="fixture", GITHUB_OUTPUT=str(output)))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return output.read_text().strip()
+
+    def test_base_only_phone_change_does_not_route_stale_pr(self):
+        for event in ("pull_request", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertEqual(self.route(
+                    lambda manifest: {"cmux-next-ios/rust/crates/cmux-mobile-host/src/pairing.rs": "// base only\n"},
+                    lambda manifest: {"docs/phone.md": "PR documentation\n"}, event), "required=false")
+
+    def test_base_only_manifest_change_does_not_route_stale_pr(self):
+        for event in ("pull_request", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertEqual(self.route(
+                    lambda manifest: {"scripts/ci/pr_router.json": manifest + "\n"},
+                    lambda manifest: {"docs/phone.md": "PR documentation\n"}, event), "required=false")
+
+    def test_stale_pr_mobile_link_change_still_requires_pair(self):
+        for event in ("pull_request", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertEqual(self.route(
+                    lambda manifest: {"docs/base.md": "base advanced\n"},
+                    lambda manifest: {"cmux-next-ios/rust/crates/cmux-mobile-link/src/lib.rs": "// PR change\n"},
+                    event), "required=true")
+
+    def test_stale_pr_manifest_change_still_requires_pair(self):
+        for event in ("pull_request", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertEqual(self.route(
+                    lambda manifest: {"docs/base.md": "base advanced\n"},
+                    lambda manifest: {"scripts/ci/pr_router.json": manifest + "\n"},
+                    event), "required=true")
+
+
 class PhonePairRequiredGate(unittest.TestCase):
     def verdict(self, **overrides):
         step = step_named(job(workflow(), "post")["steps"], "Post the cmux-next/fast-gates status")
@@ -113,14 +172,14 @@ class PhonePairRequiredGate(unittest.TestCase):
             env = dict(os.environ, HEAD_SHA="a" * 40, BASE="b" * 40, GATES="success", RATCHET="skipped",
                        ROUTED_OUT="false", RECEIPT_VALID="false", RECEIPT_AUDIT="false",
                        RECEIPT_BASE="c" * 40, RECEIPT_RUN="", RECEIPT_PRODUCER="",
-                       PAIR_REQUIRED="true", PAIR_RESULT="success", GITHUB_STEP_SUMMARY=tmp + "/summary")
+                       PAIR_REQUIRED="true", PAIR_RESULT="success", PAIR_VERDICT="success", GITHUB_STEP_SUMMARY=tmp + "/summary")
             env.update(overrides)
             result = subprocess.run(["bash", "-c", script + '\nprintf "%s\\n%s\\n" "$state" "$description"'],
                                     env=env, text=True, capture_output=True, check=True)
             return result.stdout.strip().splitlines()[-2:]
 
     def test_local_receipt_cannot_hide_cross_commit_failure(self):
-        self.assertEqual(self.verdict(GATES="skipped", RECEIPT_VALID="true", PAIR_RESULT="failure"),
+        self.assertEqual(self.verdict(GATES="skipped", RECEIPT_VALID="true", PAIR_RESULT="failure", PAIR_VERDICT="failure"),
                          ["failure", "base " + "c" * 40 + "; phone/Mac cross-commit failed"])
 
     def test_receipt_and_pair_success_preserve_receipt_base(self):
@@ -132,6 +191,14 @@ class PhonePairRequiredGate(unittest.TestCase):
             with self.subTest(stopped=stopped):
                 self.assertEqual(self.verdict(PAIR_RESULT=stopped)[0], "pending")
         self.assertEqual(self.verdict(GATES="failure", PAIR_RESULT="skipped")[0], "failure")
+
+    def test_successful_job_without_pair_verdict_never_passes(self):
+        self.assertEqual(self.verdict(PAIR_RESULT="success", PAIR_VERDICT="")[0], "pending")
+        self.assertEqual(self.verdict(GATES="skipped", RECEIPT_VALID="true",
+                                     PAIR_RESULT="success", PAIR_VERDICT="")[0], "pending")
+
+    def test_explicit_pair_failure_is_red_even_when_job_succeeds(self):
+        self.assertEqual(self.verdict(PAIR_RESULT="success", PAIR_VERDICT="failure")[0], "failure")
 
     def test_unaffected_change_does_not_need_pair(self):
         self.assertEqual(self.verdict(PAIR_REQUIRED="false", PAIR_RESULT="skipped")[0], "success")
@@ -188,7 +255,7 @@ class PhonePairRequiredGate(unittest.TestCase):
         self.assertTrue(self.job_runs("post", affected=False, ready=True))
         # A passing pair does not invent a verdict for tier-skipped fast gates.
         self.assertEqual(self.verdict(GATES="skipped", PAIR_RESULT="success")[0], "pending")
-        self.assertEqual(self.verdict(GATES="skipped", PAIR_RESULT="failure")[0], "failure")
+        self.assertEqual(self.verdict(GATES="skipped", PAIR_RESULT="failure", PAIR_VERDICT="failure")[0], "failure")
 
 
     def test_pair_receipts_fail_closed_after_successful_identify(self):
@@ -216,6 +283,10 @@ class PhonePairRequiredGate(unittest.TestCase):
             "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Session/TerminalSessionChoice.swift",
             "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Session/TerminalProjectingSession.swift",
             "cmux-next-ios/rust/crates/cmux-mobile-host/src/pairing.rs",
+            "cmux-next-ios/rust/crates/cmux-mobile-link/src/lib.rs",
+            "cmux-next-ios/rust/crates/cmux-mobile-auto/src/lib.rs",
+            "cmux-next-ios/rust/crates/cmux-mobile-tailnet/src/lib.rs",
+            "cmux-next-ios/rust/crates/cmux-region-pick/src/lib.rs",
             "cmux-tui/crates/cmux-remote-protocol/src/lib.rs",
             "cmux-tui/crates/cmux-braid-carrier/src/lib.rs",
             "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pairing/Pairing.swift",
@@ -408,6 +479,12 @@ class WorkflowShape(unittest.TestCase):
                 self.assertIn(f"tests/{name}.py", selects,
                               f'add {{"prefix": "tests/{name}.py", "python": ["tests/test_cmux_next_fast_gates.py"]}} to '
                               "scripts/ci/focused-tests-extra.json")
+
+    def test_checkout_holds_webviews_example_assets(self):
+        # Webviews' gallery and setup checks read JSON under examples/ at build time. Keep the whole directory in the
+        # sparse checkout so the fast-gates web bundle does not fail before its assertions run.
+        patterns = step_named(job(workflow())["steps"], "Checkout")["with"]["sparse-checkout"].split()
+        self.assertIn("/examples/", patterns)
 
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
@@ -834,6 +911,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("needs.resolve.outputs.base", post["env"]["BASE"])
         self.assertEqual(post["env"]["GATES"].replace(" ", ""), "${{needs.fast-gates.result}}")
         self.assertEqual(post["env"]["RATCHET"].replace(" ", ""), "${{needs.panic-ratchet.result}}")
+        self.assertEqual(post["env"]["PAIR_VERDICT"], "${{ needs.pair-skew.outputs.pair_verdict }}")
         # The gates job hands post nothing but its result; its one output only says whether the ratchet runs,
         # and comes from prepare, before any pull request code ran.
         self.assertEqual(job(doc)["outputs"], {"ratchet": "${{ steps.prepare.outputs.ratchet }}"})
@@ -842,6 +920,7 @@ class WorkflowShape(unittest.TestCase):
         # for a same-repository pull request (resolve's post), whose author can already push to the base.
         self.assertNotIn("outputs.", json.dumps(post["env"]).replace("needs.resolve.outputs.", "")
                          .replace("needs.resolve.outputs.fast_gates", "")
+                         .replace("needs.pair-skew.outputs.pair_verdict", "")
                          .replace("steps.status-token.outputs.token", ""))
         self.assertIn("github.run_id", post["env"]["TARGET_URL"])
         self.assertIn("github.token", post["env"]["GH_TOKEN"])
@@ -1161,6 +1240,13 @@ class WorkflowShape(unittest.TestCase):
                 continue
             # So are the bounded package cache restores (cmux#55346): a miss or a timeout is a cold install, not a verdict.
             if str(step.get("uses", "")).startswith(("actions/cache@", "actions/cache/restore@")):
+                continue
+            # The non-OIDC bundle download is setup; its consumer validates the artifact
+            # and contributes the required verdict even when the download failed.
+            if step["name"] == "Download the head bundles without OIDC":
+                bundles = steps[names.index("Build the web bundles")]
+                self.assertIn('compile_preflight.py web-artifact verify', bundles["run"])
+                self.assertIn(f"${{{{ steps.{bundles['id']}.outcome }}}}", gated)
                 continue
             if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
@@ -2634,7 +2720,8 @@ class DeepenFallbackTests(unittest.TestCase):
     def test_a_pack_objects_abort_retries_with_blob_none(self):
         bug = "BUG: builtin/pack-objects.c:5098: should_include_obj\nerror: pack-objects died of signal 6"
         calls = self.run_deepen_fetch({"--filter=tree:0": bug})
-        self.assertEqual([c[3] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
+        self.assertEqual([next(arg for arg in call if arg.startswith("--filter=")) for call in calls],
+                         ["--filter=tree:0", "--filter=blob:none"])
         self.assertTrue(all("--deepen=32" in c for c in calls))
 
     def test_a_clean_deepen_fetches_once(self):
@@ -2643,6 +2730,18 @@ class DeepenFallbackTests(unittest.TestCase):
     def test_any_other_failure_still_fails(self):
         with self.assertRaises(SystemExit):
             self.run_deepen_fetch({"--filter=tree:0": "fatal: could not read from remote repository"})
+
+
+class FetchesSkipSubmodules(unittest.TestCase):
+    """Fast gates only read history: a fetch that recursed into submodules failed run 46017930661 on a reused pool
+    workspace with "Could not access submodule 'ghostty'" (handbook whole-origin-fetch-pulls-submodule-pins)."""
+
+    def test_every_fetch_passes_no_recurse_submodules(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux_next_fast_gates.py").read_text(encoding="utf-8")
+        calls = re.findall(r'git\(repo, "fetch",[^\n]*', source)
+        self.assertTrue(calls)
+        for call in calls:
+            self.assertIn('"--no-recurse-submodules"', call)
 
 
 if __name__ == "__main__":
