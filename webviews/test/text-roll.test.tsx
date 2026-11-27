@@ -17,13 +17,12 @@ const WEBVIEWS = path.join(import.meta.dir, "..");
 const read = (file: string) => readFileSync(path.join(WEBVIEWS, "src", file), "utf8");
 
 describe("every live one-line label rolls on the one text roll", () => {
-  // Label, file, what it must draw through.
+  // Label, file, what it must draw through. (The to-do activity line left with the to-do list, #55935;
+  // a tool group's summary draws through ToolLabel since #55374.)
   const labels: [string, string, RegExp][] = [
     ["a subagent activity row's latest step", "agent-session/acpmux/subagents/AgentLine.tsx", /<Tick\b/],
     ["the hat's status and counts", "agent-session/acpmux/subagents/SubagentTray.tsx", /<Tick\b/],
-    ["the activity line under a todo list", "agent-session/acpmux/conversation/ActivityLine.tsx", /<TextRoll\b/],
     ["Working for", "agent-session/acpmux/conversation/WorkingFor.tsx", /<TextRoll\b/],
-    ["a tool group's summary", "agent-session/acpmux/conversation/ToolGroupRow.tsx", /<Tick\b/],
     ["Tick itself", "agent-session/acpmux/subagents/trayMotion.tsx", /<TextRoll\b/],
   ];
   for (const [label, file, uses] of labels)
