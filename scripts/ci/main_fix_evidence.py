@@ -64,6 +64,14 @@ class Unread(Refused):
     reads as "not judged, a retry" instead of red_not_excused)."""
 
 
+class RequestFailed(Unread):
+    """A failed gh command, with its stderr available separately from the command description."""
+
+    def __init__(self, args: list[str], stderr: str):
+        self.stderr = stderr
+        super().__init__(f"GitHub evidence request failed: {read_name(args)}: {stderr}")
+
+
 class BrokerRefused(Refused):
     """A read the lane-gh broker refused for its shape: a GraphQL root field or field outside the broker's allowlist
     (cmuxterm-hq tools/lane-gh-broker/parts/44-calls-graphql.py GRAPHQL_ROOT_FIELDS, GRAPHQL_FIELDS). The broker
@@ -136,7 +144,7 @@ class GitHub:
                 said = errors.read(2000).decode(errors="replace")
                 if (refused := broker_refusal(said)) is not None:
                     raise BrokerRefused(f"{BROKER_REFUSED_LEAD}{read_name(args)}: {refused}; {BROKER_REFUSED_FIX}")
-                raise Unread(f"GitHub evidence request failed: {read_name(args)}: " + said)
+                raise RequestFailed(args, said)
             return output.read().decode(errors="replace")
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = gh_pages.PER_PAGE):

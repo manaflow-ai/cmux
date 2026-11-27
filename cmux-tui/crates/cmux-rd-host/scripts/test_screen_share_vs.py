@@ -50,7 +50,7 @@ class BudgetTable(unittest.TestCase):
                             {"g2g": [20.0, 30.0, 40.0]}, label="after", rev="abc")
         rows = rows_named(b)
         self.assertEqual([r["row"] for r in b["rows"]],
-                         ["Input", "Screen", "Capture", " Gate wait", " Readback", "Encode", "Send", "Network", "Reassembly",
+                         ["Input", "Screen", "Capture", " Frame lead", " Gate wait", " Readback", "Encode", "Send", "Network", "Reassembly",
                           "Decode", "Present", "Total"])
         self.assertEqual(rows["Input"]["cmux"]["source"], "up + inject")
         self.assertEqual(sorted([rows["Input"]["cmux"]["p50"], rows["Input"]["cmux"]["p95"]]), [1.5, 3.5])
@@ -1299,6 +1299,118 @@ class ClockOverPeerTcp(unittest.TestCase):
         import types
         me = self.orchestrator(types.SimpleNamespace(), types.SimpleNamespace(via="reach"))
         self.assertFalse(me.clock_over_peer())
+
+class RigMarkerWait(unittest.TestCase):
+    """The rig's `marker` reply (wait_marker): an empty marker.log says how the marker ended."""
+
+    class Proc:
+        def __init__(self, code):
+            self.code = code
+
+        def poll(self):
+            return self.code
+
+    def log_with(self, text):
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "marker.log")
+        with open(path, "w") as f:
+            f.write(text)
+        return path
+
+    def test_origin_click_point_and_geometry(self):
+        log = self.log_with("marker: starting pid 7\nmarker-origin 0,50 click-at 704,66\n"
+                            "marker: stream width 3840.0 px, cell 32.0 pt, display (1920.0, 1080.0)\n")
+        reply = vs.wait_marker(self.Proc(None), log, seconds=1)
+        self.assertEqual(reply["origin"], [0, 50])
+        self.assertEqual(reply["at"], [704, 66])
+        self.assertIn("stream width", reply["geometry"])
+
+    def test_a_silent_trap_reads_as_the_signal_not_nothing(self):
+        log = self.log_with("")
+        start = vs.time.time()
+        reply = vs.wait_marker(self.Proc(-5), log, seconds=10)
+        self.assertLess(vs.time.time() - start, 1, "a dead marker is not waited out")
+        self.assertFalse(reply["ok"])
+        self.assertIn("killed by SIGTRAP", reply["error"])
+        self.assertEqual(reply["exit"], -5)
+
+    def test_a_refusal_keeps_its_last_line(self):
+        log = self.log_with("marker: no display (NSScreen.screens is empty: ...)\n")
+        reply = vs.wait_marker(self.Proc(3), log, seconds=10)
+        self.assertIn("exit 3", reply["error"])
+        self.assertIn("no display", reply["log"])
+
+    def test_a_hang_says_still_running(self):
+        log = self.log_with("marker: starting pid 7\n")
+        reply = vs.wait_marker(self.Proc(None), log, seconds=0.1, step=0.02)
+        self.assertIn("still running after 0.1 s", reply["error"])
+
+class LocalnetProbe(unittest.TestCase):
+    """macOS Local Network privacy refuses a launchd step's UDP to the LAN at once (Errno 65); the
+    pair job checks both Macs before any leg instead of failing every leg the same way."""
+
+    def sock(self, err=None):
+        sent = []
+
+        class S:
+            def __init__(self, *a):
+                pass
+
+            def sendto(self, data, addr):
+                if err:
+                    raise err
+                sent.append(addr)
+
+            def close(self):
+                pass
+        return S, sent
+
+    def test_ehostunreach_is_denied_and_names_the_fix(self):
+        import errno
+        factory, _ = self.sock(OSError(errno.EHOSTUNREACH, "No route to host"))
+        r = vs.localnet_probe("172.20.21.199", sock_factory=factory)
+        self.assertEqual(r["localnet"], "denied")
+        self.assertIn("CmuxScreenEvalLauncher", r["fix"])
+
+    def test_a_send_that_goes_out_is_ok(self):
+        factory, sent = self.sock()
+        self.assertEqual(vs.localnet_probe("172.20.21.199", sock_factory=factory),
+                         {"localnet": "ok", "to": "172.20.21.199"})
+        self.assertEqual(sent[0], ("172.20.21.199", 9))
+
+    def test_another_error_is_unknown_not_denied(self):
+        import errno
+        factory, _ = self.sock(OSError(errno.ENETDOWN, "Network is down"))
+        self.assertEqual(vs.localnet_probe("172.20.21.199", sock_factory=factory)["localnet"], "unknown")
+
+    def check(self, viewer_reply, host_reply):
+        import types
+        logged = []
+        viewer = types.SimpleNamespace(url="http://172.20.21.250:4181", run=lambda cmd, timeout=0: viewer_reply)
+        me = types.SimpleNamespace(a=types.SimpleNamespace(viewer="v", host="h", host_ip="172.20.21.199"),
+                                   py="python3", me="screen-share-vs.py", viewer=viewer, synthetic=False,
+                                   log=logged.append, rig=lambda req: {"ok": True, "localnet": host_reply})
+        vs.Orchestrator.localnet_check(me)
+        return logged
+
+    def test_a_denied_viewer_stops_the_run_before_any_leg(self):
+        denied = json.dumps({"localnet": "denied", "to": "172.20.21.199"})
+        with self.assertRaises(SystemExit) as cm:
+            self.check(denied, {"localnet": "ok"})
+        self.assertIn("viewer Mac (v)", str(cm.exception))
+        self.assertIn("Local Network", str(cm.exception))
+
+    def test_both_ok_logs_and_goes_on(self):
+        logged = self.check(json.dumps({"localnet": "ok"}), {"localnet": "ok"})
+        self.assertEqual(logged[0]["localnet"]["viewer"]["localnet"], "ok")
+        self.assertEqual(logged[0]["localnet"]["host"]["localnet"], "ok")
+
+    def test_an_older_peer_without_the_probe_is_unknown_not_a_stop(self):
+        import types
+        me_viewer_err = "not json"
+        logged = self.check(me_viewer_err, {"localnet": "ok"})
+        self.assertEqual(logged[0]["localnet"]["viewer"]["localnet"], "unknown")
+
 
 if __name__ == "__main__":
     unittest.main()
