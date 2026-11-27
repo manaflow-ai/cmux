@@ -519,7 +519,7 @@ async fn upload_netem_cell() {
             match tokio::time::timeout(cap, engine(&engine_name)(job)).await {
                 Ok(Ok(())) => (finished, code) = (true, "ok".into()),
                 Ok(Err(error)) => {
-                    code = error.split(':').next().unwrap_or("error").to_owned() + &format!(" [{error}]")
+                    code = error.split(':').next().unwrap_or("error").to_owned() + &format!(" [{error}]");
                 }
                 Err(_) => (capped, code) = (true, format!("cap {} s", cap.as_secs())),
             }
