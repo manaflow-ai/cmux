@@ -224,7 +224,7 @@ t=$(date +%s)
 TARGET="$(uname -m)-apple-macos13.0"
 xcrun swiftc -O -target "$TARGET" -o "$WORK/HelloFloor.app/Contents/MacOS/HelloFloor" "$WORK/app.swift"
 xcrun swiftc -O -target "$TARGET" -o "$WORK/launcher" "$WORK/launcher.swift"
-xcrun vtool -show-build "$WORK/HelloFloor.app/Contents/MacOS/HelloFloor" 2>/dev/null | grep -E 'minos|sdk' | tr -s ' ' | tr '\n' ' '; echo
+xcrun vtool -show-build "$WORK/HelloFloor.app/Contents/MacOS/HelloFloor" 2>/dev/null | grep -E 'minos|sdk' | tr -s ' ' | tr '\n' ' ' || true; echo
 codesign --force --sign - "$WORK/HelloFloor.app"
 codesign -dv "$WORK/HelloFloor.app" 2>&1 | grep -E 'Signature|Identifier' || true
 echo "built in $(( $(date +%s) - t ))s; exe $(stat -f %z "$WORK/HelloFloor.app/Contents/MacOS/HelloFloor") bytes"

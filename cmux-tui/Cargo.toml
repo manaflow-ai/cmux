@@ -627,6 +627,7 @@ ip_network = "0.4"
 # any bottleneck; CUBIC is the controller cmux-wg selects.
 smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "socket-tcp-bbr", "async"] }
 png = "0.17"
+jpeg-encoder = "0.6"
 libc = "0.2"
 # One poller for every idle terminal-host link (cmux-tui-core surface/idle_links.rs); tokio
 # already links mio with these features.
