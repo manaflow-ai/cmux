@@ -750,6 +750,12 @@ pub mod method {
     /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
     /// the `archived` tag, valued with when (milliseconds), set or removed.
     pub const MUX_ARCHIVE: &str = "_acpmux/archive";
+    /// A deleted chat back inside its grace (`hub/soft_delete.rs`): `{sessionId}` (its id, or
+    /// its name) -> its summary with `undeleted: true`.
+    pub const MUX_UNDELETE: &str = "_acpmux/undelete";
+    /// The deleted chats inside their grace (`hub/soft_delete.rs`): `{}` -> `{sessions:
+    /// [{sessionId, name, title, deletedAt, restorableUntil}]}`.
+    pub const MUX_DELETED: &str = "_acpmux/deleted";
     /// New side chat: tags the fork `sessionId` as a side chat of `chat` (the
     /// `side` tag, valued with that session), which keeps it off the lists.
     pub const MUX_SIDE: &str = "_acpmux/side";
@@ -1078,6 +1084,9 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    /// A chat's packed history read back: an outline, a range's digest or one record by seq
+    /// (`server/history.rs`, `hub/compaction_outline.rs`).
+    pub const MUX_HISTORY_READ: &str = "_acpmux/history/read";
     /// Context surgery (`hub/surgery.rs`): mask a Claude chat's old tool output and resume it
     /// on the masked copy, with no model call.
     pub const MUX_SURGERY: &str = "_acpmux/surgery";

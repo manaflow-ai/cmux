@@ -130,13 +130,29 @@ if [[ -z "$login" || ! -f "$login" ]]; then
   # No vnc-login step (the controller has no fleet login source): the fleet password this Mac's login keychain holds
   # (`fleet-sudo --login-keychain HOST` stores it as manaflow-fleet-login; the fleet Macs share one), in a 0600 file
   # under this step's output that is removed when the step ends. Never argv, environment or logs.
-  login=""
-  if pw=$(security find-generic-password -s manaflow-fleet-login -w 2>/dev/null) && [[ -n "$pw" && "$pw" != *$'\n'* ]]; then
+  login="" pw="" kc_why=""
+  # A cmux-ci step runs with a scratch HOME, so the default keychain search list can miss the account's login
+  # keychain: try the default list, then the login keychain in the account's real home (from the directory).
+  real_home=$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | sed -n 's/^NFSHomeDirectory: //p')
+  for kc in "" ${real_home:+"$real_home/Library/Keychains/login.keychain-db"}; do
+    [[ -n "$kc" && ! -f "$kc" ]] && { kc_why+=" $kc: no such file;"; continue; }
+    # Only the exit status and security's own message are kept (never the secret, which goes to $pw alone).
+    errf=$(mktemp "$out/.kc-err.XXXXXX")
+    pw=$(security find-generic-password -s manaflow-fleet-login -w ${kc:+"$kc"} 2>"$errf"); rc=$?
+    err=$(head -n 1 "$errf" | cut -c1-160); rm -f "$errf"
+    [[ $rc == 0 && -n "$pw" && "$pw" != *$'\n'* ]] && break
+    pw=""
+    case $rc in
+      44) kc_why+=" ${kc:-default search list}: no manaflow-fleet-login item;" ;;
+      *) kc_why+=" ${kc:-default search list}: locked or no access (security exit $rc: $err);" ;;
+    esac
+  done
+  if [[ -n "$pw" ]]; then
     login=$(umask 077 && mktemp "$out/.vnc-login.XXXXXX") && login_tmp="$login" && printf '%s\n' "$pw" >"$login" || login=""
-    echo "SCREEN-STREAM-EVAL-STAGE stage-table: vnc login from this Mac's keychain (manaflow-fleet-login)"
+    echo "SCREEN-STREAM-EVAL-STAGE stage-table: vnc login from this Mac's keychain (manaflow-fleet-login${kc:+ in $kc})"
   fi
   unset pw
-  [[ -n "$login" ]] || echo "SCREEN-STREAM-EVAL-STAGE stage-table: no vnc login file (CMUX_CI_VNC_LOGIN_FILE) and no manaflow-fleet-login in this Mac's keychain (fleet-sudo --login-keychain HOST): Apple's legs fail"
+  [[ -n "$login" ]] || echo "SCREEN-STREAM-EVAL-STAGE stage-table: no vnc login file (CMUX_CI_VNC_LOGIN_FILE) and no usable manaflow-fleet-login in this Mac's keychain (fleet-sudo --login-keychain HOST):${kc_why} Apple's legs fail"
 fi
 
 # The tools at this commit, as screen-stream-eval.sh tools-only=1 builds them (screen-share-vs.py --tools).
@@ -204,6 +220,7 @@ echo "SCREEN-STREAM-EVAL-STAGE stage-table $host_name ($addr) -> $viewer_name ($
 python3 -I "$vs" run --host "$host_name" --viewer "$viewer_name" --local-mac "$viewer_name" --via peer \
   --peer-url "$url" --peer-token-file "$token_file" --host-ip "$addr" --viewer-ip "$self_ip" \
   --tools "$tools" --legs "$legs" --apple-viewer ${app_args[@]+"${app_args[@]}"} --vnc-user cmux --vnc-password-file "${login:-/nonexistent}" \
+  --rfb-viewer "$root/scripts/measure/screen-stream-eval/rfb-viewer.py" \
   --root "$rig_root" --out "$out/ledger.jsonl" 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
 python3 -I "$vs" table "$out/ledger.jsonl" | tee "$out/table.txt"
