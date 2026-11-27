@@ -33,7 +33,7 @@ starts empty: a DEV build never imports the person's classic data); nightly, sta
 `~/.config/cmux`. Its `SettingsBuildDefaults` reach the Rust settings owner as `CMUX_NEXT_SETTINGS_BUILD_DEFAULTS`, and
 state named after the bundle id (Chief home, mobile host, Chromium profiles) uses `BuildIdentity.stateFolderName`. The gate's "Dev build state
 is its own" check (`scripts/cmux-next/check-dev-build-state.py`) refuses a new shared path without a reviewed row. The dev
-sign-in inputs `~/.config/cmux/dev-account` and `~/.secrets/cmuxterm-dev.env` stay shared on purpose.
+sign-in inputs `~/.config/cmux-next/dev-account` and `~/.secrets/cmuxterm-dev.env` stay shared on purpose.
 Sign-in on a Mac dev build (signed NEXT DEV `com.cmuxterm.app.debug.next` included): a dev build never reuses
 NIGHTLY's session, in any form. The production cloud-api ignored `X-Cmux-Build-Space` until 2026-11-24 (it refuses it
 now), so a dev build on NIGHTLY's session read and wrote NIGHTLY's real data; the separate session stays as the second wall. With a dev account configured (`scripts/setup-team-dev.sh`), the
