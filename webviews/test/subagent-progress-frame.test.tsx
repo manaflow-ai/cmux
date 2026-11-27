@@ -10,6 +10,8 @@ import {
 } from "../src/agent-session/acpmux/subagents/agentProgressStore";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { teardownDom } from "./support/domTeardown";
+import { LiveUpdatesContext } from "../src/ui/liveUpdates";
+import { pageClocks, usePageNow, useDeadlineNow } from "../src/ui/pageClock";
 
 const dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/", pretendToBeVisual: true });
 const frames = new Map<number, FrameRequestCallback>();
@@ -86,4 +88,53 @@ test("twenty agents' usage updates draw nothing; progress bursts draw once per f
     await act(async () => root.unmount());
   }
   expect(frames.size).toBe(0);
+});
+
+test("offscreen retained rows have no clock or progress work and catch up when revealed", async () => {
+  const agent = { id: "retained", name: "Retained", state: "running", startedAt: 1_000 } as Subagent;
+  const store = new AgentProgressStore([agent]);
+  let now = 1_000;
+  const clock = () => now;
+  const next = (at: number) => at + 60_000;
+  let renders = 0;
+  function Row() {
+    const elapsed = usePageNow(true, clock);
+    const deadline = useDeadlineNow(next);
+    const progress = useAgentProgress(agent);
+    renders++;
+    return (
+      <span data-time={elapsed} data-deadline={deadline}>
+        {progress}
+      </span>
+    );
+  }
+  const root = createRoot(document.getElementById("root")!);
+  const render = (active: boolean) =>
+    root.render(
+      <LiveUpdatesContext.Provider value={active}>
+        <AgentProgressContext.Provider value={store}>
+          <Row />
+        </AgentProgressContext.Provider>
+      </LiveUpdatesContext.Provider>,
+    );
+  try {
+    await act(async () => render(true));
+    expect(pageClocks().subscribers).toBe(2);
+    await act(async () => render(false));
+    const before = renders;
+    expect(pageClocks().subscribers).toBe(0);
+    now = 30_000;
+    for (let done = 1; done <= 20; done++) {
+      await act(async () => store.updateProgress(agent.id, { agents: { started: 20, done } }));
+    }
+    expect(frames.size).toBe(0);
+    expect(renders).toBe(before);
+    await act(async () => render(true));
+    expect(document.querySelector("[data-time]")?.getAttribute("data-time")).toBe("30000");
+    expect(document.body.textContent).toContain("20");
+    expect(pageClocks().subscribers).toBe(2);
+  } finally {
+    await act(async () => root.unmount());
+  }
+  expect(pageClocks().subscribers).toBe(0);
 });

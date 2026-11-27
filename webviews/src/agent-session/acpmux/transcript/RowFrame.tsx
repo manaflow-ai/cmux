@@ -8,6 +8,7 @@ import React, {
   type ErrorInfo,
 } from "react";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
+import { LiveUpdatesContext, useLiveUpdates } from "../../../ui/liveUpdates";
 import { sendPopEnabled } from "../chatDisplay";
 import { holdEntranceForFirstFrame } from "../conversation/entranceClock";
 import { markRecapEntrance } from "../conversation/turnEndFold";
@@ -51,13 +52,14 @@ type RowContentProps = {
 /// across snapshots, so a scroll still draws none of them again.
 export const RowContent = React.memo(
   function RowContent({ Component, liveTools = false, ...props }: RowContentProps) {
+    const live = useLiveUpdates() && liveTools;
     // Counted when committed: a render React set aside (an interrupted concurrent pass) drew nothing.
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
     // What moved on without the pane (a running command's output, a thought, the live line's call):
     // this row alone draws it.
-    const row = useLiveLineRow(useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools), liveTools);
+    const row = useLiveLineRow(useLiveThoughtRow(useLiveToolRow(props.row, live), live), live);
     return (
       <RowBoundary row={row}>
         <Component {...props} row={row} />
@@ -269,6 +271,7 @@ export const RowFrame = React.memo(function RowFrame({
   // The height a skipped row is placed at, from its first mount; once it renders the browser keeps
   // its rendered height instead (`auto`), which the row's observer has measured by then.
   const [skipHeight] = useState(() => (offscreen ? `auto ${placedHeight}px` : undefined));
+  const [rendered, setRendered] = useState(!offscreen);
   const observerRef = useRef(observer);
   useLayoutEffect(() => {
     observerRef.current = observer;
@@ -288,6 +291,7 @@ export const RowFrame = React.memo(function RowFrame({
     node.classList.add(OFFSCREEN_ROW_CLASS);
     node.style.containIntrinsicHeight = skipHeight;
     return onceRendered(node, () => {
+      setRendered(true);
       node.classList.remove(OFFSCREEN_ROW_CLASS);
       node.style.containIntrinsicHeight = "";
       const rows = observerRef.current;
@@ -315,9 +319,11 @@ export const RowFrame = React.memo(function RowFrame({
   if (scope !== referenceScope && !sameReferenceScope(scope, referenceScope)) setScope(referenceScope);
   // The row a disclosure inside it is drawn in: its toggle's transition anchors on it (useDisclosure.ts).
   const content = (
-    <DisclosureRow.Provider value={row.id}>
-      <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>
-    </DisclosureRow.Provider>
+    <LiveUpdatesContext.Provider value={rendered && !shelved}>
+      <DisclosureRow.Provider value={row.id}>
+        <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>
+      </DisclosureRow.Provider>
+    </LiveUpdatesContext.Provider>
   );
   useLayoutEffect(() => {
     if (acpmuxPerf.enabled) acpmuxPerf.render(`frame:${row.id}`);
