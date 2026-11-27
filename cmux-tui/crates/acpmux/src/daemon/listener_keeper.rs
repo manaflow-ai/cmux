@@ -94,9 +94,9 @@ fn start_keeper(home: &Path, held: &[(&'static [u8; 4], OwnedFd)]) -> io::Result
         None => cmux_process::Command::new(&exe),
     };
     cmd.args(&args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::null())
         .new_session();
     // Each held descriptor reaches the keeper at the number its argument names.
     for (_, fd) in held {
