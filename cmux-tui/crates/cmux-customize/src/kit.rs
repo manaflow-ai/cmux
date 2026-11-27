@@ -117,6 +117,10 @@ fn steps(list: &Value, value_key: &str) -> Vec<Step> {
 }
 
 /// A family's steps, smallest first, from the app's own scale files.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "embedded design-scale JSON has the documented family paths"
+)]
 pub fn family(name: &str) -> Option<(Vec<Step>, &'static str, &'static str)> {
     let [_, design, type_scale, _, _, motion] = sources();
     let (mut list, unit, source) = match name {
@@ -170,6 +174,10 @@ fn instrument() -> &'static Value {
 
 /// Instrument's tokens, each with its group, CSS property and whether the
 /// app draws Instrument's value yet.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "embedded token JSON's today/file path is part of the schema"
+)]
 fn token_rows() -> Vec<Value> {
     instrument()["tokens"]
         .as_array()
@@ -306,6 +314,10 @@ pub fn tokens(request: &Request) -> Result<Answer, String> {
     }
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "scale_answer consumes the schema produced by family_json"
+)]
 fn scale_answer(scale: Value) -> Answer {
     let mut human = format!(
         "{} ({}, from {}):\n",
