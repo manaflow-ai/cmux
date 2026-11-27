@@ -53,9 +53,9 @@ packages=()
 packages+=(-onlyUsePackageVersionsFromResolvedFile)
 
 # --- the kit: the changed targets' tests, or its test bundle built ------------------------------------------------
-if [[ -n "$tests" || -n "$build" ]]; then
-  t=$SECONDS
-  udid="$(python3 -I scripts/ci/ios_sim_udid.py)" || exit 1
+kit() {
+  local t=$SECONDS status=0 udid bundle
+  udid="$(python3 -I scripts/ci/ios_sim_udid.py)" || return 1
   bundle="$tmp/ios-fast.xcresult"
   rm -rf "$bundle"
   common=(-scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" -enableCodeCoverage NO
@@ -87,11 +87,12 @@ print("iOS simulator test cases:", ", ".join(f"{k} {v}" for k, v in sorted(count
     (cd cmux-next-ios/CmuxMobileKit && xcodebuild build-for-testing "${common[@]}") || status=1
     phase "kit build for testing" $((SECONDS - t))
   fi
-fi
+  return "$status"
+}
 
 # --- the app: xcodegen, then the simulator build (cmux-next-ios-sim.sh's build command, no install or launch) -------
-if [[ -n "$app" ]]; then
-  t=$SECONDS
+app_build() {
+  local t=$SECONDS status=0 part got
   xcodegen_version=2.46.0
   xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
   tools="${RUNNER_TOOL_CACHE:-$tmp}/xcodegen-$xcodegen_version"
@@ -100,18 +101,34 @@ if [[ -n "$app" ]]; then
     part="$(mktemp -d "$tmp/xcodegen.XXXXXX")"
     curl -fsSL --retry 3 --retry-delay 2 -o "$part/xcodegen.zip" \
       "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip" ||
-      { echo "::error::could not download xcodegen $xcodegen_version"; exit 1; }
+      { echo "::error::could not download xcodegen $xcodegen_version"; return 1; }
     got="$(shasum -a 256 "$part/xcodegen.zip" | awk '{ print $1 }')"
-    [[ "$got" == "$xcodegen_sha256" ]] || { echo "::error::xcodegen zip sha256 $got, expected $xcodegen_sha256"; exit 1; }
+    [[ "$got" == "$xcodegen_sha256" ]] || { echo "::error::xcodegen zip sha256 $got, expected $xcodegen_sha256"; return 1; }
     unzip -q "$part/xcodegen.zip" -d "$part" && mkdir -p "$(dirname "$tools")" && rm -rf "$tools" && mv "$part" "$tools"
   fi
-  (cd cmux-next-ios && "$xcodegen" generate -q) || { echo "::error::xcodegen failed"; exit 1; }
+  (cd cmux-next-ios && "$xcodegen" generate -q) || { echo "::error::xcodegen failed"; return 1; }
   xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
     -destination 'generic/platform=iOS Simulator' -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$tmp}/dd" "${packages[@]}" \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -quiet \
     'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' build-for-testing || status=1
   # build-for-testing: the scheme's test target CmuxMobileAppUITests compiles too (cmux#55664 broke only it).
   phase "app build-for-testing (CmuxMobileApp + CmuxMobileAppUITests, iOS Simulator)" $((SECONDS - t))
+  return "$status"
+}
+
+# The kit and the app build in their own DerivedData (the slot, the slot's dd), so with both planned they run at
+# once: the verdict waits for the longer one, not their sum (run 46009436922: kit 144 s then app 215 s, 359 s
+# serial). Neither build saturates the Mac for its whole length (module chains, links, the test run on one simulator).
+if [[ -n "$tests" || -n "$build" ]] && [[ -n "$app" ]]; then
+  t=$SECONDS
+  kit & kit_pid=$!
+  app_build || status=1
+  wait "$kit_pid" || status=1
+  phase "kit and app, at once" $((SECONDS - t))
+elif [[ -n "$tests" || -n "$build" ]]; then
+  kit || status=1
+elif [[ -n "$app" ]]; then
+  app_build || status=1
 fi
 
 phase "fast verdict total" $((SECONDS - started))
