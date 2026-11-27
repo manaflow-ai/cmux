@@ -73,9 +73,12 @@ MAX_CHAINS = 4
 # run, after the new reds. Before 2026-11-26 a red that outlived one batch run was "a known red, no bisect" forever: the
 # 06:29Z batch run 45768539377 skipped 43 of its 48 reds that way, and live base reds went 62 to 91 in 22 h (cmuxterm-hq
 # goals/base-batch-reverts-culprit.md).
-MAX_STUCK_CHAINS = 4
-# A stuck red is bisected again at most this many times after the bisect its first red batch run started, so a red no
-# bisect can pin (an outside service, a red on every commit) costs a bounded number of probe chains.
+# Raised from 4 on 2026-11-27: 67 live base reds drained four at a time while the Linux pool sat idle (0.275 busy).
+MAX_STUCK_CHAINS = 12
+# A stuck red is bisected again at most this many times, so a red no bisect can pin (an outside service, a red on
+# every commit) costs a bounded number of probe chains. A bisect counts once its first probe was judged: before
+# 2026-11-27 this counted red batch runs instead, so the six reds whose chains died on the judge's rate limit
+# (cmux#60709) were capped for good without one finished bisect.
 MAX_REBISECTS = 2
 # A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
 # runners within the hour (runs 44966393364 and 44980687386).
@@ -669,13 +672,14 @@ def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], j
 
 
 def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of,
-               suites: dict[str, "Suite"]) -> list[tuple[str, str, str, str]]:
+               suites: dict[str, "Suite"], chain_start=None) -> list[tuple[str, str, str, str]]:
     """The reds new_reds calls known that get a bisect anyway: (job name, suite, good sha, bad sha).
 
     A job red on this batch run and on the newest earlier judged batch run where it finished has a last green batch
     run further back (good) and a first red one after it (bad): the culprit is in good..bad. It is bisected there,
     with no confirming probe (two batch runs already agree it is red), unless a probe of the same suite job started
-    after the first red batch run is still running, or it was already bisected MAX_REBISECTS times since. Matrix legs
+    after the first red batch run is still running, or MAX_REBISECTS bisects of it already started and were judged
+    (chain_start(good, bad) is a bisect's first probe sha; a probe whose judge died is not a bisect done). Matrix legs
     of one suite job with the same good and bad are one bisect (gallery-health's 21 shards were 21 known reds).
     runs: this workflow's runs, newest first, none newer than the judging run, so a probe's judge reading the same
     runs (cmd_judge, before its origin) agrees with the batch run that dispatched it."""
@@ -688,7 +692,6 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
     for name in reds:
         suite = verdicts[name][0]
         first = green = None
-        red_runs = 0
         for run in earlier:
             if run["id"] not in cache:
                 cache[run["id"]] = jobs_of(run["id"])
@@ -698,7 +701,7 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
                 continue
             if before[1] == "failure":
                 if judged:
-                    first, red_runs = run, red_runs + 1
+                    first = run
                 continue
             green = run
             break
@@ -713,7 +716,17 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
                 and (p.get("created_at") or "") > (first.get("created_at") or "")]
         if any(p.get("status") != "completed" for p in mine):
             continue
-        if mine and red_runs > MAX_REBISECTS:
+        start = chain_start(green["head_sha"], first["head_sha"]) if chain_start else ""
+        done = 0
+        for p in mine:
+            if start and not (p.get("display_title") or "").endswith(f" at {start}"):
+                continue
+            if p["id"] not in cache:
+                cache[p["id"]] = jobs_of(p["id"])
+            got = cache[p["id"]]
+            if not isinstance(got, tuple) or got[1]:
+                done += 1
+        if done >= MAX_REBISECTS:
             continue
         seen.add(key)
         out.append((name, suite, green["head_sha"], first["head_sha"]))
@@ -959,7 +972,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
         # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
         runs = list_runs(args.repo, args.branch, before=int(args.run_id or 0), batches=LOOKBACK_BATCHES)
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of)
-        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites)
+        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites,
+                           chain_start=lambda good, bad: stuck_probe("", "", "", good, bad, "", first_parent_range(good, bad)).sha)
         stuck_names = {name for name, *_ in stuck}
         notes = [n for n in notes if not any(n.startswith(f"`{name}` was already red") for name in stuck_names)]
         for note in notes:
