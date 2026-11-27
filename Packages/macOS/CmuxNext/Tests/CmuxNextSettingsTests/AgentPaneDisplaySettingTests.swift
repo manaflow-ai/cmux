@@ -73,6 +73,9 @@ struct AgentPaneDisplaySettingTests {
             refused: [.number(0.2), .number(3)]),
         Row(key: "agentPane.display.sessionInfo.placement", fallback: .string("overlay"), accepted: [.string("push")],
             refused: [.string("left"), .bool(true)]),
+        // How Session Info lays out its sections (webviews sessionInfoModel.ts RailLayout): glance unless a look picks another.
+        Row(key: "agentPane.display.sessionInfo.layout", fallback: .string("glance"),
+            accepted: [.string("groups"), .string("rules")], refused: [.string("cards"), .bool(true)]),
         Row(key: "agentPane.display.environment.placement", fallback: .string("left"),
             accepted: [.string("right"), .string("off")], refused: [.string("overlay"), .bool(true)]),
         // The Environment card and the changes pill (webviews session-info/EnvironmentCard.tsx): off by default.

@@ -143,6 +143,14 @@ export interface ChatDisplay {
 /// Settings > Agent Chat > Session Info (Swift AgentPaneDisplaySettingsSchema has the same row).
 /// The host sends a value saved under the row's old key under this one (Swift RenamedSettingKeys).
 export const SESSION_INFO_PLACEMENT_KEY = "agentPane.display.sessionInfo.placement";
+/// Settings > Agent Chat > Session Info Layout (session-info/sessionInfoModel.ts RailLayout): glance by
+/// default, the three blocks with a hairline between them; groups draws each block as its own card, as
+/// the Claude Code app stacks its side panels (customize-app-profiles, ask-aad661801e). cmux-config's
+/// schema refuses any other value; a stray one here reads as glance. Not part of ChatDisplay.
+export const SESSION_INFO_LAYOUT_KEY = "agentPane.display.sessionInfo.layout";
+export type SessionInfoLayout = "glance" | "rules" | "groups";
+const isSessionInfoLayout = (value: unknown): value is SessionInfoLayout =>
+  value === "glance" || value === "rules" || value === "groups";
 export const RAIL_SIDE_KEY = "agentPane.display.rail.side";
 /// Settings > Agent Chat: the machine · folder chip's placement below the tab row.
 export const ENVIRONMENT_PLACEMENT_KEY = "agentPane.display.environment.placement";
@@ -603,6 +611,7 @@ let sendPopOn = false;
 let trayHandle: TrayHandleSide = "middle";
 let railShow: RailShow = DEFAULT_RAIL_SHOW;
 let railControlOn = false;
+let sessionInfoLayout: SessionInfoLayout = "glance";
 let unreadBanner: UnreadBannerMode = "off";
 let threadMinimapArm: ThreadMinimapArm | null = null;
 let chatDetail: ChatDetail = "normal";
@@ -694,6 +703,8 @@ export function setChatDisplay(value: unknown): void {
   const banner: UnreadBannerMode = isUnreadBannerMode(storedBanner) ? storedBanner : "off";
   const show = isRailShow(raw[RAIL_SHOW_KEY]) ? (raw[RAIL_SHOW_KEY] as RailShow) : DEFAULT_RAIL_SHOW;
   const railControl = raw[RAIL_CONTROL_KEY] === true;
+  const storedInfoLayout = raw[SESSION_INFO_LAYOUT_KEY];
+  const infoLayout: SessionInfoLayout = isSessionInfoLayout(storedInfoLayout) ? storedInfoLayout : "glance";
   const handle = raw[TRAY_HANDLE_KEY] === "left" || raw[TRAY_HANDLE_KEY] === "right" ? raw[TRAY_HANDLE_KEY] : "middle";
   const threadMinimap = resolveThreadMinimapArm(raw);
   const detail = defaultDetailOf(raw);
@@ -740,6 +751,7 @@ export function setChatDisplay(value: unknown): void {
     handle === trayHandle &&
     show === railShow &&
     railControl === railControlOn &&
+    infoLayout === sessionInfoLayout &&
     banner === unreadBanner &&
     threadMinimap === threadMinimapArm &&
     detail === chatDetail &&
@@ -767,6 +779,7 @@ export function setChatDisplay(value: unknown): void {
   trayHandle = handle;
   railShow = show;
   railControlOn = railControl;
+  sessionInfoLayout = infoLayout;
   unreadBanner = banner;
   threadMinimapArm = threadMinimap;
   chatDetail = detail;
@@ -970,6 +983,10 @@ const railControlSnapshot = () => railControlOn;
 export const useRailShow = (): RailShow => useSyncExternalStore(subscribe, railShowSnapshot, railShowSnapshot);
 /// Whether the prompt rail draws its head control (RAIL_CONTROL_KEY).
 export const useRailControl = (): boolean => useSyncExternalStore(subscribe, railControlSnapshot, railControlSnapshot);
+const sessionInfoLayoutSnapshot = () => sessionInfoLayout;
+/// How Session Info lays out its sections (SESSION_INFO_LAYOUT_KEY): glance unless a look picks another.
+export const useSessionInfoLayout = (): SessionInfoLayout =>
+  useSyncExternalStore(subscribe, sessionInfoLayoutSnapshot, sessionInfoLayoutSnapshot);
 /// Shows `show` on every rail at once; the default removes the key.
 export const setRailShow = (show: RailShow): void =>
   changeChatDisplay(RAIL_SHOW_KEY, show === DEFAULT_RAIL_SHOW ? null : show);
