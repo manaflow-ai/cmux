@@ -8,7 +8,8 @@
 // every ask across agents and machines) and Costs (ledger/LedgerScreen.tsx, what agents spent).
 // They live here because this page is one the app already opens; they need no host of their own.
 // Team (teamAudit/TeamAuditScreen.tsx, the team's shared agent spend) joins them while the
-// `team-audit` experiment is on.
+// `team-audit` experiment is on, and People (teamDirectory/TeamDirectoryScreen.tsx, RFD 0170's team
+// navigator) while the `team-directory` one is.
 import type { ComponentProps } from "react";
 import { useEffect, useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
@@ -20,6 +21,8 @@ import { createQueueCache } from "../queue/useQueue";
 import { createLedgerCache } from "../ledger/LedgerScreen";
 import { teamAudit } from "../teamAudit/teamAudit.experiment";
 import { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
+import { teamDirectory } from "../teamDirectory/teamDirectory.experiment";
+import { TeamDirectoryScreen } from "../teamDirectory/TeamDirectoryScreen";
 import { AllChatsList } from "./AllChatsList";
 import { type LoadChatsPage } from "./allChatsListModel";
 import { useNoEntryMotion } from "./noEntryMotion";
@@ -27,7 +30,7 @@ import { useNt } from "./strings";
 import { askLedger } from "../askLedger/askLedger.experiment";
 import { AskLedgerScreen } from "../askLedger/AskLedgerScreen";
 
-export type HistoryTab = "history" | "queue" | "ledger" | "team" | "asks";
+export type HistoryTab = "history" | "queue" | "ledger" | "team" | "asks" | "people";
 
 export function HistoryScreen({
   load,
@@ -39,6 +42,7 @@ export function HistoryScreen({
   ledger,
   team: teamProps,
   asks: asksProps,
+  directory: directoryProps,
   initialTab = "history",
 }: {
   load: LoadChatsPage;
@@ -53,6 +57,8 @@ export function HistoryScreen({
   /// Team's read; no tab without it, or while the `team-audit` experiment is off.
   team?: ComponentProps<typeof TeamAuditScreen>;
   asks?: ComponentProps<typeof AskLedgerScreen>;
+  /// People's reads; no tab without them, or while the `team-directory` experiment is off.
+  directory?: ComponentProps<typeof TeamDirectoryScreen>;
   initialTab?: HistoryTab;
 }) {
   const nt = useNt();
@@ -71,12 +77,14 @@ export function HistoryScreen({
   }, [queueCache, queueKey]);
   const team = experimentArm(teamAudit) === "on" ? teamProps : undefined;
   const asks = experimentArm(askLedger) === "capture" ? asksProps : undefined;
-  const tabbed = Boolean(queue || ledger || team || asks);
+  const directory = experimentArm(teamDirectory) === "on" ? directoryProps : undefined;
+  const tabbed = Boolean(queue || ledger || team || asks || directory);
   const shown: HistoryTab =
     (tab === "queue" && !queue) ||
     (tab === "ledger" && !ledger) ||
     (tab === "team" && !team) ||
-    (tab === "asks" && !asks)
+    (tab === "asks" && !asks) ||
+    (tab === "people" && !directory)
       ? "history"
       : tab;
   return (
@@ -96,6 +104,7 @@ export function HistoryScreen({
             {ledger && <TabsTrigger value="ledger">{t("ledger.title")}</TabsTrigger>}
             {team && <TabsTrigger value="team">{t("teamAudit.title")}</TabsTrigger>}
             {asks && <TabsTrigger value="asks">{t("askLedger.title")}</TabsTrigger>}
+            {directory && <TabsTrigger value="people">{t("teamDirectory.title")}</TabsTrigger>}
           </TabsList>
         </Tabs>
       )}
@@ -107,6 +116,8 @@ export function HistoryScreen({
         <TeamAuditScreen {...team} {...(now !== undefined ? { now } : {})} />
       ) : shown === "asks" && asks ? (
         <AskLedgerScreen load={asks.load} />
+      ) : shown === "people" && directory ? (
+        <TeamDirectoryScreen {...directory} />
       ) : (
         <AllChatsList
           load={load}

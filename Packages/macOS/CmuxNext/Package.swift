@@ -48,7 +48,7 @@ import PackageDescription
 //   CmuxNextHomeModel -> DesignTokens, Icons, CmuxHomeCore, CmuxHomeRender, CCmuxAppFFI (the Home models, tunables
 //     and their strings that code outside the Home views reads: Chief roster, avatars and engines, contacts, group and
 //     invite outcomes, pins, dock mode, chat colours; HomeRules, the Rust home rules' caller over cmux_home_call,
-//     which ChiefPetWiring, ChiefViews and HomeEngine also call for the welcome.* ops; no views, no MessagesLab, no daemon)
+//     which ChiefPetWiring, ChiefViews and HomeEngine also call for the welcome.* and mapping.* ops; no views, no MessagesLab, no daemon)
 //   CmuxNextHome -> Compat, Design, Dictation, HomeModel, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
 //     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
 //     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
@@ -76,6 +76,7 @@ import PackageDescription
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
 //     plans/cmux-next/react-pages.md)
+//   CmuxNextCloudStart -> Cloud, Daemon (the Cloud start's launch and creation calls into Rust; no UI)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
 //   CmuxNextAccounts -> Actions, AgentPane, AgentUpdates, Cloud, CodeRouter, DaemonService, Design, Icons, Onboarding, Pages,
@@ -195,7 +196,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 206a4c33e9d11f089b19ecceaea0b6b5379a79c4ff727193ec9fd2c1076e234d
+// app-ffi-pin-checksum: 9c8ab5bee0767a4a3dd208415f871154cae4c21cd807929a66056e6742aee873
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -402,6 +403,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCloud",
                 "CmuxNextCloudCredentials",
                 "CmuxNextCloudPlace",
+                "CmuxNextCloudStart",
                 "CmuxNextCloudUI",
                 "CmuxNextCodeRouter",
                 "CmuxNextCompat",
@@ -521,9 +523,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
+                "CmuxNextIcons",
                 "CmuxNextMobileHost",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
             ],
             resources: [
                 .process("Resources"),
@@ -805,6 +809,16 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // CmuxNextCloudStart: the Cloud start's launch and creation calls into Rust
+        // (CloudStartCore launch gate, create params, backoff, approval step machine).
+        .target(
+            name: "CmuxNextCloudStart",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCloud",
+                "CmuxNextDaemon",
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2438,8 +2452,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
             resources: [.process("Resources")],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            // BackdropArt+Entries.swift (the works' records), from art/manifest.json.
+            plugins: [.plugin(name: "BackdropArtEntriesPlugin")]
         ),
+        // Runs scripts/cmux-next/art/generate_backdrop_art.py --entries-out into its work directory.
+        .plugin(name: "BackdropArtEntriesPlugin", capability: .buildTool()),
         // Theme derivation (Ghostty colors -> chrome tokens), contrast, live reload.
         .testTarget(
             name: "CmuxNextDesignTests",
@@ -2513,11 +2531,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: daemonSwiftSettings,
             // The request types cmux-tui/bindings/codegen/swift_app/bindings.json lists, generated from
-            // cmux-tui/spec/sdk-schema.json by every build (never committed, RFD 0048).
-            plugins: [.plugin(name: "DaemonWireTypesPlugin")]
+            // cmux-tui/spec/sdk-schema.json by every build (never committed, RFD 0048), and the
+            // DaemonCapability enum generated from cmux-tui/spec/gui-capabilities.json.
+            plugins: [
+                .plugin(name: "DaemonWireTypesPlugin"),
+                .plugin(name: "DaemonCapabilitiesPlugin"),
+            ]
         ),
         // Runs cmux-tui/bindings/codegen/swift_app/generate.py --out into its work directory.
         .plugin(name: "DaemonWireTypesPlugin", capability: .buildTool()),
+        // Runs scripts/cmux-next/gen-daemon-capabilities.py --swift-out into its work directory.
+        .plugin(name: "DaemonCapabilitiesPlugin", capability: .buildTool()),
         .testTarget(
             name: "CmuxNextDaemonTests",
             // CmuxNextCompat: the tests import it directly (Mutex); undeclared, an incremental build kept a
@@ -2711,7 +2735,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // section 8). CmuxNextBrowser depends on it and re-exports it.
         .target(
             name: "CmuxNextBrowserCore",
+            // CCmuxAppFFI: the typed address-bar policy and Chromium page routes (cmux-url-input).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
                 .product(name: "CmuxEgress", package: "CmuxEgress"),

@@ -32,6 +32,25 @@ pub(super) fn dispatch(
                 Value::Array(state.list(section).iter().map(|row| row.to_json()).collect())
             }))
         }
+        // `explain`: every layer's value, the winner and the last write (`cmux settings explain`).
+        ResourceOperation::SettingsGet if fields.get("explain") == Some(&Value::Bool(true)) => {
+            let target = target(fields)?;
+            let layer = match fields.contains_key("project") {
+                true => {
+                    let folder = project_folder(fields)?;
+                    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+                    cmux_config::project::find(&folder, home.as_deref()).map(|found| {
+                        cmux_config::project::ProjectLayer::read(
+                            &found,
+                            cmux_config::Schema::embedded(),
+                        )
+                    })
+                }
+                false => None,
+            };
+            let history = mux.settings_history();
+            Ok(mux.with_settings(|state| state.explain(&target, &history, layer.as_ref())))
+        }
         ResourceOperation::SettingsGet if fields.contains_key("project") => {
             let (folder, key) = (project_folder(fields)?, project_key(fields)?);
             let home = std::env::var_os("HOME").map(std::path::PathBuf::from);

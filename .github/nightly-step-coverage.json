@@ -467,6 +467,7 @@
         "Mint the dispatch's spare token": {"nightly_only": "mints a spare App token for the published-in dispatch"},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
+        "Read the feed back before saying published": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a nightly-next run reads its feed back before it says published", "note": "tests/test_nightly_published_feed_check.py"},
         "Record the published build": {"nightly_only": "records a publication's job outputs (scripts/ci/nightly_published_build.py pack; tests/test_nightly_next_tail_off_push_group.py)"},
         "Ask for this build's post-publication run": {"nightly_only": "dispatches nightly.yml with nightly_next_post_publish naming this run (tests/test_nightly_next_tail_off_push_group.py)"}},
       "wake-nightly-next-tick": {
@@ -502,6 +503,9 @@
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Ask the push group for the newest head": {"nightly_only": "dispatches nightly.yml with nightly_next_loop_retry after a failed nightly-next run whose commit is still the head (tests/test_nightly_next_single_loop.py)"}},
       "nightly-next-deltas": {
+        "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"plumbing": true, "note": "sets checkout authentication before reused-workspace git operations; tests/test_nightly_git_token_env.py"},
+        "Isolate the downloaded artifact": {"plumbing": true, "note": "creates a fresh artifact directory outside signing tooling; tests/test_nightly_next_one_job.py"},
+        "Stage only the expected DMG": {"plumbing": true, "note": "copies only the expected regular non-symlink DMG into the delta workspace; tests/test_nightly_next_one_job.py exercises hostile artifact contents"},
         "Check the published feed offers deltas": {"nightly_only": "reads the live nightly-next feed and fails when the published build lists no served delta (tests/test_nightly_next_delta_check.py)"},
         "Refuse stray processes before secrets (deltas)": {"plumbing": true, "note": "refuse_stray_processes.py before the signing key meets the post-feed delta build; tests/test_nightly_next_one_job.py"},
         "Build the nightly-next deltas after the feed": {"nightly_only": "BinaryDelta from the nearest earlier DMGs and signing with the nightly-next Sparkle key after the feed write (docs/ci/nightly-workflow-notes.md#note-31; tests/test_nightly_next_delta_check.py, tests/test_nightly_next_one_job.py)"},
@@ -654,7 +658,9 @@
       "published-build": {
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Name the run that published": {"nightly_only": "reads the post-publication dispatch input (tests/test_nightly_next_tail_off_push_group.py)"},
+        "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Check the run that published": {"nightly_only": "reads the run that published through the API (tests/test_nightly_next_tail_off_push_group.py runs check-source on real and forged runs)"},
+        "Download its record": {"nightly_only": "downloads the record artifact of the run that published (gh run download through gh_budget_wait.sh)"},
         "Read the published build": {"nightly_only": "reads a published build's record, which only a publication or its dispatched post-publish run has (tests/test_nightly_next_tail_off_push_group.py round-trips the script)"},
         "Read the published build back from the live feed": {"nightly_only": "reads the live nightly-next feed and fails when the build this run says it published is not on it (tests/test_nightly_next_delta_check.py)"}},
       "build-nightly-deltas": {
@@ -694,6 +700,7 @@
         "Install ffmpeg": {"plumbing": true},
         "Build and publish the reel": {"nightly_only": "publishes reel with media secrets (reel.py tested by tests/test_cmux_next_reel.py)"}},
       "report-nightly-failure": {
+        "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"plumbing": true, "note": "sets checkout authentication before reused-workspace git operations; tests/test_nightly_git_token_env.py"},
         "Open or update the nightly failure issue": {"nightly_only": "writes the nightly failure issue"}},
       "close-nightly-failure-issue": {
         "Close the nightly failure issue": {"nightly_only": "closes the nightly failure issue"}},
