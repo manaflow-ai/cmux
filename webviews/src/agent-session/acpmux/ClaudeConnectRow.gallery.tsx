@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 
-type CardState = "idle" | "signingIn" | "error" | "done";
+type CardState = "idle" | "signing-in" | "error" | "done";
 
 type Props = {
   /// `needed`: the row with Connect; `connected`: saved, before the host's list updates; `flow`: a
@@ -27,7 +27,7 @@ const connect: Play = async (ctx) => {
 const ERROR = "The Claude sign-in page closed before you signed in.";
 const PROGRESS = {
   idle: { phase: null, error: null },
-  signingIn: { phase: "signing_in", error: null },
+  "signing-in": { phase: "signing_in", error: null },
   error: { phase: null, error: ERROR },
   done: { phase: null, error: null },
 } as const;
@@ -138,7 +138,7 @@ export default componentEntry<Props>({
 /// the eye already is; `row` is the compact one-line form; `steps` adds the Step n of 3 caption),
 /// each idle, signing in, failed and done, and Codex's card in the shipped look.
 function cardVariants() {
-  const states: CardState[] = ["idle", "signingIn", "error", "done"];
+  const states: CardState[] = ["idle", "signing-in", "error", "done"];
   const out: Record<string, { props: Props }> = {};
   for (const look of ["card", "row", "steps"] as const)
     for (const card of states) out[`${look}-${card}`] = { props: { state: "card", look, card } };
