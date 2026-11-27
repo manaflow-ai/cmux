@@ -165,7 +165,7 @@ struct ChatComposerField: UIViewRepresentable {
 /// (#57970) and waits on the person opens on its permission bar and never builds a composer; marked
 /// at the composer only, that open never took the mark (LaunchTTIUITests' chat flow on `ws-s0`).
 enum ChatReadyMark {
-    static func take() {
+    @MainActor static func take() {
         LaunchMarks.shared.markNextFrame("chat_composer_ready")
         #if DEBUG
         OpenMarks.shared?.noteNextFrame("chat_composer_ready")
