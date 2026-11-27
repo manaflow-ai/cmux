@@ -2812,3 +2812,12 @@ Commits logged without a trailer (the card above):
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
   Sidebar-Look: no visual change
+
+## The footer Search button is back, and opens the Command Palette (2026-11-23, #53441)
+
+- `116d5b23325` turns `sidebar.showSearchButton` on by default again and makes the footer's magnifying glass run
+  `commandPalette`. Its tooltip reads "Search" with the palette's live key (⇧⌘P; it follows a rebind). Lawrence,
+  2026-11-23: "bring it back"; "we need some mechanism to educate user about cmd shift p". The commit reached the
+  bot's branch without a trailer, so it is logged here. Look checked on a fleet capture mini
+  (cap-116d5b23-steps-6162fe3a71-display-01 in pr-media/53441). The footer keeps #60562's removal of the Spaces toggle.
+  Sidebar-Look: Lawrence, 2026-11-23: "bring it back"
