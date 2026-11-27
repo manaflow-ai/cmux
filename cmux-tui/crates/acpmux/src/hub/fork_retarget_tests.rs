@@ -11,14 +11,12 @@ fn hub() -> Arc<Hub> {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let cfg = json!({"harnesses": {
                         "fake": {"argv": ["python3", fake]},
-                        // `normal` is a non-asking mode in the shared table.  Use the
-                        // deliberately unclassified `strict` mode so these cross-family
-                        // fixtures exercise the fork itself rather than the subsession guard.
                         "other": {"argv": ["python3", fake], "family": "other",
                                   "env": {"FAKE_NEW_MODE": "strict"}},
                         // Takes its model over ACP and refuses `bad-model`.
                         "picky": {"argv": ["python3", fake], "family": "picky",
-                                  "env": {"FAKE_PICKER": "1", "FAKE_REFUSE_ID": "bad-model"}},
+                                  "env": {"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "1",
+                                          "FAKE_REFUSE_ID": "bad-model"}},
                         // Takes its model at spawn, from its defaults' env only.
                         "spawned": {"argv": ["python3", fake], "family": "spawned",
                                     "env": {"FAKE_NEW_MODE": "strict"}},
@@ -27,6 +25,11 @@ fn hub() -> Arc<Hub> {
                                     "env": {"FAKE_MODEL_ARG": "${model}", "FAKE_NEW_MODE": "strict"},
                                     "models": ["haiku", "opus"]}},
                      "defaults": {"spawned": {"env": {"FAKE_MODEL_ARG": "${model}"}}},
+                     "webAskingModes": {"fake": ["normal", "strict"],
+                                         "other": ["normal", "strict"],
+                                         "picky": ["normal", "strict"],
+                                         "spawned": ["normal", "strict"],
+                                         "listing": ["normal", "strict"]},
                      "defaultHarness": "fake",
                      "titles": {"generate": false}});
     let mut cfg: Config = serde_json::from_value(cfg).unwrap();
@@ -249,6 +252,8 @@ fn lister_hub(calls: &std::path::Path) -> Arc<Hub> {
     let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}, "lister": lister,
                                    "nofork": nofork, "lister2": lister2, "moded": moded,
                                    "native": native, "refuses-asking": refuses_asking},
+                     "webAskingModes": {"lister": ["default", "plan"],
+                                         "moded": ["normal", "strict"]},
                      "defaultHarness": "fake",
                      // New chats start in full access, the default a person has: a fork must
                      // still start at its chat's own level.
