@@ -400,7 +400,8 @@ pub(crate) fn stand(home: &Path) -> Result<Standing, u32> {
         Err(cmux_file_lock::LockError::Busy(file)) => {
             let mut buf = [0u8; 16];
             let n = file.read_at(&mut buf, 0).unwrap_or(0);
-            let pid = std::str::from_utf8(&buf[..n]).ok().and_then(|t| t.trim().parse().ok());
+            let read = buf.get(..n).unwrap_or(&[]);
+            let pid = std::str::from_utf8(read).ok().and_then(|t| t.trim().parse().ok());
             Err(pid.unwrap_or(0))
         }
         Err(cmux_file_lock::LockError::Io(_)) => Ok(Standing(None)),

@@ -414,6 +414,31 @@ class Comment(unittest.TestCase):
                 hv.gh("api", "repos/manaflow-ai/cmux/pulls/7")
             self.assertEqual(slept, [])
 
+    def test_a_read_timeout_retries_with_an_alternate_token(self) -> None:
+        calls = []
+        timed_out = subprocess.TimeoutExpired(["gh", "api"], hv.GH_TIMEOUT_SECONDS)
+
+        def run(argv, **kw):
+            calls.append((argv, kw))
+            if len(calls) == 1:
+                raise timed_out
+            return subprocess.CompletedProcess(argv, 0, "ok\n", "")
+
+        with mock.patch.dict(hv.os.environ, {"GH_TOKEN": "primary", "GH_TOKEN_SPARE": "spare",
+                                              "GH_TOKEN_SPARES": "spare third"}, clear=True), \
+                mock.patch.object(hv.subprocess, "run", side_effect=run), redirect_stderr(io.StringIO()):
+            self.assertEqual(hv.gh("api", "repos/manaflow-ai/cmux/pulls/7"), "ok\n")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][1]["env"], None)
+        self.assertEqual(calls[1][1]["env"]["GH_TOKEN"], "spare")
+
+    def test_a_write_timeout_is_refused_without_a_retry(self) -> None:
+        timed_out = subprocess.TimeoutExpired(["gh", "api"], hv.GH_TIMEOUT_SECONDS)
+        with mock.patch.object(hv.subprocess, "run", side_effect=timed_out) as run:
+            with self.assertRaisesRegex(hv.Refused, "timed out"):
+                hv.gh("api", "-X", "POST", "repos/manaflow-ai/cmux/issues/7/comments", body="{}")
+        self.assertEqual(run.call_count, 1)
+
 
 class Workflow(unittest.TestCase):
     """The workflow's wiring that the script relies on (text checks; the house guards check the rest)."""
@@ -758,7 +783,9 @@ class Workflow(unittest.TestCase):
                 self.assertLess(first, drop)
                 self.assertLess(drop, again)
                 # Both checkouts take the same inputs.
-                withs = [w.split("\n      - ", 1)[0].split("\n      # ", 1)[0] for w in block.split("uses: actions/checkout@")[1:]]
+                withs = [w.split("\n      - ", 1)[0].split("\n      # ", 1)[0]
+                         .replace("sparse-checkout: &publisher-sparse", "sparse-checkout:")
+                         for w in block.split("uses: actions/checkout@")[1:]]
                 self.assertEqual(withs[0], withs[1])
 
     def test_the_plan_fetch_tries_a_stalled_transport_again(self) -> None:
@@ -890,12 +917,12 @@ class PullRequestRead(unittest.TestCase):
             gh.chmod(0o755)
             out = t / "out"
             out.write_text("")
-            env = {
+            env = git_fixture_env.fixture_env({
                 "PATH": f"{wrap}:/usr/bin:/bin", "PR": "42", "HEAD_SHA": HEAD, "LAYERS": "web",
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(out),
                 "GITHUB_STEP_SUMMARY": str(t / "summary"), "RUNNER_TEMP": str(t),
                 "GH_TOKEN": "t0", "GH_BUDGET_WAIT_MAX_SECONDS": "0",
-            }
+            })
             done = subprocess.run(["bash", str(PR_SH)], env=env, capture_output=True, text=True, timeout=60)
             lines = dict(l.split("=", 1) for l in out.read_text().splitlines() if "=" in l)
             return done, lines, calls.read_text() if calls.exists() else ""
@@ -907,6 +934,8 @@ class PullRequestRead(unittest.TestCase):
             """)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(out["ok"], "true")
+        self.assertEqual(out["publish_web"], "true")
+        self.assertEqual(out["layers"], "web")
         self.assertNotIn("graphql", calls)
 
     def test_spent_rest_hour_reads_graphql_without_sleeping(self) -> None:
@@ -932,6 +961,8 @@ class PullRequestRead(unittest.TestCase):
             """)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(out["ok"], "true")
+        self.assertEqual(out["publish_web"], "false")
+        self.assertEqual(out["layers"], "web")
 
     def test_graphql_jq_maps_the_states(self) -> None:
         text = PR_SH.read_text()
@@ -951,7 +982,7 @@ class PullRequestRead(unittest.TestCase):
         self.assertEqual(text.count("- name: Mint the pull request read's spare token"), 2)
         # plan's dispatch, web layer's dispatch, the two pull request reads, and publish's gallery read and
         # one-more-look dispatch.
-        self.assertEqual(text.count("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}"), 6)
+        self.assertEqual(text.count("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}"), 7)
         target = text.split("  target:", 1)[1].split("\n  web:", 1)[0]
         self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS: 120", target)
         self.assertIn("permission-pull-requests: read", target)
