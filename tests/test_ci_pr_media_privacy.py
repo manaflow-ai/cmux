@@ -525,7 +525,7 @@ class WriterInventoryTests(unittest.TestCase):
                            ".github/workflows/pr-media.yml", ".github/actions/pr-media-publish/action.yml"}
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", ".github/workflows/pr-media-privacy.yml",
-                    "scripts/ci/prune_pr_media.py", ".github/workflows/storage-maintenance.yml"}
+                    "scripts/ci/prune_pr_media.py"}
     # Names the files for CI routing; writes nothing.
     NOT_WRITERS = {"scripts/ci/workflow_guard_groups.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
