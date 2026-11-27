@@ -69,6 +69,13 @@ impl Hub {
         });
     }
 
+    /// Whether the sampler should read the host now (`cpu_class/pressure.rs`): today it always
+    /// does once started.
+    #[doc(hidden)]
+    pub fn cpu_pressure_wants_samples(&self) -> bool {
+        true
+    }
+
     /// One pass with `sample` (tests drive it with their own): the decision, then each live
     /// `dynamic` harness to the class it wants. Answers the decision.
     #[doc(hidden)]
