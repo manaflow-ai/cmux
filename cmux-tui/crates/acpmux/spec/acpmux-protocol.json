@@ -2753,6 +2753,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/heap_profile",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peers",
       "params": {
         "$ref": "#/types/PeersParams"
@@ -2768,6 +2774,12 @@
     {
       "kind": "request",
       "name": "_acpmux/host_health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/wireguard_admit",
       "params": true,
       "result": true
     },
@@ -4360,6 +4372,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "attachments": true,
         "sessionId": true
       },
       "type": "object"
@@ -4370,6 +4383,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "attachments": true,
         "sessionId": true,
         "text": true
       },
@@ -8091,6 +8105,14 @@
         "harness": {
           "type": "string"
         },
+        "harnessSandboxError": {
+          "default": null,
+          "description": "The refused operation, redacted and bounded; cleared on recovery.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "harnessSandboxFailed": {
           "default": null,
           "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
@@ -9071,6 +9093,14 @@
         },
         "harness": {
           "type": "string"
+        },
+        "harnessSandboxError": {
+          "default": null,
+          "description": "The refused operation, redacted and bounded; cleared on recovery.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "harnessSandboxFailed": {
           "default": null,
