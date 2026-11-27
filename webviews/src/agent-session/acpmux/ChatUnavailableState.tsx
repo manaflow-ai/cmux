@@ -1,14 +1,17 @@
 import { RESUME_NOTE_DELAY_MS, useAfterDelay, useLinkDownSaid } from "./afterDelay";
 import type { ChatUnavailable } from "./chatUnavailable";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { relativeTime } from "./conversation/relativeTime";
 import { currentLanguage, useT } from "./i18n";
 import { shortSession } from "./chatUnavailableStateModel";
+import { useAutoRetry } from "./autoRetry";
 
 /// The tab's chat is not here (`missingSession`): centered in place of the transcript, quiet, in the
 /// new chat hero's type (EmptyState.tsx), it says which case it is. Deleted: Remove from Sidebar
-/// closes the tab. Its machine is not connected: the machine, when it was last seen, and Reconnect,
-/// which reads the machines and the chat list again (the chat opens once it is listed). Still
+/// closes the tab. Its machine is not connected: the machine and when it was last seen, while the
+/// pane reads the machines and the chat list again on its own (`onReconnect`, on the shared backoff,
+/// autoRetry.ts), so the chat opens once it is listed; no Reconnect button, since asking again is no
+/// one's decision (Leo, 2026-11-22: "vacuous decisions like that should be just done"). Still
 /// connecting (the grace, chatUnavailable.ts): nothing, an empty area where the chat opens once it
 /// is listed; never "unavailable" (Leo 2026-10-21: "second pic is weird has "this chat isn't
 /// available"") and no spinner or "Reconnecting…" (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT
@@ -53,6 +56,7 @@ export function ChatUnavailableState({
   resumeLong?: boolean;
   error?: string;
   onRemove(): void;
+  /// Reads the machines and the chat list again; the state asks it on its own while offline.
   onReconnect(): void;
   onResume?(): void;
   /// Close Tab, on every case but deleted (Remove from Sidebar closes that one's tab).
@@ -67,6 +71,9 @@ export function ChatUnavailableState({
   line?: boolean;
 }) {
   const t = useT();
+  // A machine that is not connected: read the machines and the chat list again on the shared
+  // backoff while this shows (a hidden pane asks nothing, and asks once when it shows again).
+  useAutoRetry(unavailable.reason === "offline", onReconnect);
   // A pause is invisible at first, as a resume is (Leo, 2026-11-03: the wait "you mostly perceive as
   // "thinking""): a machine that wakes within RESUME_NOTE_DELAY_MS never shows its card, and one
   // resuming shows its spinner only past it. The spinner's slot is kept from the first frame, so it
@@ -137,14 +144,16 @@ export function ChatUnavailableState({
     title = t("unavailable.notFound.title");
     detail = named ? t("unavailable.notFound.detailOn", { machine: named }) : t("unavailable.notFound.detail");
   } else {
-    title = named ? t("unavailable.offline.titleOn", { machine: named }) : t("unavailable.offline.title");
+    // A machine down past the bound says it is offline, with Reconnect: never a "Reconnecting…" that
+    // leaves the person in limbo (Leo, 2026-11-24: "making the user think they're constsntly suspended
+    // in a state of connection limbo").
+    title = t("machineLink.offline");
     detail =
       unavailable.lastSeen !== undefined
         ? t("unavailable.offline.lastSeen", {
             time: relativeTime(unavailable.lastSeen, now, currentLanguage()),
           })
         : t("unavailable.offline.detail");
-    action = { label: t("unavailable.reconnect"), run: onReconnect, kind: "reconnect" };
   }
   // Remove from Sidebar closes a deleted chat's tab; every other case keeps MissingChat's Close Tab.
   const closes = onClose !== undefined && unavailable.reason !== "deleted";
@@ -182,7 +191,7 @@ export function ChatUnavailableState({
         data-enter="top"
       >
         <p className="acpmux-peer-copy-title">
-          {resuming && <Spinner size={12} loading className="acpmux-peer-copy-spinner" />}
+          {resuming && <WaitSpinner size={12} loading className="acpmux-peer-copy-spinner" />}
           {title}
         </p>
         {error && (
@@ -203,6 +212,7 @@ export function ChatUnavailableState({
       role={unavailable.reason === "offline" || unavailable.reason === "paused" ? "status" : "alert"}
       data-enter="fade"
     >
+      {/* No spinner for an offline machine: it says Offline with Reconnect, not limbo. */}
       <svg
         className="acpmux-empty-glyph"
         width={36}
@@ -232,12 +242,12 @@ export function ChatUnavailableState({
           <span className="acpmux-unavailable-progress" aria-hidden={!resumeSlow}>
             {resumeSlow && (
               <span className="acpmux-unavailable-progress-mark" data-enter="fade">
-                <Spinner size={20} loading />
+                <WaitSpinner size={20} loading />
               </span>
             )}
           </span>
         ) : (
-          resuming && <Spinner size={20} loading />
+          resuming && <WaitSpinner size={20} loading />
         )}
         {error && (
           <p className="acpmux-unavailable-detail" role="alert">

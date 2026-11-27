@@ -149,6 +149,7 @@ const CAPABILITIES: &[&str] = &[
     conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
     "machine-identity-v1",
     SCREEN_DEVICE_IDENTITY_CAPABILITY,
+    AGENT_PRESENCE_REPLAY_CAPABILITY,
     AGENT_SESSION_ATTACH_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY,
     AGENT_SESSION_START_CAPABILITY,
@@ -174,6 +175,7 @@ const CAPABILITIES: &[&str] = &[
     agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY,
+    agent_transfer::AGENT_TRANSFER_CREDENTIALS_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES[0],
     agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES[1],
     agent_inventory::CAPABILITY,
@@ -195,6 +197,7 @@ const CAPABILITIES: &[&str] = &[
     crate::git_seed::GIT_SEED_CAPABILITY,
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
     crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
+    crate::git_seed::GIT_SEED_CARRY_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
     // A projected folder on the owner's own machine: its stream dial passes
     // `fs_wire::remote_dial_admits` for the owner's Native dial only.

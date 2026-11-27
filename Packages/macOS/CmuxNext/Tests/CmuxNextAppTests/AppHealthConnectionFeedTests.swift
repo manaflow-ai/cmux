@@ -28,15 +28,12 @@ import Testing
         #expect(!health.holdsReplace, "nothing to protect from a replace")
     }
 
-    /// A disconnect that the model repairs immediately keeps the last frame quiet; only the failed
-    /// state after the repair bound needs a footer line.
+    /// A disconnect that the model repairs immediately clears once the connection is back. App health
+    /// draws no line for any part (#55468), so the short reconnect stays quiet by construction.
     @Test(.enabled(if: linked)) func aShortReconnectRendersNoLine() {
         let health = AppHealth(clock: ManualClock())
         health.register(AppHealth.acpmuxID, kind: .acpmux, label: "Connection to the session service")
         health.event(AppHealth.acpmuxID, .disconnected)
-
-        #expect(AppHealthStrings.line(health.headline!) == nil)
-
         health.event(AppHealth.acpmuxID, .connected)
         #expect(health.headline == nil)
     }

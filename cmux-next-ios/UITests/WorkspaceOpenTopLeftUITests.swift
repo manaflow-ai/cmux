@@ -4,7 +4,7 @@ import XCTest
 /// 2026-11-11), and opened again in the same launch on the tab left on screen (Leo
 /// 2026-11-14). The `workspace-open-top-left` demo lays ws-cmux out as zsh | (Claude, docs),
 /// with the right pane focused on the Mac, opens it, switches to docs, leaves and opens it
-/// again. The first open shows zsh (the terminal's key row), never the Mac's focused Claude
+/// again. The first open shows zsh (the terminal's composer field), never the Mac's focused Claude
 /// tab; the reopen shows docs, the tab left on screen, not zsh.
 final class WorkspaceOpenTopLeftUITests: XCTestCase {
     override func setUp() {
@@ -20,7 +20,7 @@ final class WorkspaceOpenTopLeftUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
 
-        let terminal = app.buttons["terminal.key.control"].firstMatch
+        let terminal = app.textViews["terminal.composer.field"].firstMatch
         let claude = app.buttons["Reply to Claude"].firstMatch
 
         expect(terminal, "exists == true AND hittable == true", timeout: 20, "first open: the zsh tab (top-left pane) is on screen")

@@ -269,7 +269,7 @@ impl Hub {
             session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).reply_period_ms(now);
         let provenance = opts.provenance.as_ref();
         let text = prompt_text(blocks);
-        let notice = tool_notice_of(provenance);
+        let notice = notice_of(provenance, &text);
         let thread = surge_topic(
             opts.thread.as_deref(),
             &text,
@@ -319,6 +319,7 @@ impl Hub {
             // A surge hold is the inbox's own pacing: it stands whether or not the message waited.
             waited: false,
             at: now,
+            within: None,
             text,
             details: provenance.and_then(|p| p.get("details")).cloned(),
             fire: fire_notice(notice.as_ref()),

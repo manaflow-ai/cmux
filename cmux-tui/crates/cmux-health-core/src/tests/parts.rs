@@ -207,3 +207,26 @@ fn receipts_keep_the_last_64() {
     assert_eq!(snap.receipts.len(), 64);
     assert!(snap.receipts[0].at_ms > snap.receipts[63].at_ms, "newest first");
 }
+
+/// The host's one timer says which part it waits for: at idle on cmux20-bench (2026-11-25) the timer fired
+/// every 5 s (`app.health.tick`, 0.22/s) and nothing named the part that kept it armed.
+#[test]
+fn each_reply_names_the_part_the_next_tick_is_for() {
+    const ID: &str = "renderer:9";
+    let mut h = model();
+    let reply = crate::ops::call(
+        &mut h,
+        "register",
+        &serde_json::json!({ "id": ID, "kind": "renderer", "label": "Web content", "nowMs": 0 }),
+    )
+    .expect("register");
+    assert_eq!(reply.get("nextTickId"), Some(&serde_json::Value::Null), "no timer: no part");
+    let reply = crate::ops::call(
+        &mut h,
+        "event",
+        &serde_json::json!({ "id": ID, "event": "unresponsive", "nowMs": 1_000 }),
+    )
+    .expect("event");
+    assert_eq!(reply["nextTickMs"], 6_000);
+    assert_eq!(reply["nextTickId"], ID);
+}

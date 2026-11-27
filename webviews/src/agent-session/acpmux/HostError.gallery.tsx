@@ -217,7 +217,7 @@ export default componentEntry<Props>({
         initialRetrying: false,
         withRetry: true,
       },
-      note: "Picked. Automatic recovery stays silent even after 25 s; the chat and composer keep their last frame. A message sent meanwhile waits in the composer and goes once the agent is back.",
+      note: 'Picked. A recovery still failing after 25 s (a machine rebooting, an agent service starting): nothing shows; the pane keeps connecting (Leo, 2026-11-24: "let\'s just keep optimistically connecting"). No chip, no Retry, no Details, no reassurance; a message sent meanwhile waits in the composer and goes once the agent is back.',
     },
     "outage-named": {
       props: { message: "", initialRetrying: false, withRetry: false, outage: "named" },
@@ -295,10 +295,10 @@ export default componentEntry<Props>({
       note: "Alternate, not shipped: a spinner and a muted line. Draws the eye to a wait the person cannot shorten.",
     },
     // The machine is still unreachable after two minutes (rebooting, Leo 2026-11-12): the pane keeps
-    // asking by itself, so the line is only Reconnecting…. Picked: "peer-gone".
+    // asking by itself, so nothing shows. Picked: "peer-gone".
     "peer-gone": {
       props: { message: "Can't reach box.", detail: PEER_WORDS, initialRetrying: false, withRetry: true },
-      note: "Picked. A machine still reconnecting after two minutes: no progress line, since the pane asks again by itself.",
+      note: "Picked. A machine unreachable for two minutes: nothing shows; acpmux's words and Retry never show, since the pane asks again by itself.",
     },
     "peer-gone-details": {
       props: {

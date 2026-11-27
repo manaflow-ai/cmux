@@ -447,6 +447,49 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("git log", upload)
         self.assertNotIn("ios_internal_notes.py", upload)
 
+    def test_a_slow_note_fails_a_step_never_cancels_the_run(self):
+        """A job timeout reads as `cancelled`, which continue-on-error does not cover: runs 45580371273 and
+        45630066679 (2026-11-25) uploaded a build and still ended cancelled, and every reader skips a cancelled
+        run. Each notes step has its own bound, and the bounds fit under the job's."""
+        job = self.jobs()["notes"]
+        job_bound = int(re.search(r"(?m)^    timeout-minutes: (\d+)$", job).group(1))
+        steps = re.split(r"(?m)^      - ", job.split("\n    steps:\n", 1)[1])[1:]
+        bounds = []
+        for step in steps:
+            name = step.splitlines()[0]
+            if "upload-artifact" in step:  # the hand-off is a small file
+                bounds.append(3)
+                continue
+            m = re.search(r"(?m)^        timeout-minutes: (\d+)$", step)
+            self.assertIsNotNone(m, f"notes step has no timeout-minutes: {name}")
+            self.assertIn("continue-on-error: true", step, name)
+            bounds.append(int(m.group(1)))
+        self.assertLess(sum(bounds), job_bound)
+
+    def test_archive_checkout_is_bounded_under_the_job(self):
+        archive = self.jobs()["archive"]
+        step = archive.split("- name: Checkout the commit", 1)[1].split("\n      - ", 1)[0]
+        bound = int(re.search(r"timeout-minutes: (\d+)", step).group(1))
+        self.assertLess(bound, int(re.search(r"(?m)^    timeout-minutes: (\d+)$", archive).group(1)))
+
+
+class GhTimeoutTests(unittest.TestCase):
+    def test_a_hung_gh_is_a_called_process_error_the_callers_fall_back_from(self):
+        real = notes.subprocess.run
+
+        def hang(argv, **kwargs):
+            self.assertEqual(kwargs.get("timeout"), notes.GH_TIMEOUT_S)
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+        notes.subprocess.run = hang
+        try:
+            with self.assertRaises(subprocess.CalledProcessError):
+                notes._gh(["repos/x/y"])
+            with self.assertRaises(subprocess.CalledProcessError):
+                notes._graphql(["a: pullRequest(number: 1) { number }"])
+        finally:
+            notes.subprocess.run = real
+
 
 if __name__ == "__main__":
     unittest.main()

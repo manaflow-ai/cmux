@@ -1,6 +1,7 @@
 // The live page's side of a chat's snapshot (shared.ts): it tells the host the chat is on screen as
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
+import { slackTimersFor } from "../../../pages/shared/slackTimers";
 import { captureMiss, captureSnapshot } from "./capture";
 import { liveMatchesCopy, noteSwap, swapDiff } from "./swapDiff";
 import {
@@ -12,9 +13,19 @@ import {
   type SnapshotLive,
 } from "./shared";
 import { watchLaunchSettle } from "../launchSettle";
+import { COMPOSER_READY_EVENT } from "../composerFocus";
+import { skeletonField } from "./skeleton";
+import { focusRoute } from "../../../ui/focusRoute";
 import { LIVE_THINKING } from "../conversation/turns";
 
-type Shown = { at: number; swappedAt?: number; chromeOnly?: boolean };
+/// `hold`: how the wait for the chat's draft ran out (draftSettleHold.ts), when, and at a `cap`
+/// what still differed between the copy's composer and the live one (`composerDifference`).
+type Shown = {
+  at: number;
+  swappedAt?: number;
+  chromeOnly?: boolean;
+  hold?: { by: string; at: number; differs?: string };
+};
 
 function shown(): Shown | undefined {
   if (typeof window === "undefined") return undefined;
@@ -35,6 +46,46 @@ function liveSide(): SnapshotLive {
 /// Whether the boot script drew a snapshot this document still shows.
 export function showsChatSnapshot(): boolean {
   return !!shown() && typeof document !== "undefined" && !!document.querySelector(SNAPSHOT_HOST_TAG);
+}
+
+/// What the composer in an element shows, or undefined when it has no prompt (its editor's root; the
+/// placeholder lies beside it). It holds the prompt, surrounding text, tile count, and height.
+function composerShows(scope: ParentNode | null | undefined): string[] | undefined {
+  const composer = scope?.querySelector(".acpmux-composer");
+  const field = composer?.querySelector(".acpmux-composer-box .acpmux-md-root");
+  if (!composer || !field) return undefined;
+  const fold = (node: Node) => (node.textContent ?? "").replace(/\s+/g, " ").trim();
+  const tiles = composer.querySelectorAll(".acpmux-attachment-slot, img, video").length;
+  return [fold(field), fold(composer), String(tiles), String(Math.round(composer.getBoundingClientRect().height))];
+}
+
+const COMPOSER_PARTS = ["prompt", "text", "tiles", "height"] as const;
+
+/// Returns a bounded description of differences between the saved and live composers.
+export function composerDifference(): string | undefined {
+  const copy = composerShows(document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot);
+  const live = composerShows(document.getElementById("root"));
+  if (!copy || !live) return "no composer";
+  const told = (part: (typeof COMPOSER_PARTS)[number], a: string, b: string) => {
+    if (part === "tiles" || part === "height") return `${part} ${a}/${b}`;
+    let at = 0;
+    while (at < a.length && a[at] === b[at]) at += 1;
+    return `${part} at ${at}, ${a.length}/${b.length} chars`;
+  };
+  const parts = COMPOSER_PARTS.flatMap((part, at) => (copy[at] === live[at] ? [] : [told(part, copy[at]!, live[at]!)]));
+  return parts.length ? parts.join("; ") : undefined;
+}
+
+/// Whether the live page's composer shows what the copy over it shows.
+export function promptMatchesChatSnapshot(): boolean {
+  return showsChatSnapshot() && composerDifference() === undefined;
+}
+
+/// Records how the draft wait ended on the copy's launch record.
+export function noteDraftWaitEnd(by: string): void {
+  const value = shown();
+  if (!value || value.hold) return;
+  value.hold = { by, at: performance.now(), ...(by === "cap" ? { differs: composerDifference() ?? "none" } : {}) };
 }
 
 /// Whether the copy on screen shows a turn still running: its live line (turns.ts LIVE_THINKING),
@@ -70,6 +121,7 @@ export function chatSnapshotReport(): Record<string, unknown> {
   const globals = (typeof window === "undefined" ? {} : window) as unknown as Record<string, unknown>;
   return {
     ...chatSnapshotTimes(),
+    hold: shown()?.hold ?? null,
     miss: globals[SNAPSHOT_MISS_GLOBAL] ?? null,
     served: globals[`${SNAPSHOT_GLOBAL}Why`] ?? null,
     served_cause: (globals[SNAPSHOT_GLOBAL] as { cause?: unknown } | undefined)?.cause ?? null,
@@ -94,10 +146,59 @@ export function removeChatSnapshot(doc: Document = document, held?: { ms: number
   if (!host) return false;
   if (host.shadowRoot && root && doc.defaultView) noteSwap(host.shadowRoot, root, doc.defaultView, held);
   host.remove();
+  handOverSkeleton(doc);
   const value = shown();
   if (value) value.swappedAt = performance.now();
   performance.mark?.("cmux-chat:snapshot-swap");
   return true;
+}
+
+/// The live prompt's editable, once its editor is up (MarkdownField.tsx).
+const LIVE_PROMPT = '.acpmux-composer-prompt [contenteditable="true"]';
+const LIVE_PLACEHOLDER = ".acpmux-composer-prompt .acpmux-md-placeholder";
+/// How long the copy's prompt field (skeleton.ts) waits for the live prompt after the swap. Past it the
+/// field goes: a chat whose page drew no prompt (a question card in its place) has none to fill.
+const SKELETON_WAIT_MS = 10_000;
+/// The copy's prompt fields whose handover waits on the live prompt (`handOverSkeleton`).
+const handingOver = new WeakSet<HTMLElement>();
+
+/// Moves what the person typed in the copy's prompt field into the live prompt, as typing (the host's
+/// `insertText`, as its queued keys go in), with the caret there when the field had it. The field stays
+/// over the live prompt until that editor is up, so nothing typed meanwhile is lost. A second call while
+/// one waits on the same field does nothing, so both the copy's removal and the live composer's hole
+/// (#50067's `fitLiveComposer`, after it cuts the hole) may call it.
+export function handOverSkeleton(doc: Document = document): void {
+  const field = skeletonField(doc);
+  const view = doc.defaultView;
+  if (!field || !view || handingOver.has(field)) return;
+  handingOver.add(field);
+  let timer: number | undefined;
+  let hidden: HTMLElement | null = null;
+  const finish = () => {
+    view.removeEventListener(COMPOSER_READY_EVENT, finish);
+    view.clearTimeout(timer);
+    if (hidden) hidden.style.removeProperty("visibility");
+    const text = field.innerText ?? field.textContent ?? "";
+    const focused = doc.activeElement === field;
+    const live = doc.querySelector<HTMLElement>(LIVE_PROMPT);
+    field.remove();
+    if (!live || !(focused || text.length > 0)) return;
+    // The person's own typing goes on in the live prompt: theirs, so a `system` move's typing guard
+    // (which sees them typing in the field) does not refuse it.
+    focusRoute(live, "person", "the copy's prompt field hands over to the live prompt", { preventScroll: true });
+    if (text.length > 0) doc.execCommand("insertText", false, text);
+  };
+  if (doc.querySelector(LIVE_PROMPT)) {
+    finish();
+    return;
+  }
+  // The live placeholder under the field would show through its typed text until the handover.
+  if ((field.textContent ?? "").length > 0) {
+    hidden = doc.querySelector<HTMLElement>(LIVE_PLACEHOLDER);
+    hidden?.style.setProperty("visibility", "hidden");
+  }
+  view.addEventListener(COMPOSER_READY_EVENT, finish);
+  timer = view.setTimeout(finish, SKELETON_WAIT_MS);
 }
 
 /// The longest the swap waits for the live page to lay out what the copy shows (``swapChatSnapshot``).
@@ -283,6 +384,9 @@ export function reportChatSnapshot(
     // card's Allow, a shortcut). The press is consumed, with the rest of its gesture (its pointerup
     // and click). A wheel ends the copy and scrolls. Stops with the copy.
     const end = (event?: Event) => {
+      // A press or key in the copy's prompt field (skeleton.ts) is the person typing: it keeps the copy.
+      const field = skeletonField(document);
+      if (event && field && event.target instanceof Node && field.contains(event.target)) return;
       // Only a press on the copy is consumed: once it is gone, input reaches the page as usual.
       if (event && event.type !== "wheel" && showsChatSnapshot()) {
         event.preventDefault();
@@ -333,6 +437,7 @@ export function watchChatSnapshot(
   const root = doc.getElementById("root");
   const view = doc.defaultView;
   if (!root || !view) return () => {};
+  const slackTimers = slackTimersFor(view);
   let timer: number | undefined;
   let changedAt = 0;
   let wroteAt = 0;
@@ -373,14 +478,22 @@ export function watchChatSnapshot(
     if (timer !== undefined || stopped) return;
     const now = performance.now();
     const due = Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - now;
-    timer = view.setTimeout(
-      () => {
+    // On the page's shared timer, up to a heartbeat late: the quiet write rides a beat instead of
+    // waking a chat at rest by itself (slackTimers.ts).
+    // On the beat that rests the page (`atRest`) the write goes now, ahead of QUIET_MS and WRITE_GAP_MS:
+    // the page rests because nothing happened in it for a beat, so the markup is what it will stay, and a
+    // timer kept for either wait would only wake it alone (the read_ahead arm's write at 3.46 s in
+    // bench/chat-switch.bench.ts). A change after the rest arms the next write as before.
+    timer = slackTimers.later(
+      (atRest) => {
         timer = undefined;
-        const late = Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - performance.now();
+        const late = atRest ? 0 : Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - performance.now();
         if (late > 1) schedule();
-        else write("quiet");
+        else write(atRest ? "rest" : "quiet");
       },
       Math.max(0, due),
+      undefined,
+      { atRest: true },
     );
   };
   // A change moves the armed timer to its new due time, so the page wakes once when it has been quiet, never to
@@ -388,7 +501,7 @@ export function watchChatSnapshot(
   // idle_wakeups). One MutationObserver callback per batch of changes: a clear and a set, no wakeup.
   const changed = () => {
     changedAt = performance.now();
-    if (timer !== undefined) view.clearTimeout(timer);
+    slackTimers.cancel(timer);
     timer = undefined;
     schedule();
   };
@@ -406,13 +519,13 @@ export function watchChatSnapshot(
     view.clearTimeout(resizeTimer);
     resizeTimer = view.setTimeout(() => {
       resizeTimer = undefined;
-      if (timer !== undefined) view.clearTimeout(timer);
+      slackTimers.cancel(timer);
       write("resize");
     }, RESIZE_QUIET_MS);
   };
   view.addEventListener("resize", resized);
   const now = (cause: string) => {
-    if (timer !== undefined) view.clearTimeout(timer);
+    slackTimers.cancel(timer);
     write(cause);
   };
   const hidden = () => {
@@ -429,7 +542,7 @@ export function watchChatSnapshot(
     observer.disconnect();
     view.removeEventListener("resize", resized);
     view.clearTimeout(resizeTimer);
-    if (timer !== undefined) view.clearTimeout(timer);
+    slackTimers.cancel(timer);
     doc.removeEventListener("visibilitychange", hidden);
     view.removeEventListener(SNAPSHOT_WRITE_EVENT, asked);
   };

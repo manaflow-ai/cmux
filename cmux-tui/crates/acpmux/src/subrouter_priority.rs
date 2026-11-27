@@ -19,10 +19,18 @@
 use crate::subrouter_session::HEADERS_ENV;
 
 /// `interactive` or `background`: the priority this process's requests carry.
+/// A profile may also name one of subrouter's other classes, `coordinator` or
+/// `batch` (subrouter-internal `internal/proxy/admission_class.go`; the
+/// gateway finds a `/compact` from the request body itself).
 pub const ENV: &str = "SUBROUTER_PRIORITY";
 const HEADER: &str = "X-Subrouter-Priority";
 pub const INTERACTIVE: &str = "interactive";
 pub const BACKGROUND: &str = "background";
+
+/// Whether `value` (lowercase) is a priority [`ENV`] may carry.
+pub fn is_known(value: &str) -> bool {
+    matches!(value, INTERACTIVE | BACKGROUND | "coordinator" | "batch")
+}
 
 /// Whether `name` is a coordinator session's name.
 pub fn is_coordinator(name: &str) -> bool {
@@ -47,15 +55,48 @@ pub fn classify(name: &str, for_person: bool) -> &'static str {
     }
 }
 
+/// The session tag that sets a session's priority by hand: `interactive` or `background`.
+pub const TAG: &str = "priority";
+
+/// Whether a session's role makes it a coordinator, whatever its name.
+///
+/// On 2026-11-24 at 21:1xZ the interim coordinator's `/compact` failed with "503 no
+/// non-exhausted claude accounts available; next account frees up in 29m". The interim
+/// coordinator runs as `cosmic-gray/interim-coord-2`, and its deputies as `coord-deputy*`,
+/// `coord-successor` and `coord-dispatcher`. None of them matched [`is_coordinator`]'s names, so
+/// they were sent as background, and the gateway's interactive reserve
+/// (subrouter-internal#85) held nothing back for them. A role is now read from what the
+/// session is: `leads` (live sessions report to it through `lane.reportsTo`, as `acpmux ls
+/// --leads` derives a leader), an `interim-` name (each interim coordinator's generated name)
+/// or `chief`. The tag [`TAG`] overrides all of it.
+pub fn classify_role(
+    name: &str,
+    for_person: bool,
+    leads: usize,
+    tag: Option<&str>,
+) -> &'static str {
+    match tag.map(|t| t.trim().to_ascii_lowercase()).as_deref() {
+        Some(INTERACTIVE) => return INTERACTIVE,
+        Some(BACKGROUND) => return BACKGROUND,
+        _ => {}
+    }
+    // A sub-session's name carries its parent's (`coord-successor/ws-disk`): only its own
+    // last segment names its role.
+    let own = name.rsplit('/').next().unwrap_or(name).trim().to_ascii_lowercase();
+    if leads > 0 || own.starts_with("interim-") || own == "chief" || own.starts_with("chief-") {
+        return INTERACTIVE;
+    }
+    classify(&own, for_person)
+}
+
 /// `profile` with [`ENV`] set to this session's priority, unless the profile
 /// names one itself.
 pub fn profile_with(
     profile: &crate::config::HarnessProfile,
-    name: &str,
-    for_person: bool,
+    priority: &'static str,
 ) -> crate::config::HarnessProfile {
     let mut profile = profile.clone();
-    set(&mut profile.env, name, for_person);
+    profile.env.entry(ENV.to_owned()).or_insert_with(|| priority.to_owned());
     profile
 }
 
@@ -69,7 +110,7 @@ pub fn set(env: &mut std::collections::BTreeMap<String, String>, name: &str, for
 /// one, or `None` when [`ENV`] is unset or not a known priority.
 pub fn custom_headers(get: impl Fn(&str) -> Option<String>) -> Option<String> {
     let priority = get(ENV)?.trim().to_ascii_lowercase();
-    if priority != INTERACTIVE && priority != BACKGROUND {
+    if !is_known(&priority) {
         return None;
     }
     let mut lines: Vec<String> = get(HEADERS_ENV)
@@ -86,66 +127,5 @@ pub fn custom_headers(get: impl Fn(&str) -> Option<String>) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::BTreeMap;
-
-    fn run(pairs: &[(&str, &str)]) -> Option<String> {
-        let env: BTreeMap<String, String> =
-            pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
-        custom_headers(|k| env.get(k).cloned())
-    }
-
-    #[test]
-    fn person_chats_and_coordinators_are_interactive() {
-        assert_eq!(classify("claude-17", true), INTERACTIVE);
-        for coord in ["claude-sr2-coord", "claude-sr2-coord-old", "interim-coord", "web-coord"] {
-            assert_eq!(classify(coord, false), INTERACTIVE, "{coord}");
-        }
-        for lane in ["ci-217x-dictator", "merge-dictator-2", "ask-efe8c0bf62", "ASK-gui-chats"] {
-            assert_eq!(classify(lane, false), INTERACTIVE, "{lane}");
-        }
-        for lane in [
-            "lane-gateway",
-            "helper-3",
-            "optchat-a-sub",
-            "coordinator-relay",
-            "coord",
-            "task-ask-x",
-        ] {
-            assert_eq!(classify(lane, false), BACKGROUND, "{lane}");
-        }
-    }
-
-    #[test]
-    fn appends_after_existing_lines_and_replaces_an_older_priority() {
-        let got = run(&[
-            (ENV, "interactive"),
-            (HEADERS_ENV, "X-Subrouter-Session: s1\nx-subrouter-priority: background"),
-        ]);
-        assert_eq!(
-            got.as_deref(),
-            Some("X-Subrouter-Session: s1\nX-Subrouter-Priority: interactive")
-        );
-        assert_eq!(
-            run(&[(ENV, "background")]).as_deref(),
-            Some("X-Subrouter-Priority: background")
-        );
-    }
-
-    #[test]
-    fn unset_or_unknown_changes_nothing() {
-        assert_eq!(run(&[(HEADERS_ENV, "A: b")]), None);
-        assert_eq!(run(&[(ENV, "urgent\nX-Evil: 1")]), None);
-    }
-
-    #[test]
-    fn a_profile_value_wins() {
-        let mut env = BTreeMap::new();
-        set(&mut env, "lane-1", true);
-        assert_eq!(env.get(ENV).map(String::as_str), Some(INTERACTIVE));
-        let mut env = BTreeMap::from([(ENV.to_owned(), BACKGROUND.to_owned())]);
-        set(&mut env, "x-coord", true);
-        assert_eq!(env.get(ENV).map(String::as_str), Some(BACKGROUND));
-    }
-}
+#[path = "subrouter_priority_tests.rs"]
+mod tests;

@@ -43,9 +43,13 @@ export const SNAPSHOT_BODY_TAG = "cmux-snapshot-body";
 /// `:root` in the copy's rules (a class, as `:root` is a pseudo-class: the same specificity).
 export const SNAPSHOT_ROOT_CLASS = "cmux-snapshot-root";
 /// An element of the copy that was scrolled: `top,left` in CSS pixels, and `,end` when it was scrolled to
-/// its end (the transcript at its latest row), which the copy keeps at its end in a window of another
-/// height (``SNAPSHOT_HEIGHT_SLACK``), as the live page keeps its latest row there.
+/// its end (the transcript at its latest row, `0,0,end` when it fit its window), which the copy keeps at
+/// its end in a window of another height (``SNAPSHOT_HEIGHT_SLACK``), as the live page keeps its latest
+/// row there.
 export const SNAPSHOT_SCROLL_ATTRIBUTE = "data-cmux-snapshot-scroll";
+/// The plain field drawn over the copy's prompt, which takes clicks and typing until the live prompt is
+/// up (skeleton.ts); it lives in the page's light DOM, outside `#root`.
+export const SNAPSHOT_SKELETON_ATTRIBUTE = "data-cmux-snapshot-skeleton";
 /// A shadow root's adopted sheets, by index in the snapshot's `sheets`.
 export const SNAPSHOT_SHEETS_ATTRIBUTE = "data-cmux-snapshot-sheets";
 /// The page's stylesheet, a `<link>` to `pane.css` beside the page (build-agent-pane-web.sh). Its

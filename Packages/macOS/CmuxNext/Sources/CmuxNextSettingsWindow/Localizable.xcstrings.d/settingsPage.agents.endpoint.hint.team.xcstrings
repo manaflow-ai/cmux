@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.agents.endpoint.hint.team" : {
+      "comment" : "Settings > Agents > Add > Endpoint (your own model endpoint); keep Claude Code, Opus, Sonnet, Haiku, OpenAI, Anthropic, https, http, /v1 and port numbers exactly",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عنوان URL المتوافق مع OpenAI للخادم، وينتهي عادةً بـ /v1. أضف مفتاحًا إن طلبه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "URL servera kompatibilan s OpenAI, obično završava s /v1. Dodajte ključ ako ga traži."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Serverens OpenAI-kompatible URL, som regel med /v1 til sidst. Tilføj en nøgle, hvis den beder om en."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die OpenAI-kompatible URL des Servers, meist mit /v1 am Ende. Gib einen Schlüssel an, falls er einen verlangt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The server's OpenAI-compatible URL, usually ending in /v1. Add a key if it asks for one."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La URL compatible con OpenAI del servidor, que suele terminar en /v1. Añade una clave si la pide."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L'URL compatible OpenAI du serveur, qui finit souvent par /v1. Ajoutez une clé s'il en demande une."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L'URL compatibile con OpenAI del server, di solito termina con /v1. Aggiungi una chiave se la richiede."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "サーバーの OpenAI 互換 URL (通常は /v1 で終わります)。求められたらキーを追加します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "URL ដែលត្រូវគ្នានឹង OpenAI របស់ម៉ាស៊ីនមេ ជាធម្មតាបញ្ចប់ដោយ /v1។ បន្ថែមសោ ប្រសិនបើវាស្នើសុំ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "서버의 OpenAI 호환 URL로, 보통 /v1로 끝납니다. 요청하면 키를 추가하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Serverens OpenAI-kompatible URL, som regel med /v1 til slutt. Legg til en nøkkel hvis den ber om det."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Adres URL serwera zgodny z OpenAI, zwykle kończy się na /v1. Dodaj klucz, jeśli serwer o niego prosi."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A URL compatível com OpenAI do servidor, geralmente terminando em /v1. Adicione uma chave se ele pedir."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "URL сервера, совместимый с OpenAI, обычно заканчивается на /v1. Добавьте ключ, если сервер его требует."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "URL ที่เข้ากันได้กับ OpenAI ของเซิร์ฟเวอร์ ซึ่งมักลงท้ายด้วย /v1 เพิ่มคีย์หากเซิร์ฟเวอร์ขอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sunucunun OpenAI uyumlu URL'si, genellikle /v1 ile biter. İsterse bir anahtar ekleyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "URL сервера, сумісний з OpenAI, зазвичай закінчується на /v1. Додайте ключ, якщо сервер його просить."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "URL tương thích OpenAI của máy chủ, thường kết thúc bằng /v1. Thêm khóa nếu máy chủ yêu cầu."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "服务器兼容 OpenAI 的 URL，通常以 /v1 结尾。如果需要，请添加密钥。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "伺服器相容 OpenAI 的 URL，通常以 /v1 結尾。若需要，請加入金鑰。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

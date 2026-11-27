@@ -132,6 +132,22 @@
     },
     {
       "kind": "request",
+      "name": "session/signature",
+      "params": {
+        "$ref": "#/types/SignatureParams"
+      },
+      "result": {
+        "$ref": "#/types/SignatureResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/request_state",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "acp.session.fork",
       "params": {
         "$ref": "#/types/ForkParams"
@@ -185,6 +201,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/tailnet/join",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/tailnet/login",
       "params": true,
       "result": true
@@ -209,6 +231,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/tailnet/placement",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/status",
       "params": {
         "$ref": "#/types/StatusParams"
@@ -218,6 +246,18 @@
     {
       "kind": "request",
       "name": "_acpmux/perf",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/spans",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/status",
       "params": true,
       "result": true
     },
@@ -349,6 +389,66 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/rooms",
+      "params": {
+        "$ref": "#/types/RoomsParams"
+      },
+      "result": {
+        "$ref": "#/types/RoomsResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/follow",
+      "params": {
+        "$ref": "#/types/FollowParams"
+      },
+      "result": {
+        "$ref": "#/types/FollowResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/here/beat",
+      "params": {
+        "$ref": "#/types/HereBeatParams"
+      },
+      "result": {
+        "$ref": "#/types/HereBeatDone"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/here",
+      "params": {
+        "$ref": "#/types/HereParams"
+      },
+      "result": {
+        "$ref": "#/types/HereResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/sync/pull",
+      "params": {
+        "$ref": "#/types/SyncPullParams"
+      },
+      "result": {
+        "$ref": "#/types/SyncPullResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/sync/push",
+      "params": {
+        "$ref": "#/types/SyncPushParams"
+      },
+      "result": {
+        "$ref": "#/types/SyncPushDone"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/markUnread",
       "params": {
         "$ref": "#/types/MarkUnreadParams"
@@ -365,6 +465,16 @@
       },
       "result": {
         "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pin",
+      "params": {
+        "$ref": "#/types/PinParams"
+      },
+      "result": {
+        "$ref": "#/types/SessionSummary"
       }
     },
     {
@@ -390,6 +500,18 @@
     {
       "kind": "request",
       "name": "_acpmux/rename",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/succeed",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/role",
       "params": true,
       "result": true
     },
@@ -513,10 +635,28 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/forum/post",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/reply",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/forum/rules",
       "params": {
         "$ref": "#/types/ForumRulesParams"
       },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/search",
+      "params": true,
       "result": true
     },
     {
@@ -935,13 +1075,7 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/task_list/set",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/task_list/get",
+      "name": "_acpmux/surgery",
       "params": true,
       "result": true
     },
@@ -1011,7 +1145,61 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/history_delete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/history_offload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transcript_offload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/cold_archive",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/move",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_move",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/leftover",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/wake",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/transcript",
       "params": true,
       "result": true
     },
@@ -1124,6 +1312,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/session_resync",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_info",
       "params": true,
       "result": true
@@ -1137,6 +1331,12 @@
     {
       "kind": "request",
       "name": "_acpmux/session_files",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/paused_files",
       "params": true,
       "result": true
     },
@@ -1163,6 +1363,22 @@
       "name": "_acpmux/turn_shots",
       "params": {
         "$ref": "#/types/TurnShotsParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/turn_frames",
+      "params": {
+        "$ref": "#/types/TurnFramesParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/customize_run",
+      "params": {
+        "$ref": "#/types/CustomizeRunParams"
       },
       "result": true
     },
@@ -1227,6 +1443,12 @@
     {
       "kind": "request",
       "name": "_acpmux/team/ack",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/listen",
       "params": true,
       "result": true
     },
@@ -1746,6 +1968,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_secrets_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_clear",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/elevation_request",
       "params": true,
       "result": true
@@ -1813,6 +2053,18 @@
     {
       "kind": "request",
       "name": "_acpmux/chat_transcript",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_transcript_page",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_transcript_find",
       "params": true,
       "result": true
     },
@@ -2034,6 +2286,14 @@
       "name": "_acpmux/harness_enable",
       "params": {
         "$ref": "#/types/HarnessEnableParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness_disable",
+      "params": {
+        "$ref": "#/types/HarnessDisableParams"
       },
       "result": true
     },
@@ -2351,6 +2611,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/connections/key.check",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections/chatgpt.begin",
       "params": true,
       "result": true
@@ -2382,6 +2648,30 @@
     {
       "kind": "request",
       "name": "_acpmux/connections/claude_token.add",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/claude_token.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/claude_token.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/claude_token.code",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/claude_token.cancel",
       "params": true,
       "result": true
     },
@@ -2451,7 +2741,19 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/host_overload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/vm_host",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/autocloud_enroll",
       "params": true,
       "result": true
     },
@@ -2464,6 +2766,24 @@
     {
       "kind": "request",
       "name": "_acpmux/place",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_undo",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_get",
       "params": true,
       "result": true
     },
@@ -2542,6 +2862,24 @@
     {
       "kind": "request",
       "name": "_acpmux/attachments_held",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/spans",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "agent/credentials.update",
       "params": true,
       "result": true
     },
@@ -2691,6 +3029,54 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/channel/listen",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/channel/unlisten",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/channel/open",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "client_notification",
+      "name": "_acpmux/channel/send",
+      "params": true
+    },
+    {
+      "kind": "client_notification",
+      "name": "_acpmux/channel/close",
+      "params": true
+    },
+    {
+      "kind": "client_notification",
+      "name": "_acpmux/channel/connect",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/channel/opened",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/channel/data",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/channel/closed",
+      "params": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_redeem",
       "params": true,
       "result": true
@@ -2777,6 +3163,13 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/room",
+      "params": {
+        "$ref": "#/types/RoomNote"
+      }
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/peer_state_changed",
       "params": {
         "$ref": "#/types/PeerStateChanged"
@@ -2809,6 +3202,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/fill",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/prompt_accepted",
       "params": true
     },
@@ -2830,6 +3228,11 @@
     {
       "kind": "notification",
       "name": "_acpmux/machine_join_progress",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/admission_waiting",
       "params": true
     },
     {
@@ -2895,6 +3298,7 @@
         "approverDecisions": true,
         "argv": true,
         "author": true,
+        "autoPlace": true,
         "beforePromptId": true,
         "callerKind": true,
         "callerProtocol": true,
@@ -2914,6 +3318,7 @@
         "effort": true,
         "env": true,
         "ephemeral": true,
+        "features": true,
         "forceAdmit": true,
         "forwardProjection": true,
         "fromAgent": true,
@@ -2944,6 +3349,7 @@
         "personStop": true,
         "personVerified": true,
         "placeRedirect": true,
+        "placedBy": true,
         "policy": true,
         "pr": true,
         "preset": true,
@@ -3236,6 +3642,7 @@
           "$ref": "#/types/RequestMeta"
         },
         "archived": true,
+        "opId": true,
         "sessionId": true
       },
       "type": "object"
@@ -3304,6 +3711,13 @@
         },
         "omitTimeBreakdown": {
           "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "quietHidden": {
+          "description": "True: the client draws nothing of the chat while it is hidden (`visible: false`), so the\nagent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends\none `_acpmux/lagged` naming the chat (`server/view.rs`); default false.",
           "type": [
             "boolean",
             "null"
@@ -3564,6 +3978,51 @@
       },
       "type": "object"
     },
+    "CapacityWait": {
+      "description": "A chat waiting for capacity (`hub/capacity_wait.rs`): a turn cut by an overloaded model, an\nexhausted account pool or the account's rate limit, which acpmux continues by itself. A\nclient draws it as one calm state (\"Waiting for capacity, about 40 s\"; in a list \"paused for\ncapacity, resumes ~22:41\"), never as a failed turn, and keeps `error` for a details\ndisclosure.",
+      "properties": {
+        "error": {
+          "description": "The harness's raw error, cut to 600 characters, for a details disclosure only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/types/RetryReason",
+          "description": "`capacity` or `rate_limit`."
+        },
+        "resumesAt": {
+          "description": "When it goes on (epoch ms); absent while the continuation is still being decided.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "since": {
+          "description": "Since when it waits (epoch ms): the cut turn's end.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "turnId": {
+          "description": "The cut turn the wait continues, when there is one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
     "Carrier": {
       "description": "The carrier a live link runs over (`carrier`); null while no link is open.",
       "oneOf": [
@@ -3657,6 +4116,30 @@
       ],
       "type": "object"
     },
+    "ComposerStatus": {
+      "description": "A session's composer footer (`composerStatus`).",
+      "properties": {
+        "facts": {
+          "description": "In footer order (`FactKind::ALL`); a fact with nothing to say is left out.",
+          "items": {
+            "$ref": "#/types/FooterFact"
+          },
+          "type": "array"
+        },
+        "items": {
+          "description": "Worst level first, then the oldest `since` (an unknown one last).",
+          "items": {
+            "$ref": "#/types/StatusItem"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "facts",
+        "items"
+      ],
+      "type": "object"
+    },
     "CoverageLabel": {
       "enum": [
         "acp_requests_only"
@@ -3708,6 +4191,16 @@
         }
       ]
     },
+    "CustomizeRunParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "run": true
+      },
+      "type": "object"
+    },
     "DeliveryReceipt": {
       "properties": {
         "messageId": {
@@ -3740,8 +4233,68 @@
       ],
       "type": "string"
     },
+    "DialFail": {
+      "description": "Why a peer's route last went down (`downReason`): what the failed dial or the dropped path\nran into, typed from the error that raised it (an `io::ErrorKind`, an HTTP status, ssh's\nfailure class), never guessed from its text. When every path of a cold connect failed with\ndifferent kinds, the one a person can act on first is kept ([`DialFail::rank`]). Null\nbefore any route went down, or when no failure so far had a type.",
+      "oneOf": [
+        {
+          "const": "timeout",
+          "description": "The dial or its upgrade ran past its deadline.",
+          "type": "string"
+        },
+        {
+          "const": "refused",
+          "description": "The machine answered and refused the connection (nothing listens there).",
+          "type": "string"
+        },
+        {
+          "const": "auth",
+          "description": "The peer refused this daemon's token or this computer's ssh login.",
+          "type": "string"
+        },
+        {
+          "const": "pathChanged",
+          "description": "The path carrying the link died while another answered: the link moved there.",
+          "type": "string"
+        },
+        {
+          "const": "unreachable",
+          "description": "No route to the machine: the network or host is unreachable, or its name did not\nresolve.",
+          "type": "string"
+        }
+      ]
+    },
     "Done": {
       "description": "An acknowledgement with nothing in it.",
+      "type": "object"
+    },
+    "Dot": {
+      "description": "One dot. `x`, `y` and `r` are fractions of the glyph box, top left origin.",
+      "properties": {
+        "phase": {
+          "description": "Where the dot starts on its drift circle, 0..1 of a turn.",
+          "format": "double",
+          "type": "number"
+        },
+        "r": {
+          "description": "The radius.",
+          "format": "double",
+          "type": "number"
+        },
+        "x": {
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "r",
+        "phase"
+      ],
       "type": "object"
     },
     "DownCause": {
@@ -3917,6 +4470,16 @@
     "EventsParams": {
       "additionalProperties": false,
       "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "afterSeq": {
           "description": "Records after this one; it may not lie beyond the last record.",
           "format": "uint64",
@@ -3932,6 +4495,13 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "inOrder": {
+          "description": "True: answered in order, after every line already queued to this connection, as an attach\nis. A pane's stall check sets it: it compares the newest record with what the stream has\ndelivered, so an answer ahead of the records queued before it reads a healthy stream as\nstalled (`server/outbound.rs` `reply_lane`). Default false: a tool call's read goes ahead.",
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -3971,6 +4541,13 @@
         },
         "sessionId": {
           "type": "string"
+        },
+        "sinceSeen": {
+          "description": "Read the transcript after this reader's New line, or their persisted readThrough cursor while away.\nWithout a cursor the page is empty. Incompatible with afterSeq, beforeSeq, promptIndex and turnOpener.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "subagent": {
           "description": "Only this subagent's own records: the updates acpmux tagged with it and those that start\nor change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.",
@@ -4012,14 +4589,161 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "seenSeq": {
+          "description": "The cutover used by sinceSeen, null on a first visit. Absent from ordinary pages.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
-        "createdAt",
         "events",
         "hasMore",
         "lastSeq",
-        "pageThrough"
+        "pageThrough",
+        "createdAt"
+      ],
+      "type": "object"
+    },
+    "FactKind": {
+      "description": "What a footer fact is about.",
+      "oneOf": [
+        {
+          "const": "machine",
+          "description": "The peer machine the session runs on (`text`); absent for this daemon's own.",
+          "type": "string"
+        },
+        {
+          "const": "folder",
+          "description": "Its folder (`text`, the whole path).",
+          "type": "string"
+        },
+        {
+          "const": "branch",
+          "description": "The branch its folder has checked out (`text`).",
+          "type": "string"
+        },
+        {
+          "const": "harness",
+          "description": "Its harness profile (`text`).",
+          "type": "string"
+        },
+        {
+          "const": "model",
+          "description": "Its model (`text`).",
+          "type": "string"
+        },
+        {
+          "const": "context",
+          "description": "How full its context is (`fraction`).",
+          "type": "string"
+        },
+        {
+          "const": "subagents",
+          "description": "Its subagents that run now (`count`).",
+          "type": "string"
+        },
+        {
+          "const": "queued",
+          "description": "Its prompts that wait (`count`).",
+          "type": "string"
+        },
+        {
+          "const": "turn",
+          "description": "Its running turn (`since`, the turn's start).",
+          "type": "string"
+        }
+      ]
+    },
+    "FollowParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/follow` (RFD 0141 phase 3): follow the person `target` (an id live in a chat on this\ndaemon, never the caller's own), or nobody (`null`). The caller's rooms hear it as the\nrecord's `following`. Refusals: `presence.follow_not_live`, `presence.follow_self`.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "FollowResult": {
+      "description": "`_acpmux/follow`'s answer: whom the caller follows now.",
+      "properties": {
+        "following": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "FooterFact": {
+      "description": "One piece of the footer's quiet metadata.",
+      "properties": {
+        "atRest": {
+          "description": "Worth its words in the footer at rest, with no status and no hover: the machine of a\nsession on another machine, where a command does something else than here (RFD 0130: \"a\nchat on another machine earns its machine name in view\"). The pane draws it only behind\nits own switch (`composer-machine-at-rest`, default off). Absent otherwise.",
+          "type": "boolean"
+        },
+        "count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "fraction": {
+          "description": "The share of the context window used, 0 to 1.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/types/FactKind"
+        },
+        "live": {
+          "description": "Worth a counter in the footer row itself now; else the hover card lists it only.",
+          "type": "boolean"
+        },
+        "since": {
+          "description": "The running turn's start, ms since the epoch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "live"
       ],
       "type": "object"
     },
@@ -4109,6 +4833,44 @@
       },
       "type": "object"
     },
+    "Glyph": {
+      "description": "A session's glyph.",
+      "properties": {
+        "accent": {
+          "description": "The variant's accent, `#RRGGBB`.",
+          "type": "string"
+        },
+        "dots": {
+          "description": "5 to 9 dots, none overlapping.",
+          "items": {
+            "$ref": "#/types/Dot"
+          },
+          "type": "array"
+        },
+        "drift": {
+          "description": "The variant's `speed`: how far the running line's dots drift.",
+          "format": "double",
+          "type": "number"
+        },
+        "seed": {
+          "description": "0..1, the meaning `Frame.size.w` has for a wallpaper.",
+          "format": "double",
+          "type": "number"
+        },
+        "variant": {
+          "description": "The particles variant's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "seed",
+        "variant",
+        "accent",
+        "drift",
+        "dots"
+      ],
+      "type": "object"
+    },
     "GoneRow": {
       "description": "A row that left the list since a follow's cursor.",
       "properties": {
@@ -4190,6 +4952,17 @@
       },
       "type": "object"
     },
+    "HarnessDisableParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "folder": true,
+        "id": true
+      },
+      "type": "object"
+    },
     "HarnessEnableParams": {
       "additionalProperties": false,
       "properties": {
@@ -4236,6 +5009,219 @@
         "cwd": true
       },
       "type": "object"
+    },
+    "HereActivity": {
+      "description": "What the person on a device is doing, as its client sees it.",
+      "oneOf": [
+        {
+          "const": "present",
+          "description": "The app is in front; `idleMs` says how long since the last input.",
+          "type": "string"
+        },
+        {
+          "const": "working",
+          "description": "The person is typing or driving a terminal.",
+          "type": "string"
+        },
+        {
+          "const": "away",
+          "description": "The app is in the background, the screen locked or asleep.",
+          "type": "string"
+        }
+      ]
+    },
+    "HereBeatDone": {
+      "properties": {
+        "changed": {
+          "description": "Whether the beat changed what `_acpmux/here` answers.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "changed"
+      ],
+      "type": "object"
+    },
+    "HereBeatParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/here/beat`: send about every 10 s while the app runs (a beat lives 30 s) and once\nwith `leave` when it quits. At most 64 devices are held; `seq` grows per device, so a beat\nthat arrives late or twice changes nothing.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person, when a peer forwards for one of its own; none is this machine's owner."
+        },
+        "activity": {
+          "$ref": "#/types/HereActivity"
+        },
+        "device": {
+          "description": "The device's stable id, one line of at most 128 bytes.",
+          "type": "string"
+        },
+        "deviceKind": {
+          "$ref": "#/types/HereDeviceKind"
+        },
+        "idleMs": {
+          "default": 0,
+          "description": "Milliseconds since the person's last input on this device.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "leave": {
+          "description": "The device is going away: drop its beat now.",
+          "type": "boolean"
+        },
+        "scopes": {
+          "description": "The chats or workspaces the device shows; at most 16, each at most 256 bytes.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "device",
+        "deviceKind",
+        "seq",
+        "activity"
+      ],
+      "type": "object"
+    },
+    "HereDevice": {
+      "properties": {
+        "ageMs": {
+          "description": "Milliseconds since its last beat, on this daemon's clock.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "device": {
+          "type": "string"
+        },
+        "deviceKind": {
+          "$ref": "#/types/HereDeviceKind"
+        },
+        "status": {
+          "$ref": "#/types/HereStatus"
+        },
+        "working": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ageMs",
+        "device",
+        "deviceKind",
+        "status",
+        "working"
+      ],
+      "type": "object"
+    },
+    "HereDeviceKind": {
+      "description": "The kind of device a heartbeat comes from.",
+      "enum": [
+        "mac",
+        "vm",
+        "phone",
+        "web",
+        "other"
+      ],
+      "type": "string"
+    },
+    "HereKind": {
+      "enum": [
+        "person",
+        "agent"
+      ],
+      "type": "string"
+    },
+    "HereMember": {
+      "description": "One person or agent, across their devices.",
+      "properties": {
+        "devices": {
+          "items": {
+            "$ref": "#/types/HereDevice"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "`owner` for this machine's person, an author id for another, the session id for an agent.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/types/HereKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/types/HereStatus",
+          "description": "The best status across devices."
+        },
+        "working": {
+          "description": "Typing, driving a terminal, or (an agent) in a turn.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "devices",
+        "id",
+        "kind",
+        "name",
+        "status",
+        "working"
+      ],
+      "type": "object"
+    },
+    "HereParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/here`.",
+      "properties": {
+        "scope": {
+          "description": "Only who shows this chat or workspace; agents match by session id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HereResult": {
+      "properties": {
+        "here": {
+          "description": "Active first, then idle, then away; people before agents; then by name.",
+          "items": {
+            "$ref": "#/types/HereMember"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "here"
+      ],
+      "type": "object"
+    },
+    "HereStatus": {
+      "description": "Best first.",
+      "enum": [
+        "active",
+        "idle",
+        "away"
+      ],
+      "type": "string"
     },
     "InboxThreadParams": {
       "additionalProperties": false,
@@ -5238,7 +6224,7 @@
       "type": "object"
     },
     "PeerStateChanged": {
-      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause`, `reason` or `nextRetryAt`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
+      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause`, `reason`, `downReason` or `nextRetryAt`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
       "properties": {
         "action": {
           "anyOf": [
@@ -5279,6 +6265,18 @@
             }
           ],
           "description": "Why the link is down; null while it is up or on its way the first time."
+        },
+        "downReason": {
+          "anyOf": [
+            {
+              "$ref": "#/types/DialFail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why the route last went down (a failed dial, or a path that died while another\nanswered); null before any did, or when no failure so far had a type. Kept while the\nlink is up again, so a surface can say why it moved. A word this build does not know (a\nnewer daemon's) reads as null, so the rest of the note still lands."
         },
         "error": {
           "description": "Why the link is down, when it is.",
@@ -5334,6 +6332,18 @@
         "state": {
           "$ref": "#/types/PeerLinkState",
           "description": "`link` folded to the older five words, for an app that predates `link`."
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/types/StatusItem"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The composer status dot's item for this link (`composer_status::machine_link_item`);\nnull while the link is up or paused, and from an older acpmux."
         }
       },
       "required": [
@@ -5341,6 +6351,7 @@
         "at",
         "carrier",
         "cause",
+        "downReason",
         "error",
         "lastSeen",
         "link",
@@ -5348,7 +6359,8 @@
         "peer",
         "reason",
         "since",
-        "state"
+        "state",
+        "status"
       ],
       "type": "object"
     },
@@ -5748,6 +6760,9 @@
         "answers": {
           "description": "A question's answers, by question."
         },
+        "forkCheckpoint": {
+          "description": "Fork first (fork_risky.rs): the copy the app made before allowing, `{machine, fork, forkMs}`."
+        },
         "optionId": {
           "description": "The option chosen; absent cancels the request.",
           "type": [
@@ -5787,6 +6802,22 @@
       ],
       "type": "object"
     },
+    "PinParams": {
+      "description": "`_acpmux/pin`: the person pins the chat to the top of their list, or unpins it; synced to\ntheir other replicas as `pin/<id>` (`hub/synced.rs`).",
+      "properties": {
+        "pinned": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "pinned"
+      ],
+      "type": "object"
+    },
     "PresenceNote": {
       "description": "`_acpmux/presence`, to every connection attached to the chat on each change, and\n`presence` in the `_acpmux/attach` reply. Never in the log, `_acpmux/events` or an export.",
       "properties": {
@@ -5819,6 +6850,7 @@
         "model": true,
         "release": true,
         "reserveHome": true,
+        "shapes": true,
         "wait": true,
         "workspaceId": true
       },
@@ -6030,6 +7062,26 @@
       },
       "type": "object"
     },
+    "QueueOrigin": {
+      "description": "Who put a queued prompt in the queue ([`of`]).",
+      "oneOf": [
+        {
+          "const": "person",
+          "description": "The person typed it: the composer's steer rows.",
+          "type": "string"
+        },
+        {
+          "const": "agent",
+          "description": "Another agent's message, or acpmux's notice or digest of such messages.",
+          "type": "string"
+        },
+        {
+          "const": "acpmux",
+          "description": "acpmux's own prompt to the chat's agent: no steer row and none of the person's actions.",
+          "type": "string"
+        }
+      ]
+    },
     "QueueRemoveParams": {
       "additionalProperties": false,
       "properties": {
@@ -6169,6 +7221,18 @@
           "default": null,
           "description": "acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,\n`hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the\nmessages it carries and never as the person's queued prompt, also when it has not read\nits `queued` record (a chat reopened on a recent page). Null for any other prompt, and\nonce edited (an edit drops the provenance)."
         },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/types/QueueOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who put it in the queue, from its provenance alone (`hub/queue_origin.rs`): `person` (the\ncomposer's steer rows), `agent` (another agent's message or acpmux's notice of such), or\n`acpmux` (the daemon's own prompt: a surge digest, a subagent's resume, a cut turn's\ncontinuation), which an app draws apart from the person's rows with none of their actions.\nAbsent from an older acpmux."
+        },
         "prompt": {
           "type": "string"
         },
@@ -6219,6 +7283,7 @@
         "heldByStop",
         "images",
         "inboxNotice",
+        "origin",
         "prompt",
         "promptId",
         "provenance",
@@ -6341,13 +7406,14 @@
       "type": "object"
     },
     "RetryReason": {
-      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate\nlimit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),\nthe connection dropped, the agent process died mid-turn, or the chat outgrew its model's\ncontext window (`context`: it is compacted, then continued at once).",
+      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate\nlimit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),\nthe connection dropped, the agent process died mid-turn, the chat outgrew its model's\ncontext window (`context`: it is compacted, then continued at once), or the machine's disk\nwas full (`disk`: it goes on once space is free again).",
       "enum": [
         "capacity",
         "rate_limit",
         "transport",
         "agent_exited",
-        "context"
+        "context",
+        "disk"
       ],
       "type": "string"
     },
@@ -6411,42 +7477,67 @@
       ],
       "type": "object"
     },
-    "RollingSummary": {
-      "description": "A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and\nthe next action, kept current after each turn a person started (or one that ended on a\n`wrap_up`). The sidebar and the chat header draw it.",
+    "RoomNote": {
+      "description": "`_acpmux/room`: one watched room's snapshot (`snapshot: true`, `presence` every record) or\none change of it (`presence` the records that joined, `deltas` one `cmux-presence` delta per\nrecord that stayed, `left` the ids that went).",
       "properties": {
-        "at": {
-          "description": "When it was written, Unix ms.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
+        "deltas": {
+          "items": true,
+          "type": "array"
         },
-        "next": {
-          "description": "The next action, for the person or the agent; absent when there is none.",
-          "type": [
-            "string",
-            "null"
-          ]
+        "left": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
-        "source": {
-          "description": "Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`.",
-          "type": "string"
+        "presence": {
+          "items": true,
+          "type": "array"
         },
-        "text": {
-          "description": "Where the chat stands, one or two short sentences.",
-          "type": "string"
+        "room": {
+          "description": "`{chat: id}` or `{workspace: id}`."
         },
-        "turn": {
-          "description": "The chat's turn count it covers.",
+        "snapshot": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "room",
+        "presence"
+      ],
+      "type": "object"
+    },
+    "RoomsParams": {
+      "description": "`_acpmux/rooms` (RFD 0141 phase 2): every room the client shows now, replacing the set it\nnamed before; both empty unsubscribes. A chat must be attached on this connection.",
+      "properties": {
+        "chats": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "workspaces": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "RoomsResult": {
+      "description": "`_acpmux/rooms`'s answer: how many rooms the connection watches now.",
+      "properties": {
+        "rooms": {
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
         }
       },
       "required": [
-        "text",
-        "source",
-        "turn",
-        "at"
+        "rooms"
       ],
       "type": "object"
     },
@@ -6466,6 +7557,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "keepAs": true,
         "secretId": true,
         "sessionId": true,
         "value": true
@@ -6834,11 +7926,33 @@
           "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
           "type": "boolean"
         },
+        "capacityWait": {
+          "anyOf": [
+            {
+              "$ref": "#/types/CapacityWait"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,\nand from a peer on an older acpmux."
+        },
         "children": {
           "description": "Its sub-sessions that are not closed.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "composerStatus": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ComposerStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The composer footer's status dot and quiet metadata, decided from this row's own fields\n(`protocol/composer_status.rs`); set on the row after it is built, and again by this\ndaemon on a peer's row (with `peer`). Whole on a read with tools (attach, info, the\nattached chat's `session_changed`); a census row carries it only with an item or a live\nfact, and without the facts that repeat its own fields (`composer_status::census`).\nAbsent from an older acpmux."
         },
         "configOptions": true,
         "createdAt": {
@@ -7143,6 +8257,10 @@
           ],
           "description": "A daemon start holds what this chat queued until a person opens it: its folder is guarded\n(`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not\ndrain. Absent otherwise, and from a peer on an older acpmux."
         },
+        "pinned": {
+          "description": "A person pinned it (`_acpmux/pin`), on any of their replicas (`hub/synced.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
         "policy": {
           "type": [
             "string",
@@ -7217,17 +8335,6 @@
         "retryDeciding": {
           "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
           "type": "boolean"
-        },
-        "rollingSummary": {
-          "anyOf": [
-            {
-              "$ref": "#/types/RollingSummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar\nand the chat header. Absent before the first turn that makes one, and from a peer on an\nolder acpmux."
         },
         "root": {
           "default": "",
@@ -7344,18 +8451,6 @@
           },
           "description": "Tags that have not expired.",
           "type": "object"
-        },
-        "taskList": {
-          "anyOf": [
-            {
-              "$ref": "#/types/TaskListSummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "What is done and what is next across the chat's turns (`task_list.rs`): its harness's\nlatest plan (TodoWrite, update_plan) or the list its agent or Chief keeps\n(`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux."
         },
         "timeBreakdown": {
           "anyOf": [
@@ -7813,11 +8908,33 @@
           "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
           "type": "boolean"
         },
+        "capacityWait": {
+          "anyOf": [
+            {
+              "$ref": "#/types/CapacityWait"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,\nand from a peer on an older acpmux."
+        },
         "children": {
           "description": "Its sub-sessions that are not closed.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "composerStatus": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ComposerStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The composer footer's status dot and quiet metadata, decided from this row's own fields\n(`protocol/composer_status.rs`); set on the row after it is built, and again by this\ndaemon on a peer's row (with `peer`). Whole on a read with tools (attach, info, the\nattached chat's `session_changed`); a census row carries it only with an item or a live\nfact, and without the facts that repeat its own fields (`composer_status::census`).\nAbsent from an older acpmux."
         },
         "createdAt": {
           "format": "uint64",
@@ -8112,6 +9229,10 @@
           ],
           "description": "A daemon start holds what this chat queued until a person opens it: its folder is guarded\n(`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not\ndrain. Absent otherwise, and from a peer on an older acpmux."
         },
+        "pinned": {
+          "description": "A person pinned it (`_acpmux/pin`), on any of their replicas (`hub/synced.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
         "policy": {
           "type": [
             "string",
@@ -8186,17 +9307,6 @@
         "retryDeciding": {
           "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
           "type": "boolean"
-        },
-        "rollingSummary": {
-          "anyOf": [
-            {
-              "$ref": "#/types/RollingSummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar\nand the chat header. Absent before the first turn that makes one, and from a peer on an\nolder acpmux."
         },
         "root": {
           "default": "",
@@ -8310,18 +9420,6 @@
           },
           "description": "Tags that have not expired.",
           "type": "object"
-        },
-        "taskList": {
-          "anyOf": [
-            {
-              "$ref": "#/types/TaskListSummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "What is done and what is next across the chat's turns (`task_list.rs`): its harness's\nlatest plan (TodoWrite, update_plan) or the list its agent or Chief keeps\n(`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux."
         },
         "timeBreakdown": {
           "anyOf": [
@@ -8538,6 +9636,13 @@
             "null"
           ]
         },
+        "topLevelOnly": {
+          "description": "`_acpmux/sessions` only (a watch refuses it): exclude side chats (a `side` tag) and\nsessions another chat's agent started (`spawnedBy`, `startedBy`) before pagination: the\nchats a list shows on their own (capability `session-list-top-level-v1`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "usage": {
           "description": "`_acpmux/sessions` only: read each chat's usage from its harness's records first\n(`usageStats`; at most one read every 5 s, waited for at most 750 ms). Without it the\nrows carry what the last read found.",
           "type": [
@@ -8647,6 +9752,39 @@
       },
       "type": "object"
     },
+    "SignatureParams": {
+      "additionalProperties": false,
+      "description": "`session/signature` params.",
+      "properties": {
+        "_meta": true,
+        "sessionIds": {
+          "description": "At most 512 session ids. Any string gets a glyph: it is a pure function of the id.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sessionIds"
+      ],
+      "type": "object"
+    },
+    "SignatureResult": {
+      "description": "`session/signature` result: one glyph per distinct id asked.",
+      "properties": {
+        "signatures": {
+          "additionalProperties": {
+            "$ref": "#/types/Glyph"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "signatures"
+      ],
+      "type": "object"
+    },
     "StartModeParams": {
       "additionalProperties": false,
       "properties": {
@@ -8715,6 +9853,162 @@
       },
       "type": "object"
     },
+    "StatusAction": {
+      "description": "The one thing a person does about an item.",
+      "oneOf": [
+        {
+          "const": "reconnect",
+          "description": "Dial the machine again now (`_acpmux/peer_reconnect`).",
+          "type": "string"
+        },
+        {
+          "const": "resumeQueue",
+          "description": "Resume the prompts a failed turn paused.",
+          "type": "string"
+        },
+        {
+          "const": "signIn",
+          "description": "Sign in again.",
+          "type": "string"
+        },
+        {
+          "const": "update",
+          "description": "Update the machine.",
+          "type": "string"
+        }
+      ]
+    },
+    "StatusItem": {
+      "description": "One entry of the dot's rundown.",
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "$ref": "#/types/StatusAction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The one thing a person does about it; absent when there is none."
+        },
+        "kind": {
+          "$ref": "#/types/StatusKind"
+        },
+        "level": {
+          "$ref": "#/types/StatusLevel"
+        },
+        "showAt": {
+          "description": "The dot shows it no earlier than this, ms since the epoch; absent: at once.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "since": {
+          "description": "Since when it holds, ms since the epoch; absent when unknown.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "subject": {
+          "description": "The machine or harness the words name as `{subject}`; absent when they name none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "until": {
+          "description": "When it ends on its own (a rate limit's reset), ms since the epoch; absent otherwise.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "words": {
+          "description": "A string-catalog key (`status.machineLink.reconnecting`), never English.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "level",
+        "words"
+      ],
+      "type": "object"
+    },
+    "StatusKind": {
+      "description": "What an item is about. One words-key prefix each ([`StatusKind::words_prefix`]).",
+      "oneOf": [
+        {
+          "const": "machineLink",
+          "description": "The link to the machine a peer session runs on (`_acpmux/peer_state_changed` `status`).",
+          "type": "string"
+        },
+        {
+          "const": "rateLimited",
+          "description": "The account's rate limit holds the chat's turns (`rateLimitedUntil`, `rateLimitParked`).",
+          "type": "string"
+        },
+        {
+          "const": "stuck",
+          "description": "Its harness failed three times in a row (`stuckReason`).",
+          "type": "string"
+        },
+        {
+          "const": "queuePaused",
+          "description": "A turn failed and the prompts behind it wait to be resumed (`queuePaused`).",
+          "type": "string"
+        },
+        {
+          "const": "harnessSandbox",
+          "description": "Its harness refuses commands because its own sandbox did not start\n(`harnessSandboxFailing`).",
+          "type": "string"
+        },
+        {
+          "const": "agentService",
+          "description": "Pane-local, never sent by acpmux: the pane's link to its agent service.",
+          "type": "string"
+        },
+        {
+          "const": "restoringSessions",
+          "description": "Pane-local, never sent by acpmux: the pane restores its sessions.",
+          "type": "string"
+        },
+        {
+          "const": "sendsHeld",
+          "description": "Pane-local, never sent by acpmux: the pane holds sends it could not deliver yet.",
+          "type": "string"
+        }
+      ]
+    },
+    "StatusLevel": {
+      "description": "How much an item matters; ordered, `problem` worst.",
+      "oneOf": [
+        {
+          "const": "info",
+          "description": "Worth a glance; it heals on its own.",
+          "type": "string"
+        },
+        {
+          "const": "attention",
+          "description": "Something waits on time or on a person, and nothing is broken.",
+          "type": "string"
+        },
+        {
+          "const": "problem",
+          "description": "Broken until a person acts.",
+          "type": "string"
+        }
+      ]
+    },
     "StatusParams": {
       "additionalProperties": false,
       "properties": {
@@ -8782,108 +10076,68 @@
       },
       "type": "object"
     },
-    "TaskItem": {
-      "description": "One step of the list.",
+    "SyncPullParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/sync/pull`: send the version vector you hold (an object of actor to sequence; none\nor `{}` for everything). The answer holds only the edits you lack, so a replica ten edits\nbehind gets about ten entries however many chats there are.",
       "properties": {
-        "content": {
-          "description": "The step's words, masked and cut to [`ITEM_CHARS`].",
+        "vv": true
+      },
+      "type": "object"
+    },
+    "SyncPullResult": {
+      "properties": {
+        "actor": {
+          "description": "This daemon's replica id: the actor its own edits carry.",
           "type": "string"
         },
-        "status": {
-          "$ref": "#/types/TaskStatus"
+        "delta": {
+          "description": "The edits the caller lacks (`{since, covers, entries}`)."
+        },
+        "vv": {
+          "description": "What this daemon covers after them: send it back as `vv` next time."
         }
       },
       "required": [
-        "content",
-        "status"
+        "actor",
+        "delta",
+        "vv"
       ],
       "type": "object"
     },
-    "TaskListSource": {
-      "description": "Who keeps a chat's task list.",
-      "oneOf": [
-        {
-          "const": "harness",
-          "description": "The harness's own plan events (TodoWrite, update_plan, ACP `plan`).",
-          "type": "string"
-        },
-        {
-          "const": "agent",
-          "description": "The chat's own agent, through `_acpmux/task_list/set`.",
-          "type": "string"
-        },
-        {
-          "const": "chief",
-          "description": "The person's side: the Chief or the app, through `_acpmux/task_list/set`.",
-          "type": "string"
-        }
-      ]
-    },
-    "TaskListSummary": {
-      "description": "What a summary carries of a chat's task list (`SessionSummary::task_list`): the steps, and the\ncounts and lines a sidebar row or a chat strip draws without counting again.",
+    "SyncPushDone": {
       "properties": {
-        "current": {
-          "description": "The first step in progress; null when none is.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "done": {
-          "description": "The steps completed.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "items": {
+        "changed": {
+          "description": "The keys whose value changed here.",
           "items": {
-            "$ref": "#/types/TaskItem"
+            "type": "string"
           },
           "type": "array"
         },
-        "next": {
-          "description": "The first step still pending after the current one (or the first pending one when none is\nin progress); null when none is left.",
-          "type": [
-            "string",
-            "null"
-          ]
+        "gap": {
+          "description": "This daemon did not cover the delta's `since`: entries merged, but pull to fill the rest.",
+          "type": "boolean"
         },
-        "source": {
-          "$ref": "#/types/TaskListSource",
-          "description": "Who keeps it: `harness` (its own plan events), `agent` or `chief` (`_acpmux/task_list/set`)."
-        },
-        "total": {
-          "description": "Every step.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "updatedAt": {
-          "description": "When it last changed, Unix ms.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
+        "vv": {
+          "description": "What this daemon covers now: the pusher's edits it covers are acked."
         }
       },
       "required": [
-        "current",
-        "done",
-        "items",
-        "next",
-        "source",
-        "total",
-        "updatedAt"
+        "changed",
+        "gap",
+        "vv"
       ],
       "type": "object"
     },
-    "TaskStatus": {
-      "description": "Where one step stands.",
-      "enum": [
-        "pending",
-        "in_progress",
-        "completed"
+    "SyncPushParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/sync/push`: a delta from another replica (a phone, the Mac, a VM), merged here in any\norder, any number of times. A title or read mark that wins is applied to the chat as a rename\nor a mark would be.",
+      "properties": {
+        "delta": true
+      },
+      "required": [
+        "delta"
       ],
-      "type": "string"
+      "type": "object"
     },
     "TimeBreakdown": {
       "properties": {
@@ -9069,6 +10323,20 @@
       },
       "type": "object"
     },
+    "TurnFramesParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "index": true,
+        "look": true,
+        "sessionId": true,
+        "sinceSeq": true,
+        "turnId": true
+      },
+      "type": "object"
+    },
     "TurnShotsParams": {
       "additionalProperties": false,
       "properties": {
@@ -9092,13 +10360,6 @@
         },
         "client": {
           "type": "string"
-        },
-        "planStep": {
-          "description": "Its plan's entry in progress, masked; null without one.",
-          "type": [
-            "string",
-            "null"
-          ]
         },
         "prompt": {
           "type": "string"
@@ -9132,7 +10393,6 @@
       "required": [
         "activity",
         "client",
-        "planStep",
         "prompt",
         "promptId",
         "stalledSince",
@@ -9225,6 +10485,30 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "cacheReadByModel1h": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Cache-read prompt tokens by call model in the rolling last hour.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "cacheReadByModelPreviousUtcHour": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Cache-read prompt tokens by call model in the completed UTC hour preceding updatedAt.",
+          "type": [
+            "object",
             "null"
           ]
         },
@@ -9364,6 +10648,8 @@
       "required": [
         "autocompact",
         "autocompactCap",
+        "cacheReadByModel1h",
+        "cacheReadByModelPreviousUtcHour",
         "cacheReadShare24h",
         "calls24h",
         "compactions24h",
@@ -9416,6 +10702,15 @@
           "description": "Its person attends the chat it shows: on screen, window key, input within the client's\nidle window. Absent: true. A shown chat nobody attends stays shown, but its turns are\nunread (`hub/seen.rs`).",
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "cutoverSeq": {
+          "description": "A transient cutover for recap reads while this view is visible and attended.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
             "null"
           ]
         },

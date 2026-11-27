@@ -6,14 +6,16 @@ use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use cmux_customize::setup::looks::Scheme;
 use cmux_customize::setup::{Reference, SetupSource};
 use cmux_customize::{Customize, Roots};
 use serde_json::{Value, json};
 
 use super::super::super::OutputMode;
 use super::{
-    Apps, Checkout, Failure, Request, card_text, fetch_from, inert, install_as, order, parse,
-    reload, remove, set_on, stepped, swap, undo_redo, update, variant,
+    Apps, Checkout, Failure, Request, card_text, fetch_from, gallery, inert, install_as,
+    install_link, order, parse, preview, reload, remove, set_on, stepped, swap, undo_redo, update,
+    variant,
 };
 
 /// Installs `text` under its own id, as `cmux setup install TEXT` does.
@@ -87,7 +89,7 @@ fn the_grammar_takes_each_verb_and_refuses_the_rest() {
         Ok(Request::Remove { which: Some("a/b".to_owned()) })
     );
     assert_eq!(parse(&words(&["installed"])), Ok(Request::Installed));
-    let Ok(Request::Export { dir, header }) = parse(&words(&[
+    let Ok(Request::Export { dir, header, profile: None }) = parse(&words(&[
         "export",
         "out",
         "--id",
@@ -102,11 +104,18 @@ fn the_grammar_takes_each_verb_and_refuses_the_rest() {
     assert_eq!(dir, Path::new("out"));
     assert_eq!((header.id.as_str(), header.name.as_str()), ("leo/night", "night"));
     assert_eq!(header.extensions, ["github.com/a/b"]);
+    let Ok(Request::Export { profile, .. }) =
+        parse(&words(&["export", "out", "--id", "leo/night", "--profile", "kept-night"]))
+    else {
+        panic!()
+    };
+    assert_eq!(profile.as_deref(), Some("kept-night"));
     for bad in [
         &["install"][..],
         &["install", "a", "b"],
         &["export", "out"],
         &["export", "--id", "a/b"],
+        &["export", "out", "--id", "a/b", "--profile"],
         &["installed", "x"],
         &["remove", "--yes"],
         &["undo", "x"],
@@ -566,6 +575,191 @@ fn two_folders_stack_as_layers_that_turn_off_reorder_and_remove_alone() {
     assert_eq!(failure.code, "setup.id_taken");
 }
 
+#[test]
+fn the_grammar_takes_gallery_and_preview() {
+    assert_eq!(parse(&words(&["gallery"])), Ok(Request::Gallery));
+    assert_eq!(
+        parse(&words(&["preview", "manaflow-ai/paper-look"])),
+        Ok(Request::Preview { which: "manaflow-ai/paper-look".to_owned(), scheme: Scheme::Dark })
+    );
+    assert_eq!(
+        parse(&words(&["preview", "--scheme", "light", "github.com/a/b"])),
+        Ok(Request::Preview { which: "github.com/a/b".to_owned(), scheme: Scheme::Light })
+    );
+    for bad in [
+        &["gallery", "x"][..],
+        &["gallery", "--yes"],
+        &["preview"],
+        &["preview", "a/b", "c/d"],
+        &["preview", "a/b", "--scheme"],
+        &["preview", "a/b", "--scheme", "dim"],
+        &["preview", "a/b", "--size", "2"],
+        &["preview", "a/b", "--yes"],
+    ] {
+        assert!(parse(&words(bad)).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
+fn an_empty_machine_gets_every_look_and_no_stack() {
+    let root = tempfile::tempdir().unwrap();
+    let customize = Customize::open(Roots::under(root.path()));
+    let answer = gallery(&customize).unwrap();
+    let looks = answer["looks"].as_array().unwrap();
+    assert_eq!(looks.len(), cmux_customize::setup::looks::catalog().unwrap().looks.len());
+    assert_eq!(
+        looks[0],
+        json!({
+            "id": "manaflow-ai/studio-look",
+            "name": "Studio",
+            "tagline": "A dense, near-black workbench for agent chats: quiet chrome, compact rows, a boxed prompt.",
+            "repo": "github.com/manaflow-ai/cmux-studio-look",
+            "tags": ["chat", "dark", "sidebar"],
+            "installed": null,
+        })
+    );
+    assert_eq!(answer["stack"], json!([]));
+}
+
+#[test]
+fn the_gallery_shows_installed_looks_in_the_stack_with_other_setups() {
+    let root = tempfile::tempdir().unwrap();
+    let world = world(root.path());
+    let customize = Customize::open(Roots::under(&root.path().join("home")));
+    let paper = views_setup(root.path(), "manaflow-ai/paper-look", "paper");
+    let dusk = views_setup(root.path(), "leo/dusk", "dusk");
+    for dir in [&paper, &dusk] {
+        install(&customize, &world, OutputMode::Json, dir.to_str().unwrap(), true).unwrap();
+    }
+    set_on(&customize, &world, Some("manaflow-ai/paper-look"), false).unwrap();
+    let answer = gallery(&customize).unwrap();
+    let stack = answer["stack"].as_array().unwrap();
+    let rows: Vec<(&str, u64, bool, bool)> = stack
+        .iter()
+        .map(|row| {
+            (
+                row["id"].as_str().unwrap(),
+                row["position"].as_u64().unwrap(),
+                row["on"].as_bool().unwrap(),
+                row["catalog"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(rows, [("leo/dusk", 1, true, false), ("manaflow-ai/paper-look", 2, false, true)]);
+    let paper_row = answer["looks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|look| look["id"] == "manaflow-ai/paper-look")
+        .unwrap();
+    assert_eq!(paper_row["installed"], stack[1]);
+    assert_eq!(answer["looks"][0]["installed"], json!(null));
+}
+
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\nimage";
+
+#[test]
+fn a_preview_is_fetched_once_kept_a_day_and_falls_back_file_by_file() {
+    let root = tempfile::tempdir().unwrap();
+    let customize = Customize::open(Roots::under(root.path()));
+    let asked = RefCell::new(Vec::<String>::new());
+    let mut get = |url: &str| -> Result<Option<Vec<u8>>, String> {
+        asked.borrow_mut().push(url.to_owned());
+        Ok(url.ends_with("screenshots/chat.png").then(|| PNG.to_vec()))
+    };
+    let now = 1_000_000;
+    let first =
+        preview(&customize, "manaflow-ai/studio-look", Scheme::Dark, &mut get, now).unwrap();
+    assert_eq!(first["path"], "screenshots/chat.png");
+    assert_eq!(first["cached"], json!(false));
+    assert_eq!(first["scheme"], "dark");
+    assert_eq!(first["id"], "manaflow-ai/studio-look");
+    assert_eq!(first["dataUrl"], "data:image/png;base64,iVBORw0KGgppbWFnZQ==");
+    assert_eq!(
+        *asked.borrow(),
+        [
+            "https://raw.githubusercontent.com/manaflow-ai/cmux-studio-look/HEAD/preview/golden-dark.png",
+            "https://raw.githubusercontent.com/manaflow-ai/cmux-studio-look/HEAD/preview/golden-light.png",
+            "https://raw.githubusercontent.com/manaflow-ai/cmux-studio-look/HEAD/screenshots/chat.png",
+        ]
+    );
+    assert!(root.path().join("state/looks/previews/manaflow-ai-studio-look/dark.png").is_file());
+    // By its repo too, from the cache, without a request.
+    asked.borrow_mut().clear();
+    let again = preview(
+        &customize,
+        "https://github.com/manaflow-ai/cmux-studio-look",
+        Scheme::Dark,
+        &mut get,
+        now + 1000,
+    )
+    .unwrap();
+    assert_eq!(
+        (again["cached"].clone(), again["path"].clone()),
+        (json!(true), first["path"].clone())
+    );
+    assert!(asked.borrow().is_empty());
+    // A day on, it is fetched again.
+    preview(&customize, "manaflow-ai/studio-look", Scheme::Dark, &mut get, now + 86_400_000)
+        .unwrap();
+    assert_eq!(asked.borrow().len(), 3);
+}
+
+#[test]
+fn a_repo_with_no_preview_is_refused_and_that_is_kept_too() {
+    let root = tempfile::tempdir().unwrap();
+    let customize = Customize::open(Roots::under(root.path()));
+    let asked = RefCell::new(0);
+    let mut get = |_: &str| -> Result<Option<Vec<u8>>, String> {
+        *asked.borrow_mut() += 1;
+        // A page that is not a PNG counts as no file.
+        Ok(Some(b"<html>".to_vec()))
+    };
+    for _ in 0..2 {
+        let Err(failure) =
+            preview(&customize, "manaflow-ai/studio-look", Scheme::Light, &mut get, 5)
+        else {
+            panic!()
+        };
+        assert_eq!(failure.code, "setup.preview_missing");
+        assert_eq!(failure.details["tried"][0], "preview/golden-light.png");
+    }
+    assert_eq!(*asked.borrow(), 3, "the second ask is answered from the cache");
+    let mut broken = |_: &str| -> Result<Option<Vec<u8>>, String> { Err("offline".to_owned()) };
+    let Err(failure) = preview(&customize, "manaflow-ai/paper-look", Scheme::Dark, &mut broken, 5)
+    else {
+        panic!()
+    };
+    assert_eq!(failure.code, "setup.preview_fetch");
+    let Err(failure) = preview(&customize, "nobody/nothing", Scheme::Dark, &mut broken, 5) else {
+        panic!()
+    };
+    assert_eq!(failure.code, "customize.setup");
+}
+
+#[test]
+fn an_installed_folders_preview_is_read_in_place() {
+    let root = tempfile::tempdir().unwrap();
+    let world = world(root.path());
+    let customize = Customize::open(Roots::under(&root.path().join("home")));
+    let paper = views_setup(root.path(), "manaflow-ai/paper-look", "paper");
+    install(&customize, &world, OutputMode::Json, paper.to_str().unwrap(), true).unwrap();
+    let mut never = |url: &str| -> Result<Option<Vec<u8>>, String> { panic!("fetched {url}") };
+    let Err(failure) = preview(&customize, "manaflow-ai/paper-look", Scheme::Dark, &mut never, 5)
+    else {
+        panic!()
+    };
+    assert_eq!(failure.code, "setup.preview_missing");
+    fs::create_dir_all(paper.join("preview")).unwrap();
+    fs::write(paper.join("preview/golden-light.png"), PNG).unwrap();
+    let answer =
+        preview(&customize, "manaflow-ai/paper-look", Scheme::Dark, &mut never, 5).unwrap();
+    assert_eq!(
+        (answer["path"].clone(), answer["cached"].clone()),
+        (json!("preview/golden-light.png"), json!(false))
+    );
+}
+
 /// `git` in `dir` for the test's own repo; its output.
 fn sh_git(dir: &Path, args: &[&str]) -> String {
     let output = std::process::Command::new("git")
@@ -829,4 +1023,51 @@ fn a_variant_is_picked_in_the_looks_layer_and_goes_with_it() {
     // Removing the look takes the variant off with it: no theme file left named.
     remove(&customize, &Local, Some("leo/night")).unwrap();
     assert!(!text(&settings).contains("night-"), "{}", text(&settings));
+}
+
+#[test]
+fn install_link_takes_one_link_and_never_a_yes() {
+    let link = "cmux://setups/install?repo=github.com%2Fa%2Fb";
+    assert_eq!(
+        parse(&words(&["install-link", link])),
+        Ok(Request::InstallLink { link: link.to_owned() })
+    );
+    assert!(parse(&words(&["install-link", link, "--yes"])).is_err());
+    assert!(parse(&words(&["install-link"])).is_err());
+    assert!(parse(&words(&["install-link", link, link])).is_err());
+}
+
+#[test]
+fn a_setup_pages_open_in_cmux_link_asks_with_the_card_and_its_pinned_reference() {
+    let root = tempfile::tempdir().unwrap();
+    let world = world(root.path());
+    let customize = Customize::open(Roots::under(&root.path().join("home")));
+    let commit = "1".repeat(40);
+    let link = format!(
+        "cmux://setups/install?repo=github.com%2Fmanaflow-ai%2Fcmux-setup-sample&commit={commit}"
+    );
+    let Err(failure) = install_link(&customize, &world, OutputMode::Json, &link) else {
+        panic!("a link installed without asking")
+    };
+    assert_eq!(failure.code, "setup.needs_consent");
+    assert_eq!(
+        failure.details["reference"],
+        json!(format!("github.com/manaflow-ai/cmux-setup-sample@{commit}"))
+    );
+    let text = failure.details["text"].as_str().unwrap();
+    assert!(text.contains("Sample Setup (manaflow-ai/cmux-setup-sample)"), "{text}");
+    assert!(customize.setups().unwrap().is_empty());
+    assert!(world.installed.borrow().is_empty());
+    // An extension's link, another kind, or one with a flag is not a setup link.
+    for bad in [
+        "cmux://apps/install?repo=github.com/a/b",
+        "cmux://setups/install?repo=github.com/a/b&yes=1",
+        "cmux://setups/install?repo=github.com/a/b&commit=main",
+        "https://setups/install?repo=github.com/a/b",
+    ] {
+        let Err(failure) = install_link(&customize, &world, OutputMode::Json, bad) else {
+            panic!("{bad} was taken")
+        };
+        assert_eq!(failure.code, "setup.link", "{bad}");
+    }
 }

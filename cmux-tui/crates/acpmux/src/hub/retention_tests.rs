@@ -388,3 +388,28 @@ fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     }
     out
 }
+
+/// #54378: a retention pass that panicked ended the daemon's one retention worker for good, so
+/// no closed chat was compacted again until a restart. Supervised, the worker starts again and
+/// its next pass runs.
+#[tokio::test]
+async fn a_retention_pass_that_panics_starts_the_worker_again() {
+    let root = std::env::temp_dir().join(format!("acpmux-retention-{}", uuid::Uuid::now_v7()));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &root).unwrap());
+    crate::supervise::arm_panic("retention", "");
+    let started = std::time::Instant::now();
+    let worker = hub.retention_worker();
+    let within = std::time::Duration::from_secs(10);
+    assert!(crate::supervise::passed("retention", "", 1, within).await, "the first pass ran");
+    assert!(
+        crate::supervise::passed("retention", "", 2, within).await,
+        "the worker never ran again after its pass panicked"
+    );
+    println!("retention worker: next pass {:?} after the panic", started.elapsed());
+    assert!(!worker.is_finished(), "the supervised worker is still there");
+    worker.abort();
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}

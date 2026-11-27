@@ -14,13 +14,19 @@ import SwiftUI
 /// `ConnectTimeline`'s connect steps.
 ///
 /// The marks (cmux-next-ios/design/launch-tti.md):
-/// - `app_init`: the App's `init` began (dyld, static initializers and UIKit's start before it)
+/// - `main`: the process's entry ran (dyld and static initializers before it)
+/// - `app_init`: the App's `init` began (UIKit's start before it, after `main`)
+/// - `init_hang_watch`, `init_classic_leftovers`, `init_legacy_storage`, `init_read_first`,
+///   `init_auth`, `app_init_done`: each of the App's `init` steps ended
+/// - `did_finish_launching`, `did_finish_launching_done`: the app delegate's launch began and ended
 /// - `first_frame`: the first SwiftUI frame (the launch mark) was presented
 /// - `shell_frame`: the signed-in shell's first frame was presented
 /// - `workspaces_list_frame`: the Workspaces list's first frame with rows was presented (the list rig's seeded rows)
 /// - `workspace_row_tap`: a workspace row was tapped
 /// - `chat_composer_ready`: an agent chat's composer was on screen (first frame presented; not a hidden chat face)
+/// - `chat_first_row_frame`: the first readable transcript row was laid out and presented
 /// - `terminal_ready`: a terminal attached to its session presented a frame
+/// - `terminal_first_row_frame`: the first non-empty terminal output row was presented
 /// - `terminal_key_sent`: the first single printable key a terminal's session accepted
 /// - `terminal_echo_presented`: that key's byte, as text in that terminal's output, was presented
 /// - `demo_done` (DEBUG): a `-cmux-mobile-demo` driver finished and its last state stopped moving

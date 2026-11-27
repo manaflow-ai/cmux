@@ -73,6 +73,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "team_send",
             "team_inbox",
             "team_ack",
+            "team_listen",
             "search",
             "github_status",
             "bg_start",
@@ -83,7 +84,9 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "pr_state",
             "pr_wait",
             "wrap_up",
+            "settings_ask",
             "who_else",
+            "look",
             "goal_set",
             "goal_update",
             "goal_get",
@@ -93,11 +96,16 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "race_start",
             "race_show",
             "send_status",
+            "machines",
+            "machine_start",
+            "new",
+            "fork",
             "wait",
             "cancel",
             "machine_read",
             "machine_edit",
-            "machine_exec"
+            "machine_exec",
+            "machine_request"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -108,22 +116,26 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
     assert_eq!(tools[9]["inputSchema"]["required"], json!(["id"]));
 }
 
-/// The first shape's fields are as they were (a snapshot): only new optional fields were added,
-/// and `required` went, because a batch names its recipients and texts in `messages`; a call
-/// without them is still refused for want of to and text (below).
+/// The first shape's fields are as they were (a snapshot of names, types and enums; their
+/// descriptions were shortened, since every schema byte is sent on every turn): only new
+/// optional fields were added, and `required` went, because a batch names its recipients and
+/// texts in `messages`; a call without them is still refused for want of to and text (below).
 #[test]
 fn the_send_schema_keeps_its_first_shape() {
     let props = &tools()[0]["inputSchema"]["properties"];
     let first = json!({
-        "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
-        "text": {"type": "string", "description": "The message, self-contained."},
-        "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."},
-        "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},
-        "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
-        "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."}
+        "to": {"type": "string"},
+        "text": {"type": "string"},
+        "steer": {"type": "boolean"},
+        "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"]},
+        "pr": {"type": "integer"},
+        "thread": {"type": "string"}
     });
     for (key, want) in first.as_object().unwrap() {
-        assert_eq!(&props[key], want, "{key}");
+        let mut have = props[key].clone();
+        have.as_object_mut().unwrap().remove("description");
+        assert_eq!(&have, want, "{key}");
+        assert!(props[key]["description"].is_string(), "{key} lost its description");
     }
     let mut names: Vec<&String> = props.as_object().unwrap().keys().collect();
     names.sort_unstable();
@@ -1085,7 +1097,8 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
 
     let r = ls_result(&all, &json!({}));
     let size = r.to_string().len();
-    assert!(size < 64 * 1024, "reply is {size} bytes");
+    // A default answer fits a byte budget, as every tool schema does (`every_tool_schema_fits_its_byte_budget`).
+    assert!(size < 16 * 1024, "reply is {size} bytes");
     let rows = r["structuredContent"]["sessions"].as_array().unwrap();
     assert_eq!(rows.len(), LS_DEFAULT_LIMIT, "{}", text(&r));
     assert!(rows.iter().all(|s| s["status"] != "closed"), "closed rows by default");
@@ -1093,6 +1106,9 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
     assert_eq!(rows[0]["name"], "lane-299", "newest first");
     assert_eq!(rows[0]["via"], "relay");
     assert_eq!(rows[0]["asOfMs"], 42);
+    assert!(rows[0].get("updatedAt").is_none(), "the folder and time only with detail");
+    let full = ls_result(&all, &json!({"detail": true}));
+    assert_eq!(full["structuredContent"]["sessions"][0]["updatedAt"], json!(10_299));
     assert_eq!(r["structuredContent"]["more"], json!(300 - LS_DEFAULT_LIMIT));
     assert!(text(&r).lines().last().unwrap().contains("more"), "{}", text(&r));
 
@@ -1188,6 +1204,7 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
         "from": {"teamAddress": "@member/coordinator"}, "state": "delivered",
         "startWork": "information"}]});
     let acknowledged = json!({"messageId": "msg_example", "state": "acked"});
+    let listening = json!({"messages": [], "next": 3});
     let cases = vec![
         (
             "team_send",
@@ -1210,6 +1227,13 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
             "_acpmux/team/ack",
             json!({"id": "msg_example"}),
             acknowledged,
+        ),
+        (
+            "team_listen",
+            json!({"op": "read", "to": "@member/agent", "before": 9, "body": "dropped"}),
+            "_acpmux/team/listen",
+            json!({"op": "read", "to": "@member/agent", "before": 9}),
+            listening,
         ),
     ];
     let expected = cases
@@ -1264,7 +1288,7 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
 }
 
 /// A Chief turn's `CMUX_MCP_TOOLS` reaches this server too (`agent_tools::scoped`): standalone,
-/// without a `cmux` server to fold into, it lists only the seven coordinator tools, never `bg_*` or
+/// without a `cmux` server to fold into, it lists only the ten coordinator tools, never `bg_*` or
 /// `team_*` (#30082 review).
 #[test]
 fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
@@ -1274,7 +1298,18 @@ fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
     let chief = allowed(all.clone(), Some(crate::agent_tools::CHIEF_TURN_TOOLS));
     assert_eq!(
         names(&chief),
-        ["send", "inbox_read", "inbox_reply", "ls", "last", "info", "send_status"]
+        [
+            "send",
+            "inbox_read",
+            "inbox_reply",
+            "ls",
+            "last",
+            "info",
+            "watch_add",
+            "watch_ls",
+            "watch_rm",
+            "send_status"
+        ]
     );
     assert!(names(&allowed(all, Some("render,agents_wait"))).is_empty());
 }
@@ -1404,12 +1439,19 @@ fn a_thread_listing_names_its_sender_once_and_the_reader_never() {
     }
     let before = as_the_daemon_lists().to_string().len();
     assert!(listed.to_string().len() * 2 < before, "{listed} of {before} bytes");
-    // A thread's own read is not a listing: every sender it names stays.
+    // A thread's own read is not a listing: every sender it names stays, less its nulls, and
+    // what a message says twice or leaves off goes.
     let mut read = json!({"threadId": "pr:12", "sessionId": "s-1",
-        "messages": [{"from": "lane-a", "text": "hi", "sender": {"label": "lane-a"}}]});
-    let whole = read.clone();
+        "messages": [{"from": "lane-a", "fromName": "lane-a", "class": "fyi", "kind": "fyi",
+            "text": "hi", "details": null, "read": true, "surgeHeld": false,
+            "sender": {"label": "lane-a", "session": "s-2", "relay": null}}]});
     trim_threads(&mut read);
-    assert_eq!(read, whole, "a thread read was trimmed like a listing");
+    assert_eq!(
+        read,
+        json!({"threadId": "pr:12", "messages": [{"from": "lane-a", "class": "fyi", "text": "hi",
+            "sender": {"label": "lane-a", "session": "s-2"}}]}),
+        "a thread read kept what it says twice or not at all"
+    );
 }
 
 /// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md)
@@ -1523,8 +1565,11 @@ async fn census_replay_wrap_up_run_wait_inbox_reply() {
     }
 }
 
+/// Only the tools in `ALWAYS_LOADED` carry `anthropic/alwaysLoad`; every other one is deferred
+/// behind ToolSearch. Today none qualifies by its cost rule, so every tool is deferred and still
+/// listed.
 #[test]
-fn the_most_called_tools_are_always_loaded_and_the_rest_deferred() {
+fn only_the_always_loaded_tools_skip_toolsearch() {
     let tools = super::tools();
     let list = tools.as_array().unwrap();
     for name in super::ALWAYS_LOADED {
@@ -1535,4 +1580,40 @@ fn the_most_called_tools_are_always_loaded_and_the_rest_deferred() {
     let rest = list.iter().filter(|t| !super::ALWAYS_LOADED.contains(&t["name"].as_str().unwrap()));
     assert!(rest.clone().count() > 5);
     assert!(rest.into_iter().all(|t| t.get("_meta").is_none()));
+    for name in ["wrap_up", "bg_start", "bg_output", "who_else", "inbox_read", "inbox_reply"] {
+        assert!(list.iter().any(|t| t["name"] == name), "{name} is still listed");
+    }
+}
+
+/// Why the bloat was possible: nothing measured what a tool costs, so a description, a field
+/// or a whole sub-schema could grow by a sentence per fix and nobody saw it. Codex sends every
+/// schema on every turn, and Claude reads a result's `structuredContent` whole, so these bytes
+/// are tokens. This fails when one tool's schema, or a server's whole list, goes past its
+/// budget; `--nocapture` prints every size. A tool that needs more says why in its own budget.
+#[test]
+fn every_tool_schema_fits_its_byte_budget() {
+    const PER_TOOL: usize = 3 * 1024;
+    let mut over = Vec::new();
+    for (server, list, budget) in [
+        // 28 KiB at #55308 (11-24); the tools added since earn the rest: settings_ask (#56129,
+        // #56432), look (#55387), team_listen (#53713), watch_add's time wakes (#55530) and
+        // wrap_up's customize answers (#54952), 31.1 KiB in all on 11-25.
+        ("acpmux", tools(), 32 * 1024),
+        ("cmux-subsessions", crate::subsession_mcp::tools(), 11 * 1024),
+    ] {
+        let mut total = 0;
+        for tool in list.as_array().into_iter().flatten() {
+            let bytes = tool.to_string().len();
+            total += bytes;
+            println!("SCHEMA {server} {} {bytes}", tool["name"].as_str().unwrap_or("?"));
+            if bytes > PER_TOOL {
+                over.push(format!("{server}/{}: {bytes} B > {PER_TOOL}", tool["name"]));
+            }
+        }
+        println!("SCHEMA {server} TOTAL {total}");
+        if total > budget {
+            over.push(format!("{server}: {total} B of schemas > {budget}"));
+        }
+    }
+    assert!(over.is_empty(), "tool schemas over budget (shorten them): {over:#?}");
 }

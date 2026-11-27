@@ -577,11 +577,12 @@ fn serve(
         match request["cmd"].as_str().unwrap_or("") {
             "apps-list" => {
                 let apps = if local.join(name).is_dir() {
-                    vec![
-                        json!({"id": app, "version": "0.1.0", "installed": installed, "enabled": true,
+                    vec![json!({"id": app, "version": "0.1.0", "installed": installed,
+                        // As the daemon answers: an app never installed has the absent
+                        // record (mirror.rs `absent`), which is not enabled.
+                        "enabled": installed,
                         "hidden": false, "available": true, "bundle_dir": local.join(name),
-                        "web_pages": served_web_pages(&local.join(name))}),
-                    ]
+                        "web_pages": served_web_pages(&local.join(name))})]
                 } else {
                     vec![]
                 };
@@ -1226,8 +1227,14 @@ fn parses_add_share_and_search() {
         parse(&words("add ./x --no-install")),
         Ok(Request::Add(share::AddOptions { source: "./x".into(), install: false }))
     );
-    assert_eq!(parse(&words("share")), Ok(Request::Share { dir: None }));
-    assert_eq!(parse(&words("share ext/x")), Ok(Request::Share { dir: Some("ext/x".into()) }));
+    assert_eq!(
+        parse(&words("share")),
+        Ok(Request::Share { dir: ".".into(), name: None, private: false })
+    );
+    assert_eq!(
+        parse(&words("share ext/x")),
+        Ok(Request::Share { dir: "ext/x".into(), name: None, private: false })
+    );
     assert_eq!(parse(&words("search")), Ok(Request::Search { query: None }));
     assert_eq!(
         parse(&words("search pull requests")),

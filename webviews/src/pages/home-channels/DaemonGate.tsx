@@ -15,6 +15,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { DaemonSocket, type DaemonAuth } from "../shared/daemonSocket";
 import type { Strings } from "../shared/i18n";
 import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import "./DaemonGate.css";
 
 const storageKey = (url: string) => `cmux.daemon.credential:${url}`;
@@ -77,8 +78,10 @@ type Phase =
   | { kind: "form"; error?: string }
   | { kind: "connecting"; note?: string; previous?: ReadyPhase }
   | { kind: "pairing"; code: string }
-  /** The host says this daemon cannot serve the page and cmux cannot fix it by itself: no retry
-   *  loop. `restart` when restarting cmux-tui is the fix. */
+  /** The host says this daemon cannot serve the page and cmux cannot fix it by itself: no connect
+   *  loop, and the page says why. `restart` when restarting cmux-tui is the fix (a button: a restart is
+   *  the person's call); otherwise the page asks again on its own (`useAutoRetry`), so it opens once the
+   *  person has done what the sentence says, with no Connect to click. */
   | { kind: "blocked"; error: string; restart?: boolean }
   | ReadyPhase;
 
@@ -300,6 +303,11 @@ function DaemonGateConnection({
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- resume is rebuilt each render; the effect runs once per endpoint.
   }, [url, source.kind]);
 
+  // A final refusal with no restart to offer (a daemon too old, a listener cmux cannot restart here):
+  // its fix is outside this page, so asking again is the only thing left, and it is not the person's
+  // decision (Leo, 2026-11-22: "vacuous decisions like that should be just done"). One local connect
+  // per ask, on the shared backoff, only while the page is shown.
+  useAutoRetry(phase.kind === "blocked" && !(phase.restart && restart) ? phase : undefined, resume);
   // Automatic reconnects stay silent; final credential/setup refusals below keep their action.
   // Reconnecting the same endpoints keeps presentation and drafts mounted. A different owner
   // or daemon endpoint gets a new subtree, so its cached content can never carry across.
@@ -314,9 +322,10 @@ function DaemonGateConnection({
       {phase.kind === "blocked" && (
         <>
           <p className="hc-gate-error">{phase.error}</p>
-          <div className="hc-gate-actions">
-            {phase.restart && restart ? (
-              // The fix is a restart (the app asks first); the page reconnects once cmux-tui is back.
+          {phase.restart && restart && (
+            <div className="hc-gate-actions">
+              {/* retry-prompt-ok: restarting cmux-tui ends its running work; the app asks first. The page
+                  reconnects once cmux-tui is back. */}
               <button
                 type="button"
                 onClick={() => {
@@ -326,18 +335,8 @@ function DaemonGateConnection({
               >
                 {t("connect.restart")}
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setPhase({ kind: "connecting" });
-                  resume();
-                }}
-              >
-                {t("connect.button")}
-              </button>
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
       {phase.kind === "form" && (

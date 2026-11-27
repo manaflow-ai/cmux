@@ -617,6 +617,7 @@ final class GroupHeaderRowView: SidebarRowView {
         trailing = layoutMachineTrailing(trailing, height: b.height, showsActions: showsActions)
         if badge.state.isUnread {
             badge.isHidden = false
+            badge.alphaValue = 1 // `clearMarksMeetingIcons` below clears it again while it meets a control
             // A dot is round, the status dot's diameter; a count is the badge's height.
             let w = badge.preferredWidth, h = badge.state == .dot ? SidebarStyle.statusDotSize : SidebarStyle.badgeHeight
             badge.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: w, height: h))
@@ -635,8 +636,7 @@ final class GroupHeaderRowView: SidebarRowView {
             self.activityEnding = false
             self.activity.configure(.idle)
         }
-        let glyphBox = pinned && SidebarStyle.pinnedRowLeadsWithOwnIcon
-            ? SidebarStyle.rowGlyphOpticalSide : SidebarStyle.iconColumnBox
+        let glyphBox = SidebarStyle.iconColumnBox
         let glyphSide = min(glyphBox, barHeight)
         glyph.isHidden = !hasIcon || leadsWithMachineMark
         // A pinned group's pin leads the bar, its ink centered on the rows' icon column, and its icon and name take the
@@ -645,7 +645,9 @@ final class GroupHeaderRowView: SidebarRowView {
         let pinSide = SidebarStyle.pinGlyphSide // Home's glyph square, as a pinned workspace row's pin (#38061)
         // A pinned group with its own icon (or a machine mark) draws it in the pin's place, so its name starts at Home's
         // label x as a pinned workspace row's title does (`SidebarPinnedRowLeading`, #38061).
-        let showsPin = pinned && (!(hasIcon || leadsWithMachineMark) || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
+        // Leo 2026-11-23 (ask c-b5d3e0efb6): "it puts a symbol at the left. immediately questionable." A pinned group's
+        // header leads as an unpinned one's does; pinning only moves it to the top, and its hover Unpin unpins it.
+        let showsPin = false
         pin.isHidden = !showsPin
         // `configure` sets the image; a density or type scale change since then moves `pinGlyphSide`.
         if showsPin, pin.image?.size.width != pinSide { pin.image = NSImage.icon(.statePinned, size: pinSide, style: .solid) }
@@ -702,6 +704,9 @@ final class GroupHeaderRowView: SidebarRowView {
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: max(0, railReach - SidebarStyle.groupRailReach), y: (b.height - dotSide) / 2, width: dotSide, height: dotSide)
         dot.cornerRadius = dotSide / 2
+        // No two icons share a box (Leo 2026-11-22: "fucking overlapping icons"): the unread count clears while it
+        // meets the chevron or a hover control, at any width.
+        clearMarksMeetingIcons(keep: [chevron, moreButton, addButton, pinButton], marks: [badge], fades: false)
         // The members' line starts under this bar: one layer per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).
         needsDisplay = true
@@ -774,8 +779,8 @@ extension GroupHeaderRowView {
         machineWords.stringValue = SectionHeaderRowView.statusWords(SectionHeaderRowView.drawn(machine).status)
         machineWords.isHidden = look != .markAndWords
         machineMark.setAccessibilityElement(false)
-        themedToolTip = machine.detail.map { "\(SectionHeaderRowView.statusWords(machine.status)): \($0)" }
-            ?? SectionHeaderRowView.statusWords(machine.status)
+        let tipWords = SectionHeaderRowView.statusWords(SectionHeaderRowView.drawn(machine).status)
+        themedToolTip = machine.detail.map { "\(tipWords): \($0)" } ?? tipWords
     }
 
     // theme-scoped: called only inside performWithTheme
