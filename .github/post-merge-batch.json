@@ -483,6 +483,7 @@
         "schemas/type-scale/type-scale.json",
         "schemas/design-scale/scene-scale.json",
         "schemas/sidebar-layout-engine/vectors.json",
+        "schemas/sidebar-item-info/vectors.json",
         "schemas/sidebar-drag-geometry/vectors.json",
         "backend/catalog/cloud-relay-operations.json"
       ],
