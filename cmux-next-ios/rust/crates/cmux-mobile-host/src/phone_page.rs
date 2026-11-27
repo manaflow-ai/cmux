@@ -206,19 +206,22 @@ pub struct Lines {
 impl Lines {
     /// The complete lines in `bytes`, or `Err` when a line outgrows `max`.
     pub fn push(&mut self, bytes: &[u8], max: usize) -> Result<Vec<Vec<u8>>, ()> {
-        self.buffer.extend_from_slice(bytes);
         let mut lines = Vec::new();
-        while let Some(end) = self.buffer.iter().position(|b| *b == b'\n') {
-            if end > max {
-                return Err(());
-            }
-            let mut line: Vec<u8> = self.buffer.drain(..=end).collect();
-            line.pop();
-            if !line.is_empty() {
-                lines.push(line);
+        for &byte in bytes {
+            if byte == b'\n' {
+                if !self.buffer.is_empty() {
+                    lines.push(std::mem::take(&mut self.buffer));
+                }
+            } else {
+                // Check before appending so a newline-terminated line cannot
+                // bypass the limit after it is drained from the buffer.
+                if self.buffer.len() >= max {
+                    return Err(());
+                }
+                self.buffer.push(byte);
             }
         }
-        if self.buffer.len() > max { Err(()) } else { Ok(lines) }
+        Ok(lines)
     }
 }
 

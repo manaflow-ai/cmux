@@ -66,3 +66,14 @@ fn the_link_hosts_refusal_keeps_its_code() {
     let ok = json!({"ok": true, "device_id": "dev-1", "value": {"value": 2}});
     assert_eq!(answered(ok), Ok(json!({"value": 2})));
 }
+
+#[test]
+fn phone_screenshot_rejects_options_the_phone_cannot_honor() {
+    for option in ["--selector", "--full-page"] {
+        let mut words = vec!["browser", "tab_ab@phone", "screenshot", option];
+        if option == "--selector" {
+            words.push("h1");
+        }
+        assert!(parsed(&words).is_err(), "{option}");
+    }
+}
