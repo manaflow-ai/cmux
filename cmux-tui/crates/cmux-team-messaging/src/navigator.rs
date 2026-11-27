@@ -73,9 +73,19 @@ pub struct SpaceRow {
     /// Open threads.
     pub open: u32,
     pub grants: Grants,
+    /// The first [`LIVE_PREVIEW`] live people by name; `people_live` counts all of them.
     pub people: Vec<LiveRow>,
+    /// The first [`LIVE_PREVIEW`] live agents by name; `agents_live` counts all of them.
     pub agents: Vec<LiveRow>,
+    pub people_live: u32,
+    pub agents_live: u32,
 }
+
+/// Live rows a space row carries per kind. The sidebar shows a few faces and a count, so the
+/// answer stays the same size however many are live: at 1000 people and 1000 agents in 200
+/// spaces, every live row made a 1.56 MB answer. The whole list is the picker's and Session
+/// Info's.
+pub const LIVE_PREVIEW: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -198,8 +208,9 @@ pub fn navigator(viewer: &Principal, cx: &NavContext<'_>) -> Option<Navigator> {
                     PrincipalKind::Agent => agents.push(row),
                 }
             }
-            sort_by_name(&mut people);
-            sort_by_name(&mut agents);
+            let (people_live, agents_live) = (people.len() as u32, agents.len() as u32);
+            first_by_name(&mut people, LIVE_PREVIEW);
+            first_by_name(&mut agents, LIVE_PREVIEW);
             let (unread, open) = count(s);
             SpaceRow {
                 id: s.id.clone(),
@@ -210,17 +221,27 @@ pub fn navigator(viewer: &Principal, cx: &NavContext<'_>) -> Option<Navigator> {
                 grants,
                 people,
                 agents,
+                people_live,
+                agents_live,
             }
         })
         .collect();
     Some(Navigator { teams: team_rows, spaces: space_rows })
 }
 
-/// Live rows by lowercased name, then id; each key built once.
-fn sort_by_name(rows: &mut Vec<LiveRow>) {
+/// Keep the first `n` live rows by lowercased name, then id, in that order; each key built once,
+/// and only the kept rows sorted.
+fn first_by_name(rows: &mut Vec<LiveRow>, n: usize) {
     let mut keyed: Vec<(String, LiveRow)> =
         rows.drain(..).map(|r| (r.name.to_lowercase(), r)).collect();
-    keyed.sort_by(|(ka, a), (kb, b)| (ka, &a.principal_id).cmp(&(kb, &b.principal_id)));
+    let by = |(ka, a): &(String, LiveRow), (kb, b): &(String, LiveRow)| {
+        (ka, &a.principal_id).cmp(&(kb, &b.principal_id))
+    };
+    if keyed.len() > n {
+        keyed.select_nth_unstable_by(n, by);
+        keyed.truncate(n);
+    }
+    keyed.sort_by(by);
     rows.extend(keyed.into_iter().map(|(_, r)| r));
 }
 

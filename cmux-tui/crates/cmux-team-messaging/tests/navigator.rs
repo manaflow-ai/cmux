@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 
 use cmux_sync::presence::Status;
 
-use cmux_team_messaging::navigator::{HitKind, NavContext, SessionEntry, navigator, search};
+use cmux_team_messaging::navigator::{
+    HitKind, LIVE_PREVIEW, NavContext, SessionEntry, navigator, search,
+};
 use cmux_team_messaging::presence::Participant;
 use cmux_team_messaging::refs::RefKey;
 use cmux_team_messaging::{
@@ -115,6 +117,7 @@ fn sidebar_lists_teams_readable_spaces_unread_and_live() {
     let people: Vec<&str> = p.people.iter().map(|r| r.principal_id.as_str()).collect();
     assert_eq!(people, vec!["bob"], "bridge authors and non-members are not live rows");
     assert_eq!(p.agents[0].principal_id, "bobs-agent");
+    assert_eq!((p.people_live, p.agents_live), (1, 1));
 
     let hits = search(&principals[0], "deploy", &cx);
     let found: Vec<(HitKind, &str)> = hits.iter().map(|h| (h.kind, h.id.as_str())).collect();
@@ -274,11 +277,43 @@ fn navigator_at_team_scale() {
         ser.push(start.elapsed());
     }
     ser.sort();
-    let live: usize = nav.spaces.iter().map(|s| s.people.len() + s.agents.len()).sum();
+    let live: u32 = nav.spaces.iter().map(|s| s.people_live + s.agents_live).sum();
     println!(
         "navigator json p50 {:?} p95 {:?}: {bytes} bytes, {} spaces, {live} live rows",
         ser[ser.len() / 2],
         ser[ser.len() * 95 / 100],
         nav.spaces.len()
     );
+}
+
+#[test]
+fn a_crowded_space_sends_the_first_live_rows_by_name_and_counts_the_rest() {
+    let mut principals = vec![person("viewer", Grants::all())];
+    let mut members = vec!["viewer".to_owned()];
+    let mut live_here = Vec::new();
+    for i in (0..30).rev() {
+        let id = format!("p{i:02}");
+        principals.push(person(&id, Grants::all()));
+        members.push(id.clone());
+        live_here.push(live(&id, PrincipalKind::Person));
+    }
+    let teams = vec![team(Grants::all())];
+    let spaces = vec![Space { id: "crowd".into(), members, ..space(&[]) }];
+    let here = BTreeMap::from([("crowd".to_owned(), live_here)]);
+    let cx = NavContext {
+        teams: &teams,
+        current_team_id: TEAM,
+        spaces: &spaces,
+        principals: &principals,
+        threads: &[],
+        unread: &BTreeMap::new(),
+        here: &here,
+        sessions: &[],
+        rfds: &[],
+    };
+    let row = &navigator(&principals[0], &cx).unwrap().spaces[0];
+    let shown: Vec<&str> = row.people.iter().map(|r| r.principal_id.as_str()).collect();
+    let want: Vec<String> = (0..LIVE_PREVIEW).map(|i| format!("p{i:02}")).collect();
+    assert_eq!(shown, want, "the first by name, in order, whatever order presence came in");
+    assert_eq!((row.people_live, row.agents_live), (30, 0));
 }
