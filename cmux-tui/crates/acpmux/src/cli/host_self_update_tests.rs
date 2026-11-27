@@ -6,7 +6,7 @@
 
 use super::super::host_self_update::{
     Channel, Controller, Fetch, LocalRemote, Paths, Plan, Prepared, ROLLED_BACK, Source, Step,
-    apply, channel_url, prepare,
+    apply, channel_url, prepare, refresh_tui, tui::TuiOutcome, unpack,
 };
 use super::*;
 use crate::cli::hosts::host_auto_update::{
@@ -83,6 +83,7 @@ fn paths(peer: &FakePeer) -> Paths {
         unit: peer.home.join(format!("{UNITS}/acpmux.service")),
         target: TARGET,
         rd: None,
+        tui: Some(peer.home.join(".local/bin/cmux-tui")),
         allow_downgrade: false,
     }
 }
@@ -103,8 +104,14 @@ fn once_free<T>(mut f: impl FnMut() -> Option<T>) -> Option<T> {
 
 /// [`prepare`] once the lock this test dropped is free ([`once_free`]).
 async fn prepared(peer: &FakePeer, files: &Files) -> Prepared {
+    prepared_with(&paths(peer), files).await
+}
+
+/// [`prepared`] with these paths (`--allow-downgrade`, say): a run right after
+/// one that dropped its plan waits out the same descriptor copies.
+async fn prepared_with(paths: &Paths, files: &Files) -> Prepared {
     for _ in 0..100 {
-        match prepare(&paths(peer), files, None, CHANNEL).await.unwrap() {
+        match prepare(paths, files, None, CHANNEL).await.unwrap() {
             Prepared::Locked => std::thread::sleep(std::time::Duration::from_millis(20)),
             other => return other,
         }
@@ -289,6 +296,86 @@ async fn a_download_that_does_not_match_the_channel_is_never_installed() {
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
 }
 
+/// `new` packed as `zstd --patch-from=old` packs it: `old` the raw-content
+/// dictionary (no dictionary: `zstd --long`).
+fn packed(new: &str, old: &str) -> Vec<u8> {
+    zstd::bulk::Compressor::with_dictionary(19, old.as_bytes())
+        .unwrap()
+        .compress(new.as_bytes())
+        .unwrap()
+}
+
+/// A fresh host updates to `new` from `files`; `raw`: whether the binary
+/// itself was fetched.
+async fn installs(name: &str, files: &Files, new: &str, raw: bool) {
+    let peer = FakePeer::new(&format!("self-small-{name}"));
+    let plan = ready(&peer, files).await;
+    assert_eq!(
+        peer.read(&format!(".acpmux/update/{}/acpmux-{TARGET}", sha_of(new))),
+        new,
+        "{name}"
+    );
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(up.outcome, Outcome::Updated, "{name}: {up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), new, "{name}");
+    assert_eq!(files.asked().contains(&binary_url()), raw, "{name}: {:?}", files.asked());
+}
+
+/// RFD 0166: a patch against the installed build is fetched first and the
+/// binary itself never is; with none, the `.zst`; a patch that rebuilds
+/// another binary, or that does not decode, falls back to the next, the raw
+/// binary last, all under the channel's sha256.
+#[tokio::test]
+async fn a_patch_or_zst_beside_the_binary_is_fetched_first() {
+    let old = fake_acpmux(OLD, Some(OLD));
+    let new = fake_acpmux(NEW, Some(NEW));
+    let patch_url = format!("{}.from-{}.zst", binary_url(), sha_of(&old));
+    let zst_url = format!("{}.zst", binary_url());
+    let mut files = serving(&new);
+    files.bodies.insert(patch_url.clone(), packed(&new, &old));
+    files.bodies.insert(zst_url.clone(), packed(&new, ""));
+    installs("patch", &files, &new, false).await;
+    assert!(!files.asked().contains(&zst_url), "the patch was enough");
+
+    let mut files = serving(&new);
+    files.bodies.insert(zst_url.clone(), packed(&new, ""));
+    installs("zst", &files, &new, false).await;
+    assert!(files.asked().contains(&patch_url), "the patch was asked first");
+
+    let mut files = serving(&new);
+    files.bodies.insert(patch_url.clone(), packed(&fake_acpmux(NEW, None), &old));
+    files.bodies.insert(zst_url.clone(), b"not zstd".to_vec());
+    installs("bad", &files, &new, true).await;
+}
+
+/// The patch decoder reads what the `zstd` CLI's `--patch-from --long=31`
+/// writes (the publish side's tool), not only what the crate's encoder does.
+#[test]
+fn a_zstd_cli_patch_decodes() {
+    if Command::new("zstd").arg("--version").output().is_err() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let old: Vec<u8> =
+        (0..400_000u32).flat_map(|i| (i.wrapping_mul(2654435761) >> 7).to_le_bytes()).collect();
+    let mut new = old.clone();
+    new[123_456..123_470].copy_from_slice(b"a changed part");
+    new.extend_from_slice(b"and a new tail");
+    std::fs::write(dir.path().join("old"), &old).unwrap();
+    std::fs::write(dir.path().join("new"), &new).unwrap();
+    let ok = Command::new("zstd")
+        .current_dir(dir.path())
+        .args(["-q", "-19", "--long=31", "--patch-from=old", "new", "-o", "patch"])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok);
+    let patch = std::fs::read(dir.path().join("patch")).unwrap();
+    assert!(patch.len() < new.len() / 20, "{} bytes", patch.len());
+    assert_eq!(unpack(&patch, &old).unwrap(), new);
+    assert!(unpack(&patch, &[]).is_err() || unpack(&patch, &[]).unwrap() != new);
+}
+
 #[tokio::test]
 async fn a_channel_without_this_hosts_target_is_refused() {
     let peer = FakePeer::new("self-no-target");
@@ -300,6 +387,146 @@ async fn a_channel_without_this_hosts_target_is_refused() {
     assert!(why.contains(&format!("no acpmux build for {TARGET}")), "{why}");
     assert_eq!(files.asked().len(), 1, "nothing is downloaded");
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+}
+
+fn tui_url() -> String {
+    format!("https://files.cmux.com/cmux-tui/tree/{KEY}/cmux-tui-{TARGET}")
+}
+
+/// `files` also serves the tree's cmux-tui (`cli`) and its `.sha256` as CI writes it.
+fn with_tui(mut files: Files, cli: &str) -> Files {
+    files.bodies.insert(tui_url(), cli.as_bytes().to_vec());
+    let sum = format!("{}  cmux-tui-{TARGET}\n", sha_of(cli));
+    files.bodies.insert(format!("{}.sha256", tui_url()), sum.into_bytes());
+    files
+}
+
+/// A Linux host, 2026-11-24: the self-update replaced acpmux only, and the October cmux-tui beside
+/// it had no `chief` verb, so the Chief failed every wake for days. The cmux-tui beside acpmux
+/// now follows the same tree, checked against the tree's sha256 and renamed into place.
+#[tokio::test]
+async fn the_cmux_tui_beside_acpmux_follows_acpmuxs_update() {
+    let peer = FakePeer::new("self-tui");
+    peer.exe(".local/bin/cmux-tui", "october cli");
+    let new = fake_acpmux(NEW, Some(NEW));
+    let files = with_tui(serving(&new), "november cli");
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    let tui = refresh_tui(&paths(&peer), &files, &plan, &up).await;
+    assert_eq!(tui, TuiOutcome::Installed(sha_of("november cli")));
+    assert_eq!(peer.read(".local/bin/cmux-tui"), "november cli");
+    assert!(!peer.exists(".local/bin/.cmux-tui.new"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(peer.home.join(".local/bin/cmux-tui")).unwrap().permissions();
+        assert_eq!(mode.mode() & 0o777, 0o755);
+    }
+    assert_eq!(tui.json()["outcome"], "installed");
+    drop(plan);
+
+    // The next run (acpmux current) finds it current: only the sha256 is read.
+    let files = with_tui(serving(&new), "november cli");
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(up.outcome, Outcome::Current, "{up:?}");
+    assert_eq!(refresh_tui(&paths(&peer), &files, &plan, &up).await, TuiOutcome::Current);
+    assert!(!files.asked().contains(&tui_url()), "{:?}", files.asked());
+}
+
+/// The case that host hit: acpmux is already the channel's, cmux-tui is stale. A channel file
+/// that lists cmux-tui's sha256 is used over the tree's `.sha256`.
+#[tokio::test]
+async fn a_stale_cmux_tui_beside_a_current_acpmux_is_refreshed() {
+    let peer = FakePeer::new("self-tui-current");
+    peer.exe(".local/bin/cmux-tui", "october cli");
+    let installed = fake_acpmux(OLD, Some(OLD));
+    let mut files = serving(&installed);
+    let acpmux = format!("cmux-tui-acpmux-{TARGET}");
+    let cli = format!("cmux-tui-{TARGET}");
+    let (acpmux_sha, cli_sha) = (sha_of(&installed), sha_of("november cli"));
+    let channel =
+        channel_json(&[(acpmux.as_str(), acpmux_sha.as_str()), (cli.as_str(), cli_sha.as_str())]);
+    files.bodies.insert(channel_url(CHANNEL).unwrap(), channel);
+    files.bodies.insert(tui_url(), b"november cli".to_vec());
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(up.outcome, Outcome::Current, "{up:?}");
+    let tui = refresh_tui(&paths(&peer), &files, &plan, &up).await;
+    assert_eq!(tui, TuiOutcome::Installed(cli_sha));
+    assert_eq!(peer.read(".local/bin/cmux-tui"), "november cli");
+    assert!(!files.asked().iter().any(|u| u.ends_with(".sha256")), "{:?}", files.asked());
+    peer.assert_untouched(&installed, OLD);
+}
+
+/// A cmux-tui download that fails or does not match changes nothing and never fails acpmux's
+/// update: the row stays `updated`, the cmux-tui step says why.
+#[tokio::test]
+async fn a_cmux_tui_that_cannot_be_fetched_or_does_not_match_keeps_the_old_one() {
+    let peer = FakePeer::new("self-tui-bad");
+    peer.exe(".local/bin/cmux-tui", "october cli");
+    let new = fake_acpmux(NEW, Some(NEW));
+    let mut files = with_tui(serving(&new), "november cli");
+    files.bodies.insert(tui_url(), b"tampered cli".to_vec());
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    let tui = refresh_tui(&paths(&peer), &files, &plan, &up).await;
+    assert!(matches!(&tui, TuiOutcome::Failed(why) if why.contains("has sha256")), "{tui:?}");
+    assert_eq!(tui.json()["outcome"], "failed");
+    assert!(tui.line().unwrap().starts_with("cmux-tui: not updated"));
+    assert_eq!(peer.read(".local/bin/cmux-tui"), "october cli");
+    assert!(!peer.exists(".local/bin/.cmux-tui.new"));
+    assert_eq!(peer.read(".local/bin/acpmux"), new, "acpmux's update stands");
+
+    // No cmux-tui in the tree (404): the same.
+    let mut files = serving(&new);
+    files.bodies.remove(&tui_url());
+    let tui = refresh_tui(&paths(&peer), &files, &plan, &up).await;
+    assert!(matches!(&tui, TuiOutcome::Failed(why) if why.contains("404")), "{tui:?}");
+    assert_eq!(peer.read(".local/bin/cmux-tui"), "october cli");
+}
+
+/// None is installed where none was (nothing launches it there), a symlink is a dev build and is
+/// kept, and an acpmux step that did not leave the channel's build running leaves cmux-tui alone.
+#[tokio::test]
+async fn a_cmux_tui_is_only_replaced_where_one_was_and_acpmux_moved_to_the_channel() {
+    let peer = FakePeer::new("self-tui-absent");
+    let new = fake_acpmux(NEW, Some(NEW));
+    let files = with_tui(serving(&new), "november cli");
+    let plan = ready(&peer, &files).await;
+    let mut up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(refresh_tui(&paths(&peer), &files, &plan, &up).await, TuiOutcome::Absent);
+    assert!(!peer.exists(".local/bin/cmux-tui"));
+    assert!(!files.asked().iter().any(|u| u.contains("/cmux-tui-x")), "{:?}", files.asked());
+
+    #[cfg(unix)]
+    {
+        peer.exe("dev/cmux-tui", "dev cli");
+        std::os::unix::fs::symlink(
+            peer.home.join("dev/cmux-tui"),
+            peer.home.join(".local/bin/cmux-tui"),
+        )
+        .unwrap();
+        assert_eq!(refresh_tui(&paths(&peer), &files, &plan, &up).await, TuiOutcome::Symlink);
+        assert_eq!(peer.read(".local/bin/cmux-tui"), "dev cli");
+        std::fs::remove_file(peer.home.join(".local/bin/cmux-tui")).unwrap();
+    }
+
+    peer.exe(".local/bin/cmux-tui", "october cli");
+    for (outcome, reason) in [
+        (Outcome::RolledBack, None),
+        (Outcome::Failed, None),
+        (Outcome::Busy, Some("restartWindow")),
+        (Outcome::Current, Some("newerInstalled")),
+    ] {
+        up.outcome = outcome;
+        up.reason = reason.map(str::to_owned);
+        let tui = refresh_tui(&paths(&peer), &files, &plan, &up).await;
+        assert!(matches!(&tui, TuiOutcome::Skipped(_)), "{outcome:?}: {tui:?}");
+        assert_eq!(peer.read(".local/bin/cmux-tui"), "october cli");
+    }
 }
 
 const CONTROLLER: &str = "http://100.64.0.1:18765";
@@ -584,8 +811,7 @@ async fn a_host_on_a_newer_commit_than_the_channels_keeps_it_unless_told_to_go_b
     // `--allow-downgrade`: a bad channel build is pulled back on purpose.
     let mut back = paths(&peer);
     back.allow_downgrade = true;
-    let Prepared::Ready(plan) = prepare(&back, &serving(&channels), None, CHANNEL).await.unwrap()
-    else {
+    let Prepared::Ready(plan) = prepared_with(&back, &serving(&channels)).await else {
         panic!("the self-update did not go ahead");
     };
     let up = apply(&peer, &plan, TARGET, true);

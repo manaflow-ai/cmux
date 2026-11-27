@@ -90,3 +90,29 @@ it("includes a slow shared lookup in the cold deadline and reuses its eventual h
   expect(fetcher).not.toHaveBeenCalled()
   await waitOnExecutionContext(next)
 })
+
+it("mints credentials for our own relay without calling Cloudflare", async () => {
+  const env = { ...bindings(), TURN_SELF_URLS: "turn:relay.test:3478?transport=udp, turn:relay.test:443?transport=udp, turns:relay.test:443?transport=tcp", TURN_SELF_SECRET: "s3cret" } as Env
+  const fetcher = vi.spyOn(globalThis, "fetch")
+  const now = Date.now()
+  const answer = await cachedIceServers(env, createExecutionContext())
+  expect(fetcher).not.toHaveBeenCalled()
+  expect(answer.turn).toBe(true)
+  const own = answer.iceServers.find((s) => s.urls.some((u) => u.startsWith("turns:")))!
+  expect(own.urls).toEqual(["turn:relay.test:3478?transport=udp", "turn:relay.test:443?transport=udp", "turns:relay.test:443?transport=tcp"])
+  const [exp] = own.username!.split(":")
+  expect(Number(exp)).toBeGreaterThan(Math.floor(now / 1000) + 299)
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode("s3cret"), { name: "HMAC", hash: "SHA-1" }, false, ["verify"])
+  const mac = Uint8Array.from(atob(own.credential!), (c) => c.charCodeAt(0))
+  expect(await crypto.subtle.verify("HMAC", key, mac, new TextEncoder().encode(own.username!))).toBe(true)
+})
+
+it("keeps Cloudflare on the cached path when no own-relay URL is accepted", async () => {
+  const env = { ...bindings(), TURN_SELF_URLS: "relay.test, https://relay.test", TURN_SELF_SECRET: "s3cret" } as Env
+  const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(minted("cloudflare"))
+  const ctx = createExecutionContext()
+  const answers = [await cachedIceServers(env, ctx), await cachedIceServers(env, ctx)]
+  for (const answer of answers) expect(answer.iceServers).toContainEqual(expect.objectContaining({ username: "cloudflare" }))
+  await waitOnExecutionContext(ctx)
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})

@@ -176,6 +176,7 @@ async fn exercise_selection_then_creation(
         chief_socket: None,
         browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
         surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+        viewport_sync: None,
     });
     let (phone_stream, mac_stream) = tokio::io::duplex(64 * 1024);
     let phone = Link::new(phone_stream, Role::Phone, LinkConfig::default(), None);
@@ -193,6 +194,7 @@ async fn exercise_selection_then_creation(
                     session_exposure: None,
                     route: None,
                     path: None,
+                    viewport: None,
                 },
                 Arc::new(LinkAuth::default()),
                 incoming,

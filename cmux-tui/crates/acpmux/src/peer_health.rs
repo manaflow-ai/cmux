@@ -71,8 +71,9 @@ impl Peer {
 }
 
 /// The fields a peer row carries; the rest (name, build, uptime) the row
-/// already has or nobody reads.
-fn trim(v: Value) -> Value {
+/// already has or nobody reads. A reading through the mesh hub is cut the same way, on the
+/// machine that answers it (`server/mesh_read.rs` `host_health`).
+pub(crate) fn trim(v: Value) -> Value {
     let mut out = serde_json::Map::new();
     for key in [
         "os",
@@ -90,6 +91,8 @@ fn trim(v: Value) -> Value {
         // Auto chat placement weighs a peer's lid, battery and network (`host_power.rs`).
         "power",
         "network",
+        // AutoCloud enrollment: the placer's enrolled tier (`autocloud_enroll.rs`).
+        "autoCloud",
     ] {
         if let Some(x) = v.get(key).filter(|x| !x.is_null()) {
             out.insert(key.to_owned(), x.clone());
@@ -102,26 +105,80 @@ fn trim(v: Value) -> Value {
     Value::Object(out)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// The most bytes a pushed reading takes as JSON (the hub drops one over 2 KiB, cmux-platform
+/// `MAX_HOST_HEALTH_BYTES`).
+pub(crate) const WIRE_BYTES: usize = 2048;
 
-    #[test]
-    fn health_is_asked_once_a_minute_whatever_the_ping() {
-        let start = tokio::time::Instant::now();
-        // The first ready tick asks.
-        assert!(health_due(None, start));
-        // A 2 s ping ticks 29 more times before the next ask, not 2.
-        let mut asks = 1;
-        let mut last = start;
-        for tick in 1..=150u32 {
-            let now = start + Duration::from_secs(2) * tick;
-            if health_due(Some(last), now) {
-                asks += 1;
-                last = now;
-            }
+/// `v`, a `host_health` reading, cut to what the hub's heartbeat takes (cmux-platform
+/// `MeshHostHealth`): numbers and short names only, each field bounded, so a placer reading the
+/// address book weighs this machine with no ask. Never more than [`WIRE_BYTES`].
+pub(crate) fn wire(v: &Value) -> Value {
+    let num = |p: &str| v.pointer(p).filter(|x| x.as_u64().is_some()).cloned();
+    let mut out = serde_json::Map::new();
+    let mut group = |key: &str, fields: &[(&str, &str)]| {
+        let obj: serde_json::Map<String, Value> =
+            fields.iter().filter_map(|(name, p)| Some(((*name).to_owned(), num(p)?))).collect();
+        if !obj.is_empty() {
+            out.insert(key.to_owned(), Value::Object(obj));
         }
-        // 300 s of 2 s pings: one ask a minute (at 0, 60, 120, 180, 240, 300 s).
-        assert_eq!(asks, 6);
+    };
+    group("ram", &[("freeBytes", "/ram/freeBytes"), ("totalBytes", "/ram/totalBytes")]);
+    group("swap", &[("usedBytes", "/swap/usedBytes"), ("totalBytes", "/swap/totalBytes")]);
+    group("disk", &[("freeBytes", "/disk/freeBytes")]);
+    if let Some(load) = v.get("load").and_then(Value::as_array) {
+        let load: Vec<Value> = load
+            .iter()
+            .filter(|x| x.as_f64().is_some_and(|n| n.is_finite() && (0.0..=1e6).contains(&n)))
+            .take(3)
+            .cloned()
+            .collect();
+        if !load.is_empty() {
+            out.insert("load".into(), Value::Array(load));
+        }
     }
+    for key in ["cpus", "liveSessions"] {
+        if let Some(n) = v.get(key).filter(|x| x.as_u64().is_some_and(|n| n <= 1_000_000)) {
+            out.insert(key.into(), n.clone());
+        }
+    }
+    let mut pressure = serde_json::Map::new();
+    if let Some(ok) = v.pointer("/pressure/ok").filter(|x| x.is_boolean()) {
+        pressure.insert("ok".into(), ok.clone());
+    }
+    if let Some(over) = v.pointer("/pressure/over").and_then(Value::as_array) {
+        let over: Vec<Value> = over
+            .iter()
+            .filter(|x| {
+                x.as_str().is_some_and(|s| {
+                    (1..=32).contains(&s.len())
+                        && s.bytes().all(|b| {
+                            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-'
+                        })
+                })
+            })
+            .take(8)
+            .cloned()
+            .collect();
+        pressure.insert("over".into(), Value::Array(over));
+    }
+    if let Some(cores) =
+        v.pointer("/pressure/cores").filter(|x| x.as_u64().is_some_and(|n| n <= 1_000_000))
+    {
+        pressure.insert("cores".into(), cores.clone());
+    }
+    if !pressure.is_empty() {
+        out.insert("pressure".into(), Value::Object(pressure));
+    }
+    if let Some(build) = v.get("build").and_then(Value::as_str).filter(|b| {
+        (1..=64).contains(&b.len())
+            && b.bytes().all(|c| c.is_ascii_alphanumeric() || b"._+-".contains(&c))
+    }) {
+        out.insert("build".into(), json!(build));
+    }
+    let out = Value::Object(out);
+    if out.to_string().len() > WIRE_BYTES { Value::Object(Default::default()) } else { out }
 }
+
+#[cfg(test)]
+#[path = "peer_health_tests.rs"]
+mod tests;

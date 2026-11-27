@@ -276,7 +276,19 @@ impl ProcessTable {
                 p.logged = false;
             }
         }
-        let named = named || owned;
+        // Claude's task_started may precede its Bash input. The first update with
+        // the actual command also tells whether the earlier description was its text.
+        let late_command = text("command").filter(|_| p.command.is_empty());
+        if let Some(command) = late_command {
+            p.command = command.to_owned();
+            if let Some(description) = text("description") {
+                p.description = Some(description.to_owned());
+            } else if p.description.as_deref() == Some(command.trim()) {
+                p.description = None;
+            }
+            p.logged = false;
+        }
+        let named = named || owned || late_command.is_some();
         if state == ProcessState::Running {
             return (found.is_none() || named).then_some(i);
         }
@@ -779,6 +791,65 @@ fn folds_process(dir: &[u8], kind: &[u8]) -> bool {
     )
 }
 
+/// A record `Hub::read_processes` folds, cut to what its fold reads.
+enum Folded {
+    /// A `background_task_update`: the params `ProcessTable::fold` reads, no more.
+    Task { at: u64, params: Value },
+    /// A `process_update`'s process: `None` when it reads as none, whose seq still counts.
+    Update(Option<Box<Process>>),
+    /// A harness that stopped or exited, or a new one.
+    Harness { at: u64 },
+}
+
+impl Folded {
+    /// The record's seq and what is folded of it; `None` for a record nothing folds.
+    fn of(mut e: EventRecord) -> Option<(u64, Self)> {
+        let f = match (e.dir.as_str(), e.kind.as_str()) {
+            ("in", "background_task_update") => {
+                Self::Task { at: e.at, params: task_params(e.msg.get_mut("params")) }
+            }
+            ("mux", "process_update") => {
+                let process = e.msg.get_mut("process").map_or(Value::Null, Value::take);
+                Self::Update(serde_json::from_value(process).ok().map(Box::new))
+            }
+            ("mux", "stopped" | "exited" | "host_started") => Self::Harness { at: e.at },
+            _ => return None,
+        };
+        Some((e.seq, f))
+    }
+}
+
+/// The fields of a `background_task_update`'s params `ProcessTable::fold` reads.
+fn task_params(params: Option<&mut Value>) -> Value {
+    const UPDATE: [&str; 10] = [
+        "toolCallId",
+        "state",
+        "taskId",
+        "command",
+        "description",
+        "workflowAgentId",
+        "origin",
+        "reason",
+        "summary",
+        "exitCode",
+    ];
+    let Some(params) = params else { return Value::Null };
+    let mut out = serde_json::Map::new();
+    if let Some(update) = params.get_mut("update").and_then(Value::as_object_mut) {
+        let kept: serde_json::Map<String, Value> =
+            UPDATE.iter().filter_map(|&k| Some((k.to_owned(), update.remove(k)?))).collect();
+        out.insert("update".into(), Value::Object(kept));
+    }
+    if let Some(acpmux) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        let kept: serde_json::Map<String, Value> = ["endedBy", "subagent"]
+            .iter()
+            .filter_map(|&k| Some((k.to_owned(), acpmux.remove(k)?)))
+            .collect();
+        out.insert("_meta".into(), json!({ "acpmux": kept }));
+    }
+    Value::Object(out)
+}
+
 impl Hub {
     /// The session's table, read from its log's copies the first time.
     fn process_table<'a>(&self, session: &'a Session) -> std::sync::MutexGuard<'a, ProcessTable> {
@@ -808,6 +879,9 @@ impl Hub {
         // copy yet gets one made by its lines' heads, never parsed whole (`scan_kinds` makes one
         // by parsing every line, which an adoption of many hosted chats paid for each:
         // `hosts_tests.rs` `adoption_reads_parse_only_the_records_they_fold`).
+        // Each record is cut to what the fold reads as it is read: a record kept whole holds
+        // its command and every other field, so a long chat's restart held every process record
+        // it ever logged, parsed (63 MB of a 1 GB chat's, `god_daemon` `chat_size_sweep`).
         let mut folded = Vec::new();
         let _ = self.store.scan_back_indexed(
             &session.id,
@@ -815,30 +889,26 @@ impl Hub {
             u64::MAX,
             &|dir, kind| !folds_process(dir, kind),
             &mut |e| {
-                folded.push(e);
+                if let Some(f) = Folded::of(e) {
+                    folded.push(f);
+                }
                 true
             },
         );
-        for e in folded.into_iter().rev() {
-            if !folds_process(e.dir.as_bytes(), e.kind.as_bytes()) {
-                continue;
-            }
-            table.through = table.through.max(e.seq);
-            match (e.dir.as_str(), e.kind.as_str()) {
-                ("in", "background_task_update") => {
-                    let params = e.msg.get("params").unwrap_or(&Value::Null);
-                    table.fold(session, params, e.at, None);
+        for (seq, f) in folded.into_iter().rev() {
+            table.through = table.through.max(seq);
+            match f {
+                Folded::Task { at, params } => {
+                    table.fold(session, &params, at, None);
                 }
-                ("mux", "process_update") => {
-                    let process = e.msg.get("process").cloned().unwrap_or(Value::Null);
-                    if let Ok(process) = serde_json::from_value(process) {
-                        table.upsert(process);
+                Folded::Update(process) => {
+                    if let Some(process) = process {
+                        table.upsert(*process);
                     }
                 }
-                ("mux", "stopped" | "exited" | "host_started") => {
-                    table.lose_running(e.at, HARNESS_EXIT, false);
+                Folded::Harness { at } => {
+                    table.lose_running(at, HARNESS_EXIT, false);
                 }
-                _ => {}
             }
         }
         table
@@ -1206,36 +1276,5 @@ fn unknown_process(id: &str) -> RpcError {
 }
 
 #[cfg(test)]
-mod process_list_snapshot_tests {
-    use super::*;
-
-    #[test]
-    fn a_process_list_reads_output_metadata_after_releasing_its_table() {
-        let process: Process = serde_json::from_value(json!({
-            "id": "chat/task", "sessionId": "chat", "toolCallId": "call",
-            "taskId": "task", "harness": "claude", "command": "cargo test",
-            "cwd": "/tmp", "startedAt": 100, "endedAt": 200,
-            "state": "exited", "origin": "background", "outputFile": "/tmp/task-output"
-        }))
-        .unwrap();
-        let table = std::sync::Mutex::new(ProcessTable {
-            loaded: true,
-            processes: vec![process],
-            ..ProcessTable::default()
-        });
-        // Every caller first takes its snapshot, then drops the guard before
-        // collecting live file sizes and serializing the reply.
-        let snapshot = table.lock().unwrap().snapshot();
-        let rows = process_values(snapshot, |path| {
-            assert_eq!(path, "/tmp/task-output");
-            assert!(table.try_lock().is_ok(), "filesystem metadata read under process-table lock");
-            42
-        });
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0]["id"], "chat/task");
-        assert_eq!(rows[0]["state"], "exited");
-        assert_eq!(rows[0]["outputBytes"], 42);
-        // The saved table remains unchanged: a later list re-reads the file size.
-        assert_eq!(table.lock().unwrap().processes[0].output_bytes, None);
-    }
-}
+#[path = "processes_process_list_snapshot_tests.rs"]
+mod process_list_snapshot_tests;

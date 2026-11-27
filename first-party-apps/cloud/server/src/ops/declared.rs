@@ -55,6 +55,7 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         "cloud.machine.create",
         MUTATION,
         &[
+            "cloud.machine.not_found",
             "cloud.no_snapshot_configured",
             "cloud.plan.required",
             "cloud.quota.exceeded",
@@ -190,7 +191,9 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         ],
     ),
     ("cloud.plan.get", READ, &[]),
-    ("cloud.billing.checkout", MUTATION, &[]),
+    ("cloud.allotment.get", READ, &["cloud.allotment.off"]),
+    ("cloud.usage.current", READ, &[]),
+    ("cloud.billing.checkout", MUTATION, &["cloud.billing.off"]),
     ("cloud.shell.open", MUTATION, &["cloud.machine.not_found", "cloud.machine.paused"]),
     ("cloud.migration.status", READ, &[]),
     ("cloud.migration.start", MUTATION, &["cloud.migration.unavailable"]),
@@ -211,6 +214,12 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
             "idempotency.conflict",
             "owner.unreachable",
         ],
+    ),
+    // `cmux machine request` from the agent on the machine (agent-work-placement RFD 9, 13).
+    (
+        "cloud.vm.machine.request",
+        VM_SELF,
+        &["cloud.machine.not_found", "cloud.rate_limited", "validation.invalid"],
     ),
     // The Native guest receiver (#28947): its network policy read and its
     // lifecycle report, which carries a revision.

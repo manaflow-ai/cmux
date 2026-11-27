@@ -601,10 +601,8 @@ const checkTopBlockAlignment: Play = async (ctx) => {
 const DEFAULT_SECTION_ORDER = [
   "environment",
   "context",
-  "progress",
   "subagents",
   "tasks",
-  "alsoHere",
   "sources",
   "outputs",
   "more",
@@ -632,9 +630,8 @@ const drawnSlots = (ctx: PlayContext) =>
 /// The sections above the Show more line in the full chat, and the ones under it.
 const LEO_FOUR = ["environment", "context", "subagents", "tasks", "sources", "outputs"];
 const LESS_USED = ["changes", "usage", "connectors"];
-/// What the full chat draws in the default order: no plan (Progress) and no other chat here (Also
-/// working here).
-const FULL_ORDER = DEFAULT_SECTION_ORDER.filter((id) => id !== "progress" && id !== "alsoHere");
+/// What the full chat draws in the default order.
+const FULL_ORDER = DEFAULT_SECTION_ORDER;
 /// The same without the Show more line: the looks that have none (all, capped).
 const ORDER_WITHOUT_LINE = FULL_ORDER.filter((id) => id !== "more");
 const expectDrawn = (ctx: PlayContext, expected: readonly string[]) => {
@@ -1822,7 +1819,7 @@ export default componentEntry<Props>({
       },
     },
     "subagents-idle": {
-      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle ("3 running · 2 idle · 1 done"). Every line is named by its task, never its id. With no started chat running or waiting, no limit line shows.',
+      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle (the subagents’ mark and 3, no word for what runs (Leo, 2026-11-23: “running” doesn’t need text), then "2 idle · 1 done"). Every line is named by its task, never its id. With no started chat running or waiting, no limit line shows.',
       props: {
         ...full,
         agents: idleAgents,
@@ -1836,6 +1833,9 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => /2 idle/.test(text(ctx)));
         if (/Started chats:/.test(text(ctx))) throw new Error("A limit line shows with no started chat running");
+        const head = ctx.document.querySelector(".acpmux-session-info-section__value .acpmux-live-count");
+        if (!head || head.textContent !== "3") throw new Error(`the head's live count reads ${head?.textContent}`);
+        if (/\brunning\b/.test(head.parentElement?.textContent ?? "")) throw new Error("the head still says running");
       },
     },
     "subagents-wave": {

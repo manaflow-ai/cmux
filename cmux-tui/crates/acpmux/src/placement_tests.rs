@@ -336,6 +336,25 @@ fn a_drained_lane_host_is_never_a_placement_candidate() {
     }
 }
 
+/// A machine that is never a lane host (`lanes.lane_host` false: big-red, Leo's own box; Leo,
+/// 2026-11-27: "then please don't rely on big-red") is refused even while it accepts new lanes.
+#[test]
+fn a_machine_that_is_never_a_lane_host_is_refused() {
+    let both =
+        [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
+    let mut reg = registry();
+    reg["machines"]["big"]["lanes"]["accept_new"] = json!(true);
+    reg["machines"]["big"]["lanes"]["lane_host"] = json!(false);
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "small", "{v}");
+    assert_eq!(host(&v, "big")["refused"], "never a lane host (lanes.lane_host false)");
+    reg["machines"]["big"]["lanes"]["lane_host_why"] = json!("Leo's personal box");
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(host(&v, "big")["refused"], "never a lane host: Leo's personal box");
+    reg["machines"]["big"]["lanes"]["lane_host"] = json!(true);
+    assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big");
+}
+
 /// A machine a person works at: `interactive: true`, or the registry's role for one (`leo-mac`,
 /// `attended`), by name or alias. Fleet hosts and unlisted machines are not.
 #[test]
@@ -604,9 +623,11 @@ fn a_peer_whose_link_is_not_up_is_passed_over_with_why() {
         assert_eq!(peer_down(&row(false, state)), Some(format!("not connected ({state})")));
     }
     assert_eq!(peer_down(&json!({"name": "vm"})), Some("not connected (down)".into()));
-    // A machine only the hub lists reads as connected, but no session can start there from here.
+    // A machine only the hub lists is a candidate (its start goes through the hub), but no
+    // direct link reaches it.
     let hub = json!({"name": "swarm-01", "connected": true, "state": "connected", "via": "hub"});
-    let why = peer_down(&hub).expect("a hub-only machine is no candidate");
+    assert_eq!(peer_down(&hub), None);
+    let why = link_down(&hub).expect("a hub-only machine has no link");
     assert!(why.starts_with("only the mesh hub reaches it"), "{why}");
     assert!(why.contains("`acpmux machine add swarm-01`"), "{why}");
 
@@ -672,6 +693,7 @@ fn an_unknown_hosts_line_says_why_and_what_to_do() {
     assert!(old.contains("`acpmux machine update big`"), "{old}");
     let hub = why(Candidate { via_hub: true, ..c("big", Value::Null) });
     assert!(hub.contains("only the mesh hub reaches it"), "{hub}");
+    assert!(hub.contains("health read through the hub"), "{hub}");
     assert!(!hub.contains("build"), "a hub machine's build is not the reason: {hub}");
     let fresh = why(c("big", Value::Null));
     assert!(fresh.contains("no health reading yet"), "{fresh}");
@@ -768,4 +790,37 @@ fn the_pick_order_is_under_then_headroom_then_unread_then_full() {
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("laptop"), &json!(false)), "{v:#}");
     let v = place(&[full], Some(&reg), Work::Agent);
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("big"), &json!(true)), "{v:#}");
+}
+
+#[test]
+fn a_hub_only_host_with_a_pushed_reading_is_weighed_not_unknown() {
+    // The row `mesh_book_hosts` builds from the address book: via the hub, health pushed.
+    let row = json!({"name": "big", "connected": true, "state": "connected", "via": "hub",
+        "health": health(40.0, 12, 1.0, 300.0, 1), "healthAt": 1});
+    let cand = Candidate::peer(&row).unwrap();
+    assert!(cand.via_hub);
+    let v = place(&[cand], Some(&registry()), Work::Agent);
+    let why = host(&v, "big")["why"].as_str().unwrap_or_default().to_owned();
+    assert!(!why.contains("resources unknown"), "{why}");
+    assert_eq!(v["pick"], "big", "{v:#}");
+}
+
+#[test]
+fn role_holders_fold_into_machine_roles() {
+    let mut reg = json!({
+        "machines": {"mac": {"roles": ["ci-runner"]}, "air": {}, "other": {"roles": ["x"]}},
+        "role_holders": {"leo-mac": ["mac", "ghost"], "attended": ["air", "mac"], "ci-runner": ["mac"]}
+    });
+    fold_role_holders(&mut reg);
+    // Held by role_holders, appended in sorted role order, no duplicate of the legacy ci-runner.
+    assert_eq!(reg["machines"]["mac"]["roles"], json!(["ci-runner", "attended", "leo-mac"]));
+    assert_eq!(reg["machines"]["air"]["roles"], json!(["attended"]));
+    assert_eq!(reg["machines"]["other"]["roles"], json!(["x"]));
+    // A holder that is no machine is ignored, not added.
+    assert!(reg["machines"].get("ghost").is_none());
+    assert!(interactive(Some(&reg), "air") && interactive(Some(&reg), "mac"));
+    // Idempotent.
+    let once = reg.clone();
+    fold_role_holders(&mut reg);
+    assert_eq!(reg, once);
 }

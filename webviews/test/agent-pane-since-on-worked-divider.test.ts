@@ -42,6 +42,10 @@ await requireBrowserLane("agent-pane-since-on-worked-divider.test.ts", async () 
     accent: string;
     rules: { top: number; height: number }[];
     tag?: { top: number; bottom: number };
+    /// The tag is painted, not cut by the row's paint containment: the point at its centre hits it.
+    tagHit?: boolean;
+    /// The computed font sizes of the line's words and of the tag ("2 new messages", "New").
+    font: { worked: string; tag?: string };
   };
 
   async function measure(page: Page, variant: string): Promise<Shot> {
@@ -69,12 +73,18 @@ await requireBrowserLane("agent-pane-since-on-worked-divider.test.ts", async () 
         });
       const tagNode = document.querySelector<HTMLElement>(".cv-since[data-shown] .cv-since__tag");
       const tag = tagNode?.getBoundingClientRect();
+      const hit = tag && document.elementFromPoint(tag.left + tag.width / 2, tag.top + tag.height / 2);
       return {
         worked: { top: box.top, bottom: box.bottom },
         divider: { top: box.bottom - bottom - height, height, color: after.backgroundColor },
         accent,
         rules,
         tag: tag && { top: tag.top, bottom: tag.bottom },
+        tagHit: !!hit && !!hit.closest(".cv-since"),
+        font: {
+          worked: getComputedStyle(line).fontSize,
+          tag: tagNode ? getComputedStyle(tagNode).fontSize : undefined,
+        },
       };
     });
   }
@@ -101,6 +111,13 @@ await requireBrowserLane("agent-pane-since-on-worked-divider.test.ts", async () 
         expect(lit.tag).toBeDefined();
         expect(lit.tag!.top).toBeGreaterThanOrEqual(lit.worked.top);
         expect(lit.tag!.bottom).toBeLessThanOrEqual(lit.divider.top);
+        // One type size on the one line: "2 new messages" is the Working for words' size, the row
+        // metric, not the prose size a pixel larger (Leo, 2026-11-27: "the font size on working for
+        // and new messages is different" / "just make new messages the same size as normal stuff").
+        expect(lit.font.tag).toBe(lit.font.worked);
+        // And it is painted there: the mark lies past its 0 px row's box, and a row that clipped its
+        // paint (styles.css .acpmux-row, contain: paint) cut it off, leaving only the lit divider.
+        expect(lit.tagHit).toBe(true);
       } finally {
         await page.close();
       }

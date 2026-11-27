@@ -1,0 +1,265 @@
+# Every on-disk format a cmux-tui build leaves for the next build to read, and how an update crosses it.
+#
+# Leo, 2026-11-24 06:03Z (ask-1f9e8b7422): "we need to make sure in the future these kinds of cutovers always have
+# proper migrations. in the future." The update that prompted it (the NIGHTLY on Leo's Mac, 05:34Z) lost live work:
+# the old build wrote the state and started the processes, and the new build has to adopt them.
+#
+# scripts/ci/persisted_formats.py checks this file on every pull request that touches cmux-tui (ci/steps.toml
+# `persisted-formats`). A format here is found by its version constant (`file` + `const`), and its `policy` says
+# what an update does with data an older build wrote:
+#
+#   migrate     The next build reads it. `fixtures` names a folder of files an older build wrote, one per shape:
+#               v<N>.json, then v<N>-2.json, v<N>-3.json ... for each additive change at the same version. A fixture
+#               is never edited or deleted (only below a raised `floor`, the oldest version this build still reads,
+#               and only together with that raise), the constant never goes down, and the current version has a
+#               fixture. `test` names the Rust test (a cmux_next_ test, so the daemon-tests step runs it) that
+#               loads every fixture through the real reader and fails when the writer's shape is not the newest
+#               fixture's: a changed struct ships with its new fixture, and the old ones still load.
+#   rebuild     Derived data the next build recomputes; losing it across an update costs time, not work. `why`
+#               says so.
+#   unreviewed  Listed when this file was made (2026-11-25), not yet given a policy. A pull request that changes
+#               its version must give it one (migrate with fixtures, or rebuild with a why). This list only
+#               shrinks: a new entry, or a new version constant anywhere in cmux-tui/crates, cannot be unreviewed.
+#
+# A version constant is any `const *VERSION: uN = N;` under cmux-tui/crates/*/src whose name says it is stored
+# (RECORD, FORMAT, SCHEMA, STATE, STORE, JOURNAL, CACHE, SNAPSHOT, LEDGER, MANIFEST, INDEX); a wire or ABI version
+# is not one. An unlisted one fails the check.
+#
+# The app's Swift and webviews formats and webviews storage keys: persisted-formats/formats.toml. Settings keys:
+# schemas/settings/published-keys.txt and retired-keys.json. One check covers all three.
+#
+# The handbook page: cmuxterm-hq docs/handbook/cutover-ships-its-migration.md.
+
+[[format]]
+file = "crates/acpmux/src/agent_host/mod.rs"
+const = "RECORD_VERSION"
+name = "agent-host-record"
+about = "<hosts dir>/<session id>.json: how the next acpmux daemon finds and adopts a live agent host (a chat mid-turn)"
+policy = "migrate"
+floor = 1
+fixtures = "agent-host-record"
+test = "cmux_next_persisted_agent_host_record"
+
+[[format]]
+file = "crates/acpmux/src/catalog/schema.rs"
+const = "SCHEMA_VERSION"
+name = "acpmux/schema#SCHEMA_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/acpmux/src/login_env.rs"
+const = "CACHE_VERSION"
+name = "acpmux-login-env-cache"
+about = "the login shell's environment, cached so a start skips the shell"
+policy = "rebuild"
+why = "a cache of the login shell's output; another version reads the shell again"
+
+[[format]]
+file = "crates/acpmux/src/vault/plan.rs"
+const = "STATE_VERSION"
+name = "acpmux/plan#STATE_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-auto-session/src/consts.rs"
+const = "MANIFEST_VERSION"
+name = "auto-session-manifest"
+about = "a chat's snapshot manifest in the Cloud: what the next holder (maybe a newer build) needs besides the events"
+policy = "migrate"
+floor = 1
+fixtures = "auto-session-manifest"
+test = "cmux_next_persisted_auto_session_manifest"
+
+[[format]]
+file = "crates/cmux-chat-index/src/index.rs"
+const = "CACHE_VERSION"
+name = "chat-index-cache"
+about = "the chat search index"
+policy = "rebuild"
+why = "an index of chat logs that stay where they are; another version re-indexes them"
+
+[[format]]
+file = "crates/cmux-cloud-api/src/sandbox.rs"
+const = "STORE_VERSION"
+name = "cmux-cloud-api/sandbox#STORE_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-config/src/cache.rs"
+const = "CACHE_VERSION"
+name = "config-cache"
+about = "the parsed settings cache"
+policy = "rebuild"
+why = "a parse of the settings files, which stay; another version parses them again"
+
+[[format]]
+file = "crates/cmux-config/src/migrations/once.rs"
+const = "LEDGER_VERSION"
+name = "cmux-config/once#LEDGER_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-customize/src/library/doctor.rs"
+const = "STATE_VERSION"
+name = "settings-doctor-state"
+about = "the settings doctor's announced and dismissed findings (id to fingerprint)"
+policy = "rebuild"
+why = "a file of another version is carried over by id on the next announce (doctor_announce), and a file lost costs one repeated toast, not work"
+
+[[format]]
+file = "crates/cmux-customize/src/setup/check.rs"
+const = "SCHEMA_VERSION"
+name = "cmux-customize/check#SCHEMA_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-daemon-launch-core/src/login_env.rs"
+const = "STORE_VERSION"
+name = "cmux-daemon-launch-core/login_env#STORE_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-history/src/hidden.rs"
+const = "SCHEMA_VERSION"
+name = "cmux-history/hidden#SCHEMA_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-host/src/team_ssh/trust.rs"
+const = "KRL_FORMAT_VERSION"
+name = "cmux-host/trust#KRL_FORMAT_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-journal/src/format.rs"
+const = "FORMAT_VERSION"
+name = "cmux-journal/format#FORMAT_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-launch-record/src/lib.rs"
+const = "FORMAT_VERSION"
+name = "cmux-launch-record/lib#FORMAT_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-launch-shell/src/relaunch_cover.rs"
+const = "MANIFEST_VERSION"
+name = "cmux-launch-shell/relaunch_cover#MANIFEST_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-layout-cache/src/model.rs"
+const = "FORMAT_VERSION"
+name = "layout-cache"
+about = "every window's last layout, read at launch to draw the first frame where the last one was"
+policy = "rebuild"
+why = "model.rs: a file with another version is ignored; the next layout pass rewrites it, and nothing a person made lives only here"
+
+[[format]]
+file = "crates/cmux-remote/src/identity.rs"
+const = "AUTH_STATE_VERSION"
+name = "cmux-remote/identity#AUTH_STATE_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-remote/src/identity.rs"
+const = "STATE_VERSION"
+name = "cmux-remote/identity#STATE_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-tui-core/src/agent_hooks.rs"
+const = "AGENT_HOOK_MANIFEST_VERSION"
+name = "cmux-tui-core/agent_hooks#AGENT_HOOK_MANIFEST_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-tui-core/src/history_ops/hidden_doc.rs"
+const = "SCHEMA_VERSION"
+name = "cmux-tui-core/hidden_doc#SCHEMA_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-tui-core/src/history_ops/merged.rs"
+const = "AGENT_FOLD_STATE_VERSION"
+name = "cmux-tui-core/merged#AGENT_FOLD_STATE_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-tui-core/src/history_ops/trail.rs"
+const = "SCHEMA_VERSION"
+name = "cmux-tui-core/trail#SCHEMA_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-tui-core/src/journal_checkpoint.rs"
+const = "JOURNAL_REDUCER_VERSION"
+name = "cmux-tui-core/journal_checkpoint#JOURNAL_REDUCER_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-tui-core/src/language_packs.rs"
+const = "MANIFEST_VERSION"
+name = "cmux-tui-core/language_packs#MANIFEST_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-tui-core/src/server/launch_snapshot.rs"
+const = "LAUNCH_SNAPSHOT_SCHEMA_VERSION"
+name = "cmux-tui-core/launch_snapshot#LAUNCH_SNAPSHOT_SCHEMA_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-tui-core/src/terminal_host_runtime.rs"
+const = "HOST_EXIT_RECORD_VERSION"
+name = "cmux-tui-core/terminal_host_runtime#HOST_EXIT_RECORD_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-tui-core/src/terminal_host_runtime.rs"
+const = "HOST_RECORD_VERSION"
+name = "terminal-host-record"
+about = "<hosts dir>/<terminal id>.json: how the next daemon finds and adopts a live terminal host (a program in a pane)"
+policy = "migrate"
+floor = 1
+fixtures = "terminal-host-record"
+test = "cmux_next_persisted_terminal_host_record"
+
+[[format]]
+file = "crates/cmux-tui-core/src/workspace_registry.rs"
+const = "RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION"
+name = "cmux-tui-core/workspace_registry#RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-tui-core/src/workspace_registry/session_journal.rs"
+const = "JOURNAL_RECORD_SCHEMA_VERSION"
+name = "cmux-tui-core/session_journal#JOURNAL_RECORD_SCHEMA_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-tui/src/app/window_docks.rs"
+const = "PROJECTION_SCHEMA_VERSION"
+name = "cmux-tui/window_docks#PROJECTION_SCHEMA_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-tui/src/machine_agent/identity.rs"
+const = "STATE_VERSION"
+name = "cmux-tui/identity#STATE_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-tui/src/provider_notice_identity.rs"
+const = "STATE_VERSION"
+name = "cmux-tui/provider_notice_identity#STATE_VERSION"
+policy = "unreviewed"
+
+[[format]]
+file = "crates/cmux-auto-session/src/consts.rs"
+const = "MANIFEST_VERSION"
+name = "auto-session-snapshot-manifest"
+about = "an Auto move's snapshot manifest (the chat's chunk lists), uploaded to the store for the receiving machine"
+policy = "rebuild"
+why = "the sender builds it fresh from the live chat on every move; a manifest of another version is refused (chunks.rs validate) and the chat stays on its machine until the next move sends a new one"

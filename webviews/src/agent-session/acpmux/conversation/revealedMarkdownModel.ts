@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { StreamReveal, wordEdge } from "../streamReveal";
 import { pageAway } from "../../shared/pageReveal";
 import { MOTION_MS } from "../../../motion/scale.generated";
+import { lineEdge, type StreamingStyle } from "./streamingStyle";
 
 /// The display frames the reveal runs on, and its clock (tests drive their own).
 export const revealFrames = {
@@ -50,19 +51,90 @@ type Shown = { text: string; done: boolean; length: number; fresh: Reveal[]; now
 /// a style recalc on the commit that draws new text).
 let fadeMs = FADE_MS;
 
+/// One row's work for a display frame: true while it has more to show or a fade to drop.
+type RevealTick = (now: number) => boolean;
+
+/// The one clock every revealing row runs on (chat-instant-under-load.md, piece 4). One display frame
+/// callback for the whole page, however many rows hold a last word or a fading step: each row advances
+/// in it, React batches their state into one render and one commit, and the host's fade token is read
+/// once a frame instead of once a row (a computed-style read each). It holds a frame only while some row
+/// has work, and gives it back when none has. Before it, each row ran its own frame loop.
+export const revealClock = {
+  rows: new Set<RevealTick>(),
+  handle: 0,
+  /// Which requested frame is the clock's: a frame callback the clock no longer waits for (cancelled,
+  /// or superseded) does nothing when it runs.
+  frame: 0,
+  /// Runs `tick` from the next display frame on, until it returns false or is removed.
+  add(tick: RevealTick): void {
+    this.rows.add(tick);
+    if (!this.handle) this.request();
+  },
+  /// Takes `tick` off the clock; the clock gives its frame back when no row is left.
+  remove(tick: RevealTick): void {
+    this.rows.delete(tick);
+    if (!this.rows.size) this.stop();
+  },
+  has(tick: RevealTick): boolean {
+    return this.rows.has(tick);
+  },
+  request(): void {
+    const frame = (this.frame += 1);
+    this.handle = revealFrames.request((now) => {
+      if (frame === this.frame) revealFrame(now);
+    });
+  },
+  stop(): void {
+    if (this.handle) revealFrames.cancel(this.handle);
+    this.handle = 0;
+    this.frame += 1;
+  },
+};
+
+function revealFrame(now: number): void {
+  const clock = revealClock;
+  clock.handle = 0;
+  fadeMs = freshFadeMs();
+  try {
+    // A row that throws leaves the clock (as its own loop stopped before); the rows after it stay on it.
+    // A snapshot: a row added during this frame starts on the next one.
+    for (const tick of Array.from(clock.rows)) {
+      if (!clock.rows.has(tick)) continue;
+      let more = false;
+      try {
+        more = tick(now);
+      } finally {
+        if (!more) clock.rows.delete(tick);
+      }
+    }
+  } finally {
+    if (clock.rows.size) {
+      if (!clock.handle) clock.request();
+    } else clock.stop();
+  }
+}
+
 /// The next `Shown` for `text`: all of it that has arrived, ending at a whole word while the stream
 /// runs (wordEdge; `release` lets the last word show too), and the newly shown characters as one
-/// fading step. Away (a hidden page) and Reduce Motion show everything with no fade.
+/// fading step. Away (a hidden page), Reduce Motion and the `instant` streaming style show everything
+/// with no fade; `lines` ends at a whole line instead of a whole word (streamingStyle.ts).
 function nextShown(
   before: Shown,
   text: string,
   done: boolean,
   now: number,
-  { reduce, away, release, id }: { reduce: boolean; away: boolean; release: boolean; id: () => number },
+  {
+    reduce,
+    away,
+    release,
+    id,
+    style = "words",
+  }: { reduce: boolean; away: boolean; release: boolean; id: () => number; style?: StreamingStyle },
 ): Shown {
   const kept = Math.min(before.length, text.length);
-  const length = reduce || away ? text.length : wordEdge(text, text.length, done || release, kept);
-  if (reduce || away) return { text, done, length, fresh: [], now };
+  if (reduce || away || style === "instant") return { text, done, length: text.length, fresh: [], now };
+  const edge = style === "lines" ? lineEdge : wordEdge;
+  const length = edge(text, text.length, done || release, kept);
   const fresh = before.fresh.filter((step) => now - step.born < fadeMs);
   if (length > kept) fresh.push({ id: id(), count: length - kept, born: now });
   return { text, done, length, fresh, now: length > kept ? now : before.now };
@@ -75,7 +147,12 @@ function nextShown(
 /// through over the frames after it arrived (StreamReveal): each step grew the row again, and the row's
 /// growth fed the follow chase (cmuxterm-hq docs/design/agent-transcript-clean-slate.md, step 3).
 /// A frame loop runs only to show a held last word once text stops arriving and to drop finished fades.
-export function useStreamReveal(text: string, streaming: boolean): { visible: string; fresh: Reveal[]; now: number } {
+/// `style` is `agentPane.display.streaming` (streamingStyle.ts); `words`, the default, is the reveal above.
+export function useStreamReveal(
+  text: string,
+  streaming: boolean,
+  style: StreamingStyle = "words",
+): { visible: string; fresh: Reveal[]; now: number } {
   const reduce = useRef<boolean | null>(null);
   reduce.current ??= reducedMotion();
   // Assistant text is append-only. A reconnect can briefly deliver a shorter prefix; keep the
@@ -106,52 +183,48 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
             away: pageAway(),
             release: false,
             id,
+            style,
           });
     // Set during render: React draws this component again before its children, so the reply's
     // Markdown renders once per chunk.
     setShown(current);
   }
+  const latestStyle = useRef(style);
+  latestStyle.current = style;
   const latest = useRef(current);
   latest.current = current;
-  const loop = useRef({ handle: 0 });
-  // The loop: while the last word is held, or a step still fades, once a frame. It reads the latest
-  // state itself; a new chunk starts it only when it is idle.
-  useLayoutEffect(() => {
-    if (loop.current.handle) return;
-    if (current.length >= current.text.length && !current.fresh.length) return;
-    const tick = (now: number) => {
-      loop.current.handle = 0;
-      fadeMs = freshFadeMs();
-      const before = latest.current;
-      let next = before;
-      const held = before.length < before.text.length;
-      // The last word counts as whole once text stops arriving: before a tool call it has no space
-      // after it, and the agent may work on the call for seconds.
-      if (held && now - before.now >= StreamReveal.stallMs)
-        next = nextShown(before, before.text, before.done, now, {
-          reduce: reduce.current!,
-          away: pageAway(),
-          release: true,
-          id,
-        });
-      // A finished fade's span goes in a commit that draws text anyway, or once every fade is done.
-      else if (before.fresh.length && before.fresh.every((step) => now - step.born >= fadeMs))
-        next = { ...before, fresh: [] };
-      if (next !== before) {
-        latest.current = next;
-        setShown(next);
-      }
-      if (next.length < next.text.length || next.fresh.length) loop.current.handle = revealFrames.request(tick);
-    };
-    loop.current.handle = revealFrames.request(tick);
+  // This row's work on the page's one reveal clock (revealClock), made once: while the last word is
+  // held, or a step still fades, once a frame. It reads the latest state itself; a new chunk puts it
+  // on the clock only when it is off.
+  const [tick] = useState<RevealTick>(() => (now: number) => {
+    const before = latest.current;
+    let next = before;
+    const held = before.length < before.text.length;
+    // The last word counts as whole once text stops arriving: before a tool call it has no space
+    // after it, and the agent may work on the call for seconds.
+    if (held && now - before.now >= StreamReveal.stallMs)
+      next = nextShown(before, before.text, before.done, now, {
+        reduce: reduce.current!,
+        away: pageAway(),
+        release: true,
+        id,
+        style: latestStyle.current,
+      });
+    // A finished fade's span goes in a commit that draws text anyway, or once every fade is done.
+    else if (before.fresh.length && before.fresh.every((step) => now - step.born >= fadeMs))
+      next = { ...before, fresh: [] };
+    if (next !== before) {
+      latest.current = next;
+      setShown(next);
+    }
+    return next.length < next.text.length || next.fresh.length > 0;
   });
   useLayoutEffect(() => {
-    const state = loop.current;
-    return () => {
-      revealFrames.cancel(state.handle);
-      state.handle = 0;
-    };
-  }, []);
+    if (revealClock.has(tick)) return;
+    if (current.length >= current.text.length && !current.fresh.length) return;
+    revealClock.add(tick);
+  });
+  useLayoutEffect(() => () => revealClock.remove(tick), [tick]);
   // Reduce Motion can change while the row is mounted, and the stylesheet follows it at once.
   // Turned on, the whole reply shows now and no step is left fading; later text shows as it arrives
   // with no fade. Turned off, later text fades in again.
@@ -163,8 +236,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
       if (reduce.current === on) return;
       reduce.current = on;
       if (!on) return;
-      revealFrames.cancel(loop.current.handle);
-      loop.current.handle = 0;
+      revealClock.remove(tick);
       const before = latest.current;
       if (before.length === before.text.length && !before.fresh.length) return;
       const next = { ...before, length: before.text.length, fresh: [] };
@@ -174,7 +246,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
     changed();
     query.addEventListener("change", changed);
     return () => query.removeEventListener("change", changed);
-  }, []);
+  }, [tick]);
   return {
     visible: displayText.slice(0, Math.min(current.length, displayText.length)),
     fresh: current.fresh,
