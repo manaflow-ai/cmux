@@ -182,6 +182,19 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: bash tests/test_rust_targets_helper.sh
 
+      # A pull request that puts a fleet-only behavior on a path every user runs (the fleet's own tooling named,
+      # a fleet-tuned switch on by default, cookies on the website) fails here: scripts/ci/check_default_path_fleet_only.py.
+      - name: Default-path fleet-only check
+        if: ${{ !cancelled() && matrix.group == 'ci' && github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify HEAD^2 >/dev/null 2>&1; then
+            python3 tests/test_ci_default_path_fleet_only.py
+            python3 scripts/ci/check_default_path_fleet_only.py --base HEAD^1 --head HEAD
+          else
+            echo "no synthetic merge commit; skipped"
+          fi
+
       # Fleet rules as a shrink-only ratchet: no fleet sudo keychain reads, no
       # new kill by process name or pattern, nothing depends on the personal
       # Linux workstation (tests/fleet-rule-allowlist.json).
