@@ -109,7 +109,7 @@ pub fn cut(text: &str, limit: usize) -> String {
     if limit == 0 {
         return String::new();
     }
-    let mut out: String = text.graphemes(true).take(limit - 1).collect();
+    let mut out: String = text.graphemes(true).take(limit.saturating_sub(1)).collect();
     out.push('…');
     out
 }
@@ -164,8 +164,8 @@ fn option_id(offered: &[Value], kinds: &[&str]) -> Option<String> {
             .filter_map(Value::as_object)
             .filter(|option| option.get("kind").and_then(Value::as_str) == Some(kind))
             .collect();
-        if matches.len() == 1 {
-            if let Some(id) = matches[0].get("optionId").and_then(Value::as_str) {
+        if let [matched] = matches.as_slice() {
+            if let Some(id) = matched.get("optionId").and_then(Value::as_str) {
                 return Some(id.to_owned());
             }
         }
@@ -240,9 +240,7 @@ pub fn summary(request: &Map<String, Value>) -> String {
             lines.push(line);
         }
     }
-    if lines.len() == 2 && lines[0] == lines[1] {
-        lines.truncate(1);
-    }
+    lines.dedup();
     cut(&lines.join("\n"), 300)
 }
 
