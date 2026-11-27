@@ -78,6 +78,17 @@ struct LayoutShiftCounterTests {
         #expect(counter.shiftFrames == 2)
     }
 
+    /// While an answer streams and the transcript follows it, a row above the answer changing
+    /// height at its own revision is a real shift, so the counter cannot go quiet under streaming.
+    @Test func aRowAboveAStreamingAnswerChangingHeightStillCounts() {
+        var counter = LayoutShiftCounter()
+        counter.frame(["q": streamed(200, h: 100, 1), "p": streamed(300, h: 120, 1), "a": streamed(420, h: 49, 1)])
+        // The answer grows (new revision) while the row above it is re-measured at the same one.
+        counter.frame(["q": streamed(146, h: 100, 1), "p": streamed(246, h: 160, 1), "a": streamed(406, h: 63, 2)])
+        #expect(counter.shiftFrames == 1)
+        #expect(counter.moves.contains { $0.contains("p 300/120->246/160") })
+    }
+
     /// Without a revision (a SwiftUI row, an older list) a resize counts as before.
     @Test func aRowWithoutARevisionGrowingIsAShift() {
         var counter = LayoutShiftCounter()

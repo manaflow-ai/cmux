@@ -99,8 +99,9 @@ public struct LayoutShiftCounter: Sendable {
         // not rows below a row that grew that moved down: that growth pushed them (the web's CLS
         // case of content landing above what the reader reads).
         let growth = moves.filter { $0.grew }.map { $0.before }
+        let tol = tolerance
         let pushed: (CGRect, CGRect) -> Bool = { before, after in
-            after.minY - before.minY > self.tolerance && growth.contains { before.minY >= $0.maxY - self.tolerance }
+            after.minY - before.minY > tol && growth.contains { before.minY >= $0.maxY - tol }
         }
         let scrolled = moves.filter { $0.space == .window && !resized($0.before, $0.after) && !pushed($0.before, $0.after) }
         var counts: [Delta: Int] = [:]
