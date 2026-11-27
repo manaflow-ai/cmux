@@ -41,4 +41,3 @@ cmux-link.workspace = true
 
 [dev-dependencies]
 cmux-egress = { workspace = true, features = ["capture"] }
-tempfile = "3"
