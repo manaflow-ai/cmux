@@ -355,12 +355,23 @@ test("(c) reconnect: a read while the link is down waits for the new connection'
   const daemon = new Daemon();
   const map = page(daemon);
   const host = new Host();
-  const store = openStore(map, host);
+  const waitingForConnection = Promise.withResolvers<void>();
+  const store = openStore(
+    {
+      ...map,
+      actionsChanged(listener) {
+        const stop = map.actionsChanged(listener);
+        waitingForConnection.resolve();
+        return stop;
+      },
+    },
+    host,
+  );
   await seed(daemon, store, "chat-a");
   // The old client is gone (delete window.cmuxAcpmuxActions); the page reads as it mounts.
   map.install({});
   const reading = store.read("chat-a");
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await waitingForConnection.promise;
   // The new client installs its map and calls notifyDraftActionsChanged.
   map.install(connect(daemon));
   await expectInPlace(daemon, "chat-a", await reading);
