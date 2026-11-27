@@ -54,7 +54,7 @@ export default componentEntry<Props>({
       const agent = agentOf(props);
       const setup = subagentSetup(agent);
       return (
-        <main className="acpmux-shell" data-subagent-setup-gallery style={{ padding: "16px" }}>
+        <main className="acpmux-shell" data-subagent-setup-gallery style={{ padding: "var(--ds-space-4)" }}>
           <div className="ui-tooltip ui-glass ui-card acpmux-agent-card__popup acpmux-subagent-preview">
             {props.look === "line" && <SubagentPreviewCard agent={agent} />}
             {props.look === "in-state" && (
@@ -76,7 +76,7 @@ export default componentEntry<Props>({
                       <span
                         key={text}
                         style={{
-                          padding: "0 6px",
+                          padding: "0 calc(var(--ds-space-1) + var(--grid-half-step))",
                           borderRadius: "8px",
                           background: "var(--cmux-fill-secondary, #8882)",
                         }}
