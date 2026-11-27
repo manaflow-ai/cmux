@@ -240,6 +240,13 @@ impl Hub {
                         );
                         hub.ledger.wait_closed();
                     }
+                    let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    if !hub.ask_ledger.close(left) {
+                        tracing::warn!(
+                            "ask ledger did not drain before the shutdown deadline; waiting for it"
+                        );
+                        hub.ask_ledger.wait_closed();
+                    }
                 })
                 .await
             }
@@ -268,6 +275,7 @@ impl Hub {
         }
         // The cost ledger's last lines too: its writer drains its queue and ends (`hub/ledger`).
         self.ledger.close(LEDGER_DRAIN);
+        self.ask_ledger.close(LEDGER_DRAIN);
     }
 
     async fn shutdown_sessions(&self, preserve_auto_resume: bool, flush: bool) -> usize {

@@ -24,8 +24,10 @@ import { AllChatsList } from "./AllChatsList";
 import { type LoadChatsPage } from "./allChatsListModel";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { useNt } from "./strings";
+import { askLedger } from "../askLedger/askLedger.experiment";
+import { AskLedgerScreen } from "../askLedger/AskLedgerScreen";
 
-export type HistoryTab = "history" | "queue" | "ledger" | "team";
+export type HistoryTab = "history" | "queue" | "ledger" | "team" | "asks";
 
 export function HistoryScreen({
   load,
@@ -36,6 +38,7 @@ export function HistoryScreen({
   queue,
   ledger,
   team: teamProps,
+  asks: asksProps,
   initialTab = "history",
 }: {
   load: LoadChatsPage;
@@ -49,6 +52,7 @@ export function HistoryScreen({
   ledger?: ComponentProps<typeof LedgerScreen>;
   /// Team's read; no tab without it, or while the `team-audit` experiment is off.
   team?: ComponentProps<typeof TeamAuditScreen>;
+  asks?: ComponentProps<typeof AskLedgerScreen>;
   initialTab?: HistoryTab;
 }) {
   const nt = useNt();
@@ -66,9 +70,15 @@ export function HistoryScreen({
     if (queueKey !== undefined) queueCache.note(queueKey);
   }, [queueCache, queueKey]);
   const team = experimentArm(teamAudit) === "on" ? teamProps : undefined;
-  const tabbed = Boolean(queue || ledger || team);
+  const asks = experimentArm(askLedger) === "capture" ? asksProps : undefined;
+  const tabbed = Boolean(queue || ledger || team || asks);
   const shown: HistoryTab =
-    (tab === "queue" && !queue) || (tab === "ledger" && !ledger) || (tab === "team" && !team) ? "history" : tab;
+    (tab === "queue" && !queue) ||
+    (tab === "ledger" && !ledger) ||
+    (tab === "team" && !team) ||
+    (tab === "asks" && !asks)
+      ? "history"
+      : tab;
   return (
     <div className="nt-history" data-tab={shown}>
       {/* The page's title stays on every tab, with the tabs under it, so switching moves nothing above. */}
@@ -85,6 +95,7 @@ export function HistoryScreen({
             {queue && <TabsTrigger value="queue">{t("waiting.title")}</TabsTrigger>}
             {ledger && <TabsTrigger value="ledger">{t("ledger.title")}</TabsTrigger>}
             {team && <TabsTrigger value="team">{t("teamAudit.title")}</TabsTrigger>}
+            {asks && <TabsTrigger value="asks">{t("askLedger.title")}</TabsTrigger>}
           </TabsList>
         </Tabs>
       )}
@@ -94,6 +105,8 @@ export function HistoryScreen({
         <LedgerScreen {...ledger} cache={ledgerCache} {...(now !== undefined ? { now } : {})} />
       ) : shown === "team" && team ? (
         <TeamAuditScreen {...team} {...(now !== undefined ? { now } : {})} />
+      ) : shown === "asks" && asks ? (
+        <AskLedgerScreen load={asks.load} />
       ) : (
         <AllChatsList
           load={load}
