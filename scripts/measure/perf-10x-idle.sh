@@ -38,6 +38,8 @@
 # --vmmap-kinds): where its footprint is, MALLOC against frameworks and stacks.
 # settings=JSON: cmux settings the app launches with (bench_memory.py --config), e.g.
 # settings={"appearance":{"wallpaperLighting":true}} for a before/after of one setting on the same build.
+# adblock=off: the same with {"browser":{"builtInAdBlocker":false}}, for a controller that refuses JSON in an arg
+# (an A/B of the built-in uBlock Origin's writes; the app's default is unchanged).
 # axes=AXIS,AXIS (chat-hidden, chat-visible, terminal-hidden, terminal-visible, page-hidden, page-visible;
 # axes=all for the first four, axes=pages for the two page axes): what one
 # more idle item costs, per process (bench_memory.py --axis, one fresh app each): idle CPU %, footprint, RSS,
@@ -84,6 +86,7 @@ for arg in "$@"; do
     chat_renderer_crash=1) crash_env=(CMUX_BENCH_CHAT_RENDERER_CRASH=1) ;;
     vmmap=*) vmmap=(--vmmap-kinds "${arg#vmmap=}") ;;
     settings=*) settings=(--config "${arg#settings=}") ;;
+    adblock=off) settings=(--config '{"browser":{"builtInAdBlocker":false}}') ;;
     axes=all) axes="chat-hidden,chat-visible,terminal-hidden,terminal-visible" ;;
     axes=pages) axes="page-hidden,page-visible" ;;
     axes=*) axes="${arg#axes=}" ;;
