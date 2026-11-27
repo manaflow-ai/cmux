@@ -90,6 +90,9 @@ action.yml) the push changes must parse at the pushed head (PyYAML, else Ruby's 
 new [syntax-check] findings when it is on PATH), for a push to any branch, main and feat-cmux-next included.
 CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: GitHub runs no job of a workflow it cannot load (dd8b867f,
 2026-11-06: no nightly for 3.5 hours). CI's "Lint every workflow" step is the backstop.
+Every run, CI's fast gates too: "Cargo manifests parse (Cargo.toml)": each Cargo.toml the range changes must load
+as TOML at the head (tomllib, else tomli). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: #60612 (2026-11-27)
+merged a duplicate `url.workspace = true` and every pull request's `plan (changed Cargo workspaces)` went red.
 Also on every local run, the same way: "Runs-on variables declare their single-host fallback": when the push changes
 .github/workflows/ or .github/single-host-fallbacks.json, check-single-host-fallbacks.py (the installed copy for the
 hook) refuses each runs-on variable or single-host label the head reads with no declared fallback that the base did
@@ -375,6 +378,13 @@ CONFLICT_CHECK = "Merge conflict markers"
 # nightly.yml input description, every push made a 0-job failed run and no nightly built for 3.5 hours.
 WORKFLOW_CHECK = "Workflow YAML parses (.github/workflows, .github/actions)"
 WORKFLOW_FILE = re.compile(r"^\.github/(?:workflows/[^/]+|actions/.+/action)\.ya?ml$")
+# A Cargo.toml TOML cannot load stops its whole workspace: #60612 (2026-11-27) merged a second `url.workspace = true`
+# into cmux-next-ios/rust/crates/cmux-mobile-link-ffi/Cargo.toml, cargo refused the manifest, and every pull request's
+# `plan (changed Cargo workspaces)` failed in rust-workspaces.py's tomllib read until #62073 dropped the key.
+CARGO_MANIFEST_CHECK = "Cargo manifests parse (Cargo.toml)"
+CARGO_MANIFEST_HINT = ("Fix the manifest: a key may appear once per table (a duplicate dependency line is the usual "
+                       "cause), then push. Cargo cannot load a Cargo.toml that does not parse, so no crate of its "
+                       "workspace builds and no skip reason passes it.")
 WORKFLOW_HINT = ("Fix the workflow: quote a value that holds `: ` or ` #` (description: \"a: b\"), then push. GitHub "
                  "cannot load a workflow that does not parse and runs none of its jobs, so no skip reason passes it.")
 # Ruby's Psych (libyaml), the parser a Mac without PyYAML still has: it parses only, it builds no objects.
@@ -1120,15 +1130,19 @@ def source_line(tree: Path, roots: list[Path], rel: str, number: int) -> str | N
     return None
 
 
-def normalize(text: str, tree: Path) -> str:
-    """A finding's identity: file, rule and source text; no tree path, no line or count numbers."""
+def normalize(text: str, tree: Path, moved: dict[str, str] | None = None) -> str:
+    """A finding's identity: file, rule and source text; no tree path, no line or count numbers. MOVED ({new path:
+    old path}, the push's renames) keys a head finding in a moved file by its old path, so the base's same finding
+    there matches it (2026-11-27: a695910bf8bb `git mv`d SleepySceneView.swift to another module with its two raw
+    font sizes and was refused for adding them)."""
     text = text.replace(str(tree.resolve()) + "/", "").replace(str(tree) + "/", "")
     roots = [tree, tree / PKG, tree / PKG / "Sources", tree / PKG / "Tests", tree / "Packages"]
 
     def keyed(match: re.Match) -> str:
         line = source_line(tree, roots, match.group("path"),
                            parse_tool_int(match.group("line"), "finding line"))
-        return f"{match.group('path')}:«{line}»" if line is not None else match.group("path")
+        path = renamed_from(match.group("path"), moved) if moved else match.group("path")
+        return f"{path}:«{line}»" if line is not None else path
     parts = []
     last = 0
     for match in LOCATION.finditer(text):
@@ -1137,6 +1151,18 @@ def normalize(text: str, tree: Path) -> str:
         last = match.end()
     parts.append(NUMBER.sub("N", text[last:]))
     return "".join(parts).strip()
+
+
+def renamed_from(path: str, moved: dict[str, str]) -> str:
+    """PATH's old path when the push moved it (MOVED is repo-relative; a finding may name its path from a package
+    root, so a moved path that ends with PATH maps by its matching tail), else PATH."""
+    if path in moved:
+        return moved[path]
+    for new, old in moved.items():
+        if new.endswith("/" + path):
+            root = new[:len(new) - len(path)]  # the root the finding names its path from
+            return old[len(root):] if old.startswith(root) else old
+    return path
 
 
 def records(output: str) -> list[str]:
@@ -1260,11 +1286,14 @@ def no_verdict(code: int, out: str, codes: tuple[int, ...] | None = None) -> str
     return None
 
 
-def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path) -> list[str]:
+def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path,
+                moved: dict[str, str] | None = None) -> list[str]:
+    """HEAD_OUT's findings the base run did not print; a finding in a file the push moved (MOVED) matches its old
+    path's."""
     seen = collections.Counter(normalize(r, base_tree) for r in records(base_out))
     fresh = []
     for record in records(head_out):
-        key = normalize(record, head_tree)
+        key = normalize(record, head_tree, moved)
         if seen[key] > 0:
             seen[key] -= 1
         elif not re.search(r": ok\b|^All |passed|^ok\b", record) and not INFO.match(record):
@@ -3069,6 +3098,38 @@ def actionlint_syntax(actionlint: str, path: str, text: str) -> set[str] | None:
     return found
 
 
+def cargo_manifest_problems(repo: Path, base: str, head: str, restrict: set[str] | None = None) -> list[str]:
+    """`file: problem` for each Cargo.toml BASE..HEAD changes that HEAD leaves unparsable as TOML.
+
+    Constant cost: only the manifests the range changes, read from git objects with tomllib (tomli on Python 3.9 and
+    3.10). Only the head counts, as with the workflow parse: cargo loads the pushed head's file. Not skippable by
+    CMUX_NEXT_CHECKS_SKIP_REASON (main())."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head).decode().split("\0")
+    files = sorted(n for n in names if n and (n == "Cargo.toml" or n.endswith("/Cargo.toml"))
+                   and (restrict is None or n in restrict))
+    if not files:
+        return []
+    try:
+        import tomllib as toml
+    except ModuleNotFoundError:
+        try:
+            import tomli as toml  # type: ignore[no-redef]
+        except ModuleNotFoundError:
+            log(f"prepush-gate: WARNING: no TOML parser here (Python 3.11+ or tomli), so {', '.join(files)} went "
+                "unchecked; CI's fast gates still check it.")
+            return []
+    found = []
+    for path in files:
+        data = blob_at(repo, head, path)
+        if data is None:
+            continue
+        try:
+            toml.loads(data.decode("utf-8", "replace"))
+        except toml.TOMLDecodeError as error:
+            found.append(f"{path}: {error} (the TOML does not parse; cargo refuses this manifest)")
+    return found
+
+
 def workflow_problems(repo: Path, base: str, head: str, restrict: set[str] | None = None) -> list[str]:
     """`file:line:column: problem` for each workflow (or composite action) BASE..HEAD changes that HEAD leaves
     unloadable: YAML that does not parse, and the local actionlint's new [syntax-check] findings when it is on PATH.
@@ -3648,6 +3709,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         markers = conflict_markers(repo, base, head)
         if markers:
             reserved.append((CONFLICT_CHECK, markers))
+    # Every run, CI's too: git objects only, and only the manifests the range changes.
+    if (only is None or "cargo-manifests" in only) and want(CARGO_MANIFEST_CHECK):
+        unparsable = cargo_manifest_problems(repo, base, head, restrict)
+        if unparsable:
+            reserved.append((CARGO_MANIFEST_CHECK, unparsable))
     # Every run, CI's too: git objects only, under a second, and only when the range adds a file.
     if (only is None or "generated-files" in only) and want(GENERATED_CHECK):
         generated = new_generated_files(repo, base, head, trusted_scripts)
@@ -3781,6 +3847,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         return reserved
     swift = [p for p in changed if p.startswith(SWIFT_SCOPE) and p.endswith(".swift")]
     sources = [p for p in swift if p.startswith(PKG + "/Sources/")]
+    # The push's renames ({new path: old path}): a moved file's findings are its old path's, not new ones.
+    moved = baseline_moves(repo, base, head, trusted_scripts) if changed else {}
     started = time.monotonic()
     found: list[tuple[str, list[str]]] = list(reserved)
     with scratch_dir() as tmp:
@@ -3849,13 +3917,16 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             jobs[SWIFTLINT_JOB] = ("fn", swiftlint, ensure_tool(lock, "swiftlint"),
                                                 lint / "swiftlint.yml", swift)
 
-        def side(job, tree):
+        def side(job, tree, is_base=False):
             t0 = time.monotonic()
             tree = absolute(tree)
             if job[0] == "cmd":
                 code, out = run(fill(job[1], tree), tree)
             else:
                 _, fn, binary, config, files = job
+                if is_base:
+                    # A moved file's old path, so its findings there key the head's in the new path (new_records).
+                    files = [*files, *(moved[p] for p in files if p in moved)]
                 out = fn(absolute(binary), absolute(config), tree, files)
                 code = 1 if out else 0
             return code, out, time.monotonic() - t0
@@ -3864,7 +3935,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         crash_layer = (bool(crates) and (highlights_layer if only is None else "crash-ratchet" in only)
                        and want(CRASH_RATCHET_CHECK))
         with concurrent.futures.ThreadPoolExecutor(max_workers=side_workers()) as pool:
-            futures = {(name, i): pool.submit(side, job, tree)
+            futures = {(name, i): pool.submit(side, job, tree, i == 0)
                        for name, job in jobs.items()
                        for i, tree in enumerate(trees_for.get(name, (base_tree, head_tree)))}
             prepared = (pool.submit(prepare_crash_ratchet, repo, base, head, head_tree, trusted_scripts, absolute(Path(tmp)))
@@ -3914,7 +3985,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                                                         work=absolute(Path(tmp)) / "deps-head", trusted_scripts=trusted_scripts)
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
-                fresh = new_records(base_out, head_out, name_base, name_head)
+                fresh = new_records(base_out, head_out, name_base, name_head, moved)
                 if fresh:
                     found.append((name, fresh))
         # Its scan after the scanners: it adds files to the trees (the modules that declare a changed file, deleted
@@ -4702,6 +4773,8 @@ def _main(argv: list[str] | None = None) -> int:
     if skip and any(name == CONFLICT_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CONFLICT_CHECK}: finish the merge "
               "(keep one side of each hunk), then push.")
+    elif skip and any(name == CARGO_MANIFEST_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CARGO_MANIFEST_CHECK}. {CARGO_MANIFEST_HINT}")
     elif skip and any(name == WORKFLOW_CHECK for name, _ in found_any):
         # A workflow GitHub cannot load stops every run of it (all its jobs, on every push), not one check.
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {WORKFLOW_CHECK}. {WORKFLOW_HINT}")
@@ -4748,6 +4821,8 @@ def _main(argv: list[str] | None = None) -> int:
         print(PANIC_ALLOW_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):
         print(WORKFLOW_HINT)
+    if any(name == CARGO_MANIFEST_CHECK for name, _ in found_any):
+        print(CARGO_MANIFEST_HINT)
     if any(name == REDEFINITION_CHECK for name, _ in found_any):
         print(REDEFINITION_HINT)
     print(HOW_TO_FIX)
