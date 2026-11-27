@@ -462,7 +462,10 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "mode": TOKEN, "attempt": INT, "total_ms": INT, "path": TOKEN, "fallback": TOKEN, "behind": INT,
                  "paused_for_ms": INT, "why": TOKEN, "exit": INT,
                  # cloud.approval.run's split (cmux-platform#2295): queued, re-admission, delivery and the run itself.
-                 "queued_ms": INT, "admit_ms": INT, "delivery_ms": INT, "run_ms": INT}
+                 "queued_ms": INT, "admit_ms": INT, "delivery_ms": INT, "run_ms": INT,
+                 # machines.spare.fill's refill timing (cmux-platform lane/spare-fill-log-timing, hq#31487): the create
+                 # call, claim to fill start, the fill's age; and how many spares a claim could take.
+                 "reserve_ms": INT, "claim_to_fill_ms": INT, "fill_age_ms": INT, "claimable": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).

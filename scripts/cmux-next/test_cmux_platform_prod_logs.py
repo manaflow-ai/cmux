@@ -582,6 +582,17 @@ class NeverBoundTests(unittest.TestCase):
                                       "run_ms": 2128, "steps": {"spare_claim": 90, "provider": 1700, "vm_api": 2050}})
         self.assertIn("cloud.create.approved", logs.PLATFORM_MSGS)
 
+    def test_a_spare_fill_keeps_its_machine_and_refill_timing(self):
+        """Production 2026-11-27 02:37Z (hq#31487): a create missed the spare after a 20 s fill wait; the fill lines
+        named no machine and no time, so a late refill could not be told from a slow one."""
+        row = logs.line(event({"msg": "machines.spare.fill", "team": TEAM, "machine": VM, "outcome": "made",
+                               "wanted": 1, "live": 0, "reserve_ms": 29800, "claim_to_fill_ms": 1200,
+                               "fill_age_ms": 29800, "claimable": 0, "note": "secret"}))
+        self.assertEqual(row["log"], {"msg": "machines.spare.fill", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "outcome": "made", "wanted": 1, "live": 0,
+                                      "reserve_ms": 29800, "claim_to_fill_ms": 1200, "fill_age_ms": 29800,
+                                      "claimable": 0})
+
     def test_a_slow_start_trace_keeps_its_power_split_typed(self):
         row = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
                                "steps": {"driver": 217, "power": 121058},
