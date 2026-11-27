@@ -121,6 +121,10 @@ const isTextField = (element: Element | null): element is HTMLInputElement | HTM
     (element.localName === "input" &&
       /^(text|search|url|tel|email|password|number|)$/.test((element as HTMLInputElement).type ?? "")));
 
+/** Input types whose selection the DOM exposes (email and number throw on setSelectionRange). */
+const hasSelection = (element: HTMLInputElement | HTMLTextAreaElement): boolean =>
+  element.localName === "textarea" || /^(text|search|url|tel|password|)$/.test(element.type ?? "");
+
 function editableRoot(element: Element | null): HTMLElement | null {
   let node = element as HTMLElement | null;
   let root: HTMLElement | null = null;
@@ -160,6 +164,8 @@ function textPoint(root: Node, at: number): [Node, number] {
 function captureCaret(doc: Document): Caret | null {
   const active = doc.activeElement;
   if (isTextField(active)) {
+    // A password's value never leaves the page, and email/number have no caret to carry.
+    if (active.type === "password" || !hasSelection(active)) return null;
     const path = elementPath(active);
     if (!path) return null;
     return {
@@ -347,7 +353,12 @@ function putBack(doc: Document, handoff: SwapHandoff): void {
   if (isTextField(element)) {
     if (doc.activeElement !== element)
       focusRoute(element, "system", "a web swap gives the caret back", { preventScroll: true });
-    element.setSelectionRange(caret.start, caret.end, caret.backward ? "backward" : "forward");
+    if (!hasSelection(element)) return;
+    try {
+      element.setSelectionRange(caret.start, caret.end, caret.backward ? "backward" : "forward");
+    } catch {
+      // A field whose type changed under the swap keeps the caret it has.
+    }
     return;
   }
   if (doc.activeElement !== element && !element.contains(doc.activeElement))

@@ -96,3 +96,24 @@ test("a plain reload (no hand-off) is not held", async () => {
   expect(next.document.documentElement.hasAttribute(SWAP_RESTORING_ATTRIBUTE)).toBe(false);
   expect(await swapRestored()).toBeNull();
 });
+
+test("a focused password's value never enters the hand-off", () => {
+  const old = page(`<input id="pw" type="password">`);
+  const field = old.document.getElementById("pw") as HTMLInputElement;
+  field.value = "hunter2-secret";
+  field.focus();
+  expect(prepareSwap(old.document)).toBe(true);
+  expect(old.sessionStorage.getItem(SWAP_HANDOFF_KEY) ?? "").not.toContain("hunter2-secret");
+});
+
+test("a focused email field swaps without a caret and the page still shows", async () => {
+  const old = page(`<input id="mail" type="email">`);
+  const field = old.document.getElementById("mail") as HTMLInputElement;
+  field.value = "a@b.c";
+  field.focus();
+  prepareSwap(old.document);
+  const next = reload(old, `<input id="mail" type="email">`);
+  startSwapRestore(next.document);
+  await swapRestored();
+  expect(next.document.documentElement.hasAttribute(SWAP_RESTORING_ATTRIBUTE)).toBe(false);
+});
