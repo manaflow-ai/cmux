@@ -1,0 +1,37 @@
+# Codex config for the cmux agent-config fixture HOME.
+# Every comment here must survive a cmux edit byte for byte.
+
+model = "gpt-5.1-codex" # trailing comment on the model
+approval_policy = "on-request"
+some_future_codex_key = { kept = true, list = [1, 2, 3] }
+
+# Feature switches.
+[features]
+# Codex runs no hook while this is off.
+hooks = true
+
+# ---- MCP servers ----------------------------------------------------------
+
+# A local server, with a comment above it.
+[mcp_servers.fixture-codex-stdio]
+command = "fixture-codex-mcp" # trailing comment on command
+args = ["--verbose"]
+# A key cmux does not know.
+startup_timeout_sec = 20
+
+[mcp_servers.fixture-codex-stdio.env]
+FIXTURE_KEY = "not-a-real-secret"
+
+[mcp_servers.fixture-codex-http]
+url = "https://codex-mcp.example.invalid/mcp"
+enabled = true # the person's own switch, kept through an off then on
+
+# ---- profiles (unknown to the fixture test) --------------------------------
+[profiles.fast]
+model = "gpt-5.1-codex-mini"
+
+# ---- skills ----------------------------------------------------------------
+# A path rule the person wrote: an off then on sets it back in place, comment kept.
+[[skills.config]]
+path = "__HOME__/.codex/skills/fixture-deploy/SKILL.md"
+enabled = true # kept on by hand

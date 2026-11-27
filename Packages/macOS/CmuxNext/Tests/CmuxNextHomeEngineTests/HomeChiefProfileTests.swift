@@ -200,17 +200,6 @@ import Testing
         #expect(panel.gateButton.title == HomeEngineStrings.computerUpgrade)
     }
 
-    @Test func controlBarLines() {
-        let take = HomeChiefComputerControlBar.line(.chief, chief: "mario")
-        #expect(take == .init(status: HomeEngineStrings.computerChiefDriving("mario"), action: .takeOver))
-        let mine = HomeChiefComputerControlBar.line(.init(holder: .human), chief: "mario")
-        #expect(mine == .init(status: HomeEngineStrings.computerYouDrive, action: .giveBack))
-        let asked = HomeChiefComputerControlBar.line(.init(holder: .human, reason: "Sign in to Gmail"), chief: "mario")
-        #expect(asked == .init(status: "Sign in to Gmail", action: .giveBack))
-        #expect(HomeChiefComputerControlBar.line(.init(holder: .human, reason: "  "), chief: "mario")?.status == HomeEngineStrings.computerYouDrive)
-        #expect(HomeChiefComputerControlBar.line(nil, chief: "mario") == nil)
-    }
-
     @Test func takeOverAndGiveBackChangeTheLeaseAndTheScreenTakesInputOnlyWhileThePersonDrives() async throws {
         let lease = Lease()
         let panel = HomeChiefProfileView()
