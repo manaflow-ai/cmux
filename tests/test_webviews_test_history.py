@@ -103,6 +103,12 @@ class ShardSize(unittest.TestCase):
             self.assertNotIn("linux_16", runs_on, name)
             # #50078 (Leo, 2026-11-23): the React shards read CI_REACT_SHARD_RUNNER first; unset, they take cmux-linux.
             self.assertEqual(runs_on, one_linux_label.CANONICAL.replace("|| 'cmux-linux'", "|| vars.CI_REACT_SHARD_RUNNER || 'cmux-linux'"), name)
+            for kind in ("push", "same-repository pull request"):
+                knob = {**EVENTS[kind], "vars.CI_REACT_SHARD_RUNNER": "cmux-linux-react"}
+                self.assertEqual(evaluate(runs_on, knob), "cmux-linux-react", f"{name} {kind}")
+            for kind in ("fork pull request", "fork repository"):
+                knob = {**EVENTS[kind], "vars.CI_REACT_SHARD_RUNNER": "cmux-linux-react"}
+                self.assertEqual(evaluate(runs_on, knob), "ubuntu-24.04", f"{name} {kind}")
             self.assertEqual(evaluate(runs_on, EVENTS["push"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "ubuntu-24.04", name)
@@ -256,6 +262,44 @@ class Known(unittest.TestCase):
         pushes = history.record(pushes, "sha1", 1001, {FILE: True}, "same")
         base, replay = history.known(pushes, "same", head)
         self.assertEqual((base, replay), ({TEST: True, f"{FILE} > new test": True}, [other]))
+
+
+class HeldRedFiles(unittest.TestCase):
+    """A pull request's shards leave files red on the base for a day to the batch runs (ci-web.yml, held-red-files)."""
+
+    def pushes(self, *verdicts, start=0, step=3600 * 6):
+        out = []
+        for i, verdict in enumerate(verdicts):
+            out = history.record(out, f"sha{i}", start + i * step, {TEST: False} if verdict is False else {FILE: True}, f"k{i}")
+        return out
+
+    def test_a_file_red_on_every_push_for_a_day_is_held(self):
+        pushes = self.pushes(True, False, False, False, False, False)  # red from 6 h to 30 h
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 24),
+                         [{"file": FILE, "first": "sha1", "hours": 24.0}])
+        # Under a day red, a green on the newest push, off (0 h), or the change edits the file: it runs.
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 25), [])
+        self.assertEqual(history.held_red_files(self.pushes(False, False, False, False, False, True), 30 * 3600, 24), [])
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 0), [])
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 24, {FILE}), [])
+
+    def test_a_history_older_than_the_hours_holds_nothing(self):
+        pushes = self.pushes(False, False, False, False, False, False)
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600 + 25 * 3600, 24), [])
+        # Pushes newer than the merge parent are not read.
+        self.assertEqual(history.held_red_files(pushes, 3 * 3600, 24), [])
+
+    def test_the_command_writes_the_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path, out, changed = Path(tmp) / "h.json", Path(tmp) / "held", Path(tmp) / "changed"
+            path.write_text(json.dumps({"runs": self.pushes(True, False, False, False, False, False)}), encoding="utf-8")
+            changed.write_text("src/other.ts\n", encoding="utf-8")
+            done = subprocess.run([sys.executable, str(SCRIPT), "held-red-files", str(path), "--before", str(30 * 3600),
+                                   "--hours", "24", "--changed", str(changed), "--out", str(out)],
+                                  capture_output=True, text=True, check=False)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(out.read_text(encoding="utf-8"), FILE + "\n")
+            self.assertIn(f"HELD RED {FILE} since sha1", done.stdout)
 
 
 class KnownHeldRed(unittest.TestCase):
