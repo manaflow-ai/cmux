@@ -22,16 +22,20 @@ export function AutoStatusLine({
   status,
   nowMs,
   look = "beside",
+  offered,
   onAction,
 }: {
   status: ComputerStatus;
   nowMs: number;
   look?: StatusLineLook;
+  /// The actions the caller can run; the others are not drawn (every one when absent, as the gallery draws).
+  offered?: readonly StatusActionId[];
   onAction(id: StatusActionId): void;
 }) {
   const t = useT();
-  const line: StatusLineText | undefined = statusLine(status, nowMs, t);
-  if (!line) return null;
+  const said: StatusLineText | undefined = statusLine(status, nowMs, t);
+  if (!said) return null;
+  const line = offered ? { ...said, actions: said.actions.filter((action) => offered.includes(action.id)) } : said;
   const chip = look === "chip";
   return (
     <Tooltip label={line.text} disabled={!chip}>

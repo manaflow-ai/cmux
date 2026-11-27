@@ -353,7 +353,7 @@ impl Peer {
     /// The paths this peer has, before any is dialed.
     pub(super) fn path_vias(&self) -> Vec<Via> {
         let mut vias: Vec<Via> =
-            direct_via(self.wireguard.get().is_some(), self.link_host.get().is_some())
+            direct_via(self.wireguard_route().is_some(), self.link_host.get().is_some())
                 .into_iter()
                 .collect();
         vias.push(if self.ssh_parts().is_some() { Via::Ssh } else { Via::Url });
@@ -592,9 +592,9 @@ impl Peer {
         match via {
             Via::Wireguard => {
                 let (transport, address) =
-                    self.wireguard.get().ok_or_else(|| "no WireGuard route".to_owned())?;
+                    self.wireguard_route().ok_or_else(|| "no WireGuard route".to_owned())?;
                 let stream = transport
-                    .connect(*address)
+                    .connect(address)
                     .await
                     .map_err(|e| DialError::new(fail_of_chain(&e), e.to_string()))?;
                 Ok((Box::new(stream), format!("ws://localhost:{}", address.port())))
@@ -715,6 +715,8 @@ impl Peer {
             let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
             let tls = req.uri().scheme_str() == Some("wss");
             let port = req.uri().port_u16().unwrap_or(if tls { 443 } else { 80 });
+            // A peer the person configured: a host they name.
+            cmux_egress::allow_named(&host);
             let tcp =
                 crate::happy_dial::connect_tcp(&host, port).await.map_err(|e| DialError::io(&e))?;
             // A peer forwards the pane's prompts and their images: the listener's limits.

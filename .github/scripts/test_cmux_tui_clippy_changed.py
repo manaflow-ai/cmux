@@ -59,7 +59,12 @@ lint_json() {
 summary_json() {
   printf '{"reason":"compiler-message","message":{"level":"error","code":null,"message":"aborting due to 1 previous error","rendered":"error: aborting due to 1 previous error\\\\n","spans":[]}}\\n'
 }
+# A ratchet lint (on in the clippy run only to share the ratchet's fingerprint) and the same code as an error.
+ratchet_json() {
+  printf '{"reason":"compiler-message","message":{"level":"%s","code":{"code":"clippy::unwrap_used"},"message":"used `unwrap()` on a `Result` value","rendered":"%s: used `unwrap()` on a `Result` value\\\\n  --> crates/a/src/lib.rs:7:9\\\\n","spans":[{"is_primary":true,"file_name":"crates/a/src/lib.rs","line_start":7,"column_start":9}]}}\\n' "$1" "$1"
+}
 case "${CLIPPY_JSON:-}" in
+  ratchet) ratchet_json warning; lint_json warning; echo '{"reason":"build-finished","success":true}'; exit 0 ;;
   warn) lint_json warning; lint_json warning; echo '{"reason":"build-finished","success":true}'; exit 0 ;;
   build-script) lint_json error; echo "error: failed to run custom build command for pkg-a v0.1.0" >&2; exit 101 ;;
   deny) lint_json error; summary_json; echo "error: could not compile pkg-a (lib) due to 1 previous error" >&2; echo '{"reason":"build-finished","success":false}'; exit 101 ;;
@@ -86,10 +91,16 @@ if sys.argv[1:] == ["--flags"]:
     sys.exit(0)
 with open(os.environ["RATCHET_LOG"], "a") as log:
     log.write(" ".join(sys.argv[1:]) + "\\n")
+if "--untouched-is-base" in sys.argv and "--base-clippy-json" not in sys.argv:
+    sys.stdout.write(os.environ.get("RATCHET_UNTOUCHED_OUT", ""))
+    sys.exit(int(os.environ.get("RATCHET_UNTOUCHED_RC", os.environ.get("RATCHET_RC", "0"))))
 sys.exit(int(os.environ.get("RATCHET_RC", "0")))
 """
-LINT = ["--all-targets", "--message-format=json", "--", "--cap-lints", "warn"]
-PANIC = ["--message-format=json", "--", "-W", "clippy::unwrap_used", "-W", "clippy::indexing_slicing", "--cap-lints", "warn"]
+# After `--` the clippy run passes the ratchet's flags and cap exactly as the ratchet's run does, so the
+# ratchet's lib and bin units are fresh in the shared target (clippy keeps its arguments in each unit's fingerprint).
+SHARED = ["--", "-W", "clippy::unwrap_used", "-W", "clippy::indexing_slicing", "--cap-lints", "warn"]
+LINT = ["--all-targets", "--message-format=json", *SHARED]
+PANIC = ["--message-format=json", *SHARED]
 
 
 class ClippyChangedTests(unittest.TestCase):
@@ -264,6 +275,37 @@ class ClippyChangedTests(unittest.TestCase):
         text = summary.read_text()
         self.assertIn("1 lint(s), not blocking", text)
         self.assertIn("`cmux-tui/crates/a/src/lib.rs:3` clippy::needless_return", text)
+
+    def test_the_ratchets_lints_are_neither_printed_nor_annotated_by_the_clippy_run(self) -> None:
+        # The clippy run turns them on only so the ratchet's run finds its units fresh; the ratchet judges them.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        summary = self.tmp / "summary.md"
+        result = self.run_check("--base", self.base, env_extra={"CLIPPY_JSON": "ratchet", "GITHUB_STEP_SUMMARY": str(summary)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("unwrap_used", "\n".join(line for line in result.stdout.splitlines() if line.startswith("::")))
+        self.assertNotIn("unwrap()", result.stderr)
+        self.assertIn("warning: unneeded `return` statement", result.stderr, "other lints still print")
+        self.assertIn("1 lint(s), not blocking", summary.read_text())
+        self.assertNotIn("unwrap_used", summary.read_text())
+
+    def test_the_clippy_run_and_the_ratchet_pass_clippy_the_same_arguments(self) -> None:
+        # 2026-11-27, 23 pool steps: with different arguments the ratchet re-checked 155 of the 160 crates the clippy
+        # step had just checked (267 s median). Leo: "cache, fast, the whole nine yards".
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        self.assertEqual(self.run_check("--base", self.base).returncode, 0)
+        self.assertEqual(self.run_ratchet("--base", self.base)[0].returncode, 0)
+        lint, panic = self.calls()
+        self.assertEqual(lint[lint.index("--"):], panic[panic.index("--"):])
+
+    def test_without_a_ratchet_the_clippy_run_passes_only_the_cap(self) -> None:
+        (self.repo / "scripts/cmux-next/rust_panic_ratchet.py").unlink()
+        self.git("add", "-A")
+        self.git("commit", "-qm", "no ratchet")
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        result = self.run_check("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d",
+                                         "--all-targets", "--message-format=json", "--", "--cap-lints", "warn"]])
 
     def test_a_lint_cargo_stopped_on_still_passes(self) -> None:
         # A level --cap-lints did not reach (an error-level lint): cargo exits non-zero, but only lints were in the way.
@@ -525,7 +567,59 @@ class ClippyChangedTests(unittest.TestCase):
         base_out = out.with_name(out.name + ".base")
         self.assertIn('"build-finished"', base_out.read_text())
         strict = self.judged(out)
-        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--base-clippy-json", str(base_out)]])
+        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--untouched-is-base", "--diff-base", self.base],
+                                                [*strict, "--base-clippy-json", str(base_out)]])
+
+    def test_compare_base_skips_the_base_lint_when_every_count_over_is_in_untouched_files(self) -> None:
+        # Run 45929462416: HEAD was over the baseline only in 20 crates the change never touched (the base's
+        # drift), and the base lint that excused them took ~5 min. The ratchet judges that without it.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        head = self.git("rev-parse", "HEAD").strip()
+        heads = self.tmp / "heads.log"
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                                env_extra={"HEAD_LOG": str(heads), "RATCHET_RC": "1", "RATCHET_UNTOUCHED_RC": "0"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
+        self.assertEqual(self.calls(), [lint])
+        self.assertEqual(heads.read_text().split(), [head])
+        self.assertFalse(out.with_name(out.name + ".base").exists())
+        strict = self.judged(out)
+        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--untouched-is-base", "--diff-base", self.base]])
+        self.assertIn("files this change does not touch, so the base", result.stdout)
+
+    def test_compare_base_lints_only_the_crates_still_red_at_the_base(self) -> None:
+        # 2026-11-27: the base lint re-checked every selected package (dependents such as cmux-tui too), 1.5-2.8 min,
+        # though only a crate the untouched pass still names red reads the base run. pkg-c and pkg-d are judged as
+        # that pass judged them (--untouched-is-base stays on the final judge).
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        head = self.git("rev-parse", "HEAD").strip()
+        heads = self.tmp / "heads.log"
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                                env_extra={"HEAD_LOG": str(heads), "RATCHET_RC": "1",
+                                           "RATCHET_UNTOUCHED_OUT": "rust-panic-ratchet: RED\n"
+                                           "  pkg-a: clippy::unwrap_used 2 > baseline 1\n      crates/a/src/lib.rs:7:5\n"})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
+        base_lint = ["clippy", "--locked", "-p", "pkg-a", "--lib", "--bins", *PANIC]
+        self.assertEqual(self.calls(), [lint, base_lint])
+        self.assertEqual(heads.read_text().split(), [head, self.base])
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), head, "the checkout is back on HEAD")
+        base_out = out.with_name(out.name + ".base")
+        strict = self.judged(out)
+        untouched = [*strict, "--untouched-is-base", "--diff-base", self.base]
+        self.assertEqual(self.ratchet_calls(), [strict, untouched, [*untouched, "--base-clippy-json", str(base_out)]])
+
+    def test_compare_base_lints_every_package_when_a_red_crate_was_not_selected(self) -> None:
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                                env_extra={"RATCHET_RC": "1",
+                                           "RATCHET_UNTOUCHED_OUT": "  pkg-b: clippy::unwrap_used 2 > baseline 1\n"})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
+        self.assertEqual(self.calls(), [lint, lint])
 
     def test_compare_base_returns_to_head_when_the_base_lint_cannot_start(self) -> None:
         self.change("cmux-tui/crates/a/src/lib.rs")

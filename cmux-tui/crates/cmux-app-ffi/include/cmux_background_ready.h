@@ -31,6 +31,11 @@
 #define CMUX_BACKGROUND_READY_MODE_AFTER_QUIT_AND_LOGIN 2
 
 /*
+ Mode WarmAtLogin: nothing stays running; at login a reader reads the app's code into memory and exits.
+ */
+#define CMUX_BACKGROUND_READY_MODE_WARM_AT_LOGIN 3
+
+/*
  Quit origin: Cmd-Q, the app menu or the Dock.
  */
 #define CMUX_BACKGROUND_READY_QUIT_INTERACTIVE 0
@@ -97,8 +102,9 @@
 
 /*
  The owner of parsing `app.backgroundReady`: "off", "afterQuit" or
- "afterQuitAndLogin" give 0, 1 or 2; null or any other string gives 0 (Off),
- so an unreadable setting never keeps a process the user did not ask for.
+ "afterQuitAndLogin" give 0, 1 or 2, "warmAtLogin" gives 3; null or any
+ other string gives 0 (Off), so an unreadable setting never keeps a process
+ the user did not ask for.
 
  # Safety
  `utf8` is null or a NUL-terminated string readable for this call.
@@ -107,7 +113,8 @@ uint8_t cmux_background_ready_mode_parse(const char *utf8);
 
 /*
  The owner of what a quit does: 1 stays hidden, 0 exits. It stays only when
- the mode is on, the quit is a plain Cmd-Q, menu or Dock quit (origin 0), no
+ the mode keeps a copy (1 or 2; Off and 3, WarmAtLogin, quit), the quit is
+ a plain Cmd-Q, menu or Dock quit (origin 0), no
  update installs on this quit (the installer needs the process gone) and the
  user did not choose Quit Completely. Every other origin asks for this
  process to end: Quit Completely and Restart to Update by name, a script
@@ -139,14 +146,30 @@ uint8_t cmux_background_ready_hidden_plan(uint8_t mode, bool started_at_login, c
 bool cmux_background_ready_registers_login_item(uint8_t mode);
 
 /*
+ The owner of the login-time pre-read agent: registered only for mode 3
+ (WarmAtLogin); every other mode, Off included, unregisters it, so
+ switching away removes the agent. Mode 2 needs none: its login item starts
+ the app, which reads the same pages.
+ */
+bool cmux_background_ready_registers_preread_agent(uint8_t mode);
+
+/*
+ The owner of whether Quit Completely is offered: only for modes 1 and 2,
+ which keep a hidden copy after a quit. Off and 3 (WarmAtLogin) keep
+ nothing running, so a quit is already complete.
+ */
+bool cmux_background_ready_offers_quit_completely(uint8_t mode);
+
+/*
  The owner of what a launch does. A launch the user made is 0 (Normal)
  whatever the mode: the setting changes quits and logins, never an open. A
  login launch with mode 2 is 1 (start hidden: no window and no Chromium
  warm-up, so login pays for the native process only). A login launch with
- any other mode is 2: the registration is stale (the setting changed while
+ any other mode, 3 (WarmAtLogin, which never starts the app) included, is 2: the registration is stale (the setting changed while
  the app was not running to unregister it), so unregister and exit at once.
  */
-uint8_t cmux_background_ready_at_launch(uint8_t mode, bool launched_as_login_item);
+uint8_t cmux_background_ready_at_launch(uint8_t mode,
+                                        bool launched_as_login_item);
 
 /*
  The owner of the update exit: true when the copy is hidden and an update
