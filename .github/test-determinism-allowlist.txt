@@ -111,7 +111,6 @@ webviews/test/home-chief-host-calls.test.ts	sleep-then-assert	feat-cmux-next deb
 webviews/test/markdown-highlight-refresh.test.ts	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/markdown-link-bubble.test.ts	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/markdown-mermaid-ondine.test.ts	sleep-then-assert	feat-cmux-next debt before the gate ran there
-webviews/test/mobile-pairing-page.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/model-picker-live-refresh.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/new-tab-dictation.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/new-tab-list-motion-render.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there
@@ -262,7 +261,7 @@ Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserCloseHistoryTests.swift	as
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserPageNativeInputTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserTabCloseLeavesAtOnceTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChangelogReelTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
-Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudAPIClientRunTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudDaemonRunTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudCLITargetTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudCapRefusalRunTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudChildProcessInputTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
@@ -397,7 +396,6 @@ cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTransportTests/DaemonClientTests.swi
 Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ChromeHoverCardDelayTests.swift	assert-on-duration	a pure function, not a timing: delay(width) is Chrome's GetShowDelay formula on fixed widths, compared to Durations; no clock is read in the file
 Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests/CloudCarrierSuperviseRealTests.swift	sleep-then-assert	the 2 s sleep is the stubbed token read under test (a slow read must still answer), inside the connector closure; the assert waits on the awaited connect result
 Packages/macOS/CmuxNext/Tests/CmuxNextPagesTests/PageCommandFocusWaitTests.swift	sleep-then-assert	the 300 ms pause is the stimulus: the document arrives after the 200 ms bound would have run out had it started at the wait; the asserts follow the awaited load and focus, and a slower runner only lengthens the pause, which correct code passes
-tests/test_supplychain_security.py	git-write-without-fixture	the only hit is the string "git fetch --no-tags --depth=1 origin" looked for in namespace-autofix.yml's run text; the test runs no git
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/AcpmuxHeldBeforePairingTests.swift	sleep-then-assert	the 50 ms pause is a window for a notification that must not go out before admit (#44739); nothing signals a send that does not happen, and a slower runner only lengthens the window, which correct code still passes
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/UndoLayoutClosesPanesTests.swift	sleep-then-assert	the 500 ms pause is a window for a wrong undo that must not land after Cancel (#45320); nothing signals an undo that does not happen, and a slower runner only lengthens the window, which correct code still passes
 Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/BrowserPageScrollKeysTests.swift	sleep-then-assert	the 50 ms pause is a window for a release that must not run while the key is held (710ac7bc); nothing signals a release that does not happen, and a slower runner only lengthens the window, which correct code still passes

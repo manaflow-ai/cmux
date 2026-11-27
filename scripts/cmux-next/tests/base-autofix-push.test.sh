@@ -395,19 +395,23 @@ run_at "$made" > "$tmp/out" 2>&1 || fail "exports made at the moved tip did not 
 [[ "$(remote_show docs/mdm/com.manaflow.cmux.json)" == "mdm old" ]] \
   || fail "docs/mdm as made at the tip did not replace the tip's stale copy: $(remote_show docs/mdm/com.manaflow.cmux.json)"
 
-# 19. (b) The invariant: an export made at T1 whose inputs moved after T1 never lands as it is.
+# 19. (b) An export made at T1 whose inputs moved after T1 lands as progress, the way the action
+#     exports do: the tip's committed copy is older still, and the next run makes them on the newer
+#     tip. Holding it meant none landed while settings merges outran the Mac job (2026-11-23: the
+#     settings.agents.cmuxMcp.ask row #51725 removed stayed in the schema, red in every web bundle build).
 setup_next
 repair_only "${settings_set[@]}"
 lane_commit "lane edits a setting" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v2"
 made="$(remote_tip)"
 lane_commit "lane edits it again" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v3"
 moved="$(remote_tip)"
-if run_at "$made" > "$tmp/out" 2>&1; then fail "exports whose inputs moved after they were made passed the run"; fi
-[[ "$(remote_tip)" == "$moved" ]] || fail "exports whose inputs moved after they were made were pushed"
-for f in "${settings_exports[@]}"; do
-  [[ "$(remote_show "$f")" == *old ]] || fail "$f landed although its inputs moved after it was made"
-done
-grep -q "schemas/settings/settings-schema.json" "$tmp/out" || fail "the run does not name the held export: $(cat "$tmp/out")"
+run_at "$made" > "$tmp/out" 2>&1 || true
+[[ "$(git -C "$tmp/remote.git" rev-parse feat^)" == "$moved" ]] || fail "the exports made at T1 did not land on the moved tip: $(cat "$tmp/out")"
+[[ "$(remote_show schemas/settings/settings-schema.json)" == "schema new" ]] || fail "the schema made at T1 did not land as progress: $(cat "$tmp/out")"
+[[ "$(remote_show docs/mdm/com.manaflow.cmux.plist)" == "plist new" ]] || fail "the plist made at T1 did not land as progress"
+[[ "$(remote_show docs/mdm/com.manaflow.cmux.json)" == "mdm new" ]] || fail "docs/mdm made at T1 did not land as progress"
+grep -q "::warning::.*settings exports' inputs after ${made:0:12}.*progress" "$tmp/out" \
+  || fail "the run does not say the exports landed as progress: $(cat "$tmp/out")"
 
 # 20. (b) A made-at commit that is not between BASE_SHA and the tip proves nothing: the exports wait.
 setup_next
@@ -482,12 +486,24 @@ moved="$(remote_tip)"
 if run > "$tmp/out" 2>&1; then fail "exports made by an older regeneration passed the run: $(cat "$tmp/out")"; fi
 [[ "$(remote_show schemas/settings/settings-schema.json)" == "schema old" ]] || fail "exports made by an older regeneration landed"
 
-# 21f. A real source move still holds them: the tip's sources no longer give the made-at stamp.
+# 21f. A real source move holds them when no SETTINGS_MADE_AT names where they were made (#22474;
+#      with one, 19 lands them as progress).
 setup_next
 repair_only "${settings_set[@]}"
 lane_commit "lane edits a setting" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v2"
 if run > "$tmp/out" 2>&1; then fail "exports whose sources the tip moved passed the run: $(cat "$tmp/out")"; fi
 [[ "$(remote_show schemas/settings/settings-schema.json)" == "schema old" ]] || fail "exports whose sources moved landed"
+
+# 21g. With SETTINGS_MADE_AT, a newer commit's own copy of an export still holds them as progress
+#      would not: a revert that carried its export writes it, and its copy stays.
+setup_next
+repair_only "${settings_set[@]}"
+made="$(remote_tip)"
+lane_commit "lane reverts a setting with its export" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v0" \
+  schemas/settings/settings-schema.json "schema lane"
+if run_at "$made" > "$tmp/out" 2>&1; then fail "exports a newer commit wrote passed the run: $(cat "$tmp/out")"; fi
+[[ "$(remote_show schemas/settings/settings-schema.json)" == "schema lane" ]] || fail "the newer commit's own export was overwritten by progress"
+[[ "$(remote_show docs/mdm/com.manaflow.cmux.plist)" == "plist old" ]] || fail "the settings exports did not wait whole"
 
 # base-autofix-settings-exports.sh (the Mac job): regenerates on the newest tip while the inputs
 # move, at most CMUX_BASE_AUTOFIX_SETTINGS_TRIES times, and says which commit it made them at.
@@ -559,16 +575,30 @@ regen notes > "$tmp/out" 2>"$tmp/err" || fail "a regeneration past a note failed
 grep -qx "made at: $start" "$tmp/out" || fail "a note beside the sources made it regenerate: $(cat "$tmp/out")"
 [[ "$(cat "$tmp/count")" == 1 ]] || fail "a note beside the sources ran the regeneration $(cat "$tmp/count") times"
 
-# 25. (c) The inputs move under every regeneration: it stops after the tries, hands on no export,
-#     fails, and says so.
+# 25. (c) The inputs move under every regeneration: it stops after the tries, says so, and hands on
+#     the newest export it made, as progress, named by the commit it was made at (base-autofix-push.sh
+#     lands it unless a newer commit wrote the exports). Failing threw a finished export away.
 setup_next
-if CMUX_BASE_AUTOFIX_SETTINGS_TRIES=3 regen always > "$tmp/out" 2>"$tmp/err"; then
-  fail "a regeneration whose inputs never held still passed: $(cat "$tmp/out" "$tmp/err")"
-fi
+CMUX_BASE_AUTOFIX_SETTINGS_TRIES=3 regen always > "$tmp/out" 2>"$tmp/err" \
+  || fail "a regeneration whose inputs never held handed on nothing: $(cat "$tmp/out" "$tmp/err")"
 [[ "$(cat "$tmp/count")" == 3 ]] || fail "the regeneration ran $(cat "$tmp/count") times, not 3"
-grep -q "::error::" "$tmp/err" || fail "the run does not raise an error: $(cat "$tmp/err")"
-[[ -z "$(find "$tmp/mac-out" -type f 2>/dev/null)" ]] || fail "exports whose inputs kept moving were handed on: $(find "$tmp/mac-out" -type f)"
-grep -q "^made at:" "$tmp/out" && fail "a held regeneration still names a commit: $(cat "$tmp/out")"
+grep -q "::warning::.*progress" "$tmp/err" || fail "the run does not warn that the exports are progress: $(cat "$tmp/err")"
+last="$(git -C "$tmp/remote.git" rev-parse feat^)"
+grep -qx "made at: $last" "$tmp/out" || fail "the progress exports are not named by the tip of the last try ($last): $(cat "$tmp/out")"
+[[ "$(cat "$tmp/mac-out/schemas/settings/settings-schema.json")" == "schema for setting v3" ]] \
+  || fail "the handed-on export is not the last try's: $(cat "$tmp/mac-out/schemas/settings/settings-schema.json" 2>&1)"
+
+# 25b. A try that used up the retry window starts no regeneration on the moved tip: a moved tip
+#      rebuilds the package, and past the step's timeout the export already made was lost
+#      (run 45126925631: try 1 made the export at 750e0b05 in two minutes, try 2 timed out at 40).
+setup_next
+start="$(remote_tip)"
+CMUX_BASE_AUTOFIX_SETTINGS_RETRY_SECONDS=0 regen once > "$tmp/out" 2>"$tmp/err" \
+  || fail "a regeneration past its retry window handed on nothing: $(cat "$tmp/out" "$tmp/err")"
+[[ "$(cat "$tmp/count")" == 1 ]] || fail "a regeneration past its retry window ran $(cat "$tmp/count") times"
+grep -qx "made at: $start" "$tmp/out" || fail "the progress exports are not named by the run's commit: $(cat "$tmp/out")"
+grep -qx "regenerated: schemas/settings/settings-schema.json" "$tmp/out" || fail "the export made at the run's commit was not handed on: $(cat "$tmp/out")"
+grep -q "::warning::.*retry window" "$tmp/err" || fail "the run does not say why it did not retry: $(cat "$tmp/err")"
 
 # 26. The namespace lint's safe rewrite (a Swift file under Packages/) lands on a tip an unrelated
 #     commit moved, and waits when the move touched Packages/, its inputs.
@@ -597,4 +627,25 @@ for baseline in scripts/lint-namespace-types-baseline.txt scripts/lint-ios-packa
   [[ "$(remote_show Packages/a/A.swift)" == "public enum A {}" ]] || fail "a namespace rewrite landed past a $baseline move"
 done
 
-echo "PASS: base autofix lands its repair on a moved feat-cmux-next; files whose inputs moved or that a newer commit wrote wait; the settings exports are regenerated on the newest tip, or wait"
+# A daemon ABI surface follows SDK inputs, not unrelated Rust formatting inputs.
+setup_daemon_surface() {
+  setup
+  surface=cmux-tui/spec/api-compat.surface.json
+  lane_push "$surface" old
+  (cd "$tmp/bot" && git reset -q --hard origin/feat && git fetch -q origin feat && git reset -q --hard FETCH_HEAD)
+  base="$(git -C "$tmp/bot" rev-parse HEAD)"
+  (cd "$tmp/bot" && echo repaired > "$surface" && git commit -q -am "chore(next): base autofix")
+}
+setup_daemon_surface
+lane_push cmux-tui/crates/unrelated/src/lib.rs '// unrelated formatting input'
+run > "$tmp/out" 2>&1 || fail "daemon surface must land past unrelated Rust changes: $(cat "$tmp/out")"
+[[ "$(remote_show "$surface")" == repaired ]] || fail "daemon surface repair did not land"
+for input in cmux-tui/spec/sdk-schema.json cmux-tui/spec/api-compat.json \
+  cmux-tui/spec/api-compat-fixtures.json cmux-tui/crates/cmux-api-compat/src/coverage.rs; do
+  setup_daemon_surface
+  lane_push "$input" changed
+  if run > "$tmp/out" 2>&1; then fail "daemon surface landed after input $input changed"; fi
+  [[ "$(remote_show "$surface")" == old ]] || fail "daemon surface was written from stale $input"
+done
+
+echo "PASS: base autofix lands its repair on a moved feat-cmux-next; files whose inputs moved or that a newer commit wrote wait; the settings exports are regenerated on the newest tip, or land as progress"

@@ -47,7 +47,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeAgentPillCard.
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/NewMessage/HomeRecipientSuggestionsView.swift	visible-only-reload-data	1
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportPlayground.swift	visible-only-subviews-teardown	1
-Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsView+Teleport.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenCardView.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenHomeView.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteCard.swift	visible-only-subviews-teardown	1
@@ -61,10 +60,9 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarView.swift	visible-
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/StatesPlayground/SidebarStatesPlaygroundView.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Playground/TabBarPlaygroundView.swift	visible-only-subviews-teardown	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/AgentIncomingCard.swift	visible-only-foreach-unstable-id	1
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/CardViews.swift	visible-only-foreach-unstable-id	3
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/CardViews.swift	visible-only-foreach-unstable-id	2
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ChatComposer.swift	visible-only-eager-stack-in-scroll	2
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ChatPolishScreens.swift	visible-only-foreach-unstable-id	1
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/SessionMeterViews.swift	visible-only-foreach-unstable-id	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ToolViews.swift	visible-only-eager-stack-in-scroll	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ToolViews.swift	visible-only-foreach-unstable-id	3
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/WhoElseCard.swift	visible-only-foreach-unstable-id	1

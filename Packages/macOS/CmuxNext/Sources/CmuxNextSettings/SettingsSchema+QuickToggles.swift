@@ -44,12 +44,15 @@ extension SettingsController {
         groups.flatMap(\.rows).filter { isOn($0) && !isLocked($0) && $0.defaultValue?.boolValue != true }
     }
 
-    /// Turns every opt-in switch of `groups` off by removing the person's value, so each goes back to
-    /// its shipped default (Leo, 2026-11-23, c-dc594b45e0: "I want people to not accidentally soft lock
+    /// Turns every opt-in switch of `groups` off explicitly, overriding recommendations beneath
+    /// the person's value (Leo, 2026-11-23, c-dc594b45e0: "I want people to not accidentally soft lock
     /// themselves and like have good recovery options"). A switch that ships on is left alone.
     public func turnAllOff(in groups: [QuickToggleGroup]) async throws {
+        var firstFailure: (any Error)?
         for descriptor in turnOffTargets(in: groups) {
-            try await setSetting(descriptor, to: nil, by: .user)
+            do { try await setSetting(descriptor, to: .bool(false), by: .user) }
+            catch { if firstFailure == nil { firstFailure = error } }
         }
+        if let firstFailure { throw firstFailure }
     }
 }

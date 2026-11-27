@@ -1,0 +1,20 @@
+[package]
+name = "cmux-chat-markdown"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The chat transcript's markdown parser (CommonMark blocks and inlines plus GFM tables, task lists, strikethrough and autolinks, written for chat): the block and inline tree the macOS app's Home transcript draws. The app keeps the link policy's URL check and the drawing"
+
+[lints]
+workspace = true
+
+[dependencies]
+unicode-general-category = "1.1"
+unicode-normalization = { workspace = true }
+unicode-segmentation = { workspace = true }
+
+[dev-dependencies]
+# The parity corpus (tests/parity/corpus.json).
+serde_json = { workspace = true }

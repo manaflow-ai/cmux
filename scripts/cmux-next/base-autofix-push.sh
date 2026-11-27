@@ -20,17 +20,21 @@
 #
 # The settings exports are judged from SETTINGS_MADE_AT, the commit the Mac
 # job made them at (base-autofix-settings-exports.sh regenerates them on the
-# newest tip while their inputs move; without it, BASE_SHA): they land only when
-# nothing in SETTINGS_MADE_AT..tip moved their inputs, and then whole, as made
-# there (every file of the list below whose made copy differs from the tip's).
-# An export made from inputs that changed later never lands as it is. A
-# SETTINGS_MADE_AT that is not between BASE_SHA and the tip holds them. A move
-# of the settings area whose sources give the same source stamp at the tip as at
-# SETTINGS_MADE_AT (defaults_guard.py source-stamp, derived from each tree; the
-# stamp is never committed), with the regeneration as it was, does not hold them:
-# their inputs did not change. Otherwise they wait, and the run fails, even when
-# someone else may have regenerated them on the tip: whether the tip's committed
-# exports are current takes the Mac export to say.
+# newest tip while their inputs move; without it, BASE_SHA), and land whole, as
+# made there (every file of the list below whose made copy differs from the
+# tip's). A SETTINGS_MADE_AT that is not between BASE_SHA and the tip holds them.
+# A move of the settings area whose sources give the same source stamp at the
+# tip as at SETTINGS_MADE_AT (defaults_guard.py source-stamp, derived from each
+# tree; the stamp is never committed), with the regeneration as it was, changed
+# none of their inputs. When SETTINGS_MADE_AT..tip did move their inputs they
+# still land, as progress, the way the action exports do (only with SETTINGS_MADE_AT given;
+# without it a move holds them): the tip's committed
+# copy is older still, and the next push run makes them on the newer tip.
+# Holding them instead meant none landed while settings merges outran the Mac
+# job, and feat-cmux-next kept the settings.agents.cmuxMcp.ask row #51725 had
+# removed, red in every web bundle build (2026-11-23, run 45126925631). When a
+# commit after SETTINGS_MADE_AT wrote one of them itself, they wait and the run
+# fails: whether the tip's own copies are current takes the Mac export to say.
 #
 # The action exports are judged from ACTIONS_MADE_AT, the commit the Mac job made them at
 # (base-autofix-action-exports.sh; without it, BASE_SHA), and land whole, as made there. When
@@ -85,7 +89,7 @@ output_areas() {
     case "$path" in
       Packages/macOS/CmuxNext/ci-target-graph.json) echo graph ;;
       */generated/strings.json) echo strings; echo webviews ;;
-      cmux-tui/bindings/*) echo sdk ;;
+      cmux-tui/bindings/* | cmux-tui/spec/api-compat.surface.json) echo sdk ;;
       # The exports read the actions area only; what is built from them follows them (built_from).
       plans/cmux-next/action-surfaces.json | plans/cmux-next/action-catalog.json | plans/cmux-next/actions.md | plans/cmux-next/links.json) echo actions ;;
       plans/cmux-next/daemon-capabilities.json) echo capabilities ;;
@@ -101,6 +105,8 @@ output_areas() {
       web/data/next-docs/*.generated.json) echo actions; echo shortcuts ;;
       cmux-tui/crates/cmux-app-host/generated/* | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo apphost; echo actions ;;
       scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;
+      # The undeclared-job record (base-autofix.sh 6).
+      scripts/ci/job-inputs-always.json) echo jobinputs ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f').
       Packages/*.swift | ios/cmux/*.swift) echo ratchets ;;
       clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) echo cloud ;;
@@ -108,6 +114,10 @@ output_areas() {
       # The Cargo locks (base-autofix.sh --locks) follow every Cargo manifest (autofix-areas.sh locks); before
       # cmux-tui/*, which would claim cmux-app-ffi's lock for formatting.
       Cargo.lock | */Cargo.lock) echo locks ;;
+      # The iPhone app's uniffi Swift bindings (base-autofix.sh 5a).
+      cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/*) echo iosffi ;;
+      # Undeclared jobs recorded as runs-always (base-autofix.sh 6, job_inputs.py fix).
+      scripts/ci/job-inputs-always.json) echo jobinputs ;;
       cmux-tui/* | Native/OptChat/*) echo fmt ;;
       *) echo unknown ;;
     esac
@@ -328,6 +338,18 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     if [[ -n "$settings_unproven" ]]; then
       echo "::error::$settings_unproven; they wait." >&2
     fi
+    # The settings exports whose inputs moved after SETTINGS_MADE_AT land as progress, unless a newer
+    # commit wrote one of them itself (then the held_set loop below holds them, and the run fails).
+    # A revert after SETTINGS_MADE_AT of a change that carried its export writes the export, so it
+    # holds them; one whose change carried none left the tip's copy as stale as this one. Without
+    # SETTINGS_MADE_AT (no Mac export named where it was made) a move still holds them (#22474).
+    partial_settings=0
+    todo_settings="$(while IFS= read -r path; do [[ -z "$path" ]] || ! is_settings_export "$path" || echo "$path"; done <<<"$todo" | sort -u)"
+    if [[ -n "$settings_made_at" && -z "$settings_unproven" && -n "$todo_settings" ]] && grep -qx settings <<<"$moved_areas" \
+      && [[ -z "$(comm -12 <(printf '%s\n' "$todo_settings") <(printf '%s\n' "$newer_settings"))" ]]; then
+      partial_settings=1
+      echo "::warning::$branch moved the settings exports' inputs after ${settings_from:0:12}; the exports made there land as progress, and the next run makes them on the newer tip."
+    fi
     # The action exports this repair holds: a newer commit's own copy stays, else they land as progress.
     partial_actions=0
     todo_actions="$(while IFS= read -r path; do [[ -z "$path" ]] || ! is_action_export "$path" || echo "$path"; done <<<"$todo" | sort -u)"
@@ -345,6 +367,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
       [[ -n "$path" ]] || continue
       # The snapshot is derived again on the tip (below); only moved inputs and other waits hold it.
       if ! { ((partial_actions)) && is_action_export "$path"; } \
+        && ! { ((partial_settings)) && is_settings_export "$path"; } \
         && { grep -qxF unknown <<<"$(output_areas <<<"$path")" \
           || [[ -n "$(comm -12 <(output_areas <<<"$path") <(printf '%s\n' "$moved_areas"))" ]]; }; then
         held_set+="$path"$'\n'

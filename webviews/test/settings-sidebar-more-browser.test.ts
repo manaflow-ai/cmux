@@ -104,7 +104,8 @@ await requireBrowserLane("settings-sidebar-more-browser.test.ts", async () => {
     const browser = await webkit.launch({ headless: true, timeout: 30_000 });
     try {
       const page = await browser.newPage({ viewport: { width: 900, height: 640 }, reducedMotion: "no-preference" });
-      await open(page, "devices");
+      // Keys is one of More's categories (Devices left More for Accounts and Devices, #51582).
+      await open(page, "keys");
       const children = page.locator(group);
       const height = () => children.evaluate((element) => element.getBoundingClientRect().height);
       const transitions = () => children.evaluate((element) => getComputedStyle(element).transitionProperty);
@@ -132,8 +133,9 @@ await requireBrowserLane("settings-sidebar-more-browser.test.ts", async () => {
     const browser = await webkit.launch({ headless: true, timeout: 30_000 });
     try {
       const page = await browser.newPage({ viewport: { width: 900, height: 640 }, reducedMotion: "no-preference" });
-      await open(page, "devices");
-      const sounds = page.locator('[data-section-link="devices"]');
+      // Two of More's categories, so both links are in its open list (Devices left More, #51582).
+      await open(page, "integrations");
+      const sounds = page.locator('[data-section-link="integrations"]');
       const theme = page.locator('[data-section-link="keys"]');
       const content = (link: typeof theme) => link.locator(".section-link-content");
       const fill = (link: typeof theme) => content(link).evaluate((row) => getComputedStyle(row).backgroundColor);
@@ -160,7 +162,7 @@ await requireBrowserLane("settings-sidebar-more-browser.test.ts", async () => {
       expect(await fill(theme)).toBe(selected);
       expect(await scale(theme)).toBe(1);
 
-      await open(page, "devices", { reducedMotion: true });
+      await open(page, "integrations", { reducedMotion: true });
       await theme.hover();
       await page.mouse.down();
       expect(await scale(theme)).toBe(1);
@@ -208,6 +210,8 @@ await requireBrowserLane("settings-sidebar-more-browser.test.ts", async () => {
       const keys = page.locator('[data-section-link="keys"]');
       await keys.click();
       expect(await keys.getAttribute("aria-current")).toBe("page");
+      // The link marks itself on click; the route draws the section a moment later.
+      await page.waitForSelector('[data-section="keys"]');
       expect(await page.locator('[data-section="keys"]').count()).toBe(1);
     } finally {
       await browser.close();

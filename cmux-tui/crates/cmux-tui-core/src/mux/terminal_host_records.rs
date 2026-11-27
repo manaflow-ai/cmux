@@ -10,6 +10,14 @@ pub(super) fn terminate_discovered_terminal_host_in(
     terminal_id: &str,
     incarnation: Option<&str>,
 ) {
+    // Debug-only test seam for reproducing a wedged discovered-host cleanup.
+    // Production cleanup has no artificial delay.
+    #[cfg(debug_assertions)]
+    if let Ok(delay) = std::env::var("CMUX_TUI_TEST_DISCOVERED_HOST_CLEANUP_DELAY_MS")
+        && let Ok(delay) = delay.parse::<u64>()
+    {
+        std::thread::sleep(Duration::from_millis(delay.min(10_000)));
+    }
     let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
         return;
     };
@@ -24,6 +32,37 @@ pub(super) fn terminate_discovered_terminal_host_in(
     pending_terminals::terminate_unadoptable_hosts_in(root, terminal_id);
     let record_path = root.join(format!("{terminal_id}.json"));
     let _ = acknowledge_terminal_exit_sidecar(&record_path, terminal_id, incarnation);
+}
+
+/// Reconcile a discovered host after the close signaling worker has released
+/// it. Loading records and waiting for an unresponsive host are both bounded
+/// but can still take seconds, so this whole operation must stay off the
+/// signaling pool.
+#[cfg(any(unix, windows))]
+pub(super) fn schedule_discovered_terminal_host_cleanup(
+    root: std::path::PathBuf,
+    terminal_id: String,
+    incarnation: Option<String>,
+) {
+    let name = format!("terminal-discovered-clean-{}", terminal_id);
+    let fallback_root = root.clone();
+    let fallback_terminal_id = terminal_id.clone();
+    let fallback_incarnation = incarnation.clone();
+    if std::thread::Builder::new()
+        .name(name)
+        .spawn(move || {
+            terminate_discovered_terminal_host_in(&root, &terminal_id, incarnation.as_deref());
+        })
+        .is_err()
+    {
+        // If the process cannot create another worker, preserve the cleanup
+        // rather than dropping the discovered host record on the floor.
+        terminate_discovered_terminal_host_in(
+            &fallback_root,
+            &fallback_terminal_id,
+            fallback_incarnation.as_deref(),
+        );
+    }
 }
 
 #[cfg(any(unix, windows))]

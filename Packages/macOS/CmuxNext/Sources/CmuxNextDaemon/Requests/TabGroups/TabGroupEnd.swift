@@ -1,17 +1,5 @@
 import Foundation
 
-/// Deletes a group; its tabs stay in place. Result: `{group, surfaces}`.
-public struct UngroupTabGroupRequest: DaemonRequest {
-    public typealias Response = TabGroupResult
-    public static let command = "ungroup-tab-group"
-    public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
-    public var group: TabGroupID
-    public init(group: TabGroupID) { self.group = group }
-
-    @available(*, deprecated, message: "ungroup-tab-group takes no transaction; use init(group:)")
-    public init(group: TabGroupID, transaction: ClientTransactionID?) { self.init(group: group) }
-}
-
 /// Closes every member placement in one commit. Terminal processes keep
 /// running, as with any closed view, unless `endTerminals` (`batch-close-v1`)
 /// ends each member terminal left with no tab and not kept in the same

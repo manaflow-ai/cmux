@@ -417,6 +417,16 @@ def symbol_language(name: str) -> str:
     return "C and other"
 
 
+def expand_names(block: bytes, count: int) -> list[bytes]:
+    """The names of a CMXSYM2 block; a legacy Rust hash reads back as 16 zeros."""
+    shared, rests = block[:count], block[count:].split(b"\0")
+    names, previous = [], b""
+    for n, rest in zip(shared, rests):
+        previous = previous[:n] + rest
+        names.append(previous[:-1] + b"17h0000000000000000E" if previous[-1:] == b"\x01" else previous)
+    return names
+
+
 def code_by_language(data: bytes) -> dict[str, int] | None:
     """__TEXT,__text bytes by language from a cmux-symbols.bin (its first slice), or None.
 
@@ -424,7 +434,7 @@ def code_by_language(data: bytes) -> dict[str, int] | None:
     Zig or C function) counts toward the named one before it, so the Zig and C rows are close,
     not exact; Swift and Rust keep their names.
     """
-    if data[:8] != b"CMXSYM1\0" or len(data) < 32:
+    if data[:8] not in (b"CMXSYM1\0", b"CMXSYM2\0") or len(data) < 32:
         return None
     try:
         size, = struct.unpack_from("<I", data, 28)
@@ -444,7 +454,7 @@ def code_by_language(data: bytes) -> dict[str, int] | None:
             offsets.append(current)
     except (struct.error, zlib.error, IndexError):
         return None
-    names = payload[at:].split(b"\0")
+    names = expand_names(payload[at:], count) if data[:8] == b"CMXSYM2\0" else payload[at:].split(b"\0")
     if len(names) < count:
         return None
     out: dict[str, int] = {}

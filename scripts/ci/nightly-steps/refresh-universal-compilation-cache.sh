@@ -17,7 +17,7 @@ warm_build() {
     -clonedSourcePackagesDirPath .spm-cache \
     -packageCachePath "$PWD/.spm-cache/.package-cache" \
     -showBuildTimingSummary \
-    ARCHS="arm64 x86_64" \
+    ARCHS="arm64" \
     ONLY_ACTIVE_ARCH=NO \
     COMPILATION_CACHE_ENABLE_CACHING=YES \
     COMPILATION_CACHE_LIMIT_SIZE=3221225472 \

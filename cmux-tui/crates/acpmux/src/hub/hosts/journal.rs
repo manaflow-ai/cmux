@@ -70,21 +70,25 @@ impl Hub {
         last
     }
 
-    /// `last_host_seq` from whole records only.
+    /// `last_host_seq` from whole records only: the largest `hostSeq` of the records that follow
+    /// the log's last `host_started` of `incarnation` and come before the next `host_started`.
+    /// Read back from the end, so it costs the records since that start, not the whole log
+    /// (`last_host_seq_parsed_forward` in the tests is the same fold from the start).
     pub(super) fn last_host_seq_parsed(&self, session: &Session, incarnation: &str) -> u64 {
+        // The largest `hostSeq` of the records read since (newer than) the start last passed.
+        let mut segment = 0;
         let mut last = 0;
-        let mut current = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        let _ = self.store.scan_back(&session.id, 0, u64::MAX, &|_, _| false, &mut |e| {
             if e.dir == "mux" && e.kind == "host_started" {
-                current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
-                if current {
-                    last = 0;
+                if e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation) {
+                    last = segment;
+                    return false;
                 }
-            } else if current
-                && host_seq_matches(&e, incarnation)
+                segment = 0;
+            } else if host_seq_matches(&e, incarnation)
                 && let Some(h) = e.host_seq
             {
-                last = last.max(h);
+                segment = segment.max(h);
             }
             true
         });
@@ -306,16 +310,36 @@ impl HostSeqFold {
     }
 }
 
+/// Claude's logged lines that say a task ended and that one started (`subagents::expiry`).
+const TASK_NOTIFICATION: &str = "claude.system.task_notification";
+const TASK_STARTED: &str = "claude.system.task_started";
+
 /// `subagents_from_log`'s fold of one head. A harness start ends the background subagents of
 /// the one before, and a turn start the foreground ones, as live.
 fn seed_step(tree: &mut SubagentTree, head: &RecordHead<'_>) {
     // Expiry ages each subagent from its logged stamp (`subagents::expiry`).
-    tree.set_clock(head.at);
+    tree.set_log_clock(head.at);
     if head.dir == "mux" {
         match head.kind {
             "host_started" | "stopped" | "exited" => tree.end_background(),
             "turn_started" => tree.end_foreground(),
             _ => {}
+        }
+        return;
+    }
+    // How Claude said a task ended, and that one started again, as the tap heard them live: a
+    // subagent the log left running past a harness exit ends as it really did, `completed`
+    // mostly, not `disconnected` (`subagents::expiry`).
+    if head.dir == "in"
+        && matches!(head.kind, TASK_NOTIFICATION | TASK_STARTED)
+        && let Some(e) = head.record()
+        && let Some(task) = e.msg.get("task_id").and_then(Value::as_str)
+    {
+        if head.kind == TASK_NOTIFICATION {
+            let status = e.msg.get("status").and_then(Value::as_str).unwrap_or("completed");
+            tree.note_task_ended(task, status);
+        } else {
+            tree.note_task_started(task);
         }
         return;
     }
@@ -326,7 +350,7 @@ fn seed_step(tree: &mut SubagentTree, head: &RecordHead<'_>) {
     if let Some(mut e) = head.record()
         && let Some(params) = e.msg.get_mut("params")
     {
-        tree.annotate_live(params, !replay);
+        tree.annotate_at(params, !replay, e.at);
     }
 }
 
@@ -407,7 +431,9 @@ impl WorkFold {
         };
         let subagents_own = e.dir == "in"
             && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
-            && e.msg.get_mut("params").is_some_and(|p| self.subagents.annotate(p).is_some());
+            && e.msg
+                .get_mut("params")
+                .is_some_and(|p| self.subagents.annotate_at(p, true, e.at).is_some());
         if e.dir == "mux" {
             let text = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
             match e.kind.as_str() {
@@ -511,6 +537,7 @@ impl WorkFold {
                 work.turn_line = e.msg.get("promptLine").and_then(Value::as_str).map(str::to_owned);
                 work.turn_device = e.msg.get("device").and_then(Value::as_str).map(str::to_owned);
                 work.turn_trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
+                work.turn_trust_gate = e.msg.get("trustGate") != Some(&Value::Bool(false));
                 work.turn_persons = e.msg.get("persons") == Some(&Value::Bool(true));
                 work.turn_at = e.at;
                 work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());

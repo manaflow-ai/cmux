@@ -74,7 +74,7 @@ enum NewTabPage {
 
     /// Every Commands palette (Cmd-Shift-P) action as the bar lists it, from the palette's own rows.
     static func paletteActions(_ services: AppServices) -> [AgentPaneOmnibar.Action] {
-        BenchSpans.measure("newTab.paletteActions") { services.palette.commandEntries().map(AgentPaneOmnibar.Action.init(paletteEntry:)) }
+        BenchSpans.measure("newTab.paletteActions") { services.palette.commandEntries().filter { AgentPaneOmnibar.Action.pageMayRun($0.id.rawValue) }.map(AgentPaneOmnibar.Action.init(paletteEntry:)) }
     }
 
     /// The bar's places from the rows that the places feed keeps (a page's open maps no workspace), with
@@ -127,7 +127,7 @@ enum NewTabPage {
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue
         ).showingApp(services.settings?.snapshot.newTabApp).showingClock(services.settings?.snapshot.newTabClock).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
-            .startingIn(machine.remoteFolders == nil ? services.newTabChoices.startedProject : nil)
+            .startingIn(machine.remoteFolders == nil ? services.newTabChoices : nil)
             .warmedOnThisMac(machine.remoteFolders == nil)
     }
 
@@ -140,7 +140,7 @@ enum NewTabPage {
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue
         ).showingApp(services.settings?.snapshot.newTabApp).showingClock(services.settings?.snapshot.newTabClock).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
-            .startingIn(services.newTabChoices.startedProject).warmedOnThisMac()
+            .startingIn(services.newTabChoices).warmedOnThisMac()
     }
 
     /// Show All Chats on New Tab (`sidebar.showChats`; All chats left the sidebar for this page, cx-n0i9).

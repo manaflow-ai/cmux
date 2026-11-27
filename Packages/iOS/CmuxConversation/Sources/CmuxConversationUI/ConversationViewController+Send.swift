@@ -77,6 +77,12 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         pendingFlightRowIDs = []
         if flies { launch(flight, rowID: rowID) }
         if effect != nil { playSentEffect(rowID: rowID) }
+        if dismissesKeyboardAfterSend?() == true {
+            // The person's setting: the keyboard closes once the message is on its way (iOS
+            // release bar read-back, 2026-11-22, shot 17: Chief kept it up).
+            composer.textView.resignFirstResponder()
+            return
+        }
         // The send button leaves with the text; VoiceOver stays in the field.
         UIAccessibility.post(notification: .layoutChanged, argument: composer.textView)
     }

@@ -1,8 +1,17 @@
 import { DurableObject } from "cloudflare:workers";
-import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex } from "./crypto";
+import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex, sha256Hex } from "./crypto";
 import { DEVICE_ID, REPLAY_WINDOW_MS, checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import { relayEntitlement } from "./billing";
-import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
+import {
+  HOST_RELAY_HEADER,
+  ORIGIN_HEADER,
+  SCOPE_HEADER,
+  SESSION_DEVICE_HEADER,
+  STACK_TOKEN_HEADER,
+  USER_HEADER,
+  type Env,
+  SPACE_HEADER,
+} from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound } from "./errors";
 import { internalCall, why } from "./internalCall";
 import { REATTACH_TTL_S, TICKET_TTL_S, type Scope, mintTicket } from "./tickets";
@@ -41,6 +50,11 @@ export function isDevicePlatform(value: unknown): value is DevicePlatform {
 }
 /** The share approval format the hub carries (acpmux `share_approval::VERSION`). */
 export const SHARE_APPROVAL_VERSION = "cmux.share-approval.v1";
+/**
+ * The control approval format (cmux-share-approval `CONTROL_VERSION`): the same signed yes, for
+ * "control for my other signed-in machines" on the Mac it names.
+ */
+export const CONTROL_APPROVAL_VERSION = "cmux.control-approval.v1";
 
 export type PermissionScope = "none" | "ask" | "view" | "full";
 type SessionState = "pending" | "approved" | "live" | "ended";
@@ -55,12 +69,27 @@ interface DeviceRow {
   last_seen_at: number;
   removed_at: number | null;
   mac_screen_shared: number;
-  /** The Mac it runs on, as its first registration named it (`machine`); null when it named none. Never listed. */
+  /** This account's id for the physical machine (`machineIdFor`), NULL when the app sent no `machineKey`. */
+  machine_id: string | null;
+  /** The app install whose identity this is (the macOS bundle id), NULL when the app sent none. */
+  app_id: string | null;
+  /** The Mac/build space this device first named; never listed. */
   machine: string | null;
-  /** 1 once the switch was set on purpose (`PUT .../mac-screen`): a join never changes it after. */
+  /** 1 once the switch was set on purpose (`PUT .../mac-screen`). */
   mac_screen_chosen: number;
-  /** The device's own screen sharing status (`cmux.screen-share.status/1`), JSON; null until reported. */
+  /** The device's own screen-sharing status JSON. */
   screen_share: string | null;
+}
+
+/** A client's `machineKey`: lowercase hex SHA-256 of a hardware id (PROTOCOL.md, One record per machine). */
+const MACHINE_KEY = /^[0-9a-f]{64}$/;
+
+/**
+ * The machine id the hub stores and lists: the client's `machineKey` salted with the account, so one
+ * Mac signed in to two accounts has two unrelated ids and no listing links accounts.
+ */
+export async function machineIdFor(userId: string, machineKey: string): Promise<string> {
+  return sha256Hex(`cmux-device-hub machine v1\n${userId}\n${machineKey}`);
 }
 
 interface SessionRow {
@@ -80,6 +109,8 @@ interface SessionRow {
   relay_paid: number | null;
   /** When that answer was read (ms); it covers the session's host end for ANCHOR_RELAY_TTL_MS. */
   relay_read_at: number | null;
+  /** When billing last failed to answer for this session (ms), null if its last read answered. */
+  relay_unread_at: number | null;
 }
 
 interface RelayRow {
@@ -137,6 +168,9 @@ interface WireTicket {
   ticket: string;
   signalURL: string;
   ice: IceServer[];
+  /** Why `ice` holds or lacks the cmux relay: the session's billing answer (`relayFields`). */
+  relay: "paid" | "free" | "unread";
+  relayNote?: string;
   peer: { id: string; name: string; signingKey: string };
   role: "viewer" | "host";
   scope: Scope;
@@ -167,7 +201,8 @@ CREATE TABLE IF NOT EXISTS devices(
   created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
   removed_at INTEGER, mac_screen_shared INTEGER NOT NULL DEFAULT 0,
   name_pinned INTEGER NOT NULL DEFAULT 0,
-  owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '');
+  owner_kind TEXT NOT NULL DEFAULT 'user', owner_id TEXT NOT NULL DEFAULT '',
+  machine_id TEXT, app_id TEXT);
 CREATE TABLE IF NOT EXISTS permissions(
   host_id TEXT NOT NULL, viewer_id TEXT NOT NULL, scope TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
@@ -213,11 +248,39 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["audit", "device_id", "TEXT"],
   ["audit", "owner_kind", "TEXT NOT NULL DEFAULT 'user'"],
   ["audit", "owner_id", "TEXT NOT NULL DEFAULT ''"],
+  ["devices", "machine_id", "TEXT"],
+  ["devices", "app_id", "TEXT"],
   ["devices", "machine", "TEXT"],
   ["sessions", "moved_from", "TEXT"],
   ["sessions", "relay_paid", "INTEGER"],
   ["sessions", "relay_read_at", "INTEGER"],
+  ["sessions", "relay_unread_at", "INTEGER"],
 ];
+
+/** What a ticket, `/ice` and `/me` say when billing gave no answer: never "free". */
+export const PLAN_UNREAD = "could not read your plan";
+
+/**
+ * A session's relay answer as its ends see it: `unread` (with the note) when billing failed,
+ * so a viewer that gets no relay can say why instead of reading the failure as a free plan.
+ */
+function relayFields(e: "paid" | "free" | "error", ice: IceServer[]): { relay: "paid" | "free" | "unread"; relayNote?: string } {
+  if (e === "error") return { relay: "unread", relayNote: PLAN_UNREAD };
+  if (e === "paid" && !hasTurn(ice)) return { relay: "paid", relayNote: RELAY_UNMINTED };
+  return { relay: e };
+}
+
+/**
+ * What a ticket and `/ice` say when the plan pays for the cmux relay but no TURN server could be
+ * minted (the platform minter and the hub's own both answered nothing): without it the ends saw
+ * `relay: "paid"` with no relay in `ice` and no word why.
+ */
+export const RELAY_UNMINTED = "the cmux relay could not be issued for this session";
+
+/** Whether `ice` holds a relay (a `turn:` or `turns:` URL), not only STUN. */
+function hasTurn(ice: IceServer[]): boolean {
+  return ice.some((s) => s.urls.some((u) => /^turns?:/i.test(u)));
+}
 
 /** A registration's `machine`: the lowercase hex SHA-256 the app derives from the Mac's hardware id. */
 const MACHINE = /^[0-9a-f]{64}$/;
@@ -247,6 +310,8 @@ function publicDevice(d: DeviceRow, online: boolean) {
     createdAt: d.created_at,
     lastSeenAt: d.last_seen_at,
     macScreenShared: d.mac_screen_shared === 1,
+    machineId: d.machine_id ?? null,
+    appId: d.app_id ?? null,
     screenShare: screenShareOf(d),
     online,
   };
@@ -340,6 +405,8 @@ export class UserDO extends DurableObject<Env> {
     }
     const owner = this.sql.exec("SELECT v FROM meta WHERE k = 'user_id'").toArray()[0];
     if (owner) this.setOwner(owner.v as string);
+    const space = this.sql.exec("SELECT v FROM meta WHERE k = 'build_space'").toArray()[0];
+    if (space) this.space = space.v as string;
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
     // Sockets restored from hibernation need the silence check armed: a socket
     // accepted before this check existed has no clock until a sweep stamps it.
@@ -349,6 +416,19 @@ export class UserDO extends DurableObject<Env> {
   // ---- owner (v1: always the user; team sharing later adds 'team' rows) ----
 
   private ownerId = "";
+  /**
+   * The build space this DO is the user's object in (src/buildSpace.ts; "" for the default space), from its
+   * first request. Its name already says it (`dev:<slug>|<user>`); its Session DOs report back to it by it.
+   */
+  private space = "";
+
+  /** Records this DO's build space; a request of another space never reaches it (index.ts names DOs by space). */
+  private setSpace(space: string) {
+    if (this.space === space) return;
+    if (this.space || this.ownerId) throw new Error(`user DO of build space "${this.space}" got a request of "${space}"`);
+    this.space = space;
+    this.sql.exec("INSERT INTO meta(k, v) VALUES ('build_space', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", space);
+  }
 
   /** Records the user this DO belongs to and backfills rows written before owner columns existed. */
   private setOwner(userId: string) {
@@ -502,6 +582,7 @@ export class UserDO extends DurableObject<Env> {
       if (url.pathname.startsWith("/internal/")) return await this.internal(url.pathname, request);
       const userId = request.headers.get(USER_HEADER);
       if (!userId) throw new ApiError(401, "unauthorized", "missing user");
+      this.setSpace(request.headers.get(SPACE_HEADER) ?? "");
       this.setOwner(userId);
       const origin = request.headers.get(ORIGIN_HEADER) ?? url.origin;
       const stackToken = request.headers.get(STACK_TOKEN_HEADER);
@@ -567,6 +648,12 @@ export class UserDO extends DurableObject<Env> {
     if (!(await isValidDeviceKey(body.agreementKey))) throw badRequest("agreementKey must be a base64 X9.63 P-256 key");
     const signingKey = body.signingKey as string;
     const agreementKey = body.agreementKey as string;
+    const machineKey = body.machineKey ?? null;
+    if (machineKey !== null && (typeof machineKey !== "string" || !MACHINE_KEY.test(machineKey))) {
+      throw badRequest("machineKey must be 64 lowercase hex characters");
+    }
+    const appId = body.appId === undefined || body.appId === null ? null : str(body.appId, "appId", 200);
+    const machineId = machineKey === null ? null : await machineIdFor(this.ownerId, machineKey);
     if (body.machine !== undefined && (typeof body.machine !== "string" || !MACHINE.test(body.machine))) {
       throw badRequest("machine must be 64 lowercase hex digits");
     }
@@ -579,17 +666,20 @@ export class UserDO extends DurableObject<Env> {
     if (existing) {
       // The first machine a device named stays: a later registration cannot move it to another Mac.
       this.sql.exec(
-        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ?, machine = COALESCE(machine, ?) WHERE id = ?",
+        // A client that sends no machine fields (a build from before them) keeps what a newer one recorded.
+        "UPDATE devices SET name = CASE WHEN name_pinned = 1 THEN name ELSE ? END, platform = ?, agreement_key = ?, last_seen_at = ?, machine_id = COALESCE(?, machine_id), app_id = COALESCE(?, app_id), machine = COALESCE(machine, ?) WHERE id = ?",
         name,
         body.platform,
         agreementKey,
         now,
+        machineId,
+        appId,
         machine,
         h.id,
       );
     } else {
       this.sql.exec(
-        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id, machine) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?, ?)",
+        "INSERT INTO devices(id, name, platform, signing_key, agreement_key, created_at, last_seen_at, removed_at, mac_screen_shared, owner_kind, owner_id, machine_id, app_id, machine) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, 'user', ?, ?, ?, ?)",
         h.id,
         name,
         body.platform,
@@ -598,10 +688,14 @@ export class UserDO extends DurableObject<Env> {
         now,
         now,
         this.ownerId,
+        machineId,
+        appId,
         machine,
       );
       this.audit("device_added", { deviceId: h.id, detail: `${h.id} ${name}` });
     }
+    // Only the app's own sign-in retires records: a host or machine session serves one device and removes none.
+    if (scope === "full" && machineId !== null && appId !== null) await this.retireReplaced(h.id, machineId, appId, body.platform as DevicePlatform);
     this.joinDefault(h.id, scope, body.shareByJoin === true);
     this.broadcast({ type: "devices.changed" });
     return json({ device: publicDevice(this.device(h.id)!, this.online(h.id)) });
@@ -637,10 +731,12 @@ export class UserDO extends DurableObject<Env> {
     if (a === "auth" && b === "device" && d === "anchor" && n === 3 && m === "POST") return this.anchor(me, c);
 
     if (a === "me" && n === 1 && m === "GET") {
-      const plan = (await this.entitlement(c)) === "paid" ? "paid" : "free";
-      return json({ userId: c.userId, plan, device: publicDevice(me, this.online(me.id)) });
+      const answer = await this.entitlement(c).catch(() => "error" as const);
+      // `plan` stays paid|free for the apps that read it; a failed read says so beside it.
+      const plan = answer === "paid" ? "paid" : "free";
+      return json({ userId: c.userId, plan, ...(answer === "error" && c.stackToken ? { planNote: PLAN_UNREAD } : {}), device: publicDevice(me, this.online(me.id)) });
     }
-    if (a === "user" && b === "ws" && n === 2 && m === "GET") return await this.openSocket(request, me);
+    if (a === "user" && b === "ws" && n === 2 && m === "GET") return await this.openSocket(request, me, c);
     if (a === "devices") {
       if (n === 1 && m === "GET") {
         const rows = this.sql.exec("SELECT * FROM devices WHERE removed_at IS NULL ORDER BY created_at").toArray() as unknown as DeviceRow[];
@@ -651,7 +747,8 @@ export class UserDO extends DurableObject<Env> {
       if (n === 3 && d === "mac-screen" && m === "PUT") return this.setSharing(me, b!, this.parse(raw));
       if (n === 3 && d === "screen-share" && m === "PUT") return this.reportScreenShare(me, b!, this.parse(raw));
       if (n === 3 && d === "sign-out" && m === "POST") return this.signOut(me, b!);
-      if (n === 3 && d === "share-approval" && m === "POST") return this.carryShareApproval(me, b!, this.parse(raw), c);
+      if (n === 3 && d === "share-approval" && m === "POST") return this.carryApproval(me, b!, this.parse(raw), c, SHARE_APPROVAL_VERSION, "share.approval");
+      if (n === 3 && d === "control-approval" && m === "POST") return this.carryApproval(me, b!, this.parse(raw), c, CONTROL_APPROVAL_VERSION, "control.approval");
     }
     if (a === "permissions") {
       if (n === 1 && m === "GET") return this.listPermissions(url.searchParams.get("host"));
@@ -684,7 +781,7 @@ export class UserDO extends DurableObject<Env> {
 
   // ---- devices ----
 
-  private async openSocket(request: Request, me: DeviceRow): Promise<Response> {
+  private async openSocket(request: Request, me: DeviceRow, c: CallContext): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new ApiError(426, "bad_request", "expected a WebSocket upgrade");
     this.closeSockets(me.id, 4000, "replaced");
     const pair = new WebSocketPair();
@@ -696,6 +793,9 @@ export class UserDO extends DurableObject<Env> {
     // A request waiting on this host went to a socket it no longer has (it dropped, or this one
     // replaces it): send it again so the prompt reaches the host it waits on.
     await this.resendPendingRequests(me.id);
+    // The same for an approved session's host ticket: pushed into the socket that dropped, it was
+    // lost, and the viewer waits on a host that never heard of the session.
+    await this.resendHostTickets(me.id, c);
     // The silence check: a device that never pings after connecting goes offline at the bound.
     await this.scheduleAlarm();
     return new Response(null, { status: 101, webSocket: pair[0] });
@@ -853,6 +953,32 @@ export class UserDO extends DurableObject<Env> {
 
   private async removeDevice(id: string): Promise<Response> {
     const target = this.liveDevice(id);
+    await this.retire(target, `${id} ${target.name}`);
+    return json({});
+  }
+
+  /**
+   * One record per app install on a machine (PROTOCOL.md, One record per machine): a record that
+   * registers with a machine id and an app id replaces that install's older records on the machine,
+   * the ones a renewal (`device_removed`, `device_key_mismatch`) left behind: an install has one
+   * identity at a time, so they are never used again. The machine's other installs' records (NIGHTLY
+   * beside DEV: another bundle id, another identity, still in use) stay, listed with the same
+   * `machineId` for the app to show as one device. A record still online is kept until a later
+   * registration finds it offline.
+   */
+  private async retireReplaced(id: string, machineId: string, appId: string, platform: DevicePlatform) {
+    const replaced = this.sql
+      .exec("SELECT * FROM devices WHERE removed_at IS NULL AND id != ? AND machine_id = ? AND app_id = ? AND platform = ?", id, machineId, appId, platform)
+      .toArray() as unknown as DeviceRow[];
+    for (const old of replaced) {
+      if (this.online(old.id)) continue;
+      await this.retire(old, `${old.id} ${old.name} (replaced by ${id})`);
+    }
+  }
+
+  /** Removes a device: its anchor, every permission naming it, its open sessions, its sockets. */
+  private async retire(target: DeviceRow, detail: string) {
+    const id = target.id;
     this.sql.exec("UPDATE devices SET removed_at = ?, mac_screen_shared = 0 WHERE id = ?", Date.now(), id);
     this.sql.exec("DELETE FROM anchors WHERE device_id = ?", id);
     // No permission outlives its device, as host or as viewer; the hosts that listed it hear so.
@@ -860,11 +986,10 @@ export class UserDO extends DurableObject<Env> {
     this.sql.exec("DELETE FROM permissions WHERE host_id = ? OR viewer_id = ?", id, id);
     const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?)", id, id).toArray() as unknown as SessionRow[];
     for (const s of open) await this.endSession(s, `device_removed:${s.viewer_id === id ? "viewer" : "host"}`, "revoked", true);
-    this.audit("device_removed", { deviceId: id, detail: `${id} ${target.name}` });
+    this.audit("device_removed", { deviceId: id, detail });
     this.closeSockets(id, 4001, "device removed");
     this.broadcast({ type: "devices.changed" });
     for (const hostId of hosts) this.broadcast({ type: "permissions.changed", hostId });
-    return json({});
   }
 
   /** Ends this device's sessions now (reason signed_out) and closes its socket; the device stays registered. */
@@ -959,18 +1084,23 @@ export class UserDO extends DurableObject<Env> {
    * dispatch, so an agent's fleet or CLI token never sends one), as the device the approval
    * names, on this account, to a live host of it. The target checks the signature against this
    * account's device list, then turns its own sharing on (acpmux `share_host/approval.rs`).
+   *
+   * `POST /v1/devices/:id/control-approval {approval}` carries a `cmux.control-approval.v1` the
+   * same way, under the same checks, as a `control.approval` push: the owner's tap on their own
+   * device grants that Mac's "control for my other signed-in machines", with nobody at the Mac.
+   * Each path takes only its own format, so one tap is carried as one grant.
    */
-  private carryShareApproval(me: DeviceRow, id: string, body: Record<string, unknown>, c: CallContext): Response {
+  private carryApproval(me: DeviceRow, id: string, body: Record<string, unknown>, c: CallContext, version: string, push: "share.approval" | "control.approval"): Response {
     const raw = body.approval;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw badRequest("approval must be an object");
     const f = raw as Record<string, unknown>;
-    if (f.v !== SHARE_APPROVAL_VERSION) throw badRequest(`approval.v must be ${SHARE_APPROVAL_VERSION}`);
+    if (f.v !== version) throw badRequest(`approval.v must be ${version}`);
     const at = f.confirmed_at;
     const atOk = (typeof at === "number" && Number.isSafeInteger(at) && at >= 0) || (typeof at === "string" && /^\d{1,15}$/.test(at));
     if (!atOk) throw badRequest("approval.confirmed_at must be whole Unix seconds");
     const name = (v: unknown, field: string) => (v === undefined || v === "" ? "" : str(v, field, 200));
     const approval = {
-      v: SHARE_APPROVAL_VERSION,
+      v: version,
       target: str(f.target, "approval.target", 64),
       target_name: name(f.target_name, "approval.target_name"),
       asker: str(f.asker, "approval.asker", 64),
@@ -987,7 +1117,7 @@ export class UserDO extends DurableObject<Env> {
     const host = this.liveDevice(id);
     if (!HOST_PLATFORMS.includes(host.platform)) throw new ApiError(403, "not_host", "only a Mac, a Linux desktop or a Windows PC shares its screen");
     if (!this.online(id)) throw new ApiError(409, "host_offline", "the host is not connected");
-    this.send(id, { type: "share.approval", from: me.id, approval });
+    this.send(id, { type: push, from: me.id, approval });
     return json({ delivered: true, hostId: id });
   }
 
@@ -1158,7 +1288,7 @@ export class UserDO extends DurableObject<Env> {
     this.checkPushed(me, newHost, newViewer, old.scope, c);
     const newId = this.insertSession(newViewer, newHost, old.scope, old.id);
     // A move continues the same share: it keeps the billing answer its viewer's request got.
-    this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ? WHERE id = ?", old.relay_paid ?? null, old.relay_read_at ?? null, newId);
+    this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ?, relay_unread_at = ? WHERE id = ?", old.relay_paid ?? null, old.relay_read_at ?? null, old.relay_unread_at ?? null, newId);
     this.audit("moved", { viewerId: old.viewer_id, hostId: old.host_id, scope: old.scope, sessionId: old.id, detail: newId });
     this.audit("approved", { viewerId: newViewer, hostId: newHost, scope: old.scope, sessionId: newId, detail: "moved" });
     // The new share is up before the old one goes: a move that cannot start keeps the old share.
@@ -1195,7 +1325,14 @@ export class UserDO extends DurableObject<Env> {
       this.send(hostId, await this.sessionRequest(id, me, scope));
     }
     const s = this.session(id)!;
-    return json({ session: { id: s.id, state: s.state, scope: s.scope } });
+    return json({
+      session: {
+        id: s.id,
+        state: s.state,
+        scope: s.scope,
+        hubApproval: rank(perm) >= rank(scope) ? "permission" : "requested",
+      },
+    });
   }
 
   private async sessionRequest(id: string, viewer: DeviceRow, scope: Scope) {
@@ -1213,6 +1350,30 @@ export class UserDO extends DurableObject<Env> {
     for (const s of pending) {
       const viewer = this.device(s.viewer_id);
       if (viewer) this.send(hostId, await this.sessionRequest(s.id, viewer, s.scope));
+    }
+  }
+
+  /**
+   * A fresh host ticket for each session approved for this host but not yet live: the hub does
+   * not replay a push, so a ticket sent while the host's socket was dropping (and before the
+   * silence bound marked it offline) never reached it. A host replaces a session process it
+   * already runs for the id, and a host whose link dropped stopped its sessions, so the session
+   * is served once. A session that ends meanwhile gets none (issueTickets checks after each await).
+   */
+  private async resendHostTickets(hostId: string, c: CallContext) {
+    const approved = this.sql
+      .exec("SELECT * FROM sessions WHERE state = 'approved' AND host_id = ? ORDER BY created_at", hostId)
+      .toArray() as unknown as SessionRow[];
+    for (const s of approved) {
+      try {
+        const answer = await this.sessionEntitlement(s, c);
+        const tickets = await this.issueTickets(s, c, await this.relayIce(s.id, answer), answer, TICKET_TTL_S, false);
+        const host = tickets?.find((t) => t.role === "host");
+        if (host) this.send(hostId, { type: "session.ticket", ...host });
+      } catch (err) {
+        // The socket opens regardless; the viewer's own wait ends a session that stays unserved.
+        console.warn(`device-hub: host ticket for session ${s.id} not resent (${err instanceof Error ? err.message : String(err)})`);
+      }
     }
   }
 
@@ -1253,6 +1414,7 @@ export class UserDO extends DurableObject<Env> {
       {
         sid: s.id,
         userId: c.userId,
+        space: this.space,
         scope: s.scope,
         viewer: { id: viewer.id, key: viewer.signing_key },
         host: { id: host.id, key: host.signing_key },
@@ -1263,13 +1425,14 @@ export class UserDO extends DurableObject<Env> {
     // first makes init refuse), so there is nothing to start.
     if (!this.stillOpen(s.id)) return;
     if (!init.ok) throw new Error(`session init ${init.status}`);
-    const tickets = await this.issueTickets(s, c, (await entitled) === "paid" ? await mintTurn(this.env) : [], TICKET_TTL_S, false, pushed);
+    const answer = await entitled;
+    const tickets = await this.issueTickets(s, c, await this.relayIce(s.id, answer), answer, TICKET_TTL_S, false, pushed);
     if (!tickets) return;
     for (const ticket of tickets) this.send(ticket.role === "viewer" ? viewer.id : host.id, { type: "session.ticket", ...ticket });
   }
 
   /** Mints fresh tickets for the same approved viewer/host pair. */
-  private async issueTickets(s: SessionRow, c: CallContext, ice: IceServer[], ttlS: number, reattach: boolean, pushed: Pushed | null = null): Promise<[WireTicket, WireTicket] | null> {
+  private async issueTickets(s: SessionRow, c: CallContext, ice: IceServer[], answer: "paid" | "free" | "error", ttlS: number, reattach: boolean, pushed: Pushed | null = null): Promise<[WireTicket, WireTicket] | null> {
     if (!this.stillOpen(s.id)) return null;
     const viewer = this.device(s.viewer_id);
     const host = this.device(s.host_id);
@@ -1279,7 +1442,7 @@ export class UserDO extends DurableObject<Env> {
     for (const [self, peer, role] of [[viewer, host, "viewer"], [host, viewer, "host"]] as const) {
       const ticket = await mintTicket(this.env, { sid: s.id, role, dev: self.id, peer: peer.id, peerKey: peer.signing_key, scope: s.scope, ...(reattach ? { reattach: true } : {}) }, Date.now(), ttlS);
       if (!this.stillOpen(s.id)) return null;
-      result.push({ sessionId: s.id, ticket, signalURL, ice, peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope, ownerKind: "user", ...(pushed ? { pushed: true as const, movedFrom: pushed.movedFrom } : {}) });
+      result.push({ sessionId: s.id, ticket, signalURL, ice, ...relayFields(answer, ice), peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope, ownerKind: "user", ...(pushed ? { pushed: true as const, movedFrom: pushed.movedFrom } : {}) });
     }
     return result as [WireTicket, WireTicket];
   }
@@ -1295,8 +1458,8 @@ export class UserDO extends DurableObject<Env> {
     // session below its stored permission was approved once (Ask, or View asking for Full): only
     // None refuses its reattach.
     if (this.permission(host.id, me.id) === "none") throw new ApiError(403, "permission_none", "the host no longer allows this device");
-    const entitled = (await this.sessionEntitlement(s, c)) === "paid";
-    const tickets = await this.issueTickets(s, c, entitled ? await mintTurn(this.env) : [], REATTACH_TTL_S, true);
+    const answer = await this.sessionEntitlement(s, c);
+    const tickets = await this.issueTickets(s, c, await this.relayIce(s.id, answer), answer, REATTACH_TTL_S, true);
     if (!tickets) throw new ApiError(409, "session_not_active", "session is not active");
     for (const ticket of tickets) this.send(ticket.role === "viewer" ? me.id : host.id, { type: "session.ticket", ...ticket });
     this.audit("reattached", { viewerId: me.id, hostId: host.id, scope: s.scope, sessionId: id, detail: "viewer" });
@@ -1372,8 +1535,9 @@ export class UserDO extends DurableObject<Env> {
     const s = this.session(id);
     if (!s || (s.viewer_id !== me.id && s.host_id !== me.id)) throw notFound("session not found");
     if (s.state !== "approved" && s.state !== "live") throw new ApiError(409, "session_not_active", "session is not active");
-    const ice = (await this.sessionEntitlement(s, c)) === "paid" ? await mintTurn(this.env) : [];
-    return json({ ice });
+    const answer = await this.sessionEntitlement(s, c);
+    const ice = await this.relayIce(s.id, answer);
+    return json({ ice, ...relayFields(answer, ice) });
   }
 
   // ---- relays ----
@@ -1500,22 +1664,64 @@ export class UserDO extends DurableObject<Env> {
   /**
    * One session's relay right. Its viewer and host are one account (one UserDO per user), so
    * a paid answer from billing covers both ends. A full caller (the app, with a Stack token)
-   * asks billing, fail closed, and the answer is kept on the session (a failed read clears
-   * it). A host or machine caller has no Stack token: it gets the relay while its session holds
-   * a paid answer read in the last ANCHOR_RELAY_TTL_MS (the same bound as an anchor's), else its
-   * own (a host anchor's `rel`; a machine session's none). A move carries the answer and its
-   * read time, never refreshes them. A free or failed read grants nothing to either end.
+   * asks billing and the answer is kept on the session. A host or machine caller has no Stack
+   * token: it gets the relay while its session holds a paid answer read in the last
+   * ANCHOR_RELAY_TTL_MS (the same bound as an anchor's), else its own (a host anchor's `rel`; a
+   * machine session's none). A session no full caller ever read (a machine pushing its screen
+   * to the person's Mac) takes the account's newest answer in that bound (accountPaid). A move
+   * carries the answer and its read time, never refreshes them.
+   *
+   * A failed read is not a free plan: it is recorded (`relay_unread_at`), never stored as free,
+   * and leaves the last answer as it was, so a paid answer read within that bound still covers
+   * both ends; with none, the read is `error` and the ends are told "could not read your plan".
+   * A free answer, or a failure with no fresh paid answer behind it, grants nothing.
    */
   private async sessionEntitlement(s: SessionRow, c: CallContext): Promise<"paid" | "free" | "error"> {
     if (c.scope === "full") {
       const answer = await this.entitlement(c).catch(() => "error" as const);
-      const paid = answer === "error" ? null : answer === "paid" ? 1 : 0;
-      this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ? WHERE id = ?", paid, paid === null ? null : Date.now(), s.id);
+      if (answer === "error") {
+        this.sql.exec("UPDATE sessions SET relay_unread_at = ? WHERE id = ?", Date.now(), s.id);
+        return this.heldPaid(s.id) ? "paid" : "error";
+      }
+      this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ?, relay_unread_at = NULL WHERE id = ?", answer === "paid" ? 1 : 0, Date.now(), s.id);
       return answer;
     }
-    const held = this.sql.exec("SELECT relay_paid, relay_read_at FROM sessions WHERE id = ?", s.id).toArray()[0];
-    if (held && (held.relay_paid as number | null) === 1 && (held.relay_read_at as number) + ANCHOR_RELAY_TTL_MS > Date.now()) return "paid";
-    return this.entitlement(c).catch(() => "error" as const);
+    if (this.heldPaid(s.id)) return "paid";
+    // A session no full caller read (a machine's push): the account's newest answer.
+    const held0 = this.sql.exec("SELECT relay_read_at FROM sessions WHERE id = ?", s.id).toArray()[0];
+    if (held0 && held0.relay_read_at == null && this.accountPaid()) return "paid";
+    // Its own right (a host anchor's `rel`); a machine session has no Stack token, so its own
+    // read always fails and says nothing about the plan: only the viewer's recorded read does.
+    if ((await this.entitlement(c).catch(() => "error" as const)) === "paid") return "paid";
+    const held = this.sql.exec("SELECT relay_unread_at FROM sessions WHERE id = ?", s.id).toArray()[0];
+    return held && held.relay_unread_at != null ? "error" : "free";
+  }
+
+  /** The cmux relay ICE for a session's answer: minted only when paid, and an empty mint is logged. */
+  private async relayIce(sessionId: string, answer: "paid" | "free" | "error"): Promise<IceServer[]> {
+    if (answer !== "paid") return [];
+    const ice = await mintTurn(this.env);
+    if (!hasTurn(ice)) console.error(`device-hub: relay mint empty for paid session ${sessionId} (source ${this.env.TURN_SOURCE ?? "local"})`);
+    return ice;
+  }
+
+  /**
+   * Whether the account's newest billing answer, read within ANCHOR_RELAY_TTL_MS, is paid: the
+   * newest read any session stored (paid or free) or a newer paid anchor. One UserDO is one
+   * account, so this covers a session no full caller ever read, such as a machine pushing its
+   * screen to the person's Mac.
+   */
+  private accountPaid(): boolean {
+    const read = this.sql.exec("SELECT relay_paid AS paid, relay_read_at AS at FROM sessions WHERE relay_read_at IS NOT NULL ORDER BY relay_read_at DESC LIMIT 1").toArray()[0];
+    const anchor = this.sql.exec("SELECT 1 AS paid, anchored_at AS at FROM anchors WHERE relay_paid = 1 ORDER BY anchored_at DESC LIMIT 1").toArray()[0];
+    const newest = [read, anchor].filter((r) => r !== undefined).sort((a, b) => (b!.at as number) - (a!.at as number))[0];
+    return !!newest && (newest.paid as number) === 1 && (newest.at as number) + ANCHOR_RELAY_TTL_MS > Date.now();
+  }
+
+  /** Whether the session holds a paid billing answer read within ANCHOR_RELAY_TTL_MS. */
+  private heldPaid(id: string): boolean {
+    const held = this.sql.exec("SELECT relay_paid, relay_read_at FROM sessions WHERE id = ?", id).toArray()[0];
+    return !!held && (held.relay_paid as number | null) === 1 && (held.relay_read_at as number) + ANCHOR_RELAY_TTL_MS > Date.now();
   }
 
   /** The cmux relay entitlement: billing for a full session, the anchor's record for a host session. */

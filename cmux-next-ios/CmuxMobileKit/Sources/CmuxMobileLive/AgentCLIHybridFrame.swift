@@ -55,6 +55,13 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
         self.cursorVisible = cursorVisible
     }
 
+    /// Whether this frame, applied on its base, moves no cell and no row: what it changes is at
+    /// most the cursor (an equal refresh).
+    var changesNoCell: Bool {
+        guard base != nil, let delta else { return false }
+        return delta.shift == 0 && delta.spans.isEmpty
+    }
+
     /// The bytes that draw this frame on a terminal showing frame ``base`` (a blank one for a
     /// keyframe); nil when `data` is not a delta.
     ///

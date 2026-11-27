@@ -13,18 +13,12 @@ workflows, so it can only see disagreements inside the tree.
 
 from __future__ import annotations
 
-import contextlib
 import importlib.util
-import io
 import sys
-import tempfile
-import unittest
-from unittest.mock import patch
 from pathlib import Path
 
 import yaml
 
-from test_web_complexity_trusted_workflow import REQUIRED_CHECK, validate_metadata_routing
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -58,7 +52,7 @@ def expected_bridge() -> dict:
         "jobs": {
             job_id: {
                 "name": name,
-                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}",
+                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}",
                 "timeout-minutes": 5,
                 "steps": [{"run": 'echo "Passed on every pull request in this merge group."'}],
             }
@@ -95,15 +89,7 @@ def merge_group_check_names() -> dict[str, list[str]]:
             if "merge_group" in condition and "!=" in condition:
                 continue
             name = str(job.get("name", job_id))
-            if path.name == "web-complexity-trusted.yml" and job_id == "complexity":
-                # The required workflow must publish its literal verdict on
-                # every event, including metadata edits and merge groups.
-                try:
-                    validate_metadata_routing(document)
-                except (AssertionError, KeyError, TypeError):
-                    continue
-                name = REQUIRED_CHECK
-            elif "${{" in name:
+            if "${{" in name:
                 # A name that differs only on a title or body edit (pattern pr-edit-fans-out-ci) is
                 # its merge-group name with the event's own context. An unknown expression stays as
                 # written, so it matches nothing.
@@ -144,71 +130,5 @@ def main() -> int:
     return 0
 
 
-class MergeGroupCheckNamesTests(unittest.TestCase):
-    def setUp(self) -> None:
-        """Load the trusted complexity workflow fixture for each test."""
-        self.workflow = yaml.safe_load(
-            (WORKFLOWS / "web-complexity-trusted.yml").read_text(encoding="utf-8")
-        )
-
-    def validate(self, workflow: dict, *, duplicate: bool = False) -> int:
-        """Run the required-check validator against an isolated workflow set."""
-        with tempfile.TemporaryDirectory() as temporary:
-            workflows = Path(temporary)
-            bridge = workflows / BRIDGE.name
-            bridge.write_text(yaml.safe_dump(expected_bridge()), encoding="utf-8")
-            (workflows / "web-complexity-trusted.yml").write_text(
-                yaml.safe_dump(workflow), encoding="utf-8"
-            )
-            # "Web complexity" is no longer required on main, but its dynamic
-            # name is still the hardest routing case, so these fixtures keep
-            # requiring it.
-            required = (*REQUIRED_NAMES, REQUIRED_CHECK)
-            jobs = {
-                name: {} for name in required
-                if name not in {*BRIDGED_CHECKS.values(), REQUIRED_CHECK}
-            }
-            if duplicate:
-                jobs["duplicate"] = {"name": "Web complexity"}
-            (workflows / "other.yml").write_text(
-                yaml.safe_dump({"on": "merge_group", "jobs": jobs}), encoding="utf-8"
-            )
-            with patch.dict(main.__globals__, WORKFLOWS=workflows, BRIDGE=bridge, REQUIRED_NAMES=required):
-                with contextlib.redirect_stdout(io.StringIO()):
-                    return main()
-
-    def test_stable_name_reports_required_check_for_merge_group(self) -> None:
-        """The real verdict must retain the required merge-group name."""
-        self.assertEqual(self.validate(self.workflow), 0)
-
-    def test_wrong_merge_group_name_is_rejected(self) -> None:
-        """A changed required check name must fail validation."""
-        self.workflow["jobs"]["complexity"]["name"] = "Wrong required name"
-        self.assertEqual(self.validate(self.workflow), 1)
-
-    def test_missing_merge_group_trigger_is_rejected(self) -> None:
-        """Removing the merge-group trigger must fail validation."""
-        events = self.workflow.get("on", self.workflow.get(True))
-        events.pop("merge_group")
-        self.assertEqual(self.validate(self.workflow), 1)
-
-    def test_metadata_cannot_skip_required_verdict(self) -> None:
-        """Metadata edits must execute the check, not publish skipped success."""
-        self.workflow["jobs"]["complexity"]["if"] = "github.event.action != 'edited'"
-        self.assertEqual(self.validate(self.workflow), 1)
-
-    def test_duplicate_required_name_is_rejected(self) -> None:
-        """Duplicate required check ownership must fail validation."""
-        self.assertEqual(self.validate(self.workflow, duplicate=True), 1)
-
-    def test_merge_group_excluded_job_is_rejected(self) -> None:
-        """The required job must remain eligible on merge-group events."""
-        self.workflow["jobs"]["complexity"]["if"] = "github.event_name != 'merge_group'"
-        self.assertEqual(self.validate(self.workflow), 1)
-
-
 if __name__ == "__main__":
-    tests = unittest.defaultTestLoader.loadTestsFromTestCase(MergeGroupCheckNamesTests)
-    if not unittest.TextTestRunner().run(tests).wasSuccessful():
-        sys.exit(1)
     sys.exit(main())

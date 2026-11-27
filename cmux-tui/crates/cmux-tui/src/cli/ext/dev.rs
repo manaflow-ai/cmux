@@ -66,38 +66,11 @@ pub(super) const MARKER: &str = ".cmux-ext-dev.json";
 /// extension folder outside a cmux checkout builds the same way.
 const PACK_TS: &str = include_str!("../../../../cmux-app-host/tools/pack.ts");
 
-/// The extension SDK's source, embedded so `cmux-extension-sdk` resolves in a folder with
-/// no copy of its own (a sample copied out of a checkout, one a person installs): the
-/// packer gets it in `CMUX_EXTENSION_SDK`. Paths keep the checkout's layout, which the
-/// SDK's relative imports of its tables expect.
-const SDK_FILES: [(&str, &str); 5] = [
-    (
-        "cmux-extension-sdk/typescript/src/index.ts",
-        include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts"),
-    ),
-    (
-        "cmux-extension-sdk/typescript/src/widget.ts",
-        include_str!("../../../../cmux-extension-sdk/typescript/src/widget.ts"),
-    ),
-    (
-        "cmux-extension-sdk/typescript/src/design.ts",
-        include_str!("../../../../cmux-extension-sdk/typescript/src/design.ts"),
-    ),
-    (
-        "cmux-app-host/schema/v2/events.json",
-        include_str!("../../../../cmux-app-host/schema/v2/events.json"),
-    ),
-    (
-        "cmux-app-host/generated/scopes.json",
-        include_str!("../../../../cmux-app-host/generated/scopes.json"),
-    ),
-];
-
 /// Writes the packer and the SDK into `dir`; returns the SDK entry for `CMUX_EXTENSION_SDK`.
 pub(super) fn write_packer(dir: &Path) -> std::io::Result<PathBuf> {
     std::fs::write(dir.join("pack.ts"), PACK_TS)?;
-    for (path, text) in SDK_FILES {
-        let file = dir.join("sdk").join(path);
+    for (path, text) in super::scaffold::runtime_sdk_files() {
+        let file = dir.join(path);
         if let Some(parent) = file.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -105,13 +78,13 @@ pub(super) fn write_packer(dir: &Path) -> std::io::Result<PathBuf> {
     }
     // `cmux-extension-sdk/customize`: the types of what this build lets you customize,
     // written from the same schema `cmux customize schema` prints (not committed anywhere).
-    let types = dir.join("sdk/cmux-extension-sdk/typescript/src/generated/customize.ts");
+    let types = dir.join("sdk/src/generated/customize.ts");
     if let Some(parent) = types.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let schema = cmux_customize::schema::Schema::current();
     std::fs::write(types, cmux_customize::schema::typescript(&schema))?;
-    Ok(dir.join("sdk").join(SDK_FILES[0].0))
+    Ok(dir.join("sdk/src/index.ts"))
 }
 
 /// One problem with file and position where known.
@@ -254,9 +227,10 @@ pub(super) fn load_package_unbuilt(dir: &Path, builds: bool) -> Result<Package, 
     // its own folder; a published `OWNER/NAME` (publish.rs) loads as `local/NAME`.
     let name = super::publish::dev_name(&id, &manifest).map_err(|message| vec![field(message)])?;
     if name == "customize" {
-        return Err(vec![field(
-            "local/customize is your customize folder (~/.config/cmux/customize), which cmux already reloads on save; pick another name".into(),
-        )]);
+        return Err(vec![field(format!(
+            "local/customize is your customize folder (~/.config/{}/customize), which cmux already reloads on save; pick another name",
+            cmux_config::NEXT_DIR
+        ))]);
     }
     Ok(Package { dir: dir.to_path_buf(), manifest, id: format!("local/{name}"), name })
 }
@@ -1287,7 +1261,11 @@ impl Session {
         };
         let installed =
             record.as_ref().is_some_and(|r| r.field("installed").as_bool() == Some(true));
-        let enabled = record.as_ref().is_none_or(|r| r.field("enabled").as_bool() != Some(false));
+        // Turned off in Settings > Apps: only an installed app can be. An app never installed
+        // answers `enabled: false` (the daemon's absent record, mirror.rs `absent`), and it
+        // still mounts as a preview (hosts.rs `mount_as`), so its probe draws the scene.
+        let enabled = !installed
+            || record.as_ref().is_none_or(|r| r.field("enabled").as_bool() != Some(false));
         let hidden = record.as_ref().is_some_and(|r| r.field("hidden").as_bool() == Some(true));
         outcome.installed = Some(installed);
         let new_tab = NewTabPick::read();
@@ -1321,7 +1299,7 @@ impl Session {
                     Ok(Ok(ops)) => {
                         outcome.scene = super::scene::outline(&[&ops]);
                         if VIEWS.contains(&interface.as_str()) {
-                            outcome.recorded = vec![(name.clone(), ops.clone())];
+                            outcome.recorded = vec![(name, ops.clone())];
                         }
                         let (system, problem) = super::design_system::System::load(&pkg.dir);
                         outcome.design = problem

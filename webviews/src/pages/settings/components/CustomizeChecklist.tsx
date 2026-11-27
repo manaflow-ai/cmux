@@ -5,16 +5,13 @@
 // writes through `store.set`, the ToggleEditor path, and is locked exactly where SettingRow locks it;
 // a library entry or an installed look runs the library card's own `on`/`off`. A look that is not
 // installed has no host op that installs it yet: its click opens the Customize chat with the
-// install drafted (`store.askCmux`). Opened by `#/settings/customize`.
-//
-// Recovery (Leo, 2026-11-23, c-dc594b45e0: "I want people to not accidentally soft lock themselves
-// and like have good recovery options"): Experiments, Labs and the library each get a Turn All Off
-// in their head while any of their switches is on. A setting goes back to its shipped default
-// (`store.reset`, the row menu's Reset to Default), so a switch that ships on stays on; a library
-// entry runs `customize library off`. The app menu's Customizations submenu has the same row,
-// native, for when this page is the thing that broke (CustomizationsMenu.swift).
+// install drafted (`store.askCmux`). A sidebar look (`sidebar.look`'s choices) is one switch each:
+// on picks it, off resets the key to the default look. Opened by `#/settings/customize`.
+// Recovery: opt-in groups offer Turn All Off. Default-on and managed settings stay unchanged;
+// library and code entries use the library's own off operation. Native recovery remains available
+// from the Customizations menu if a customization breaks this page.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { Input } from "../../../ui/Input";
 import { categoryById, homes } from "../categories";
 import { useSettingsState, useStore } from "../context";
@@ -22,6 +19,8 @@ import {
   checklistGroups,
   filterGroups,
   setupEntryName,
+  SIDEBAR_LOOK_KEY,
+  sidebarLookOf,
   toggleRowsByGroup,
   type ChecklistGroup,
   type ChecklistGroupId,
@@ -32,9 +31,18 @@ import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
 import type { LibraryRun } from "../ops";
 import { rowsByKey, schema } from "../schema";
-import { LIBRARY_KEY, libraryQuery, type LibraryRead } from "../sectionQueries";
+import type { Standup } from "../ops";
+import {
+  LIBRARY_KEY,
+  libraryQuery,
+  STANDUP_KEY,
+  standupQuery,
+  type LibraryRead,
+} from "../sectionQueries";
+import { Button } from "../../../ui/Button";
 import { managedOf, managedText, valueOf } from "../store";
 import { t } from "../strings";
+import { copyTextResult } from "../../../agent-session/acpmux/conversation/clipboard";
 
 /** How the checklist draws (gallery `settings.customize-checklist`). `rows`, the shipped one, is a
  * dense list: switch, title, one help line. `chips` is a wrap of pill toggles (title only); `menu`
@@ -42,6 +50,7 @@ import { t } from "../strings";
 export type ChecklistLayout = "rows" | "chips" | "menu";
 
 const GROUP_TITLE: Record<ChecklistGroupId, string> = {
+  code: "settingsPage.customizeChecklist.code",
   experiments: "settingsPage.customizeChecklist.experiments",
   labs: "settingsPage.customizeChecklist.labs",
   library: "settingsPage.customizeChecklist.library",
@@ -54,67 +63,103 @@ export function CustomizeChecklistCard() {
   const state = useSettingsState();
   const queryClient = useQueryClient();
   const library = useQuery(libraryQuery(store));
+  const standup = useQuery(standupQuery(store));
   const [busy, setBusy] = useState(false);
+  const working = useRef(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const devBuild = state.host?.dev_build === true;
-  const rows = useMemo(
-    () =>
-      toggleRowsByGroup(schema.rows, (row) => {
-        const home = homes.get(row.key);
-        return home !== undefined && (devBuild || !categoryById(home.category).devOnly);
-      }),
-    [devBuild],
-  );
+  const rows = useMemo(() => {
+    const shown = (row: (typeof schema.rows)[number]) => {
+      const home = homes.get(row.key);
+      return home !== undefined && (devBuild || !categoryById(home.category).devOnly);
+    };
+    const look = schema.rows.find((row) => row.key === SIDEBAR_LOOK_KEY);
+    return {
+      ...toggleRowsByGroup(schema.rows, shown),
+      sidebarLook: look && shown(look) ? look : null,
+    };
+  }, [devBuild]);
   const groups = checklistGroups({
     rows,
     value: (key) => valueOf(state, key),
     locked: (key) => {
       const managed = managedOf(state, key);
       if (managed) return managedText(managed);
-      if (!state.connected || !state.readable) return t("settingsPage.customizeChecklist.connecting");
+      if (busy) return t("settingsPage.customizeChecklist.busy");
+      if (!state.connected || !state.readable)
+        return t("settingsPage.customizeChecklist.connecting");
       return null;
     },
     library: library.data?.library ?? null,
     libraryLocked: busy ? t("settingsPage.customizeChecklist.busy") : null,
     looks: shippedLooks(),
+    sidebarLook: rows.sidebarLook,
+    standup: standup.data ?? null,
   });
   // The library card's run: drop a list read on its way before and after the change, so an older
   // listing never draws over it (CustomizeLibraryCard `run`).
-  const runLibrary = (change: LibraryRun) => {
+  const changeLibrary = async (change: LibraryRun) => {
+    await queryClient.cancelQueries({ queryKey: LIBRARY_KEY });
+    const answer = await store.customizeLibrary(change);
+    await queryClient.cancelQueries({ queryKey: LIBRARY_KEY });
+    if (answer.library)
+      queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, {
+        library: answer.library,
+        refusal: null,
+      });
+    void queryClient.invalidateQueries({ queryKey: STANDUP_KEY });
+    return answer.refusal;
+  };
+  const runChanges = async (changes: (() => Promise<string | null>)[]) => {
+    if (working.current) return;
+    working.current = true;
     setBusy(true);
     setRefusal(null);
-    return queryClient
-      .cancelQueries({ queryKey: LIBRARY_KEY })
-      .then(() => store.customizeLibrary(change))
-      .then(async (answer) => {
-        await queryClient.cancelQueries({ queryKey: LIBRARY_KEY });
-        if (answer.library)
-          queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, { library: answer.library, refusal: null });
-        setRefusal(answer.refusal);
-      })
-      .finally(() => setBusy(false));
+    let firstFailure: string | null = null;
+    try {
+      for (const change of changes) {
+        try {
+          const failure = await change();
+          firstFailure ??= failure;
+        } catch {
+          firstFailure ??= t("settingsPage.writeFailed");
+        }
+      }
+      setRefusal(firstFailure);
+    } finally {
+      working.current = false;
+      setBusy(false);
+    }
   };
+  const runLibrary = (change: LibraryRun) => runChanges([() => changeLibrary(change)]);
   const looks = shippedLooks();
   const onToggle = (item: ChecklistItem, on: boolean) => {
-    if (item.group === "library") return void runLibrary({ verb: on ? "on" : "off", name: item.id.slice(8) });
+    const sidebarLook = sidebarLookOf(item);
+    if (sidebarLook !== null)
+      return void (on ? store.set(SIDEBAR_LOOK_KEY, sidebarLook) : store.reset(SIDEBAR_LOOK_KEY));
+    if (item.group === "library" || item.group === "code")
+      return void runLibrary({ verb: on ? "on" : "off", name: item.id.slice(8) });
     if (item.group === "looks") {
       const look = looks.find((each) => `look:${each.id}` === item.id);
       if (!look) return;
       if (item.installs)
-        return void store.askCmux(t("settingsPage.customizeChecklist.installDraft", look.name, look.reference));
+        return void store.askCmux(
+          t("settingsPage.customizeChecklist.installDraft", look.name, look.reference),
+        );
       return void runLibrary({ verb: on ? "on" : "off", name: setupEntryName(look.id) });
     }
     void store.set(item.id, on);
   };
-  const onTurnAllOff = async (group: ChecklistGroup) => {
-    const on = turnOffTargets(group);
-    if (group.id === "library") {
-      for (const item of on) await runLibrary({ verb: "off", name: item.id.slice(8) });
-      return;
-    }
-    for (const item of on) await store.reset(item.id);
-  };
+  const onTurnAllOff = (group: ChecklistGroup) =>
+    runChanges(
+      turnOffTargets(group).map((item) => async () => {
+        if (group.id === "library" || group.id === "code")
+          return changeLibrary({ verb: "off", name: item.id.slice(8) });
+        const result = await store.set(item.id, false);
+        return result.ok ? null : t("settingsPage.writeFailed");
+      }),
+    );
   return (
     <CustomizeChecklistView
       groups={groups}
@@ -123,19 +168,26 @@ export function CustomizeChecklistCard() {
       onToggle={onToggle}
       onTurnAllOff={(group) => void onTurnAllOff(group)}
       refusal={refusal}
+      standup={standup.data ?? null}
     />
   );
 }
 
-/** The groups with a Turn All Off: the ones that hold opt-in switches. */
-const TURN_OFF_GROUPS: ReadonlySet<ChecklistGroupId> = new Set(["experiments", "labs", "library"]);
+/** Only opt-in groups offer recovery; default-on and managed switches stay unchanged. */
+const TURN_OFF_GROUPS: ReadonlySet<ChecklistGroupId> = new Set([
+  "code",
+  "experiments",
+  "labs",
+  "library",
+]);
 
-/** What Turn All Off changes in `group`: each switch that is on, not locked, and (for a setting) off
- * by default, so the reset leaves nothing on that the person did not turn on. */
 export function turnOffTargets(group: ChecklistGroup): ChecklistItem[] {
   if (!TURN_OFF_GROUPS.has(group.id)) return [];
   return group.items.filter(
-    (item) => item.on && item.locked === null && (group.id === "library" || rowsByKey.get(item.id)?.default !== true),
+    (item) =>
+      item.on &&
+      item.locked === null &&
+      (group.id === "library" || group.id === "code" || rowsByKey.get(item.id)?.default !== true),
   );
 }
 
@@ -148,6 +200,8 @@ export function CustomizeChecklistView({
   refusal = null,
   layout = "rows",
   allOpen: allOpenAtFirst = false,
+  standup = null,
+  standupOpen: standupOpenAtFirst = false,
 }: {
   groups: readonly ChecklistGroup[];
   query: string;
@@ -158,14 +212,38 @@ export function CustomizeChecklistView({
   refusal?: string | null;
   layout?: ChecklistLayout;
   allOpen?: boolean;
+  /** `cmux customize library standup`; null (an older host) hides the Standup button. */
+  standup?: Standup | null;
+  standupOpen?: boolean;
 }) {
   const searchId = useId();
   const [allOpen, setAllOpen] = useState(allOpenAtFirst);
+  const [standupOpen, setStandupOpen] = useState(standupOpenAtFirst);
   const shown = filterGroups(groups, query);
   const searching = query.trim() !== "";
   return (
-    <section className="group" data-card="customizeChecklist" data-checklist-layout={layout} id="customize-checklist">
-      <h3 className="group-title">{t("settingsPage.customizeChecklist.title")}</h3>
+    <section
+      className="group"
+      data-card="customizeChecklist"
+      data-checklist-layout={layout}
+      id="customize-checklist"
+    >
+      <div className="checklist-title-row">
+        <h3 className="group-title">{t("settingsPage.customizeChecklist.title")}</h3>
+        {standup && standup.lines.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="button"
+            aria-expanded={standupOpen}
+            data-checklist-action="standup"
+            onClick={() => setStandupOpen(!standupOpen)}
+          >
+            {t("settingsPage.customizeChecklist.standup")}
+          </Button>
+        )}
+      </div>
+      {standupOpen && standup && <StandupPanel standup={standup} />}
       <label className="search checklist-search" htmlFor={searchId}>
         <Icon name="search" />
         <Input
@@ -191,7 +269,9 @@ export function CustomizeChecklistView({
         </div>
       )}
       {searching && shown.length === 0 && (
-        <div className="row-help checklist-empty">{t("settingsPage.customizeChecklist.noMatch", query.trim())}</div>
+        <div className="row-help checklist-empty">
+          {t("settingsPage.customizeChecklist.noMatch", query.trim())}
+        </div>
       )}
       {shown.map((group) => {
         const collapsible = group.id === "all" && !searching;
@@ -224,13 +304,19 @@ export function CustomizeChecklistView({
                   </button>
                 )}
                 <span className="checklist-count" data-checklist-count="">
-                  {t("settingsPage.customizeChecklist.count", String(group.on), String(group.total))}
+                  {t(
+                    "settingsPage.customizeChecklist.count",
+                    String(group.on),
+                    String(group.total),
+                  )}
                 </span>
               </span>
             </div>
             {open &&
               (group.items.length === 0 ? (
-                <div className="row-help checklist-empty">{t("settingsPage.customizeChecklist.none")}</div>
+                <div className="row-help checklist-empty">
+                  {t("settingsPage.customizeChecklist.none")}
+                </div>
               ) : (
                 <div className={layout === "chips" ? "checklist-chips" : "checklist-items"}>
                   {group.items.map((item) => (
@@ -245,6 +331,69 @@ export function CustomizeChecklistView({
   );
 }
 
+/** Leo, 2026-11-23: "a list of prs or repos whatever that i can just present with standup". The
+ * CLI's lines as they read out loud, each with its link, and Copy for the whole Markdown. */
+export function StandupPanel({ standup }: { standup: Standup }) {
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  return (
+    <div className="checklist-standup" data-checklist-standup="">
+      <div className="checklist-head">
+        <span className="checklist-group-title">
+          {t("settingsPage.customizeChecklist.standup")}
+        </span>
+        <span className="checklist-count">
+          {t(
+            "settingsPage.customizeChecklist.count",
+            String(standup.on),
+            String(standup.lines.length),
+          )}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="button"
+          data-checklist-action="copyStandup"
+          onClick={() => {
+            setCopyFailed(false);
+            void copyTextResult(standup.text).then((ok) => {
+              setCopied(ok);
+              setCopyFailed(!ok);
+            });
+          }}
+        >
+          {t(
+            copyFailed
+              ? "inspector.copyFailed"
+              : copied
+                ? "settingsPage.customizeChecklist.copied"
+                : "settingsPage.customizeChecklist.copy",
+          )}
+        </Button>
+      </div>
+      <ul className="checklist-standup-lines selectable">
+        {standup.lines.map((line) => (
+          <li key={line.name} data-standup-line={line.name} data-on={line.on ? "" : undefined}>
+            <span className="checklist-mark-icon" aria-hidden="true">
+              {line.on ? <Icon name="check" /> : null}
+            </span>
+            <span className="row-title">
+              {line.link ? (
+                <a href={line.link} target="_blank" rel="noreferrer">
+                  {line.title}
+                </a>
+              ) : (
+                line.title
+              )}
+            </span>
+            <span className="row-help"> {line.status}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ChecklistRow({
   item,
   layout,
@@ -256,7 +405,9 @@ function ChecklistRow({
 }) {
   const labelId = useId();
   const locked = item.locked !== null;
-  const help = item.locked ?? (item.help || (item.installs ? t("settingsPage.customizeChecklist.installHint") : ""));
+  const help =
+    item.locked ??
+    (item.help || (item.installs ? t("settingsPage.customizeChecklist.installHint") : ""));
   const hover = item.detail && item.detail !== help ? item.detail : undefined;
   if (layout === "chips" || layout === "menu") {
     return (
@@ -279,7 +430,11 @@ function ChecklistRow({
     );
   }
   return (
-    <div className="checklist-row" data-checklist-item={item.id} data-locked={locked ? "" : undefined}>
+    <div
+      className="checklist-row"
+      data-checklist-item={item.id}
+      data-locked={locked ? "" : undefined}
+    >
       {/* tooltip-allow: the detail, when it differs from the help line, shows nowhere else */}
       <div className="checklist-text" title={hover}>
         <span className="row-title" id={labelId}>
@@ -298,7 +453,12 @@ function ChecklistRow({
           {t("settingsPage.customizeChecklist.install")}
         </button>
       ) : (
-        <Switch checked={item.on} disabled={locked} labelId={labelId} onToggle={(next) => onToggle(item, next)} />
+        <Switch
+          checked={item.on}
+          disabled={locked}
+          labelId={labelId}
+          onToggle={(next) => onToggle(item, next)}
+        />
       )}
     </div>
   );

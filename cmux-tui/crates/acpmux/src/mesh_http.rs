@@ -12,7 +12,8 @@
 //! minute before `expires_at` or until the hub answers 401, then the command runs again.
 
 use crate::mesh::{
-    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt, TeamPage,
+    Ack, Capacity, Heartbeat, HeartbeatReply, HubError, InMessage, Listen, Listens, MeshHub,
+    OutMessage, Receipt, TeamPage,
 };
 use futures::future::BoxFuture;
 use serde::Deserialize;
@@ -105,7 +106,7 @@ impl HttpHub {
     /// nothing more ([`HttpHub::refused`]).
     pub fn with_credential(origin: String, credential: Zeroizing<String>) -> Result<Self, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -162,7 +163,7 @@ impl HttpHub {
     pub fn new(config: &MeshRelayConfig) -> Result<Self, String> {
         let origin = config.origin()?;
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
@@ -339,17 +340,7 @@ impl HttpHub {
                 }
             }
 
-            let mut bytes = Vec::new();
-            while let Some(chunk) = response
-                .chunk()
-                .await
-                .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?
-            {
-                if bytes.len() + chunk.len() > MAX_ANSWER_BYTES {
-                    return Err(HubError::unavailable("the hub's answer is too large").from_hub());
-                }
-                bytes.extend_from_slice(&chunk);
-            }
+            let bytes = body_of(&mut response).await?;
             if status == 401 && self.device {
                 // No other token to try: the device is cut off, and nothing more is sent.
                 let refusal = answer(status, &bytes);
@@ -369,6 +360,22 @@ impl HttpHub {
     }
 }
 
+/// An answer's body, at most [`MAX_ANSWER_BYTES`].
+async fn body_of(response: &mut reqwest::Response) -> Result<Vec<u8>, HubError> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?
+    {
+        if bytes.len() + chunk.len() > MAX_ANSWER_BYTES {
+            return Err(HubError::unavailable("the hub's answer is too large").from_hub());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
 /// The refusal of a device credential the hub already refused: sent nowhere.
 fn device_refused() -> HubError {
     let mut error = HubError::refused("the hub answered 401 machine.revoked");
@@ -382,28 +389,42 @@ fn rotated_since(sent: &str, now: Option<&str>) -> bool {
     now.is_some_and(|now| now != sent)
 }
 
-/// The hub's error codes this client acts on or names in a log (the contract leaves `code` a free
-/// string): any other code is dropped, since a free string could carry anything.
-const KNOWN_CODES: &[&str] = &[
-    "machine.revoked",
-    "mesh.unauthorized",
-    "mesh.forbidden",
-    "mesh.bad_request",
-    "mesh.unknown_recipient",
-    "mesh.ambiguous",
-    "mesh.conflict",
-    "mesh.idempotency_conflict",
-    "mesh.rate_limited",
-    "mesh.too_large",
-    "mesh.unavailable",
-    "mesh.not_found",
-    "mesh.carrier_unconfigured",
-    "machine.not_found",
-    "team.messaging_disabled",
-    "team.forbidden",
-    "team.unknown_recipient",
-    "team.invalid_address",
-];
+/// Whether `code` is a hub error code this client may keep and name in a log (the contract leaves
+/// `code` a free string): a known family (`mesh.`, `machine.`, `team.`, `carrier.`) and one short
+/// snake_case word. That shape cannot carry a token or reflected request text, yet a code the hub
+/// adds later (`mesh.queue_full`, a schema refusal) still reaches the person instead of a bare
+/// status: a list of known codes hid both the 400 that refused every relay send with no session
+/// (2026-11-24 04:58Z) and the `mesh.queue_full` 429 that made a busy host unreadable.
+fn hub_code(code: &str) -> bool {
+    let Some((family, word)) = code.split_once('.') else { return false };
+    matches!(family, "mesh" | "machine" | "team" | "carrier")
+        && (1..=48).contains(&word.len())
+        && word.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+}
+
+/// Only this part of a ticket callback's error may reach the journal. Other ticket sources
+/// can return arbitrary strings, including credentials. Keep HTTP status and a code of the hub's shape (`hub_code`).
+#[cfg(feature = "hub-carrier")]
+pub(crate) fn ticket_failure_reason(reason: &str) -> &str {
+    match reason {
+        "the hub: error sending request"
+        | "the hub: operation timed out"
+        | "the hub: error decoding response body"
+        | "machine credential is unavailable"
+        | "revoked: run machine add again"
+        | "the hub's answer is too large"
+        | "the hub's answer is not the shape its contract gives" => return reason,
+        _ => {}
+    }
+    const PREFIX: &str = "the hub answered ";
+    if let Some(rest) = reason.strip_prefix(PREFIX) {
+        let (status, code) = rest.split_once(' ').unwrap_or((rest, ""));
+        if matches!(status.as_bytes(), [b'1'..=b'5', b'0'..=b'9', b'0'..=b'9']) {
+            return if hub_code(code) { reason } else { &reason[..PREFIX.len() + status.len()] };
+        }
+    }
+    "ticket source failed"
+}
 
 /// The hub's answer as a value, or the error it names.
 fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
@@ -411,13 +432,9 @@ fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
     if (200..300).contains(&status) {
         return Ok(body);
     }
-    // Only the status, and a code the contract names: anything else the hub (or a proxy) says
+    // Only the status, and a code of the hub's shape (`hub_code`): anything else the hub (or a proxy) says
     // could reflect the request, token included, and errors are logged.
-    let code = body
-        .get("code")
-        .and_then(Value::as_str)
-        .filter(|c| KNOWN_CODES.contains(c))
-        .map(str::to_owned);
+    let code = body.get("code").and_then(Value::as_str).filter(|c| hub_code(c)).map(str::to_owned);
     let mut error = HubError::refused(
         format!("the hub answered {status} {}", code.as_deref().unwrap_or("")).trim().to_owned(),
     )
@@ -480,6 +497,46 @@ impl MeshHub for HttpHub {
 
     fn acknowledge<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(self.team_receipt(id, "acknowledge"))
+    }
+
+    fn listen_open<'a>(
+        &'a self,
+        team_address: &'a str,
+        ttl_seconds: Option<u64>,
+    ) -> BoxFuture<'a, Result<Listen, HubError>> {
+        Box::pin(async move {
+            let body = match ttl_seconds {
+                Some(ttl) => json!({"teamAddress": team_address, "ttlSeconds": ttl}),
+                None => json!({"teamAddress": team_address}),
+            };
+            decode(
+                self.call(reqwest::Method::POST, "/v1/mesh/listens", Some(&body), CALL_WAIT)
+                    .await?,
+            )
+        })
+    }
+
+    fn listens(&self) -> BoxFuture<'_, Result<Listens, HubError>> {
+        Box::pin(async move {
+            decode(self.call(reqwest::Method::GET, "/v1/mesh/listens", None, CALL_WAIT).await?)
+        })
+    }
+
+    fn listen_close<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Listens, HubError>> {
+        Box::pin(async move {
+            if !crate::mesh::is_listen_id(id) {
+                return Err(HubError::refused("the listen id is not valid"));
+            }
+            decode(
+                self.call(
+                    reqwest::Method::DELETE,
+                    &format!("/v1/mesh/listens/{id}"),
+                    None,
+                    CALL_WAIT,
+                )
+                .await?,
+            )
+        })
     }
 
     fn ack<'a>(&'a self, id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
@@ -560,6 +617,27 @@ impl MeshHub for HttpHub {
             let wait = wait.min(Duration::from_secs(25));
             let path = format!("/v1/mesh/messages/{id}?waitSeconds={}", wait.as_secs());
             decode(self.call(reqwest::Method::GET, &path, None, wait + CALL_WAIT).await?)
+        })
+    }
+
+    /// One try, never through `call`: a 401 here is the capacity route refusing (an older hub, a
+    /// registry that is off), not the join credential revoked, so it neither marks the record
+    /// revoked nor runs a token command again. The relay's heartbeat decides that.
+    fn capacity<'a>(&'a self, report: &'a Capacity) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async move {
+            self.registers()?;
+            let token = self.token(false).await?;
+            let mut response = self
+                .http
+                .post(format!("{}/v1/machines/joined/heartbeat", self.origin))
+                .bearer_auth(token.as_str())
+                .timeout(CALL_WAIT)
+                .json(report)
+                .send()
+                .await
+                .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?;
+            let status = response.status().as_u16();
+            answer(status, &body_of(&mut response).await?).map(|_| ())
         })
     }
 }
@@ -657,6 +735,121 @@ mod tests {
         let hub = HttpHub::new(&config).unwrap();
         let e = hub.token(true).await.unwrap_err();
         assert!(e.to_string().contains("too much"), "{e}");
+    }
+
+    /// One request to a loopback hub that answers `status` with `body`: the request as read.
+    async fn one_request(
+        status: u16,
+        body: &'static str,
+    ) -> (HttpHub, tokio::task::JoinHandle<String>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let served = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut seen = Vec::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = stream.read(&mut buf).await.unwrap();
+                seen.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&seen).to_string();
+                if let Some((head, rest)) = text.split_once("\r\n\r\n") {
+                    let length = head
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if rest.len() >= length || n == 0 {
+                        break;
+                    }
+                }
+            }
+            let answer = format!(
+                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(answer.as_bytes()).await.unwrap();
+            String::from_utf8_lossy(&seen).to_string()
+        });
+        let hub = HttpHub::new(&MeshRelayConfig {
+            url: format!("http://127.0.0.1:{port}"),
+            token_command: ["sh", "-c", "echo cmm_capacity_test_credential"]
+                .map(str::to_owned)
+                .to_vec(),
+            team_messaging: false,
+            control_from: Vec::new(),
+            credential: None,
+        })
+        .unwrap();
+        (hub, served)
+    }
+
+    fn report() -> Capacity {
+        Capacity {
+            host_id: "studio".into(),
+            region: "joined".into(),
+            capabilities: crate::mesh::CapacityLimits {
+                memory_pause: false,
+                fork: false,
+                gpu: false,
+                arch: "arm64".into(),
+                os: "macos".into(),
+                max_vcpu: 12.0,
+                max_mem_gib: 64.0,
+            },
+            free_vcpu: 9.5,
+            free_mem_gib: 40.0,
+            free_disk_gib: 300.0,
+            sessions_running: 2,
+            load: 2.5,
+            state: "ready".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn capacity_posts_the_joined_heartbeat_with_the_machine_credential_and_no_fleet_token() {
+        let (hub, served) =
+            one_request(200, r#"{"host_id":"mch_1","accepted":true,"reported_at":1}"#).await;
+        hub.capacity(&report()).await.unwrap();
+        let request = served.await.unwrap();
+        let (head, body) = request.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("POST /v1/machines/joined/heartbeat HTTP/1.1"), "{head}");
+        assert!(
+            head.lines()
+                .any(|l| l
+                    .eq_ignore_ascii_case("authorization: Bearer cmm_capacity_test_credential")),
+            "{head}"
+        );
+        let body: Value = serde_json::from_str(body).unwrap();
+        assert_eq!(
+            body,
+            json!({
+                "host_id": "studio",
+                "region": "joined",
+                "capabilities": {
+                    "memoryPause": false, "fork": false, "gpu": false,
+                    "arch": "arm64", "os": "macos", "maxVcpu": 12.0, "maxMemGiB": 64.0
+                },
+                "free_vcpu": 9.5, "free_mem_gib": 40.0, "free_disk_gib": 300.0,
+                "sessions_running": 2, "load": 2.5, "state": "ready"
+            })
+        );
+        assert!(body.get("machine_token").is_none());
+    }
+
+    #[tokio::test]
+    async fn a_refused_capacity_report_is_one_try_with_the_hubs_code() {
+        let (hub, served) =
+            one_request(401, r#"{"code":"machine.unauthorized","message":"no"}"#).await;
+        let error = hub.capacity(&report()).await.unwrap_err();
+        assert!(error.refused);
+        assert_eq!(error.status, Some(401));
+        assert_eq!(error.code.as_deref(), Some("machine.unauthorized"));
+        // One request: a 401 here asks no new token and sends nothing again.
+        served.await.unwrap();
     }
 
     #[tokio::test]
@@ -757,7 +950,9 @@ mod tests {
     #[test]
     fn same_user_allows_only_the_hub_stamped_person_this_machine_recorded() {
         let entry: MeshControlFrom = serde_json::from_value(json!({"sameUser": true})).unwrap();
-        assert_eq!(entry, MeshControlFrom::same_user());
+        // What a join wrote before `maxPolicy`: the same grant, held to `ask`.
+        assert!(entry.is_unmarked_join_entry());
+        assert_eq!(entry, MeshControlFrom { max_policy: None, ..MeshControlFrom::same_user() });
         // Same person, any of its daemons: allowed for every lifecycle op.
         for op in ["start", "resume", "stop"] {
             assert!(entry.allows(&from(Some("d9"), Some("u1")), Some("u1"), op), "{op}");
@@ -787,8 +982,36 @@ mod tests {
         assert!(!off.allows(&from(Some("d9"), Some("u1")), Some("u1"), "start"));
         assert_eq!(
             serde_json::to_value(MeshControlFrom::same_user()).unwrap(),
-            json!({"sameUser": true, "ops": ["start", "resume", "stop"]})
+            json!({"sameUser": true, "ops": ["start", "resume", "stop"], "maxPolicy": "approve-all"})
         );
+    }
+
+    #[test]
+    fn a_controls_policy_cap_is_the_widest_its_granting_entries_name_and_ask_by_default() {
+        use crate::config::PermissionPolicy as P;
+        use crate::mesh_relay_config::control_cap;
+        let entry = |v: serde_json::Value| serde_json::from_value::<MeshControlFrom>(v).unwrap();
+        let by_daemon = entry(json!({"daemonId": "d9"}));
+        assert_eq!(by_daemon.policy_cap(), P::Ask, "omitted is ask");
+        let sender = from(Some("d9"), Some("u1"));
+        assert_eq!(
+            control_cap(std::slice::from_ref(&by_daemon), &sender, Some("u1"), "start"),
+            Some(P::Ask)
+        );
+        let edits = entry(json!({"daemonId": "d9", "maxPolicy": "approve-edits"}));
+        let entries = [by_daemon.clone(), edits, MeshControlFrom::same_user()];
+        assert_eq!(control_cap(&entries, &sender, Some("u1"), "start"), Some(P::ApproveAll));
+        // Only entries that grant the op to this sender count.
+        assert_eq!(control_cap(&entries, &sender, Some("u2"), "start"), Some(P::ApproveEdits));
+        assert_eq!(control_cap(&entries, &from(Some("d8"), Some("u2")), Some("u1"), "start"), None);
+        // A value this build does not know reads as ask.
+        assert_eq!(entry(json!({"daemonId": "d9", "maxPolicy": "rocket"})).policy_cap(), P::Ask);
+        // `yolo` is approve-all's alias, not an unknown value.
+        assert_eq!(
+            entry(json!({"daemonId": "d9", "maxPolicy": "yolo"})).policy_cap(),
+            P::ApproveAll
+        );
+        assert!(!MeshControlFrom::same_user().is_unmarked_join_entry());
     }
 
     #[test]
@@ -804,11 +1027,31 @@ mod tests {
             .unwrap_err();
         assert!(!e.to_string().contains("abc.def"), "{e}");
         assert_eq!(e.code.as_deref(), Some("mesh.bad_request"));
-        // A code the contract does not name is dropped, however tidy: it could be a token.
+        // A code outside the hub's families or shape is dropped: it could be a token.
         let e = answer(400, br#"{"code": "eyJhbGciOi.abc.def"}"#).unwrap_err();
         assert!(!e.to_string().contains("abc.def") && e.code.is_none(), "{e}");
         let e = answer(400, br#"{"code": "Bearer abc.def ghi"}"#).unwrap_err();
         assert!(!e.to_string().contains("abc.def") && e.code.is_none(), "{e}");
+    }
+
+    #[test]
+    fn a_hub_code_this_client_never_listed_still_reaches_the_person() {
+        // The 429 a full inbox answers, and any code the hub adds later, name themselves instead of
+        // a bare status (both hid behind a list of known codes on 2026-11-24).
+        let e = answer(429, br#"{"code": "mesh.queue_full"}"#).unwrap_err();
+        assert_eq!(e.code.as_deref(), Some("mesh.queue_full"));
+        assert!(e.to_string().contains("the hub answered 429 mesh.queue_full"), "{e}");
+        assert!(!e.refused, "a full queue is worth retrying");
+        assert_eq!(
+            answer(400, br#"{"code": "mesh.schema_refused"}"#).unwrap_err().code.as_deref(),
+            Some("mesh.schema_refused")
+        );
+        for bad in ["mesh.", "mesh.Queue", "mesh.a.b", "other.queue_full", "mesh.queue-full"] {
+            let body = format!(r#"{{"code": "{bad}"}}"#);
+            assert!(answer(400, body.as_bytes()).unwrap_err().code.is_none(), "{bad}");
+        }
+        let long = format!(r#"{{"code": "mesh.{}"}}"#, "a".repeat(49));
+        assert!(answer(400, long.as_bytes()).unwrap_err().code.is_none());
     }
 
     #[test]

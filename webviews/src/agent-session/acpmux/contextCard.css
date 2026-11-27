@@ -39,8 +39,6 @@
 .acpmux-context-card-hint {
   margin-block-start: var(--ds-space-2);
   margin-inline-end: var(--ds-space-2);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
 }
 
 /* The composer popover stays compact in both states. It uses the same glass material supplied by
@@ -214,4 +212,25 @@
 .acpmux-context-card-details:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
+}
+
+/* Compact conversation (ContextCard.tsx): a row above Details, the same full-bleed row and hairline.
+   Only the last row takes the card's lower corners; a row with one below it keeps square ones. */
+.acpmux-context-card-foot:has(+ .acpmux-context-card-foot) .acpmux-context-card-details {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+/* From 80% used it reads in the accent and the emphasis weight, so a nearly full window points at it. */
+.acpmux-context-card-compact[data-emphasis],
+.acpmux-context-card-compact[data-emphasis]:hover {
+  color: var(--agent-accent);
+  font-weight: var(--weight-emphasis);
+}
+/* Mid-turn or mid-compaction it stays in place, inert, in the muted ink at half strength. */
+.acpmux-context-card-compact:disabled,
+.acpmux-context-card-compact:disabled:hover {
+  background: none;
+  color: var(--agent-muted);
+  font-weight: inherit;
+  opacity: 0.5;
 }

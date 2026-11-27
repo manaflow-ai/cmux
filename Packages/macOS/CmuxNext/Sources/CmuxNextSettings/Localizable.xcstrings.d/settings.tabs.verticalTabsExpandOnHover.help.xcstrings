@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.tabs.verticalTabsExpandOnHover.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show titles while the pointer is over the collapsed list."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اعرض العناوين أثناء وجود المؤشر فوق القائمة المطوية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikaži naslove dok je pokazivač iznad skupljene liste."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis titler, mens markøren er over den sammenklappede liste."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Titel anzeigen, solange der Zeiger über der eingeklappten Liste ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Muestra los títulos mientras el puntero está sobre la lista contraída."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Affiche les titres tant que le pointeur survole la liste réduite."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra i titoli mentre il puntatore è sopra l'elenco compresso."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "折りたたんだリストにポインタを重ねている間はタイトルを表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញចំណងជើងខណៈពេលទស្សន៍ទ្រនិចនៅលើបញ្ជីដែលបានបង្រួម។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "접힌 목록 위에 포인터를 올려 둔 동안 제목을 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis titler mens pekeren er over den sammenslåtte listen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokazuj tytuły, gdy wskaźnik jest nad zwiniętą listą."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostrar os títulos enquanto o ponteiro estiver sobre a lista recolhida."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показывать названия, пока указатель над свёрнутым списком."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงชื่อขณะที่ตัวชี้อยู่เหนือรายการที่ยุบไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İşaretçi daraltılmış listenin üzerindeyken başlıkları göster."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показувати назви, поки вказівник над згорнутим списком."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiển thị tiêu đề khi con trỏ nằm trên danh sách đã thu gọn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "指针停留在折叠的列表上方时显示标题。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "指標停留在收合的列表上方時顯示標題。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

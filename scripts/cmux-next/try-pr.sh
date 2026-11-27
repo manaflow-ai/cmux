@@ -15,7 +15,7 @@
 #               the same build the HQ request gives, tagged pr-N), waits for it and opens it
 #   ios-only    the Mac app does not change
 #
-#   try-pr.sh PR [--here] [--from APP] [--front] [--no-build] [--dry-run] [--port N] [--fork]
+#   try-pr.sh PR [--here] [--from APP] [--front|--shown] [--no-build] [--dry-run] [--port N] [--fork]
 #                [--live-code LOG] [--dev-backend]
 #   try-pr.sh PR --stop             quit and remove the PR's side instance and its dev server
 #
@@ -27,7 +27,9 @@
 # and Chat Uploads. A rebuild opens the PR's own build
 # there instead of the copy. --here patches the running app instead (the web overlay of your
 # cmux-next.json), and for a rebuild only prints where the build is. --no-build stops at the
-# verdict when the PR needs a build. --front opens the side instance in front. --dry-run prints the
+# verdict when the PR needs a build. The side instance opens parked (side-instance.sh launch: on a display no person
+# looks at, never activating, so an agent's try on a person's Mac draws nothing on their screens); --shown opens it
+# on the person's screens behind their windows, --front in front. --dry-run prints the
 # verdict and the commands it would run. --port and --fork go to web-overlay.sh follow; a side
 # instance's dev server takes the first free port from 20000 + N % 10000 (and keeps it) unless --port
 # names one.
@@ -64,7 +66,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) dry=1; shift ;;
     --here) here=1; shift ;;
-    --front) front=1; shift ;;
+    --front) front=--front; shift ;;
+    --shown) front=--shown; shift ;;
     --no-build) nobuild=1; shift ;;
     --dev-backend) dev_backend=1; shift ;;
     --build) shift ;;  # the default now; kept so older commands still run
@@ -188,7 +191,7 @@ make_side() {
 # Makes it as make_side does, then opens it.
 open_side() {
   make_side "$@"
-  run "$side" launch "$name" ${front:+--front}
+  run "$side" launch "$name" ${front:+"$front"}
 }
 
 # Waits up to SECONDS for LOG to gain a line matching PATTERN after byte OFFSET; prints the line.
@@ -386,7 +389,7 @@ print(json.dumps({"why": lines(left), "left_out": lines(out), "web": web}))
     sed 's/^/  /' <<<"$left_out"
   fi
   # live_rust runs as a condition, so set -e is off in it: each step's failure is checked.
-  if [[ -z "$here" ]] && ! run "$side" launch "$name" ${front:+--front}; then
+  if [[ -z "$here" ]] && ! run "$side" launch "$name" ${front:+"$front"}; then
     echo "daemon swap: cmux PR #$pr did not open (side-instance.sh launch failed; try-pr.sh $pr --stop removes it)"; return 3
   fi
   # A daemon PR that also changes web UI: that part is patched in too, or the daemon goes back, so

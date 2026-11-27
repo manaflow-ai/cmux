@@ -1,0 +1,69 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "Claude",
+  "version": "1.0.0",
+  "description": "Claude's home on every New Tab, Claude's usage left in the sidebar, a Claude Code status line in each chat's Session Info, the Claude Code app's attach and / buttons on the composer, its searchable model picker with effort apart, and review, PR and test prompts in the / menu.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.newtab/1": { "export": "renderHome", "title": "Claude", "symbol": "sparkle" },
+    "cmux.section/1": {
+      "export": "renderUsage",
+      "title": "Claude",
+      "symbol": "sparkle",
+      "options": { "defaultRegion": "bottom", "maxRows": 8 }
+    },
+    "cmux.session.info.section/1": {
+      "export": "renderStatusLine",
+      "title": "Status line",
+      "symbol": "chevron.right.square",
+      "options": { "maxRows": 6 }
+    },
+    "cmux.composer.toolbar/1": {
+      "options": {
+        "buttons": [
+          { "action": "composer.attachFiles", "label": "Add files" },
+          { "action": "composer.commands", "label": "Commands" }
+        ]
+      }
+    },
+    "cmux.composer.model.picker/1": {
+      "options": { "modelMenu": "search", "reasoningMenu": "separate" }
+    },
+    "cmux.composer.command/1": {
+      "options": {
+        "commands": [
+          {
+            "name": "review",
+            "description": "Review the changes on this branch",
+            "insert": "Review the changes on this branch against its base: correctness first, then tests, then naming. List each finding with its file and line."
+          },
+          {
+            "name": "pr",
+            "description": "Commit, push and open a pull request",
+            "insert": "Commit the current changes with a clear message, push the branch and open a pull request that says what changed and how it was tested."
+          },
+          {
+            "name": "test",
+            "description": "Run the tests and fix what fails",
+            "insert": "Run this project's tests. For each failure, find the cause and fix it, then run them again until they pass."
+          },
+          {
+            "name": "explain",
+            "description": "Explain a file or symbol",
+            "hint": "<file or symbol>",
+            "insert": "Explain how this works, where it is called from and what would break if it changed: "
+          }
+        ]
+      }
+    }
+  },
+  "scopes": {
+    "agent_chat:read": "Read your agent chats, to list your recent Claude chats.",
+    "usage_app:read": "Read the usage left on your Claude accounts from cmux's Usage app.",
+    "workspace:write": "Show a chat's workspace when you click it.",
+    "actions:run": "Start a Claude chat from the prompt box, or open a chat in a tab."
+  }
+}
