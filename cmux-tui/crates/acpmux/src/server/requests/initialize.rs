@@ -71,6 +71,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_INFO,
     method::MUX_KEEP,
     method::MUX_KILL,
+    method::MUX_LIFECYCLE,
     method::MUX_MACHINE_INFO,
     method::MUX_MAIL_ACK,
     method::MUX_MAIL_READ,

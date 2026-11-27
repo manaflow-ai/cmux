@@ -194,6 +194,31 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Lifecycle(args) => {
+            let client = connect(true).await?;
+            let v = client.request(method::MUX_LIFECYCLE, json!({"dryRun": args.dry_run})).await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                print_lifecycle_report(&v);
+            }
+            Ok(())
+        }
+        Command::Restore { session } => {
+            let client = connect(true).await?;
+            let v = client.request(method::MUX_LIFECYCLE, json!({"restore": session})).await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                println!(
+                    "{} restored (unarchived: {}, log back: {})",
+                    v["sessionId"].as_str().unwrap_or("?"),
+                    v["unarchived"],
+                    v["rehydrated"],
+                );
+            }
+            Ok(())
+        }
         Command::HistoryOffload(args) => {
             let client = connect(true).await?;
             let v = client
@@ -2181,6 +2206,29 @@ fn print_transcript_report(v: &Value) {
 }
 
 /// The text form of a `_acpmux/history_delete` or `_acpmux/history_offload` report.
+fn print_lifecycle_report(v: &Value) {
+    let mb = |key: &str| v[key].as_u64().unwrap_or(0) as f64 / 1_048_576.0;
+    println!(
+        "{} chats {} ({} offloaded{}), {:.1} MB to {:.1} MB, {:.1} MB freed",
+        v["archived"].as_u64().unwrap_or(0),
+        if v["dryRun"].as_bool() == Some(true) { "would be archived (dry run)" } else { "archived" },
+        v["offloaded"].as_u64().unwrap_or(0),
+        if v["cloud"].as_bool() == Some(true) { "" } else { "; cloud history not set up" },
+        mb("bytesBefore"),
+        mb("bytesAfter"),
+        mb("bytesFreed"),
+    );
+    for chat in v["chats"].as_array().into_iter().flatten() {
+        println!(
+            "  {}  {}  {}",
+            chat["id"].as_str().unwrap_or("?"),
+            chat["reason"].as_str().unwrap_or(""),
+            chat["name"].as_str().unwrap_or(""),
+        );
+    }
+    println!("skipped: {}", v["skipped"]);
+}
+
 fn print_history_report(v: &Value, verb: &str, key: &str) {
     let count = v.get(key).or_else(|| v.get("wouldDelete")).or_else(|| v.get("wouldOffload"));
     println!(

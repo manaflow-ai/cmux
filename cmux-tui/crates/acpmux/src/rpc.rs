@@ -1097,6 +1097,10 @@ pub mod method {
     /// Offload old cold-archived chats to cloud history (`hub/cloud_offload.rs`): `{dryRun?,
     /// olderThanDays?}` -> the chats offloaded, or those a pass would offload.
     pub const MUX_HISTORY_OFFLOAD: &str = "_acpmux/history_offload";
+    /// One lifecycle pass now (`hub/session_lifecycle.rs`): `{dryRun?}` -> `{archived, offloaded,
+    /// bytesBefore, bytesAfter, bytesFreed, chats, skipped}`; or `{restore: ID}` -> `{sessionId,
+    /// unarchived, rehydrated}`, the chat back in the lists and its log on this disk.
+    pub const MUX_LIFECYCLE: &str = "_acpmux/lifecycle";
     /// Read-only cloud copies of Claude's and Codex's transcripts (`hub/transcript_offload.rs`):
     /// `{dryRun?, olderThanDays?, restoreAll?}` -> the pass's report, or `{restored}`.
     pub const MUX_TRANSCRIPT_OFFLOAD: &str = "_acpmux/transcript_offload";

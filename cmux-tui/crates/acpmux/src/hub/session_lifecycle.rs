@@ -103,7 +103,7 @@ pub(crate) fn last_active(meta: &SessionMeta) -> u64 {
         .unwrap_or(meta.created_at)
 }
 
-/// Whether `meta` names a pull request still open: opened (or, with no time kept, last active)
+/// Whether `meta` names a pull request still open: opened (or, with no time kept, created)
 /// within the review queue's window, and not merged or closed by this chat or any other
 /// (`closed`).
 pub(crate) fn open_pull_request(
@@ -115,7 +115,7 @@ pub(crate) fn open_pull_request(
         if meta.closed_pull_requests.iter().any(|c| c == url) || closed(url) {
             return false;
         }
-        let at = meta.pull_request_times.get(url).copied().unwrap_or_else(|| last_active(meta));
+        let at = meta.pull_request_times.get(url).copied().unwrap_or(meta.created_at);
         now.saturating_sub(at) < super::review_queue::PR_WINDOW_MS
     })
 }
