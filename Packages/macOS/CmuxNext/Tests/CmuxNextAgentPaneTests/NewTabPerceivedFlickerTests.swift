@@ -16,6 +16,8 @@ struct NewTabPerceivedFlickerTests {
         let first = try #require(frames.image(size: Self.newTabSize, appearance: .darkAqua))
         let settled = try Self.sample(size: Self.newTabSize)
         #expect(Self.pixelDifference(first, settled) == 0)
+        let repainted = try Self.sample(size: Self.newTabSize, accentOrigin: CGPoint(x: 12, y: 8))
+        #expect(Self.pixelDifference(first, repainted) > 0, "the detector sees a shifted first-frame repaint")
     }
 
     @Test func splitFirstFrameMatchesSettledFramePixelsAtItsTargetSize() throws {
@@ -25,9 +27,11 @@ struct NewTabPerceivedFlickerTests {
         let first = try #require(frames.image(size: Self.splitSize, appearance: .darkAqua))
         let settled = try Self.sample(size: Self.splitSize)
         #expect(Self.pixelDifference(first, settled) == 0)
+        let repainted = try Self.sample(size: Self.splitSize, accentOrigin: CGPoint(x: 12, y: 8))
+        #expect(Self.pixelDifference(first, repainted) > 0, "the detector sees a shifted split first-frame repaint")
     }
 
-    private static func sample(size: CGSize) throws -> NSImage {
+    private static func sample(size: CGSize, accentOrigin: CGPoint = CGPoint(x: 8, y: 8)) throws -> NSImage {
         let width = Int(size.width), height = Int(size.height)
         let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
                                              bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -35,7 +39,7 @@ struct NewTabPerceivedFlickerTests {
         context.setFillColor(CGColor(red: 0.08, green: 0.1, blue: 0.14, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         context.setFillColor(CGColor(red: 0.3, green: 0.7, blue: 0.95, alpha: 1))
-        context.fill(CGRect(x: 8, y: 8, width: min(32, width), height: min(32, height)))
+        context.fill(CGRect(x: accentOrigin.x, y: accentOrigin.y, width: min(32, width), height: min(32, height)))
         return NSImage(cgImage: try #require(context.makeImage()), size: size)
     }
 
