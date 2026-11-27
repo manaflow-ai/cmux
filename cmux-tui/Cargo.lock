@@ -4147,6 +4147,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-workspace-naming"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
