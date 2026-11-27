@@ -355,7 +355,7 @@ impl Hub {
                 None,
                 None,
                 Some((&session.id, &meta.name)),
-                for_person,
+                self.for_a_person(session),
             )
             .await
             .map_err(|e| {

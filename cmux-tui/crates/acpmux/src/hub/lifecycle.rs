@@ -350,14 +350,13 @@ impl Hub {
         // then takes it instead of starting cold. Never with this session's own env, route or
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
         // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
-        // for the person's next chat, which never waits behind a lane's start. A Claude Code chat
-        // only the person made: a pooled one started for the person (`pool/start.rs`) and asked
-        // for a next-prompt suggestion after every turn, which Claude Code decides once, at
-        // `initialize` (`host_level.rs` `start_params`).
+        // for the person's next chat, which never waits behind a lane's start. Claude Code
+        // and the Codex app-server bridge pick the person's prompt suggestion setting when
+        // the pooled process starts, so only a person's chat can take those processes.
         let shaped = fixed_id.is_none()
             && adopt.is_none()
             && starter.is_none()
-            && (profile.kind != crate::config::HarnessKind::ClaudeStdio
+            && (!super::pool::uses_prompt_suggestions(&profile)
                 || super::host_level::made_for_a_person(meta.created_by.as_ref(), person))
             && meta.session_env.is_empty()
             && route.is_none()
