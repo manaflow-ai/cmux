@@ -27,8 +27,8 @@
 //! - Not macOS. Linux confines remote chains with bwrap (`linux_sandbox/`); a
 //!   local chat there is the machine's own (a Cloud VM is the boundary).
 //!
-//! When Seatbelt is required but the executable or a safe write boundary is unavailable, the
-//! launch returns an error to the chat.
+//! Ambiguous Claude sandbox settings or an unavailable required Seatbelt boundary stop the
+//! launch and report the cause to the chat.
 //!
 //! Codex is not wrapped yet: in its asking modes (acpmux's narrower policies,
 //! `hub/policy_mode.rs`) Codex runs each command in its own Seatbelt sandbox,
@@ -256,7 +256,7 @@ pub(crate) fn git_dirs(folder: &Path) -> Vec<PathBuf> {
 fn claude_files(
     cwd: &Path,
     env: &BTreeMap<String, String>,
-) -> crate::agent_tools::project_mcp::Claude {
+) -> anyhow::Result<crate::agent_tools::project_mcp::Claude> {
     // Inspect the config home the child actually uses, not both the daemon's and child's homes.
     let mut config_env = env.clone();
     let config_home = env
@@ -273,7 +273,8 @@ fn claude_files(
         config_env
             .insert("CLAUDE_CONFIG_DIR".into(), absolute(cwd, home).to_string_lossy().into_owned());
     }
-    crate::agent_tools::project_mcp::Claude::of(&config_env, cwd)
+    let (files, complete) = crate::agent_tools::project_mcp::Claude::discover(&config_env, cwd);
+    complete.map(|()| files)
 }
 
 fn source_enabled(args: &[String], source: &str) -> bool {
@@ -380,7 +381,7 @@ fn api_endpoint(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> 
             .map_err(|_| ())?;
         endpoint(&value)
     };
-    let claude = claude_files(cwd, env);
+    let claude = claude_files(cwd, env).ok()?;
     let roots = project_roots(args, cwd);
     let mut managed = None;
     for path in &claude.managed {
@@ -425,8 +426,12 @@ fn api_endpoint(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> 
 
 /// All decision sources remain immutable, even sources excluded for this launch: a later
 /// launch may enable them. Include both the named path and its resolved target.
-fn policy_files(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> Vec<PathBuf> {
-    let claude = claude_files(cwd, env);
+fn policy_files(
+    args: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> anyhow::Result<Vec<PathBuf>> {
+    let claude = claude_files(cwd, env)?;
     let mut files = claude.settings;
     // Protect future drop-ins as well as the files discovered for this launch. The managed
     // root comes from the same resolver that discovers Claude's managed policy sources.
@@ -441,138 +446,148 @@ fn policy_files(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> 
     if let Some(original) = env.get(FLAG_ORIGIN).filter(|path| !path.is_empty()) {
         files.push(PathBuf::from(original));
     }
-    files
+    Ok(files
         .into_iter()
         .flat_map(|path| [path.clone(), canonical(&path)])
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
-        .collect()
+        .collect())
 }
 
-/// Whether Claude Code's own Bash sandbox is on for this launch. Claude applies the highest
-/// precedence setting for this key. Managed settings, the last `--settings` value, project-local
-/// settings, project settings, then user settings are checked in that order. `--setting-sources`
-/// removes user/project/local sources, never managed policy. Conflicting managed providers or
-/// any unreadable/invalid source retain the outer sandbox rather than guessing Claude's result.
-pub(crate) fn claude_sandbox_on(
+#[derive(Default)]
+struct ClaudeSandboxSetting {
+    enabled: Option<bool>,
+    other_options: bool,
+}
+
+impl ClaudeSandboxSetting {
+    fn from_json(value: &Value) -> Option<Self> {
+        let Some(sandbox) = value.as_object()?.get("sandbox") else {
+            return Some(Self::default());
+        };
+        let sandbox = sandbox.as_object()?;
+        let enabled = match sandbox.get("enabled") {
+            Some(value) => Some(value.as_bool()?),
+            None => None,
+        };
+        Some(Self { enabled, other_options: sandbox.keys().any(|key| key != "enabled") })
+    }
+
+    fn from_file(path: &Path, bytes: &[u8]) -> Option<Self> {
+        if path.extension().is_some_and(|ext| ext == "plist") {
+            let value = plist::Value::from_reader(std::io::Cursor::new(bytes)).ok()?;
+            let dict = value.as_dictionary()?;
+            let sandbox = match dict.get("sandbox") {
+                Some(value) => Some(value.as_dictionary()?),
+                None => None,
+            };
+            let mut enabled = None;
+            for value in [dict.get("sandbox.enabled"), sandbox.and_then(|s| s.get("enabled"))]
+                .into_iter()
+                .flatten()
+            {
+                let value = value.as_boolean()?;
+                if enabled.is_some_and(|prior| prior != value) {
+                    return None;
+                }
+                enabled = Some(value);
+            }
+            let other_options = sandbox.is_some_and(|s| s.iter().any(|(key, _)| key != "enabled"))
+                || dict
+                    .iter()
+                    .any(|(key, _)| key.starts_with("sandbox.") && key != "sandbox.enabled");
+            return Some(Self { enabled, other_options });
+        }
+        Self::from_json(&serde_json::from_slice(bytes).ok()?)
+    }
+}
+
+/// Claude applies managed policy, the last --settings, local, project and user settings in
+/// that order. An ambiguous launch must stop: wrapping an already-sandboxed Claude would
+/// leave the chat running with every Bash call failing on the nested sandbox.
+fn claude_sandbox_on(
     args: &[String],
     cwd: &Path,
     env: &BTreeMap<String, String>,
-) -> bool {
-    let sandbox_value = |value: &Value, trusted: bool| -> Result<Option<bool>, ()> {
-        if !value.is_object() {
-            return Err(());
-        }
-        match value.get("sandbox") {
-            None => Ok(None),
-            Some(Value::Object(sandbox)) => {
-                // Claude merges the sandbox's other keys across sources. Even a higher-priority
-                // enabled=true does not prove the effective restrictions in their presence.
-                if !trusted && sandbox.keys().any(|key| key != "enabled") {
-                    return Err(());
-                }
-                match sandbox.get("enabled") {
-                    None => Ok(None),
-                    Some(Value::Bool(enabled)) => Ok(Some(*enabled && trusted)),
-                    Some(_) => Err(()),
-                }
-            }
-            Some(_) => Err(()),
-        }
-    };
-    let from_bytes = |bytes: &[u8], trusted: bool| {
-        if let Ok(value) = serde_json::from_slice::<Value>(bytes) {
-            return sandbox_value(&value, trusted);
-        }
-        if !trusted {
-            return Err(());
-        }
-        let Ok(value) = plist::Value::from_reader(std::io::Cursor::new(bytes)) else {
-            return Err(());
-        };
-        let dict = value.as_dictionary().ok_or(())?;
-        match dict.get("sandbox.enabled").or_else(|| dict.get("sandbox")) {
-            None => Ok(None),
-            Some(value) => {
-                if let Some(value) = value.as_boolean() {
-                    return Ok(Some(value));
-                }
-                let sandbox = value.as_dictionary().ok_or(())?;
-                match sandbox.get("enabled") {
-                    None => Ok(None),
-                    Some(value) => value.as_boolean().map(Some).ok_or(()),
-                }
-            }
-        }
-    };
+) -> anyhow::Result<bool> {
     let roots = project_roots(args, cwd);
-    let setting = |path: &Path, trusted: bool| match std::fs::read(path) {
-        Ok(bytes) => from_bytes(&bytes, trusted && outside_projects(path, &roots)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(_) => Err(()),
+    let claude = claude_files(cwd, env)?;
+    let mut effective = None;
+    let mut project_source = None;
+    let mut consider = |setting: ClaudeSandboxSetting,
+                        source: &str,
+                        trusted: bool,
+                        managed: bool| {
+        if let Some(enabled) = setting.enabled {
+            anyhow::ensure!(
+                !managed || effective.is_none_or(|prior| prior == enabled),
+                "Managed Claude sandbox settings conflict at {source}. Ask your administrator to reconcile sandbox.enabled in the managed policies before starting this chat."
+            );
+            if !trusted && enabled && (effective.is_none() || managed) {
+                project_source = Some(source.to_owned());
+            }
+            effective.get_or_insert(enabled);
+        }
+        // Claude merges other keys (including command exclusions) across sources.
+        if !trusted && setting.other_options {
+            project_source = Some(source.to_owned());
+        }
+        Ok::<_, anyhow::Error>(())
     };
-    let source_enabled = |source| source_enabled(args, source);
-
-    let claude = claude_files(cwd, env);
-    // Managed policy cannot be removed by --setting-sources. These paths aggregate independent
-    // policy providers; on conflicting values or unreadable policy retain the outer boundary.
-    let managed_values: Result<Vec<_>, _> =
-        claude.managed.iter().map(|path| setting(path, true)).collect();
-    let managed = managed_values.map(|values| {
-        if values.contains(&Some(false)) {
-            Some(false)
-        } else if values.contains(&Some(true)) {
-            Some(true)
-        } else {
-            None
-        }
-    });
-    let flag = flag_is_trusted(args, cwd, &roots, env).and_then(|trusted| {
-        match crate::claude_cloud_auth::flag_settings(args, cwd) {
-            Ok(Some(settings)) => sandbox_value(&Value::Object(settings), trusted),
-            Ok(None) => Ok(None),
-            Err(_) => Err(()),
-        }
-    });
-    let project = cwd.join(".claude/settings.json");
+    let read = |path: &Path| -> anyhow::Result<ClaudeSandboxSetting> {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(ClaudeSandboxSetting::default());
+            }
+            Err(error) => anyhow::bail!(
+                "Cannot read Claude settings at {} ({error}). Restore read access before starting this chat.",
+                path.display()
+            ),
+        };
+        ClaudeSandboxSetting::from_file(path, &bytes).ok_or_else(|| anyhow::anyhow!(
+            "Cannot determine sandbox.enabled in {}. Correct the Claude settings file before starting this chat.",
+            path.display()
+        ))
+    };
+    for path in &claude.managed {
+        consider(read(path)?, &path.to_string_lossy(), outside_projects(path, &roots), true)?;
+    }
+    let trusted_flag = flag_is_trusted(args, cwd, &roots, env).map_err(|_| anyhow::anyhow!(
+        "The final --settings has no usable value. Supply a readable Claude settings file or JSON object before starting this chat."
+    ))?;
+    let flag = crate::claude_cloud_auth::flag_settings(args, cwd).map_err(|_| anyhow::anyhow!(
+        "Cannot read the final --settings value. Supply a readable Claude settings file or JSON object before starting this chat."
+    ))?;
+    if let Some(flag) = flag {
+        let value = ClaudeSandboxSetting::from_json(&Value::Object(flag)).ok_or_else(|| anyhow::anyhow!(
+            "Correct the sandbox object and its boolean sandbox.enabled in the final --settings value before starting this chat."
+        ))?;
+        consider(value, "--settings", trusted_flag, false)?;
+    }
     let local = cwd.join(".claude/settings.local.json");
-    let mut files = Vec::new();
-    if source_enabled("local") {
-        files.push(setting(&local, false));
+    let project = cwd.join(".claude/settings.json");
+    for (source, path) in [("local", &local), ("project", &project)] {
+        if source_enabled(args, source) {
+            consider(read(path)?, &path.to_string_lossy(), false, false)?;
+        }
     }
-    if source_enabled("project") {
-        files.push(setting(&project, false));
+    if source_enabled(args, "user") {
+        for path in claude
+            .settings
+            .iter()
+            .filter(|path| !claude.managed.contains(path) && *path != &project && *path != &local)
+        {
+            consider(read(path)?, &path.to_string_lossy(), outside_projects(path, &roots), false)?;
+        }
     }
-    if source_enabled("user") {
-        files.push(
-            claude
-                .settings
-                .iter()
-                .filter(|path| {
-                    !claude.managed.iter().any(|managed| managed == *path)
-                        && *path != &project
-                        && *path != &local
-                })
-                .map(|path| setting(path, true))
-                .find(|value| !matches!(value, Ok(None)))
-                .unwrap_or(Ok(None)),
+    let enabled = effective.unwrap_or(false);
+    if enabled && let Some(source) = project_source {
+        anyhow::bail!(
+            "Project-controlled Claude sandbox settings from {source} prevent safe sandbox selection. Remove those sandbox settings from the project source before starting this chat."
         );
     }
-    choose_sandbox_setting(managed, flag, files)
-}
-
-/// Claude applies the managed value over the launch's last `--settings`, then over file sources.
-/// An unreadable explicit settings value keeps the outer sandbox on (fail closed).
-fn choose_sandbox_setting(
-    managed: Result<Option<bool>, ()>,
-    flag: Result<Option<bool>, ()>,
-    files: impl IntoIterator<Item = Result<Option<bool>, ()>>,
-) -> bool {
-    // Invalid sources are not evidence that Claude will sandbox the launch. Do not fall through
-    // to another source's true value, even if the invalid source contains no recognizable key.
-    let values: Result<Vec<_>, _> =
-        std::iter::once(managed).chain(std::iter::once(flag)).chain(files).collect();
-    values.ok().and_then(|values| values.into_iter().flatten().next()).unwrap_or(false)
+    Ok(enabled)
 }
 
 /// The port of an `ANTHROPIC_BASE_URL` that the profile does not already open (443, 80, 22 or
@@ -613,7 +628,7 @@ fn required_prefix(
     cwd: &Path,
     env: &BTreeMap<String, String>,
 ) -> anyhow::Result<Option<(&'static str, Vec<String>)>> {
-    if claude_sandbox_on(args, cwd, env) {
+    if claude_sandbox_on(args, cwd, env)? {
         if !CLAUDE_OWN_LOGGED.swap(true, Ordering::Relaxed) {
             tracing::info!(
                 "Claude Code's own sandbox is on: its chats keep it (Seatbelt does not nest)"
@@ -687,7 +702,7 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
         .map(|p| canonical(&absolute(&cwd, PathBuf::from(p).join("gh"))))
         .unwrap_or_else(|| agent_home.join(".config/gh"));
     let acpmux_home = std::path::absolute(crate::config::home()).ok()?;
-    let mut policy_files = policy_files(args, &cwd, env);
+    let mut policy_files = policy_files(args, &cwd, env).ok()?;
     policy_files.extend([
         acpmux_home.clone(),
         cmux_config.clone(),
