@@ -78,6 +78,9 @@ impl Hub {
             if let Some(heavy) = heavy {
                 obj.insert("heavy".into(), json!(heavy));
             }
+            if let Some(stall) = crate::host_pressure::mem_stall::global() {
+                obj.insert("mem_stall".into(), json!(stall));
+            }
         }
         // The agents' own cores and memory (RFD 0072 piece 2), read off the runtime and at most
         // once per `session_usage::MIN_INTERVAL`; then Auto on reserve judges them in shadow
