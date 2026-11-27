@@ -6,7 +6,7 @@
 // click opens it and leaves the hat folded; the hide control is a flush eye at the line's end.
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { teardownDom } from "./support/domTeardown";
+import { teardownDom, trackReactScheduler } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -47,6 +47,7 @@ Object.assign(scope, replacements);
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 10_000 });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
 
+trackReactScheduler();
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
