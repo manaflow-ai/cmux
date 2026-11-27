@@ -14,6 +14,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 ## Registered benches
 
+`ci-mac-minutes` imports a controller timing inventory with `--build local --host anywhere --import REPORT.json`. Generate the report with `scripts/measure/ci-mac-minutes.py CAPTURE.jsonl SINCE UNTIL --manifest MANIFEST.json`; incomplete captures are refused. Job minutes are observed durations, not attributed savings. Missing durations produce untimed counts, never zero minutes.
+
 | bench | wraps (script) | what |
 |---|---|---|
 | published-idle | `published-idle-power.sh` (pinned prepared PID, then `--import`) | Process CPU energy, wakeups and footprint including descendants; rejects incomplete windows. |
