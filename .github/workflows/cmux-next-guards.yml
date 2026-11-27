@@ -1188,6 +1188,56 @@ jobs:
           ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
             --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 
+  # ios-placeholder-bounds (Leo, 2026-11-24): every placeholder the iOS app draws sits under
+  # `.placeholderBound` and is listed with its bound in cmux-next-ios/design/placeholders.json.
+  # The simulator half is cmux-next-ios/UITests/PlaceholderBoundUITests.swift. Its own job, not a tooling-tests
+  # step, so the check run is named and land-judge's required list can name it (a step of tooling-tests had 0
+  # recorded passes over 12 feat-cmux-next pushes: skipped 4 times, absent 8). It runs on every pull request into
+  # feat-cmux-next, draft or ready, without the land tier's skip (tests/test_head_tier.py KEEP_ON_EVERY_HEAD), and on
+  # the feat-cmux-next push's coalesced run. Pure Python on Linux, seconds of work.
+  ios-placeholder-bounds:
+    needs: coalesce
+    name: ios-placeholder-bounds
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Every iOS placeholder has a listed bound (ios-placeholder-bounds)
+        timeout-minutes: 5
+        run: python3 -I tests/test_ios_placeholder_bounds.py
+
   # The checks that judge a change against its base, in one runner session and one checkout: red only for the
   # change's own regression, so a base red never excuses them (next_autoland's NEVER_BASE matches "size cap" and
   # "crash ratchet" in this job's name; base-red-watch's base pass ignores it for the same words). Each was a job of its
@@ -1651,14 +1701,6 @@ jobs:
         id: tt-tooling-tests-batch
         if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-tooling-tests-batch ')) }}
         run: python3 tests/test_ci_tooling_tests_batch.py
-
-      # ios-placeholder-bounds (Leo, 2026-11-24): every placeholder the iOS app draws sits under
-      # `.placeholderBound` and is listed with its bound in cmux-next-ios/design/placeholders.json.
-      # The simulator half is cmux-next-ios/UITests/PlaceholderBoundUITests.swift.
-      - name: Every iOS placeholder has a listed bound (ios-placeholder-bounds)
-        id: tt-ios-placeholder-bounds
-        if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-ios-placeholder-bounds ')) }}
-        run: python3 -I tests/test_ios_placeholder_bounds.py
 
       - name: A rebuilt cmux-tui commit reuses its earlier publication
         id: tt-cmux-tui-republish
