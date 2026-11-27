@@ -4,6 +4,7 @@
 //! Each function is one `Command` arm of `handle_command_with_cancellation`.
 //! `identify` is built in the cmux-tui binary crate (identify_reply.rs).
 
+use crate::panic_free::JsonFields;
 use anyhow::Context;
 
 use super::PROTOCOL_VERSION;
