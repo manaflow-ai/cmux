@@ -63,6 +63,21 @@ pub fn peer_token(fd: std::os::fd::RawFd) -> Option<PeerToken> {
     }
 }
 
+/// Whether the peer runs under a sandbox profile, as the kernel answers for its audit token
+/// (`sandbox_check_by_audit_token`): what a sandboxed local agent cannot change by anything it
+/// sends. `None` when the kernel gave no answer, and off macOS.
+pub fn sandboxed(token: &PeerToken) -> Option<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::caller::macos::sandboxed(&token.0)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = token;
+        None
+    }
+}
+
 /// The file this process runs, symbolic links resolved (the canonical `current_exe`). Read the
 /// app bundle a binary belongs to from this, never from `current_exe` alone, which on macOS keeps
 /// the link the process was started by: a daemon launchd starts as `~/.local/bin/acpmux`, a link
