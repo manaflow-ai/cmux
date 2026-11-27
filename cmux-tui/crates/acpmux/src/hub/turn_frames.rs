@@ -508,8 +508,23 @@ fn shoot(session: &str, repl: &str) -> Option<(String, CapturedPage, PathBuf, Rg
     Some((turn_id, shown?, dir, picture))
 }
 
+/// Where Swift live mode (`scripts/live-code/live-mode.py`) names the tagged Debug build it runs:
+/// `~/Library/Caches/cmux-next/live-mode/preview.json`, `{"socket", "tag"}`, there only while live
+/// mode is on (RFD 0152: Swift Debug live-code in the preview window).
+pub(crate) const LIVE_PREVIEW: &str = "Library/Caches/cmux-next/live-mode/preview.json";
+
+/// The control socket of the Swift live-code build the agent is patching, when live mode is on
+/// and that socket is there: the window frames show, instead of the app the chat runs in.
+pub(crate) fn live_socket(user_home: &Path) -> Option<PathBuf> {
+    let bytes = std::fs::read(user_home.join(LIVE_PREVIEW)).ok()?;
+    let named: Value = serde_json::from_slice(&bytes).ok()?;
+    let socket = PathBuf::from(named.get("socket")?.as_str().filter(|s| !s.is_empty())?);
+    socket.exists().then_some(socket)
+}
+
 /// `cmux window screenshot --out OUT`: the app's window, its private areas masked by the app
-/// (`ScreenshotHandlers.swift`). Bounded by [`WINDOW_LIMIT`]; false when no app answered.
+/// (`ScreenshotHandlers.swift`); while Swift live mode runs, the live-code build's window
+/// ([`live_socket`]). Bounded by [`WINDOW_LIMIT`]; false when no app answered.
 fn window_shot(out: &Path) -> bool {
     let binary =
         std::env::var_os("CMUX_BIN").filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
@@ -538,6 +553,12 @@ fn simulator_shot_with(xcrun: &std::ffi::OsStr, out: &Path) -> bool {
 fn bounded_shot(binary: &std::ffi::OsStr, args: &[&str], out: &Path) -> bool {
     let Ok(runtime) = tokio::runtime::Handle::try_current() else { return false };
     let mut command = tokio::process::Command::new(binary);
+    if let Some(socket) = std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .and_then(|home| live_socket(Path::new(&home)))
+    {
+        command.env("CMUX_SOCKET_PATH", socket);
+    }
     command
         .args(args)
         .arg(out)
