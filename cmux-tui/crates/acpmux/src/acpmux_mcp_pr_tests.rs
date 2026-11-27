@@ -100,8 +100,9 @@ fn each_conclusion_lands_on_one_group() {
     let (_, s) = pr_state(&open(rollup, json!([])));
     assert_eq!(s["passedChecks"], 1);
     assert_eq!(s["pendingChecks"], 1);
-    // A cancelled check gave no verdict, and stays the PR's own red: routing is unchanged.
-    assert_eq!(s["failingChecks"], json!(["red", "stopped"]));
+    // Cancellation keeps its separate routing while also recording that it gave no verdict.
+    assert_eq!(s["failingChecks"], json!(["red"]));
+    assert_eq!(s["cancelledChecks"], json!(["stopped"]));
     assert_eq!(s["noVerdictChecks"], json!(["nothing-to-do", "stopped"]));
 }
 
