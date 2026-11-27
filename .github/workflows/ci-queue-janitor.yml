@@ -286,6 +286,9 @@ jobs:
           READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token && steps.glaeda-token.outputs.token || '' }}
           # The calls an hour the sweep leaves on that installation for the runner scaler's JIT creates (default 3000).
           READ_TOKEN_FLOOR: ${{ vars.CI_JANITOR_READ_TOKEN_FLOOR }}
+          # Under that floor the reads go on cmux-bot's token while it has more than this left (default 4000), so the
+          # sweep still writes the pool snapshot; at or under both floors it stops (queue_janitor.SWEEP_TOKEN_READ_FLOOR).
+          SWEEP_TOKEN_READ_FLOOR: ${{ vars.CI_JANITOR_SWEEP_TOKEN_READ_FLOOR }}
           GH_REPO: ${{ github.repository }}
           # BRANCH=DIR: another branch's workflow files, read for its linux-only runs (needs_jobs()).
           BRANCH_WORKFLOWS: feat-cmux-next=branch-workflows/feat-cmux-next/.github/workflows
