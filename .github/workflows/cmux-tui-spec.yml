@@ -32,6 +32,7 @@ on:
       - "scripts/ci/affected-jobs.json"
       - "scripts/ci/affected_jobs.py"
       - "scripts/ci/affected_jobs_replay.py"
+      - "scripts/ci/tooling_only.py"
       - "scripts/ci/tree_result.py"
       - ".github/actions/tree-result/**"
       - ".github/actions/cache-restore/**"
@@ -204,7 +205,7 @@ jobs:
         if: ${{ github.event_name != 'pull_request' || !startsWith(runner.name, 'cmux-runner-pool-') }}
         timeout-minutes: 3
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: &tui-spec-route-checkout
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -226,7 +227,7 @@ jobs:
         if: steps.checkout.outcome == 'failure'
         timeout-minutes: 3
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: *tui-spec-route-checkout
       - name: Pause before the last checkout try
         if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
@@ -234,7 +235,7 @@ jobs:
       - name: Retry the checkout a last time
         if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
         timeout-minutes: 3
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: *tui-spec-route-checkout
 
       # A cmux-runner-pool VM checks out from its local git mirror (/var/lib/cmux-git) instead, as
@@ -406,7 +407,7 @@ jobs:
     timeout-minutes: 20
     steps:
       # The merge commit, its base parent and the 30 commits before it, each with its own parent.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -426,7 +427,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10 # the machine join test runs its suite under three shells (about 4 min on a lane VM)
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -483,7 +484,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -527,7 +528,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -675,12 +676,15 @@ jobs:
     needs: changes
     # By the crate graph (the changes job's graph step). A router that failed or was skipped never skips
     # the job (a skip passes a required check), and neither does a missing output.
-    # On a pull request, only when acpmux's own paths change (the changes job's acpmux-own step) or with full-ci.
+    # On a pull request, only when acpmux's own paths change (the changes job's acpmux-own step), full-ci included:
+    # full-ci lifts the feat-cmux-next skip below but not this one. A full-ci PR reaching acpmux only through a path
+    # dependency ran the whole suite on every head (25T17-26T17Z: 1,162 PR runs, 28.2k job-min, ~24 min each; 18 of
+    # 27 sampled touched no acpmux path); the post-merge batch still runs it on every reach.
     # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request into
     # feat-cmux-next skips it unless labeled full-ci, and the post-merge batch (suite cmux-tui-spec) runs it. In
     # 11-13Z on 2026-11-23 it took 2,567 runner-min on 96 pull requests, and about 3 of the 14 reds sampled were the
     # pull request's own. Off: the repository variable ACPMUX_TESTS_ON_PULL_REQUESTS=on runs it on pull requests again.
-    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (((inputs.only == '' || inputs.only == 'acpmux-tests') && (!cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.acpmux_own != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_tests != 'false')) && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) || vars.ACPMUX_TESTS_ON_PULL_REQUESTS == 'on'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.changes.result == 'success' || needs.changes.result == 'skipped') }}
+    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (((inputs.only == '' || inputs.only == 'acpmux-tests') && (!cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.acpmux_own != 'false') && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_tests != 'false')) && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) || vars.ACPMUX_TESTS_ON_PULL_REQUESTS == 'on'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.changes.result == 'success' || needs.changes.result == 'skipped') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 40
     # A feat-cmux-next run saves the base's test log to R2 (cmux-ci-cache-next). Only next-cache-writer holds the
@@ -691,7 +695,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -1134,7 +1138,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -1215,7 +1219,7 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CMUX_GHOSTTY_SRC: ""
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -1295,7 +1299,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -1399,7 +1403,7 @@ jobs:
       CMUX_GHOSTTY_VT_ZIG_CPU: baseline
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
