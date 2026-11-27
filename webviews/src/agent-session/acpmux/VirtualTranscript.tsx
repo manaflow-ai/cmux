@@ -7845,7 +7845,6 @@ function TranscriptView({
     renderFollowing,
     below,
     jumpButton,
-    behind,
     dockSpace,
     corner,
     dockHoles,

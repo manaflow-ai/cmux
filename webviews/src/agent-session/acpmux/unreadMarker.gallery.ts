@@ -14,7 +14,6 @@ import { assistant, chat, row, summary, user, activity, tool } from "../../galle
 import { SINCE_DIVIDER, type AcpmuxRow } from "./model";
 import { jumpUpButton } from "./jumpUp.experiment";
 import { sinceLook } from "./conversation/sinceLook.experiment";
-import { JUMP_LATEST_SHOWN } from "./transcriptSelectors";
 
 const MARK = "gallery-unread:41";
 

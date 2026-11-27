@@ -8,9 +8,7 @@ import { JUMP_CURVE, jumpDuration, jumpGlideStart } from "../threadMinimap/model
 import { cssTimeMs } from "../conversation/fold";
 import { type FoldAnchor } from "../conversation/foldAnchor";
 import { userScrollIntent } from "../conversation/userScroll";
-import { clearScrollOrigin, layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
-import { indexOfRow } from "./rowIndex";
-import { restingAnchor } from "./scrollAnchors";
+import { clearScrollOrigin, physicalScrollTop } from "../conversation/scrollCoordinates";
 
 /// What `jumpToLatestWith` reads of TranscriptView, as of the call.
 export type JumpToLatestDeps = {

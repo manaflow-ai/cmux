@@ -106,7 +106,6 @@ export type TranscriptShellDeps = {
   renderFollowing: boolean;
   below: number;
   jumpButton: boolean;
-  behind: boolean;
   dockSpace: number;
   corner: React.ReactNode | undefined;
   dockHoles: string;
@@ -181,7 +180,6 @@ export function drawTranscriptShell({
   renderFollowing,
   below,
   jumpButton,
-  behind,
   dockSpace,
   corner,
   dockHoles,
