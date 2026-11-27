@@ -15,7 +15,7 @@
 #   daemon info  /etc/cmux/daemon-socket and /etc/cmux/daemon.json, recorded from the running daemon the way
 #                bake.ts recordDaemonInfo does (wire.rs DAEMON_SOCKET_FILE, DAEMON_INFO_FILE)
 #   JsonPoster   a CA bundle and HTTPS egress
-#   Noise key    the session host is running (it writes its identity once cmux-host starts it)
+#   Noise key    /etc/cmux/daemon-layout and the cloud session's identity.json under the home it names
 #   updater      /opt/cmux/current/bin/cmux resolves (before_first_bind adopts from it)
 # Any failed check stops the bake before the snapshot, and the machine is deleted.
 # Prints one JSON line at the end: {machine, snapshot, templates, checks, timing}.
@@ -86,7 +86,7 @@ mv /etc/cmux/daemon.json.tmp /etc/cmux/daemon.json
 chmod 0644 /etc/cmux/daemon.json /etc/cmux/daemon-socket
 cat /etc/cmux/daemon.json
 EOF
-)" 90000 | tail -n 1)"
+)" 90000)"
 printf '%s' "$daemon_info" | jq -e '(.version // "unknown" | startswith("unknown") | not) and ((.capabilities // []) | index("vm-agent-v1") and index("loopback-forward-v1"))' >/dev/null \
   || { echo "daemon.json is not a real identify answer: ${daemon_info:0:300}" >&2; exit 1; }
 
@@ -95,12 +95,14 @@ checks="$(guest "$id" "$(cat <<EOF
 fail=0
 step() { if eval "\$2" >/dev/null 2>&1; then echo "ok \$1"; else echo "FAIL \$1: \$3"; fail=1; fi; }
 held=""; for f in $PER_MACHINE_FILES; do [ -e "\$f" ] && held="\$held \$f"; done
-step install-key 'mkdir -p /var/lib/cmux && test -w /var/lib/cmux && test -z "$held"' "per-machine files baked in:\$held"
+step install-key 'mkdir -p /var/lib/cmux && test -w /var/lib/cmux && test -z "\$held"' "per-machine files baked in:\$held"
 step wg-key 'test -n "\$(wg genkey | wg pubkey)"' "wg genkey | wg pubkey failed (wireguard-tools)"
 step daemon-socket 'test -S "\$(head -n 1 /etc/cmux/daemon-socket)"' "/etc/cmux/daemon-socket names no socket"
 step daemon-json 'python3 -c "import json; d=json.load(open(\"/etc/cmux/daemon.json\")); assert d[\"version\"] and d[\"capabilities\"]"' "/etc/cmux/daemon.json unreadable"
 step json-poster 'test -s /etc/ssl/certs/ca-certificates.crt && curl -sS -m 10 -o /dev/null https://example.com' "no CA bundle or no HTTPS egress"
-step noise-key 'systemctl is-active cmux-host && pgrep -f "[_]_session-host|cmux-tui server" ' "cmux-host or the session host is not running"
+# Noise key (role.rs daemon_noise_key): /etc/cmux/daemon-layout names the home, which holds the cloud session's identity.
+home=""; case "\$(tr -d '[:space:]' < /etc/cmux/daemon-layout 2>/dev/null)" in root) home=/root ;; user) home=/home/cmux ;; esac
+step noise-key 'test -n "\$home" && test -s "\$home/.local/state/cmux/remote/sessions/Y2xvdWQ/auth/identity.json"' "no /etc/cmux/daemon-layout or no cloud session identity under it"
 step updater '$HOST_CLI --help' "/opt/cmux/current/bin/cmux does not run"
 step clock 'test \$(( \$(date +%s) - $(date +%s) )) -le 30 && test \$(( $(date +%s) - \$(date +%s) )) -le 30' "guest clock is more than 30 s off the host's"
 exit \$fail
