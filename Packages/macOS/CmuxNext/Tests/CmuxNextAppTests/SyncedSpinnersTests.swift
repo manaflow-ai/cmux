@@ -29,10 +29,13 @@ import Testing
         let cell = TabCell(item: TabItem(id: TabID("hidden-strip"), title: "Agent", isBusy: true))
         let shown = cell.spinnerPlan.animation
         try #require(shown != nil, "the configured style should animate a busy indicator")
+        #expect(cell.spinnerLayer?.runningAnimation == shown, "the visible strip installs its compositor loop")
         cell.isStripShown = false
         #expect(cell.spinnerPlan.animation == nil, "a parked strip must not keep a compositor loop")
+        #expect(cell.spinnerLayer?.runningAnimation == nil, "parking removes the installed compositor loop")
         cell.isStripShown = true
         #expect(cell.spinnerPlan.animation == shown, "the spinner resumes when the strip is shown")
+        #expect(cell.spinnerLayer?.runningAnimation == shown, "showing reinstalls the compositor loop")
     }
 
     @Test func aChromeSpinnerDrawsTheSameGlyphAsATabOrRowSpinner() {
