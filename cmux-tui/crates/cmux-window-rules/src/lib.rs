@@ -72,6 +72,7 @@ pub mod desktop_center;
 pub mod editors;
 pub mod empty_workspace;
 pub mod files;
+pub mod handlers_agentmisc;
 pub mod history;
 pub mod launch;
 pub mod notification_policy;
