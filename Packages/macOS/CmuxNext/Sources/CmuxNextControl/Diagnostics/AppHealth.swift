@@ -373,7 +373,10 @@ public final class AppHealth: Sendable {
             if reply["actions"]?.arrayValue?.contains(where: { $0["action"]?.stringValue == Repair.holdReplace.rawValue }) == true {
                 box.holdReplaceAt = now
             }
-            if reply["nextTickMs"] != nil { arm(&box, next: reply["nextTickMs"]?.doubleValue.flatMap { $0 > 0 ? UInt64(exactly: $0.rounded(.up)) : 0 }, now: now) }
+            if reply["nextTickMs"] != nil {
+                arm(&box, next: reply["nextTickMs"]?.doubleValue.flatMap { $0 > 0 ? UInt64(exactly: $0.rounded(.up)) : 0 },
+                    part: reply["nextTickId"]?.stringValue, now: now)
+            }
             // Compared by value: the first op's quiet snapshot equals the initial one and publishes nothing.
             guard let data = box.model.call("snapshot", Data()), let snapshot = try? JSONValue.parse(data),
                   snapshot != box.snapshot else { return (reply, nil) }
@@ -396,7 +399,8 @@ public final class AppHealth: Sendable {
 
     /// The one timer: armed to `next` (model ms), replaced only when the deadline moved; cancelled
     /// when the model has none.
-    private func arm(_ box: inout Box, next: UInt64?, now: UInt64) {
+    /// `part`: the part the deadline is for (the model's `nextTickId`), which the wakeup ledger names.
+    private func arm(_ box: inout Box, next: UInt64?, part: String? = nil, now: UInt64) {
         guard box.armedAt != next || (next != nil && !timer.isScheduled) else { return }
         box.armedAt = next
         guard let next else {
@@ -405,7 +409,16 @@ public final class AppHealth: Sendable {
         }
         let delay = Duration.milliseconds(Int64(clamping: next > now ? next - now : 0))
         // wakeup-allow: one one-shot deadline at the model's next expiry; cancelled when it has none.
-        timer.schedule(after: delay) { [weak self] in self?.tick() }
+        timer.schedule(after: delay, reason: part.map { "deadline " + Self.ledgerName($0) } ?? "deadline") { [weak self] in
+            self?.tick()
+        }
+    }
+
+    /// A part id for the ledger: its kind and a short name (`page:4F2A…` keeps 8 characters after the kind).
+    static func ledgerName(_ id: String) -> String {
+        let parts = id.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, let kind = parts.first, let name = parts.last else { return String(id.prefix(24)) }
+        return kind + ":" + name.prefix(8)
     }
 
     private func tick() {

@@ -20,6 +20,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import step_run  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next.yml"
 SCRIPT = ROOT / "scripts" / "cmux-next" / "main-thread-heavy-suites.py"
@@ -133,6 +136,9 @@ class Limits(unittest.TestCase):
 class Workflow(unittest.TestCase):
     def setUp(self) -> None:
         self.steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["swift-test"]["steps"]
+        for s in self.steps:  # a moved step's commands, read from its script
+            if "run" in s:
+                s["run"] = step_run(s)
         self.names = [s.get("name", "") for s in self.steps]
 
     def step(self, prefix: str) -> dict:

@@ -124,6 +124,9 @@ export function queryFlatWords(query: ParsedQuery): string[] {
   return query.words.map(compact);
 }
 
+/// A family followed by a version ("astra-6.2"), which also names the id that ends "6.2-astra".
+const FAMILY_VERSION = /^([a-z]+)-(\d+(?:\.\d+)*)$/;
+
 /// `fitsQuery` on a model's `keys`, with the query's `flatWords` (queryFlatWords).
 export function fitsKeys(
   keys: SearchKeys,
@@ -133,8 +136,14 @@ export function fitsKeys(
 ): boolean {
   // A word matches as typed, or with spaces, dots and dashes ignored on both sides ("opus55", "gpt5.5", "4-5").
   for (let index = 0; index < query.words.length; index += 1) {
+    const word = query.words[index]!;
     const flatWord = flatWords[index]!;
-    if (!keys.text.includes(query.words[index]!) && (flatWord === "" || !keys.flat.includes(flatWord))) return false;
+    if (keys.text.includes(word) || (flatWord !== "" && keys.flat.includes(flatWord))) continue;
+    // A family followed by a version ("astra-6.2") also names "gpt-6.2-astra".
+    const reversed = FAMILY_VERSION.exec(word);
+    if (!reversed) return false;
+    if (model.id.toLowerCase().split("/").at(-1)?.split("-").slice(-2).join("-") !== `${reversed[2]}-${reversed[1]}`)
+      return false;
   }
   if (query.effort && model.efforts && !model.efforts.some((effort) => effort.toLowerCase() === query.effort))
     return false;
@@ -156,6 +165,9 @@ export function narrows(previous: ParsedQuery, next: ParsedQuery): boolean {
   if (next.words.length < previous.words.length) return false;
   if (previous.effort !== undefined && previous.effort !== next.effort) return false;
   if (previous.fast && !next.fast) return false;
+  // A family-version word matches by its reversed id too, which a shorter word typed before it
+  // ("astra-6") never did: its matches are not among the earlier's.
+  if (next.words.some((word) => FAMILY_VERSION.test(word))) return false;
   return previous.words.every((word, index) => {
     const typed = next.words[index]!;
     const flat = compact(word);

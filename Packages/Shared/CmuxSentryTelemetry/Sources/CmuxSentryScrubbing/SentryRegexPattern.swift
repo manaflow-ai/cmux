@@ -58,7 +58,11 @@ public struct SentryRegexPattern: Sendable {
     /// Replaces every match with the string returned by `replacement`.
     ///
     /// Matches are rewritten from the end backwards so earlier ranges stay valid
-    /// while later matches are spliced out.
+    /// while later matches are spliced out. The splice works on UTF-16 offsets
+    /// (`NSMutableString`), so each match costs its own length: turning every
+    /// `NSRange` into a `String.Index` walked the string from the start, which
+    /// made a long string with many matches quadratic (cosmic-gray sample,
+    /// 2026-11-21: `Substring.index(_:offsetBy:)` under the event scrubber).
     ///
     /// - Parameters:
     ///   - text: The string to scan.
@@ -75,12 +79,11 @@ public struct SentryRegexPattern: Sendable {
         let matches = regex.matches(in: text, range: fullRange)
         guard !matches.isEmpty else { return nil }
 
-        var result = text
+        let result = NSMutableString(string: text)
         for checkingResult in matches.reversed() {
             let match = SentryRegexMatch(source: source, result: checkingResult)
-            guard let swiftRange = Range(checkingResult.range, in: result) else { continue }
-            result.replaceSubrange(swiftRange, with: replacement(match))
+            result.replaceCharacters(in: checkingResult.range, with: replacement(match))
         }
-        return result
+        return result as String
     }
 }

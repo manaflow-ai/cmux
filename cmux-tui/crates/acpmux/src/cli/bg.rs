@@ -91,8 +91,8 @@ pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
             }
             let command = if argv {
                 command.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ")
-            } else if command.len() == 1 {
-                command[0].clone()
+            } else if let [only] = command.as_slice() {
+                only.clone()
             } else {
                 return Err(anyhow!(
                     "bg start takes one shell COMMAND string; pass --argv to quote multiple argv values"

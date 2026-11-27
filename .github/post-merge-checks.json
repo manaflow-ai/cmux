@@ -136,7 +136,7 @@
     },
     "cmux-next-base-linux.yml": {
       "kind": "check",
-      "why": "reruns the step table's linux job, which pr-pipeline.yml already runs on each pull request, on the base tip to name a red landing (#51391); report-only"
+      "why": "reruns the step table's linux and web-browser jobs, which pr-pipeline.yml already runs on each pull request, on the base tip to name a red landing (#51391) and give base_red_excuse.py their base verdicts; report-only"
     },
     "cmux-next-base-tier-kick.yml": {
       "kind": "publish",
@@ -221,6 +221,10 @@
     "git-mirror-bundle.yml": {
       "kind": "publish",
       "why": "publishes the git mirror bundle the fleet clones from"
+    },
+    "ios-link-ffi-cache-seed.yml": {
+      "kind": "publish",
+      "why": "publishes the base's CmuxMobileLinkFFI.xcframework Actions cache entry that pull request runs read (Actions caches only flow from the base branch); no verdict on a change: the kit's bindings drift check runs on the pull request (cmux-next-ios-kit.yml kit-tests)"
     },
     "ios-internal-nightly-trigger.yml": {
       "kind": "publish",

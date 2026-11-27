@@ -31,11 +31,13 @@ nonisolated enum UpdaterStrings {
     }
     // An install that left the old build running (``UpdateInstallFailure``)
     static var installFailedTitle: String { text("updater.installFailed.title", "Update Didn't Install") }
+    // retry-prompt-ok: installs the update again: downloads and replaces the app's binaries
     static var tryAgain: String { text("updater.card.tryAgain", "Try Again") }
     static var installFailedTranslocatedShort: String {
         text("updater.installFailed.translocated.short", "cmux runs from a read-only copy")
     }
     static var installFailedTranslocated: String {
+        // retry-prompt-ok: an update install that replaces binaries; moving cmux is the person's step
         text("updater.installFailed.translocated", "cmux can't update itself from a read-only copy. Move cmux to Applications, open it from there, and try again.")
     }
     static var installFailedFolderShort: String { text("updater.installFailed.folder.short", "cmux can't replace itself here") }
@@ -44,10 +46,12 @@ nonisolated enum UpdaterStrings {
     }
     static var installFailedSpaceShort: String { text("updater.installFailed.space.short", "Not enough free disk space") }
     static var installFailedSpace: String {
+        // retry-prompt-ok: an update install that replaces binaries; freeing space is the person's step
         text("updater.installFailed.space", "There wasn't enough free disk space to install the update. Free some space and try again, or download the update manually.")
     }
     static var installFailedUnknownShort: String { text("updater.installFailed.unknown.short", "The installer kept this version") }
     static var installFailedUnknown: String {
+        // retry-prompt-ok: an update install that replaces binaries and relaunches
         text("updater.installFailed.unknown", "The installer kept this version of cmux and gave no reason. Try again, or download the update manually.")
     }
     static var managed: String { text("updater.title.managed", "Updates Are Managed") }
@@ -222,6 +226,7 @@ nonisolated enum UpdaterStrings {
     static func installStalledDetail(minutes: Int) -> String {
         format("updater.notice.stalledDetail", "cmux waited %lld min for the installer. Your windows are back. Details shows the update log.", minutes)
     }
+    // retry-prompt-ok: an update check that leads to a download and install; the scheduled check also runs again by itself
     static var checkFailedDetail: String { text("updater.notice.checkFailedDetail", "Check your connection and try again.") }
     static var noticeDismiss: String { text("updater.notice.dismiss", "Dismiss") }
     // Short notice titles; the version goes in the detail line.
@@ -246,6 +251,7 @@ nonisolated enum UpdaterStrings {
     static var install: String { text("updater.button.install", "Install and Relaunch") }
     static var later: String { text("updater.button.later", "Later") }
     static var cancel: String { text("updater.button.cancel", "Cancel") }
+    // retry-prompt-ok: an update check, download or install: downloads and replaces binaries
     static var retry: String { text("updater.button.retry", "Try Again") }
     static var done: String { text("updater.button.done", "Done") }
     static var relaunch: String { text("updater.button.relaunch", "Relaunch") }

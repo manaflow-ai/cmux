@@ -16,6 +16,7 @@ workspace = true
 hotpatch = ["dep:subsecond"]
 
 [dependencies]
+cmux-transport-rewrite.workspace = true
 # What a Cloud machine state frame means (machine_state_push.rs, apps-machine-state-watch).
 cmux-cloud-machine.workspace = true
 cmux-presence.workspace = true

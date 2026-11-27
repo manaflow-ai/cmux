@@ -17,6 +17,7 @@ export async function mountComponent(
   await installPaneStrings();
   applyAgentTheme(context.agentTheme as never);
   installChipHost(state.chipHost);
+  if (state.experiments) globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, ...state.experiments };
   if (entry.pane) document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
   await import("../../pages/shared/desktop");
   // After desktop.ts: it inserts desktop.css and the liquid glass (ui/glass/glass.css) on their own,
