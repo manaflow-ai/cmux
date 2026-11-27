@@ -641,7 +641,10 @@
         "docs/mdm/com.manaflow.cmux.intune.plist",
         "docs/mdm/com.manaflow.cmux.json",
         "docs/mdm/com.manaflow.cmux.plist",
-        "docs/mdm/managed-preferences.md"
+        "docs/mdm/managed-preferences.md",
+        "schemas/settings/source/row-facts.json",
+        "schemas/settings/source/samples.json",
+        "schemas/window-registry/vectors.json"
       ],
       "jobs": {"conformance": "seven-language live conformance", "packages": "${{ matrix.language }} package", "consumers": "${{ matrix.language }} consumer", "rust-msrv": "Rust SDK MSRV (1.88)", "code-mode": "code-mode MCP cancellation"}
     },
