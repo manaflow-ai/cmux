@@ -88,7 +88,7 @@ test("a turn failed on a used-up usage limit draws the account card with its way
     </TurnActionsContext.Provider>,
   );
   expect(markup).toContain('data-failure-kind="usage-limit"');
-  expect(markup).toContain("Claude Code&#x27;s account hit its usage limit. It resets Nov 27, 7am (UTC)");
+  expect(markup).toContain("Claude Code&#x27;s account hit its usage limit; it resets Nov 27, 7am (UTC)");
   const useAnother = markup.indexOf(t("turn.failure.useAnotherAgent"));
   const otherAccount = markup.indexOf(t("turn.failure.signInAnotherAccount"));
   expect(useAnother).toBeGreaterThan(-1);

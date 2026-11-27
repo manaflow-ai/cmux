@@ -19,6 +19,7 @@ import {
   type RailShow,
 } from "./threadMinimap/railShow";
 import { useSyncExternalStore } from "react";
+import type { SessionInfoPlacement } from "./session-info/sessionInfoModel";
 import {
   defaultDetailOf,
   presentationOfDetail,
@@ -29,7 +30,7 @@ import {
 } from "./chatDetail";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { experimentArm, isArm } from "../../experiments/experiment";
+import { isArm, experimentArm } from "../../experiments/experiment";
 import { readingLook, readingLookValues } from "./readingLook.experiment";
 import {
   HIGH_CONTRAST_CHAT_VARIABLES,
@@ -117,7 +118,8 @@ export interface ChatDisplay {
   /// 2026-10-20), and pushes the chat aside only when the gutter has no room for it, so it never
   /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
   /// look: the Text & Width popover's Reset leaves it.
-  sessionInfo: "push" | "overlay";
+  /// `inline` draws it as a band atop the transcript, in the chat's flow (sessionInfoModel.ts).
+  sessionInfo: SessionInfoPlacement;
   /// The prompt rail edge; its context menu writes the same saved setting.
   railSide: "left" | "right";
   /// cmux's Minimal Mode (`sidebar.minimal`, the palette's Enable Minimal Mode), which the chat
@@ -143,6 +145,9 @@ export interface ChatDisplay {
 /// Settings > Agent Chat > Session Info (Swift AgentPaneDisplaySettingsSchema has the same row).
 /// The host sends a value saved under the row's old key under this one (Swift RenamedSettingKeys).
 export const SESSION_INFO_PLACEMENT_KEY = "agentPane.display.sessionInfo.placement";
+/// A saved Session Info placement; anything else is the default, `overlay`.
+export const sessionInfoPlacementOf = (value: unknown): SessionInfoPlacement =>
+  value === "push" || value === "inline" ? value : "overlay";
 export const RAIL_SIDE_KEY = "agentPane.display.rail.side";
 /// Settings > Agent Chat: the machine · folder chip's placement below the tab row.
 export const ENVIRONMENT_PLACEMENT_KEY = "agentPane.display.environment.placement";
@@ -418,7 +423,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     codeLigatures: !declaresFirstFamily(values[CHAT_FONT_FACES_KEY], codeFamily),
-    sessionInfo: values[SESSION_INFO_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    sessionInfo: sessionInfoPlacementOf(values[SESSION_INFO_PLACEMENT_KEY]),
     railSide: values[RAIL_SIDE_KEY] === "right" ? "right" : "left",
     minimal: values[MINIMAL_MODE_KEY] === true,
     environmentPlacement: isEnvironmentPlacement(values[ENVIRONMENT_PLACEMENT_KEY])
