@@ -153,6 +153,15 @@ impl Match {
             })
     }
 
+    /// A target with a menu role (menu_item, menu_bar_item, menu) is looked
+    /// up in the app's menu bar too, so one batch step can press a menu
+    /// command (File > Save) with no look first to learn its id.
+    fn in_menus(&self) -> bool {
+        self.role.as_deref().is_some_and(|r| {
+            ["menu_item", "menu_bar_item", "menu"].iter().any(|m| r.eq_ignore_ascii_case(m))
+        })
+    }
+
     /// `role "button", label "Save"`.
     fn describe(&self) -> String {
         let mut parts = Vec::new();
@@ -725,7 +734,7 @@ impl Engine {
         window: &Window,
         m: &Match,
     ) -> Result<(u32, String, crate::desktop::UiTree), ToolOutput> {
-        let tree = self.read_for_match(ctx, &window.id)?;
+        let tree = self.read_for_match(ctx, &window.id, m.in_menus())?;
         let mut hits = Vec::new();
         find_all(&tree.root, m, &mut hits);
         let what = m.describe();
@@ -817,12 +826,13 @@ impl Engine {
         &self,
         ctx: &CallContext,
         window_id: &str,
+        menus: bool,
     ) -> Result<crate::desktop::UiTree, ToolOutput> {
         let read = |max_nodes| {
             self.walk_tree_for(
                 Some(&ctx.session),
                 window_id,
-                TreeOptions { max_nodes, menus: false, ..TreeOptions::default() },
+                TreeOptions { max_nodes, menus, ..TreeOptions::default() },
             )
             .map_err(|e| ToolOutput::desktop(&e))
         };
@@ -941,7 +951,8 @@ impl Engine {
         w: &WaitFor,
         first: bool,
     ) -> Result<(Probe, crate::desktop::UiTree), ToolOutput> {
-        let tree = self.read_for_match(ctx, &window.id)?;
+        let menus = matches!(&w.subject, Subject::Match(m) if m.in_menus());
+        let tree = self.read_for_match(ctx, &window.id, menus)?;
         let element: Option<Element> = match &w.subject {
             Subject::Id(n) => {
                 let resolved = lock(&self.observe.ids).window(&window.id).map(|r| r.resolve(*n));
