@@ -56,6 +56,14 @@ permissions:
   contents: read
 
 env:
+  # Match the producer toolchain even when verifying an older merge-parent tree.
+  CMUX_WEB_BUN_VERSION: "1.4.4"
+  CMUX_WEB_NODE_VERSION: "24.22.1"
+  # Style guards (lint, format, size, drift) warn everywhere but main and release tags, which stay strict (Leo
+  # 2026-10-19, #22396). Keyed on the strict refs, not on feat-cmux-next, so a stacked pull request (base: another
+  # lane branch) warns like its parent instead of failing on findings feat-cmux-next already has (#54185).
+  # Steps read it as CMUX_NEXT_STYLE_GUARDS; tests/test_style_guards_level.py evaluates it.
+  CMUX_NEXT_STYLE_GUARDS_LEVEL: ${{ (github.base_ref == 'main' || github.event.merge_group.base_ref == 'refs/heads/main' || (!github.base_ref && !github.event.merge_group && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')))) && 'fail' || 'warn' }}
   # 0 restores the webview test selection before 2026-11-22 (scripts/ci/webviews_affected.py NARROW): a deleted
   # source and a baseline a test reads run every shard again, and the two reviewed runtime loads are always-run again.
   CI_WEBVIEWS_NARROW_SELECTION: ${{ vars.CI_WEBVIEWS_NARROW_SELECTION || '1' }}
@@ -93,16 +101,20 @@ jobs:
       diff_sidecar: ${{ steps.scope.outputs.diff_sidecar }}
       instant: ${{ steps.scope.outputs.instant }}
       production_build: ${{ steps.scope.outputs.production_build }}
-      react_apps: ${{ steps.scope.outputs.react_apps }}
-      agent_pane: ${{ steps.scope.outputs.agent_pane }}
+      react_apps: ${{ steps.reuse.outputs.react_apps }}
+      agent_pane: ${{ steps.reuse.outputs.agent_pane }}
+      react_key: ${{ steps.reuse.outputs.react_key }}
+      agent_key: ${{ steps.reuse.outputs.agent_key }}
       react_shards: ${{ steps.react-shards.outputs.matrix }}
       react_class: ${{ steps.react-shards.outputs.class }}
       react_fleet: ${{ steps.react-shards.outputs.fleet }}
+      base_bundle_ref: ${{ steps.base-bundle-plan.outputs.ref }}
+      base_bundle_same: ${{ steps.base-bundle-plan.outputs.same }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
       unit_tests: ${{ steps.scope.outputs.unit_tests }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           fetch-depth: 2
@@ -124,12 +136,56 @@ jobs:
           WEB_SUBAREAS_BASE: ${{ inputs.sha != '' && 'all' || inputs.push_base }}
         run: python3 scripts/ci/web_subareas.py route
 
+      # A pull request whose React inputs (this head's and its merge parent's, web_subareas.py green_key) match a head
+      # whose react-apps-check, or agent pane check, already passed has nothing new to prove: the area is
+      # routed off, exactly as for a pull request touching no React input. The passing run saves the marker (react-apps-check,
+      # agent-pane-real-acpmux). Never on a push, a post-merge batch or a full-ci pull request. ci500k, Leo: "de facto,
+      # im asking for 99% fewer minutes of ci time, period."
+      - name: Look up a green marker for the React inputs
+        id: react-green
+        if: ${{ github.event_name == 'pull_request' && steps.scope.outputs.react_key != '' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/react-green-marker
+          key: webviews-react-green-${{ steps.scope.outputs.react_key }}
+          lookup-only: true
+
+      - name: Look up a green marker for the agent pane inputs
+        id: agent-green
+        if: ${{ github.event_name == 'pull_request' && steps.scope.outputs.agent_key != '' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/agent-green-marker
+          key: webviews-agent-green-${{ steps.scope.outputs.agent_key }}
+          lookup-only: true
+
+      - name: Route off an area whose inputs already passed
+        id: reuse
+        env:
+          REACT_APPS: ${{ steps.scope.outputs.react_apps }}
+          AGENT_PANE: ${{ steps.scope.outputs.agent_pane }}
+          REACT_HIT: ${{ steps.react-green.outputs.cache-hit }}
+          AGENT_HIT: ${{ steps.agent-green.outputs.cache-hit }}
+          REACT_KEY: ${{ steps.scope.outputs.react_key }}
+          AGENT_KEY: ${{ steps.scope.outputs.agent_key }}
+        run: |
+          [ "$REACT_HIT" = true ] && { echo "react-apps-check: the inputs already passed (key $REACT_KEY); skipped"; REACT_APPS=false; }
+          [ "$AGENT_HIT" = true ] && { echo "agent pane: the inputs already passed (key $AGENT_KEY); skipped"; AGENT_PANE=false; }
+          {
+            echo "react_apps=$REACT_APPS"
+            echo "agent_pane=$AGENT_PANE"
+            echo "react_key=$REACT_KEY"
+            echo "agent_key=$AGENT_KEY"
+          } >> "$GITHUB_OUTPUT"
+
       # The webview test shards split their files by recorded duration
       # (scripts/ci/webviews_test_shards.py). One copy of the manifest for the
       # whole run: a shard that read the cache itself could get a newer
       # manifest than its siblings, split differently, and skip or repeat files.
       - name: Restore the webview test duration manifest
-        if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        if: ${{ steps.reuse.outputs.react_apps == 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/webviews-durations/manifest.json
@@ -142,7 +198,7 @@ jobs:
       # alone: 17 of a shard's 51 min of tests. Unique keys a push, so the prefix restores the newest.
       - name: Restore the base's webview test history
         id: base-history-cache
-        if: ${{ steps.scope.outputs.react_apps == 'true' && github.event_name == 'pull_request' }}
+        if: ${{ steps.reuse.outputs.react_apps == 'true' && github.event_name == 'pull_request' }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
@@ -161,10 +217,11 @@ jobs:
       # cached history above, else the artifact's list and download, two requests), and best effort: without the file
       # every red file is retried.
       - name: Hand the duration manifest to the shards
-        if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        if: ${{ steps.reuse.outputs.react_apps == 'true' }}
         env:
           GITHUB_TOKEN: ${{ github.event_name == 'pull_request' && github.token || '' }}
           BASE_REF: ${{ github.base_ref }}
+          HELD_RED_HOURS: ${{ vars.CMUX_WEB_TEST_HELD_RED_HOURS || '24' }}
         run: |
           manifest="$RUNNER_TEMP/webviews-durations/manifest.json"
           mkdir -p "$(dirname "$manifest")"
@@ -178,6 +235,16 @@ jobs:
               python3 scripts/ci/webviews_test_history.py known-reds "$history" --before "$(git log -1 --format=%ct HEAD^1)" \
                 --out "$RUNNER_TEMP/webviews-durations/base-reds.json"; } ||
               { rm -f "$RUNNER_TEMP/webviews-durations/base-reds.json"; echo "the base's webview reds are unread: every red file is retried"; }
+            # Files red on every base push for HELD_RED_HOURS or more are left to the batch runs (held-red-files): the
+            # shards skip them, and a file the change edits still runs. Undo: the repository variable
+            # CMUX_WEB_TEST_HELD_RED_HOURS=0.
+            if [ -s "$history" ] && [ "${HELD_RED_HOURS:-0}" != 0 ]; then
+              git diff --name-only HEAD^1 HEAD -- webviews/ 2>/dev/null | sed 's#^webviews/##' > "$RUNNER_TEMP/webviews-durations/changed" || :
+              python3 scripts/ci/webviews_test_history.py held-red-files "$history" --before "$(git log -1 --format=%ct HEAD^1)" \
+                --hours "$HELD_RED_HOURS" --changed "$RUNNER_TEMP/webviews-durations/changed" \
+                --out "$RUNNER_TEMP/webviews-durations/held-reds" ||
+                { rm -f "$RUNNER_TEMP/webviews-durations/held-reds"; echo "the held base reds are unread: every file runs"; }
+            fi
           fi
 
       # The react-apps-check shards this run starts (webviews_pr_shards.py). Leo, 2026-11-21: "id rather we simply cut
@@ -200,10 +267,15 @@ jobs:
       # entry "1"), not its share of the closure: that share was about 37 of its 48 minutes (11-22).
       - name: Pick the react-apps-check shards
         id: react-shards
-        if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        if: ${{ steps.reuse.outputs.react_apps == 'true' }}
         env:
-          REACT_APPS_SHARDS: "8"
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          # 12 again on 2026-11-27: run 45778691646's shard 1 (435 files, 65 failing first tries, on an 8 of 16 vCPU
+          # runner: 4 files at a time, 2 dev server files) hit the 90 min job limit three times on a gallery-only pull
+          # request while still progressing. 12 shards cut each shard's closure by a third (690 s of tests a shard at
+          # 12 against about 1000 s at 8, runs 43338660731 to 43342364793); the split is timing-based, so the count is
+          # the only knob. scripts/ci/react-apps-check-fleet.sh --count and tests/test_web_validation.py move with it.
+          REACT_APPS_SHARDS: "12"
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           # Into feat-cmux-next a FULL path runs the sampled pick; its post-merge batch runs every shard
           # (webviews_pr_shards.py full_to_batch). CI_WEBVIEWS_FULL_TO_BATCH=0 runs every shard for it again.
           CI_WEBVIEWS_PR_BASE: ${{ github.base_ref }}
@@ -215,7 +287,7 @@ jobs:
           # Where react-apps-check runs (scripts/ci/react_apps_fleet.py): a feat-cmux-next pull request whose pick
           # runs only touched tests runs it on the fleet (ci/steps.toml's react-apps-check, pr-pipeline.yml).
           CI_PR_BASE_REF: ${{ github.base_ref }}
-          CI_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          CI_FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CI_REACT_APPS_FLEET: ${{ vars.CI_REACT_APPS_FLEET || '1' }}
           CI_REACT_APPS_FLEET_AUDIT: ${{ vars.CI_REACT_APPS_FLEET_AUDIT || '16' }}
@@ -260,8 +332,38 @@ jobs:
               rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-files.tmp"
           fi
 
+      # Do not compile the base unless the early replay actually has files. Head/base remain distinct trees.
+      - name: Plan the early base bundle
+        id: base-bundle-plan
+        if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && steps.reuse.outputs.react_apps == 'true' }}
+        env:
+          REACT_APPS_CLASS: ${{ steps.react-shards.outputs.class }}
+        run: |
+          plan="$RUNNER_TEMP/base-bundle-plan"
+          mkdir -p "$plan"
+          cp scripts/ci/webviews_test_history.py "$plan/"
+          only=()
+          if [ "$REACT_APPS_CLASS" = sampled ] || [ "$REACT_APPS_CLASS" = fast ]; then
+            (cd webviews && python3 ../scripts/ci/webviews_affected.py --base HEAD^1 --head HEAD) > "$plan/affected" || : > "$plan/affected"
+            [ ! -s "$RUNNER_TEMP/webviews-durations/pr-shard-files" ] || cp "$RUNNER_TEMP/webviews-durations/pr-shard-files" "$plan/affected"
+            [ ! -s "$plan/affected" ] || only=(--only "$plan/affected")
+          fi
+          head_key="$(python3 scripts/cmux-next/web-bundle-key.py . --source)"
+          head="$(git rev-parse HEAD)"
+          base="$(git rev-parse HEAD^1)"
+          trap 'git checkout -q --detach "$head"' EXIT
+          git checkout -q --detach "$base"
+          python3 "$plan/webviews_test_history.py" early-files "$RUNNER_TEMP/webviews-durations/base-reds.json" \
+            --shard 1 --shard-count 1 --durations "$RUNNER_TEMP/webviews-durations/manifest.json" \
+            --root webviews "${only[@]}" > "$plan/files" || : > "$plan/files"
+          if [ -s "$plan/files" ]; then
+            echo "ref=$base" >> "$GITHUB_OUTPUT"
+            base_key="$(python3 scripts/cmux-next/web-bundle-key.py . --source)"
+            if [ "$head_key" = "$base_key" ]; then echo "same=true" >> "$GITHUB_OUTPUT"; fi
+          fi
+
       - name: Upload the duration manifest
-        if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        if: ${{ steps.reuse.outputs.react_apps == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: webviews-test-durations
@@ -270,6 +372,7 @@ jobs:
           path: |
             ${{ runner.temp }}/webviews-durations/manifest.json
             ${{ runner.temp }}/webviews-durations/base-reds.json
+            ${{ runner.temp }}/webviews-durations/held-reds
             ${{ runner.temp }}/webviews-durations/pr-shard-files
             ${{ runner.temp }}/webviews-durations/pr-shard-direct.json
           if-no-files-found: error
@@ -292,7 +395,7 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
 
@@ -307,6 +410,20 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -314,16 +431,18 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -402,7 +521,7 @@ jobs:
     needs: web-subarea-scope
     # Land tier (#54886): a feat-cmux-next pull request head not handed to land skips it; the `ready-to-land`
     # label re-runs it at the same head. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || 'cmux-linux' }}
     # The merge's type check, and on a red the base's (a worktree of the merge parent).
     timeout-minutes: 15
@@ -413,7 +532,7 @@ jobs:
         working-directory: webviews
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The merge commit with its parents: a red is compared with the merge parent's.
           fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
@@ -430,12 +549,34 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.4"
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       # Restore only: the react-apps-check shards save this key.
       - name: Restore the Bun package cache
+        if: ${{ (steps.fsr-bun-cache.outputs.hit != 'true') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
@@ -455,7 +596,7 @@ jobs:
       - name: Type check webviews
         id: typecheck
         env:
-          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+          CMUX_NEXT_STYLE_GUARDS: ${{ env.CMUX_NEXT_STYLE_GUARDS_LEVEL }}
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
           # fixit-compile (ci-oops 0a) runs inside the type check here, since the shards skip it (--skip typecheck)
           FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -512,7 +653,7 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
@@ -528,6 +669,20 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -535,16 +690,18 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -582,7 +739,7 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
@@ -598,6 +755,20 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -605,16 +776,18 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -658,11 +831,20 @@ jobs:
     name: Agent pane on real acpmux
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
+    env:
+      # A slow link to the cache store must lose to a cold install, not eat the job's 30 minutes. On the controller
+      # timing feed (2026-11-23 00:10-06:10Z, 369 jobs, 95 runner-h) the 1.1 GB Bun package cache restored at about
+      # 1-2 MB/s on fsr-* and the pool's hs/hx/hd runners: 600-955 s at the median, then "Failed to restore: Server
+      # failed to authenticate" at 10 minutes, where a cold `bun install` took 3-24 s. 70 of the 78 jobs with such a
+      # restore were cut at the 30-minute timeout (35 runner-h of the 95). actions/cache (and rust-cache, which uses
+      # it) gives up on a 128 MB segment that takes longer than this and restores nothing, so a restore under about
+      # 2 MB/s costs a minute; the fast pools restore the same entry in 26-43 s and are untouched.
+      SEGMENT_DOWNLOAD_TIMEOUT_MINS: "1"
     steps:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Checkout
         timeout-minutes: 6
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
@@ -678,23 +860,45 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next' && steps.fsr-bun-cache.outputs.hit != 'true') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install webviews dependencies
         working-directory: webviews
@@ -718,6 +922,11 @@ jobs:
 
       - name: Build acpmux
         working-directory: cmux-tui
+        env:
+          # The pane checks drive the daemon; nobody reads its full debuginfo here. Line tables keep a panic's
+          # backtrace readable and skip most of the debug codegen and link of the workspace crates (opt-level 1 in
+          # profile.dev), the bulk of this step's ~5 minutes on every run (dependencies already build without it).
+          CARGO_PROFILE_DEV_DEBUG: line-tables-only
         run: |
           cargo build --locked -p acpmux --bin acpmux
           # CARGO_TARGET_DIR (a fleet runner's shared target) moves the binary out of cmux-tui/target.
@@ -754,6 +963,19 @@ jobs:
           done
           exit "$status"
 
+      - name: Mark these agent pane inputs green
+        if: ${{ success() && github.event_name == 'pull_request' && needs.web-subarea-scope.outputs.agent_key != '' }}
+        continue-on-error: true
+        run: mkdir -p "$RUNNER_TEMP/agent-green-marker" && date -u > "$RUNNER_TEMP/agent-green-marker/passed"
+
+      - name: Save the agent pane green marker
+        if: ${{ success() && github.event_name == 'pull_request' && needs.web-subarea-scope.outputs.agent_key != '' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/agent-green-marker
+          key: webviews-agent-green-${{ needs.web-subarea-scope.outputs.agent_key }}
+
       - name: Upload the measurements
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -776,7 +998,7 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
@@ -792,6 +1014,20 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -799,16 +1035,18 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -845,14 +1083,27 @@ jobs:
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
 
-  react-apps-check-shard:
+  # One immutable build per source tree and run attempt, shared by every React shard.
+  react-apps-head-bundles:
     needs: web-subarea-scope
+    if: ${{ github.event_name == 'pull_request' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.web-subarea-scope.outputs.react_fleet != 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/cmux-next-compile-preflight.yml
+    with:
+      force_web: true
+      source_ref: ${{ inputs.sha || github.sha }}
+      artifact_prefix: ci-web-head-bundles
+
+  react-apps-check-shard:
+    needs: [web-subarea-scope, react-apps-head-bundles]
     # A feat-cmux-next pull request whose pick runs only touched tests (react_fleet, scripts/ci/react_apps_fleet.py)
     # runs this check as the ci/steps.toml step `react-apps-check` (pr-pipeline.yml's web-browser job) instead.
     # Land tier (#54886): a feat-cmux-next pull request head not handed to land skips it; the `ready-to-land`
     # label re-runs it at the same head. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
     # react-apps-base-check and webviews-test-durations skip with it; react-apps-check and Web status still report.
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.web-subarea-scope.outputs.react_fleet != 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
+    if: ${{ !cancelled() && needs.web-subarea-scope.result == 'success' && (github.event_name != 'pull_request' || needs.react-apps-head-bundles.result == 'success') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.web-subarea-scope.outputs.react_fleet != 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
     # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
     # 4 vCPU runner (run 37666132324). 16 vCPU has the memory and runs 16 files
     # and 4 dev-server files at once (run-webviews-tests.sh). These shards were the
@@ -904,6 +1155,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
     timeout-minutes: &webview-shard-minutes ${{ github.repository_owner != 'manaflow-ai' && 90 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 90 || contains(fromJSON(vars.RUNNER_POOLS).linux_4, '-2vcpu-') && 150 || github.event_name == 'workflow_dispatch' && 45 || 90 }}
     name: react-apps-check (${{ matrix.shard }})
     strategy:
@@ -919,7 +1171,7 @@ jobs:
         run: echo "CMUX_WEB_TEST_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           # A pull request's merge commit with its parents: ui-rules and gallery
@@ -947,7 +1199,7 @@ jobs:
       # median shard 1 job ran no test file. Any doubt (no file, no entry, an unreadable map) installs them as before.
       - name: Does this shard run a test file
         id: shard-tests
-        if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
         env:
           REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
         run: |
@@ -980,11 +1232,11 @@ jobs:
       # Same-repository pull requests only; any error fails open and the shard runs in full. A push always runs.
       - name: Key this shard's same-input receipt
         id: receipt-key
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_REACT_SHARD_RECEIPT != '0' }}
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_REACT_SHARD_RECEIPT || '1') != '0' }}
         continue-on-error: true
         env:
           RECEIPT_SHARD: ${{ matrix.shard }}
-          RECEIPT_CONFIG: ${{ format('{0}|full-ci={1}|base={2}|{3}-{4}', toJSON(matrix), contains(github.event.pull_request.labels.*.name, 'full-ci'), github.base_ref, runner.os, runner.arch) }}
+          RECEIPT_CONFIG: ${{ format('{0}|full-ci={1}|base={2}|{3}-{4}', toJSON(matrix), (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')), github.base_ref, runner.os, runner.arch) }}
           # The key hashes the files whose change runs this check (web_subareas.is_react_input), not every file, so a
           # push that touches none of them hits the receipt of the same inputs; 0 keys the whole trees as before.
           RECEIPT_INPUT_SCOPE: ${{ vars.CI_REACT_RECEIPT_INPUT_SCOPE || '1' }}
@@ -1024,26 +1276,48 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       # The source build installs webviews dependencies before the test suite;
       # cache Bun's package blobs on this lane so a new source key
       # does not redownload the lockfile from scratch.
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref == 'refs/heads/feat-cmux-next' }}
+        if: ${{ ((steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref == 'refs/heads/feat-cmux-next') && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (((steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref != 'refs/heads/feat-cmux-next') && steps.fsr-bun-cache.outputs.hit != 'true') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Playwright browsers
         if: ${{ (steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref == 'refs/heads/feat-cmux-next' }}
@@ -1084,23 +1358,24 @@ jobs:
         id: source-build
         if: ${{ steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
-        run: ./scripts/build-webviews-app.sh --check --skip-typecheck
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            exec ./scripts/build-webviews-app.sh --check --skip-typecheck
+          fi
+          ./scripts/check-webviews-bun-version.sh
+          (cd webviews && bun run verify:tanstack-router)
 
-      # The bundles cmux-next.yml's web-bundles job built for this exact source key (web-bundle-key.py --source:
-      # every input file and the Bun and Node pins, the same as here), cached as cmux-next-web-bundles-v1-KEY. A pull
-      # request that changes no bundle input has its merge parent's key, which the base push's job cached: 21 of 61
-      # React-routed merges over 11-22 18Z to 11-23 02Z changed nothing under webviews/. A hit installs that build
-      # (build-web-bundles.sh --from: completeness, the committed inspector page, the stamp) after the strings
-      # tables, in place of the 108 s rebuild (job 137332637156); a miss, or any failure on the way, rebuilds as before.
+      # All shards install the producer's immutable same-run output, verified against this checkout's source key.
       - name: Source key of the web bundles
         id: web-bundle-key
         if: ${{ steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
         run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
-      - name: Look up the web bundles built for this source key
-        id: web-bundle-cache
-        if: ${{ steps.web-bundle-key.outputs.key != '' }}
+      # Keep historical post-merge/probe checkouts on their existing cache/build path: they may predate the helper.
+      - name: Look up non-PR bundles built for this source key
+        id: non-pr-web-bundle-cache
+        if: ${{ github.event_name != 'pull_request' && steps.web-bundle-key.outputs.key != '' }}
         continue-on-error: true
         timeout-minutes: 3
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -1109,23 +1384,46 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
+      - name: Download the head bundles from R2
+        id: web-bundle-cache
+        continue-on-error: true
+        if: ${{ steps.receipt.outputs.hit != 'true' && needs.react-apps-head-bundles.outputs.web_bundle_transport == 'r2' }}
+        timeout-minutes: 3
+        uses: ./.github/actions/r2-artifact/download
+        with:
+          name: ${{ needs.react-apps-head-bundles.outputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/ci-web-head-bundles
+
+      - name: Download the head bundles without OIDC
+        continue-on-error: true
+        if: ${{ steps.receipt.outputs.hit != 'true' && needs.react-apps-head-bundles.outputs.web_bundle_transport == 'github' }}
+        timeout-minutes: 3
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.react-apps-head-bundles.outputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/ci-web-head-bundles
+
       - name: Build the web bundles
         id: bundles
         if: ${{ steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
         env:
-          RESTORED: ${{ steps.web-bundle-cache.outputs.cache-hit == 'true' && 'web-bundles-out' || '' }}
+          RESTORED: ${{ steps.non-pr-web-bundle-cache.outputs.cache-hit == 'true' && 'web-bundles-out' || '' }}
         run: |
-          if [ -n "$RESTORED" ] && [ -d "$RESTORED" ]; then
-            if (cd webviews && bun scripts/pages/gen-strings.mjs) && ./scripts/cmux-next/build-web-bundles.sh --from "$RESTORED"; then
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            if [ -n "$RESTORED" ] && [ -d "$RESTORED" ]; then
+              if (cd webviews && bun scripts/pages/gen-strings.mjs) && ./scripts/cmux-next/build-web-bundles.sh --from "$RESTORED"; then
+                rm -rf "$RESTORED"
+                exit 0
+              fi
               rm -rf "$RESTORED"
-              echo "web bundles installed from the build cached for this source key"
-              exit 0
             fi
-            echo "::warning title=web bundles::the cached build for this source key did not install; building them"
-            rm -rf "$RESTORED"
+            exec ./scripts/cmux-next/build-web-bundles.sh --force
           fi
-          exec ./scripts/cmux-next/build-web-bundles.sh --force
+          key="$(python3 scripts/cmux-next/web-bundle-key.py . --source)"
+          python3 -I scripts/ci/compile_preflight.py web-artifact verify "$RUNNER_TEMP/ci-web-head-bundles" "$key"
+          (cd webviews && bun scripts/pages/gen-strings.mjs)
+          ./scripts/cmux-next/build-web-bundles.sh --from "$RUNNER_TEMP/ci-web-head-bundles"
 
       # The two git-hook suites below test scripts/install-git-hooks.sh, scripts/git-hooks/ and the post-edit
       # formatter, not the webviews tree, yet they ran on every web pull request head: 1.8 min of shard 1's
@@ -1154,13 +1452,74 @@ jobs:
           fi
           tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/hook-suites"
 
+      # Shard 1's independent checks overlap the steps they do not read (scripts/ci/shard1_background.sh): the merge
+      # driver test (80 s in job 137332637156) needs only git and Python, so it starts here and runs beside the source
+      # checks and the bundle build; its own step below waits for it and keeps its id and outcome. Leo, 2026-11-22:
+      # "if it's relaly so big then you guys need to be hurrying up and thining more innovatively".
+      - name: Start the merge driver test
+        id: merge-driver-start
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' && steps.hook-suites.outputs.merge_driver != 'false' }}
+        continue-on-error: true
+        run: |
+          # The same skip as its wait step below: a pull request that changes none of its inputs never starts it.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ -f "$CMUX_PR_CHANGED_FILES" ] &&
+            ! grep -qE '^(scripts/|tests/|\.gitattributes|\.claude/|\.codex/|\.github/workflows/ci-web\.yml|webviews/[^/]+$)' "$CMUX_PR_CHANGED_FILES"; then
+            echo "no input of this check changed: skipped on this pull request"
+            exit 0
+          fi
+          scripts/ci/shard1_background.sh start merge-driver -- python3 tests/test_install_git_hooks.py
+
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
       # they run once, on shard 1: one red check, not one per shard.
+      # The PR-scoped rules (133 s in job 137332637156) need the install and the bundles, not the checks or the
+      # engines after them: they start here and run beside those; Check PR-scoped webview rules waits for them.
+      - name: Start the PR-scoped webview rules
+        id: pr-scoped-start
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
+        continue-on-error: true
+        env:
+          CI_PR_SCOPED_BASE_BESIDE: ${{ vars.CI_PR_SCOPED_BASE_BESIDE || '1' }}
+          PR_SCOPED_RULES: &pr-scoped-rules |
+            check=scripts/tests/test_pr_scoped_webviews_checks.py
+            if [ "$GITHUB_EVENT_NAME" != pull_request ]; then exec python3 "$check"; fi
+            # The fixture commits the real webviews tree as its base, so a pull request's own webview code is only
+            # ever a base warning there: the test checks the scoping (prScope.ts) and the fixture, and only a change
+            # to those inputs can turn it red. It was 4,333 runner min in 24 h of pull request jobs (764 runs, median
+            # 335 s, 11-26); 23 of 167 merged react-apps pull requests touched the test's own files. A push still runs
+            # it in full, and no changed-files list runs it too. Inputs: the test and its helpers, webviews/test, scripts
+            # and dev-server, gallery files (the fixture loads every entry), webviews' manifests and this workflow.
+            if [ -f "${CMUX_PR_CHANGED_FILES:-}" ] && ! grep -qE '^(scripts/tests/test_pr_scoped_webviews_checks\.py|tests/git_fixture_env\.py|scripts/ci/(unittest_results|guards_new_reds|shard1_background)\.(py|sh)|webviews/(test|scripts|dev-server)/.*|webviews/src/gallery/.*|webviews/src/.*\.gallery\.[^/]*|webviews/(package\.json|bun\.lock|tsconfig\.json)|\.github/workflows/ci-web\.yml)$' "$CMUX_PR_CHANGED_FILES"; then
+              echo "::notice title=PR-scoped webview rules::No input of $check changed in this pull request; a push runs it."
+              exit 0
+            fi
+            base="$RUNNER_TEMP/pr-scoped-base"
+            base_run() {
+              git worktree add -q --detach "$base" HEAD^1 &&
+                ln -s "$PWD/webviews/node_modules" "$base/webviews/node_modules" &&
+                if [ -f "$base/$check" ]; then
+                  python3 scripts/ci/unittest_results.py "$base/$check" "$RUNNER_TEMP/pr-scoped-base.json" >"$RUNNER_TEMP/pr-scoped-base.log" 2>&1 || true
+                fi
+            }
+            pid=
+            # Its own process group (set -m), so a green head stops the whole base run, the fixture's children too.
+            if [ "$CI_PR_SCOPED_BASE_BESIDE" != 0 ]; then set -m; base_run & pid=$!; set +m; fi
+            if python3 scripts/ci/unittest_results.py "$check" "$RUNNER_TEMP/pr-scoped-head.json"; then
+              [ -z "$pid" ] || { kill -TERM -- "-$pid" 2>/dev/null; wait "$pid" 2>/dev/null; } || true
+              exit 0
+            fi
+            if [ -n "$pid" ]; then wait "$pid" || true; else base_run || true; fi
+            [ ! -f "$RUNNER_TEMP/pr-scoped-base.log" ] || { echo "::group::base run"; cat "$RUNNER_TEMP/pr-scoped-base.log"; echo "::endgroup::"; }
+            python3 scripts/ci/guards_new_reds.py --label "PR-scoped webview rule" \
+              "$RUNNER_TEMP/pr-scoped-head.json" "$RUNNER_TEMP/pr-scoped-base.json"
+        run: scripts/ci/shard1_background.sh start pr-scoped -- bash -ec "$PR_SCOPED_RULES"
+
+      # Started in the background with the job's setup (Start the merge driver test); this waits for its status.
       - name: Generated bundle merge driver
         id: merge-driver
         if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' && steps.hook-suites.outputs.merge_driver != 'false' }}
         continue-on-error: true
+        timeout-minutes: 15
         run: |
           # These two test the repo's hooks, merge drivers and formatter, not a webview: a pull request that changes
           # none of their inputs (scripts/, tests/, hook settings, .gitattributes, webviews' top-level config and this
@@ -1170,7 +1529,7 @@ jobs:
             echo "no input of this check changed: skipped on this pull request"
             exit 0
           fi
-          python3 tests/test_install_git_hooks.py
+          scripts/ci/shard1_background.sh wait merge-driver -- python3 tests/test_install_git_hooks.py
 
       # Runs after the webviews install, so the real-vp case runs too.
       - name: Post-edit formatting hook
@@ -1217,7 +1576,7 @@ jobs:
         continue-on-error: true
         working-directory: webviews
         env:
-          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+          CMUX_NEXT_STYLE_GUARDS: ${{ env.CMUX_NEXT_STYLE_GUARDS_LEVEL }}
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
           FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
@@ -1232,6 +1591,14 @@ jobs:
             done <<< "$pieces"
             exit "$status"
           fi
+          # The compiler bail check (84 s, warn-only here) reads no other check's output: it runs beside the rest. Like
+          # the other warn-only checks below, it runs on a feat-cmux-next push and in the post-merge batch, never on a
+          # pull request.
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            bails_log="$RUNNER_TEMP/compiler-bails.log"
+            bun run check:compiler-bails > "$bails_log" 2>&1 &
+            bails=$!
+          fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" --skip typecheck || status=1
           # The warn-only checks below never fail a pull request into feat-cmux-next: they cost about 2.5 of shard 1's 19
           # minutes (1,660 shard 1 jobs a day) to print warnings. A feat-cmux-next push and the post-merge batch still
@@ -1240,12 +1607,14 @@ jobs:
             echo "warn-only webviews checks run on the base's pushes, not on a pull request"
             exit "$status"
           fi
-          for check in check:design-tokens check:menu-gutters check:transcript-icons check:key-hints check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:instrument-tokens check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors check:compiler-bails; do
+          for check in check:duplicate-bindings check:design-tokens check:menu-gutters check:transcript-icons check:key-hints check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:look-addons check:surface-roles check:layout-grid check:design-scale check:instrument-tokens check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors check:one-material check:component-manifest; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
           ./node_modules/.bin/vp fmt --check || echo "::warning title=webviews format (warn-only)::vp fmt --check found unformatted files; see the step log"
           ./node_modules/.bin/vp lint || echo "::warning title=webviews lint (warn-only)::vp lint found issues; see the step log"
+          wait "$bails" || echo "::warning title=webviews check:compiler-bails (warn-only)::see the step log"
+          echo "::group::check:compiler-bails"; cat "$bails_log"; echo "::endgroup::"
           exit "$status"
 
       # The fixit-compile patch (ci-oops 0a) comes from the type check, which runs in webviews-typecheck now; that job
@@ -1273,6 +1642,8 @@ jobs:
       # red with it and skipped its tests (#49118). On a pull request, a red one is run again on the merge parent's
       # copy (a worktree of HEAD^1), and only a test red here and not there fails (guards_new_reds.py), as the tests do.
       # Leo, 2026-11-21: "these sorts of things probably shouldn't happen". A push keeps every red.
+      # Started after the bundle build (Start the PR-scoped webview rules); this waits for its status and runs it here
+      # when it never started.
       # The base run starts beside the head's, not after a red one: head then base, one after the other, was 320-416 s
       # of shard 1's 16 min in 17 pull request jobs on 2026-11-25 (about 170 s each). A green head stops the base run
       # and charges nothing. CI_PR_SCOPED_BASE_BESIDE=0 runs the base only after a red head again.
@@ -1280,30 +1651,11 @@ jobs:
         id: pr-scoped-rules
         if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
+        timeout-minutes: 20
         env:
           CI_PR_SCOPED_BASE_BESIDE: ${{ vars.CI_PR_SCOPED_BASE_BESIDE || '1' }}
-        run: |
-          check=scripts/tests/test_pr_scoped_webviews_checks.py
-          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then exec python3 "$check"; fi
-          base="$RUNNER_TEMP/pr-scoped-base"
-          base_run() {
-            git worktree add -q --detach "$base" HEAD^1 &&
-              ln -s "$PWD/webviews/node_modules" "$base/webviews/node_modules" &&
-              if [ -f "$base/$check" ]; then
-                python3 scripts/ci/unittest_results.py "$base/$check" "$RUNNER_TEMP/pr-scoped-base.json" >"$RUNNER_TEMP/pr-scoped-base.log" 2>&1 || true
-              fi
-          }
-          pid=
-          # Its own process group (set -m), so a green head stops the whole base run, the fixture's children too.
-          if [ "$CI_PR_SCOPED_BASE_BESIDE" != 0 ]; then set -m; base_run & pid=$!; set +m; fi
-          if python3 scripts/ci/unittest_results.py "$check" "$RUNNER_TEMP/pr-scoped-head.json"; then
-            [ -z "$pid" ] || { kill -TERM -- "-$pid" 2>/dev/null; wait "$pid" 2>/dev/null; } || true
-            exit 0
-          fi
-          if [ -n "$pid" ]; then wait "$pid" || true; else base_run || true; fi
-          [ ! -f "$RUNNER_TEMP/pr-scoped-base.log" ] || { echo "::group::base run"; cat "$RUNNER_TEMP/pr-scoped-base.log"; echo "::endgroup::"; }
-          python3 scripts/ci/guards_new_reds.py --label "PR-scoped webview rule" \
-            "$RUNNER_TEMP/pr-scoped-head.json" "$RUNNER_TEMP/pr-scoped-base.json"
+          PR_SCOPED_RULES: *pr-scoped-rules
+        run: scripts/ci/shard1_background.sh wait pr-scoped -- bash -ec "$PR_SCOPED_RULES"
 
       # The React Compiler's output (CMUX_VITE_TRANSFORM_CACHE, webviews/reactCompiler.mjs) from earlier runs. A
       # shard's 4 concurrent dev-server files each compiled the agent pane on an empty cache: about 90 s each before
@@ -1343,7 +1695,10 @@ jobs:
       # files the change between the two heads cannot reach (Test webviews). Best effort: no list runs every file.
       - name: Download the files that passed at the previous head
         id: passed-before
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        # A full-ci head whose pick ran (react_class sampled or fast) runs the pick's files as any pull request does
+        # (Test webviews), so it reuses the same way: over 11-26 04Z to 11-27 05Z a full-ci branch's second and later
+        # heads ran 9,818 react-apps-check minutes with nothing reused.
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (!(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || needs.web-subarea-scope.outputs.react_class == 'sampled' || needs.web-subarea-scope.outputs.react_class == 'fast') }}
         continue-on-error: true
         timeout-minutes: 2
         env:
@@ -1378,7 +1733,7 @@ jobs:
           steps.webviews-check.outcome == 'failure' || steps.pr-scoped-rules.outcome == 'failure')) }}
         working-directory: webviews
         env:
-          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+          CMUX_NEXT_STYLE_GUARDS: ${{ env.CMUX_NEXT_STYLE_GUARDS_LEVEL }}
           CMUX_WEB_TEST_SHARD: ${{ matrix.shard }}
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
           # Shard 1 runs the shard-independent checks above first (107-132 s in runs 43338660731
@@ -1392,7 +1747,9 @@ jobs:
           CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
           # From web-subarea-scope's handoff (pull requests only): a file red on the base's push gets no alone retry.
           CMUX_WEB_TEST_BASE_REDS: ${{ github.event_name == 'pull_request' && format('{0}/webviews-durations/base-reds.json', runner.temp) || '' }}
-          # Pull requests only: once 5 alone retries have run and none passed, the rest of the red files keep their
+          # Pull requests only: files red on every base push for a day or more are the batch runs' (held-red-files).
+          CMUX_WEB_TEST_HELD_REDS: ${{ github.event_name == 'pull_request' && format('{0}/webviews-durations/held-reds', runner.temp) || '' }}
+          # Pull requests only: once the last 5 alone retries in a row all failed again, the rest of the red files keep their
           # first run for react-apps-base-check, which replays them on the base and re-runs alone on the head any it
           # would charge (run-webviews-tests.sh). Shard 1 of run 44987019885 spent 23 min retrying 38 files alone and
           # none passed. A push keeps every retry: its verdicts are the base's history. Undo: the repository variable
@@ -1407,7 +1764,7 @@ jobs:
           CMUX_WEB_TEST_ALONE_RETRY_BUDGET: ${{ github.event_name == 'pull_request' && (vars.CMUX_WEB_TEST_ALONE_RETRY_BUDGET || '300') || '' }}
           CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           PASSED_BEFORE: ${{ runner.temp }}/webviews-passed-before
           REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
           # Every failed or timed-out file gets its alone retry before it counts
@@ -1467,6 +1824,15 @@ jobs:
             left=$(( job_started + CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 - now ))
             export CMUX_WEB_TEST_RETRY_DEADLINE=$(( left > 0 ? left : 0 ))
             export CMUX_WEB_TEST_RETRY_BUDGET="$CMUX_WEB_TEST_RETRY_DEADLINE"
+            # A push or dispatch (the post-merge batch at 45 min) also stops its first pass there: no file starts, and
+            # none runs, past the same point, so the step ends with what it finished and the uploads (Upload this
+            # push's webview results, the history job) still run. Without it, 5 of 8 post-merge shards a tick were
+            # still in their first pass at 45 min and GitHub cancelled them with no result at all (11-26 13:15Z to
+            # 11-27 01:47Z: 44 shards, 1,998 job-min, 0 passes), while shards 2, 3 and 7 ended at 37 min with a
+            # verdict. A pull request's shard keeps its first pass whole (90 min; react-apps-base-check reads it).
+            if [ "${GITHUB_EVENT_NAME:-}" != pull_request ]; then
+              export CMUX_WEB_TEST_STOP_AT=$(( job_started + CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 ))
+            fi
           fi
           mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
           # A recorded run (a push, a batch tick, a post-merge batch run) records its webview inputs key with its
@@ -1525,7 +1891,7 @@ jobs:
             export CMUX_WEB_TEST_PASSED_OUT="$passed/files"
             : > "$CMUX_WEB_TEST_PASSED_OUT"
             before="$(cat "$PASSED_BEFORE/commit" 2> /dev/null || true)"
-            if [ "$FULL_CI" != true ] && [ -s "$PASSED_BEFORE/files" ] && [[ "$before" =~ ^[0-9a-f]{40}$ ]] &&
+            if { [ "$FULL_CI" != true ] || [ "$REACT_APPS_CLASS" = sampled ] || [ "$REACT_APPS_CLASS" = fast ]; } && [ -s "$PASSED_BEFORE/files" ] && [[ "$before" =~ ^[0-9a-f]{40}$ ]] &&
               { git cat-file -e "$before^{commit}" 2> /dev/null || timeout 60 git fetch --no-tags --depth=1 origin "$before"; }; then
               reach="$(python3 ../scripts/ci/webviews_affected.py --base "$before" --head HEAD)" || reach=""
               if [ -n "$reach" ]; then
@@ -1622,14 +1988,24 @@ jobs:
           # Warn-only: what the pull request's next head reuses, never this run's verdict.
           PASSED_BEFORE: ${{ steps.passed-before.outcome }}
           PASSED_UPLOAD: ${{ steps.passed-upload.outcome }}
+          # A pull request's test step keeps going on a red (react-apps-base-check judges it), but one stopped before it
+          # wrote its results (a runner's SIGTERM, exit 143) left the shard green: a failed-job rerun never retried it,
+          # and the base check failed on every attempt with "has no webviews-head-results.json" (cmux#49337, run
+          # 44955291325, 2026-11-21). That shard is red here, so the rerun takes it again.
+          WEBVIEW_TESTS: ${{ steps.webview-tests.outcome }}
+          HEAD_RESULTS: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
           # Warn-only: the pick fails open (an error runs both git-hook suites), never this run's verdict.
           HOOK_SUITES: ${{ steps.hook-suites.outcome }}
           # The eager JS budget (a size cap) and the React Compiler coverage are
           # structural: for feat-cmux-next they warn (Leo 2026-10-19).
-          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+          CMUX_NEXT_STYLE_GUARDS: ${{ env.CMUX_NEXT_STYLE_GUARDS_LEVEL }}
           STYLE_GATES: EAGER_JS_BUDGET REACT_COMPILER
         run: |
           failed=0
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$WEBVIEW_TESTS" = failure ] && [ ! -s "$HEAD_RESULTS" ]; then
+            echo "::error::Test webviews stopped before it wrote its results; this shard has no verdict to judge."
+            failed=1
+          fi
           if [ "$DURATIONS_UPLOAD" = failure ]; then
             echo "::warning::This shard's test durations did not upload; the next run's shard split misses them."
           fi
@@ -1735,9 +2111,25 @@ jobs:
   # 2,950 heads; cmuxterm-hq docs/ci/bottleneck-and-skip-candidates-2026-11-21.md): they only make a verdict sooner,
   # and react-apps-base-check replays the same base reds itself when no early result is there. Not in its needs, so
   # a skipped early job never skips the base check; a full-ci run's early results count when they are uploaded first.
-  react-apps-base-early:
+  react-apps-base-bundles:
     needs: web-subarea-scope
-    if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ needs.web-subarea-scope.outputs.base_bundle_ref != '' && needs.web-subarea-scope.outputs.base_bundle_same != 'true' }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/cmux-next-compile-preflight.yml
+    with:
+      force_web: true
+      source_ref: ${{ needs.web-subarea-scope.outputs.base_bundle_ref }}
+      artifact_prefix: ci-web-base-bundles
+
+  react-apps-base-early:
+    needs: [web-subarea-scope, react-apps-base-bundles, react-apps-head-bundles]
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    if: ${{ !cancelled() && (needs.react-apps-base-bundles.result == 'success' || (needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.result == 'success')) && github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
     continue-on-error: true
     # A stuck early shard must not hold the base check past what its own replay costs. Over 11-20..21 (24 h feed,
@@ -1761,7 +2153,7 @@ jobs:
         run: echo "CMUX_WEB_TEST_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Checkout the merge commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -1773,20 +2165,36 @@ jobs:
           name: webviews-test-durations
           path: ${{ runner.temp }}/webviews-durations
 
+      - name: Download the base bundles from R2
+        if: ${{ (needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_transport || needs.react-apps-base-bundles.outputs.web_bundle_transport) == 'r2' }}
+        timeout-minutes: 3
+        uses: ./.github/actions/r2-artifact/download
+        with:
+          name: ${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_artifact || needs.react-apps-base-bundles.outputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/ci-web-base-bundles
+
+      - name: Download the base bundles without OIDC
+        if: ${{ (needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_transport || needs.react-apps-base-bundles.outputs.web_bundle_transport) == 'github' }}
+        timeout-minutes: 3
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_artifact || needs.react-apps-base-bundles.outputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/ci-web-base-bundles
+
       # The head's runner and font pin, as the base check's replay uses them; then the merge parent, as it does.
       - name: Pick this shard's base reds
         id: pick
         env:
           SHARD: ${{ matrix.shard }}
           SHARD_COUNT: ${{ matrix.shard_count }}
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
         run: |
           runner="$RUNNER_TEMP/base-early/runner"
           mkdir -p "$runner"
           cp scripts/ci/run-webviews-tests.sh scripts/ci/timeout.sh scripts/ci/webviews_test_results.py scripts/ci/webviews_test_shards.py \
             scripts/ci/guards_new_reds.py scripts/ci/webviews_test_history.py scripts/ci/test_reds.py "$runner/"
-          cp scripts/ci/pin-browser-test-font.sh scripts/ci/apt-no-service-restarts.sh "$RUNNER_TEMP/"
+          cp scripts/ci/pin-browser-test-font.sh scripts/ci/apt-no-service-restarts.sh scripts/ci/compile_preflight.py "$RUNNER_TEMP/"
           # The head shards run only the change's affected files (empty: every file), so only those can be red there.
           only=()
           # A full-ci head whose pick ran runs the pick's files (Test webviews), so the same narrowing holds here.
@@ -1824,6 +2232,20 @@ jobs:
         if: ${{ steps.pick.outputs.files != '0' }}
         run: scripts/cmux-next/private-bun.sh
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -1831,16 +2253,18 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.pick.outputs.files != '0') && github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ ((steps.pick.outputs.files != '0') && github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Playwright browsers
         if: ${{ (steps.pick.outputs.files != '0') && github.ref == 'refs/heads/feat-cmux-next' }}
@@ -1876,7 +2300,11 @@ jobs:
 
       - name: Build base web bundles
         if: ${{ steps.pick.outputs.files != '0' }}
-        run: ./scripts/cmux-next/build-web-bundles.sh --force
+        run: |
+          key="$(python3 scripts/cmux-next/web-bundle-key.py . --source)"
+          python3 -I "$RUNNER_TEMP/compile_preflight.py" web-artifact verify "$RUNNER_TEMP/ci-web-base-bundles" "$key"
+          (cd webviews && bun scripts/pages/gen-strings.mjs)
+          ./scripts/cmux-next/build-web-bundles.sh --from "$RUNNER_TEMP/ci-web-base-bundles"
 
       - name: Install headless engines
         if: ${{ steps.pick.outputs.files != '0' }}
@@ -1935,8 +2363,8 @@ jobs:
   # run the recorded base reds in parallel with the head suite; this one job
   # replays only the head reds that remain after those results are joined.
   react-apps-base-check:
-    needs: [web-subarea-scope, react-apps-check-shard]
-    if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    needs: [web-subarea-scope, react-apps-check-shard, react-apps-head-bundles, react-apps-base-bundles]
+    if: ${{ !cancelled() && needs.react-apps-check-shard.result == 'success' && github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
     # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
     # replays after the first share what is left of it (the compare step's JOB_TIMEOUT_MINUTES and REPLAY_RESERVE).
@@ -1945,6 +2373,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
     # One job joins every head shard after the parallel head and early-base work.
     name: react-apps-base-check
     steps:
@@ -1954,7 +2383,7 @@ jobs:
       # older, where agent-pane-no-capsules still passed, so a red the merge
       # parent already had (#27019's capsule bars) was charged to the change.
       - name: Checkout the merge commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -1982,6 +2411,38 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/base-early
 
+      - name: Download the head bundles from R2
+        if: ${{ needs.react-apps-head-bundles.outputs.web_bundle_transport == 'r2' }}
+        timeout-minutes: 3
+        uses: ./.github/actions/r2-artifact/download
+        with:
+          name: ${{ needs.react-apps-head-bundles.outputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/ci-web-head-bundles
+
+      - name: Download the head bundles without OIDC
+        if: ${{ needs.react-apps-head-bundles.outputs.web_bundle_transport == 'github' }}
+        timeout-minutes: 3
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.react-apps-head-bundles.outputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/ci-web-head-bundles
+
+      - name: Download the base bundles from R2
+        if: ${{ (needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_transport || needs.react-apps-base-bundles.outputs.web_bundle_transport) == 'r2' }}
+        timeout-minutes: 3
+        uses: ./.github/actions/r2-artifact/download
+        with:
+          name: ${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_artifact || needs.react-apps-base-bundles.outputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/ci-web-base-bundles
+
+      - name: Download the base bundles without OIDC
+        if: ${{ (needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_transport || needs.react-apps-base-bundles.outputs.web_bundle_transport) == 'github' }}
+        timeout-minutes: 3
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_artifact || needs.react-apps-base-bundles.outputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/ci-web-base-bundles
+
       # A head shard with no red has nothing to replay: the compare below then needs only python, so the
       # bun install, the base bundle build and the browsers are skipped (3 to 11 min a shard, paid by every
       # green head before the verdict). Reds, or results it cannot read, keep the whole replay.
@@ -1992,7 +2453,7 @@ jobs:
           date +%s > "$RUNNER_TEMP/job-started"
           # The head's font pin, kept for the base's engines: a base from before it has no such script, and the
           # comparison has to draw the same face as the head did (pin-browser-test-font.sh needs no checkout).
-          cp scripts/ci/pin-browser-test-font.sh scripts/ci/apt-no-service-restarts.sh "$RUNNER_TEMP/"
+          cp scripts/ci/pin-browser-test-font.sh scripts/ci/apt-no-service-restarts.sh scripts/ci/compile_preflight.py "$RUNNER_TEMP/"
           git checkout -q --detach HEAD^1
           if failed="$(python3 scripts/ci/webviews_test_results.py --failed-files "$RUNNER_TEMP/head-results/webviews-head-results.json")"; then
             reds="$(printf '%s' "$failed" | grep -c . || true)"
@@ -2103,6 +2564,20 @@ jobs:
         if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
         run: scripts/cmux-next/private-bun.sh
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -2110,16 +2585,18 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.head.outputs.reds != '0') && github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ ((steps.head.outputs.reds != '0') && github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Playwright browsers
         if: ${{ (steps.head.outputs.reds != '0') && github.ref == 'refs/heads/feat-cmux-next' }}
@@ -2154,7 +2631,25 @@ jobs:
 
       - name: Build base web bundles
         if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
-        run: ./scripts/cmux-next/build-web-bundles.sh --force
+        env:
+          BASE_ARTIFACT: ${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_key || needs.react-apps-base-bundles.outputs.web_bundle_key }}
+          HEAD_ARTIFACT: ${{ needs.react-apps-head-bundles.outputs.web_bundle_key }}
+        run: |
+          key="$(python3 scripts/cmux-next/web-bundle-key.py . --source)"
+          restored=""
+          if [ "$key" = "$HEAD_ARTIFACT" ]; then
+            restored="$RUNNER_TEMP/ci-web-head-bundles"
+          elif [ -n "$BASE_ARTIFACT" ]; then
+            restored="$RUNNER_TEMP/ci-web-base-bundles"
+          fi
+          if [ -n "$restored" ]; then
+            python3 -I "$RUNNER_TEMP/compile_preflight.py" web-artifact verify "$restored" "$key"
+            (cd webviews && bun scripts/pages/gen-strings.mjs)
+            ./scripts/cmux-next/build-web-bundles.sh --from "$restored"
+          else
+            # No early replay ran: this single late consumer is the only base build.
+            ./scripts/cmux-next/build-web-bundles.sh --force
+          fi
 
       - name: Install headless engines
         if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
@@ -2352,7 +2847,11 @@ jobs:
 
       - name: Build head web bundles
         if: ${{ steps.base.outputs.rerun == 'true' }}
-        run: ./scripts/cmux-next/build-web-bundles.sh --force
+        run: |
+          key="$(python3 scripts/cmux-next/web-bundle-key.py . --source)"
+          python3 -I scripts/ci/compile_preflight.py web-artifact verify "$RUNNER_TEMP/ci-web-head-bundles" "$key"
+          (cd webviews && bun scripts/pages/gen-strings.mjs)
+          ./scripts/cmux-next/build-web-bundles.sh --from "$RUNNER_TEMP/ci-web-head-bundles"
 
       - name: Install head headless engines
         if: ${{ steps.base.outputs.rerun == 'true' }}
@@ -2418,7 +2917,7 @@ jobs:
           WEB_INPUTS: ${{ toJSON(inputs) }}
           WEB_NEEDS: ${{ toJSON(needs) }}
           # 'true' unless this is a feat-cmux-next pull request head not handed to land (the shards' land tier).
-          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
+          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
         run: |
           python3 - <<'PY'
           import json
@@ -2463,6 +2962,18 @@ jobs:
               print(f"{name}: required={str(required).lower()} result={needs[name]['result']}")
           PY
 
+      - name: Save the green marker for these React inputs
+        if: ${{ success() && github.event_name == 'pull_request' && needs.web-subarea-scope.outputs.react_key != '' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+        continue-on-error: true
+        run: mkdir -p "$RUNNER_TEMP/react-green-marker" && date -u > "$RUNNER_TEMP/react-green-marker/passed"
+      - name: Save the green marker (cache)
+        if: ${{ success() && github.event_name == 'pull_request' && needs.web-subarea-scope.outputs.react_key != '' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/react-green-marker
+          key: webviews-react-green-${{ needs.web-subarea-scope.outputs.react_key }}
+
   # The next run's shard split: this run's per-file seconds, averaged with the
   # manifest it split by. Its own job, outside the required react-apps-check:
   # a stalled download or cache save must not time out the gate. A missing
@@ -2479,7 +2990,7 @@ jobs:
       - name: Checkout the shard helper
         id: durations-checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           sparse-checkout: |
@@ -2542,12 +3053,14 @@ jobs:
       - name: Checkout the history helper
         id: history-checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           sparse-checkout: |
             scripts/ci/webviews_test_history.py
             scripts/ci/web_subareas.py
+            .github/actions/cache-restore
+            .github/actions/cache-save
             .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -2633,9 +3146,11 @@ jobs:
           retention-days: 3
 
       # The same history in the Actions cache, which a pull request's web-subarea-scope restores with no REST
-      # request. A key a run: a cache entry is immutable, so one fixed key was never replaced (2026-11-08), and the
-      # restore-keys prefix takes the newest. Use the same staging directory in each step. The R2
-      # action archives a directory and restores its contents there, including history.json.
+      # request. Keyed by the history's own hash, not the run (tests/test_ci_no_run_scoped_cache_keys.py): one fixed
+      # key was never replaced (2026-11-08), each push's history differs (it records that push), and the restore-keys
+      # prefix takes the newest save. Base branches only: pull requests read only their base's prefix. Use the same
+      # staging directory in each step: the R2 action archives a directory and restores its contents there, including
+      # history.json.
       - name: Stage the history for the cache
         id: history-stage
         if: ${{ steps.history-record.outcome == 'success' }}
@@ -2653,7 +3168,7 @@ jobs:
           fi
 
       - name: Save the history to the cache
-        if: ${{ steps.history-stage.outcome == 'success' }}
+        if: ${{ steps.history-stage.outcome == 'success' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') }}
         continue-on-error: true
         timeout-minutes: 2
         uses: ./.github/actions/cache-save
@@ -2666,7 +3181,9 @@ jobs:
         with:
           backend: r2
           path: .webviews-test-history-cache
-          key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: webviews-test-history-${{ github.ref_name }}-${{ hashFiles('.webviews-test-history-cache/history.json') }}
+          # Pull requests judge base reds by this entry: a save that wrote nothing fails, not warns.
+          required: true
 
       # A base red is excused on every pull request, so nothing made it anyone's: react-apps-check was red on every
       # completed push run from 2026-11-11 16:59 UTC to 2026-11-13 and model-picker-scaling on 62 recorded pushes in
@@ -2690,7 +3207,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
@@ -2709,6 +3226,20 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -2716,16 +3247,18 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install webview dependencies
         working-directory: webviews
@@ -2758,7 +3291,7 @@ jobs:
       - name: Fail on the Rust sidecar lint
         if: ${{ !cancelled() && steps.sidecar-lint.outcome == 'failure' }}
         env:
-          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+          CMUX_NEXT_STYLE_GUARDS: ${{ env.CMUX_NEXT_STYLE_GUARDS_LEVEL }}
         run: |
           if [ "$CMUX_NEXT_STYLE_GUARDS" = warn ]; then
             echo "::warning::Rust sidecar fmt or clippy found issues (warn-only); see the step 'Lint Rust sidecar (fmt, clippy)'."
@@ -2792,7 +3325,7 @@ jobs:
           --health-retries 30
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
 
@@ -2807,6 +3340,20 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -2814,16 +3361,18 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -2874,7 +3423,7 @@ jobs:
           WEB_BASE_REF: ${{ github.base_ref }}
           WEB_WORKFLOW: ${{ github.workflow }}
           # 'true' unless this is a feat-cmux-next pull request head not handed to land (webviews-typecheck's land tier).
-          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
+          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
         run: |
           python3 - <<'PY'
           import json

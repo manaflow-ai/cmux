@@ -367,6 +367,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
             "CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS": "0",
             "CMUX_FRESH_SMOKE_SEEDED_SCAN_WAIT_SECONDS": "4",
             "CMUX_FRESH_SMOKE_DAEMON_REREAD_SECONDS": "0.2",
+            "CMUX_FRESH_SMOKE_LAUNCH_TIMES_WAIT": "0",
             "FAKE_DEFAULTS_DIR": str(self.defaults_dir),
             "FRESH_SMOKE_SECRET": "must-not-reach-the-app",
             "GH_TOKEN": "must-not-reach-the-app",
@@ -409,6 +410,25 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(set(Path("/tmp").glob("cmux-fresh-*")) - self.roots_before, set())
         if report.get("pid"):
             self.assertFalse(smoke.alive(report["pid"]), "the app outlived the run")
+
+    def test_app_launch_reading_uses_the_newest_persisted_reveal_mark(self):
+        home = self.dir / "h"
+        path = home / "Library" / "Application Support" / BUNDLE / "launch-times.jsonl"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"build": "old", "reveal_home_ms": 11, "home_revealed_by": "mark"}) + "\n"
+                        + json.dumps({"build": "new", "reveal_home_ms": 3210.44, "home_revealed_by": "mark"}) + "\n")
+        self.assertEqual(smoke.app_launch_reading(home, BUNDLE, 4.5),
+                         {"ms": 3210.4, "source": "launch-times.jsonl", "revealed_by": "mark",
+                          "harness_ms": 4500, "record": {"build": "new", "reveal_home_ms": 3210.44,
+                                                          "home_revealed_by": "mark"}})
+
+    def test_app_launch_reading_keeps_a_deadline_reveal_and_wall_clock(self):
+        home = self.dir / "h"
+        path = home / "Library" / "Application Support" / BUNDLE / "launch-times.jsonl"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"reveal_home_ms": 3209, "home_revealed_by": "deadline"}) + "\n")
+        reading = smoke.app_launch_reading(home, BUNDLE, 4.478)
+        self.assertEqual((reading["ms"], reading["revealed_by"], reading["harness_ms"]), (3209.0, "deadline", 4478))
 
     def test_a_stub_that_aborts_at_launch_fails(self):
         status, output, report = self.run_smoke("crash", "--seconds", "3", "--startup-timeout", "5")
@@ -1958,6 +1978,46 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         snap["topology"]["workspaces"][0]["screens"][0]["panes"][0]["tabs"] = [{"id": "tab_2", "page": "terminal"}]
         self.assertFalse(smoke.home_rendered(snap, shown))
 
+
+
+class LiveCopyTest(unittest.TestCase):
+    """A launch that a running copy of the bundle id stopped is cannot-run, not a crash (live_copies)."""
+
+    def bundle(self, folder: Path, bundle_id: str = BUNDLE, executable: str = "cmux") -> Path:
+        app = folder / "cmux NIGHTLY.app"
+        (app / "Contents" / "MacOS").mkdir(parents=True)
+        with open(app / "Contents" / "Info.plist", "wb") as handle:
+            plistlib.dump({"CFBundleIdentifier": bundle_id, "CFBundleExecutable": executable,
+                           "CFBundleShortVersionString": "0.64.22"}, handle)
+        return app
+
+    def test_a_running_copy_outside_the_smoke_roots_is_found_by_its_main_executable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            live = self.bundle(Path(tmp) / "Applications")
+            other = self.bundle(Path(tmp) / "Other", bundle_id="com.example.other")
+            smoke_copy = self.bundle(Path(tmp) / "cmux-fresh-abc" / "app")
+            processes = [(11, f"{live}/Contents/MacOS/cmux"), (12, f"{live}/Contents/MacOS/cmux -psn_0_1"),
+                         (13, f"{live}/Contents/MacOS/cmux-helper"), (14, f"{other}/Contents/MacOS/cmux"),
+                         (15, f"{smoke_copy}/Contents/MacOS/cmux"), (16, "/bin/zsh")]
+            with mock.patch.object(smoke, "user_processes", return_value=processes):
+                found = smoke.live_copies(BUNDLE)
+        self.assertEqual([copy["pid"] for copy in found], [11, 12])
+        self.assertEqual(found[0]["version"], "0.64.22")
+
+    def test_a_sigterm_with_no_crash_beside_a_live_copy_is_cannot_run(self):
+        copies = [{"pid": 6982, "bundle": "/Applications/cmux NIGHTLY.app", "version": "0.64.22"}]
+        with self.assertRaisesRegex(smoke.CannotRun, "pid 6982 /Applications/cmux NIGHTLY.app 0.64.22"):
+            smoke.stopped_by_live_copy(BUNDLE, -signal.SIGTERM, 1.8, [], [], copies)
+        with self.assertRaises(smoke.CannotRun):
+            smoke.stopped_by_live_copy(BUNDLE, -signal.SIGKILL, 1.8, [], [], copies)
+
+    def test_a_crash_is_a_crash_whatever_else_runs(self):
+        copies = [{"pid": 6982, "bundle": "/Applications/cmux NIGHTLY.app", "version": "0.64.22"}]
+        for status, crashes, exceptions, live in ((-signal.SIGABRT, [], [], copies), (-signal.SIGSEGV, [], [], copies),
+                                                  (-signal.SIGTERM, ["a.ips"], [], copies),
+                                                  (-signal.SIGTERM, [], ["run.exception"], copies),
+                                                  (-signal.SIGTERM, [], [], []), (1, [], [], copies), (None, [], [], copies)):
+            smoke.stopped_by_live_copy(BUNDLE, status, 1.8, crashes, exceptions, live)  # no CannotRun
 
 if __name__ == "__main__":
     unittest.main()

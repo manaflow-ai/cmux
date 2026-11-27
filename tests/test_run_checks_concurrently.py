@@ -15,7 +15,12 @@ import time
 import unittest
 from pathlib import Path
 
+import sys
+
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import inline_steps  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "scripts/ci/run-checks-concurrently.sh"
@@ -97,7 +102,7 @@ class RunChecksConcurrently(unittest.TestCase):
     def test_the_checks_job_starts_the_prepush_gate_first(self):
         # The prepush gate suite is the pool's longest command (238 s on Linux, 693 s on a mini): started first, a
         # pool as narrow as the job's share does not leave it for last.
-        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        document = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))
         start = next(s for s in document["jobs"]["checks"]["steps"]
                      if "run-checks-concurrently.sh --start" in str(s.get("run", "")))
         listed = re.search(r"< (scripts/ci/\S+)\s*$", start["run"], re.M)
@@ -134,7 +139,7 @@ class RunChecksConcurrently(unittest.TestCase):
         self.assertEqual(run("# nothing\n").returncode, 2)
 
     def test_the_checks_job_runs_its_script_tests_through_it(self):
-        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        document = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))
         checks = document["jobs"]["checks"]["steps"]
         step = next(step for step in checks if step.get("id") == "script-tests")
         self.assertIn('scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" script-tests',
@@ -193,7 +198,7 @@ class APoolDeadlineEndsInAVerdict(unittest.TestCase):
         self.assertIn("late", result.stdout)
 
     def test_the_checks_job_sets_a_deadline_inside_its_cap(self):
-        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        document = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))
         job = document["jobs"]["checks"]
         start = next(s for s in job["steps"] if "run-checks-concurrently.sh --start" in str(s.get("run", "")))
         self.assertIn('--deadline-at "$deadline"', start["run"])
