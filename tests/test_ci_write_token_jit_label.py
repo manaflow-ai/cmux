@@ -35,6 +35,9 @@ EXCEPTIONS = {
     "backend-migrations.yml": (4, "the required migration checks move to the gate label with their own policy PR, as on main"),
     "pr-checks.yml": (1, "the advisory comment job left the PR control label when it backed up (tests/test_ci_runner_set.py)"),
     "cmux-next.yml": (2, "the push/PR control arms (tests/test_cmux_next_pr_control_on_jit.py)"),
+    "machine-vault-e2e.yml": (1, "a macOS job (adds a macOS user as root): no GCP Linux JIT label can run it"),
+    "relay-tls.yml": (1, "a macOS job (adds a System keychain trust root): no GCP Linux JIT label can run it"),
+    "ios-asc-subscription-records.yml": (1, "leads with the one-job nightly JIT label on the first attempt, the Linux pool on a retry; no skip switch"),
 }
 
 

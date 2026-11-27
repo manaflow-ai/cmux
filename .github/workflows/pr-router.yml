@@ -449,6 +449,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
+          # Same as the route job's checkout: a same-repo head reads the runner's git mirror with whole blobs.
+          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
           sparse-checkout: |
             scripts/ci/ios_fast_verdict.py
             scripts/ci/ci_steps.py
