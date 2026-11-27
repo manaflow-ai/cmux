@@ -1109,7 +1109,13 @@ pub(crate) fn claude_args_and_hooks_for(
             .for_session(session_id)
             // Claude Code has tool search unless its env or settings turn
             // it off, send it to another provider, or opt in to code mode.
-            .listing(all_tools_opted_in(env) && claude_lists_all_tools(env, cwd))
+            // The session's manifest answers when the hub marked it (`session_manifest.rs`).
+            .listing(
+                all_tools_opted_in(env)
+                    && crate::session_manifest::claude_all_tools(env, || {
+                        claude_lists_all_tools(env, cwd)
+                    }),
+            )
             .without_off(env)
             .fit_skills()
             .folded();
