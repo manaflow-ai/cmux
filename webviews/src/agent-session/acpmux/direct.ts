@@ -14834,17 +14834,25 @@ export class AcpmuxDirectClient {
   /// `queue.stale` and the prompt kept whole: the row takes the whole text acpmux answers with, and
   /// `ok` is false, so the typed words go back to the composer and nothing is lost.
   async editQueued(promptId: string, edit: QueueEdit): Promise<{ ok: boolean }> {
-    if (!this.actingSessionId) return { ok: false };
+    const sessionId = this.actingSessionId;
+    const generation = this.selectionGeneration;
+    if (!sessionId) return { ok: false };
     try {
       return await this.request("_acpmux/queue_edit", {
-        sessionId: this.actingSessionId,
+        sessionId,
         promptId,
         ...edit,
       });
     } catch (error) {
       const data = (error as { data?: { reason?: unknown; text?: unknown } } | null)?.data;
       if (edit.op !== "update" || data?.reason !== "queue.stale") throw error;
-      if (typeof data.text === "string" && edit.base !== undefined)
+      // A delayed stale reply belongs only to the selection that issued it. A switch (even
+      // away and back to the same session) must never overwrite another chat's matching row.
+      const current =
+        generation === this.selectionGeneration &&
+        this.selectedSessionId === sessionId &&
+        this.actingSessionId === sessionId;
+      if (current && typeof data.text === "string" && edit.base !== undefined)
         this.installWholeText(promptId, edit.base, data.text);
       return { ok: false };
     }
