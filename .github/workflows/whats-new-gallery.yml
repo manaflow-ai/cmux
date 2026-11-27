@@ -150,7 +150,7 @@ jobs:
             --frame component --out "$RUNNER_TEMP/cases.json"
           # Each variant's note: a "Selected" one is the after a file picked, a "Before:" one its old look.
           # And the source files each entry covers: a highlight whose commit changed no gallery file.
-          bun scripts/gallery/notes.ts --skip-broken --out "$RUNNER_TEMP/notes.json" --covers "$RUNNER_TEMP/covers.json"
+          bun scripts/gallery/notes.ts ${ENTRIES:+--entries "$ENTRIES"} --skip-broken --out "$RUNNER_TEMP/notes.json" --covers "$RUNNER_TEMP/covers.json"
           # Picks the states no line names and writes them into the plan publish reads.
           python3 ../scripts/cmux-next/media/whats-new-gallery.py manifest --plan "$out/plan.json" \
             --cases "$RUNNER_TEMP/cases.json" --notes "$RUNNER_TEMP/notes.json" \
@@ -178,6 +178,10 @@ jobs:
               git -C "$GITHUB_WORKSPACE" worktree add -f -f --no-checkout --detach "$at" "$parent" &&
               git -C "$at" sparse-checkout set --no-cone '/*' '!/cmux-next-ios/verify/' &&
               git -C "$at" reset -q --hard &&
+              # Use the current loader in the historical source tree. The parent predates source-scoped loading,
+              # and its old manifest would import every gallery file before applying --entries.
+              cp "$GITHUB_WORKSPACE/webviews/scripts/gallery/entries.ts" "$at/webviews/scripts/gallery/entries.ts" &&
+              cp "$GITHUB_WORKSPACE/webviews/scripts/gallery/manifest.ts" "$at/webviews/scripts/gallery/manifest.ts" &&
               # A variant the highlight's commit added to a gallery file already there: that file as the commit
               # left it, so the old code draws the new state.
               python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" overlays --plan "$out/plan.json" \
@@ -187,8 +191,11 @@ jobs:
               # Only build the entries this parent actually renders. An unrelated broken gallery file must not
               # suppress every authentic before image for the planned highlights.
               entries_at=$(jq -r --arg parent "$parent" '[.[] | select(.parent == $parent) | .entry] | unique | join(",")' "$out/plan.json") &&
+              # --skip-broken only where that commit's manifest.ts knows it: a parent from before #62376 stops at
+              # "Unknown option '--skip-broken'", which on 2026-11-27 (run 46048895481) cost all 4 parents their befores.
               (cd "$at/webviews" && bun install --frozen-lockfile &&
-                bun scripts/gallery/manifest.ts --entries "$entries_at" --skip-broken --themes pair --widths normal --frame component \
+                skip=$(grep -q -- "--skip-broken" scripts/gallery/manifest.ts && echo --skip-broken || true) &&
+                bun scripts/gallery/manifest.ts --entries "$entries_at" $skip --themes pair --widths normal --frame component \
                   --out "$RUNNER_TEMP/cases-$parent.json") &&
               python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" manifest --plan "$out/plan.json" \
                 --cases "$RUNNER_TEMP/cases-$parent.json" --parent "$parent" --out "$RUNNER_TEMP/manifest-$parent.json" &&
