@@ -18,7 +18,7 @@ if ! [[ -f "$reader" ]] || ! grep -q '"app-debug"' "$reader"; then
   no_verdict "the trusted compile result reader predates the app compile's own check"
 fi
 # Why: 2026-11-24-app-compile-fleet-3.md
-word="$(python3 "$reader" --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "$PR" --phase app-debug \
+word="$(python3 "$reader" --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "$PR" --phase app-debug --tier \
   --wait 2400 --no-record 300 2>"$RUNNER_TEMP/fleet-result.err")" || word=none
 why=""
 if [[ -f "$RUNNER_TEMP/fleet-result.err" ]]; then
@@ -29,6 +29,8 @@ how="Debug, swift.org toolchain"
 case "$word" in
   pass) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` ($how). The Release compile runs at land." ;;
   fail) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`: ${why:-no reason given}" ;;
+  # Why: note-app-debug-tier
+  awaiting_land) verdict=awaiting_land; summary="Deferred to land: ${why:-this pull request has no ready-to-land or full-ci label}. The build fleet compiles this head once the pull request is labeled, and the Release compile at land compiles it." ;;
   # Why: 2026-11-24-app-compile-fleet-4.md
   pending) verdict=unavailable; summary="The build fleet kept the compile of \`$REF\` queued past the wait, so nothing compiled this head here; the Release compile at land compiles it."
     echo "::warning title=Build fleet compile: still queued::no verdict for $REF; the Release compile at land compiles it" ;;

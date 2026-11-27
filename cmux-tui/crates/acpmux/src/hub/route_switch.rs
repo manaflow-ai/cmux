@@ -234,6 +234,29 @@ impl Hub {
         self.child_for(session).await.map(|_| ())
     }
 
+    /// A restart left for a turn's end (a route switch, an update's `restart_harnesses`, an
+    /// unproven host's `restart_unproven`) when work runs below the chat as its turn ends
+    /// (`idle.rs` `holds_work_below`: a background subagent or process, a sub-session at work),
+    /// which the harness's exit would end: it waits. The agent restarts once nothing runs in it
+    /// (`Session::respawn_when_quiet`), or at the end of a later turn that leaves nothing below;
+    /// `route_switch` stays set for that turn. True when it waits.
+    ///
+    /// Before, the turn's end restarted it whatever ran below, though `restart_harnesses` says
+    /// such a session keeps its agent: on cosmic-gray (2026-11-26) a coordinator's agent ended at
+    /// 11:54, 12:19, 12:39 and 13:38Z, each at its first turn end after a cmux NIGHTLY install
+    /// and the restart that followed, and about 15 background subagents with it each time.
+    pub(super) fn restart_waits_for_work_below(self: &Arc<Self>, session: &Session) -> bool {
+        if !self.holds_work_below(session) {
+            return false;
+        }
+        tracing::info!(
+            session = %session.id,
+            "a restart left for the turn's end waits: work runs below it; it restarts once quiet"
+        );
+        self.respawn_when_quiet(session);
+        true
+    }
+
     /// `_acpmux/sessions/restart_harness {harnesses?, sessions?}` (Update
     /// Everything, cx-1mbnu; a chat's "Restart chat"): every live session of
     /// this daemon (none mirrored from a peer; none of the Home Chief's unless
@@ -331,6 +354,7 @@ impl Hub {
             let _turn = session.turn_lock.lock().await;
             if session.turn().is_none()
                 && session.pending_permissions().is_empty()
+                && !hub.restart_waits_for_work_below(&session)
                 && session.route_switch.swap(false, Ordering::SeqCst)
             {
                 hub.detach_child(&session).await;

@@ -209,6 +209,27 @@ import Testing
         relay.disconnect()
     }
 
+    @Test func channelRecoveryReopensOnlyTheCurrentCloudTarget() async throws {
+        let wire = Wire()
+        let relay = CloudChatRelay(machine: try machine("vm-a", team: "team-a"), macID: "mac")
+        relay.bind(wire)
+        #expect(await ready(relay.hub))
+        let store = try #require(relay.store(sessionID: "shared"))
+        let recover = try #require(relay.hub.onStall)
+        await recover()
+        #expect(relay.hub.isReady)
+        #expect(relay.store(sessionID: "shared") === store)
+        #expect(wire.services.count == 2)
+        #expect(wire.services.allSatisfy { $0.0 == "cloud-acpmux" && $0.1 == ["machine_id": "vm-a", "team_id": "team-a"] })
+        // A recovery captured by the old carrier or before account teardown is inert.
+        await recover()
+        #expect(wire.services.count == 2)
+        let current = try #require(relay.hub.onStall)
+        relay.retire()
+        await current()
+        #expect(wire.services.count == 2)
+    }
+
     @Test func reconnectKeepsTheChatStoreAndUsesTheNewCarrier() async throws {
         let relay = CloudChatRelay(machine: try machine("vm"), macID: "mac")
         let old = Wire()
