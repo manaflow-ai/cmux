@@ -75,7 +75,7 @@ pub(super) fn parse(id: &str, text: &str) -> Option<Rule> {
     let rest = text.strip_prefix("---\n").or_else(|| text.strip_prefix("---\r\n"))?;
     let mut front = Vec::new();
     let mut body_at = None;
-    let mut offset = 0;
+    let mut offset: usize = 0;
     for line in rest.split_inclusive('\n') {
         offset = offset.saturating_add(line.len());
         if line.trim_end() == "---" {
@@ -211,7 +211,7 @@ impl PathRules {
         let context = input["agent_id"].as_str().unwrap_or("").to_owned();
         let mut state = self.state.lock().ok()?;
         let mut parts = Vec::new();
-        let mut used = 0;
+        let mut used: usize = 0;
         for rule in rules.iter().filter(|r| covers(r, &rel)) {
             let key = (context.clone(), root.clone(), rule.id.clone());
             if state.said.contains(&key) {
