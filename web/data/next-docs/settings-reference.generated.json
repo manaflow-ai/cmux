@@ -7166,7 +7166,15 @@
         {
           "key": "mobile.allowIPhoneConnections",
           "title": "Allow iPhone Connections",
-          "help": "The cmux app on your iPhone can open this Mac's workspaces, on the same account.",
+          "help": "The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "iPhone"
+        },
+        {
+          "key": "mobile.autoApprovePhones",
+          "title": "Approve Phone Requests Automatically",
+          "help": "A new phone signed in to your account connects without asking you first. Other accounts never connect.",
           "kind": "toggle",
           "default": false,
           "group": "iPhone"

@@ -48,6 +48,7 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
+import { configureChatLayout } from "./chatLayout";
 import { configureThinkingLook } from "./conversation/thinkingLook";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 import {
@@ -151,6 +152,11 @@ export const PINNED_PLAN_KEY = "agentPane.display.pinnedPlan";
 /// collapse that one line?"). The hat's own chevron, the palette, the CLI and MCP write the same key.
 /// Not part of ChatDisplay: switching it measures no transcript row again.
 export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
+/// Settings > Agent Chat > Pop In Sent Prompts, off by default: a sent prompt pops in and settles
+/// where it lands (conversation.css SEND-POP). On, the page's root carries `data-send-pop="claude"`,
+/// the rule's gate. Off by default because Leo, 2026-11-22: "hm im not necessarily sure if people
+/// will be wanting to do the send pop by default". Not part of ChatDisplay: no row is measured again.
+export const SEND_POP_KEY = "agentPane.display.sendPop";
 /// Settings > Agent Chat > Running Tray Handle, the middle by default: where along the composer's top
 /// edge the hat's tuck chevron and, tucked, its pull tab sit (subagents/TrayPullTab.tsx; Leo,
 /// 2026-11-04: "I also wonder if we'd want the grabber/dogear/whatever design thing on maybe the left…
@@ -530,6 +536,7 @@ let raw: Values = {};
 let minimapOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
+let sendPopOn = false;
 let trayHandle: TrayHandleSide = "middle";
 let railShow: RailShow = DEFAULT_RAIL_SHOW;
 let railControlOn = false;
@@ -591,6 +598,7 @@ export function chatPartAttributes(display: ChatDisplay): Record<string, string 
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   configureStatusVerbs(raw);
+  configureChatLayout(raw);
   configureThinkingLook(raw);
   configureSenderIconLook(raw);
   const readingValues = readingLookValues(raw, experimentArm(readingLook));
@@ -599,6 +607,16 @@ export function setChatDisplay(value: unknown): void {
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
+  // The pop's gate: written only when the setting changes, so a page that set its own
+  // `data-send-pop` (the gallery's variants, the benches' arms) keeps it.
+  const sendPop = raw[SEND_POP_KEY] === true;
+  if (sendPop !== sendPopOn) {
+    sendPopOn = sendPop;
+    if (typeof document !== "undefined") {
+      if (sendPop) document.documentElement.setAttribute("data-send-pop", "claude");
+      else document.documentElement.removeAttribute("data-send-pop");
+    }
+  }
   const storedBanner = raw[UNREAD_BANNER_KEY];
   const banner: UnreadBannerMode = isUnreadBannerMode(storedBanner) ? storedBanner : "off";
   const show = isRailShow(raw[RAIL_SHOW_KEY]) ? (raw[RAIL_SHOW_KEY] as RailShow) : DEFAULT_RAIL_SHOW;
@@ -807,6 +825,12 @@ const pinnedPlanSnapshot = () => pinnedPlanOn;
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
 export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
 const trayTuckedSnapshot = () => trayTuckedOn;
+/// Whether a sent prompt pops in, read when a row enters (VirtualTranscript.tsx): the root's gate,
+/// which SEND_POP_KEY sets and a bench's arm may set by hand, as the CSS rule reads it.
+export const sendPopEnabled = (): boolean => {
+  const gate = typeof document === "undefined" ? null : document.documentElement.getAttribute("data-send-pop");
+  return gate !== null && gate !== "none";
+};
 /// Whether the hat over the composer is tucked away to its pull tab (TRAY_TUCKED_KEY).
 export const useTrayTucked = (): boolean => useSyncExternalStore(subscribe, trayTuckedSnapshot, trayTuckedSnapshot);
 /// Tucks the hat away or brings it back, at once in the page; the host writes the setting.

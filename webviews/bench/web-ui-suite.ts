@@ -76,6 +76,15 @@ export const BENCHES: readonly Bench[] = [
     args: ["3000", "2"],
     timeoutMs: 240_000,
   },
+  // The RFD 0040 transcript replacement's named fling benchmark. It reports both the current web transcript and
+  // a plain-text floor with one schema so a future native arm can join without changing the driver.
+  {
+    name: "transcript-fling",
+    file: "transcript-fling.bench.ts",
+    args: [],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // thread-rail-jump takes 24 to 29 s on the perf runner (2026-11-12).
   {
     name: "thread-rail-jump",

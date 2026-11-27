@@ -21,6 +21,14 @@ import UIKit
         #expect(ScreenSharingOrientation.resting(windowSize: CGSize(width: 951, height: 669)) == .allButUpsideDown)
     }
 
+    /// Leo, 2026-11-23: "why do we not have a horizontal mode?" A terminal
+    /// page turns with the phone on every iPhone screen.
+    @Test func aTerminalPageTurnsOnEveryIPhoneScreen() {
+        for size in [CGSize(width: 375, height: 667), CGSize(width: 402, height: 874), CGSize(width: 956, height: 440)] {
+            #expect(ScreenSharingOrientation.resting(windowSize: size, showingTerminal: true) == .allButUpsideDown)
+        }
+    }
+
     @Test func noWindowYetIsPortrait() {
         #expect(ScreenSharingOrientation.resting(windowSize: .zero) == .portrait)
     }

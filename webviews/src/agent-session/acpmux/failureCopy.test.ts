@@ -7,9 +7,11 @@ import {
   failureRecovery,
   isAuthenticationFailure,
   isTeamMachineSignIn,
+  limitResetsAt,
   offersOwnRoute,
 } from "./failureCopy";
-import { type Translate, translatorFor } from "./i18n";
+import { currentLanguage, type Translate, translatorFor } from "./i18n";
+import { resetTime } from "./usageLimits";
 
 // The connection drops acpmux retries by itself (hub/turn_errors.rs `says_connection_dropped`) read
 // as "could not reach its server", not the generic "ran into a problem" (cmuxterm-hq#4879, finding 10).
@@ -95,6 +97,34 @@ test("Codex's own settings that fail to load name what to fix", () => {
 // An own API key whose account ran out of credit read as "rate limited ... try again in a moment"
 // (OpenAI sends it as a 429 naming a quota) or as an unknown failure (Anthropic's 400). Waiting does
 // not help: the card says to add credit to the account the key belongs to, with Switch model first.
+// A used-up usage limit read "Try again in a moment" though it resets hours or days later (new-user
+// journeys, F3): where the refusal names the reset time, the sentence says it.
+test("a usage limit that names its reset says when it resets", () => {
+  const t = translatorFor("en");
+  const claude = { name: "Claude Code", harness: "claude" };
+  const at = (seconds: number) =>
+    t("turn.failure.usageLimitResets", { harness: "Claude Code", time: resetTime(seconds, currentLanguage()) });
+  const subscription = "Claude AI usage limit reached|1764003600";
+  expect(failureKind(subscription, claude)).toBe("rate-limited");
+  expect(limitResetsAt(subscription)).toBe(1764003600);
+  expect(failureCopy(t, subscription, claude)).toBe(at(1764003600));
+  expect(failureCopy(t, subscription, claude)).not.toContain("in a moment");
+  const included =
+    'API Error: 402 Payment Required {"error":{"code":"usage.included_reached","message":"You used the AI amount included in your plan for this month.","type":"insufficient_quota","details":{"resets_at":"2026-12-01T00:00:00.000Z"}}}';
+  expect(limitResetsAt(included)).toBe(Date.parse("2026-12-01T00:00:00.000Z") / 1000);
+  expect(failureCopy(t, included, claude)).toBe(at(Date.parse("2026-12-01T00:00:00.000Z") / 1000));
+  expect(limitResetsAt('{"error":{"message":"limit","resetsAt":1764003600}}')).toBe(1764003600);
+  // No time named, or one that is not a time: the rate-limit sentence as before.
+  for (const message of [
+    "usage limit reached, resets in 3h",
+    "API Error: 529 overloaded_error",
+    '{"error":{"message":"usage limit reached","resets_at":"soon"}}',
+  ]) {
+    expect(limitResetsAt(message), message).toBeUndefined();
+    expect(failureCopy(t, message, claude), message).toBe(t("turn.failure.rateLimited", { harness: "Claude Code" }));
+  }
+});
+
 test("an own key's account out of credit reads as no-credit, not a rate limit", () => {
   const t = translatorFor("en");
   const claude = { name: "Claude Code", harness: "claude" };

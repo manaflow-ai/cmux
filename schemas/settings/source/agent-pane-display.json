@@ -179,6 +179,35 @@
           ]
         },
         {
+          "key": "agentPane.display.sendPop",
+          "note": "A sent prompt pops in and settles where it lands, Claude's own user-message entrance (conversation.css SEND-POP; Leo, 2026-11-22: \"it does a little pop and settle\"). Off unless switched on: Leo, 2026-11-22: \"hm im not necessarily sure if people will be wanting to do the send pop by default\". The page sets data-send-pop on its root when on (chatDisplay.ts).",
+          "title": {
+            "key": "settings.agentPane.display.sendPop",
+            "text": "Pop In Sent Prompts"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sendPop.help",
+            "text": "A prompt you send pops in and settles where it lands, instead of appearing at once."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "send",
+            "sent",
+            "prompt",
+            "pop",
+            "animation",
+            "motion",
+            "entrance",
+            "bubble",
+            "toggle"
+          ]
+        },
+        {
           "key": "agentPane.display.trayTucked",
           "note": "The hat over the composer tucked away to a pull tab at the composer's top middle (webviews subagents/TrayPullTab.tsx; Leo, 2026-11-04: \"what if you wanted to collapse that one line?\"). The hat's own chevron and the tab write it too.",
           "title": {
@@ -1785,6 +1814,150 @@
             "shell"
           ],
           "page_hidden": "a list of preset names and rule objects, edited in cmux-next.json"
+        },
+        {
+          "key": "agentPane.display.layout.messages",
+          "name": "layoutMessages",
+          "note": "Chat layout (structure a look reshapes; webviews/src/agent-session/acpmux/chatLayout.ts sets it on the page root as a data attribute, chatLayout.css draws it). Hot-applies with the display event.",
+          "title": {
+            "key": "settings.agentPane.display.layout.messages",
+            "text": "Message Layout"
+          },
+          "help": {
+            "key": "settings.agentPane.display.layout.messages.help",
+            "text": "How your messages sit in the chat: a bubble on the right, a flat row on the left with an accent rule, or a card on the left."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "bubbles",
+              "title": {
+                "key": "settings.choice.chatLayout.bubbles",
+                "text": "Bubbles"
+              }
+            },
+            {
+              "value": "flat",
+              "title": {
+                "key": "settings.choice.chatLayout.flat",
+                "text": "Flat Rows"
+              }
+            },
+            {
+              "value": "card",
+              "title": {
+                "key": "settings.choice.chatLayout.card",
+                "text": "Cards"
+              }
+            }
+          ],
+          "default": "bubbles",
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "layout",
+            "look",
+            "messages",
+            "bubbles",
+            "flat",
+            "cards",
+            "prompt"
+          ]
+        },
+        {
+          "key": "agentPane.display.layout.composer",
+          "name": "layoutComposer",
+          "note": "Chat layout (structure a look reshapes; webviews/src/agent-session/acpmux/chatLayout.ts sets it on the page root as a data attribute, chatLayout.css draws it). Hot-applies with the display event.",
+          "title": {
+            "key": "settings.agentPane.display.layout.composer",
+            "text": "Message Box Shape"
+          },
+          "help": {
+            "key": "settings.agentPane.display.layout.composer.help",
+            "text": "The message box's outline: rounded, a pill, or square and docked."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "rounded",
+              "title": {
+                "key": "settings.choice.chatLayout.rounded",
+                "text": "Rounded"
+              }
+            },
+            {
+              "value": "pill",
+              "title": {
+                "key": "settings.choice.chatLayout.pill",
+                "text": "Pill"
+              }
+            },
+            {
+              "value": "square",
+              "title": {
+                "key": "settings.choice.chatLayout.square",
+                "text": "Square"
+              }
+            }
+          ],
+          "default": "rounded",
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "layout",
+            "look",
+            "composer",
+            "message box",
+            "pill",
+            "square",
+            "rounded",
+            "shape"
+          ]
+        },
+        {
+          "key": "agentPane.display.layout.header",
+          "name": "layoutHeader",
+          "note": "Chat layout (structure a look reshapes; webviews/src/agent-session/acpmux/chatLayout.ts sets it on the page root as a data attribute, chatLayout.css draws it). Hot-applies with the display event.",
+          "title": {
+            "key": "settings.agentPane.display.layout.header",
+            "text": "Chat Header"
+          },
+          "help": {
+            "key": "settings.agentPane.display.layout.header.help",
+            "text": "Full shows the chat's header tools at all times; Quiet shows them only while the pointer is over the header."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "full",
+              "title": {
+                "key": "settings.choice.chatLayout.full",
+                "text": "Full"
+              }
+            },
+            {
+              "value": "quiet",
+              "title": {
+                "key": "settings.choice.chatLayout.quiet",
+                "text": "Quiet"
+              }
+            }
+          ],
+          "default": "full",
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "layout",
+            "look",
+            "header",
+            "toolbar",
+            "quiet",
+            "hide",
+            "chrome"
+          ]
         }
       ]
     }

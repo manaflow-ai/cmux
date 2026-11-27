@@ -60,6 +60,22 @@ One command on the fleet:
     --script scripts/measure/perf-idle-power.sh --ref SHA \\
     --arg=scenarios=loaded --arg=config=bench --artifact artifacts/perf-idle-power.json
 
+`many-chats` (run it alone) is Leo's workload for the main thread (2026-11-21: 214 agent chat tabs,
+13 browsers, chats streaming, a New Tab page): 190 stored idle chats (no agent process) and 10
+live local chats, each opened in its own workspace and shown once, the 10 live ones streaming 400-byte
+chunks 10 times a second through the window, 13 Chromium tabs, then the window left on the New Tab
+page; 60 s settle, 60 s measured.
+Besides the per-process rows it reads `debug.hangs` through the window (main-thread stalls of 50 ms
+and more, the watchdog's default threshold, cleared at the window's start, read every 2 s by
+sequence so no record is lost to the log's 128 slots) and reports the app's main-thread CPU % (busy
+%), stalls over 100 ms and over 250 ms, the longest, and their total; then, after the window, a
+10 s `sample` of the app for the main thread's call tree (attribution only, never in the numbers).
+Prints `PERF-MANY-CHATS {json}` and a table between PERF-MANY-CHATS-TABLE-BEGIN and -END;
+perf-budgets.py --only many_chats maps it to budget rows. Two runs side by side: --compare.
+  cmux-ci run --class exclusive --measurement --label measure \\
+    --script scripts/measure/perf-idle-power.sh --ref SHA --arg=scenarios=many-chats \\
+    --arg=config=bench --artifact artifacts/perf-idle-power.json
+
 `relaunch-reconnect` (run it alone) quits and relaunches the app with agent chats open, one
 streaming, and times each phase from process start to the shown chat's first live event
 (bench_relaunch_reconnect.py; --load-local sets its chats, 6 by default):
@@ -436,6 +452,144 @@ def percentile(values: list[float], q: float) -> float:
     return values[min(len(values) - 1, int(round(q * (len(values) - 1))))] if values else 0.0
 
 
+# debug.hangs stall lengths the many-chats rows count (ms).
+HANG_BUCKETS_MS = (100, 250)
+
+
+class HangWatch:
+    """`debug.hangs` read through a window: cleared at `start`, then every `every` seconds by sequence
+    (`after`), so no stall is lost to the log's fixed slots. The socket method answers off the main
+    thread (lock-protected counters), so the reads cost the main thread nothing."""
+
+    def __init__(self, sock: str, every: float = 2.0, call=None):
+        self.sock, self.every, self.call = sock, every, call or rpc
+        self.records: dict[int, dict] = {}
+        self.last = 0
+        self.installed = None
+        self.threshold_ms = None
+        self.read_errors = 0
+        self._stop = threading.Event()
+        self._thread = None
+
+    def read(self):
+        reply = self.call(self.sock, "debug.hangs", {"after": self.last, "limit": 128}, timeout=10)
+        if not isinstance(reply, dict) or reply.get("error"):
+            self.read_errors += 1
+            return
+        self.installed = reply.get("installed")
+        self.threshold_ms = reply.get("threshold_ms")
+        for record in reply.get("records") or []:
+            sequence = record.get("sequence")
+            if isinstance(sequence, int) and sequence not in self.records:
+                # The stack stays out: the counts and lengths are the measurement.
+                self.records[sequence] = {key: record.get(key) for key in ("sequence", "kind", "duration_ms", "cpu_ms")}
+                self.last = max(self.last, sequence)
+
+    def start(self):
+        self.call(self.sock, "debug.hangs", {"clear": True, "limit": 0}, timeout=10)
+        self.read()  # the sequence the clear left, so only this window's stalls count
+        self.records.clear()
+
+        def run():
+            while not self._stop.wait(self.every):
+                self.read()
+        self._thread = threading.Thread(target=run, daemon=True)
+        self._thread.start()
+        return self
+
+    def finish(self) -> dict:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=30)
+        self.read()
+        return hang_summary(list(self.records.values()), self.installed, self.threshold_ms, self.read_errors)
+
+
+def hang_summary(records: list[dict], installed=None, threshold_ms=None, read_errors: int = 0) -> dict:
+    """Counts of the window's stall records over each HANG_BUCKETS_MS, the longest and the total (ms)."""
+    lengths = [r["duration_ms"] for r in records if isinstance(r.get("duration_ms"), (int, float))]
+    out = {"installed": installed, "threshold_ms": threshold_ms, "count": len(lengths),
+           "max_ms": round(max(lengths), 1) if lengths else 0.0, "total_ms": round(sum(lengths), 1),
+           "read_errors": read_errors}
+    for bucket in HANG_BUCKETS_MS:
+        out[f"over_{bucket}ms"] = sum(1 for length in lengths if length > bucket)
+    return out
+
+
+def page_pushes(sock: str, call=None) -> dict | None:
+    """{"page#instance": {page, hidden, scripts, batches, bytes}} for every live page that reports its bridge's
+    push counters (`debug.page` `list`, then `state` per instance: a build with `pushes`), or None on a build
+    without them. Hidden: the page is in no window. Read outside the measured window: a `state` read runs
+    script in the page."""
+    call = call or rpc
+    listed = call(sock, "debug.page", {"action": "list"}, timeout=30)
+    out, any_counter = {}, False
+    for page in (listed or {}).get("pages") or [] if isinstance(listed, dict) else []:
+        if page.get("parked"):
+            continue
+        state = call(sock, "debug.page", {"action": "state", "page": page.get("page"), "instance": page.get("instance")},
+                     timeout=30)
+        pushes = state.get("pushes") if isinstance(state, dict) else None
+        if not isinstance(pushes, dict):
+            continue
+        any_counter = True
+        out[f"{page.get('page')}#{page.get('instance')}"] = {
+            "page": page.get("page"), "hidden": page.get("window_number") is None,
+            **{key: pushes.get(key) or 0 for key in ("scripts", "batches", "bytes")}}
+    return out if any_counter else None
+
+
+def live_pages(sock: str, call=None) -> dict:
+    """Live (not parked) pages per page id, `debug.page` `list`: {"cmux.agent": 33, ...}."""
+    listed = (call or rpc)(sock, "debug.page", {"action": "list"}, timeout=30)
+    out: dict[str, int] = {}
+    for page in ((listed or {}).get("pages") or []) if isinstance(listed, dict) else []:
+        if not page.get("parked"):
+            out[str(page.get("page"))] = out.get(str(page.get("page")), 0) + 1
+    return out
+
+
+def push_summary(before: dict | None, after: dict | None, seconds: float) -> dict | None:
+    """Per page id, shown and hidden apart: pages, and the scripts, batches and bytes pushed per second
+    between the two reads (pages in both reads only), plus the busiest page. None when a read had no counters."""
+    if before is None or after is None or seconds <= 0:
+        return None
+    groups: dict[str, dict] = {}
+    busiest = None
+    for key, end in after.items():
+        start = before.get(key)
+        if start is None:
+            continue
+        delta = {name: max(0, end[name] - start[name]) for name in ("scripts", "batches", "bytes")}
+        group = groups.setdefault(f"{end['page']} ({'hidden' if end['hidden'] else 'shown'})",
+                                  {"pages": 0, "scripts": 0, "batches": 0, "bytes": 0})
+        group["pages"] += 1
+        for name, value in delta.items():
+            group[name] += value
+        if busiest is None or delta["bytes"] > busiest["bytes"]:
+            busiest = {"key": key, "hidden": end["hidden"], **delta}
+    for group in groups.values():
+        for name in ("scripts", "batches", "bytes"):
+            group[f"{name}_per_s"] = round(group[name] / seconds, 1)
+    total = sum(group["bytes"] for group in groups.values())
+    hidden = sum(group["bytes"] for name, group in groups.items() if name.endswith("(hidden)"))
+    return {"seconds": round(seconds, 1), "groups": groups, "bytes_per_s": round(total / seconds, 1),
+            "hidden_bytes_per_s": round(hidden / seconds, 1), "busiest": busiest}
+
+
+def many_chats_rows(result: dict) -> dict:
+    """The many-chats numbers of one result: the app's main-thread CPU % (busy %) and CPU %, and the
+    window's stalls (hang_summary)."""
+    app = (result.get("roles") or {}).get("app") or {}
+    hangs = result.get("hangs") or {}
+    return {"main_thread_pct": app.get("main_thread_pct"), "app_cpu_pct": app.get("cpu_pct"),
+            "hangs_over_100ms": hangs.get("over_100ms"), "hangs_over_250ms": hangs.get("over_250ms"),
+            "hang_max_ms": hangs.get("max_ms"), "hang_total_ms": hangs.get("total_ms"),
+            "push_bytes_per_s": (result.get("pushes") or {}).get("bytes_per_s"),
+            "hidden_push_bytes_per_s": (result.get("pushes") or {}).get("hidden_bytes_per_s"),
+            "seconds": result.get("seconds")}
+
+
 def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, roles: dict[int, str], exclude: set[int]):
     """Every owned process (but `exclude`) sampled once a second for `seconds`: per process and per role."""
     processes = {pid: entry for pid, entry in bm.owned(app_pid, bundle).items() if pid not in exclude}
@@ -525,7 +679,20 @@ def perf_rows(before: dict, after: dict | None, harness: str) -> list[str]:
                 else:
                     delta = f"{new - old:+.3g}" + (f" ({100 * (new - old) / old:+.0f}%)" if old else "")
             rows.append(f"| {role}: {title} | {cell(old, old_unread)} | {cell(new, new_unread)} | {delta} | {harness} |")
+    if before.get("hangs") is not None or (after or {}).get("hangs") is not None:
+        old_rows, new_rows = many_chats_rows(before), many_chats_rows(after) if after else {}
+        for key, title in MANY_CHATS_METRICS:
+            old, new = old_rows.get(key), new_rows.get(key)
+            delta = f"{new - old:+.3g}" + (f" ({100 * (new - old) / old:+.0f}%)" if old else "") \
+                if old is not None and new is not None else ""
+            rows.append(f"| app: {title} | {cell(old)} | {cell(new)} | {delta} | {harness} |")
     return rows
+
+
+MANY_CHATS_METRICS = (("main_thread_pct", "main thread busy % (CPU)"), ("hangs_over_100ms", "stalls > 100 ms"),
+                      ("hangs_over_250ms", "stalls > 250 ms"), ("hang_max_ms", "longest stall ms"),
+                      ("hang_total_ms", "stall time ms"), ("push_bytes_per_s", "page push bytes/s (all pages)"),
+                      ("hidden_push_bytes_per_s", "page push bytes/s (hidden pages)"))
 
 
 def loaded_result(path: str) -> dict:
@@ -542,6 +709,21 @@ def loaded_result(path: str) -> dict:
 IDLE_COST_PRESETS = {
     "loaded": {"load_remote": 20, "load_local": 5, "load_streaming": 3, "load_tabs": 10, "settle": 120, "measure": 60},
     "idle-chats": {"load_remote": 0, "load_local": 40, "load_streaming": 0, "load_tabs": 0, "settle": 60, "measure": 120},
+    # Leo's NIGHTLY on 2026-11-21: 214 agent chat tabs (35 daemon sessions live), 13 browsers, a few chats streaming.
+    # 10 live chats stream (the 10 busy agent-pane.inbound queues of Leo's 60 s sample), 400 bytes 10 times a second
+    # each (a fast agent's text); 190 stored idle chats: 200 chat tabs.
+    "many-chats": {"load_remote": 0, "load_local": 10, "load_streaming": 10, "load_tabs": 13, "load_seeded_open": 190,
+                   "stream_chunk": 400, "settle": 60, "measure": 60},
+    # The same load with the window minimized: every page hidden to its own document.
+    "many-chats-minimized": {"load_remote": 0, "load_local": 10, "load_streaming": 10, "load_tabs": 13,
+                             "load_seeded_open": 190, "stream_chunk": 400, "settle": 60, "measure": 60, "window": "minimized"},
+    # #48408 on Leo's Mac: each hidden chat page got ~4.5 `_acpmux/session_changed` a second, rows up to 80 KB (other
+    # machines' chats' timeBreakdown), ~184 KB/s a page. The many-chats load plus: 30 of the stored chats pinned, so
+    # their pages stay live (HiddenChatPages keeps a pinned chat's); each of the 10 streams retitles its chat every
+    # 2 s with a 20-80 KB title (5 large changed rows a second); 3 of the streams side by side in split panes, shown.
+    "many-chats-heavy": {"load_remote": 0, "load_local": 10, "load_streaming": 10, "load_tabs": 13, "load_seeded_open": 190,
+                         "stream_chunk": 400, "load_pin": 30, "load_split": 3, "retitle_bytes": 80000, "retitle_rate": 0.5,
+                         "settle": 60, "measure": 60},
 }
 IDLE_COST_LABELS = tuple(IDLE_COST_PRESETS)
 # Command-line flags that name a Chromium renderer when no page map does (process_rows).
@@ -712,7 +894,11 @@ def run_loaded(args):
     agent = os.path.join(HERE, "idle_cost_agent.py")  # fake_agent.py plus the `stream:` prompt
     peer, results, scratch = load.PeerDaemon(args.app, root, agent), [], None
     counts = {"remote": args.load_remote, "local": args.load_local, "streaming": args.load_streaming,
-              "tabs": args.load_tabs, "rate": args.stream_rate}
+              "tabs": args.load_tabs, "rate": args.stream_rate, "chunk": args.stream_chunk or 0,
+              "seeded": load.seeded_idle_ids(args.load_sessions, args.load_closed, args.load_seeded_open or 0),
+              "show": "newtab" if label.startswith("many-chats") else "chat",
+              "pin": args.load_pin or 0, "split": args.load_split or 0,
+              "title": args.retitle_bytes or 0, "title_rate": args.retitle_rate or 0}
     stream_s = args.settle + args.measure + 900  # the replies stream through the whole window
     try:
         # The remote machine first: it writes the chats the app's store is seeded with.
@@ -731,9 +917,28 @@ def run_loaded(args):
         time.sleep(args.settle)
         pages = (rpc(sock, "debug.cef_pages") or {}).get("pages")
         roles = renderer_roles(pages or [], bm.owned(pid, args.app))
+        if label.startswith("many-chats"):
+            reached["live_pages"] = live_pages(sock)  # what HiddenChatPages left live after the settle
+        if label.startswith("many-chats") and args.window == "minimized":
+            # Every page hidden to its own document (the window minimized), then a settle for the change to apply.
+            reached["window"] = "minimized" if not refused(app.run("minimizeWindow")) else "minimize refused"
+            time.sleep(10)  # test script: the minimize and its page visibility changes settle
+        pushes_before = page_pushes(sock) if label.startswith("many-chats") else None
+        pushes_at = time.monotonic()
         time.sleep(5)  # test script: the debug read's own work ends before the window
+        hangs = HangWatch(sock).start() if label.startswith("many-chats") else None
         result = measure_processes(pid, args.app, label, args.measure, roles, peer.pids())
         result["load"] = reached
+        if hangs:
+            result["hangs"] = hangs.finish()
+            # The page bridges' push counters across the window (and the 5 s before it); None on a build without them.
+            result["pushes"] = push_summary(pushes_before, page_pushes(sock), time.monotonic() - pushes_at)
+            print(f"PERF-MANY-CHATS-PUSHES {json.dumps(result['pushes'])}", flush=True)
+            rows = many_chats_rows(result)
+            result["many_chats"] = rows
+            print(f"PERF-MANY-CHATS {json.dumps({**rows, 'hangs': result['hangs'], 'load': reached})}", flush=True)
+            # After the window: where the main thread's time goes (attribution, not in the numbers).
+            result["main_sample"] = native_sample(pid, "app", 10)
         if label == "idle-chats":
             # After the window, so it costs the measurement nothing: what the shown chat's page asks
             # for while nobody touches it, by call site (idleProbe.ts), for the idle loop's source.
@@ -760,6 +965,11 @@ def run_loaded(args):
         print("PERF-IDLE-COST-TABLE-BEGIN")
         print("\n".join(perf_rows(result, None, result["harness"])))
         print("PERF-IDLE-COST-TABLE-END", flush=True)
+        if label.startswith("many-chats"):
+            print("PERF-MANY-CHATS-TABLE-BEGIN")
+            print("\n".join(row for row in perf_rows(result, None, result["harness"]) if "| app: " in row or row.startswith("| metric") or row.startswith("| ---")))
+            print("PERF-MANY-CHATS-TABLE-END", flush=True)
+            print(f"PERF-MANY-CHATS-SAMPLE\n{result['main_sample'].get('main', result['main_sample'].get('error'))}", flush=True)
         if label == "idle-chats":
             verdict = result["budget"]
             print("PERF-IDLE-CHATS-TABLE-BEGIN")
@@ -795,7 +1005,16 @@ def main():
     parser.add_argument("--relaunch-rounds", type=int, help="relaunch-reconnect: rounds per mode (3)")
     parser.add_argument("--load-streaming", type=int, help="loaded: open chats streaming a reply (3; idle-chats 0)")
     parser.add_argument("--load-tabs", type=int, help="loaded: Chromium tabs (10; idle-chats 0)")
+    parser.add_argument("--window", choices=("shown", "minimized"),
+                        help="many-chats: measure with the window shown (the New Tab page) or minimized")
+    parser.add_argument("--load-seeded-open", type=int,
+                        help="stored idle chats (no agent process) opened as tabs, one workspace each (many-chats 196; else 0)")
+    parser.add_argument("--load-pin", type=int, help="many-chats: of the stored chats opened, this many pinned (live pages; heavy 30)")
+    parser.add_argument("--load-split", type=int, help="many-chats: streaming chats in split panes of one shown workspace (heavy 3)")
+    parser.add_argument("--retitle-bytes", type=int, help="many-chats: each stream retitles its chat with up to this many bytes (heavy 80000)")
+    parser.add_argument("--retitle-rate", type=float, help="many-chats: retitles a second per stream (heavy 0.5)")
     parser.add_argument("--stream-rate", type=float, default=10, help="loaded: streamed chunks a second per chat")
+    parser.add_argument("--stream-chunk", type=int, help="loaded: bytes of text per streamed chunk (many-chats 400; else one word)")
     # Chromium does post-load work (code caching, GC, tile purges) for about two
     # minutes after tabs open or hide; shorter settles measure that, not idle.
     # Unset: 120 and 60, or the idle-cost scenario's preset (idle-chats: 60 and 120).

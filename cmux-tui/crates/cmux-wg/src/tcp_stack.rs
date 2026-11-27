@@ -162,7 +162,20 @@ pub(crate) struct TcpStack {
     /// Congestion control for new connections: Cubic, or none when ultra
     /// mode holds the rate through loss (`CMUX_WG_ULTRA_CC=none`).
     pub(crate) congestion: tcp::CongestionControl,
+    /// [`TcpStack::set_hold`]: how long a peer that went silent on purpose
+    /// is waited for, while it is held.
+    hold: Option<Duration>,
+    /// After a hold is released, when the usual user timeout comes back
+    /// ([`HOLD_RELEASE_GRACE`]).
+    release_at: Option<Instant>,
 }
+
+/// How long a released hold keeps its long timeout. A connection idle
+/// through the hold (an input lane with no keystroke yet) last heard its
+/// peer minutes ago, and its user timeout counts from then: restored at once,
+/// it would abort at the next poll. The keepalive probe that the release
+/// sends at once is answered well inside this, which makes the peer recent.
+const HOLD_RELEASE_GRACE: Duration = Duration::from_secs(30);
 
 impl TcpStack {
     /// An interface holding `addresses`. `tagged` turns on per-peer tags.
@@ -208,7 +221,65 @@ impl TcpStack {
             syn_origins: tagged.then(HashMap::new),
             closing: false,
             congestion: tcp::CongestionControl::Cubic,
+            hold: None,
+            release_at: None,
         })
+    }
+
+    /// Hold every connection for a peer that goes silent on purpose (a phone
+    /// suspended in the background): no keepalive probe goes out, data whose
+    /// ACK was lost is not retransmitted, and a connection is aborted only
+    /// after `hold` without a segment from the peer instead of its usual user
+    /// timeout. `None` releases it: the keepalive comes back at once (its
+    /// first probe goes out now), unacknowledged data is resent at once, and
+    /// the usual user timeout [`HOLD_RELEASE_GRACE`] later, once that probe's
+    /// answer has made the peer recent again.
+    pub(crate) fn set_hold(&mut self, hold: Option<Duration>) {
+        let held = self.hold.or(hold);
+        self.hold = hold;
+        self.release_at = match hold {
+            Some(_) => None,
+            None => held.map(|_| Instant::now() + HOLD_RELEASE_GRACE),
+        };
+        for conn in &self.conns {
+            let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
+            match (hold, held) {
+                (Some(hold), _) => {
+                    apply_hold(socket, Some(hold));
+                    socket.set_retransmit_paused(true);
+                }
+                // Released: probe and resend now, keep the long timeout for
+                // the grace.
+                (None, Some(_)) => {
+                    socket.set_keep_alive(Some(smol_duration(TCP_KEEP_ALIVE)));
+                    socket.set_retransmit_paused(false);
+                }
+                (None, None) => {}
+            }
+        }
+    }
+
+    /// Start tracking a connection the stack just admitted (accepted or
+    /// dialed). One admitted while held is held like the others (a late
+    /// input lane's SYN can arrive after the park): no keepalive, no
+    /// retransmission, and the hold's timeout instead of its user timeout.
+    pub(crate) fn admit(&mut self, conn: Conn) {
+        if let Some(hold) = self.hold {
+            let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
+            apply_hold(socket, Some(hold));
+            socket.set_retransmit_paused(true);
+        }
+        self.conns.push(conn);
+    }
+
+    /// The hold in force ([`TcpStack::set_hold`]).
+    pub(crate) fn hold(&self) -> Option<Duration> {
+        self.hold
+    }
+
+    /// When the stack must step to end a released hold's grace.
+    pub(crate) fn release_deadline(&self) -> Option<Instant> {
+        self.release_at
     }
 
     pub(crate) fn now(&self) -> SmolInstant {
@@ -254,6 +325,12 @@ impl TcpStack {
     /// poll again so anything the streams produced is emitted in the same
     /// pass. Returns whether a byte moved, so the engine can pass again.
     pub(crate) fn step(&mut self) -> bool {
+        if self.release_at.is_some_and(|at| Instant::now() >= at) {
+            self.release_at = None;
+            for conn in &self.conns {
+                apply_hold(self.sockets.get_mut::<tcp::Socket>(conn.handle), None);
+            }
+        }
         self.poll();
         self.process_listeners();
         let progressed = self.process_conns();
@@ -383,7 +460,7 @@ impl TcpStack {
         }
         let handle = self.sockets.add(socket);
         let (conn, stream) = self.bridge(handle, local, remote, peer);
-        self.conns.push(Conn { pending_stream: Some((Handoff::Connect(reply), stream)), ..conn });
+        self.admit(Conn { pending_stream: Some((Handoff::Connect(reply), stream)), ..conn });
     }
 
     pub(crate) fn begin_listen(&mut self, port: u16) -> Result<mpsc::Receiver<Accepted>, WgError> {
@@ -459,6 +536,26 @@ fn syn_flow(packet: &[u8]) -> Option<FlowKey> {
     let local = SocketAddr::new(segment.destination.0, segment.destination.1);
     let remote = SocketAddr::new(segment.source.0, segment.source.1);
     Some((local, remote))
+}
+
+/// A held socket sends no keepalive probe and waits `hold` for its peer; an
+/// unheld one has the keepalive and user timeout it was created with.
+fn apply_hold(socket: &mut tcp::Socket<'static>, hold: Option<Duration>) {
+    let (timeout, keep_alive) = match hold {
+        Some(hold) => (hold, None),
+        None => {
+            let timeout = socket_flow(socket).map_or(TCP_TIMEOUT, |(local, remote)| {
+                user_timeout(local.port()).max(user_timeout(remote.port()))
+            });
+            (timeout, Some(TCP_KEEP_ALIVE))
+        }
+    };
+    socket.set_timeout(Some(smol_duration(timeout)));
+    socket.set_keep_alive(keep_alive.map(smol_duration));
+}
+
+fn smol_duration(duration: Duration) -> smoltcp::time::Duration {
+    smoltcp::time::Duration::from_micros(u64::try_from(duration.as_micros()).unwrap_or(u64::MAX))
 }
 
 /// A socket's flow, once it has both endpoints.

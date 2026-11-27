@@ -466,6 +466,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_cap_noticed: None,
         delegator: None,
         cold: None,
+        fork_of_subagent: None,
     }
 }
 

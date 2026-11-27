@@ -94,10 +94,16 @@ function printProfile(label: string, profile: CpuProfile) {
   };
   const self = new Map<string, number>();
   const total = new Map<string, number>();
+  // The window starts at the switch's first busy sample, not the profile's start: the first time delta carries the
+  // profiler's own start offset, which alone ran past the window and left the report empty.
+  const idle = (id: number) => ["(idle)", "(program)"].includes(byId.get(id)!.callFrame.functionName);
   let t = 0;
+  let from: number | undefined;
   for (let i = 0; i < profile.samples.length; i += 1) {
     t += profile.timeDeltas[i]! / 1000;
-    if (t > 150) break;
+    if (from === undefined && !idle(profile.samples[i]!)) from = t;
+    if (from === undefined) continue;
+    if (t - from > 150) break;
     const dt = (profile.timeDeltas[i + 1] ?? 100) / 1000;
     const leaf = profile.samples[i]!;
     self.set(name(leaf), (self.get(name(leaf)) ?? 0) + dt);
@@ -187,12 +193,31 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/attach": {
       const limit = Number(params.limit ?? 400);
       const events = chat.events.slice(-limit);
-      return { session: chat.session, lastSeq: lastSeq(chat), events, hasMore: events.length < chat.events.length };
+      // As acpmux's attach (server/requests/turn_opener.rs): a page that starts inside a turn carries that turn's prompt.
+      const first = events[0];
+      const turnOpener =
+        first && first.kind !== "user_message" && events.length < chat.events.length
+          ? ([...chat.events]
+              .reverse()
+              .find((event) => event.kind === "user_message" && Number(event.seq) < Number(first.seq)) ?? null)
+          : null;
+      return {
+        session: chat.session,
+        lastSeq: lastSeq(chat),
+        events,
+        hasMore: events.length < chat.events.length,
+        turnOpener,
+      };
     }
     case "_acpmux/events": {
       if (params.beforeSeq !== undefined) {
         const before = Number(params.beforeSeq);
-        const older = chat.events.filter((event) => Number(event.seq) < before);
+        // acpmux reads only the kinds asked: a read without "transcript" (the turn opener's, the prompt index's) is
+        // those records alone. With it, every record here is a transcript one.
+        const kinds = Array.isArray(params.kinds) ? (params.kinds as string[]) : undefined;
+        const asked = (event: { kind?: unknown }) =>
+          !kinds || kinds.includes("transcript") || kinds.includes(String(event.kind));
+        const older = chat.events.filter((event) => Number(event.seq) < before && asked(event));
         const page = older.slice(-Number(params.limit ?? 400));
         return { events: page, hasMore: page.length < older.length, lastSeq: lastSeq(chat) };
       }
@@ -235,14 +260,17 @@ function stopStream() {
   if (streamTimer) clearInterval(streamTimer);
   streamTimer = undefined;
 }
-/// A finished turn arriving in `sessionId` (the workspace-switch arm: what changed while the page was hidden).
+/// A turn arriving in `sessionId` while the page is hidden (the workspace-switch arm). Idle: a finished turn. Running
+/// (the stream arm): the running turn ends and a new one starts and stays open, so the stream that follows is that
+/// turn's reply, as acpmux sends it; a chunk after a turn's result opens no turn there.
 let extraTurns = 0;
-const newTurn = (sessionId: string) => {
+const newTurn = (sessionId: string, running = false) => {
   extraTurns += 1;
+  if (running) append(sessionId, "mux", "turn_result", { status: "completed" });
   append(sessionId, "mux", "user_message", { text: `Follow-up ${extraTurns}` });
   append(sessionId, "mux", "turn_started", {});
   chunk(sessionId, `Follow-up answer ${extraTurns}: done, the branch is pushed and the checks are queued.`);
-  append(sessionId, "mux", "turn_result", { status: "completed" });
+  if (!running) append(sessionId, "mux", "turn_result", { status: "completed" });
 };
 
 const releases: (() => unknown)[] = [];
@@ -300,9 +328,14 @@ function installFrameReader() {
     }
     send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
       try {
-        const msg = JSON.parse(String(data)) as { id?: unknown; method?: string };
+        const msg = JSON.parse(String(data)) as { id?: unknown; method?: string; params?: Record<string, unknown> };
         if (msg.method) asked.set(msg.id, msg.method);
-        mark(`out ${msg.method ?? "answer"}`);
+        // A read of records names its cursor, so a large catch-up says which read asked for it.
+        const cursor = ["afterSeq", "beforeSeq", "limit", "kinds"]
+          .filter((key) => msg.params?.[key] !== undefined)
+          .map((key) => `${key}=${JSON.stringify(msg.params![key])}`)
+          .join(" ");
+        mark(`out ${msg.method ?? "answer"}${cursor ? ` ${cursor}` : ""}`);
       } catch {
         mark("out ?");
       }
@@ -326,7 +359,7 @@ function installFrameReader() {
   // As firstLoadWatch.ts `readFrame` reads a frame: the drawn copy's layer when it shows, else the live page.
   const read = (): Rec => {
     const drawn = document.querySelector<HTMLElement>("cmux-chat-snapshot");
-    const host = drawn && drawn.style.visibility !== "hidden" ? drawn : null;
+    const host = drawn && drawn.style.visibility !== "hidden" && drawn.style.opacity !== "0" ? drawn : null;
     const scope: ParentNode = host?.shadowRoot ?? document;
     const rootHidden = !host && document.getElementById("root")?.style.opacity === "0";
     const scroller = scope.querySelector<HTMLElement>(".acpmux-scroll");
@@ -683,7 +716,7 @@ try {
           (window as unknown as { __hidden: boolean }).__hidden = true;
           document.dispatchEvent(new Event("visibilitychange"));
         });
-        newTurn(target);
+        newTurn(target, arm === "stream");
         await settleIdle(page);
         if (arm === "stream") startStream();
         await page.evaluate(() => {
@@ -719,6 +752,18 @@ try {
           .sort((x, y) => x.t - y.t);
         console.log(`  ${scenario}.${arm} timeline:`);
         for (const one of lines) console.log(`    +${(one.t - read.t0).toFixed(1)}ms ${one.what}`);
+        // What held the settle back: the moves the judge saw, and each frame where the bottom-most row changed.
+        for (const reason of judged.why) console.log(`    moved ${reason}`);
+        let bottom: string | undefined;
+        for (const frame of read.frames) {
+          if (frame.t < read.t0) continue;
+          const last = frame.rows.reduce<{ id: string; top: number } | undefined>(
+            (best, row) => (!best || row.top >= best.top ? row : best),
+            undefined,
+          )?.id;
+          if (last !== bottom) console.log(`    +${(frame.t - read.t0).toFixed(1)}ms bottom row ${last}`);
+          bottom = last;
+        }
       }
       const copy = await settledCopy(page);
       const boundMs = await boundInPage(page, copy);

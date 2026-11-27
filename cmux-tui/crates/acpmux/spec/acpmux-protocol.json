@@ -729,6 +729,22 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/agent_home",
+      "params": {
+        "$ref": "#/types/AgentHomeParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_home_resolve",
+      "params": {
+        "$ref": "#/types/AgentHomeResolveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_coach",
       "params": {
         "$ref": "#/types/PromptCoachParams"
@@ -1602,6 +1618,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine_files_call",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/keys_mint",
       "params": true,
       "result": true
@@ -1835,6 +1857,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_digest",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_end_stale",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_finish",
       "params": true,
       "result": true
@@ -1848,6 +1882,12 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_prepare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_progress",
       "params": true,
       "result": true
     },
@@ -2864,6 +2904,28 @@
           "$ref": "#/types/RequestMeta"
         },
         "held": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "AgentHomeParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "AgentHomeResolveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "accept": true,
+        "drop": true,
         "sessionId": true
       },
       "type": "object"
@@ -3917,8 +3979,15 @@
             "null"
           ]
         },
+        "mode": {
+          "description": "With `live`: the permission mode the fork starts in, one of the modes the chat's harness\nlists (`modes.availableModes`); another is refused. Capability `acp.session.fork.subagent.v1`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "model": {
-          "description": "With `harness`: the model the fork starts on, at most 256 bytes.",
+          "description": "The model the fork starts on, at most 256 bytes: with `harness` that harness's, else the\nchat's own harness's (set before the reply, or the fork is refused and removed).",
           "type": [
             "string",
             "null"
@@ -3933,6 +4002,13 @@
         },
         "sessionId": {
           "type": "string"
+        },
+        "subagentId": {
+          "description": "With `live`: fork one of the chat's subagents into a chat of its own, from the subagent's\nown conversation, not the chat's (`hub/fork_subagent.rs`). The id `_meta.acpmux.subagents`\nnames it by, or its `agentId` (a Claude agent's id; a Codex child's thread id is its id).\nA Claude Code or Codex chat only; a running subagent forks through its last settled step.\nCapability `acp.session.fork.subagent.v1`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "throughSeq": {
           "format": "uint64",
@@ -6695,6 +6771,10 @@
           "default": null,
           "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
         },
+        "credentialOnlyHere": {
+          "description": "It holds its owner's launch credential (`agent_credentials.rs`) while its agent is\nhibernated, so the credential is in this daemon's memory and nowhere else: a daemon restart\nnow loses it, and the chat's next start runs without it. `acpmux session wake` starts the\nagent, whose env then carries the credential across the restart; a machine update does that\nbefore it restarts this daemon. Says only that one is held, never its name or value. Absent\notherwise, and from an older acpmux.",
+          "type": "boolean"
+        },
         "currentModeId": {
           "type": [
             "string",
@@ -7668,6 +7748,10 @@
           ],
           "default": null,
           "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
+        },
+        "credentialOnlyHere": {
+          "description": "It holds its owner's launch credential (`agent_credentials.rs`) while its agent is\nhibernated, so the credential is in this daemon's memory and nowhere else: a daemon restart\nnow loses it, and the chat's next start runs without it. `acpmux session wake` starts the\nagent, whose env then carries the credential across the restart; a machine update does that\nbefore it restarts this daemon. Says only that one is held, never its name or value. Absent\notherwise, and from an older acpmux.",
+          "type": "boolean"
         },
         "currentModeId": {
           "type": [
@@ -8776,6 +8860,13 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "promptId": {
+          "description": "The prompt the turn answers (its record's `promptId`): a chat on the row store names a turn\nby its prompt, not by `turnId`. None for a turn whose records carry no `promptId`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "startAt": {
           "format": "uint64",

@@ -149,6 +149,65 @@ pub fn remove_layer(setups_dir: &Path, layer: &str) -> Result<(), Error> {
     remove_dir(&setups_dir.join(layer))
 }
 
+/// Layer `layer`'s files as they are, at their paths inside its folder
+/// (empty: no folder). Views are text; a file that is not is refused.
+pub fn read_layer(setups_dir: &Path, layer: &str) -> Result<BTreeMap<String, String>, Error> {
+    let mut files = BTreeMap::new();
+    if plain_relative(layer).is_none() || layer.contains('/') {
+        return Ok(files);
+    }
+    let root = setups_dir.join(layer);
+    if !root.is_dir() {
+        return Ok(files);
+    }
+    let mut pending = vec![root.clone()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            let Ok(relative) = path.strip_prefix(&root) else { continue };
+            let text = String::from_utf8(std::fs::read(&path)?).map_err(|_| {
+                Error::Setup(format!("{layer}/{} is not a text file", relative.display()))
+            })?;
+            files.insert(relative.to_string_lossy().replace('\\', "/"), text);
+        }
+    }
+    Ok(files)
+}
+
+/// Puts layer `layer`'s folder back holding exactly `files` (paths inside
+/// it, from [`read_layer`]), whole: into a folder of its own first.
+pub fn put_layer(
+    setups_dir: &Path,
+    layer: &str,
+    files: &BTreeMap<String, String>,
+) -> Result<(), Error> {
+    if plain_relative(layer).is_none() || layer.contains('/') {
+        return Err(Error::Setup(format!("{layer:?} is not a layer folder name")));
+    }
+    let fresh = setups_dir.join(format!(".{layer}.new"));
+    remove_dir(&fresh)?;
+    for (inner, text) in files {
+        let relative = plain_relative(inner)
+            .ok_or_else(|| Error::Setup(format!("{inner} is not a plain path in {layer}")))?;
+        let file = fresh.join(relative);
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&file, text)?;
+    }
+    let live = setups_dir.join(layer);
+    remove_dir(&live)?;
+    if files.is_empty() {
+        return Ok(());
+    }
+    std::fs::rename(&fresh, &live)?;
+    Ok(())
+}
+
 fn remove_dir(dir: &Path) -> Result<(), Error> {
     match std::fs::remove_dir_all(dir) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),

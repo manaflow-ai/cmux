@@ -405,8 +405,19 @@ export function EnvironmentPicker({
           ...(offloadReason ? { reason: offloadReason } : {}),
         }
       : undefined;
-  // Move to…'s list: each target, then nothing else (Escape closes it, as Machines…).
-  const moveRows = targetActions.map((action) => action.value);
+  // Move to…'s list opens on where the chat runs now, checked, so the person sees what they are
+  // moving from (a pick of it only closes the list); a machine card already names it, so its
+  // Continue on rows stay the targets alone.
+  const here: Action | undefined = opensMoves
+    ? {
+        value: MOVE_HERE,
+        text: value,
+        kind: sections.get(current) === "local" ? "local" : "cloud",
+        run: () => undefined,
+      }
+    : undefined;
+  // Move to…'s list: where it is now, each target, then nothing else (Escape closes it, as Machines…).
+  const moveRows = [...(here ? [here.value] : []), ...targetActions.map((action) => action.value)];
   // Cloud: where a chat runs off this Mac. A new chat with `runMode` picks it as where the chat runs
   // (cloudRun.ts: the app picks and sizes a machine, CLOUD_RUN); elsewhere it shows where the chat runs
   // and a pick makes nothing (cmux#47677: it once ran New Cloud Machine, a new workspace on a click).
@@ -468,6 +479,7 @@ export function EnvironmentPicker({
   const actions: Action[] = [
     ...cardActions,
     ...(move ? [move] : []),
+    ...(here ? [here] : []),
     ...targetActions,
     ...(cloud ? [cloud] : []),
     ...(devicesMenu ? [devicesMenu] : []),
@@ -797,6 +809,7 @@ export function EnvironmentPicker({
     const action = actions.find((candidate) => candidate.value === value);
     if (action) {
       const checked =
+        action === here ||
         (action === devicesMenu && listRows === "where" && anotherPicked) ||
         (action === cloud && listRows === "where" && cloudChecked);
       return (
@@ -811,9 +824,11 @@ export function EnvironmentPicker({
                 ? "moveTo"
                 : value === DEVICES_MENU
                   ? "otherDevices"
-                  : value.startsWith(MOVE_TO)
-                    ? "moveTarget"
-                    : undefined
+                  : value === MOVE_HERE
+                    ? "moveHere"
+                    : value.startsWith(MOVE_TO)
+                      ? "moveTarget"
+                      : undefined
           }
           data-current={checked ? "" : undefined}
           data-ready={action.reason ? "false" : undefined}
@@ -825,7 +840,7 @@ export function EnvironmentPicker({
             <MoveIcon />
           ) : value === DEVICES_MENU ? (
             <DevicesIcon />
-          ) : value.startsWith(MOVE_TO) ? (
+          ) : value === MOVE_HERE || value.startsWith(MOVE_TO) ? (
             <EnvironmentIcon kind={action.kind} {...(action.kind === "cloud" ? { name: action.text } : {})} />
           ) : action === addMachine ? (
             <PlusIcon />
@@ -1063,6 +1078,9 @@ const CARD = ACTION + "card:";
 const MOVE_MENU = ACTION + "moveTo";
 /// One Move to… target's row: its id after this.
 const MOVE_TO = ACTION + "moveTo:";
+/// Move to…'s first row: where the chat runs now, checked. No target's value, which has an id after
+/// the colon, is this one.
+const MOVE_HERE = ACTION + "moveHere";
 /// A new chat's Other devices row, which opens the person's own machines.
 const DEVICES_MENU = ACTION + "otherDevices";
 

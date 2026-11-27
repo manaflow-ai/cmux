@@ -134,6 +134,20 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
     }
 }
 
+extension FFIMacLink: ParkableMacLink {
+    func park(hold: Duration, timeout: Duration) async -> Bool {
+        (try? await handle.park(holdMs: Self.millis(hold), timeoutMs: Self.millis(timeout))) ?? false
+    }
+
+    func resumeParked() -> Bool {
+        handle.resume()
+    }
+
+    private static func millis(_ duration: Duration) -> UInt32 {
+        UInt32(clamping: duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000)
+    }
+}
+
 extension FFIMacLink: NetworkChangeProbing {
     func networkChangeProbe(roam: Bool, windowMillis: UInt32) async -> String {
         await handle.debugNetworkChangeProbe(roam: roam, windowMs: windowMillis)

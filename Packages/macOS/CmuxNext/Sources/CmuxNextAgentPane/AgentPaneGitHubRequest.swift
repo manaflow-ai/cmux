@@ -208,7 +208,6 @@ public enum AgentPaneGitHubConnect: Equatable, Sendable {
         switch connect {
         case .open(let url): open(url); self = .opened
         case .connected: self = .alreadyConnected
-        case .pending: self = .failed(AgentPaneModel.gitHubConnectPendingMessage)
         case .unavailable(.signedOut) where signIn != nil: signIn?(); self = .opened
         case .unavailable(let reason): self = .unavailable(reason)
         case .failed: self = .failed("")

@@ -132,7 +132,9 @@ export type PaintEvents = {
 /// rewritten for the shadow tree (its link's `data-copy`): each chat page of the renderer used to parse
 /// a constructed copy of the whole page sheet (bench/chat-pages-memory.bench.ts, CSS=inline), where the
 /// links reuse the renderer's one parse. A link finishes in a later task even when the sheet is parsed
-/// already, so the copy is laid out hidden and shows once both loaded, before the next frame.
+/// already, so the copy is laid out hidden and shows once both loaded, before the next frame. Hidden is
+/// `opacity:0` on the host, not `visibility:hidden`: visibility inherits, so showing restyled every element
+/// of the copy (11-14 ms of the 110 ms to its first paint, bench/chat-floor.bench.ts); opacity is the host's own.
 export function paintSnapshot(
   doc: Document,
   snapshot: ChatSnapshot | null | undefined,
@@ -156,7 +158,7 @@ export function paintSnapshot(
   host.setAttribute("inert", "");
   host.setAttribute("aria-hidden", "true");
   host.style.cssText =
-    "position:fixed;inset:0;display:block;z-index:var(--layer-debug);pointer-events:none;contain:strict;margin:0;padding:0;border:0;visibility:hidden";
+    "position:fixed;inset:0;display:block;z-index:var(--layer-debug);pointer-events:none;contain:strict;margin:0;padding:0;border:0;opacity:0";
   const shadow = host.attachShadow({ mode: "open" });
   const sheets = snapshot.sheets.map((text) => sheetOf(view, text)).filter((s): s is CSSStyleSheet => !!s);
   // The shadow root's own sheets cascade before its adopted ones: the page's rules (with its root
@@ -199,7 +201,7 @@ export function paintSnapshot(
     }
     // The live root lays out under the copy, unseen until the swap (live.ts); a press on the copy ends it
     // and reaches nothing under it (live.ts `reportChatSnapshot`). Both in this task: one frame shows it.
-    host.style.removeProperty("visibility");
+    host.style.removeProperty("opacity");
     live.style.opacity = "0";
     restoreScroll(body);
     globals[SNAPSHOT_SHOWN_GLOBAL] = { at: view.performance.now() };

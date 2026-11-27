@@ -31,6 +31,9 @@ pub struct Ticket {
     pub peer_name: String,
     pub peer_key: String,
     pub scope: String,
+    /// The hub's `relayNote`: why `ice` holds no relay when billing could not be read ("could
+    /// not read your plan"); none when the plan was read, paid or free.
+    pub relay_note: Option<String>,
 }
 
 impl Ticket {
@@ -57,6 +60,7 @@ impl Ticket {
             peer_name: s(&push["peer"]["name"]),
             peer_key: s(&push["peer"]["signingKey"]),
             scope: s(&push["scope"]),
+            relay_note: push["relayNote"].as_str().map(str::to_owned),
         };
         if push["role"].as_str() != Some(role) {
             return Err(format!("not a {role} ticket").into());

@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSignposts
 
 /// Which page the palette opens on.
 public enum PaletteMode: Sendable, Hashable {
@@ -323,7 +324,12 @@ public final class PaletteController {
         contentView?.animateIn()
         if let onPresented {
             let presented = ContinuousClock.now
-            CATransaction.setMainCompletion {
+            // Timed at the frame commit that first shows the panel: right after Core Animation's commit observer
+            // (CommitBoundary), before the after-frame work of the open (warm-ups, deferred provider loads), which
+            // is not the open's cost. Not the turn's CATransaction completion: that waits for every animation added
+            // after it in the turn (the search field's spinner while a provider loads), so an open was reported
+            // hundreds of ms after its frame, or after a reader gave up on it.
+            CommitBoundary().after { _ in
                 let committed = ContinuousClock.now
                 onPresented(PaletteOpenTiming(
                     input: input, model: started.duration(to: modelDone), panel: modelDone.duration(to: panelDone),

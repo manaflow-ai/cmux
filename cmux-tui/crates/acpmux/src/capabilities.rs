@@ -55,6 +55,10 @@ pub const PROCESS_CENSUS: &str = "process-census-v1";
 /// Pre-copy for a chat move (`hub/transfer_precopy.rs`).
 pub const TRANSFER_PRECOPY: &str = "transfer-precopy-v1";
 
+/// Live migration of a chat move (`hub/transfer_live.rs`): compressed pages, resumable stages,
+/// the source's digest of a prefix, and the client's progress reports.
+pub const TRANSFER_LIVE: &str = "transfer-live-v1";
+
 pub struct Capability {
     pub id: &'static str,
     pub wire: &'static [&'static str],
@@ -391,6 +395,10 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
     Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
+    Capability {
+        id: "agent-home-v1",
+        wire: &[method::MUX_AGENT_HOME, method::MUX_AGENT_HOME_RESOLVE],
+    },
     // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
     Capability { id: "prompt-coach-v1", wire: &[method::MUX_PROMPT_COACH] },
     // Pre-copy for a chat move (`hub/transfer_precopy.rs`): `transfer_prepare` exports the log
@@ -409,6 +417,21 @@ pub const CAPABILITIES: &[Capability] = &[
             "_acpmux/transfer_receive",
         ],
     },
+    // Live migration of a chat move (`hub/transfer_live.rs`): `transfer_write {encoding:
+    // "zstd"}` takes a compressed page, `transfer_stage {resume: true}` takes up the chat's
+    // unfinished stage and says what it holds, `transfer_digest` answers the source's digest of
+    // the same bytes, `transfer_progress` is the client's report `session info` shows, and
+    // `transfer_end_stale` ends a move whose client is gone now, as its watch would.
+    Capability {
+        id: TRANSFER_LIVE,
+        wire: &[
+            "_acpmux/transfer_digest",
+            "_acpmux/transfer_end_stale",
+            "_acpmux/transfer_progress",
+            "_acpmux/transfer_stage",
+            "_acpmux/transfer_write",
+        ],
+    },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",
@@ -422,6 +445,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // A turn's before and after picture of the chat's page, for its edited-files card
     // (`hub/turn_shots.rs`).
     Capability { id: "turn-shots-v1", wire: &[method::MUX_TURN_SHOTS] },
+    // `acp.session.fork` with `subagentId` (a subagent's own conversation as a chat of its own),
+    // `mode`, and `model` without `harness` (`hub/fork_subagent.rs`).
+    Capability { id: crate::hub::fork_subagent::CAPABILITY, wire: &[method::ACP_SESSION_FORK] },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.

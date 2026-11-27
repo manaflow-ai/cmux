@@ -197,8 +197,8 @@ struct DogfoodReadiness {
             var last: Body?
             // The authenticated call: the account's Macs, read again when the focused Mac is not
             // among them yet (a Mac paired this launch). The focus is read every second for the whole
-            // window, never stopping at the first linked Mac: a launch with a pairing code may still
-            // be on the Mac it remembered when it first links.
+            // window, never stopping at the first linked Mac: a launch that names a Mac to focus may
+            // still be on the Mac it remembered when it first links.
             var macs: [LiveAPI.Mac]?
             while !Task.isCancelled, clock.now < deadline {
                 if auth.isSignedIn, let user = auth.user, let email = user.email {

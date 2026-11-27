@@ -139,6 +139,47 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/attachments_held",
 ];
 
+/// The requests a chat that moved to a peer still takes here, forwarded to its copy there
+/// (`hub/moved_forward.rs`): what a client attached to the chat sends it. A move's own steps
+/// (`_acpmux/transfer_*`) and everything that is about this daemon's record of the chat (kill,
+/// delete, archive, rename, fork) stay here, answered as before.
+const MOVED_FORWARDED: &[&str] = &[
+    method::SESSION_PROMPT,
+    method::SESSION_CANCEL,
+    method::SESSION_LOAD,
+    method::SESSION_RESUME,
+    method::SESSION_SET_MODE,
+    method::SESSION_SET_MODEL,
+    method::SESSION_SET_CONFIG_OPTION,
+    method::MUX_ATTACH,
+    method::MUX_INFO,
+    method::MUX_EVENTS,
+    method::MUX_ATTACHMENT,
+    method::MUX_ROWS,
+    method::MUX_HISTORY,
+    method::MUX_NATIVE_HISTORY,
+    method::MUX_DRAFT_GET,
+    method::MUX_DRAFT_SET,
+    method::MUX_COMPOSER_SET,
+    method::MUX_COMPOSERS,
+    method::MUX_PERMISSION_RESPOND,
+    method::MUX_QUEUE_GET,
+    method::MUX_QUEUE_REMOVE,
+    method::MUX_QUEUE_EDIT,
+    method::MUX_QUEUE_TEXT,
+    method::MUX_STEER_WITHDRAW,
+];
+
+/// Where request `m` for `key` goes when not here: a peer's chat, or for a request of
+/// [`MOVED_FORWARDED`] the peer copy of a chat that moved away (`Hub::remote_or_moved`).
+pub(super) fn target(
+    hub: &Hub,
+    m: &str,
+    key: &str,
+) -> Option<(Arc<crate::peer::Peer>, String, Value, bool)> {
+    hub.remote_or_moved(key).filter(|(.., moved)| !moved || MOVED_FORWARDED.contains(&m))
+}
+
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
 /// itself (`SESSION_SCOPED_EXCLUDED`).
 pub(super) fn names_a_session(m: &str) -> bool {
@@ -350,9 +391,8 @@ async fn gated(
     let remote = (m == method::SESSION_PROMPT)
         .then(|| session_key(params).ok())
         .flatten()
-        .filter(|key| hub.resolve(key).is_err())
-        .and_then(|key| hub.resolve_remote(key));
-    let Some((peer, id, _)) = remote else {
+        .and_then(|key| target(hub, m, key));
+    let Some((peer, id, _, _)) = remote else {
         return forward_inner(hub, conn, m, params, None).await.transpose();
     };
     let mut tries = 0;
@@ -435,8 +475,7 @@ async fn forward_inner(
 ) -> Result<Option<Value>, RpcError> {
     if super::remote_guard::cloud_mobile(params)
         && let Ok(key) = session_key(params)
-        && hub.resolve(key).is_err()
-        && hub.resolve_remote(key).is_some()
+        && target(hub, m, key).is_some()
     {
         return Err(super::remote_guard::refuse_cloud_mobile_forward());
     }
@@ -496,9 +535,19 @@ async fn forward_inner(
     // A session that lives on a peer: forward the whole request there.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
         && let Ok(key) = session_key(params)
-        && hub.resolve(key).is_err()
-        && let Some((peer, id, row)) = hub.resolve_remote(key)
+        && let Some((peer, id, row, moved)) = target(hub, m, key)
     {
+        // A request for a chat that moved there has followed one more move: past the bound it
+        // is answered here, as a chat that moved (`hub/moved_forward.rs`).
+        let moved_hops = moved.then(|| {
+            params
+                .pointer(&format!("/_meta/acpmux/{}", crate::hub::MOVED_HOPS_FIELD))
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        });
+        if moved_hops.is_some_and(|hops| hops >= crate::hub::MAX_MOVES_FOLLOWED) {
+            return Ok(None);
+        }
         // A link that is down lists no features (`link_ended`), so every feature check below (the
         // trust gate, attachments, a prompt that waits for the owner) would call a prompt
         // unsupported: final for the outbox, and the peer never asked to wake. The prompt is
@@ -520,6 +569,14 @@ async fn forward_inner(
             && !peer.lists(super::fork_through::RETARGET_FEATURE)
         {
             return Err(super::fork_through::retarget_unsupported(&peer.name));
+        }
+        // A subagent's fork, or one in a picked mode or on a model of the chat's own harness, goes
+        // only to a peer that takes them: an older build would fork the whole chat as it is.
+        if m == method::SESSION_FORK
+            && super::fork_through::asks_start(params)
+            && !peer.lists(crate::hub::fork_subagent::FEATURE)
+        {
+            return Err(super::fork_through::start_unsupported(&peer.name));
         }
         // A conditional stop runs only where the session lives: an older peer would ignore the
         // condition and stop it anyway (`hub/stop_if_idle.rs`).
@@ -665,7 +722,7 @@ async fn forward_inner(
         // A read the session list's row answers (`ROW_WILL_DO`), while the link's rows are
         // current: its notices keep the row as current as the peer's answer would be, one round
         // trip sooner.
-        if m == method::MUX_INFO && row_will_do(params) && peer.rows_current() {
+        if m == method::MUX_INFO && row_will_do(params) && peer.rows_current() && !row.is_null() {
             return Ok(Some(from_row(&row, &peer.name)));
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
@@ -730,6 +787,11 @@ async fn forward_inner(
         }
         if m == method::MUX_PERMISSION_RESPOND {
             count_hop(&mut p)?;
+        }
+        if let Some(hops) = moved_hops {
+            crate::hub::merge_mux_meta(&mut p, json!({crate::hub::MOVED_HOPS_FIELD: hops + 1}));
+            // Its stream comes from the peer now, and returns here with the chat (`follow.rs`).
+            conn.follows.forwarded(&id);
         }
         let mut first_attach = false;
         if matches!(

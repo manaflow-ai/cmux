@@ -20,6 +20,21 @@ import Testing
     }
 
     /// A tab replaced by another keeps the pane's tab count; the replaced tab's need still goes.
+    /// A chat whose tools took more than their need (its rolling summary, an accessory of the row) keeps that room
+    /// while another tab is selected, so the tabs do not take the summary's room and give it back; whether its tools
+    /// fit the row is still decided by the need alone.
+    @Test func aChatKeepsItsSummarysRoomWhileAnotherTabIsSelected() {
+        var slots = PaneTrailingSlots()
+        let tabs = [TabItem(id: TabID("a"), title: "A"), TabItem(id: TabID("b"), title: "B")]
+        slots.record(.init(intrinsic: 40, shared: 8, tools: 150, taken: 400), for: TabID("a"), live: tabs)
+        slots.record(.init(intrinsic: 40), for: TabID("b"), live: tabs)
+        #expect(slots.reserve(in: 1200, besides: TabID("b")) == 408)
+        // Under the need's fit, the taken width is capped at the half the strip gives up.
+        #expect(slots.reserve(in: 700, besides: TabID("b")) == 8 + (700 - 8) / 2)
+        // Too narrow for the need: the toolbar alone, as before.
+        #expect(slots.reserve(in: 200, besides: TabID("b")) == 40)
+    }
+
     @Test func aReplacedTabTakesNoRoom() {
         var slots = PaneTrailingSlots()
         let a = TabItem(id: TabID("a"), title: "A"), b = TabItem(id: TabID("b"), title: "B"), c = TabItem(id: TabID("c"), title: "C")

@@ -26,6 +26,7 @@ pub mod agent;
 pub mod agent_credentials;
 pub mod agent_displays;
 pub mod agent_guidance;
+pub mod agent_home;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_login;
@@ -110,6 +111,7 @@ pub mod github_broker;
 #[cfg(unix)]
 pub mod github_mcp;
 pub mod god_fixture;
+pub mod install_share;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -179,6 +181,8 @@ mod lost_home_race_tests;
 pub mod machine_call_service;
 #[path = "cli/machine_consent.rs"]
 pub(crate) mod machine_consent;
+/// File and command actions for another of the person's machines (`machine_call_service.rs`).
+pub mod machine_files;
 pub(crate) mod machine_info;
 pub(crate) mod machine_record;
 /// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
@@ -222,6 +226,9 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
+pub mod peer_dial_gate;
+pub(crate) mod peer_notice_outbox;
 // The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
 pub mod peer_mirror;
 pub mod peer_path_stats;
@@ -258,6 +265,7 @@ pub mod race_records;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
+pub(crate) mod replay_rules;
 pub mod request_cancel;
 pub mod resume;
 pub mod review_box;
@@ -333,6 +341,7 @@ mod stress;
 pub mod subagent_call;
 pub mod subagent_notice;
 pub mod subagents;
+pub mod subrouter_priority;
 pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_settings;
@@ -356,6 +365,7 @@ mod test_stack;
 pub mod test_support;
 pub(crate) mod time_breakdown;
 pub(crate) mod tool_env;
+pub mod tool_mentions;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;
@@ -369,6 +379,7 @@ pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
+pub(crate) mod unread_records;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;

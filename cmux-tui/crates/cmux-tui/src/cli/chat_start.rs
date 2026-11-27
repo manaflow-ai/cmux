@@ -138,6 +138,12 @@ Starts an agent chat, right here unless --on names another target:
                      The answer's session_id is HOST/NAME: `cmux chat send HOST/NAME TEXT`,
                      `cmux chat wait HOST/NAME`
   CMUX_ON=TARGET names the target when --on is absent.
+  On a Pro, Max or Team plan a Cloud chat (--on cloud, vm, vm:new or vm:ID, with a
+  prompt and none of --cwd, --from-folder, --no-folder, --environment, --wait,
+  --timeout, --timings, --attach or --name) starts here at once while its
+  machine starts, then moves there between turns (log: the hybrid-start folder
+  beside cmux's sessions). CMUX_HYBRID_START=1 turns that on whatever the plan,
+  CMUX_HYBRID_START=0 off; `cmux cloud hybrid-status --json` says which.
   `cmux config set on TARGET` saves a default target (the chat.on setting),
   used when neither --on nor CMUX_ON names one; `cmux config reset on` clears it.
 
@@ -1016,21 +1022,10 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             },
             Err(error) => usage_failure(&error, global.output),
         },
-        Route::Cloud(machine) => match cloud_words(&start, &machine) {
-            Ok(words) => {
-                let parsed = cloud_start_chat::parse(&words, read_stdin);
-                match parsed {
-                    Ok(cloud_start_chat::Parsed::Run(request)) => {
-                        cloud_start_chat::start(global, &request)
-                    }
-                    Ok(cloud_start_chat::Parsed::Help) => {
-                        print!("{USAGE}");
-                        0
-                    }
-                    Err(error) => usage_failure(&error, global.output),
-                }
-            }
-            Err(error) => usage_failure(&error, global.output),
+        // Leo, 2026-11-23: "start them all in parallel, in tandem": here at once, then Cloud.
+        Route::Cloud(machine) => match hybrid_start::start(global, &start, &machine) {
+            Some(code) => code,
+            None => cloud_start(global, &start, &machine),
         },
         // As a chat here starts, with the peer named; its tab shows here.
         Route::Peer(peer) => match peer_words(&global_words(global), &start, &peer) {
@@ -1038,6 +1033,21 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             Err(error) => usage_failure(&error, global.output),
         },
         Route::Joined(machine) => joined::run(global, &start, &machine),
+    }
+}
+
+/// The Cloud start, as `cloud start-chat` runs it.
+fn cloud_start(global: &GlobalArgs, start: &Start, machine: &Machine) -> i32 {
+    match cloud_words(start, machine) {
+        Ok(words) => match cloud_start_chat::parse(&words, read_stdin) {
+            Ok(cloud_start_chat::Parsed::Run(request)) => cloud_start_chat::start(global, &request),
+            Ok(cloud_start_chat::Parsed::Help) => {
+                print!("{USAGE}");
+                0
+            }
+            Err(error) => usage_failure(&error, global.output),
+        },
+        Err(error) => usage_failure(&error, global.output),
     }
 }
 
@@ -1361,6 +1371,7 @@ fn usage_failure(error: &UsageError, output: OutputMode) -> i32 {
     super::app::failure("usage.invalid", &format!("cmux: {}\n{USAGE}", error.0), output, 2)
 }
 
+pub(super) mod hybrid_start;
 pub(super) mod joined;
 
 #[cfg(test)]

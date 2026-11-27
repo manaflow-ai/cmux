@@ -31,6 +31,7 @@ pub(super) struct FakeAcpmux {
     pub(super) socket: PathBuf,
     pub(super) frames: Receiver<Value>,
     connections: Receiver<UnixStream>,
+    attachment_ready: Receiver<()>,
     current: Option<UnixStream>,
     /// Every connection taken so far ([`FakeAcpmux::streams`]).
     all: Vec<UnixStream>,
@@ -55,6 +56,7 @@ impl FakeAcpmux {
         let listener = UnixListener::bind(&socket).unwrap();
         let (frame_tx, frames) = channel();
         let (connection_tx, connections) = channel();
+        let (attachment_ready_tx, attachment_ready) = channel();
         let transfer_blocked = Arc::new(Mutex::new(HashSet::new()));
         let shared_transfers = transfer_blocked.clone();
         std::thread::spawn(move || {
@@ -62,9 +64,12 @@ impl FakeAcpmux {
                 let Ok(stream) = stream else { return };
                 let _ = connection_tx.send(stream.try_clone().unwrap());
                 let frame_tx = frame_tx.clone();
+                let attachment_ready_tx = attachment_ready_tx.clone();
                 let fixture = fixture.clone();
                 let transfers = shared_transfers.clone();
-                std::thread::spawn(move || serve(stream, frame_tx, &fixture, &transfers));
+                std::thread::spawn(move || {
+                    serve(stream, frame_tx, &fixture, &transfers, &attachment_ready_tx)
+                });
             }
         });
         Self {
@@ -72,6 +77,7 @@ impl FakeAcpmux {
             socket,
             frames,
             connections,
+            attachment_ready,
             current: None,
             all: Vec::new(),
             transfer_blocked,
@@ -117,6 +123,14 @@ impl FakeAcpmux {
     /// The next frame the daemon sent to acpmux within `timeout`, if any.
     pub(super) fn next_frame(&self, timeout: Duration) -> Option<Value> {
         self.frames.recv_timeout(timeout).ok()
+    }
+
+    /// A guest relay emits its snapshot before asking acpmux to mark its session visible. The
+    /// view response is the fake's true attach-ready signal, after which a pushed event cannot
+    /// race the relay's setup. Real acpmux subscribes before the attach answer and serializes
+    /// writes on its connection, so this barrier models readiness rather than adding a delay.
+    pub(super) fn wait_for_attachment(&self) {
+        self.attachment_ready.recv_timeout(WAIT).expect("a guest attachment to become ready");
     }
 
     pub(super) fn no_frame(&self) {
@@ -301,6 +315,7 @@ fn serve(
     frames: Sender<Value>,
     fixture: &Fixture,
     transfers: &Mutex<HashSet<String>>,
+    attachment_ready: &Sender<()>,
 ) {
     let mut writer = stream.try_clone().unwrap();
     // acpmux takes 2 `_acpmux/typing` a second per connection: the fake refuses the third.
@@ -311,6 +326,7 @@ fn serve(
         let _ = frames.send(frame.clone());
         let id = frame["id"].clone();
         let params = &frame["params"];
+        let view = frame["method"] == json!("_acpmux/view");
         let reply = match frame["method"].as_str().unwrap_or_default() {
             "initialize" => {
                 let mut capabilities = vec!["acpmux-v1"];
@@ -617,6 +633,9 @@ fn serve(
                 None => json!({"jsonrpc":"2.0","id":id,"result":result}),
             };
             writeln!(writer, "{frame}").unwrap();
+            if view {
+                let _ = attachment_ready.send(());
+            }
         }
     }
 }

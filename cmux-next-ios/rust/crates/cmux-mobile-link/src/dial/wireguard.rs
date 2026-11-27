@@ -53,7 +53,7 @@ use roam::{Control, Session};
 #[path = "wireguard_paths.rs"]
 mod paths;
 pub use paths::{app_backgrounded, set_app_backgrounded};
-pub use roam::{network_changed, rehome, roam_timeline, route_destinations};
+pub use roam::{network_changed, rehome, resume_session, roam_timeline, route_destinations};
 #[doc(hidden)]
 pub use roam::{
     roam_session, session_endpoints, simulate_blackout, simulate_network_loss, simulate_turn_loss,
@@ -1959,6 +1959,23 @@ impl Drop for Guard {
     }
 }
 
+/// A parked link holds this tunnel ([`crate::link::HoldHook`]). Weak: the
+/// link's guard owns the session, and the hook must not keep it open.
+fn hold_hook(session: &Arc<Session>) -> crate::link::HoldHook {
+    let session = Arc::downgrade(session);
+    Arc::new(move |hold| -> futures_util::future::BoxFuture<'static, ()> {
+        let session = session.clone();
+        Box::pin(async move {
+            let Some(net) = session.upgrade().and_then(|session| session.net().ok()) else {
+                return;
+            };
+            if let Err(error) = net.hold(hold).await {
+                tracing::debug!(%error, "tunnel hold not applied");
+            }
+        })
+    })
+}
+
 struct Tunnel {
     session: Arc<Session>,
     path: watch::Receiver<LinkPath>,
@@ -2268,6 +2285,7 @@ impl Dialer for WireGuardDialer {
             let webrtc_media = webrtc_media_agreed && media.is_some();
             Ok(Dialed {
                 stream: Box::new(stream),
+                hold: Some(hold_hook(&tunnel.session)),
                 path: tunnel.path,
                 peer: tunnel.peer,
                 guard: Box::new(guard),
@@ -2436,6 +2454,7 @@ impl Dialer for WireGuardDialer {
             let webrtc_media = webrtc_media_wanted && media.is_some();
             Ok(Dialed {
                 stream: Box::new(stream),
+                hold: Some(hold_hook(&tunnel.session)),
                 path: tunnel.path,
                 peer: tunnel.peer,
                 guard: Box::new(guard),

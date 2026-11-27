@@ -59,6 +59,7 @@ pub(crate) mod ls_ssh;
 pub mod ls_table;
 pub mod machine_auth;
 pub(crate) mod owned_child;
+pub mod standing_grant;
 pub(crate) use crate::machine_consent;
 pub mod machine_deps;
 pub mod mesh_control;

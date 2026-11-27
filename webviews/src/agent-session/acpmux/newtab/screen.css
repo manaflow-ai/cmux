@@ -822,7 +822,7 @@
 /* The icon column's arms (iconColumn.experiment.ts; the gallery's agent-pane.new-tab-icon-column).
    Each keeps the folder glyph, + and the shield on one center line (newtab-icon-column.test.ts) and
    changes only what carries the chips, so the arms read apart at a glance (Leo 2026-11-15: "those
-   all look the same to me"). pad, the bare text above, has no rule here; tiles (below) ships.
+   all look the same to me"). pad, the bare text above, has no rule here and ships (Lucas 2026-11-23).
    - tray: the strip sits in a filled tray inset by --nt-tray-inset from the box's sides and tucked
      --nt-tray-tuck under its top edge, the box raised over it (Codex's desktop composer). The strip
      steps back out by the inset, so its glyphs stay on the column. */
@@ -875,7 +875,7 @@
    the glyph's place: each tile is drawn around the glyph's own box (below), so its center stays on
    the column (newtab-icon-column.test.ts) and only the label steps out by the tile's room. A
    project's badge gets the same tile. One stroke (the 16 grid's 1.25) for every glyph.
-   - tiles (shipped): line glyphs in the chip's own ink on soft square tiles, as a system settings
+   - tiles: line glyphs in the chip's own ink on soft square tiles, as a system settings
      sidebar; the names stay.
    - appicon: app-icon squircles. The folder is the hero, on the accent's tile in the accent's ink;
      the machine and the shield sit on neutral tiles, + on a round one; the project's name in the

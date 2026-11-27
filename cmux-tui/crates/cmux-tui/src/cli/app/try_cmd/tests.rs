@@ -12,8 +12,8 @@ use super::helper::{self, Signing};
 use super::live::{self, Daemon, Phases, Store};
 use super::resolve::{self, Spec, Unresolved};
 use super::{
-    ChannelApply, Command, Live, Plan, Scope, apply_channel, choose, finish, nearest, parse,
-    plan_human, plan_json, try_live, undo_live,
+    ChannelApply, Command, Live, Plan, Scope, app_build, apply_channel, choose, finish, nearest,
+    parse, plan_human, plan_json, try_live, undo_live,
 };
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -1801,4 +1801,129 @@ fn app_try_sha_from_a_file_before_daemon_from_says_so() {
         panic!("expected daemon-only live, got {plan:?}")
     };
     assert!(left.iter().any(|reason| reason.contains("predates daemon_from")), "{left:?}");
+}
+
+// ------------------------------------------------------------------ the app-build path (app_build.rs)
+
+fn app_payload(commit: &str) -> Value {
+    json!({
+        "schema": 1, "purpose": app_build::PURPOSE, "commit": commit, "configuration": "release",
+        "arch": "arm64",
+        "app": { "url": app_build::zip_url(commit), "sha256": sha(b"zip"), "size": 3 },
+        "run_id": "123",
+    })
+}
+
+#[test]
+fn app_payload_verifies_only_its_own_commit_and_zip() {
+    let good = app_build::verify(&envelope(&app_payload(COMMIT)), &keys(), COMMIT).unwrap();
+    assert_eq!(good.app.sha256, sha(b"zip"));
+    assert_eq!(good.run_id, "123");
+    let other = "f".repeat(40);
+    assert!(app_build::verify(&envelope(&app_payload(&other)), &keys(), COMMIT).is_err());
+    let mut wrong = app_payload(COMMIT);
+    wrong["purpose"] = json!("cmux-mac-live-update");
+    assert!(app_build::verify(&envelope(&wrong), &keys(), COMMIT).is_err());
+    let mut elsewhere = app_payload(COMMIT);
+    elsewhere["app"]["url"] = json!("https://example.com/cmux.zip");
+    assert!(app_build::verify(&envelope(&elsewhere), &keys(), COMMIT).is_err());
+    let mut huge = app_payload(COMMIT);
+    huge["app"]["size"] = json!(app_build::ZIP_MAX_BYTES + 1);
+    assert!(app_build::verify(&envelope(&huge), &keys(), COMMIT).is_err());
+    let mut bad_sha = app_payload(COMMIT);
+    bad_sha["app"]["sha256"] = json!("not-a-sha");
+    assert!(app_build::verify(&envelope(&bad_sha), &keys(), COMMIT).is_err());
+    // Unsigned bytes are refused before anything reads them.
+    assert!(
+        app_build::verify(app_payload(COMMIT).to_string().as_bytes(), &keys(), COMMIT).is_err()
+    );
+}
+
+#[test]
+fn app_payload_reads_from_the_files_base() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = format!("file://{}/", dir.path().display());
+    assert_eq!(app_build::read(COMMIT, &base), Ok(None));
+    fs::create_dir_all(dir.path().join(COMMIT)).unwrap();
+    fs::write(dir.path().join(COMMIT).join("mac-app.json"), b"{}").unwrap();
+    assert!(app_build::read(COMMIT, &base).is_err());
+}
+
+#[test]
+fn reidentified_takes_the_apps_identity_and_keeps_the_builds_code() {
+    let mut build = plist::Dictionary::new();
+    build.insert("CFBundleIdentifier".into(), "com.cmuxterm.app.debug.pr".into());
+    build.insert("CFBundleExecutable".into(), "cmux".into());
+    build.insert("CMUXCommit".into(), "0123456789ab".into());
+    build.insert("SUFeedURL".into(), "https://example.com/pr.xml".into());
+    build.insert("CMUXInPlaceTry".into(), "stale".into());
+    let mut app = plist::Dictionary::new();
+    app.insert("CFBundleIdentifier".into(), "com.cmuxterm.app.nightly".into());
+    app.insert("CFBundleName".into(), "cmux NIGHTLY".into());
+    app.insert("CMUXCommit".into(), "89abcdef0123".into());
+    app.insert("SUFeedURL".into(), "https://example.com/nightly.xml".into());
+    app.insert("CMUXIrohRelay".into(), "relay".into());
+    let mut marker = plist::Dictionary::new();
+    marker.insert("commit".into(), COMMIT.into());
+    let out = app_build::reidentified(&build, &app, marker);
+    let get = |key: &str| out.get(key).and_then(plist::Value::as_string);
+    assert_eq!(get("CFBundleIdentifier"), Some("com.cmuxterm.app.nightly"));
+    assert_eq!(get("CFBundleName"), Some("cmux NIGHTLY"));
+    assert_eq!(get("SUFeedURL"), Some("https://example.com/nightly.xml"));
+    assert_eq!(get("CMUXIrohRelay"), Some("relay"));
+    // The build's own code and commit stay its own.
+    assert_eq!(get("CFBundleExecutable"), Some("cmux"));
+    assert_eq!(get("CMUXCommit"), Some("0123456789ab"));
+    let marker = out.get(app_build::MARKER).and_then(plist::Value::as_dictionary).unwrap();
+    assert_eq!(marker.get("commit").and_then(plist::Value::as_string), Some(COMMIT));
+}
+
+#[test]
+fn app_build_commit_and_process_checks() {
+    assert!(app_build::commit_matches(Some("0123456789ab"), COMMIT));
+    assert!(app_build::commit_matches(Some(COMMIT), COMMIT));
+    assert!(!app_build::commit_matches(Some("012345"), COMMIT));
+    assert!(!app_build::commit_matches(Some("fedcba987654"), COMMIT));
+    assert!(!app_build::commit_matches(None, COMMIT));
+    // Nothing answers on a socket that is not there: the app is not running.
+    assert_eq!(app_build::identify(Path::new("/nonexistent/cmux.sock"), Path::new("/A.app")), None);
+    assert!(app_build::identity_key("SUPublicEDKey"));
+    assert!(app_build::identity_key("CMUX_IROH_RELAY"));
+    assert!(!app_build::identity_key("CMUXCommit"));
+    assert!(!app_build::identity_key("CFBundleExecutable"));
+}
+
+#[test]
+fn app_build_plan_path_and_swap_word() {
+    let payload = app_build::verify(&envelope(&app_payload(COMMIT)), &keys(), COMMIT).unwrap();
+    let plan = Plan::App { payload: Box::new(payload) };
+    assert_eq!(plan.path(), "app");
+    let value = plan_json(&plan, COMMIT, Path::new("/A.app"), Some(APP_COMMIT));
+    assert_eq!(value["path"], "app");
+    assert_eq!(value["sha256"], json!(sha(b"zip")));
+    assert_eq!(
+        parse(&words(&[app_build::SWAP_VERB, "/tmp/swap.json"])).unwrap(),
+        Command::Swap { spec: PathBuf::from("/tmp/swap.json") }
+    );
+    assert!(parse(&words(&[app_build::SWAP_VERB, "/tmp/swap.json", "--dry-run"])).is_err());
+}
+
+#[test]
+fn app_build_undo_after_an_update_drops_the_kept_original() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store { root: dir.path().join("store") };
+    let app = dir.path().join("cmux NIGHTLY.app");
+    fs::create_dir_all(app.join("Contents")).unwrap();
+    plist::Value::Dictionary(plist::Dictionary::new())
+        .to_file_xml(app.join("Contents/Info.plist"))
+        .unwrap();
+    let original = app_build::original_path(&store, &app);
+    fs::create_dir_all(&original).unwrap();
+    assert!(!app_build::is_try(&app));
+    let last = json!({ "action": "try", "ok": true, "path": "app", "commit": COMMIT, "app": app.to_string_lossy(), "original": original.to_string_lossy() });
+    store.record(&last).unwrap();
+    let global = super::GlobalArgs::default();
+    assert_eq!(super::undo_app(&global, &store, &last, COMMIT, &app, false), 0);
+    assert!(!original.exists());
+    assert_eq!(store.last().unwrap()["action"], "undo");
 }

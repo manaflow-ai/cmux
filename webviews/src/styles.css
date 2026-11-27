@@ -31,9 +31,13 @@
   --cmux-diff-line-height: var(--text-body--line-height);
   --cmux-diff-bg: var(--cmux-diff-bg-light);
   --cmux-diff-fg: var(--cmux-diff-fg-light);
-  /* Separators, panel edges and outlines: the foreground at 8% over the
-     backdrop (#383933 on Monokai's #272822, as in the classic viewer). */
-  --cmux-diff-border: color-mix(in srgb, var(--cmux-diff-fg) 8%, transparent);
+  /* The diff's fills, lines and hovers are the design scale's content surfaces (desktop.css
+     --ds-surface-*, the same card, inset, hover and line as the chat's cards), with the diff's own
+     ink (the terminal theme's text) as their ink. No fill strength is minted here. */
+  --ds-surface-ink: var(--cmux-diff-fg);
+  /* Separators, panel edges and outlines: the content surface line (it clears with
+     appearance.borders none and firms up under Increase Contrast, as every card's). */
+  --cmux-diff-border: var(--ds-surface-card-line);
   /* "+N -N" counts: the theme's addition and deletion colors, softened
      toward the backdrop like the classic viewer's (#85b336 for Monokai's
      #a6e22e). */
@@ -52,18 +56,19 @@
   --cmux-diff-count-modified: color-mix(in srgb, var(--cmux-diff-modified-fg) 66%, var(--cmux-diff-solid-bg));
   /* Dim text: directories, file names in the tree, placeholders, icons. */
   --cmux-diff-text-dim: color-mix(in srgb, var(--cmux-diff-fg) 50%, var(--cmux-diff-solid-bg));
-  --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
-  --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  --cmux-diff-muted-bg: var(--ds-surface-inset);
+  --cmux-diff-hover-bg: var(--ds-surface-hover);
   --cmux-diff-accent: var(--cmux-accent, light-dark(#0a84ff, #7ab7ff));
   /* cmux NEXT chrome (the toolbar, the files panel, the file bars): every chip has a one-pixel
      rim and what is selected or open takes the theme accent. The toolbar has no fill, as every
      page header; the files panel takes a lift off the backdrop (--cmux-diff-files-bg). */
-  --cmux-diff-rim: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
+  --cmux-diff-rim: var(--ds-surface-control-line);
   /* The header's controls: the toolbar pill on the right and the source, base and jump chips on
      the left share one glossy fill (a tint of the text color, so the page or the window's backdrop
      shows through) and one hairline rim. */
-  --cmux-diff-pill-bg: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
-  --cmux-diff-pill-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  --cmux-diff-pill-bg: var(--ds-surface-inset);
+  /* Hover over a filled rest: the hover layer over the inset (a background, two layers). */
+  --cmux-diff-pill-hover-bg: var(--ds-surface-hover-layer), var(--ds-surface-inset);
   --cmux-diff-pill-rim: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim);
   --cmux-diff-accent-tint: color-mix(in srgb, var(--cmux-diff-accent) 18%, transparent);
   /* The files panel in an opaque window: 3% of the text color over the solid backdrop (over glass
@@ -138,8 +143,8 @@ html {
     --cmux-diff-files-float-bg: var(--cmux-diff-header-bg);
     --cmux-diff-files-layer-bg: transparent;
     --cmux-diff-tree-name-strength: 65%;
-    /* A tint of the text color, not the theme surface (no navy or other theme hue). */
-    --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-fg) 5%, transparent);
+    /* The card surface: a tint of the text color, not the theme surface (no navy or other theme hue). */
+    --cmux-diff-header-bg: var(--ds-surface-card);
     /* The blur alone: the shared glass blur's saturate(1.4) would push the backdrop's own hues
        (a navy or a vivid image) through the film. */
     --cmux-diff-glass-filter: blur(var(--ds-glass-chrome-radius));
@@ -1307,6 +1312,8 @@ body[data-status-only="true"] #status-text {
   max-height: 40%;
   border-top: 1px solid var(--cmux-diff-border);
   background: transparent;
+  /* The header's and the review line's leading inset, so the pull request lines up under the title. */
+  --comments-inset: 10px;
 }
 #comments-header {
   display: flex;
@@ -1314,13 +1321,14 @@ body[data-status-only="true"] #status-text {
   justify-content: space-between;
   gap: 8px;
   min-height: 30px;
-  padding: 0 10px;
+  padding: 0 var(--comments-inset);
   color: var(--cmux-diff-text-muted);
   font-size: var(--cmux-diff-ui-font-size);
 }
-/* Send to agent: a compact accent button at the header's end. Both labels share one grid cell, so
-   the button keeps the wider one's width and the header never moves when it starts sending. */
-#comments-send {
+/* Send to agent and Post to GitHub: a compact accent button at the header's end. Both labels share
+   one grid cell, so the button keeps the wider one's width and the header never moves when it
+   starts sending or posting. */
+.comments-action {
   display: inline-grid;
   flex: 0 0 auto;
   height: 24px;
@@ -1328,18 +1336,59 @@ body[data-status-only="true"] #status-text {
   font-size: var(--cmux-diff-ui-font-size);
   white-space: nowrap;
 }
-#comments-send > span {
+.comments-action > span {
   grid-area: 1 / 1;
   text-align: center;
 }
-#comments-send > span[aria-hidden="true"] {
+.comments-action > span[aria-hidden="true"] {
   visibility: hidden;
 }
-#comments-send-error {
+/* A review worktree's Send to agent: secondary to Post, so it is quiet until hovered. */
+.comments-action-quiet {
+  height: 20px;
+  padding: 0 4px;
+}
+/* The pull request under review (then the posted review) on one fixed-height line under the
+   header, with Send to agent at its end: the same line in every post state, so nothing moves. */
+#comments-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 24px;
+  margin-top: -4px;
+  padding: 0 4px 0 var(--comments-inset);
+  font-size: var(--cmux-diff-ui-font-size);
+}
+#comments-review-link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cmux-diff-text-muted);
+  text-decoration: none;
+}
+#comments-review-link:hover {
+  color: var(--cmux-diff-accent);
+  text-decoration: underline;
+}
+#comments-review-link[data-posted] {
+  color: var(--cmux-diff-accent);
+}
+#comments-send-error,
+#comments-post-error {
   display: block;
   padding: 0 12px 8px;
   color: var(--cmux-diff-deletion-fg);
   font-size: var(--cmux-diff-ui-font-size);
+}
+/* gh's own reason, at most two lines: the list under it keeps its place for the retry. */
+.comments-error-reason {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--cmux-diff-text-muted);
 }
 #comments-list {
   min-height: 0;

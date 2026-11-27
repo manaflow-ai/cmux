@@ -27,6 +27,7 @@ fn item(
 ) -> Item {
     Item {
         surge_held: false,
+        verdict: None,
         prompt_id: prompt_id.to_owned(),
         notice: None,
         answered: None,
@@ -1389,4 +1390,205 @@ async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_do
             assert!(inbox.timer.is_some(), "an ordinary FYI waits for its flush");
         }
     }
+}
+
+// The page rule (`inbox_page_rule.rs`, RFD 0041 slice 1): in a chat on the coordinator list only
+// a page starts a turn.
+
+fn page_msg<'a>(
+    class: PromptClass,
+    from: &'a str,
+    session: bool,
+    text: &'a str,
+) -> page_rule::Message<'a> {
+    page_rule::Message {
+        class,
+        from,
+        has_session: session,
+        human: false,
+        fire: false,
+        title: None,
+        text,
+    }
+}
+
+/// A notice went in, or was tried: a hub with no agent refuses it at once (`notice_done`).
+fn tried(session: &Session) -> bool {
+    let inbox = session.inbox();
+    inbox.in_flight.is_some()
+        || inbox.refused_at != 0
+        || inbox.items.iter().any(|i| i.noticed || i.answered.is_some())
+}
+
+fn judged(mut item: Item, folds: &page_rule::Folds, session: bool) -> Item {
+    let m = page_msg(item.class, &item.from, session, &item.text);
+    item.verdict = page_rule::judge(folds, &m, item.at);
+    item
+}
+
+#[test]
+fn the_coordinator_list_is_the_page_rule_config_by_name_or_host_slash_name() {
+    let mut cfg = crate::config::Config::default();
+    assert!(!page_rule::listed(&cfg, "claude-sr2-coord"), "unset: no chat is listed");
+    cfg.page_rule = Some(crate::config::PageRuleConfig {
+        sessions: vec!["cosmic-gray/claude-sr2-coord".into(), "interim-coord-2".into()],
+    });
+    assert!(page_rule::listed(&cfg, "claude-sr2-coord"));
+    assert!(page_rule::listed(&cfg, "interim-coord-2"));
+    assert!(!page_rule::listed(&cfg, "claude-sr2-coord-old"));
+    assert!(!page_rule::listed(&cfg, ""));
+}
+
+#[test]
+fn a_page_is_a_sessions_block_or_question_or_the_persons_message_and_the_rest_is_held() {
+    use page_rule::Verdict::*;
+    let folds = page_rule::Folds::default();
+    let at = 1_000;
+    for class in [PromptClass::Block, PromptClass::Question] {
+        let m = page_msg(class, "lane-a", true, "blocked on review of #12");
+        assert_eq!(page_rule::judge(&folds, &m, at), Some(Page), "{class:?}");
+    }
+    for class in [PromptClass::Result, PromptClass::Fyi] {
+        let m = page_msg(class, "lane-a", true, "merged #12");
+        assert_eq!(page_rule::judge(&folds, &m, at), Some(Hold), "{class:?}");
+        let tagged = page_msg(class, "lane-a", true, "[taste] which icon?");
+        assert_eq!(page_rule::judge(&folds, &tagged, at), Some(Page), "tagged for Leo");
+        let mut human = page_msg(class, "leo", false, "status?");
+        human.human = true;
+        assert_eq!(page_rule::judge(&folds, &human, at), Some(Page), "from Leo");
+    }
+    let mut fire = page_msg(PromptClass::Fyi, "now", false, "runner label stalled");
+    fire.fire = true;
+    assert_eq!(page_rule::judge(&folds, &fire, at), Some(Page), "a first-seen FIRE");
+    assert!(page_rule::fire_text("FIRE: base red"));
+    assert!(page_rule::fire_text("[FIRE] base red"));
+    assert!(!page_rule::fire_text("no fire here"));
+}
+
+/// A lane's block wakes the idle coordinator after the debounce.
+#[tokio::test]
+async fn a_lanes_block_wakes_a_coordinator() {
+    let (hub, session) = hub_with_chat("coord-block");
+    let folds = page_rule::Folds::default();
+    let at = now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1);
+    let block = item("b1", "t", "lane-a", PromptClass::Block, at, "blocked on #12");
+    let block = judged(block, &folds, true);
+    assert_eq!(block.verdict, Some(page_rule::Verdict::Page));
+    session.inbox().items.push(block);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "the block woke it");
+}
+
+/// A status is held: no turn, only the flush timer. It goes in with the next notice (a page's),
+/// one line with its thread id.
+#[tokio::test]
+async fn a_status_is_held_and_then_delivered_on_the_next_turn() {
+    let (hub, session) = hub_with_chat("coord-status");
+    let folds = page_rule::Folds::default();
+    let at = now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1);
+    // A report from a lane, which wakes a chat without the rule.
+    let mut status =
+        item("s1", "from:lane-a/pr:9", "lane-a", PromptClass::Result, at, "PR #9 is green");
+    status.report = true;
+    assert!(wakes(&session.meta(), &status), "it wakes without the rule");
+    let status = judged(status, &folds, true);
+    assert_eq!(status.verdict, Some(page_rule::Verdict::Hold));
+    session.inbox().items.push(status);
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "held: no turn");
+    assert!(session.inbox().timer.is_some(), "the flush is timed");
+
+    let block =
+        judged(item("b1", "t2", "lane-b", PromptClass::Block, at, "need a merge"), &folds, true);
+    session.inbox().items.push(block);
+    {
+        let inbox = session.inbox();
+        let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
+        let (text, _) = render(&new);
+        assert!(
+            text.contains("PR #9 is green (thread from:lane-a/pr:9)"),
+            "the held status leads the next notice as one line with its thread id: {text}"
+        );
+    }
+    hub.inbox_review(&session);
+    assert!(tried(&session), "the page brings the next turn");
+}
+
+/// A held status wakes the chat by itself at the flush, under the 20-minute ceiling.
+#[tokio::test]
+async fn a_held_status_wakes_the_chat_by_itself_within_twenty_minutes() {
+    const { assert!(FLUSH_MS <= 20 * 60 * 1000) };
+    let (hub, session) = hub_with_chat("coord-ceiling");
+    let folds = page_rule::Folds::default();
+    let at = now_ms().saturating_sub(FLUSH_MS + 1);
+    let status =
+        judged(item("s1", "t", "lane-a", PromptClass::Fyi, at, "still building"), &folds, true);
+    assert_eq!(status.verdict, Some(page_rule::Verdict::Hold));
+    session.inbox().items.push(status);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "the ceiling woke it");
+}
+
+/// A program's identical FIRE folds: the first pages, repeats fold and count (and start no
+/// flush of their own), an hour after the last page it pages again, and changed text is a new
+/// page. Six hours unseen, it is forgotten.
+#[tokio::test]
+async fn an_identical_program_fire_folds_and_repages_after_an_hour() {
+    use page_rule::{REPAGE_MS, Verdict::*};
+    let mut folds = page_rule::Folds::default();
+    let mut fire = page_msg(PromptClass::Block, "lane-cap-watch", false, "FIRE: lane cap reached");
+    fire.fire = true;
+    let t0 = 10_000_000;
+    let at = |t: u64, folds: &mut page_rule::Folds, m: &page_rule::Message<'_>| {
+        let v = page_rule::judge(folds, m, t).unwrap();
+        page_rule::record(folds, m, v, t);
+        v
+    };
+    assert_eq!(at(t0, &mut folds, &fire), Page, "first seen");
+    assert_eq!(at(t0 + 5 * 60_000, &mut folds, &fire), Fold);
+    assert_eq!(at(t0 + 30 * 60_000, &mut folds, &fire), Fold);
+    assert_eq!(folds.folded(&fire), 2, "repeats count");
+    let mut changed =
+        page_msg(PromptClass::Block, "lane-cap-watch", false, "FIRE: lane cap reached (12/12)");
+    changed.fire = true;
+    assert_eq!(at(t0 + 31 * 60_000, &mut folds, &changed), Page, "changed text is a new page");
+    assert_eq!(at(t0 + REPAGE_MS, &mut folds, &fire), Page, "hourly repage while it stands");
+    assert_eq!(at(t0 + REPAGE_MS + 60_000, &mut folds, &fire), Fold);
+    let later = t0 + REPAGE_MS + 60_000 + page_rule::FOLD_MS;
+    assert_eq!(at(later, &mut folds, &fire), Page, "six hours unseen: forgotten");
+    // A lane's identical block never folds.
+    let lane = page_msg(PromptClass::Block, "lane-a", true, "blocked");
+    assert_eq!(at(t0, &mut folds, &lane), Page);
+    assert_eq!(at(t0 + 1, &mut folds, &lane), Page);
+
+    // In an idle chat, folded repeats alone start no turn and no flush: they go with the next
+    // notice.
+    let (hub, session) = hub_with_chat("coord-fold");
+    let old = now_ms().saturating_sub(FLUSH_MS + 1);
+    let mut repeat = item("f2", "now", "now", PromptClass::Block, old, "FIRE: lane cap reached");
+    repeat.verdict = Some(Fold);
+    session.inbox().items.push(repeat);
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "a folded repeat wakes no one");
+    assert!(session.inbox().timer.is_none(), "nor starts a flush");
+    let inbox = session.inbox();
+    let new: Vec<&Item> = inbox.items.iter().collect();
+    assert!(!render(&new).0.contains("[blocker]"), "a fold is no blocker again");
+}
+
+/// Fail open: what the rule cannot read has no verdict, and wakes as before the rule.
+#[tokio::test]
+async fn an_unreadable_message_fails_open() {
+    let folds = page_rule::Folds::default();
+    for (from, text) in [("", "blocked"), ("lane-a", "   ")] {
+        let m = page_msg(PromptClass::Block, from, true, text);
+        assert_eq!(page_rule::judge(&folds, &m, 1), None, "{from:?} {text:?}");
+    }
+    let (hub, session) = hub_with_chat("coord-unreadable");
+    let at = now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1);
+    let block = judged(item("b1", "t", "", PromptClass::Block, at, "blocked"), &folds, true);
+    assert_eq!(block.verdict, None);
+    session.inbox().items.push(block);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "delivered as today");
 }

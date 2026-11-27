@@ -772,3 +772,13 @@ pub const BROWSER_TOOLBAR_BUTTON: Argument = Argument { name: "button", title: t
 /// pinnable actions, the pinned ones marked.
 #[rustfmt::skip]
 pub const TAB_BAR_BUTTON: Argument = Argument { name: "button", title: t("ActionCatalog", "argument.toolbar.button", "Button"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "tabBarButtons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CASES_LOW_MEDIUM: &[EnumCase] = &[EnumCase { value: "low", title: t("HomeActions", "argument.home.chief.effort.low", "Low") }, EnumCase { value: "medium", title: t("HomeActions", "argument.home.chief.effort.medium", "Medium") }, EnumCase { value: "high", title: t("HomeActions", "argument.home.chief.effort.high", "High") }, EnumCase { value: "xhigh", title: t("HomeActions", "argument.home.chief.effort.xhigh", "Extra High") }, EnumCase { value: "max", title: t("HomeActions", "argument.home.chief.effort.max", "Max") }, EnumCase { value: "default", title: t("HomeActions", "argument.home.chief.effort.default", "Default") }];
+#[rustfmt::skip]
+pub const LOCAL_CHIEF: Argument = Argument { name: "chief", title: t("HomeActions", "argument.home.chief.id", "Chief"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "localChiefs", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CHIEF_MODEL: Argument = Argument { name: "model", title: t("HomeActions", "argument.home.chief.model", "Model"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CHIEF_EFFORT: Argument = Argument { name: "effort", title: t("HomeActions", "argument.home.chief.effort", "Effort"), kind: ArgKind::Enumeration(CASES_LOW_MEDIUM), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const ADOPT_AGENT: Argument = Argument { name: "agent", title: t("HomeActions", "argument.home.chief.agent", "Agent"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "adoptableAgents", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

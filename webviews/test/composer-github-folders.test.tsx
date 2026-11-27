@@ -870,3 +870,25 @@ test("a not_connected status carries the host's message, and only that state doe
     reposScope: "all",
   });
 });
+
+test("a pending connection's words never sit under Connect to GitHub, and a click still connects (#46018)", async () => {
+  const gh = host({
+    "github.status": {
+      state: "not_connected",
+      repos_scope: null,
+      problem: "linking",
+      message: "Finish connecting GitHub in your browser.",
+    },
+    "github.connect": { opened: true },
+  });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    const row = option(CONNECT)!;
+    expect(detail(row)).toBeUndefined();
+    await press(row);
+    expect(gh.calls.at(-1)).toEqual(["github.connect", {}]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

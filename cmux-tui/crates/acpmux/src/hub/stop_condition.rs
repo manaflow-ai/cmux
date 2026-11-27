@@ -10,6 +10,9 @@
 //! turn over its context, then `/goal` as a second prompt (user, 2026-11-18: "why wasn't it just
 //! one prompt?"). Now its first prompt is its work, under the same check.
 //!
+//! The same `--settings` caps the blocks at one with no tool call between ([`BLOCK_CAP`]), so a
+//! chat that only repeats its report to the check ends its turn after one re-prompt.
+//!
 //! Only text: acpmux writes the hook itself, so a caller can add no command hook through it (a
 //! preset's `args` refuse `--settings` for that reason).
 //!
@@ -103,9 +106,25 @@ impl Hub {
     }
 }
 
-/// The settings document that holds the condition as a prompt Stop hook.
+/// Claude Code's env var for how many times in a row a Stop hook may block the turn from ending
+/// with no tool call between (2.1.330: default 8; the count goes back to 0 after a turn step that
+/// ran a tool). Past it, Claude Code ends the turn.
+pub(crate) const BLOCK_CAP_ENV: &str = "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP";
+
+/// The cap a stop condition's chat gets: one re-prompt with no new work. A chat that only answers a
+/// block with text again (a subagent that waits on the person's OK and says "still holding") ends
+/// its turn there, instead of 8 more checks and 8 more hold messages (user, 2026-11-23: "it spams
+/// too much 'still holding' even though the turn has ended"). A chat that goes back to work runs a
+/// tool, which resets the count, so the goal still keeps it going.
+pub(crate) const BLOCK_CAP: &str = "1";
+
+/// The settings document that holds the condition as a prompt Stop hook, with the block cap
+/// ([`BLOCK_CAP`]) in its `env`.
 pub(crate) fn settings(condition: &str) -> Value {
-    json!({"hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": condition}]}]}})
+    json!({
+        "env": {BLOCK_CAP_ENV: BLOCK_CAP},
+        "hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": condition}]}]},
+    })
 }
 
 /// Claude Code's words for the chat's stop condition: `--settings <json>`, or none.
@@ -136,16 +155,38 @@ mod tests {
     }
 
     #[test]
-    fn settings_hold_one_prompt_stop_hook_and_nothing_else() {
+    fn settings_hold_one_prompt_stop_hook_and_the_block_cap() {
         let got = settings("The task is landed.");
         assert_eq!(
             got,
-            json!({"hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": "The task is landed."}]}]}})
+            json!({
+                "env": {"CLAUDE_CODE_STOP_HOOK_BLOCK_CAP": "1"},
+                "hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": "The task is landed."}]}]},
+            })
         );
         // A condition that looks like JSON or a command stays one prompt string.
         let tricky = r#""}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"rm -rf /"}]}]"#;
         let parsed: Value = serde_json::from_str(&settings(tricky).to_string()).unwrap();
         assert_eq!(parsed["hooks"].as_object().unwrap().len(), 1);
         assert_eq!(parsed["hooks"]["Stop"][0]["hooks"][0]["prompt"], tricky);
+    }
+
+    /// A subagent waiting on the person's OK answered each block of its goal check with one more
+    /// "still holding" message, 8 times a turn (Claude Code's default cap). Its Claude Code now
+    /// starts with a cap of one block with no tool call between, so the check re-prompts it once.
+    #[test]
+    fn a_stop_condition_chat_starts_with_one_block_before_the_turn_ends() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s", "name": "sub", "harness": "claude",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        assert!(claude_args(&meta).is_empty(), "no condition, no settings");
+        meta.stop_condition = Some("The task is landed.".into());
+        let args = claude_args(&meta);
+        assert_eq!(args[0], "--settings");
+        let doc: Value = serde_json::from_str(&args[1]).unwrap();
+        assert_eq!(doc["env"][BLOCK_CAP_ENV], "1");
+        assert_eq!(doc["hooks"]["Stop"][0]["hooks"][0]["type"], "prompt");
     }
 }

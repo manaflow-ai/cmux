@@ -32,6 +32,10 @@ public final class SettingsController {
     public var applied: CmuxConfigSnapshot { previewSnapshot ?? snapshot }
     /// Number of completed loads; tests and the App can await changes by it.
     public private(set) var loadCount = 0
+    /// Number of loads that changed what the controller holds (the snapshot, the managed keys, the
+    /// theme files). A load that found nothing new (each app activation asks for one) leaves it, so
+    /// what is built from those keeps until it moves (`SettingsPaletteSource.rows`).
+    @ObservationIgnored public private(set) var appliedCount = 0
     /// Keys an MDM profile or the team policy manages (dotted key -> manager).
     public private(set) var managedKeys: [String: ManagedSource] = [:]
     /// Managed policy keys that are not settings (`EnrollmentToken`, `DisabledFeatures`, ...).
@@ -473,10 +477,14 @@ public final class SettingsController {
 
     private func adopt(_ loaded: Loaded) {
         loadHooks.forEach { $0() }
-        if themeFileSources != loaded.themes.sources { themeFileSources = loaded.themes.sources }
+        if themeFileSources != loaded.themes.sources {
+            themeFileSources = loaded.themes.sources
+            appliedCount += 1
+        }
         if let name = loaded.themes.overlay?.name, let good = loaded.themes.goodSource { lastGoodThemeFile = ThemeFileInput(name: name, source: good) }
         if loaded.inputs != lastSource || loadCount == 0 {
             lastSource = loaded.inputs
+            appliedCount += 1
             // A file change ends a preview: the loaded values apply.
             previewingKey = nil
             previewSnapshot = nil

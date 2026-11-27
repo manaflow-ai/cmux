@@ -111,6 +111,7 @@ on:
       # The installers' signed release file check (linux-release-verify.test.sh) reads these.
       - "web/public/tui/install-static.sh"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
+      - "web/services/vms/drivers/linuxRelease.ts"
   pull_request:
   workflow_call:
     inputs:

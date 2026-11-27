@@ -21,7 +21,7 @@
 //! turn goes on while it runs. Leo, 2026-11-02, on a session that sat about 80 minutes in one
 //! turn of foreground shell calls: "but why not in cmux". The same call again runs as asked, and
 //! so does a command with [`FOREGROUND_OK`] or a trailing `&`. Any other
-//! command still in the foreground after a minute goes to the background on its own
+//! command still in the foreground after five minutes goes to the background on its own
 //! (`hub/auto_background.rs`), since no list knows a person's own scripts.
 //!
 //! A CI wait (`glaeda-gh wait`, `lane-gh call ci_wait`, `gh run watch`) in the foreground is
@@ -157,7 +157,7 @@ pub const SUBAGENT_PATTERN: &str = "*'\"agent_id\"'*";
 /// also needs. The plugin starts this binary only on a match, so the common call, the lead's quick
 /// foreground command, costs a shell and no process start. A false match only starts the binary,
 /// which answers as before; a slow command spelled another way (`cargo  test`) runs as asked, and
-/// `hub/auto_background.rs` moves it to the background after a minute, as for any long command.
+/// `hub/auto_background.rs` moves it to the background after five minutes, as for any long command.
 /// The 2026-11 context audit measured the unfiltered hook at about 20-40 ms on each of 84,542
 /// Bash calls.
 pub fn bash_patterns() -> Vec<String> {

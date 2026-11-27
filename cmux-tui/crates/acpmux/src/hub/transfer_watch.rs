@@ -46,19 +46,36 @@ impl Drop for MoveWatch {
 
 /// When the move in `dir` last heard from its client (`alive` holds the Unix time in ms), or None
 /// when it has no record of it.
-fn last_activity(dir: &Path) -> Option<std::time::SystemTime> {
+pub(in crate::hub) fn last_activity(dir: &Path) -> Option<std::time::SystemTime> {
     let ms: u64 = std::fs::read_to_string(dir.join("alive")).ok()?.trim().parse().ok()?;
     Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms))
 }
 
 /// Whether every file of the move in `dir` was read to its end; None when that is unknown.
-fn fully_read(dir: &Path) -> Option<bool> {
+pub(super) fn fully_read(dir: &Path) -> Option<bool> {
     let bundle = std::fs::read_dir(dir).ok()?.flatten().find(|e| e.path().is_dir())?.path();
     let files = bundle_files(&bundle).ok()?;
     let read = std::fs::read_to_string(dir.join("read")).unwrap_or_default();
     let read: Vec<&str> = read.lines().collect();
     // An empty file needs no page: the target has it whole without one.
     Some(files.iter().all(|(path, size)| *size == 0 || read.contains(&path.as_str())))
+}
+
+/// How long ago the move last heard from its driver. A missing or malformed stamp is
+/// deliberately unknown: a takeover must never guess that a move is dead.
+pub(super) fn idle_for(dir: &Path) -> Option<std::time::Duration> {
+    last_activity(dir).map(|at| at.elapsed().unwrap_or_default())
+}
+
+/// A takeover is safe only while the old driver has not delivered a complete bundle. Once every
+/// file was read, the target may have finished and the source must keep the move fenced until it
+/// can ask that target whether the chat landed.
+pub(super) fn takeover_allowed(
+    idle: Option<std::time::Duration>,
+    fully_read: Option<bool>,
+    lease: std::time::Duration,
+) -> bool {
+    idle.is_some_and(|age| age >= lease) && fully_read == Some(false)
 }
 
 /// A marker newer than the durable event log means the daemon crashed between writing the
@@ -248,7 +265,7 @@ impl Hub {
     }
 
     /// Ends a move its client left; false when only the target could tell how, and did not.
-    async fn end_stalled_move(
+    pub(in crate::hub) async fn end_stalled_move(
         self: &Arc<Self>,
         session: &Arc<Session>,
         transfer_id: &str,
@@ -340,12 +357,25 @@ impl Hub {
 
 #[cfg(test)]
 mod tests {
-    use super::marker_is_uncommitted;
+    use super::{marker_is_uncommitted, takeover_allowed};
 
     #[test]
     fn marker_ahead_of_durable_epoch_is_not_resumed() {
         assert!(marker_is_uncommitted(Some(1), 0));
         assert!(!marker_is_uncommitted(Some(1), 1));
         assert!(!marker_is_uncommitted(None, 0));
+    }
+
+    #[test]
+    fn dead_driver_can_be_taken_over_only_before_bundle_is_complete() {
+        let lease = std::time::Duration::from_secs(10);
+        assert!(takeover_allowed(Some(lease), Some(false), lease));
+        assert!(!takeover_allowed(
+            Some(lease - std::time::Duration::from_secs(1)),
+            Some(false),
+            lease
+        ));
+        assert!(!takeover_allowed(Some(lease), Some(true), lease));
+        assert!(!takeover_allowed(None, Some(false), lease));
     }
 }

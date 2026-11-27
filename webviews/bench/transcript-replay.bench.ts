@@ -1098,7 +1098,7 @@ if (import.meta.main) {
       browser,
       daemons,
       url: (log, daemon) =>
-        `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${encodeURIComponent(log.sessionId)}`,
+        `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${encodeURIComponent(log.sessionId)}`,
     };
     if (PAIRED) {
       const small = logs.find((log) => log.name === "long");

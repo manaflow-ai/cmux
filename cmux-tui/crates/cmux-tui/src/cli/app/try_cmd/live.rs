@@ -341,7 +341,7 @@ pub(super) fn curl_get(url: &str, headers: &[&str], max: u64) -> Result<(u16, Ve
     Ok((status, body))
 }
 
-fn download(url: &str, to: &Path, max: u64) -> Result<(), String> {
+pub(super) fn download(url: &str, to: &Path, max: u64) -> Result<(), String> {
     if let Some(path) = url.strip_prefix("file://") {
         let size = fs::metadata(path).map_err(|e| format!("{url}: {e}"))?.len();
         if size > max {

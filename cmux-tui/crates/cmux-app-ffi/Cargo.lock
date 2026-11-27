@@ -179,6 +179,7 @@ dependencies = [
  "cmux-launch-image",
  "cmux-launch-record",
  "cmux-launch-shell",
+ "cmux-layout-cache",
  "cmux-layout-reducer-ffi",
  "cmux-motion",
  "cmux-palette-ranker",
@@ -378,6 +379,15 @@ version = "0.1.0"
 dependencies = [
  "cmux-launch-record",
  "cmux-window-rules",
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-layout-cache"
+version = "0.1.0"
+dependencies = [
  "proptest",
  "serde",
  "serde_json",

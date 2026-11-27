@@ -1489,6 +1489,20 @@
         }
       }
     },
+    "mention.computerUse": {"comment":"Agent pane: @ mention menu, the built-in row that asks the agent to use Computer Use (drive apps on this Mac)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"استخدام الكمبيوتر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Korištenje računara"}},"da":{"stringUnit":{"state":"needs_review","value":"Computerbrug"}},"de":{"stringUnit":{"state":"needs_review","value":"Computernutzung"}},"en":{"stringUnit":{"state":"translated","value":"Computer Use"}},"es":{"stringUnit":{"state":"needs_review","value":"Uso del ordenador"}},"fr":{"stringUnit":{"state":"needs_review","value":"Utilisation de l’ordinateur"}},"it":{"stringUnit":{"state":"needs_review","value":"Uso del computer"}},"ja":{"stringUnit":{"state":"needs_review","value":"コンピュータ操作"}},"km":{"stringUnit":{"state":"needs_review","value":"ការប្រើកុំព្យូទ័រ"}},"ko":{"stringUnit":{"state":"needs_review","value":"컴퓨터 사용"}},"nb":{"stringUnit":{"state":"needs_review","value":"Datamaskinbruk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Obsługa komputera"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Uso do computador"}},"ru":{"stringUnit":{"state":"needs_review","value":"Управление компьютером"}},"th":{"stringUnit":{"state":"needs_review","value":"การใช้คอมพิวเตอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bilgisayar Kullanımı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Керування комп’ютером"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sử dụng máy tính"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"电脑操作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"電腦操作"}}}},
+    "mention.computerUseHint": {"comment":"Agent pane: @ mention menu, the description beside Computer use","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يمكن للوكلاء استخدام تطبيقاتك عندما تطلب منهم ذلك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Agenti mogu koristiti tvoje aplikacije kada ih zamoliš"}},"da":{"stringUnit":{"state":"needs_review","value":"Agenter kan bruge dine apps, når du beder dem om det"}},"de":{"stringUnit":{"state":"needs_review","value":"Agenten können deine Apps verwenden, wenn du sie darum bittest"}},"en":{"stringUnit":{"state":"translated","value":"Agents can use your apps when you ask them to"}},"es":{"stringUnit":{"state":"needs_review","value":"Los agentes pueden usar tus apps cuando se lo pidas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Les agents peuvent utiliser vos apps quand vous le leur demandez"}},"it":{"stringUnit":{"state":"needs_review","value":"Gli agenti possono usare le tue app quando glielo chiedi"}},"ja":{"stringUnit":{"state":"needs_review","value":"頼んだときにエージェントがアプリを使えます"}},"km":{"stringUnit":{"state":"needs_review","value":"ភ្នាក់ងារអាចប្រើកម្មវិធីរបស់អ្នក នៅពេលអ្នកស្នើ"}},"ko":{"stringUnit":{"state":"needs_review","value":"요청하면 에이전트가 앱을 사용할 수 있습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Agenter kan bruke appene dine når du ber dem om det"}},"pl":{"stringUnit":{"state":"needs_review","value":"Agenci mogą używać Twoich aplikacji, gdy ich o to poprosisz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Os agentes podem usar seus apps quando você pedir"}},"ru":{"stringUnit":{"state":"needs_review","value":"Агенты могут работать с вашими приложениями, когда вы их попросите"}},"th":{"stringUnit":{"state":"needs_review","value":"เอเจนต์ใช้แอปของคุณได้เมื่อคุณขอ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajanlar, istediğinizde uygulamalarınızı kullanabilir"}},"uk":{"stringUnit":{"state":"needs_review","value":"Агенти можуть працювати з вашими програмами, коли ви їх попросите"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tác tử có thể dùng ứng dụng của bạn khi bạn yêu cầu"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在你要求时，智能体可以使用你的应用"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在你要求時，代理程式可以使用你的 App"}}}},
+    "mention.browserUse": {"comment":"Agent pane: @ mention menu, the built-in row that asks the agent to use the cmux browser","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"استخدام المتصفح"}},"bs":{"stringUnit":{"state":"needs_review","value":"Korištenje preglednika"}},"da":{"stringUnit":{"state":"needs_review","value":"Browserbrug"}},"de":{"stringUnit":{"state":"needs_review","value":"Browsernutzung"}},"en":{"stringUnit":{"state":"translated","value":"Browser Use"}},"es":{"stringUnit":{"state":"needs_review","value":"Uso del navegador"}},"fr":{"stringUnit":{"state":"needs_review","value":"Utilisation du navigateur"}},"it":{"stringUnit":{"state":"needs_review","value":"Uso del browser"}},"ja":{"stringUnit":{"state":"needs_review","value":"ブラウザ操作"}},"km":{"stringUnit":{"state":"needs_review","value":"ការប្រើកម្មវិធីរុករក"}},"ko":{"stringUnit":{"state":"needs_review","value":"브라우저 사용"}},"nb":{"stringUnit":{"state":"needs_review","value":"Nettleserbruk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Obsługa przeglądarki"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Uso do navegador"}},"ru":{"stringUnit":{"state":"needs_review","value":"Управление браузером"}},"th":{"stringUnit":{"state":"needs_review","value":"การใช้เบราว์เซอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tarayıcı Kullanımı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Керування браузером"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sử dụng trình duyệt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"浏览器操作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"瀏覽器操作"}}}},
+    "mention.browserUseHint": {"comment":"Agent pane: @ mention menu, the description beside Browser use","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يمكن للوكلاء استخدام متصفح cmux عندما تطلب منهم ذلك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Agenti mogu koristiti cmux preglednik kada ih zamoliš"}},"da":{"stringUnit":{"state":"needs_review","value":"Agenter kan bruge cmux-browseren, når du beder dem om det"}},"de":{"stringUnit":{"state":"needs_review","value":"Agenten können den cmux-Browser verwenden, wenn du sie darum bittest"}},"en":{"stringUnit":{"state":"translated","value":"Agents can use the cmux browser when you ask them to"}},"es":{"stringUnit":{"state":"needs_review","value":"Los agentes pueden usar el navegador de cmux cuando se lo pidas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Les agents peuvent utiliser le navigateur cmux quand vous le leur demandez"}},"it":{"stringUnit":{"state":"needs_review","value":"Gli agenti possono usare il browser di cmux quando glielo chiedi"}},"ja":{"stringUnit":{"state":"needs_review","value":"頼んだときにエージェントが cmux のブラウザを使えます"}},"km":{"stringUnit":{"state":"needs_review","value":"ភ្នាក់ងារអាចប្រើកម្មវិធីរុករក cmux នៅពេលអ្នកស្នើ"}},"ko":{"stringUnit":{"state":"needs_review","value":"요청하면 에이전트가 cmux 브라우저를 사용할 수 있습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Agenter kan bruke cmux-nettleseren når du ber dem om det"}},"pl":{"stringUnit":{"state":"needs_review","value":"Agenci mogą używać przeglądarki cmux, gdy ich o to poprosisz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Os agentes podem usar o navegador do cmux quando você pedir"}},"ru":{"stringUnit":{"state":"needs_review","value":"Агенты могут работать в браузере cmux, когда вы их попросите"}},"th":{"stringUnit":{"state":"needs_review","value":"เอเจนต์ใช้เบราว์เซอร์ของ cmux ได้เมื่อคุณขอ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajanlar, istediğinizde cmux tarayıcısını kullanabilir"}},"uk":{"stringUnit":{"state":"needs_review","value":"Агенти можуть працювати в браузері cmux, коли ви їх попросите"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tác tử có thể dùng trình duyệt cmux khi bạn yêu cầu"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在你要求时，智能体可以使用 cmux 浏览器"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在你要求時，代理程式可以使用 cmux 瀏覽器"}}}},
+    "computerUseSetup.title": {"comment":"Agent pane: notice above the composer after a send that names @computer-use while Computer Use is not set up","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لم يتم إعداد استخدام الكمبيوتر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Korištenje računara nije podešeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Computerbrug er ikke konfigureret"}},"de":{"stringUnit":{"state":"needs_review","value":"Computernutzung ist nicht eingerichtet"}},"en":{"stringUnit":{"state":"translated","value":"Computer use is not set up"}},"es":{"stringUnit":{"state":"needs_review","value":"El uso del ordenador no está configurado"}},"fr":{"stringUnit":{"state":"needs_review","value":"L’utilisation de l’ordinateur n’est pas configurée"}},"it":{"stringUnit":{"state":"needs_review","value":"L’uso del computer non è configurato"}},"ja":{"stringUnit":{"state":"needs_review","value":"コンピュータ操作が設定されていません"}},"km":{"stringUnit":{"state":"needs_review","value":"ការប្រើកុំព្យូទ័រមិនទាន់បានរៀបចំទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"컴퓨터 사용이 설정되지 않았습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Datamaskinbruk er ikke konfigurert"}},"pl":{"stringUnit":{"state":"needs_review","value":"Obsługa komputera nie jest skonfigurowana"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O uso do computador não está configurado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Управление компьютером не настроено"}},"th":{"stringUnit":{"state":"needs_review","value":"ยังไม่ได้ตั้งค่าการใช้คอมพิวเตอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bilgisayar kullanımı ayarlanmadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Керування комп’ютером не налаштовано"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa thiết lập sử dụng máy tính"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"尚未设置电脑操作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"尚未設定電腦操作"}}}},
+    "computerUseSetup.detail": {"comment":"Agent pane: the line under 'Computer use is not set up'; the message the person wrote stays in the composer","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قم بإعداده حتى يتمكن الوكيل من استخدام التطبيقات على هذا الـ Mac. تبقى رسالتك هنا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Podesi ga da agent može koristiti aplikacije na ovom Macu. Tvoja poruka ostaje ovdje."}},"da":{"stringUnit":{"state":"needs_review","value":"Konfigurer det, så agenten kan bruge apps på denne Mac. Din besked bliver her."}},"de":{"stringUnit":{"state":"needs_review","value":"Richte sie ein, damit der Agent Apps auf diesem Mac verwenden kann. Deine Nachricht bleibt hier."}},"en":{"stringUnit":{"state":"translated","value":"Set it up so the agent can use apps on this Mac. Your message stays here."}},"es":{"stringUnit":{"state":"needs_review","value":"Configúralo para que el agente pueda usar apps en este Mac. Tu mensaje se queda aquí."}},"fr":{"stringUnit":{"state":"needs_review","value":"Configurez-la pour que l’agent puisse utiliser les apps de ce Mac. Votre message reste ici."}},"it":{"stringUnit":{"state":"needs_review","value":"Configuralo perché l’agente possa usare le app su questo Mac. Il tuo messaggio resta qui."}},"ja":{"stringUnit":{"state":"needs_review","value":"エージェントがこの Mac のアプリを使えるように設定してください。メッセージはここに残ります。"}},"km":{"stringUnit":{"state":"needs_review","value":"រៀបចំវា ដើម្បីឲ្យភ្នាក់ងារអាចប្រើកម្មវិធីនៅលើ Mac នេះ។ សាររបស់អ្នកនៅទីនេះដដែល។"}},"ko":{"stringUnit":{"state":"needs_review","value":"에이전트가 이 Mac의 앱을 사용할 수 있도록 설정하세요. 메시지는 여기에 남아 있습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Konfigurer det slik at agenten kan bruke apper på denne Macen. Meldingen din blir her."}},"pl":{"stringUnit":{"state":"needs_review","value":"Skonfiguruj ją, aby agent mógł używać aplikacji na tym Macu. Twoja wiadomość zostaje tutaj."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Configure para que o agente possa usar apps neste Mac. Sua mensagem fica aqui."}},"ru":{"stringUnit":{"state":"needs_review","value":"Настройте его, чтобы агент мог работать с приложениями на этом Mac. Ваше сообщение останется здесь."}},"th":{"stringUnit":{"state":"needs_review","value":"ตั้งค่าเพื่อให้เอเจนต์ใช้แอปบน Mac เครื่องนี้ได้ ข้อความของคุณยังอยู่ที่นี่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajanın bu Mac’teki uygulamaları kullanabilmesi için ayarlayın. Mesajınız burada kalır."}},"uk":{"stringUnit":{"state":"needs_review","value":"Налаштуйте його, щоб агент міг працювати з програмами на цьому Mac. Ваше повідомлення залишиться тут."}},"vi":{"stringUnit":{"state":"needs_review","value":"Hãy thiết lập để tác tử có thể dùng các ứng dụng trên máy Mac này. Tin nhắn của bạn vẫn ở đây."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"设置后，智能体即可使用这台 Mac 上的应用。你的消息会保留在这里。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"設定後，代理程式即可使用這台 Mac 上的 App。你的訊息會保留在這裡。"}}}},
+    "computerUseSetup.setUp": {"comment":"Agent pane: button on the 'Computer use is not set up' notice; opens the Computer Use setup step","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعداد استخدام الكمبيوتر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Podesi korištenje računara"}},"da":{"stringUnit":{"state":"needs_review","value":"Konfigurer computerbrug"}},"de":{"stringUnit":{"state":"needs_review","value":"Computernutzung einrichten"}},"en":{"stringUnit":{"state":"translated","value":"Set Up Computer Use"}},"es":{"stringUnit":{"state":"needs_review","value":"Configurar uso del ordenador"}},"fr":{"stringUnit":{"state":"needs_review","value":"Configurer l’utilisation de l’ordinateur"}},"it":{"stringUnit":{"state":"needs_review","value":"Configura uso del computer"}},"ja":{"stringUnit":{"state":"needs_review","value":"コンピュータ操作を設定"}},"km":{"stringUnit":{"state":"needs_review","value":"រៀបចំការប្រើកុំព្យូទ័រ"}},"ko":{"stringUnit":{"state":"needs_review","value":"컴퓨터 사용 설정"}},"nb":{"stringUnit":{"state":"needs_review","value":"Konfigurer datamaskinbruk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Skonfiguruj obsługę komputera"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Configurar uso do computador"}},"ru":{"stringUnit":{"state":"needs_review","value":"Настроить управление компьютером"}},"th":{"stringUnit":{"state":"needs_review","value":"ตั้งค่าการใช้คอมพิวเตอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bilgisayar Kullanımını Ayarla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Налаштувати керування комп’ютером"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thiết lập sử dụng máy tính"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"设置电脑操作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"設定電腦操作"}}}},
+    "computerUseSetup.disabledTitle": {"comment":"Agent pane: notice above the composer after a send that names @computer-use while the organization turned Computer Use off","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أوقفت مؤسستك استخدام الكمبيوتر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Tvoja organizacija je isključila korištenje računara"}},"da":{"stringUnit":{"state":"needs_review","value":"Din organisation har slået computerbrug fra"}},"de":{"stringUnit":{"state":"needs_review","value":"Deine Organisation hat die Computernutzung deaktiviert"}},"en":{"stringUnit":{"state":"translated","value":"Your organization turned off computer use"}},"es":{"stringUnit":{"state":"needs_review","value":"Tu organización desactivó el uso del ordenador"}},"fr":{"stringUnit":{"state":"needs_review","value":"Votre organisation a désactivé l’utilisation de l’ordinateur"}},"it":{"stringUnit":{"state":"needs_review","value":"La tua organizzazione ha disattivato l’uso del computer"}},"ja":{"stringUnit":{"state":"needs_review","value":"組織によってコンピュータ操作がオフになっています"}},"km":{"stringUnit":{"state":"needs_review","value":"ស្ថាប័នរបស់អ្នកបានបិទការប្រើកុំព្យូទ័រ"}},"ko":{"stringUnit":{"state":"needs_review","value":"조직에서 컴퓨터 사용을 껐습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Organisasjonen din har slått av datamaskinbruk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Twoja organizacja wyłączyła obsługę komputera"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Sua organização desativou o uso do computador"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ваша организация отключила управление компьютером"}},"th":{"stringUnit":{"state":"needs_review","value":"องค์กรของคุณปิดการใช้คอมพิวเตอร์ไว้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kuruluşunuz bilgisayar kullanımını kapattı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ваша організація вимкнула керування комп’ютером"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tổ chức của bạn đã tắt sử dụng máy tính"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"你的组织已关闭电脑操作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"你的組織已關閉電腦操作"}}}},
+    "computerUseSetup.unavailableTitle": {"comment":"Agent pane: notice above the composer after a send that names @computer-use in a build that cannot run Computer Use (it lacks the helper, or the helper is of another version)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"استخدام الكمبيوتر غير متاح في هذا الإصدار"}},"bs":{"stringUnit":{"state":"needs_review","value":"Korištenje računara nije dostupno u ovoj verziji"}},"da":{"stringUnit":{"state":"needs_review","value":"Computerbrug er ikke tilgængelig i denne version"}},"de":{"stringUnit":{"state":"needs_review","value":"Computernutzung ist in diesem Build nicht verfügbar"}},"en":{"stringUnit":{"state":"translated","value":"Computer use isn't available in this build"}},"es":{"stringUnit":{"state":"needs_review","value":"El uso del ordenador no está disponible en esta versión"}},"fr":{"stringUnit":{"state":"needs_review","value":"L’utilisation de l’ordinateur n’est pas disponible dans cette version"}},"it":{"stringUnit":{"state":"needs_review","value":"L’uso del computer non è disponibile in questa versione"}},"ja":{"stringUnit":{"state":"needs_review","value":"このビルドではコンピュータ操作を使用できません"}},"km":{"stringUnit":{"state":"needs_review","value":"ការប្រើកុំព្យូទ័រមិនមាននៅក្នុងកំណែនេះទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 빌드에서는 컴퓨터 사용을 사용할 수 없습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Datamaskinbruk er ikke tilgjengelig i denne versjonen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Obsługa komputera nie jest dostępna w tej wersji"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O uso do computador não está disponível nesta versão"}},"ru":{"stringUnit":{"state":"needs_review","value":"Управление компьютером недоступно в этой сборке"}},"th":{"stringUnit":{"state":"needs_review","value":"การใช้คอมพิวเตอร์ไม่พร้อมใช้งานในบิลด์นี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bilgisayar kullanımı bu sürümde kullanılamıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Керування комп’ютером недоступне в цій збірці"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể sử dụng máy tính trong bản dựng này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此版本无法使用电脑操作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此版本無法使用電腦操作"}}}},
+    "computerUseSetup.unavailableDetail": {"comment":"Agent pane: the line under 'Computer use isn't available in this build'; no setup can fix it, only another cmux build","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ثبّت أحدث إصدار من cmux لاستخدام هذه الميزة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Instaliraj najnoviji cmux za korištenje računara."}},"da":{"stringUnit":{"state":"needs_review","value":"Installer den nyeste cmux for at bruge computerbrug."}},"de":{"stringUnit":{"state":"needs_review","value":"Installiere das neueste cmux, um die Computernutzung zu verwenden."}},"en":{"stringUnit":{"state":"translated","value":"Install the latest cmux to use computer use."}},"es":{"stringUnit":{"state":"needs_review","value":"Instala la última versión de cmux para usar esta función."}},"fr":{"stringUnit":{"state":"needs_review","value":"Installez la dernière version de cmux pour utiliser cette fonction."}},"it":{"stringUnit":{"state":"needs_review","value":"Installa l’ultima versione di cmux per usare questa funzione."}},"ja":{"stringUnit":{"state":"needs_review","value":"コンピュータ操作を使うには、最新の cmux をインストールしてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ដំឡើង cmux កំណែចុងក្រោយ ដើម្បីប្រើការប្រើកុំព្យូទ័រ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"컴퓨터 사용을 쓰려면 최신 cmux를 설치하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Installer nyeste cmux for å bruke datamaskinbruk."}},"pl":{"stringUnit":{"state":"needs_review","value":"Zainstaluj najnowszy cmux, aby korzystać z obsługi komputera."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Instale a versão mais recente do cmux para usar este recurso."}},"ru":{"stringUnit":{"state":"needs_review","value":"Установите последнюю версию cmux, чтобы использовать управление компьютером."}},"th":{"stringUnit":{"state":"needs_review","value":"ติดตั้ง cmux เวอร์ชันล่าสุดเพื่อใช้การใช้คอมพิวเตอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bilgisayar kullanımı için en son cmux sürümünü yükleyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Установіть останню версію cmux, щоб використовувати керування комп’ютером."}},"vi":{"stringUnit":{"state":"needs_review","value":"Hãy cài đặt cmux mới nhất để sử dụng máy tính."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"要使用电脑操作，请安装最新版 cmux。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"若要使用電腦操作，請安裝最新版 cmux。"}}}},
+    "computerUseSetup.remoteTitle": {"comment":"Agent pane: notice above the composer after a send that names @computer-use in a chat that does not run on this Mac (a Cloud machine, another machine), which cannot use this Mac's apps","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يعمل استخدام الكمبيوتر في الدردشات على هذا الـ Mac"}},"bs":{"stringUnit":{"state":"needs_review","value":"Korištenje računara radi u chatovima na ovom Macu"}},"da":{"stringUnit":{"state":"needs_review","value":"Computerbrug virker i chats på denne Mac"}},"de":{"stringUnit":{"state":"needs_review","value":"Computernutzung funktioniert in Chats auf diesem Mac"}},"en":{"stringUnit":{"state":"translated","value":"Computer use works in chats on this Mac"}},"es":{"stringUnit":{"state":"needs_review","value":"El uso del ordenador funciona en los chats de este Mac"}},"fr":{"stringUnit":{"state":"needs_review","value":"L’utilisation de l’ordinateur fonctionne dans les chats de ce Mac"}},"it":{"stringUnit":{"state":"needs_review","value":"L’uso del computer funziona nelle chat su questo Mac"}},"ja":{"stringUnit":{"state":"needs_review","value":"コンピュータ操作はこの Mac 上のチャットで使えます"}},"km":{"stringUnit":{"state":"needs_review","value":"ការប្រើកុំព្យូទ័រដំណើរការក្នុងការជជែកនៅលើ Mac នេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"컴퓨터 사용은 이 Mac의 채팅에서 작동합니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Datamaskinbruk fungerer i chatter på denne Macen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Obsługa komputera działa w czatach na tym Macu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O uso do computador funciona em chats neste Mac"}},"ru":{"stringUnit":{"state":"needs_review","value":"Управление компьютером работает в чатах на этом Mac"}},"th":{"stringUnit":{"state":"needs_review","value":"การใช้คอมพิวเตอร์ใช้ได้ในแชตบน Mac เครื่องนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bilgisayar kullanımı bu Mac'teki sohbetlerde çalışır"}},"uk":{"stringUnit":{"state":"needs_review","value":"Керування комп’ютером працює в чатах на цьому Mac"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sử dụng máy tính hoạt động trong các cuộc trò chuyện trên máy Mac này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"电脑操作仅适用于这台 Mac 上的聊天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"電腦操作僅適用於這台 Mac 上的聊天"}}}},
+    "computerUseSetup.cloudDetail": {"comment":"Agent pane: the line under 'Computer use works in chats on this Mac' for a Cloud or Sandboxed chat; the message the person wrote stays in the composer","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعمل هذه الدردشة على جهاز سحابي لا يمكنه استخدام التطبيقات على الـ Mac الخاص بك. ابدأ الدردشة على هذا الـ Mac لاستخدام هذه الميزة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj chat radi na Cloud mašini, koja ne može koristiti aplikacije na tvom Macu. Pokreni chat na ovom Macu za korištenje računara."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne chat kører på en Cloud-maskine, som ikke kan bruge apps på din Mac. Start chatten på denne Mac for at bruge computerbrug."}},"de":{"stringUnit":{"state":"needs_review","value":"Dieser Chat läuft auf einer Cloud-Maschine, die die Apps auf deinem Mac nicht verwenden kann. Starte den Chat auf diesem Mac, um die Computernutzung zu verwenden."}},"en":{"stringUnit":{"state":"translated","value":"This chat runs on a Cloud machine, which can't use the apps on your Mac. Start the chat on this Mac to use computer use."}},"es":{"stringUnit":{"state":"needs_review","value":"Este chat se ejecuta en una máquina en Cloud, que no puede usar las apps de tu Mac. Inicia el chat en este Mac para usar esta función."}},"fr":{"stringUnit":{"state":"needs_review","value":"Ce chat s’exécute sur une machine Cloud, qui ne peut pas utiliser les apps de votre Mac. Démarrez le chat sur ce Mac pour utiliser cette fonction."}},"it":{"stringUnit":{"state":"needs_review","value":"Questa chat è in esecuzione su una macchina Cloud, che non può usare le app del tuo Mac. Avvia la chat su questo Mac per usare questa funzione."}},"ja":{"stringUnit":{"state":"needs_review","value":"このチャットは Cloud マシンで実行されているため、お使いの Mac のアプリを使えません。コンピュータ操作を使うには、この Mac でチャットを開始してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកនេះដំណើរការលើម៉ាស៊ីន Cloud ដែលមិនអាចប្រើកម្មវិធីនៅលើ Mac របស់អ្នកបានទេ។ ចាប់ផ្ដើមការជជែកនៅលើ Mac នេះ ដើម្បីប្រើការប្រើកុំព្យូទ័រ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 채팅은 Cloud 머신에서 실행되므로 Mac의 앱을 사용할 수 없습니다. 컴퓨터 사용을 쓰려면 이 Mac에서 채팅을 시작하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne chatten kjører på en Cloud-maskin, som ikke kan bruke appene på Macen din. Start chatten på denne Macen for å bruke datamaskinbruk."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ten czat działa na maszynie Cloud, która nie może używać aplikacji na Twoim Macu. Rozpocznij czat na tym Macu, aby korzystać z obsługi komputera."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Este chat roda em uma máquina na Cloud, que não pode usar os apps do seu Mac. Inicie o chat neste Mac para usar este recurso."}},"ru":{"stringUnit":{"state":"needs_review","value":"Этот чат работает на машине Cloud, которая не может использовать приложения на вашем Mac. Начните чат на этом Mac, чтобы использовать управление компьютером."}},"th":{"stringUnit":{"state":"needs_review","value":"แชตนี้ทำงานบนเครื่อง Cloud ซึ่งใช้แอปบน Mac ของคุณไม่ได้ เริ่มแชตบน Mac เครื่องนี้เพื่อใช้การใช้คอมพิวเตอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sohbet, Mac'inizdeki uygulamaları kullanamayan bir Cloud makinesinde çalışıyor. Bilgisayar kullanımı için sohbeti bu Mac'te başlatın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Цей чат працює на машині Cloud, яка не може користуватися програмами на вашому Mac. Почніть чат на цьому Mac, щоб використовувати керування комп’ютером."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện này chạy trên một máy Cloud, không thể dùng các ứng dụng trên máy Mac của bạn. Hãy bắt đầu cuộc trò chuyện trên máy Mac này để sử dụng máy tính."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此聊天运行在 Cloud 机器上，无法使用你 Mac 上的应用。要使用电脑操作，请在这台 Mac 上开始聊天。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此聊天在 Cloud 機器上執行，無法使用你 Mac 上的 App。若要使用電腦操作，請在這台 Mac 上開始聊天。"}}}},
+    "computerUseSetup.machineDetail": {"comment":"Agent pane: the line under 'Computer use works in chats on this Mac' for a chat on another of the person's machines (SSH or a peer); the message the person wrote stays in the composer","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعمل هذه الدردشة على جهاز آخر لا يمكنه استخدام التطبيقات على الـ Mac الخاص بك. ابدأ الدردشة على هذا الـ Mac لاستخدام هذه الميزة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj chat radi na drugoj mašini, koja ne može koristiti aplikacije na tvom Macu. Pokreni chat na ovom Macu za korištenje računara."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne chat kører på en anden maskine, som ikke kan bruge apps på din Mac. Start chatten på denne Mac for at bruge computerbrug."}},"de":{"stringUnit":{"state":"needs_review","value":"Dieser Chat läuft auf einem anderen Rechner, der die Apps auf deinem Mac nicht verwenden kann. Starte den Chat auf diesem Mac, um die Computernutzung zu verwenden."}},"en":{"stringUnit":{"state":"translated","value":"This chat runs on another machine, which can't use the apps on your Mac. Start the chat on this Mac to use computer use."}},"es":{"stringUnit":{"state":"needs_review","value":"Este chat se ejecuta en otra máquina, que no puede usar las apps de tu Mac. Inicia el chat en este Mac para usar esta función."}},"fr":{"stringUnit":{"state":"needs_review","value":"Ce chat s’exécute sur une autre machine, qui ne peut pas utiliser les apps de votre Mac. Démarrez le chat sur ce Mac pour utiliser cette fonction."}},"it":{"stringUnit":{"state":"needs_review","value":"Questa chat è in esecuzione su un’altra macchina, che non può usare le app del tuo Mac. Avvia la chat su questo Mac per usare questa funzione."}},"ja":{"stringUnit":{"state":"needs_review","value":"このチャットは別のマシンで実行されているため、お使いの Mac のアプリを使えません。コンピュータ操作を使うには、この Mac でチャットを開始してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកនេះដំណើរការលើម៉ាស៊ីនផ្សេងទៀត ដែលមិនអាចប្រើកម្មវិធីនៅលើ Mac របស់អ្នកបានទេ។ ចាប់ផ្ដើមការជជែកនៅលើ Mac នេះ ដើម្បីប្រើការប្រើកុំព្យូទ័រ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 채팅은 다른 머신에서 실행되므로 Mac의 앱을 사용할 수 없습니다. 컴퓨터 사용을 쓰려면 이 Mac에서 채팅을 시작하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne chatten kjører på en annen maskin, som ikke kan bruke appene på Macen din. Start chatten på denne Macen for å bruke datamaskinbruk."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ten czat działa na innej maszynie, która nie może używać aplikacji na Twoim Macu. Rozpocznij czat na tym Macu, aby korzystać z obsługi komputera."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Este chat roda em outra máquina, que não pode usar os apps do seu Mac. Inicie o chat neste Mac para usar este recurso."}},"ru":{"stringUnit":{"state":"needs_review","value":"Этот чат работает на другой машине, которая не может использовать приложения на вашем Mac. Начните чат на этом Mac, чтобы использовать управление компьютером."}},"th":{"stringUnit":{"state":"needs_review","value":"แชตนี้ทำงานบนเครื่องอื่น ซึ่งใช้แอปบน Mac ของคุณไม่ได้ เริ่มแชตบน Mac เครื่องนี้เพื่อใช้การใช้คอมพิวเตอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sohbet, Mac'inizdeki uygulamaları kullanamayan başka bir makinede çalışıyor. Bilgisayar kullanımı için sohbeti bu Mac'te başlatın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Цей чат працює на іншій машині, яка не може користуватися програмами на вашому Mac. Почніть чат на цьому Mac, щоб використовувати керування комп’ютером."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện này chạy trên một máy khác, không thể dùng các ứng dụng trên máy Mac của bạn. Hãy bắt đầu cuộc trò chuyện trên máy Mac này để sử dụng máy tính."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此聊天运行在另一台机器上，无法使用你 Mac 上的应用。要使用电脑操作，请在这台 Mac 上开始聊天。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此聊天在另一台機器上執行，無法使用你 Mac 上的 App。若要使用電腦操作，請在這台 Mac 上開始聊天。"}}}},
+    "prCard.review": {"comment":"Agent pane: a GitHub pull request link's hover card, the button that opens a side chat where the agent reviews the pull request and leaves draft comments in the diff viewer","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"مراجعة"}},"bs":{"stringUnit":{"state":"translated","value":"Pregledaj"}},"da":{"stringUnit":{"state":"translated","value":"Gennemgå"}},"de":{"stringUnit":{"state":"translated","value":"Prüfen"}},"en":{"stringUnit":{"state":"translated","value":"Review"}},"es":{"stringUnit":{"state":"translated","value":"Revisar"}},"fr":{"stringUnit":{"state":"translated","value":"Relire"}},"it":{"stringUnit":{"state":"translated","value":"Revisiona"}},"ja":{"stringUnit":{"state":"translated","value":"レビュー"}},"km":{"stringUnit":{"state":"translated","value":"ពិនិត្យ"}},"ko":{"stringUnit":{"state":"translated","value":"리뷰"}},"nb":{"stringUnit":{"state":"translated","value":"Gjennomgå"}},"pl":{"stringUnit":{"state":"translated","value":"Przejrzyj"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Revisar"}},"ru":{"stringUnit":{"state":"translated","value":"Проверить"}},"th":{"stringUnit":{"state":"translated","value":"รีวิว"}},"tr":{"stringUnit":{"state":"translated","value":"İncele"}},"uk":{"stringUnit":{"state":"translated","value":"Переглянути"}},"vi":{"stringUnit":{"state":"translated","value":"Xem xét"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"审查"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"審查"}}}},
     "cloudStart.stage.machine": {"comment":"Agent pane: the quiet line under the person's message while a new chat's Cloud machine starts","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Starting your Cloud machine"}},"ar":{"stringUnit":{"state":"translated","value":"جارٍ تشغيل جهاز Cloud الخاص بك"}},"bs":{"stringUnit":{"state":"translated","value":"Pokretanje vaše Cloud mašine"}},"da":{"stringUnit":{"state":"translated","value":"Starter din Cloud-maskine"}},"de":{"stringUnit":{"state":"translated","value":"Deine Cloud-Maschine wird gestartet"}},"es":{"stringUnit":{"state":"translated","value":"Iniciando tu máquina de Cloud"}},"fr":{"stringUnit":{"state":"translated","value":"Démarrage de votre machine Cloud"}},"it":{"stringUnit":{"state":"translated","value":"Avvio della tua macchina Cloud"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud マシンを起動しています"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងចាប់ផ្ដើមម៉ាស៊ីន Cloud របស់អ្នក"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud 머신을 시작하는 중"}},"nb":{"stringUnit":{"state":"translated","value":"Starter Cloud-maskinen din"}},"pl":{"stringUnit":{"state":"translated","value":"Uruchamianie Twojej maszyny Cloud"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Iniciando sua máquina na Cloud"}},"ru":{"stringUnit":{"state":"translated","value":"Запуск вашей машины Cloud"}},"th":{"stringUnit":{"state":"translated","value":"กำลังเริ่มเครื่อง Cloud ของคุณ"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud makineniz başlatılıyor"}},"uk":{"stringUnit":{"state":"translated","value":"Запуск вашої машини Cloud"}},"vi":{"stringUnit":{"state":"translated","value":"Đang khởi động máy Cloud của bạn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在启动你的 Cloud 机器"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在啟動你的 Cloud 機器"}}}},
     "cloudStart.stage.clone": {"comment":"Agent pane: the quiet line under the person's message while a new Cloud chat copies or clones the project onto its machine","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copying your project"}},"ar":{"stringUnit":{"state":"translated","value":"جارٍ نسخ مشروعك"}},"bs":{"stringUnit":{"state":"translated","value":"Kopiranje vašeg projekta"}},"da":{"stringUnit":{"state":"translated","value":"Kopierer dit projekt"}},"de":{"stringUnit":{"state":"translated","value":"Dein Projekt wird kopiert"}},"es":{"stringUnit":{"state":"translated","value":"Copiando tu proyecto"}},"fr":{"stringUnit":{"state":"translated","value":"Copie de votre projet"}},"it":{"stringUnit":{"state":"translated","value":"Copia del tuo progetto"}},"ja":{"stringUnit":{"state":"translated","value":"プロジェクトをコピーしています"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងចម្លងគម្រោងរបស់អ្នក"}},"ko":{"stringUnit":{"state":"translated","value":"프로젝트를 복사하는 중"}},"nb":{"stringUnit":{"state":"translated","value":"Kopierer prosjektet ditt"}},"pl":{"stringUnit":{"state":"translated","value":"Kopiowanie Twojego projektu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Copiando seu projeto"}},"ru":{"stringUnit":{"state":"translated","value":"Копирование вашего проекта"}},"th":{"stringUnit":{"state":"translated","value":"กำลังคัดลอกโปรเจกต์ของคุณ"}},"tr":{"stringUnit":{"state":"translated","value":"Projeniz kopyalanıyor"}},"uk":{"stringUnit":{"state":"translated","value":"Копіювання вашого проєкту"}},"vi":{"stringUnit":{"state":"translated","value":"Đang sao chép dự án của bạn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在复制你的项目"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在複製你的專案"}}}},
     "cloudStart.stage.setup": {"comment":"Agent pane: the quiet line under the person's message while a new Cloud chat runs the environment's setup script","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Running your setup script"}},"ar":{"stringUnit":{"state":"translated","value":"جارٍ تشغيل نص الإعداد"}},"bs":{"stringUnit":{"state":"translated","value":"Pokretanje vaše skripte za postavljanje"}},"da":{"stringUnit":{"state":"translated","value":"Kører dit opsætningsscript"}},"de":{"stringUnit":{"state":"translated","value":"Dein Setup-Skript läuft"}},"es":{"stringUnit":{"state":"translated","value":"Ejecutando tu script de configuración"}},"fr":{"stringUnit":{"state":"translated","value":"Exécution de votre script de configuration"}},"it":{"stringUnit":{"state":"translated","value":"Esecuzione dello script di configurazione"}},"ja":{"stringUnit":{"state":"translated","value":"セットアップスクリプトを実行しています"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងដំណើរការស្គ្រីបរៀបចំរបស់អ្នក"}},"ko":{"stringUnit":{"state":"translated","value":"설정 스크립트를 실행하는 중"}},"nb":{"stringUnit":{"state":"translated","value":"Kjører oppsettskriptet ditt"}},"pl":{"stringUnit":{"state":"translated","value":"Uruchamianie Twojego skryptu konfiguracji"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Executando seu script de configuração"}},"ru":{"stringUnit":{"state":"translated","value":"Выполнение вашего скрипта настройки"}},"th":{"stringUnit":{"state":"translated","value":"กำลังเรียกใช้สคริปต์ตั้งค่าของคุณ"}},"tr":{"stringUnit":{"state":"translated","value":"Kurulum betiğiniz çalıştırılıyor"}},"uk":{"stringUnit":{"state":"translated","value":"Виконання вашого скрипту налаштування"}},"vi":{"stringUnit":{"state":"translated","value":"Đang chạy tập lệnh thiết lập của bạn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在运行你的设置脚本"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在執行你的設定指令碼"}}}},
@@ -69015,134 +69029,1058 @@
         }
       }
     },
-    "turn.live.waiting": {
-      "comment": "Agent pane: the running turn's live line once nothing has arrived from the agent for a while (no chunk, call or reply), in place of a stale Thinking; the time since it last heard follows (Waiting 12s · turn 15m)",
+    "turn.live.waitingFirstReply": {
+      "comment": "Agent pane: the running turn's live line once nothing has come from the model for a while since the prompt set the turn going; the model is still on its first reply (Waiting on the model's first reply 12s)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "في الانتظار"
+            "value": "في انتظار أول رد من النموذج"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Čeka"
+            "value": "Čeka prvi odgovor modela"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Venter"
+            "value": "Venter på modellens første svar"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wartet"
+            "value": "Wartet auf die erste Antwort des Modells"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waiting"
+            "value": "Waiting on the model's first reply"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esperando"
+            "value": "Esperando la primera respuesta del modelo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En attente"
+            "value": "En attente de la première réponse du modèle"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "In attesa"
+            "value": "In attesa della prima risposta del modello"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "待機中"
+            "value": "モデルの最初の応答を待機中"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំពុងរង់ចាំ"
+            "value": "កំពុងរង់ចាំការឆ្លើយតបដំបូងរបស់ម៉ូដែល"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "대기 중"
+            "value": "모델의 첫 응답 대기 중"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Venter"
+            "value": "Venter på modellens første svar"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Czeka"
+            "value": "Czeka na pierwszą odpowiedź modelu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aguardando"
+            "value": "Aguardando a primeira resposta do modelo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ожидание"
+            "value": "Ожидание первого ответа модели"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "กำลังรอ"
+            "value": "กำลังรอคำตอบแรกจากโมเดล"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bekliyor"
+            "value": "Modelin ilk yanıtı bekleniyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Очікування"
+            "value": "Очікування першої відповіді моделі"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đang chờ"
+            "value": "Đang chờ phản hồi đầu tiên của mô hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "等待中"
+            "value": "正在等待模型的首次回复"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "等待中"
+            "value": "正在等待模型的首次回覆"
+          }
+        }
+      }
+    },
+    "turn.live.waitingAfterStep": {
+      "comment": "Agent pane: the running turn's live line once nothing has come from the model for a while after a tool call returned; {step} is that finished call as its row names it (Read App.tsx, Ran bun test), lowercased in English",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار النموذج بعد: {step}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka model nakon: {step}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på modellen efter: {step}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet auf das Modell nach: {step}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on the model after: {step}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando al modelo después de: {step}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente du modèle après : {step}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa del modello dopo: {step}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{step} の後、モデルを待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំម៉ូដែលបន្ទាប់ពី៖ {step}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{step} 후 모델 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på modellen etter: {step}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka na model po: {step}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o modelo após: {step}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание модели после: {step}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอโมเดลหลังจาก: {step}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{step} sonrası model bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування моделі після: {step}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ mô hình sau: {step}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{step} 之后，正在等待模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{step} 之後，正在等待模型"
+          }
+        }
+      }
+    },
+    "turn.live.waitingAfterMessage": {
+      "comment": "Agent pane: the running turn's live line once nothing has come from the model for a while after another agent's message came in; {from} is the sender's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار النموذج بعد رسالة {from}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka model nakon poruke od {from}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på modellen efter besked fra {from}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet auf das Modell nach der Nachricht von {from}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on the model after {from}'s message"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando al modelo después del mensaje de {from}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente du modèle après le message de {from}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa del modello dopo il messaggio di {from}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{from} のメッセージの後、モデルを待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំម៉ូដែលបន្ទាប់ពីសាររបស់ {from}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{from}의 메시지 후 모델 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på modellen etter melding fra {from}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka na model po wiadomości od {from}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o modelo após a mensagem de {from}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание модели после сообщения от {from}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอโมเดลหลังข้อความจาก {from}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{from} mesajından sonra model bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування моделі після повідомлення від {from}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ mô hình sau tin nhắn của {from}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收到 {from} 的消息后，正在等待模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收到 {from} 的訊息後，正在等待模型"
+          }
+        }
+      }
+    },
+    "turn.live.waitingQueued": {
+      "comment": "Agent pane: the running turn's live line once nothing has come from the model for a while while the person's message sent into the turn still waits for the agent to read it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار أن يقرأ النموذج رسالتك في قائمة الانتظار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka da model pročita vašu poruku u redu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på, at modellen læser din besked i køen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet, bis das Modell deine Nachricht in der Warteschlange liest"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on the model to read your queued message"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando a que el modelo lea tu mensaje en cola"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente que le modèle lise votre message en file d'attente"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa che il modello legga il tuo messaggio in coda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "キュー内のメッセージをモデルが読むのを待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំម៉ូដែលអានសាររបស់អ្នកដែលកំពុងរង់ចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모델이 대기 중인 메시지를 읽기를 기다리는 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på at modellen leser meldingen din i køen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka, aż model przeczyta Twoją wiadomość w kolejce"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o modelo ler sua mensagem na fila"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание, пока модель прочитает ваше сообщение в очереди"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอให้โมเดลอ่านข้อความของคุณที่อยู่ในคิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelin sıradaki mesajınızı okuması bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування, поки модель прочитає ваше повідомлення в черзі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ mô hình đọc tin nhắn đang xếp hàng của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待模型读取你排队的消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待模型讀取你排隊的訊息"
+          }
+        }
+      }
+    },
+    "turn.live.waitingNextStep": {
+      "comment": "Agent pane: the running turn's live line once nothing has come from the model for a while after a thought or a reply; the model is working out its next step",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار الخطوة التالية من النموذج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka sljedeći korak modela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på modellens næste trin"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet auf den nächsten Schritt des Modells"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on the model's next step"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando el siguiente paso del modelo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente de la prochaine étape du modèle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa del prossimo passo del modello"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "モデルの次のステップを待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំជំហានបន្ទាប់របស់ម៉ូដែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모델의 다음 단계 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på modellens neste steg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka na następny krok modelu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o próximo passo do modelo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание следующего шага модели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอขั้นตอนถัดไปของโมเดล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelin bir sonraki adımı bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування наступного кроку моделі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ bước tiếp theo của mô hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待模型的下一步"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待模型的下一步"
+          }
+        }
+      }
+    },
+    "turn.live.waitingOnSubagent": {
+      "comment": "Agent pane: the running turn's live line while the agent waits on the one subagent it started; {name} is that subagent's name as the tray shows it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار الوكيل الفرعي {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka podagenta {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på underagenten {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet auf Subagent {name}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on subagent {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando al subagente {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente du sous-agent {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa del subagente {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サブエージェント {name} を待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំភ្នាក់ងាររង {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "하위 에이전트 {name} 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på underagenten {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka na subagenta {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o subagente {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание субагента {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอเอเจนต์ย่อย {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} alt ajanı bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування субагента {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ tác tử phụ {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待子代理 {name}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待子代理 {name}"
+          }
+        }
+      }
+    },
+    "turn.live.waitingOnSubagentPair": {
+      "comment": "Agent pane: the running turn's live line while the agent waits on the two subagents it started; {first} and {second} are their names as the tray shows them",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار الوكيلين الفرعيين {first} و{second}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka podagente {first} i {second}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på underagenterne {first} og {second}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet auf die Subagenten {first} und {second}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on subagents {first} and {second}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando a los subagentes {first} y {second}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente des sous-agents {first} et {second}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa dei subagenti {first} e {second}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サブエージェント {first} と {second} を待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំភ្នាក់ងាររង {first} និង {second}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "하위 에이전트 {first}, {second} 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på underagentene {first} og {second}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka na subagentów {first} i {second}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando os subagentes {first} e {second}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание субагентов {first} и {second}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอเอเจนต์ย่อย {first} และ {second}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{first} ve {second} alt ajanları bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування субагентів {first} і {second}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ tác tử phụ {first} và {second}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待子代理 {first} 和 {second}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待子代理 {first} 和 {second}"
+          }
+        }
+      }
+    },
+    "turn.live.waitingOnSubagentMore": {
+      "comment": "Agent pane: the running turn's live line while the agent waits on three or more subagents; {name} is the first one's name as the tray shows it, {n} how many others still run",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار الوكيل الفرعي {name} و{n} آخرين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka podagenta {name} i još {n}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på underagenten {name} og {n} mere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet auf Subagent {name} und {n} weitere"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on subagent {name} and {n} more"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando al subagente {name} y {n} más"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente du sous-agent {name} et de {n} autres"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa del subagente {name} e di altri {n}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サブエージェント {name} ほか {n} 件を待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំភ្នាក់ងាររង {name} និង {n} ទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "하위 에이전트 {name} 외 {n}개 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på underagenten {name} og {n} til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka na subagenta {name} i {n} innych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o subagente {name} e mais {n}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание субагента {name} и ещё {n}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอเอเจนต์ย่อย {name} และอีก {n} ตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} alt ajanı ve {n} diğeri bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування субагента {name} і ще {n}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ tác tử phụ {name} và {n} tác tử khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待子代理 {name} 及其他 {n} 个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待子代理 {name} 及其他 {n} 個"
           }
         }
       }
@@ -81687,6 +82625,7 @@
         }
       }
     },
+    "guest.join.signInOffer": {"comment":"Guest page, a link's join (not signed in): before a Sign in link that signs in and comes back to the same link","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Have a cmux account?"}},"de":{"stringUnit":{"state":"translated","value":"Hast du ein cmux-Konto?"}},"fr":{"stringUnit":{"state":"translated","value":"Vous avez un compte cmux ?"}},"ar":{"stringUnit":{"state":"translated","value":"هل لديك حساب cmux؟"}},"es":{"stringUnit":{"state":"translated","value":"¿Tienes una cuenta de cmux?"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"有 cmux 帳號嗎？"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"有 cmux 账号吗？"}},"ko":{"stringUnit":{"state":"translated","value":"cmux 계정이 있으신가요?"}},"ja":{"stringUnit":{"state":"translated","value":"cmux のアカウントをお持ちですか？"}},"bs":{"stringUnit":{"state":"needs_review","value":"Imaš cmux račun?"}},"da":{"stringUnit":{"state":"needs_review","value":"Har du en cmux-konto?"}},"it":{"stringUnit":{"state":"needs_review","value":"Hai un account cmux?"}},"km":{"stringUnit":{"state":"needs_review","value":"មានគណនី cmux មែនទេ?"}},"nb":{"stringUnit":{"state":"needs_review","value":"Har du en cmux-konto?"}},"pl":{"stringUnit":{"state":"needs_review","value":"Masz konto cmux?"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tem uma conta cmux?"}},"ru":{"stringUnit":{"state":"needs_review","value":"Есть аккаунт cmux?"}},"th":{"stringUnit":{"state":"needs_review","value":"มีบัญชี cmux ไหม"}},"tr":{"stringUnit":{"state":"needs_review","value":"cmux hesabın var mı?"}},"uk":{"stringUnit":{"state":"needs_review","value":"Маєте обліковий запис cmux?"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bạn có tài khoản cmux?"}}}},
     "guest.ended.expired": {
       "comment": "Guest page: the share link's time ran out; no retry",
       "extractionState": "manual",
@@ -242478,6 +243417,138 @@
         }
       }
     },
+    "turn.failure.usageLimitResets": {
+      "comment": "Agent pane: a failed turn's note when the agent used up a usage limit whose reset time the refusal names; {harness} is the agent's name, {time} the local date and time (with time zone) it resets.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وصل {harness} إلى حد استخدام يُعاد تعيينه {time}. بدّل النموذج للمتابعة الآن، أو تابع بعد إعادة التعيين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} je dostigao ograničenje korištenja koje se resetuje {time}. Promijeni model da nastaviš odmah ili nastavi nakon resetovanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} har nået en forbrugsgrænse, der nulstilles {time}. Skift model for at fortsætte nu, eller fortsæt, når den er nulstillet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} hat ein Nutzungslimit erreicht, das am {time} zurückgesetzt wird. Wechsle das Modell, um jetzt weiterzumachen, oder mach nach dem Zurücksetzen weiter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} reached a usage limit that resets {time}. Switch model to keep going now, or continue once it resets."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} alcanzó un límite de uso que se restablece el {time}. Cambia de modelo para seguir ahora o continúa cuando se restablezca."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} a atteint une limite d’utilisation réinitialisée le {time}. Change de modèle pour continuer maintenant, ou continue après la réinitialisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ha raggiunto un limite di utilizzo che si azzera il {time}. Cambia modello per continuare ora, oppure continua dopo l’azzeramento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} は使用上限に達しました。{time} にリセットされます。今すぐ続けるにはモデルを切り替えるか、リセット後に続行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} បានដល់កម្រិតប្រើប្រាស់ ដែលកំណត់ឡើងវិញ {time}។ ប្ដូរម៉ូដែល ដើម្បីបន្តឥឡូវ ឬបន្តបន្ទាប់ពីកំណត់ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness}이(가) 사용 한도에 도달했습니다. {time}에 초기화됩니다. 지금 계속하려면 모델을 바꾸거나, 초기화된 후 계속하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} har nådd en bruksgrense som nullstilles {time}. Bytt modell for å fortsette nå, eller fortsett når den er nullstilt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} osiągnął limit użycia, który resetuje się {time}. Zmień model, aby kontynuować teraz, albo kontynuuj po resecie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} atingiu um limite de uso que redefine em {time}. Troque de modelo para continuar agora ou continue depois que ele redefinir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} достиг лимита использования, сброс {time}. Смените модель, чтобы продолжить сейчас, или продолжите после сброса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ใช้งานถึงขีดจำกัดแล้ว จะรีเซ็ต {time} เปลี่ยนโมเดลเพื่อทำต่อตอนนี้ หรือทำต่อหลังรีเซ็ต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} {time} sıfırlanan bir kullanım sınırına ulaştı. Şimdi devam etmek için modeli değiştir ya da sıfırlandıktan sonra devam et."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} досяг ліміту використання, скидання {time}. Змініть модель, щоб продовжити зараз, або продовжте після скидання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} đã chạm giới hạn sử dụng, đặt lại lúc {time}. Đổi mô hình để tiếp tục ngay, hoặc tiếp tục sau khi đặt lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 已达到使用上限，将于 {time} 重置。切换模型可立即继续，或在重置后继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 已達到使用上限，將於 {time} 重設。切換模型可立即繼續，或在重設後繼續。"
+          }
+        }
+      }
+    },
     "turn.failure.signedOut": {
       "comment": "Agent pane: a failed turn's note (cx-w10a)",
       "extractionState": "manual",
@@ -280224,6 +281295,798 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "處理中"
+          }
+        }
+      }
+    },
+    "newTab.when.label": {
+      "comment": "Agent pane: All Chats menu label for how recently a chat was last used",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آخر استخدام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadnje korišteno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidst brugt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt verwendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last used"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último uso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernière utilisation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultimo utilizzo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើចុងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sist brukt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostatnio używane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Последнее использование"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son kullanım"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Останнє використання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng lần cuối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次使用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次使用"
+          }
+        }
+      }
+    },
+    "newTab.when.any": {
+      "comment": "Agent pane: All Chats recency option that shows chats from any time",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أي وقت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilo kada"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når som helst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beliebige Zeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Any time"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cualquier fecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "N’importe quand"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qualsiasi data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての期間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្រប់ពេល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 기간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når som helst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dowolny czas"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qualquer data"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За всё время"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุกช่วงเวลา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herhangi bir zaman"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За весь час"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mọi lúc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任何时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任何時間"
+          }
+        }
+      }
+    },
+    "newTab.when.day": {
+      "comment": "Agent pane: All Chats recency option that shows chats used in the past 24 hours",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آخر يوم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadnji dan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seneste døgn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzter Tag"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Past day"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último día"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernier jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultimo giorno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "過去 1 日"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថ្ងៃមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지난 1일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siste døgn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostatni dzień"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último dia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За день"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วันที่ผ่านมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son gün"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За день"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngày qua"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "过去一天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "過去一天"
+          }
+        }
+      }
+    },
+    "newTab.when.week": {
+      "comment": "Agent pane: All Chats recency option that shows chats used in the past 7 days",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آخر أسبوع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadnja sedmica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seneste uge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzte Woche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Past week"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Última semana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernière semaine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultima settimana"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "過去 1 週間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សប្ដាហ៍មុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지난 1주"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siste uke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostatni tydzień"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Última semana"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За неделю"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สัปดาห์ที่ผ่านมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son hafta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За тиждень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tuần qua"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "过去一周"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "過去一週"
+          }
+        }
+      }
+    },
+    "newTab.when.month": {
+      "comment": "Agent pane: All Chats recency option that shows chats used in the past 30 days",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آخر شهر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadnji mjesec"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seneste måned"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzter Monat"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Past month"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último mes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernier mois"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultimo mese"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "過去 1 か月"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខែមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지난 1개월"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siste måned"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostatni miesiąc"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último mês"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За месяц"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เดือนที่ผ่านมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son ay"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За місяць"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tháng qua"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "过去一个月"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "過去一個月"
+          }
+        }
+      }
+    },
+    "newTab.searchHelp": {
+      "comment": "Agent pane: All Chats search field tooltip listing the search operators; keep the operators (since:7d and the rest) as written",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضيّق البحث: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suzite pretragu: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indsnævr søgningen: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suche eingrenzen: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Narrow the search: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acota la búsqueda: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affinez la recherche : since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restringi la ricerca: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索を絞り込む: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្រួមការស្វែងរក៖ since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색 범위 좁히기: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Begrens søket: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zawęź wyszukiwanie: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refine a busca: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уточните поиск: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำกัดการค้นหา: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aramayı daralt: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звузьте пошук: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu hẹp tìm kiếm: since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缩小搜索范围：since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縮小搜尋範圍：since:7d, before:2026-11-01, harness:codex, in:folder, title:word, -word, \"a phrase\""
           }
         }
       }
@@ -338675,6 +340538,7 @@
         }
       }
     },
+    "unavailable.resumeSlow": {"comment":"Agent pane: line on a paused Cloud machine's chat when its resume has run past a minute; Resume machine and Resume from Transcript are the card's buttons","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يستغرق هذا وقتًا أطول من المعتاد. استأنف الجهاز مرة أخرى، أو استأنف هذه المحادثة من نصها المحفوظ."}},"bs":{"stringUnit":{"state":"translated","value":"Ovo traje duže nego obično. Ponovo nastavi mašinu ili nastavi ovaj chat iz njegovog transkripta."}},"da":{"stringUnit":{"state":"translated","value":"Det tager længere tid end normalt. Genoptag maskinen igen, eller genoptag denne chat fra dens transskription."}},"de":{"stringUnit":{"state":"translated","value":"Das dauert länger als üblich. Setze die Maschine erneut fort oder setze diesen Chat aus seinem Transkript fort."}},"en":{"stringUnit":{"state":"translated","value":"This is taking longer than usual. Resume the machine again, or resume this chat from its transcript."}},"es":{"stringUnit":{"state":"translated","value":"Esto está tardando más de lo habitual. Reanuda la máquina otra vez o reanuda este chat desde su transcripción."}},"fr":{"stringUnit":{"state":"translated","value":"Cela prend plus de temps que d’habitude. Relancez la machine, ou reprenez cette discussion depuis sa transcription."}},"it":{"stringUnit":{"state":"translated","value":"Ci sta mettendo più del solito. Riprendi di nuovo la macchina, oppure riprendi questa chat dalla sua trascrizione."}},"ja":{"stringUnit":{"state":"translated","value":"通常より時間がかかっています。マシンをもう一度再開するか、このチャットをトランスクリプトから再開してください。"}},"km":{"stringUnit":{"state":"translated","value":"វាចំណាយពេលយូរជាងធម្មតា។ បន្តម៉ាស៊ីនម្ដងទៀត ឬបន្តការជជែកនេះពីប្រតិចារិករបស់វា។"}},"ko":{"stringUnit":{"state":"translated","value":"평소보다 오래 걸리고 있습니다. 머신을 다시 재개하거나 이 채팅을 기록에서 재개하세요."}},"nb":{"stringUnit":{"state":"translated","value":"Dette tar lengre tid enn vanlig. Gjenoppta maskinen igjen, eller gjenoppta denne chatten fra transkripsjonen."}},"pl":{"stringUnit":{"state":"translated","value":"Trwa to dłużej niż zwykle. Wznów maszynę ponownie albo wznów ten czat z jego transkrypcji."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Isso está demorando mais que o normal. Retome a máquina de novo ou retome este chat pela transcrição."}},"ru":{"stringUnit":{"state":"translated","value":"Это занимает больше времени, чем обычно. Возобновите машину ещё раз или продолжите этот чат из его расшифровки."}},"th":{"stringUnit":{"state":"translated","value":"ใช้เวลานานกว่าปกติ ให้ดำเนินการเครื่องต่ออีกครั้ง หรือดำเนินแชทนี้ต่อจากบันทึกการสนทนา"}},"tr":{"stringUnit":{"state":"translated","value":"Bu her zamankinden uzun sürüyor. Makineyi yeniden sürdürün ya da bu sohbeti dökümünden sürdürün."}},"uk":{"stringUnit":{"state":"translated","value":"Це триває довше, ніж зазвичай. Відновіть машину ще раз або продовжте цей чат із його стенограми."}},"vi":{"stringUnit":{"state":"translated","value":"Việc này lâu hơn bình thường. Hãy tiếp tục máy lần nữa, hoặc tiếp tục cuộc trò chuyện này từ bản ghi."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"这比平时花的时间更长。请再次恢复机器，或从记录中恢复此聊天。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"這比平常花的時間更長。請再次恢復機器，或從記錄中恢復此聊天。"}}}},
     "unavailable.resumeMachine": {
       "comment": "Agent pane: button on a paused Cloud machine's chat; resumes the machine",
       "extractionState": "manual",
@@ -447929,7 +449793,25 @@
           }
         }
       }
-    }
+    },
+    "rail.carried": {"comment":"Session Info: title of the section listing the instructions and memory files that follow the person to this machine, and notes other machines propose","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Carried memory"}},"ar":{"stringUnit":{"state":"needs_review","value":"الذاكرة المنقولة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prenesena memorija"}},"da":{"stringUnit":{"state":"needs_review","value":"Medbragt hukommelse"}},"de":{"stringUnit":{"state":"needs_review","value":"Mitgebrachtes Gedächtnis"}},"es":{"stringUnit":{"state":"needs_review","value":"Memoria traída"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mémoire transportée"}},"it":{"stringUnit":{"state":"needs_review","value":"Memoria portata"}},"ja":{"stringUnit":{"state":"needs_review","value":"持ち越したメモリ"}},"km":{"stringUnit":{"state":"needs_review","value":"អង្គចងចាំដែលបាននាំយក"}},"ko":{"stringUnit":{"state":"needs_review","value":"가져온 메모리"}},"nb":{"stringUnit":{"state":"needs_review","value":"Medbrakt minne"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przeniesiona pamięć"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Memória trazida"}},"ru":{"stringUnit":{"state":"needs_review","value":"Перенесённая память"}},"th":{"stringUnit":{"state":"needs_review","value":"หน่วยความจำที่นำมา"}},"tr":{"stringUnit":{"state":"needs_review","value":"Taşınan bellek"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перенесена пам’ять"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bộ nhớ mang theo"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"随身记忆"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"隨身記憶"}}}},
+    "carried.files": {"comment":"Session Info, Carried memory: the folded section's count of carried files. {n} is a number","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{n} files"}},"ar":{"stringUnit":{"state":"needs_review","value":"{n} ملفات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Datoteka: {n}"}},"da":{"stringUnit":{"state":"needs_review","value":"{n} filer"}},"de":{"stringUnit":{"state":"needs_review","value":"{n} Dateien"}},"es":{"stringUnit":{"state":"needs_review","value":"{n} archivos"}},"fr":{"stringUnit":{"state":"needs_review","value":"{n} fichiers"}},"it":{"stringUnit":{"state":"needs_review","value":"{n} file"}},"ja":{"stringUnit":{"state":"needs_review","value":"{n} 件のファイル"}},"km":{"stringUnit":{"state":"needs_review","value":"ឯកសារ {n}"}},"ko":{"stringUnit":{"state":"needs_review","value":"파일 {n}개"}},"nb":{"stringUnit":{"state":"needs_review","value":"{n} filer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Plików: {n}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{n} arquivos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Файлов: {n}"}},"th":{"stringUnit":{"state":"needs_review","value":"{n} ไฟล์"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} dosya"}},"uk":{"stringUnit":{"state":"needs_review","value":"Файлів: {n}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{n} tệp"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{n} 个文件"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{n} 個檔案"}}}},
+    "carried.proposed": {"comment":"Session Info, Carried memory: heading over the notes other machines propose to add, waiting for the person to accept or drop","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Proposed"}},"ar":{"stringUnit":{"state":"needs_review","value":"مقترحة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Predloženo"}},"da":{"stringUnit":{"state":"needs_review","value":"Foreslået"}},"de":{"stringUnit":{"state":"needs_review","value":"Vorgeschlagen"}},"es":{"stringUnit":{"state":"needs_review","value":"Propuestas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Proposées"}},"it":{"stringUnit":{"state":"needs_review","value":"Proposte"}},"ja":{"stringUnit":{"state":"needs_review","value":"提案"}},"km":{"stringUnit":{"state":"needs_review","value":"បានស្នើ"}},"ko":{"stringUnit":{"state":"needs_review","value":"제안됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Foreslått"}},"pl":{"stringUnit":{"state":"needs_review","value":"Proponowane"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Propostas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Предложено"}},"th":{"stringUnit":{"state":"needs_review","value":"ที่เสนอ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önerilen"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запропоновано"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đề xuất"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"建议"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"建議"}}}},
+    "carried.carried": {"comment":"Session Info, Carried memory: heading over the files already carried to this machine","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Carried"}},"ar":{"stringUnit":{"state":"needs_review","value":"منقولة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Preneseno"}},"da":{"stringUnit":{"state":"needs_review","value":"Medbragt"}},"de":{"stringUnit":{"state":"needs_review","value":"Mitgebracht"}},"es":{"stringUnit":{"state":"needs_review","value":"Traídos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Transportés"}},"it":{"stringUnit":{"state":"needs_review","value":"Portati"}},"ja":{"stringUnit":{"state":"needs_review","value":"持ち越し済み"}},"km":{"stringUnit":{"state":"needs_review","value":"បាននាំយក"}},"ko":{"stringUnit":{"state":"needs_review","value":"가져옴"}},"nb":{"stringUnit":{"state":"needs_review","value":"Medbrakt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przeniesione"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Trazidos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Перенесено"}},"th":{"stringUnit":{"state":"needs_review","value":"นำมาแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Taşınan"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перенесено"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã mang theo"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已随身"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已隨身"}}}},
+    "carried.accept": {"comment":"Session Info, Carried memory: button that applies one proposed change to the carried memory","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Accept"}},"ar":{"stringUnit":{"state":"needs_review","value":"قبول"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prihvati"}},"da":{"stringUnit":{"state":"needs_review","value":"Accepter"}},"de":{"stringUnit":{"state":"needs_review","value":"Annehmen"}},"es":{"stringUnit":{"state":"needs_review","value":"Aceptar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Accepter"}},"it":{"stringUnit":{"state":"needs_review","value":"Accetta"}},"ja":{"stringUnit":{"state":"needs_review","value":"承認"}},"km":{"stringUnit":{"state":"needs_review","value":"ទទួលយក"}},"ko":{"stringUnit":{"state":"needs_review","value":"수락"}},"nb":{"stringUnit":{"state":"needs_review","value":"Godta"}},"pl":{"stringUnit":{"state":"needs_review","value":"Akceptuj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aceitar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Принять"}},"th":{"stringUnit":{"state":"needs_review","value":"ยอมรับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kabul et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Прийняти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chấp nhận"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"接受"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"接受"}}}},
+    "carried.drop": {"comment":"Session Info, Carried memory: button that discards one proposed change without applying it","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drop"}},"ar":{"stringUnit":{"state":"needs_review","value":"إسقاط"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbaci"}},"da":{"stringUnit":{"state":"needs_review","value":"Kassér"}},"de":{"stringUnit":{"state":"needs_review","value":"Verwerfen"}},"es":{"stringUnit":{"state":"needs_review","value":"Descartar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Abandonner"}},"it":{"stringUnit":{"state":"needs_review","value":"Scarta"}},"ja":{"stringUnit":{"state":"needs_review","value":"破棄"}},"km":{"stringUnit":{"state":"needs_review","value":"បោះបង់"}},"ko":{"stringUnit":{"state":"needs_review","value":"버리기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Forkast"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odrzuć"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Descartar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отбросить"}},"th":{"stringUnit":{"state":"needs_review","value":"ทิ้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bırak"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкинути"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bỏ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"丢弃"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"捨棄"}}}},
+    "carried.acceptAll": {"comment":"Session Info, Carried memory: button that applies every waiting proposal","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Accept all"}},"ar":{"stringUnit":{"state":"needs_review","value":"قبول الكل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prihvati sve"}},"da":{"stringUnit":{"state":"needs_review","value":"Accepter alle"}},"de":{"stringUnit":{"state":"needs_review","value":"Alle annehmen"}},"es":{"stringUnit":{"state":"needs_review","value":"Aceptar todo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Tout accepter"}},"it":{"stringUnit":{"state":"needs_review","value":"Accetta tutto"}},"ja":{"stringUnit":{"state":"needs_review","value":"すべて承認"}},"km":{"stringUnit":{"state":"needs_review","value":"ទទួលយកទាំងអស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모두 수락"}},"nb":{"stringUnit":{"state":"needs_review","value":"Godta alle"}},"pl":{"stringUnit":{"state":"needs_review","value":"Akceptuj wszystkie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aceitar tudo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Принять все"}},"th":{"stringUnit":{"state":"needs_review","value":"ยอมรับทั้งหมด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tümünü kabul et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Прийняти всі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chấp nhận tất cả"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"全部接受"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"全部接受"}}}},
+    "carried.dropAll": {"comment":"Session Info, Carried memory: button that discards every waiting proposal","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Drop all"}},"ar":{"stringUnit":{"state":"needs_review","value":"إسقاط الكل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbaci sve"}},"da":{"stringUnit":{"state":"needs_review","value":"Kassér alle"}},"de":{"stringUnit":{"state":"needs_review","value":"Alle verwerfen"}},"es":{"stringUnit":{"state":"needs_review","value":"Descartar todo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Tout abandonner"}},"it":{"stringUnit":{"state":"needs_review","value":"Scarta tutto"}},"ja":{"stringUnit":{"state":"needs_review","value":"すべて破棄"}},"km":{"stringUnit":{"state":"needs_review","value":"បោះបង់ទាំងអស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모두 버리기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Forkast alle"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odrzuć wszystkie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Descartar tudo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отбросить все"}},"th":{"stringUnit":{"state":"needs_review","value":"ทิ้งทั้งหมด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tümünü bırak"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкинути всі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bỏ tất cả"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"全部丢弃"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"全部捨棄"}}}},
+    "carried.change.add": {"comment":"Session Info, Carried memory: a proposed change that adds a new file","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New"}},"ar":{"stringUnit":{"state":"needs_review","value":"جديد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Novo"}},"da":{"stringUnit":{"state":"needs_review","value":"Ny"}},"de":{"stringUnit":{"state":"needs_review","value":"Neu"}},"es":{"stringUnit":{"state":"needs_review","value":"Nuevo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouveau"}},"it":{"stringUnit":{"state":"needs_review","value":"Nuovo"}},"ja":{"stringUnit":{"state":"needs_review","value":"新規"}},"km":{"stringUnit":{"state":"needs_review","value":"ថ្មី"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 파일"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ny"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nowy"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Novo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Новый"}},"th":{"stringUnit":{"state":"needs_review","value":"ใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni"}},"uk":{"stringUnit":{"state":"needs_review","value":"Новий"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"新增"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"新增"}}}},
+    "carried.change.change": {"comment":"Session Info, Carried memory: a proposed change that edits an existing file","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Changed"}},"ar":{"stringUnit":{"state":"needs_review","value":"معدّل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izmijenjeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Ændret"}},"de":{"stringUnit":{"state":"needs_review","value":"Geändert"}},"es":{"stringUnit":{"state":"needs_review","value":"Modificado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Modifié"}},"it":{"stringUnit":{"state":"needs_review","value":"Modificato"}},"ja":{"stringUnit":{"state":"needs_review","value":"変更"}},"km":{"stringUnit":{"state":"needs_review","value":"បានផ្លាស់ប្ដូរ"}},"ko":{"stringUnit":{"state":"needs_review","value":"변경됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Endret"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zmieniony"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Alterado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Изменён"}},"th":{"stringUnit":{"state":"needs_review","value":"เปลี่ยนแปลง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Değişti"}},"uk":{"stringUnit":{"state":"needs_review","value":"Змінено"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã đổi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已更改"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已變更"}}}},
+    "carried.change.remove": {"comment":"Session Info, Carried memory: a proposed change that removes a file","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Removed"}},"ar":{"stringUnit":{"state":"needs_review","value":"محذوف"}},"bs":{"stringUnit":{"state":"needs_review","value":"Uklonjeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Fjernet"}},"de":{"stringUnit":{"state":"needs_review","value":"Entfernt"}},"es":{"stringUnit":{"state":"needs_review","value":"Eliminado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Supprimé"}},"it":{"stringUnit":{"state":"needs_review","value":"Rimosso"}},"ja":{"stringUnit":{"state":"needs_review","value":"削除"}},"km":{"stringUnit":{"state":"needs_review","value":"បានដកចេញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"삭제됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fjernet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Usunięty"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Removido"}},"ru":{"stringUnit":{"state":"needs_review","value":"Удалён"}},"th":{"stringUnit":{"state":"needs_review","value":"ลบแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kaldırıldı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Видалено"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã xóa"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已删除"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已移除"}}}},
+    "carried.kind.instructions": {"comment":"Session Info, Carried memory: the kind of a carried file: the agent's instructions","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Instructions"}},"ar":{"stringUnit":{"state":"needs_review","value":"تعليمات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Upute"}},"da":{"stringUnit":{"state":"needs_review","value":"Instruktioner"}},"de":{"stringUnit":{"state":"needs_review","value":"Anweisungen"}},"es":{"stringUnit":{"state":"needs_review","value":"Instrucciones"}},"fr":{"stringUnit":{"state":"needs_review","value":"Instructions"}},"it":{"stringUnit":{"state":"needs_review","value":"Istruzioni"}},"ja":{"stringUnit":{"state":"needs_review","value":"指示"}},"km":{"stringUnit":{"state":"needs_review","value":"សេចក្ដីណែនាំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"지침"}},"nb":{"stringUnit":{"state":"needs_review","value":"Instruksjoner"}},"pl":{"stringUnit":{"state":"needs_review","value":"Instrukcje"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Instruções"}},"ru":{"stringUnit":{"state":"needs_review","value":"Инструкции"}},"th":{"stringUnit":{"state":"needs_review","value":"คำสั่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Talimatlar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Інструкції"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hướng dẫn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"指令"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"指示"}}}},
+    "carried.kind.memory": {"comment":"Session Info, Carried memory: the kind of a carried file: the agent's memory notes","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Memory"}},"ar":{"stringUnit":{"state":"needs_review","value":"ذاكرة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Memorija"}},"da":{"stringUnit":{"state":"needs_review","value":"Hukommelse"}},"de":{"stringUnit":{"state":"needs_review","value":"Gedächtnis"}},"es":{"stringUnit":{"state":"needs_review","value":"Memoria"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mémoire"}},"it":{"stringUnit":{"state":"needs_review","value":"Memoria"}},"ja":{"stringUnit":{"state":"needs_review","value":"メモリ"}},"km":{"stringUnit":{"state":"needs_review","value":"អង្គចងចាំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"메모리"}},"nb":{"stringUnit":{"state":"needs_review","value":"Minne"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pamięć"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Memória"}},"ru":{"stringUnit":{"state":"needs_review","value":"Память"}},"th":{"stringUnit":{"state":"needs_review","value":"หน่วยความจำ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bellek"}},"uk":{"stringUnit":{"state":"needs_review","value":"Пам’ять"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bộ nhớ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"记忆"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"記憶"}}}},
+    "carried.showDiff": {"comment":"Session Info, Carried memory: button that shows a proposed change's diff","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show diff"}},"ar":{"stringUnit":{"state":"needs_review","value":"إظهار الفرق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži razlike"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis forskel"}},"de":{"stringUnit":{"state":"needs_review","value":"Diff anzeigen"}},"es":{"stringUnit":{"state":"needs_review","value":"Ver diferencias"}},"fr":{"stringUnit":{"state":"needs_review","value":"Voir le diff"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra diff"}},"ja":{"stringUnit":{"state":"needs_review","value":"差分を表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញភាពខុសគ្នា"}},"ko":{"stringUnit":{"state":"needs_review","value":"차이 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis diff"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż różnice"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ver diferenças"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать разницу"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงความต่าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Farkı göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати різницю"}},"vi":{"stringUnit":{"state":"needs_review","value":"Xem khác biệt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示差异"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示差異"}}}},
+    "carried.hideDiff": {"comment":"Session Info, Carried memory: button that hides a proposed change's diff","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Hide diff"}},"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء الفرق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sakrij razlike"}},"da":{"stringUnit":{"state":"needs_review","value":"Skjul forskel"}},"de":{"stringUnit":{"state":"needs_review","value":"Diff ausblenden"}},"es":{"stringUnit":{"state":"needs_review","value":"Ocultar diferencias"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer le diff"}},"it":{"stringUnit":{"state":"needs_review","value":"Nascondi diff"}},"ja":{"stringUnit":{"state":"needs_review","value":"差分を隠す"}},"km":{"stringUnit":{"state":"needs_review","value":"លាក់ភាពខុសគ្នា"}},"ko":{"stringUnit":{"state":"needs_review","value":"차이 숨기기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skjul diff"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ukryj różnice"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ocultar diferenças"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть разницу"}},"th":{"stringUnit":{"state":"needs_review","value":"ซ่อนความต่าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Farkı gizle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сховати різницю"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn khác biệt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"隐藏差异"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"隱藏差異"}}}},
+    "carried.off": {"comment":"Session Info, Carried memory: the folded section's value when memory does not follow the person to this machine","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Off"}},"ar":{"stringUnit":{"state":"needs_review","value":"إيقاف"}},"bs":{"stringUnit":{"state":"needs_review","value":"Isključeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Fra"}},"de":{"stringUnit":{"state":"needs_review","value":"Aus"}},"es":{"stringUnit":{"state":"needs_review","value":"Desactivado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Désactivé"}},"it":{"stringUnit":{"state":"needs_review","value":"Disattivato"}},"ja":{"stringUnit":{"state":"needs_review","value":"オフ"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទ"}},"ko":{"stringUnit":{"state":"needs_review","value":"꺼짐"}},"nb":{"stringUnit":{"state":"needs_review","value":"Av"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wyłączone"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Desativado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Выкл."}},"th":{"stringUnit":{"state":"needs_review","value":"ปิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kapalı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вимк."}},"vi":{"stringUnit":{"state":"needs_review","value":"Tắt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"关闭"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"關閉"}}}},
+    "carried.failed": {"comment":"Session Info, Carried memory: the section's line when reading the carried memory failed","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn't read carried memory"}},"ar":{"stringUnit":{"state":"needs_review","value":"تعذرت قراءة الذاكرة المنقولة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije moguće pročitati prenesenu memoriju"}},"da":{"stringUnit":{"state":"needs_review","value":"Kunne ikke læse medbragt hukommelse"}},"de":{"stringUnit":{"state":"needs_review","value":"Mitgebrachtes Gedächtnis konnte nicht gelesen werden"}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo leer la memoria traída"}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de lire la mémoire transportée"}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile leggere la memoria portata"}},"ja":{"stringUnit":{"state":"needs_review","value":"持ち越したメモリを読み込めませんでした"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចអានអង្គចងចាំដែលបាននាំយកបានទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"가져온 메모리를 읽을 수 없습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kunne ikke lese medbrakt minne"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można odczytać przeniesionej pamięci"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível ler a memória trazida"}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось прочитать перенесённую память"}},"th":{"stringUnit":{"state":"needs_review","value":"อ่านหน่วยความจำที่นำมาไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Taşınan bellek okunamadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося прочитати перенесену пам’ять"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không đọc được bộ nhớ mang theo"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法读取随身记忆"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法讀取隨身記憶"}}}},
+    "carried.retry": {"comment":"Session Info, Carried memory: a proposal's button after accepting or dropping it failed; tries again","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Try again"}},"ar":{"stringUnit":{"state":"needs_review","value":"حاول مجددًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokušaj ponovo"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøv igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Erneut versuchen"}},"es":{"stringUnit":{"state":"needs_review","value":"Reintentar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réessayer"}},"it":{"stringUnit":{"state":"needs_review","value":"Riprova"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行"}},"km":{"stringUnit":{"state":"needs_review","value":"ព្យាយាមម្ដងទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"다시 시도"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøv igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Spróbuj ponownie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tentar novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторить"}},"th":{"stringUnit":{"state":"needs_review","value":"ลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tekrar dene"}},"uk":{"stringUnit":{"state":"needs_review","value":"Спробувати ще"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thử lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"重试"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"重試"}}}}
   },
   "version": "1.0"
 }

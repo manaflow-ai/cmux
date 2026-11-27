@@ -6,7 +6,7 @@ import { BlockTail, InlineTail } from "./InlineTail";
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
 // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { Fragment, memo, useId, useMemo, useRef, type CSSProperties, type ReactNode, useLayoutEffect } from "react";
 
 import { CodeBlock } from "./CodeBlock";
 import { InlinePreview } from "./InlinePreview";
@@ -463,6 +463,7 @@ export function Markdown({
   messageAt,
   trailing,
   skills,
+  tools,
   commonmark = false,
   claims,
 }: MarkdownProps) {
@@ -529,6 +530,7 @@ export function Markdown({
       ...(commits ? { commits } : {}),
       ...(thumbnails === false ? { thumbnails } : {}),
       ...(skills?.size ? { skills } : {}),
+      ...(tools ? { tools } : {}),
       ...(commonmark ? { commonmark } : {}),
       ...(claims?.length ? { claims } : {}),
     };
@@ -542,6 +544,7 @@ export function Markdown({
     started,
     thumbnails,
     skills,
+    tools,
     commonmark,
     claims,
   ]);

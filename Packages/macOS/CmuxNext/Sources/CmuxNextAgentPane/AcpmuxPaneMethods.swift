@@ -136,6 +136,12 @@ nonisolated enum AcpmuxPaneMethods {
         // adds the accepted facts to the offer's CLAUDE.md or AGENTS.md and records the answer. Only
         // for a chat in scope, and only on a gesture (``gestureRules``).
         "_acpmux/memory_resolve",
+        // Session Info's Carried memory (session-info/CarriedSection.tsx; acpmux agent_home.rs):
+        // `_acpmux/agent_home` reads the instructions and memory files that follow the person to this
+        // machine and the notes other machines propose; `_acpmux/agent_home_resolve` accepts or drops
+        // proposals by id. Both only for a chat in scope; the resolve only on the person's click
+        // (``gestureRules``), and acpmux takes it only from the person.
+        "_acpmux/agent_home", "_acpmux/agent_home_resolve",
         // Session Info's View Prompt (context/ContextScreen.tsx; acpmux server/requests/context.rs):
         // `_acpmux/context` reads the chat's prompt inventory, `_acpmux/context_override` saves the
         // guidance new chats get, for every chat or the chat's own folder (no `cwd`: acpmux takes the
@@ -351,7 +357,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/turn_shots", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
         "_acpmux/secret_submit", "_acpmux/presets", "_acpmux/archive", "_acpmux/auto_settle", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
+        "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/agent_home", "_acpmux/agent_home_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
@@ -457,6 +463,10 @@ nonisolated enum AcpmuxPaneMethods {
         // match the facts against its offer, so Accept and Dismiss go only on the person's click
         // (direct.ts resolveMemory sends with no await before it).
         "_acpmux/memory_resolve": .always,
+        // An accepted proposal reaches every later chat's agent on every machine the person uses, so
+        // Accept and Drop go only on the person's click (direct.ts resolveAgentHome sends with no
+        // await before it).
+        "_acpmux/agent_home_resolve": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,

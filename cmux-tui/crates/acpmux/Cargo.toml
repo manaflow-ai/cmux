@@ -125,6 +125,8 @@ cmux-tui-platform.workspace = true
 # SKILL.md frontmatter, read as YAML (`agent_guidance::frontmatter`), shared with `cmux agent-config skills`.
 cmux-agent-customize.workspace = true
 cmux-file-lock.workspace = true
+# Session Info's per-chat usage stats, invalidated by chat and transcript tag (`hub/usage_view.rs`).
+cmux-tag-cache.workspace = true
 cmux-supervise-core.workspace = true
 cmux-git.workspace = true
 # The trusted session-flag hook a Codex start at a repository head gets (src/codex_repo_gate.rs).
@@ -157,6 +159,8 @@ serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["raw_value"] }
 jsonschema.workspace = true
 sha2.workspace = true
+# Diffs of a proposed carried-memory change (src/agent_home.rs).
+diffy.workspace = true
 # P-256 signatures of the person's phones (src/hub/approvers.rs); ring is
 # already in the graph through rustls.
 ring.workspace = true

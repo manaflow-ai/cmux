@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxDeviceHub
 import CmuxMobileBilling
 import CmuxMobileAgentChat
 import CmuxMobileAuth
@@ -94,8 +95,6 @@ public struct RootView: View {
     /// The account whose preferences are live (`AccountPreferences`); sign-out
     /// puts them away under it.
     @State private var accountUserID: String?
-    /// A pairing code opened while signed out: applied once the account's live data starts.
-    @State private var heldInvite: PairInvite?
     /// A Mac's invite for a new machine (`https://cmux.com/pair?i=…`): Pair Another Machine, its code filled in.
     @State private var machineInvite: MachineInvite?
     /// The signed-in shell's one model, kept across this view's updates (`ShellView.init`).
@@ -296,7 +295,6 @@ public struct RootView: View {
             ConnectivityTelemetry.shared.setAccount(email: email)
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
-        // A Mac's pairing code from the Camera (`cmux-next://pair?…`); never logged, it holds a token.
         // A Mac's invite for a new machine (`https://cmux.com/pair?i=…`) opens Pair Another Machine.
         // Any other cmux link (`cmux://tab/…`, Safari, Messages, Notes) opens what it names.
         .onOpenURL { url in
@@ -304,7 +302,7 @@ public struct RootView: View {
         }
         // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, `/pair?i=`, a cloud group's page).
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
-            guard let url = activity.webpageURL, let opened = OpenedURL(webpage: url) else { return }
+            guard let url = activity.webpageURL, let opened = OpenedURL(url: url) else { return }
             open(opened)
         }
         .sheet(item: $machineInvite) { invite in
@@ -333,8 +331,6 @@ public struct RootView: View {
             machineInvite = invite
         case .link(let link):
             NotificationRouter.shared.open(link: link)
-        case .macPairingCode(let invite):
-            if let live { live.accept(invite) } else { heldInvite = invite }
         }
     }
 
@@ -488,17 +484,11 @@ public struct RootView: View {
         }
         log.info("live data on \(base.host() ?? "", privacy: .public)")
         syncTeams()
-        if let invite = heldInvite {
-            heldInvite = nil
-            coordinator.accept(invite)
-        }
         #if DEBUG
-        // Test-only (compiled out of Release): the pair-e2e rig (scripts/ci/cmux_next_pair_e2e.py)
-        // hands this launch a Mac's pairing code in its environment, taken as a scanned code is
-        // (.onOpenURL above). A simulator asks "Open in cmux?" for `simctl openurl`, and nothing on
-        // a CI Mac answers it. Never logged; the code's token is single use and expires in minutes.
-        if let text = ProcessInfo.processInfo.environment["CMUX_MOBILE_PAIR_URL"], let invite = PairInvite(text: text) {
-            coordinator.accept(invite)
+        // Test-only (compiled out of Release): the hand-off (scripts/review.sh) names the tagged Mac
+        // to focus; a device id, no secret. Pairing is still the Mac's decision.
+        if let mac = ProcessInfo.processInfo.environment["CMUX_MOBILE_FOCUS_MAC"], !mac.isEmpty {
+            coordinator.dogfoodFocusMacID = mac
         }
         // The end-of-task hand-off's signed-in (and paired) proof, when its launcher asks.
         DogfoodReadiness(auth: auth).start(auth: auth, live: coordinator, apiBase: base)
@@ -644,6 +634,26 @@ struct ShellView: View {
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
         }
+        // A Mac screen link: Screen Sharing, that Mac's share asked for (View Only unless the link asks for control).
+        .sheet(item: $shell.macScreenLink) { item in
+            if let service = shell.screenSharing {
+                NavigationStack {
+                    ScreenSharingPage(service: service)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { shell.macScreenLink = nil }
+                                    .accessibilityIdentifier("screenSharing.done")
+                            }
+                        }
+                        .onAppear {
+                            guard shell.macScreenLinkOpened != item.id else { return }
+                            shell.macScreenLinkOpened = item.id
+                            service.open(deviceID: item.link.device, name: item.link.name,
+                                         scope: item.link.control ? .full : .view, display: item.link.display)
+                        }
+                }
+            }
+        }
         .sheet(item: $shell.connectedDevices) { item in
             TerminalConnectedDevicesSheet(live: item.live, macID: item.macID, surface: item.surface, service: shell.sizingService)
                 .presentationDetents([.medium, .large])
@@ -710,6 +720,10 @@ struct ShellView: View {
         }
         .onAppear {
             LaunchMarks.shared.markNextFrame("shell_frame")
+            #if DEBUG
+            // For the capture suites (the board is on only for UI tests): the first state, once still.
+            if LaunchMarksBoard.shared != nil { LaunchMarks.shared.markWhenStill("shell_still") }
+            #endif
             // The terminal engine starts when the main thread first idles, not in the first terminal tap.
             TerminalEngineWarmup.shared.schedule()
             NotificationRouter.shared.isShowing = { [weak shell] route in shell?.isShowing(route) ?? false }
@@ -728,7 +742,11 @@ struct ShellView: View {
             #endif
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
-            if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
+            if let demo = options.demo {
+                await DemoDriver(shell: shell).run(demo)
+                // The demo's last step is on screen and still: capture suites wait on this, not a fixed pause.
+                LaunchMarks.shared.markWhenStill("demo_done")
+            }
             await ListStressRig.runIfConfigured(shell: shell)
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
@@ -884,6 +902,18 @@ private struct LiveCallHost: ViewModifier {
                 AgentChatLauncher.shared.handler = { [shell] prompt in shell.startAgentChat(prompt: prompt) }
                 ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
                 ChiefMessenger.shared.composeText = { [weak shell] text in shell?.messagingChiefText = ChiefTextDraft(text: text) }
+            }
+            .task(id: shell.live.map(ObjectIdentifier.init)) {
+                // The call's Mac link never parks, in front or not: the Chief
+                // call runs on the focused Mac's link, voice mode on its chat's.
+                guard let live = shell.live else { return }
+                for await mac in Observations({ [call, voice] in
+                    if let session = call.session, !session.hasEnded { return live.focusedMacID }
+                    return voice.macID
+                }) {
+                    live.setCallMac(mac)
+                }
+                live.setCallMac(nil)
             }
             .onDisappear {
                 ChiefCallLauncher.shared.handler = nil

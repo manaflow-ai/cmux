@@ -414,6 +414,9 @@ pub struct SecureLink {
     /// replay guard: a record whose nonce is not exactly this one (a duplicate, a reorder or a
     /// skip, as a relay in the middle could make) fails the link for good.
     receive_nonce: AtomicU64,
+    /// The daemon's welcome is still unread ([`initiate_secure_link_pipelined`]): the first
+    /// receive reads and checks it before handing back any record.
+    welcome_pending: std::sync::atomic::AtomicBool,
 }
 
 /// `receive_nonce` once the link has failed; no record can carry it.
@@ -481,6 +484,28 @@ impl FrameLink for SecureLink {
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+        if self.welcome_pending.swap(false, Ordering::AcqRel) {
+            let Some(encoded) = self.receive_record().await? else { return Ok(None) };
+            let welcome: ServerWelcome = serde_json::from_slice(&encoded)
+                .map_err(|error| LinkError::Protocol(format!("handshake JSON failed: {error}")))?;
+            if !welcome.accepted {
+                let _ = self.inner.close().await;
+                return Err(LinkError::Protocol(format!(
+                    "daemon rejected device: {}",
+                    welcome.error.unwrap_or_else(|| "no reason given".into())
+                )));
+            }
+        }
+        self.receive_record().await
+    }
+
+    async fn close(&self) -> Result<(), LinkError> {
+        self.inner.close().await
+    }
+}
+
+impl SecureLink {
+    async fn receive_record(&self) -> Result<Option<Bytes>, LinkError> {
         let Some(ciphertext) = self.inner.receive().await? else { return Ok(None) };
         if ciphertext.len() > NOISE_MAX_MESSAGE {
             return Err(LinkError::FrameTooLarge {
@@ -522,13 +547,41 @@ impl FrameLink for SecureLink {
         plaintext.truncate(size);
         Ok(Some(Bytes::from(plaintext)))
     }
-
-    async fn close(&self) -> Result<(), LinkError> {
-        self.inner.close().await
-    }
 }
 
 pub async fn initiate_secure_link(
+    link: Box<dyn FrameLink>,
+    config: ClientHandshake,
+) -> Result<SecureLink, CryptoError> {
+    let secure = complete_handshake(link, config).await?;
+    let welcome: ServerWelcome = receive_secure_json(&secure).await?;
+    if !welcome.accepted {
+        return Err(CryptoError::Unauthorized(
+            welcome.error.unwrap_or_else(|| "daemon rejected device".into()),
+        ));
+    }
+    Ok(secure)
+}
+
+/// [`initiate_secure_link`] that returns once the Noise handshake is done, without waiting for
+/// the daemon's welcome: the caller's first record rides right behind the last handshake
+/// message, saving a round trip. The welcome is read and checked by the first receive, so a
+/// refusal still fails the link before any answer is handed back. Records sent before then go
+/// only to the pinned daemon key; use it only with `expected_daemon` set and an auth that never
+/// waits on a human (an invitation's welcome can).
+pub async fn initiate_secure_link_pipelined(
+    link: Box<dyn FrameLink>,
+    config: ClientHandshake,
+) -> Result<SecureLink, CryptoError> {
+    if config.expected_daemon.is_none() {
+        return Err(CryptoError::Link("a pipelined handshake needs a pinned daemon key".into()));
+    }
+    let secure = complete_handshake(link, config).await?;
+    secure.welcome_pending.store(true, Ordering::Release);
+    Ok(secure)
+}
+
+async fn complete_handshake(
     link: Box<dyn FrameLink>,
     config: ClientHandshake,
 ) -> Result<SecureLink, CryptoError> {
@@ -618,14 +671,7 @@ pub async fn initiate_secure_link(
                 return Err(CryptoError::HandshakeTimeout { timeout: config.handshake_timeout });
             }
         };
-    let secure = secure_link(link, transport, remote_static)?;
-    let welcome: ServerWelcome = receive_secure_json(&secure).await?;
-    if !welcome.accepted {
-        return Err(CryptoError::Unauthorized(
-            welcome.error.unwrap_or_else(|| "daemon rejected device".into()),
-        ));
-    }
-    Ok(secure)
+    secure_link(link, transport, remote_static)
 }
 
 pub async fn accept_secure_link(
@@ -794,6 +840,7 @@ fn secure_link(
         send_order: tokio::sync::Mutex::new(()),
         send_nonce: AtomicU64::new(0),
         receive_nonce: AtomicU64::new(0),
+        welcome_pending: std::sync::atomic::AtomicBool::new(false),
     })
 }
 

@@ -350,6 +350,9 @@ pub struct Dialed {
     pub media: Option<PendingMedia>,
     /// Both sides listed [`WEBRTC_MEDIA_LANE`] (WireGuard).
     pub webrtc_media: bool,
+    /// Holds the transport while the link is parked (WireGuard); `None`
+    /// when it cannot be held (WebRTC).
+    pub hold: Option<crate::link::HoldHook>,
     /// Pings and pongs as datagrams, when both sides listed
     /// [`crate::link::LIVENESS_LANE`] (WireGuard).
     pub liveness: Option<crate::link::LivenessDatagrams>,
@@ -566,6 +569,9 @@ pub async fn connect(
         }
     };
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
+    if let Some(hold) = dialed.hold {
+        link.set_hold_hook(hold);
+    }
     follow_lane(&link, dialed.lane);
     if let Some(liveness) = dialed.liveness {
         link.attach_liveness_datagrams(liveness);
@@ -613,6 +619,9 @@ pub async fn answer(
         }
     };
     let link = Link::new(dialed.stream, Role::Mac, link_config, Some(dialed.guard));
+    if let Some(hold) = dialed.hold {
+        link.set_hold_hook(hold);
+    }
     follow_lane(&link, dialed.lane);
     if let Some(liveness) = dialed.liveness {
         link.attach_liveness_datagrams(liveness);

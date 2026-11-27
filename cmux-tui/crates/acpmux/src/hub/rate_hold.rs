@@ -83,6 +83,24 @@
 //!   had the turn's error; the others' sends wait on. A turn its model began is continued as
 //!   before, and its messages go back once (`requeue_joined`).
 //!
+//! A held chat sleeps (Leo, 2026-11-22, of ~250 awake agent sessions on the fleet: "thats
+//! extremely dumb. simply clear th bullshit. theres noway tere's >100 of actually needed stuff
+//! much less >400"). A hold kept the chat's harness up: its waiting continuation and the
+//! messages queued behind it each made it ineligible for hibernation (`idle.rs`
+//! `idle_eligible`). A Codex chat on a lane VM was held 6 days (its usage cap reset on Nov 27),
+//! its last turn 19 h old, with its harness and MCP servers still running. Neither needs them:
+//! the hold's timer and the continuation's wait are the hub's own tasks, and the continuation's
+//! prompt, or the queue's next turn it folds into, starts its turn the normal way
+//! (`turns.rs` `child_for_since`), which wakes a hibernated chat.
+//!
+//! - A chat held until further away than its idle period, or parked, hibernates
+//!   ([`Hub::sleeps_through_hold`]) despite its queue and its continuation, while that
+//!   continuation is one waiting on the hold. Its queue stays as it is, in memory and in its log.
+//! - At the reset the continuation decides as before: one turn, with what queued, and that turn
+//!   starts the agent again. A hold due within the idle period keeps the agent up as before.
+//! - The person's own prompt queues as before; in a parked chat it sends the continuation on,
+//!   and that wakes it.
+//!
 //! An agent process that quits on the account's limit between turns (Leo, 2026-11-21: "i dont
 //! think 429 should just cause a process to just exit on its own, this is pretty weird") left the
 //! chat `Disconnected` with no hold: the next message respawned it straight into the limit, and
@@ -310,6 +328,27 @@ impl Hub {
     pub(super) fn rate_held(session: &Session) -> bool {
         let s = session.rate_hold.lock();
         s.until.is_some() || s.parked.is_some()
+    }
+
+    /// Whether `session` hibernates through its hold although its queue and its continuation
+    /// wait (`idle.rs` `idle_eligible`): parked, or held until further away than its idle
+    /// period, and no continuation is pending but one waiting on the hold. The hold's timer (or
+    /// the retry or prompt that unparks it) sends the continuation, or lets the queue's next
+    /// turn go, and that turn starts the agent again. False while hibernation is off.
+    pub(super) fn sleeps_through_hold(&self, session: &Session) -> bool {
+        let Some(idle) = *self.idle_child.lock().unwrap_or_else(|e| e.into_inner()) else {
+            return false;
+        };
+        let until = {
+            let s = session.rate_hold.lock();
+            match (s.parked, s.until) {
+                (Some(_), _) => u64::MAX,
+                (None, Some(until)) => until,
+                (None, None) => return false,
+            }
+        };
+        let idle = u64::try_from(self.idle_period(session, idle).as_millis()).unwrap_or(u64::MAX);
+        until > now_ms().saturating_add(idle) && self.continuation_waits_on_hold(session)
     }
 
     /// Ends `session`'s hold, if it has one, and lets its queue go on.
@@ -860,6 +899,10 @@ pub(crate) fn until_line(until: u64) -> String {
         None => "rate-limited".into(),
     }
 }
+
+#[cfg(test)]
+#[path = "rate_hold_sleep_tests.rs"]
+mod sleep_tests;
 
 #[cfg(test)]
 mod tests {

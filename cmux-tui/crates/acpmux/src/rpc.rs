@@ -492,6 +492,10 @@ pub mod method {
     /// Start a hibernated session's agent now, on its conversation (`hub/pause.rs`):
     /// `{sessionId}`.
     pub const MUX_WAKE: &str = "_acpmux/wake";
+    /// Hold or release a chat (`hub/session_hold.rs`).
+    pub const MUX_SESSION_HOLD: &str = "_acpmux/session_hold";
+    /// Set or read the fleet hold (`hub/session_hold.rs`).
+    pub const MUX_FLEET_HOLD: &str = "_acpmux/fleet_hold";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
     /// A chat hands its Claude Code or Codex conversation to a terminal: once idle, its harness
@@ -599,6 +603,9 @@ pub mod method {
     pub const MUX_COMPUTER_USE_MACHINES: &str = "_acpmux/computer_use_machines";
     /// Whether Computer Use is on here (asked by a peer for its machine list).
     pub const MUX_COMPUTER_USE_STATE: &str = "_acpmux/computer_use_state";
+    /// One file or command action on another of the person's machines, from this machine's
+    /// own socket only (`server/machine_files_relay.rs`).
+    pub const MUX_MACHINE_FILES_CALL: &str = "_acpmux/machine_files_call";
     /// A scoped key minted by another of the person's machines, which keeps the provider's
     /// bootstrap token (`server/keys_relay.rs`).
     pub const MUX_KEYS_MINT: &str = "_acpmux/keys_mint";
@@ -727,6 +734,10 @@ pub mod method {
     pub const MUX_STASH_MOVE: &str = "_acpmux/stash_move";
     /// The person's Accept or Dismiss on a chat's memory offer (`server/memory_inbox.rs`).
     pub const MUX_MEMORY_RESOLVE: &str = "_acpmux/memory_resolve";
+    /// Session Info's carried agent memory: the head's files and the proposals waiting (`agent_home.rs`).
+    pub const MUX_AGENT_HOME: &str = "_acpmux/agent_home";
+    /// The person's Accept or Drop of carried-memory proposals, one or a batch.
+    pub const MUX_AGENT_HOME_RESOLVE: &str = "_acpmux/agent_home_resolve";
     /// The rewrite of a chat's prompt coach offer, made once (`server/prompt_coach.rs`).
     pub const MUX_PROMPT_COACH: &str = "_acpmux/prompt_coach";
     pub const MUX_ASK: &str = "_acpmux/ask";
@@ -974,7 +985,7 @@ pub mod method {
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
     pub const MUX_WORKTREE_RESTORE: &str = "_acpmux/worktree/restore";
     /// Compact closed chats' event logs (`hub/retention.rs`): `{dryRun?, archive?,
-    /// olderThanDays?, only?}` -> the pass's report.
+    /// olderThanDays?, only?, unreadOnly?}` -> the pass's report.
     pub const MUX_RETENTION: &str = "_acpmux/retention";
     /// Cold archive of one chat (`hub/cold_archive.rs`): `{sessionId, archived}` -> its summary,
     /// with `coldArchive` while archived. `archived: false` brings its log back.

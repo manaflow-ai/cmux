@@ -185,6 +185,15 @@ jobs:
           persist-credentials: false
           # A pull request's merge commit and its first parent (the base).
           fetch-depth: 2
+          # zizmor and gitleaks read commits through git (git show, git log -p), and the runner-size tests read
+          # .github/, tests/ and scripts/ci/: no other blob is needed. The full tree took 67 s median of this job's
+          # ~100 s (11 PR runs, 2026-11-23, rc-33c75618); the trees-only router checkout above takes about 4 s.
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/
+            /tests/
+            /.github/
 
       - name: Fail on a workflow security hole this change adds (zizmor)
         if: ${{ !cancelled() }}

@@ -409,11 +409,10 @@
 {"file":"agent-session/acpmux/SendScrollSetting.gallery.tsx","kind":"radius","property":"border-radius","values":{"14px":1}}
 {"file":"agent-session/acpmux/SendScrollSetting.gallery.tsx","kind":"spacing","property":"gap","values":{"10px":1}}
 {"file":"agent-session/acpmux/SendScrollSetting.gallery.tsx","kind":"spacing","property":"padding","values":{"12px 14px":1,"10px 12px":1}}
-{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"height","property":"height","values":{"6px":1,"10px":1}}
-{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"radius","property":"border-radius","values":{"3px":1,"2px":1}}
+{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"height","property":"height","values":{"10px":1}}
+{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"radius","property":"border-radius","values":{"2px":1}}
 {"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"spacing","property":"margin","values":{"0 8px 6px":1,"8px 0 6px":1}}
 {"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"spacing","property":"padding","values":{"2px 8px 6px":1}}
-{"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"spacing","property":"padding-left","values":{"18px":1}}
 {"file":"agent-session/acpmux/session-info/ContextSection.css","kind":"token-copy","property":"padding","values":{"2px":1}}
 {"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"font-weight","property":"font-weight","values":{"500":3}}
 {"file":"agent-session/acpmux/session-info/sessionInfo.css","kind":"height","property":"height","values":{"6px":1,"1px":1,"7px":2,"22px":1}}
@@ -761,11 +760,6 @@
 {"file":"pages/markdown/styles.css","kind":"token-copy","property":"gap","values":{"2px":2}}
 {"file":"pages/markdown/styles.css","kind":"token-copy","property":"padding","values":{"2px":3}}
 {"file":"pages/markdown/styles.css","kind":"token-copy","property":"padding-top","values":{"2px":1}}
-{"file":"pages/mobile-pairing/styles.css","kind":"height","property":"height","values":{"200px":1}}
-{"file":"pages/mobile-pairing/styles.css","kind":"spacing","property":"gap","values":{"6px":1,"10px":1}}
-{"file":"pages/mobile-pairing/styles.css","kind":"spacing","property":"margin","values":{"2px 0 0":1,"4px 0 14px":1,"12px 0 6px":1}}
-{"file":"pages/mobile-pairing/styles.css","kind":"spacing","property":"padding","values":{"14px 16px":1}}
-{"file":"pages/mobile-pairing/styles.css","kind":"token-copy","property":"margin","values":{"2px":1}}
 {"file":"pages/passwords/styles.css","kind":"height","property":"height","values":{"22px":1}}
 {"file":"pages/passwords/styles.css","kind":"radius","property":"border-radius","values":{"7px":2,"5px":2}}
 {"file":"pages/passwords/styles.css","kind":"spacing","property":"gap","values":{"10px":2,"2px":1}}
@@ -838,7 +832,7 @@
 {"file":"styles.css","kind":"spacing","property":"margin","values":{"7px 6px":1,"var(--find-pill-inset, 10px) var(--find-pill-inset, 10px) 0 0":1,"4px 2px":1}}
 {"file":"styles.css","kind":"spacing","property":"margin-left","values":{"6px":3,"-2px":1}}
 {"file":"styles.css","kind":"spacing","property":"margin-right","values":{"3px":1}}
-{"file":"styles.css","kind":"spacing","property":"padding","values":{"3px 4px 3px 8px":1,"0 24px 0 9px":1,"0 7px 0 9px":1,"12px 9px":1,"5px 8px 7px":1,"0 7px":1,"0 4px 0 10px":1,"3px 7px":1,"0 10px":1,"0 6px 6px":1,"2px 7px 6px":1,"5px 7px":1,"0 5px":1,"10px 12px":1,"1px 6px":3,"12px 10px":1,"1px 8px":1,"3px 8px":1,"2px":1,"9px 12px":1,"0 12px 0 17px":1}}
+{"file":"styles.css","kind":"spacing","property":"padding","values":{"3px 4px 3px 8px":1,"0 24px 0 9px":1,"0 7px 0 9px":1,"12px 9px":1,"5px 8px 7px":1,"0 7px":1,"0 4px 0 10px":1,"3px 7px":1,"0 6px 6px":1,"2px 7px 6px":1,"5px 7px":1,"0 5px":1,"10px 12px":1,"1px 6px":3,"12px 10px":1,"1px 8px":1,"3px 8px":1,"2px":1,"9px 12px":1,"0 12px 0 17px":1}}
 {"file":"styles.css","kind":"spacing","property":"padding-right","values":{"9px":1}}
 {"file":"styles.css","kind":"spacing","property":"top","values":{"10px":1,"-6px":1}}
 {"file":"styles.css","kind":"token-copy","property":"gap","values":{"10px":1,"2px":3}}

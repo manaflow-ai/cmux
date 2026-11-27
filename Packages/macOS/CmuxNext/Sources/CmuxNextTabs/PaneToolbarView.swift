@@ -458,7 +458,7 @@ public final class PaneToolbarView: NSView {
     public func stripSlot(_ tools: CGFloat, in width: CGFloat, of model: TabStripModel, recording: Bool, sharer: PaneTabRowSharing?) -> CGFloat {
         if recording, let selected = model.selectedID {
             trailingSlots.record(.init(intrinsic: intrinsicContentSize.width, shared: sharer == nil ? nil : tabRowWidth,
-                                       tools: sharer?.tabRowToolsNeed), for: selected, live: model.tabs)
+                                       tools: sharer?.tabRowToolsNeed, taken: sharer?.tabRowToolsWidth), for: selected, live: model.tabs)
         }
         return max(tools, trailingSlots.reserve(in: width, besides: model.selectedID))
     }

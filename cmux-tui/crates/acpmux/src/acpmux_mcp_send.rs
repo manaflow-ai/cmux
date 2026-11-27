@@ -902,8 +902,9 @@ async fn settle(
     let delivery = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned();
     let wait_ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX);
     let ask = json!({"deliveryId": delivery, "waitMs": wait_ms});
-    // The mesh relay's note of a class it carried in the text (`server/mesh_send.rs`).
-    let notes: Vec<(&str, Value)> = ["classInline", "note"]
+    // The mesh relay's note of a class it carried in the text or a supersede key it dropped
+    // (`server/mesh_send.rs`).
+    let notes: Vec<(&str, Value)> = ["classInline", "supersedeDropped", "note"]
         .into_iter()
         .filter_map(|key| queued.get(key).map(|v| (key, v.clone())))
         .collect();

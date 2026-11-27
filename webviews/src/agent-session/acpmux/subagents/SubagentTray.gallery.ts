@@ -7,8 +7,7 @@
 // remains a bounded status card in the tray and leaves one line where it ended
 // (SubagentDoneLine.tsx), a failure in the danger color, a stopped one with why when known, and
 // Restart on hover for one that did not finish. The tray's lines are the summary card's
-// Subagents rows (AgentLine.tsx). The group card and the agents pill this replaces are
-// subagents.gallery.ts, under Debug Settings agentPane.debug.subagentTray off.
+// Subagents rows (AgentLine.tsx). The summary card and a subagent's own view are subagents.gallery.ts.
 import { agentPaneEntry } from "../../../gallery/format";
 import {
   activity,
@@ -1038,7 +1037,7 @@ export default pinKindsHead(
                 throw new Error(`the tab sits ${pull.getAttribute("data-side")}`);
               if (waits !== !!ctx.document.querySelector(".acpmux-tray-pull__dot"))
                 throw new Error(waits ? "a chat waits on you: the tab shows a dot" : "nothing waits: no dot");
-              if (!waits && ctx.document.querySelector(".acpmux-tray-pull__count")?.textContent !== "3")
+              if (!waits && ctx.document.querySelector<HTMLElement>(".acpmux-tray-pull__count")?.dataset.count !== "3")
                 throw new Error("the tab counts the three that run");
             },
             snapshot: (() => {

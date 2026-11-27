@@ -8,6 +8,7 @@
   `WorkspaceRowLayoutSettingsTests`, `WorkspaceRowLayoutWatcherTests` and
   `WorkspaceRowLayoutRenderingTests`; gallery: `AASidebarRowLayoutGalleryTests`.
 
+- 2026-11-23 (chief-row-no-icon): Sidebar-Look: the person, 2026-11-23: "remove the chief icon from the sidebar, and add a bit of spacing so that its clear and away from workspaces" / "just a bit of spacing nothing too crazy". The top row (Home, which is the Chief) draws its title alone in every look with a title: no crown, and "Chief" starts on the column a text-only workspace title starts on (`SidebarItemInfo.hidesGlyphBesideTitle`, set by `ChiefSidebar.decorateHome`). A tile, an icon look and a rail button keep the glyph. The top section's block keeps `SidebarListBlocks.topSectionGap` (`Metrics.space4`, 8 pt at Default, scaled by the density) under it, on top of the list's row gap, so the next row (a pin or a workspace) sits 10 pt under the Chief at Default instead of 2 pt; every other block keeps no bottom padding. A drag's drop hold at the block's end reads the items' end, above that gap. Regression: `SidebarChiefRowTitleOnlyTests`, `SidebarTopRowsRhythmTests` (Home to the first pin adds the gap), `SidebarItemGlyphStaysTests`.
 - 2026-11-18 (lane/sidebar-row-age): Sidebar-Look: Leo, 2026-11-18 (ask c-d1b544f190): "can you guys also start the [...]/codex/claude repos that we just have the entire ui and the various customizations lifted chameleon-like...". A look that sets `sidebar.showTimestamps` gets Codex's thread row: the title on the left, the age at the right end of the title line. A chat workspace had no time to show (the Rust face's `last_activity_ms` counts terminal agents' reports and notifications only), so its row drew no age; it now reads its chat's acpmux `lane.since` (`SidebarWorkspace.chatActivity`, from the chat tab the face picks) and draws the newer of the two (`rowAge`) in the existing trailing time slot (`badgeTime`, an expanded row's `time`, the Last Activity element). Off by default (`sidebar.showTimestamps` off draws no age, as before); sorting, grouping and hover cards keep `lastActivity`. `SidebarChatRowAgeTests`; gallery `AASidebarRowAgeGalleryTests` (off, compact, comfortable with a folder line, expanded; dark and light, artifact `sidebar-row-age-gallery.tar`).
 - 2026-11-22 (lane/agent-identity-icons): Sidebar-Look: Leo, 2026-11-22: "RENAMES NEED TO BE PROPAGATED TO THE VISIBLE AREAS AND IT SHOULD ALL BE REFLECTED". An agent chat's row takes its given name (acpmux `displayName`) after the person's own rename and before the chat title, and its own icon before the harness mark; the hover card's agent line adds "fka OLD".
 - 2026-11-22 (sidebar-group-looks): Sidebar-Look: Leo, 2026-11-22: "if we're willing to push in directions, we might as well push harder into what we believe", of the Folders look. `sidebar.groupHeader.background` gains three opt-in values, no default change (Folders stays the default): Chips (`chip`: Chromium's tab group, a slim colored chip hugging the name, a colored rail beside the members, no indent), Tree (`tree`: the folder glyph and indent with a thin guide line under the glyph, the group's color held to 3:1) and Cards (`card`: one rounded tinted card around the whole group, the members on the loose rows' x inside it, a folded group its header's card). Each respects light and dark, a group with no color, folding, hover and drops; the tab strip's chips keep the automatic look. Regression: `SidebarGroupLooksTests`. Capture tour: `sidebar-group-looks`.
@@ -2676,6 +2677,13 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   Gallery: `AARestartToUpdateGalleryTests` (each layout, ready and installing, dark and light). 09f49ddeb6f keeps
   `height(for:)` a one-argument function for its callers: no visual change. Sidebar-Look: Leo 2026-11-10, "the
   nightly automatically downloads and installs/unpacks and you simply click and it restarts with the new version".
+
+## Go back's progress is a status card (2026-11-11)
+
+- Leo, verbatim (softened): "yo reverting the app to previous nightly is really slow/doesn't work very well sometimes?/needs less [bad] ui". Going back to an earlier build (#41013) shows its steps on the sidebar's notice card: `SidebarNoticeCard.status(id:title:detail:fraction:working:dismissLabel:)` builds it. The text starts at the card's padding, with no leading spinner. The bar shows the download's fraction, or sweeps when there is none, while the step runs. Only a finished card (a failure) has an x. Every other notice card keeps its look. Gallery: the Go Back states in the update surfaces' gallery. Tests: `RollbackGoBackTests.theNoticeNamesTheStep`.
+
+Commits logged without a trailer (the card above):
+- 2c39838ad0c: adds `SidebarNoticeCard.status` for going back to an earlier build.
 - 2026-11-11 (fix/space-color-swatches, for a590): the space dot's menu opens with the space's name field and one row of
   real color swatches (`MenuIdentityHeader`, as the group menu), in place of Rename Space… and the Color submenu whose
   nine rows all drew as the same template dot. Set Space Theme and Reset Space Theme leave that submenu for rows of
@@ -2793,6 +2801,11 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   round-control corner (22), which made it a two-line capsule. The single-change second line is gone: every change is
   one hover away. Gallery: `card-shape-*` in updateSurfaces.gallery.tsx.
   Sidebar-Look: "the fuck is a pill with 2 lines supposed to be for anyways? the fuck kind of information are you showing with a single fucking line of content?"
+- 2026-11-23 (Updated card, reverted): the one-line card above is reverted to the two-line look it had before: "Updated
+  to Nightly" alone on the first line, the update's top change on the second, at the composer's corner. At a sidebar's
+  width the one line cut the title to "Update..." to fit What's New ↗ beside it. The photo contrast tokens from #52432
+  stay (gallery `card-photo-*`). Test: webviews/test/updated-card-original-look.test.tsx.
+  Sidebar-Look: "this update thing is ugly now (the button) just revert the bottom left button thing to what it originally was."
   2026-11-22 (follow-up to #49591): a favicon's raster box grows with its larger optical side, so its bitmap holds the
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.

@@ -16,8 +16,10 @@ use tokio::runtime::Runtime;
 
 mod browser;
 mod classic_leftovers;
+mod composer_outbox;
 mod follow_camera;
 mod link_side;
+mod mac_screen;
 mod share_approval;
 mod terminal_chat;
 mod terminal_prediction;
@@ -26,8 +28,12 @@ mod window_layout;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
+pub use composer_outbox::{
+    ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
+};
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use link_side::{LinkOpenSide, link_open_side};
+pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
@@ -476,6 +482,35 @@ impl LinkHandle {
         let timeout = Duration::from_millis(u64::from(timeout_ms));
         let rtt = on_runtime(async move { link.probe(timeout).await }).await?;
         Ok(rtt.map(|rtt| u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX)))
+    }
+
+    /// Before the OS suspends the app: ask the Mac to hold this link for up
+    /// to `hold_ms` (at most 10 minutes) while the phone is silent, waiting
+    /// at most `timeout_ms` for the answer (PROTOCOL.md "Parked link").
+    /// `true`: parked, and nothing on the link wakes the phone until
+    /// `resume`. `false`: an older Mac, no answer in time, or a WebRTC link,
+    /// which cannot be held; the link closes on silence as before.
+    pub async fn park(&self, hold_ms: u32, timeout_ms: u32) -> Result<bool, CmuxMobileError> {
+        if self.transport != Transport::WireGuard {
+            return Ok(false);
+        }
+        let link = self.link.clone();
+        let hold = Duration::from_millis(u64::from(hold_ms));
+        let timeout = Duration::from_millis(u64::from(timeout_ms));
+        Ok(on_runtime(async move { link.park(hold, timeout).await }).await?)
+    }
+
+    /// Back from the background: the link expects the Mac again. `true` when
+    /// it was parked and its hold has not passed. The tunnel then moves onto
+    /// a fresh socket (as on a network change) and the caller probes; the
+    /// first frame back ends the park on both sides.
+    pub fn resume(&self) -> bool {
+        if !self.link.resume() {
+            return false;
+        }
+        let _runtime = runtime().enter();
+        cmux_mobile_link::dial::wireguard::resume_session(&self.session_id);
+        true
     }
 
     /// How long a probe may wait for its pong on this link: `floor_ms`, or
@@ -1115,21 +1150,48 @@ async fn network_changed_on(
     // (`ERR_NETWORK_CHANGED`, no probe): a new socket opens at once, and every session moves onto
     // it (`open` rehomes them). Waiting first on the old socket was four of its round trips, half
     // of a roam's reconnect (ask-48f698fc26). The old one is kept only when no new one opens.
+    //
+    // The open is bounded while there is an old socket to keep: a new route that drops every
+    // packet would otherwise hold the roam until the OS gives up on the TCP connect. The old
+    // socket is probed beside the open, so once the budget passes its answer is already known.
     let old = pool.pooled(&key).await;
-    if pool.open(&key, &token, &timeline).await.is_err() {
-        match old {
-            Some(socket) if socket.client.probe(network_probe(socket.client.rtt())).await => {
-                timeline.mark("alive");
-                if cmux_mobile_link::dial::wireguard::rehome(&socket.client) > 0 {
-                    timeline.mark("rehomed");
-                }
-            }
-            Some(socket) => {
-                timeline.mark("failed");
-                pool.evict(&socket).await;
-            }
-            None => timeline.mark("failed"),
+    let mut probe = old.clone().map(|socket| {
+        tokio::spawn(async move { socket.client.probe(network_probe(socket.client.rtt())).await })
+    });
+    let mut alive = None;
+    let open = pool.open_after_change(&key, &token, old.as_ref(), &timeline);
+    tokio::pin!(open);
+    let first = match &old {
+        None => Some(open.as_mut().await),
+        Some(socket) => {
+            tokio::time::timeout(network_open_budget(socket.client.rtt()), open.as_mut()).await.ok()
         }
+    };
+    let opened = match first {
+        Some(result) => result.is_ok(),
+        None => {
+            // The budget passed with the open still going: keep the old socket if it answered,
+            // else the new one is the only way back, so wait for it.
+            let answered = probed(&mut probe).await;
+            alive = Some(answered);
+            if answered {
+                timeline.mark("open_slow");
+                false
+            } else {
+                open.as_mut().await.is_ok()
+            }
+        }
+    };
+    if opened {
+        if let Some(probe) = probe {
+            probe.abort();
+        }
+    } else {
+        let answered = match alive {
+            Some(answered) => answered,
+            None => probed(&mut probe).await,
+        };
+        pool.fall_back(&key, old.as_ref(), answered, &timeline).await;
     }
     let roamed = roam.await.unwrap_or_default();
     let mut marks = roamed.first().map(|(_, timeline)| timing_marks(timeline)).unwrap_or_default();
@@ -1139,6 +1201,14 @@ async fn network_changed_on(
             .map(|mark| TimingMark { name: format!("signaling:{}", mark.name), millis: mark.millis }),
     );
     marks
+}
+
+/// Whether the old socket's probe after a network change was answered (false with no old socket).
+async fn probed(probe: &mut Option<tokio::task::JoinHandle<bool>>) -> bool {
+    match probe.take() {
+        Some(probe) => probe.await.unwrap_or(false),
+        None => false,
+    }
 }
 
 /// How long `GET /v1/ice` may take before a dial goes on with host candidates only.
@@ -1250,6 +1320,61 @@ impl Warm {
         Ok(socket)
     }
 
+    /// A new socket for `key` after a network change, unless one opened since `old` was the
+    /// pooled one. Two changes in a burst both see `old`; the second waits here for the first's
+    /// open and then uses its socket instead of opening another (the service keeps one socket
+    /// per device, so a second open would replace the first).
+    async fn open_after_change(
+        &self,
+        key: &SocketKey,
+        token: &str,
+        old: Option<&Arc<WarmSocket>>,
+        timeline: &Timeline,
+    ) -> Result<Arc<WarmSocket>, CmuxMobileError> {
+        let _opening = self.opening.lock().await;
+        if let Some(current) = self.pooled(key).await
+            && !old.is_some_and(|old| Arc::ptr_eq(&current, old))
+        {
+            timeline.mark("signaling_joined");
+            return Ok(current);
+        }
+        self.open_locked(key, token, timeline).await
+    }
+
+    /// After a network change whose new socket did not open: the socket another change opened
+    /// meanwhile, else `old` if it answered and is still the pooled one, else none. A socket that
+    /// was replaced since `old` was seen is never taken back, even if it still answers.
+    async fn fall_back(
+        &self,
+        key: &SocketKey,
+        old: Option<&Arc<WarmSocket>>,
+        alive: bool,
+        timeline: &Timeline,
+    ) {
+        let socket = match self.pooled(key).await {
+            Some(current) if !old.is_some_and(|old| Arc::ptr_eq(&current, old)) => {
+                timeline.mark("signaling_joined");
+                current
+            }
+            Some(current) if alive => {
+                timeline.mark("alive");
+                current
+            }
+            Some(current) => {
+                timeline.mark("failed");
+                self.evict(&current).await;
+                return;
+            }
+            None => {
+                timeline.mark("failed");
+                return;
+            }
+        };
+        if cmux_mobile_link::dial::wireguard::rehome(&socket.client) > 0 {
+            timeline.mark("rehomed");
+        }
+    }
+
     /// Forget `socket` if it is the pooled one.
     async fn evict(&self, socket: &Arc<WarmSocket>) {
         self.sockets.lock().await.retain(|s| !Arc::ptr_eq(s, socket));
@@ -1328,6 +1453,20 @@ fn network_probe(rtt: Option<Duration>) -> Duration {
     rtt.map_or(NETWORK_PROBE, |rtt| (rtt * 4).clamp(NETWORK_PROBE_FLOOR, NETWORK_PROBE))
 }
 
+/// The shortest wait for a new signaling socket after a network change while an old one could
+/// be kept: a WebSocket open on a new path (TCP, TLS, upgrade) at a slow cellular round trip.
+const NETWORK_OPEN_FLOOR: Duration = Duration::from_millis(1000);
+/// The longest such wait, and the wait for an old socket that never timed a pong.
+const NETWORK_OPEN_CAP: Duration = Duration::from_millis(3000);
+
+/// How long a new signaling socket may take to open after a network change before a live old
+/// socket is kept instead: eight of the old socket's round trips (an open takes three or four),
+/// between [`NETWORK_OPEN_FLOOR`] and [`NETWORK_OPEN_CAP`]. Unbounded, a new route that drops
+/// every packet held the roam until the OS gave up on the TCP connect.
+fn network_open_budget(rtt: Option<Duration>) -> Duration {
+    rtt.map_or(NETWORK_OPEN_CAP, |rtt| (rtt * 8).clamp(NETWORK_OPEN_FLOOR, NETWORK_OPEN_CAP))
+}
+
 #[cfg(test)]
 mod network_probe_tests {
     use super::*;
@@ -1338,6 +1477,16 @@ mod network_probe_tests {
         assert_eq!(network_probe(Some(Duration::from_millis(10))), NETWORK_PROBE_FLOOR);
         assert_eq!(network_probe(Some(Duration::from_millis(100))), Duration::from_millis(400));
         assert_eq!(network_probe(Some(Duration::from_secs(2))), NETWORK_PROBE);
+    }
+
+    #[test]
+    fn the_new_sockets_open_after_a_network_change_is_bounded_by_the_old_ones_round_trip() {
+        assert_eq!(network_open_budget(None), NETWORK_OPEN_CAP);
+        assert_eq!(network_open_budget(Some(Duration::from_millis(80))), NETWORK_OPEN_FLOOR);
+        assert_eq!(network_open_budget(Some(Duration::from_millis(200))), Duration::from_millis(1600));
+        assert_eq!(network_open_budget(Some(Duration::from_secs(1))), NETWORK_OPEN_CAP);
+        // Past the budget the old socket's probe has its answer: the probe is never longer.
+        assert!(NETWORK_PROBE <= NETWORK_OPEN_FLOOR);
     }
 }
 

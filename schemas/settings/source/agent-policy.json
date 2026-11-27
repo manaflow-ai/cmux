@@ -827,6 +827,7 @@
         "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan",
         "agentPane.display.finishSound",
+        "agentPane.display.sendPop",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
         "agentPane.display.unreadBanner",
@@ -862,7 +863,10 @@
         "agentPane.display.rail.side",
         "agentPane.display.rail.show",
         "agentPane.display.rail.control",
-        "agentPane.display.commandLabels"
+        "agentPane.display.commandLabels",
+        "agentPane.display.layout.messages",
+        "agentPane.display.layout.composer",
+        "agentPane.display.layout.header"
       ]
     },
     {
@@ -1043,6 +1047,13 @@
       "why": "Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.",
       "keys": [
         "cloud.turnCheckpoints"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether the person's agent memory (CLAUDE.md, AGENTS.md, skills, Claude's notes) is copied to the cloud: only the person opts in or out; off deletes their cloud copy.",
+      "keys": [
+        "cloud.agentMemory.follow"
       ]
     },
     {
@@ -1536,6 +1547,13 @@
       ]
     },
     {
+      "agent": "privacy",
+      "why": "Whether this Mac and the person's Cloud machines send cmux which packages agents install: the person's choice only.",
+      "keys": [
+        "diagnostics.shareInstallCounts"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "What a new chat may do without asking: an agent must not widen its own approvals.",
       "keys": [
@@ -1578,7 +1596,8 @@
         "computerUse.cursorTag",
         "computerUse.settle",
         "computerUse.livePreview",
-        "computerUse.menus"
+        "computerUse.menus",
+        "computerUse.whileLocked"
       ]
     },
     {
@@ -1733,6 +1752,13 @@
       "why": "On, a phone signed in to the same account can open this Mac's terminals and agents.",
       "keys": [
         "mobile.allowIPhoneConnections"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, a new phone on the same account reaches this Mac's terminals and agents without the person's Allow.",
+      "keys": [
+        "mobile.autoApprovePhones"
       ]
     },
     {

@@ -280,6 +280,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_outbound_hosts.py
 
+      # Every outbound HTTP client or socket NEXT makes goes through the egress gate, which refuses unlisted hosts
+      # at run time; tests/egress_ungated.json lists the sites not moved yet and may only shrink.
+      - name: Validate NEXT's outbound sites go through the egress gate
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_egress_gate.py
+
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_perf_section_check.py

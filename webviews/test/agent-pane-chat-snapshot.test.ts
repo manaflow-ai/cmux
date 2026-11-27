@@ -503,7 +503,7 @@ requestAnimationFrame(() => {
     expect(atBundle.row).toEqual(before.row);
     // The host hears it when the copy draws, not when the bundle starts.
     const reports = (await page.evaluate(() => (window as any).reports)) as unknown[];
-    expect(reports).toEqual([{ method: "pane.painted", params: { drewKeptTail: true }, shown: true }]);
+    expect(reports).toEqual([{ method: "pane.painted", params: { drewKeptTail: true, copy: true }, shown: true }]);
     await context.close();
   });
 

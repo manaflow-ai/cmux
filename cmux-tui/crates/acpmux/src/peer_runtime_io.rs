@@ -536,7 +536,19 @@ impl Peer {
             }
             return Err("refused (test)".into());
         }
-        let (via, opened) = match self.open_first().await {
+        // One host-wide gate for every peer's dial (`peer_dial_gate.rs`): a link dropping on its
+        // own dials at once; 40 dropping together go a few at a time, wanted peers first.
+        let first = {
+            let mut stopped = self.stop_changed.subscribe();
+            let gate = crate::peer_dial_gate::global();
+            let dial = gate.pass(self.is_wanted(), crate::peer_link::jitter(), self.open_first());
+            tokio::select! {
+                biased;
+                _ = stopped.wait_for(|stopped| *stopped) => return Err("peer stopped".to_owned()),
+                first = dial => first,
+            }
+        };
+        let (via, opened) = match first {
             Ok(opened) => opened,
             Err(error) => {
                 // No path opened: the network, not a slow peer (`SilenceBudget::dial_struggled`).

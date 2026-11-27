@@ -24,10 +24,12 @@
 //!   (scripts/cmux-next/cmux-tui-tree-inputs.txt), so a skills-only change
 //!   reaches a published cmux-tui build with the next cmux-tui change.
 //! - Computer Use (`computer_use/mcp.rs`): every session gets
-//!   `acpmux computer-use-mcp` (server `cmux-computer-use`) unless cmux.json
-//!   sets `computerUse.mode` to `off`. The bridge serves the tool list
-//!   itself and finds the worker through the cmux-tui daemon at each call,
-//!   so no file and no running worker decides whether a session gets it.
+//!   `acpmux computer-use-mcp` (server `cmux-computer-use`), whatever
+//!   `computerUse.mode` says: tools are fixed when a chat spawns, and Computer
+//!   Use may be turned on later (each call then says it is off). The bridge
+//!   serves the tool list itself and finds the worker through the cmux-tui
+//!   daemon at each call, so no file and no running worker decides whether a
+//!   session gets it.
 //!   Per-workspace displays (`agent_displays.rs`) leave it out: the worker
 //!   drives the machine's one desktop, never a session's own display.
 //!   With the `cmux` server on, `folded` puts it behind that server as the
@@ -1129,15 +1131,6 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     resolve_servers(inputs)
 }
 
-/// Whether cmux.json turns Computer Use off (`computerUse.mode: "off"`).
-/// Any other value, a missing key or an unreadable file keep it on: the
-/// worker reads the same settings and refuses what they refuse.
-fn computer_use_off(text: &str) -> bool {
-    crate::user_settings::document(text)
-        .and_then(|doc| crate::user_settings::value(&doc, "computerUse.mode"))
-        .is_some_and(|mode| mode == Value::String("off".into()))
-}
-
 fn resolve_servers(inputs: &Inputs) -> AgentTools {
     if !inputs.enabled {
         return AgentTools::default();
@@ -1146,9 +1139,9 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
     let executable = |name: &str| {
         inputs.bin_dir.as_ref().map(|dir| dir.join(name)).filter(|path| is_executable(path))
     };
-    if let Some(acpmux) = &inputs.acpmux
-        && !inputs.cmux_json.as_deref().is_some_and(computer_use_off)
-    {
+    if let Some(acpmux) = &inputs.acpmux {
+        // Also when the mode is off: the worker refuses each call then, and
+        // a chat keeps its tools once the person turns Computer Use on.
         // `for_session` names the session; the bridge asks the cmux-tui
         // daemon for the worker at each call.
         servers.push(McpServer {

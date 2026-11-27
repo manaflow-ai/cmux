@@ -25,7 +25,9 @@ sys.path.insert(0, HERE)
 from bench_launch import BenchApp  # noqa: E402  the one launch path
 import launch_shift  # noqa: E402
 
-KEYS = ["first_paint_ms", "last_paint_ms", "blank_first", "geometry_frames", "pixel_frames", "blank_frames",
+# The perceived numbers first: the headline (launch_shift.py's PERCEIVED line).
+PERCEIVED = ["settled_match_ms", "shift_score", "tti_ms", "first_frame_is_final", "alpha_changes"]
+KEYS = PERCEIVED + ["first_paint_ms", "last_paint_ms", "blank_first", "geometry_frames", "pixel_frames", "blank_frames",
         "layout_passes", "window_moves", "last_change_ms", "closed_while_recorded"]
 
 
@@ -33,7 +35,17 @@ def median_of(rounds):
     out = {}
     for key in KEYS:
         values = [r["total"].get(key) for r in rounds if isinstance(r.get("total", {}).get(key), (int, float))]
+        if key == "first_frame_is_final":
+            # A bool per round: the median says whether most relaunches were final at their first frame, and
+            # `first_frame_final_rounds` how many.
+            flags = [r["total"][key] for r in rounds if isinstance(r.get("total", {}).get(key), bool)]
+            out[key] = (sum(flags) * 2 > len(flags)) if flags else None
+            out["first_frame_final_rounds"] = f"{sum(flags)}/{len(flags)}"
+            continue
         out[key] = statistics.median(values) if values else None
+    marks = [r["total"].get("tti_mark") for r in rounds if r.get("total", {}).get("tti_mark")]
+    out["tti_mark"] = max(set(marks), key=marks.count) if marks else None
+    out["shift_score_approx"] = any(r.get("total", {}).get("shift_score_approx") for r in rounds)
     chats = [r.get("chat") or {} for r in rounds if "first_content_ms" in (r.get("chat") or {})]
     for key, read in (("chat_shifts", lambda c: len(c.get("shifts") or [])), ("chat_scroll_jumps", lambda c: len(c.get("scroll_jumps") or [])),
                       ("chat_appeared", lambda c: len(c.get("appeared") or [])), ("chat_first_rows", lambda c: c.get("first_rows") or 0)):
@@ -106,7 +118,7 @@ def main():
               "journey": [r for r in rows if r.get("area") in ("launch frames", "layout") or "long chat" in str(r.get("item")) or (r.get("area") == "seed" and not r.get("ok"))]}
     with open(os.path.join(out, "report.json"), "w") as f:
         json.dump(report, f, indent=1, default=str)
-    text = markdown(rounds, median)
+    text = launch_shift.headline(median) + "\n\n" + markdown(rounds, median)
     # The long chat's own rows (made, shown, the tab shown at each quit): whether the chat numbers measured a chat.
     longs = [r for r in report["journey"] if "long chat" in str(r.get("item")) or r.get("area") == "seed"]
     if longs:
@@ -122,6 +134,7 @@ def main():
     with open(os.path.join(out, "report.md"), "w") as f:
         f.write(text + "\n")
     print(text)
+    print(launch_shift.headline(median))
     print("RELAUNCH-SHIFT " + json.dumps(median))
     return 0 if rounds else 1
 
