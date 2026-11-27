@@ -24,6 +24,8 @@ use serde_json::{Map, Value, json};
 
 use super::cloud_client_session::secure_origin;
 
+/// The team header the cmux VM API reads.
+const TEAM_HEADER: &str = "x-cmux-team-id";
 /// Largest stdin request read; a mint request is well under 1 KiB.
 const MAX_INPUT: u64 = 65_536;
 
@@ -132,16 +134,14 @@ async fn post(planned: &agent_key::Request, credential: &str, team: &str) -> (u1
     let user_agent = concat!("cmux/", env!("CARGO_PKG_VERSION"));
     // timeout: a VM API that never answers; the app's control method allows 25 s for the whole call.
     let timeout = Duration::from_secs(u64::from(planned.timeout_seconds));
-    let Ok((_, http)) = cmux_cloud_client::http(
-        &planned.base_url,
-        Some(credential),
-        Some(team),
-        user_agent,
-        timeout,
-    ) else {
+    let Ok((_, http)) =
+        cmux_cloud_client::http(&planned.base_url, Some(credential), None, user_agent, timeout)
+    else {
         return (0, Vec::new());
     };
-    let Ok(response) = http.post(&planned.url).json(&planned.body).send().await else {
+    // The VM API reads the team from `x-cmux-team-id` (workers/cmux-vm), not cmux-api's `x-cmux-team`.
+    let request = http.post(&planned.url).header(TEAM_HEADER, team).json(&planned.body);
+    let Ok(response) = request.send().await else {
         return (0, Vec::new());
     };
     let status = response.status().as_u16();
