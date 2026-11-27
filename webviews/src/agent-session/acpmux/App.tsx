@@ -81,6 +81,7 @@ import {
   injectedNewTabContext,
   useEarlyNewTabContext,
   useLostSharedPart,
+  NEW_TAB_ADOPT_EVENT,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -90,6 +91,7 @@ import {
   type SessionAdoption,
 } from "./newtab/adoption";
 import { sharesChatList, useSharedSessions } from "./newtab/chatStore";
+import { storedProjectList, storeProjectList } from "./newtab/projectListStore";
 import {
   heldPick,
   shownCloudStartPick,
@@ -1002,6 +1004,19 @@ export function AcpmuxApp({ initialChat }: { initialChat?: InitialChat } = {}) {
 
 /// No projects known (a stable value, so memos keyed on it hold).
 const NO_PROJECTS: Project[] = [];
+
+/// The folders of a `project.list` answer (or the kept one), each with its repository
+/// (projectRepos.ts): the pickers fold worktrees under it and name it by the repository.
+function listedProjects(answer: { projects?: unknown; repos?: unknown } | undefined): Project[] {
+  const repos = parseProjectRepos(answer?.repos);
+  const paths = Array.isArray(answer?.projects) ? answer.projects : [];
+  return paths
+    .filter((cwd): cwd is string => typeof cwd === "string" && cwd.length > 0)
+    .map((cwd): Project => {
+      const repo = repos[cwd];
+      return { cwd, label: projectName(cwd) ?? cwd, ...(repo ? { repo } : {}) };
+    });
+}
 
 /// A chat view parked under a New Tab page (AcpmuxPane `parked`): laid out and drawn in place but unseen,
 /// over the page's area and taking no pointer.
@@ -9388,16 +9403,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const loadNewTabProjects = useCallback(
     () =>
-      callNative<{ projects?: string[]; repos?: unknown; machine?: boolean }>("project.list").then((result) => {
-        // Each folder's repository (projectRepos.ts): the pickers fold worktrees under it.
-        const repos = parseProjectRepos(result?.repos);
-        const projects = (result?.projects ?? []).map((cwd): Project => {
-          const repo = repos[cwd];
-          return { cwd, label: projectName(cwd) ?? cwd, ...(repo ? { repo } : {}) };
-        });
+      callNative<{ projects?: string[]; repos?: unknown; machine?: boolean }>("project.list").then((result) => ({
+        projects: listedProjects(result),
         // `machine`: the host listed the chat's other machine's folders, not this Mac's.
-        return { projects, machine: result?.machine === true };
-      }),
+        machine: result?.machine === true,
+        answer: result,
+      })),
     [],
   );
   /// The daemon's list, with the New Tab page it was asked for (`newTabGeneration`): the list is
@@ -9409,7 +9420,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     page: 0,
   });
   const projectsAnswered = loadedProjects.page === newTabGeneration && loadedProjects.projects !== undefined;
-  const directProjects = projectsAnswered ? loadedProjects.projects! : NO_PROJECTS;
+  // A New Tab page of this Mac draws the list the last one kept (newtab/projectListStore.ts) until its
+  // own answer arrives: its folder menu names repositories, and lists every folder, from its first
+  // frame. Another machine's page (no home of this Mac's, or one that starts there) never reads it.
+  const sharesProjectList =
+    newTab?.home !== undefined && !newTab.startsRemote && sharesChatList(newTab, composerSnapshot);
+  const sharesProjectListNow = useRef(sharesProjectList);
+  sharesProjectListNow.current = sharesProjectList;
+  const keptProjects = useMemo(
+    () => {
+      const kept = sharesProjectList ? storedProjectList() : undefined;
+      return kept ? listedProjects(kept) : undefined;
+    },
+    // Read again for each page the view becomes (a spare adopted for another screen).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sharesProjectList, newTabGeneration],
+  );
+  const directProjects = projectsAnswered ? loadedProjects.projects! : (keptProjects ?? NO_PROJECTS);
   // A chat on another machine: the folders its host listed for that machine (its folder menu).
   const machineFolders = projectsAnswered && loadedProjects.machine ? directProjects : undefined;
   const onNewTab = Boolean(newTab);
@@ -9418,15 +9445,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // daemon's project list, where the user's renames and removals win (cx-m0p7).
     if (!freshChat && !onNewTab) return;
     let active = true;
-    void loadNewTabProjects()
-      .then(({ projects, machine }) => {
-        if (active) setDirectProjects({ page: newTabGeneration, projects, machine });
-      })
-      .catch(() => undefined);
+    let asked = 0;
+    const ask = () => {
+      const request = ++asked;
+      void loadNewTabProjects()
+        .then(({ projects, machine, answer }) => {
+          if (!active || request !== asked) return;
+          setDirectProjects({ page: newTabGeneration, projects, machine });
+          if (!machine && sharesProjectListNow.current) storeProjectList(answer);
+        })
+        .catch(() => undefined);
+    };
+    ask();
+    // A prewarmed spare page asks before Cmd-T wires its model, and the host refuses it then. An
+    // adopt whose screen is the one the spare shows does not remount (no new `newTabGeneration`),
+    // so the page asks again here, for the tab that took it.
+    window.addEventListener(NEW_TAB_ADOPT_EVENT, ask);
     return () => {
       active = false;
+      window.removeEventListener(NEW_TAB_ADOPT_EVENT, ask);
     };
-    // A prewarmed spare page asks again when Cmd-T adopts it: before that its model is not wired.
   }, [freshChat, onNewTab, newTabGeneration, loadNewTabProjects]);
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
@@ -9551,11 +9589,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // answering with no project (every one removed or missing) is `null`: no chat or started folder
   // counts (Codex review of #24274). Another machine's empty answer may be no answer at all
   // (AgentPaneModel `onListRemoteProjects`), so there it stays "not loaded".
+  // Only this page's own answer, never the list the last page kept (newtab/projectListStore.ts): a
+  // folder the kept list still names must not decide where the page's chat starts.
+  const answeredProjects = projectsAnswered ? loadedProjects.projects! : NO_PROJECTS;
   const newTabKnownProjects = useMemo((): readonly string[] | null => {
-    if (directProjects.length > 0) return directProjects.map((project) => project.cwd);
+    if (answeredProjects.length > 0) return answeredProjects.map((project) => project.cwd);
     const own = newTab?.projects ?? [];
     return projectsAnswered && own.length === 0 && newTab?.home ? null : own;
-  }, [directProjects, projectsAnswered, newTab?.projects, newTab?.home]);
+  }, [answeredProjects, projectsAnswered, newTab?.projects, newTab?.home]);
   // The folder lists read only where each chat works and when it was active (sessionList.ts
   // `folderFields`): another chat's status, unread, title or cost changing leaves them as they are.
   // The New Tab list reads the folders apart from their order: a chat on this Mac working moves its

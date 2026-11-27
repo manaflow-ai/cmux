@@ -1229,6 +1229,8 @@ export function ComposerContext({
                 />
               }
               folders={menuFolders}
+              // Another machine's folders (its own menu, or a route that reaches it) ask this Mac for no icon.
+              remote={!cloudListsThisMac && (selectedComputer !== "local" || routeElsewhere)}
               current={currentFolder}
               currentPeer={cloudSide ? selectedComputer : undefined}
               onPick={pickFolder}
