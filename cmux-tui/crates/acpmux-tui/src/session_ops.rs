@@ -356,8 +356,11 @@ impl App {
             .flatten()
             .filter_map(|h| {
                 let id = h.get("harness")?.as_str()?.to_owned();
+                // The agent's name beside its id ("claude-sr · Claude Code"), as the GUI names it.
                 let label = if id.split('/').next_back() == Some("deepseek") {
                     format!("{id} · DeepSeek Harness")
+                } else if let Some(name) = crate::agent_names::known(&id) {
+                    format!("{id} · {name}")
                 } else {
                     id.clone()
                 };
