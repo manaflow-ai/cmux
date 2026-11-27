@@ -144,7 +144,7 @@ const isCoverage = Schema.is(Coverage);
  */
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, v: unknown) =>
   v !== null && typeof v === "object" && !Array.isArray(v)
-    ? Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, x]) => x !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
     : v);
 const sameValue = (a: unknown, b: unknown): boolean => canonical(a) === canonical(b);
 

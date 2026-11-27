@@ -9,20 +9,20 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
   isLineRow,
+  onlyQuietThoughts,
   pathKey,
   SINCE_DIVIDER,
   TURN_RETRY,
   type AcpmuxActivity,
   type AcpmuxFileDiff,
   type AcpmuxRow,
-  onlyQuietThoughts,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { RowMemo } from "../../shared/rowMemo";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
-import { keptPrefix, PrefixFilter, noteKeptPrefix } from "./prefixFlatMap";
+import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { compactShortTurnsOn } from "./compactShortTurns";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
@@ -36,7 +36,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { scriptNoun, commandLine, commandSaid } from "./commandActions";
+import { commandLine, commandSaid, scriptNoun } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -57,7 +57,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
+import { turnCopyParts, turnCallParts, turnCopySaid } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork, wallSpan } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
@@ -2158,20 +2158,24 @@ export const isAgentPrompt = (row: AcpmuxRow) =>
       !row.incoming.message.fromPerson &&
       row.incoming.message.notice?.severity !== "fire"));
 
-/// How many messages between agents `rows` hold: each send among their calls, and each message
-/// received (an inbox notice counts the messages it brought, as messageRuns.ts does).
-function foldedAgentMessages(rows: readonly AcpmuxRow[]): {
-  sent: number;
-  received: number;
-} {
-  let sent = 0;
+/// How many messages from other agents `rows` hold: each message received (an inbox notice counts
+/// the messages it brought, as messageRuns.ts does).
+function receivedAgentMessages(rows: readonly AcpmuxRow[]): number {
   let received = 0;
-  for (const row of rows) {
+  for (const row of rows)
     if (isReceivedLine(row) && row.kind === "user")
       received += row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
-    else if (row.kind === "activity" && row.items?.length) sent += sentMessages(row.items);
-  }
-  return { sent, received };
+  return received;
+}
+
+/// How many messages to other agents `rows` sent: each send among their calls. It groups every
+/// step's calls (toolGroups.ts), most of a finished turn's shaping at a chat's open, so a fold's label
+/// asks for it only when it reads it (`shapeTurn`): the default `calls` arm counts received messages
+/// alone.
+function sentAgentMessages(rows: readonly AcpmuxRow[]): number {
+  let sent = 0;
+  for (const row of rows) if (row.kind === "activity" && row.items?.length) sent += sentMessages(row.items);
+  return sent;
 }
 
 /// The messages one step's calls sent, by its immutable items array: a running turn's "Worked for"
@@ -2511,12 +2515,15 @@ function shapeTurn(
       : [...(foldsPrompt && first ? [user] : []), ...work.filter((row) => !keptOut.has(row.id))];
     const previous = style.countsMessages && foldMixesMessages(hidden) ? foldedMessages(hidden) : undefined;
     // The messages between agents it folds count as calls by default (workedForMessages.experiment.ts).
-    const messages = foldedAgentMessages(hidden);
+    // Those it received are counted here; those it sent, only where the label reads them (`sent`).
+    const received = receivedAgentMessages(hidden);
+    let sentCount: number | undefined;
+    const sent = () => (sentCount ??= sentAgentMessages(hidden));
     const messagesArm = experimentArm(workedForMessages);
     // A turn split in order counts each fold's own calls; one fold counts the turn's.
     const calls = segments.length > 1 ? callsIn(work) : summary.toolCount;
-    const toolCount = messagesArm === "calls" && calls !== undefined ? calls + messages.received : calls;
-    const named = messagesArm === "messages" && messages.sent + messages.received > 0;
+    const toolCount = messagesArm === "calls" && calls !== undefined ? calls + received : calls;
+    const named = messagesArm === "messages" && sent() + received > 0;
     // Unknown stays unknown (the label counts calls instead): a turn whose prompt is in an older
     // page starts at a row inside it, and the time since that row is too short.
     const durationMs =
@@ -2539,13 +2546,15 @@ function shapeTurn(
     // (Leo, 2026-11-25: "the worked for for collapsing the compaction and then the next worked for
     // + thinking is weird. layout shifts and awkward looking animations"). A /compact alone ends the
     // same way: its note ("Compacted · 152k → 18k") stays in the place its live "Compacting" line
-    // held, never shut inside a "Worked for 1s" that hides what it did.
-    const compactOnly = said === undefined && onlyCompaction(work);
+    // held, never shut inside a "Worked for 1s" that hides what it did. A turn stopped mid-compaction
+    // keeps its "You stopped after" line: the stop is news, and a stopped turn's fold opens, so the
+    // note stays in sight under it (agent-pane-steer.test.ts, a forced Stop reads as a plain stop).
+    const compactOnly = said === undefined && onlyCompaction(work) && !(final && isStopped(summary));
     const unlabeled =
       compactOnly ||
       (previous === undefined &&
-        messages.sent + messages.received === 0 &&
-        ((durationMs === undefined && !toolCount && callsIn(work) === 0) || (durationMs === undefined && lone)));
+        ((durationMs === undefined && !toolCount && callsIn(work) === 0) || (durationMs === undefined && lone)) &&
+        sent() + received === 0);
     // A turn the person sent that only replied (no calls, no steers) still ends on its "Worked for": its
     // "Working for" stood over the reply from the turn's first frame (shapeLiveTurn), and a header gone at
     // the end would pull the reply up into its place. The closed line holds no rows.
@@ -2589,7 +2598,7 @@ function shapeTurn(
         .flatMap((row) => (row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool) : []));
       const labelVersion = mixVersion(
         (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
-        named ? messages.sent * 1_000 + messages.received + 1 : 0,
+        named ? sent() * 1_000 + received + 1 : 0,
       );
       const runsVersion = workedRuns.length ? mixVersion(labelVersion, workKey(workedRuns)) : labelVersion;
       const worked: AcpmuxRow = {
@@ -2602,7 +2611,7 @@ function shapeTurn(
         foldOpen: open,
         status: final ? summary.status : "completed",
         toolCount,
-        ...(named && { workedMessages: messages }),
+        ...(named && { workedMessages: { sent: sent(), received } }),
         // The turn's one outer count, over the runs that each count their own (Leo, 2026-11-07: "do you
         // think we should distinguish the absolute top level one versus the inner ones").
         ...(style.countsCalls && (calls ?? 0) > 0 ? { workedCalls: calls } : {}),
@@ -3686,8 +3695,9 @@ function shapeLiveRows(
   const line = shaped.at(-1);
   if (line?.kind === THINKING) line.untimed = true;
   // The turn's header, in its running phase: the row its end draws "Worked for" in (one id, kind and
-  // element from the turn's start to its end; only its phase and words change). Its clock ticks
-  // until the turn ends, where the ended line reads the same span (`turnClock`).
+  // element from the turn's start to its end; only its phase and words change). Once the answer
+  // came, its clock holds where the answer landed; the ended line reads that or more (calls that ran
+  // on past it), so it never runs backwards at the end.
   // Under `folded` it toggles the work under its own id, the key its "Worked for" opens with, so the
   // reader's open or closed state carries through the end and the line only changes its words (#50987).
   const header: AcpmuxRow = {
@@ -3696,6 +3706,7 @@ function shapeLiveRows(
     at,
     kind: WORKED,
     turnPhase: "running",
+    ...(clock.durationMs !== undefined && clock.answered && { durationMs: clock.durationMs }),
   };
   if (folds) header.foldOpen = workOpen;
   // A /compact the person steered into: the stretch before the steer is the compaction alone, which
@@ -3778,7 +3789,7 @@ const isRunningHeader = (user: AcpmuxRow) => (row: AcpmuxRow) =>
 /// `wallSpan`, the one span both read; Leo, 2026-11-27: "but shouldn't the worked for count the
 /// timelines of the tool calls"). It no longer stops at the first final answer (#42247 ended it
 /// there, so a call that outlasted the answer read longer in the Timeline than the whole turn).
-/// Running, the clock ticks until the turn ends. `work` is the turn's `turnWork(rows)` when the
+/// Running, the clock ticks until the answer, then holds there until the turn ends. `work` is the turn's `turnWork(rows)` when the
 /// caller already has it.
 export function turnClock(
   user: AcpmuxRow,
@@ -3786,7 +3797,7 @@ export function turnClock(
   liveStart?: number,
   summary?: AcpmuxRow,
   work: readonly AcpmuxActivity[] | undefined = summary ? turnWork(rows) : undefined,
-): { start: number; durationMs?: number } {
+): { start: number; durationMs?: number; answered: boolean } {
   let recorded = summary?.turnStartedAtMs ?? liveStart;
   for (let index = rows.length - 1; recorded === undefined && index >= 0; index -= 1)
     recorded = rows[index]!.turnStartedAtMs;
@@ -3795,12 +3806,17 @@ export function turnClock(
     rows,
     !sentByPerson(user) && hasTimestamp(user.at) && user.at > opened ? user.at : opened,
   );
-  if (!summary) return { start };
+  // Running, the clock holds at the answer once it came, so it never runs backwards at the end:
+  // the ended clock reads at least as much (its end is the turn's last event).
+  if (!summary) {
+    const answer = rows.find((row) => isFinalAnswer(row) && row.at >= start);
+    return answer ? { start, durationMs: Math.max(0, answer.at - start), answered: true } : { start, answered: false };
+  }
   const timed = summary.durationMs !== undefined;
   // Unknown stays unknown: a turn whose prompt is in an older page, with no record of its start and
   // no answer to end on, starts at a row inside it, and the time since that row is too short.
   if (!(start === opened && timed) && user.kind !== "user" && recorded === undefined)
-    if (!rows.some((row) => isFinalAnswer(row) && row.at >= start)) return { start };
+    if (!rows.some((row) => isFinalAnswer(row) && row.at >= start)) return { start, answered: false };
   const ended = summary.workEndedAt ?? summary.at;
   // The footer's Timeline axis (waterfallSpans.ts `waterfall`): the harness's own measure of the
   // turn, widened to every timed span.
@@ -3813,7 +3829,9 @@ export function turnClock(
   // turn's last event.
   const own =
     start === opened && timed ? summary.durationMs! : Math.max(0, wallSpan(undefined, summary.at, work).end - start);
-  return { start, durationMs: Math.max(own, panelMs) };
+  // The Timeline's axis is the harness's whole turn: it bounds the line only when the line counts
+  // that same turn. A stretch a notice started (`continuationStart`) counts from the notice.
+  return { start, durationMs: start === opened ? Math.max(own, panelMs) : own, answered: false };
 }
 
 /// When the live turn's current stretch began: `start`, or the latest notice (a prompt the person did
