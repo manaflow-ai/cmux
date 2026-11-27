@@ -724,6 +724,7 @@ mod care_tests {
             facts: None,
             bytes: None,
             outcome,
+            stale: false,
         };
         let done = |archive: &str| {
             Some(Outcome {
