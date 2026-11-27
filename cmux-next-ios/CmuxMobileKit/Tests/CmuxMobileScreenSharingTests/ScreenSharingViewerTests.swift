@@ -367,6 +367,46 @@ import Testing
         viewer.close(reason: .viewerDisconnected)
     }
 
+    /// The network back (the signal that redials the links) while a reattach sleeps out a
+    /// backoff step: the stream tries now, not at the end of the step.
+    @Test func theNetworkComingBackReattachesNow() async throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s12", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("s12", scope: .full)))
+        let calls = Reattachments()
+        let failures = FailureBudget(2)
+        viewer.reattachSession = { _, id in
+            await calls.record(id)
+            if failures.take() {
+                throw CancellationError()
+            }
+            return self.ticket(id, scope: .full)
+        }
+        viewer.streamDropped("s12")
+        _ = await calls.wait() // at once, fails
+        _ = await calls.wait() // after 1 s, fails; the next step is 2 s
+        let backAt = ContinuousClock.now
+        service.networkBack()
+        _ = await calls.wait()
+        #expect(ContinuousClock.now - backAt < .milliseconds(500))
+        for _ in 0 ..< 200 where viewer.phase != .streaming(sessionID: "s12", scope: .full) { await Task.yield() }
+        viewer.close(reason: .viewerDisconnected)
+    }
+
+    /// Leo, 2026-11-25: "I feel like iOS doesn't retry connections aggressively enough." The
+    /// stream's retries follow the links': no wait past 5 s in the first 75 s of an outage.
+    @Test func theReattachBackoffMatchesTheLinks() {
+        let steps = ScreenSharingViewer.reattachBackoff
+        #expect(steps.first == .zero)
+        var elapsed: Duration = .zero
+        for step in steps where elapsed < .seconds(75) {
+            #expect(step <= .seconds(5))
+            elapsed += step
+        }
+        #expect(steps.last == .seconds(30))
+    }
+
     @Test func aFailedSignOutEndsTheSessionAndStopSignsOutAgain() async throws {
         let (service, ends) = makeService()
         let signOuts = SignOuts(failing: true)

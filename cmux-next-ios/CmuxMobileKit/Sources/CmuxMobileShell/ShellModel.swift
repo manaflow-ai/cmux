@@ -484,6 +484,8 @@ final class ShellModel {
         if live == nil, mockMode { deviceDirectory = MockDeviceDirectory(store: store) }
         #endif
         live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
+        // The signal that redials the links also redials a screen share waiting out its backoff.
+        live?.onNetworkBack = { [weak self] in self?.screenSharing?.networkBack() }
         #if DEBUG
         // Mock mode shows Screen Sharing's entries too (its hub can't be reached there).
         attachScreenSharing(signedIn: live != nil || mockMode)

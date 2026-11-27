@@ -444,12 +444,15 @@ public final class ScreenSharingViewer: Identifiable {
     }
 
     /// The first try goes at once (the drop is already known and the hub answers in one round
-    /// trip), then the link's roaming backoff: 1/2/4/8/16/30 seconds, then 30 seconds.
-    public nonisolated static let reattachBackoff: [Duration] = [.zero, .seconds(1), .seconds(2), .seconds(4), .seconds(8),
-                                                                 .seconds(16), .seconds(30)]
+    /// trip), then the links' backoff (`LinkMachine.backoff`): 1, 2, 2, 3, 3, then 5 s for about
+    /// 75 s, then 10, 15 and 30 s. A short outage (an elevator) is back within a few seconds of
+    /// the network, and `reattachNow` cuts any step short when the phone sees the network return.
+    public nonisolated static let reattachBackoff: [Duration] = [.zero] + ([1, 2, 2, 3, 3] + Array(repeating: 5, count: 13) + [10, 15, 30])
+        .map { Duration.seconds($0) }
 
-    /// The app came back to the foreground (or the network came back): a reattach waiting out
-    /// a long backoff step tries again now, from the start of the backoff. A reattach call
+    /// The app came back to the foreground, or the network came back (`ScreenSharingService.networkBack`,
+    /// the signal that redials the links): a reattach waiting out a backoff step tries again now,
+    /// from the start of the backoff. A reattach call
     /// already waiting on the hub is left to answer.
     public func reattachNow() {
         guard case let .reconnecting(id, _) = phase, !reattachInFlight else { return }

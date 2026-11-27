@@ -367,6 +367,13 @@ public final class ScreenSharingService {
 
     // MARK: Sessions
 
+    /// The phone's network came back: a path change, or the presence socket's hello after an
+    /// outage (iOS may report no path change after an elevator). The same signal redials every
+    /// Mac link (`LiveCoordinator.onNetworkBack`); a stream waiting out its backoff tries now.
+    public func networkBack() {
+        viewer?.reattachNow()
+    }
+
     /// The viewer to show full screen: one past asking the hub (see `ScreenSharingViewer.shown`).
     public var viewerOnScreen: ScreenSharingViewer? {
         guard let viewer, viewer.shown else { return nil }

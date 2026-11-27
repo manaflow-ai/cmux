@@ -62,6 +62,9 @@ public final class LiveCoordinator {
     /// A terminal tab drew output on a Mac (tab id, Mac id), or (nil tab) any
     /// of that Mac's may have (`WorkspaceSync.onTerminalOutput`).
     @ObservationIgnored public var onTerminalOutput: (@MainActor (String?, String) -> Void)?
+    /// The network came back (a path change, or presence's hello after an outage): the links
+    /// redial here; the app's other connections (screen sharing) try again now too.
+    @ObservationIgnored public var onNetworkBack: (@MainActor () -> Void)?
 
     /// One session per Mac this phone links (`MacLinkPolicy`): each has its
     /// own link, workspace list, chats and Feed items, so two Macs work at
@@ -498,6 +501,7 @@ public final class LiveCoordinator {
             lastPathNudge = instants.now()
             presence?.kick()
             discovery.wake()
+            onNetworkBack?()
             guard let teamID = registeredTeamID else { return }
             // Every link roams in place (one signaling socket carries them all);
             // one controller asks the dialer, the others only redial a failed link.
@@ -523,6 +527,7 @@ public final class LiveCoordinator {
         ConnectTimeline.shared.mark("presence_back")
         if store.isOffline { store.isOffline = false }
         for session in sessions.values { session.link.send(.networkChanged) }
+        onNetworkBack?()
     }
 
     /// Presence down at least this long before its return redials the links.
