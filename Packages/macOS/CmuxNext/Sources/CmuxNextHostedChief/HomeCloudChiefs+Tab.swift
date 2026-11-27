@@ -1,3 +1,4 @@
+import CmuxChiefList
 public import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
@@ -80,6 +81,12 @@ extension HomeCloudChiefs {
     public static func list(call: Call) async throws -> [CloudChief] {
         let value = try okValue(try await call("v1/read", ["op": "chief.list", "params": [String: Any]()])) as? [String: Any]
         return (value?["chiefs"] as? [Any] ?? []).compactMap(CloudChief.parse)
+    }
+
+    /// The chief whose brain runs on a server: the default one when it is
+    /// placed, else the first placed one; nil when no chief is placed.
+    public static func placed(in chiefs: [CloudChief]) -> CloudChief? {
+        ChiefList.placed(in: chiefs)  // the one rule, the iPhone's too
     }
 
     /// Makes sure the user has a Hosted Chief and that it is the default:
