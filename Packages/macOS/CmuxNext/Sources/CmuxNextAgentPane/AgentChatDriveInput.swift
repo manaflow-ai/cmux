@@ -49,8 +49,6 @@ public struct AgentChatDriveInput {
     /// false when the bound passed first, nil when it can't be known (an unverified macOS, no SPI).
     /// Tests pass their own.
     var pendingMouseEvents: @MainActor (WKWebView, Duration) async -> Bool? = { await AgentChatDriveInput.afterPendingMouseEvents($0, bound: $1) }
-    /// WebKit's next presentation update, at most the bound. Tests pass their own.
-    var presentationUpdate: @MainActor (WKWebView, Duration) async -> Void = { await AgentChatDriveInput.afterPresentationUpdate($0, bound: $1) }
 
     /// Input for a bare WebKit view (the pane's own WebKit host; tests).
     public init(webView: WKWebView) {
@@ -86,35 +84,26 @@ public struct AgentChatDriveInput {
         }
     }
 
-    /// The longest a wheel tick waits for WebKit's presentation update, and then for its pending mouse
-    /// events (a window that cannot present gives none), each cut to the run's time left (``bounded(_:before:now:)``).
-    static let wheelWait = Duration.milliseconds(500)
-
-    /// `bound`, cut to the time left before `deadline` (none: all of it); nil when no time is left.
-    static func bounded(_ bound: Duration, before deadline: ContinuousClock.Instant?, now: ContinuousClock.Instant = .now) -> Duration? {
-        guard let deadline else { return bound }
-        let left = deadline - now
-        return left > .zero ? min(bound, left) : nil
-    }
-
     /// One wheel tick of `deltaY` CSS px at `css`, with the sign the page's `wheel` event reports
     /// (positive scrolls the content down). False when no event could be made or sent.
-    /// With `deadline` (the run's end), the tick's waits for WebKit end by then, and a tick with no time
-    /// left sends without them.
-    public func wheel(at css: CGPoint, deltaY: Double, before deadline: ContinuousClock.Instant? = nil) async -> Bool {
+    /// The longest a wheel tick waits for WebKit's presentation update, and then for its pending mouse
+    /// events (a window that cannot present gives none; the run's own bound still ends it).
+    static let wheelWait = Duration.milliseconds(500)
+
+    public func wheel(at css: CGPoint, deltaY: Double) async -> Bool {
         guard css.x.isFinite, css.y.isFinite, deltaY.isFinite, let engine else { return false }
         switch engine {
         case .webKit(let webView):
             // WebKit drops a wheel that reaches the page before its next presentation update, and coalesces
             // wheels still pending: each tick waits for both (as WebKitNativeInput.wheel does), so ticks a
-            // frame or less apart each reach the page. Each wait is bounded by `wheelWait` and the time left.
-            if let bound = Self.bounded(Self.wheelWait, before: deadline) { await presentationUpdate(webView, bound) }
+            // frame or less apart each reach the page. Each wait is bounded by `wheelWait`.
+            await Self.afterPresentationUpdate(webView, bound: Self.wheelWait)
             guard let window = webView.window,
                   let event = Self.wheelEvent(window: window, location: webView.convert(Self.viewPoint(webView, css: css), to: nil), deltaY: deltaY)
             else { return false }
             // The view's own override routes it (`PageWKWebView.scrollWheel(with:)`), as a person's wheel.
             webView.scrollWheel(with: event)
-            if let bound = Self.bounded(Self.wheelWait, before: deadline) { _ = await pendingMouseEvents(webView, bound) }
+            await Self.afterPendingMouseEvents(webView, bound: Self.wheelWait)
             return true
         case .chromium(_, let page):
             return (try? await page.devTools("Input.dispatchMouseEvent", params: [
@@ -162,13 +151,12 @@ public struct AgentChatDriveInput {
 
     /// Waits until the engine has handled the input sent so far, so a page read after it sees its
     /// effect: WebKit's next presentation update, then its pending mouse events (each bounded to
-    /// `bound`, and cut to the time left before `deadline`: none left, no wait); Chromium handled each
-    /// DevTools input before it answered.
-    public func settle(bound: Duration = .seconds(1), before deadline: ContinuousClock.Instant? = nil) async { // timeout: only how long one settle waits for WebKit to answer; when it runs out the run goes on, and nothing the person does waits on it
+    /// `bound`); Chromium handled each DevTools input before it answered.
+    public func settle(bound: Duration = .seconds(1)) async {
         guard case .webKit(let webView)? = engine else { return }
         // A wheel that reaches a page before its next presentation update is dropped (WebKitNativeInput).
-        if let bound = Self.bounded(bound, before: deadline) { await presentationUpdate(webView, bound) }
-        if let bound = Self.bounded(bound, before: deadline) { _ = await pendingMouseEvents(webView, bound) }
+        await Self.afterPresentationUpdate(webView, bound: bound)
+        await Self.afterPendingMouseEvents(webView, bound: bound)
     }
 
     // MARK: Chromium layout counters

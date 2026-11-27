@@ -13,8 +13,7 @@ final class DrivePointerWatch: NSObject {
     private weak var view: NSView?
     private var area: NSTrackingArea?
 
-    /// The watch for `release`, which holds it while the release is pending (the tracking area does not)
-    /// and drops it, its tracking area removed, once a release went in.
+    /// The watch for `release`, which holds it until a release went in.
     init(release: DriveRelease) {
         self.release = release
         super.init()
@@ -38,12 +37,7 @@ final class DrivePointerWatch: NSObject {
     }
 
     // A tracking area's owner need not be a responder: AppKit sends it these by selector.
-    @objc(mouseEntered:) func mouseEntered(with event: NSEvent) { pointer() }
-    @objc(mouseExited:) func mouseExited(with event: NSEvent) { pointer() }
-    @objc(mouseMoved:) func mouseMoved(with event: NSEvent) { pointer() }
-
-    /// The release that ends here drops this watch, its only owner, while AppKit is still calling it.
-    private func pointer() {
-        withExtendedLifetime(self) { release?.personPointer() }
-    }
+    @objc(mouseEntered:) func mouseEntered(with event: NSEvent) { release?.personPointer() }
+    @objc(mouseExited:) func mouseExited(with event: NSEvent) { release?.personPointer() }
+    @objc(mouseMoved:) func mouseMoved(with event: NSEvent) { release?.personPointer() }
 }

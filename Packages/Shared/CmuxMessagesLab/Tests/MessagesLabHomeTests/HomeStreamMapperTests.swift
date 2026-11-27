@@ -6,6 +6,13 @@ import Testing
 /// mapping gives (HomeMapping.parts, markdown), so the posted reply replaces the bubble with
 /// nothing moving, while each token renders only its own lines.
 @MainActor struct HomeStreamMapperTests {
+    /// The app installs the table and plan cards before any reply streams (MessagesLabHomeView): the parity holds with
+    /// them, as Home runs. It used to hold only while no other suite had them installed, so it failed at random
+    /// (a1317, 2026-11-21: the streamed table stayed text, the posted reply drew a card and the bubble moved).
+    init() {
+        HomeTableRowProvider.install()
+    }
+
     static let reply = """
     ## Plan
 

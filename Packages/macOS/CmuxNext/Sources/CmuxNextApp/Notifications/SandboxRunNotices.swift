@@ -27,7 +27,7 @@ final class SandboxRunNotices {
     init(services: AppServices, follower: SandboxRunFollower? = nil, user: (@MainActor () -> String?)? = nil) {
         self.services = services
         self.currentUser = user ?? { [weak services] in services?.cloud.auth.user?.id }
-        self.follower = follower ?? SandboxRunFollower(wait: { [api = services.cloud.machineAPI.drainingClassic(services.cloud.api)] id, team in
+        self.follower = follower ?? SandboxRunFollower(wait: { [api = services.cloud.machineAPI] id, team in
             try await api.pinningTeam(team).waitRun(id, timeoutMs: 10_000)
         })
         self.follower.onEnd = { [weak self] end in self?.ended(end) }
@@ -118,12 +118,12 @@ final class SandboxRunNotices {
             .map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
         let title = line.count > 120 ? String(line.prefix(119)) + "…" : line
         let body = switch end.outcome {
-        case .succeeded: String(localized: "runs.notification.succeeded", defaultValue: "Run finished", table: "Runs", bundle: .module)
-        case .failed: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module)
-        case .timedOut: String(localized: "runs.notification.timedOut", defaultValue: "Run timed out", table: "Runs", bundle: .module)
-        case .cancelled: String(localized: "runs.notification.cancelled", defaultValue: "Run cancelled", table: "Runs", bundle: .module)
+        case .succeeded: String(localized: "runs.notification.succeeded", defaultValue: "Run finished", table: "Runs", bundle: .module.inAppLanguage)
+        case .failed: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module.inAppLanguage)
+        case .timedOut: String(localized: "runs.notification.timedOut", defaultValue: "Run timed out", table: "Runs", bundle: .module.inAppLanguage)
+        case .cancelled: String(localized: "runs.notification.cancelled", defaultValue: "Run cancelled", table: "Runs", bundle: .module.inAppLanguage)
         // A Run never stops for the person (only a hand-off does, HandoffNotices).
-        case .needsYou: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module)
+        case .needsYou: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module.inAppLanguage)
         }
         return (title, body)
     }

@@ -1711,127 +1711,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The invite was not sent: the dialog was closed."
+            "value": "No invite sent."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "لم تُرسل الدعوة: أُغلقت النافذة."
+            "state": "needs_review",
+            "value": "لم تُرسل أي دعوة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pozivnica nije poslana: dijalog je zatvoren."
+            "value": "Pozivnica nije poslana."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Invitationen blev ikke sendt: dialogen blev lukket."
+            "value": "Ingen invitation sendt."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Die Einladung wurde nicht gesendet: Der Dialog wurde geschlossen."
+            "state": "needs_review",
+            "value": "Keine Einladung gesendet."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "No se envió la invitación: se cerró el cuadro de diálogo."
+            "state": "needs_review",
+            "value": "No se envió ninguna invitación."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "L’invitation n’a pas été envoyée : la fenêtre a été fermée."
+            "state": "needs_review",
+            "value": "Aucune invitation envoyée."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’invito non è stato inviato: la finestra è stata chiusa."
+            "value": "Nessun invito inviato."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ダイアログが閉じられたため、招待は送信されませんでした。"
+            "state": "needs_review",
+            "value": "招待は送信されていません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនបានផ្ញើការអញ្ជើញទេ៖ ប្រអប់ត្រូវបានបិទ។"
+            "value": "មិនបានផ្ញើការអញ្ជើញទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "대화상자가 닫혀 초대를 보내지 않았습니다."
+            "state": "needs_review",
+            "value": "초대를 보내지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Invitasjonen ble ikke sendt: dialogen ble lukket."
+            "value": "Ingen invitasjon sendt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zaproszenie nie zostało wysłane: okno zostało zamknięte."
+            "value": "Nie wysłano zaproszenia."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O convite não foi enviado: a caixa de diálogo foi fechada."
+            "value": "Nenhum convite enviado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Приглашение не отправлено: окно закрыто."
+            "value": "Приглашение не отправлено."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ได้ส่งคำเชิญ: ปิดกล่องโต้ตอบแล้ว"
+            "value": "ไม่ได้ส่งคำเชิญ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Davet gönderilmedi: iletişim kutusu kapatıldı."
+            "value": "Davet gönderilmedi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запрошення не надіслано: вікно закрито."
+            "value": "Запрошення не надіслано."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lời mời chưa được gửi: hộp thoại đã đóng."
+            "value": "Chưa gửi lời mời."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "邀请未发送：对话框已关闭。"
+            "state": "needs_review",
+            "value": "未发送邀请。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "邀請未傳送：對話框已關閉。"
+            "state": "needs_review",
+            "value": "未傳送邀請。"
           }
         }
       }
@@ -2105,127 +2105,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home has two views: messages and channels."
+            "value": "Chief has two views: messages and channels."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "للصفحة الرئيسية عرضان: الرسائل والقنوات."
+            "value": "لـ Chief عرضان: الرسائل والقنوات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Početna ima dva prikaza: poruke i kanale."
+            "value": "Chief ima dva prikaza: poruke i kanale."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem har to visninger: beskeder og kanaler."
+            "value": "Chief har to visninger: beskeder og kanaler."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home hat zwei Ansichten: Nachrichten und Kanäle."
+            "value": "Chief hat zwei Ansichten: Nachrichten und Kanäle."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inicio tiene dos vistas: mensajes y canales."
+            "value": "Chief tiene dos vistas: mensajes y canales."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’accueil a deux vues : messages et canaux."
+            "value": "Chief a deux vues : messages et canaux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home ha due viste: messaggi e canali."
+            "value": "Chief ha due viste: messaggi e canali."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホームの表示はメッセージとチャンネルの2つです。"
+            "value": "Chief の表示はメッセージとチャンネルの2つです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទំព័រដើមមានទិដ្ឋភាពពីរ៖ សារ និងឆានែល។"
+            "value": "Chief មានទិដ្ឋភាពពីរ៖ សារ និងឆានែល។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "홈 보기는 메시지와 채널 두 가지입니다."
+            "value": "Chief 보기는 메시지와 채널 두 가지입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem har to visninger: meldinger og kanaler."
+            "value": "Chief har to visninger: meldinger og kanaler."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Strona główna ma dwa widoki: wiadomości i kanały."
+            "value": "Chief ma dwa widoki: wiadomości i kanały."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O Início tem duas visualizações: mensagens e canais."
+            "value": "O Chief tem duas visualizações: mensagens e canais."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "У главной два вида: сообщения и каналы."
+            "value": "У Chief два вида: сообщения и каналы."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าแรกมีสองมุมมอง: ข้อความและช่อง"
+            "value": "Chief มีสองมุมมอง: ข้อความและช่อง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana sayfanın iki görünümü vardır: mesajlar ve kanallar."
+            "value": "Chief’in iki görünümü vardır: mesajlar ve kanallar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Головна має два види: повідомлення та канали."
+            "value": "Chief має два види: повідомлення та канали."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trang chủ có hai chế độ xem: tin nhắn và kênh."
+            "value": "Chief có hai chế độ xem: tin nhắn và kênh."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "主页有两种视图：消息和频道。"
+            "value": "Chief 有两种视图：消息和频道。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "首頁有兩種檢視：訊息和頻道。"
+            "value": "Chief 有兩種檢視：訊息和頻道。"
           }
         }
       }

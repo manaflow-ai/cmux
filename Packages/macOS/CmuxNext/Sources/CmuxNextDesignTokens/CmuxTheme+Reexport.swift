@@ -15,6 +15,8 @@ public typealias ThemeTokens = CmuxTheme.ThemeTokens
 public typealias AppTheme = CmuxTheme.AppTheme
 /// Where the chrome's accent comes from; see ``CmuxTheme/ThemeAccent``.
 public typealias ThemeAccent = CmuxTheme.ThemeAccent
+/// What the selection fill takes; see ``CmuxTheme/ThemeSelection``.
+public typealias ThemeSelection = CmuxTheme.ThemeSelection
 /// One Ghostty theme file's colors; see ``CmuxTheme/ThemeFileColors``.
 public typealias ThemeFileColors = CmuxTheme.ThemeFileColors
 /// Where a color transition blends; see ``CmuxTheme/ThemeColorSpace``.
