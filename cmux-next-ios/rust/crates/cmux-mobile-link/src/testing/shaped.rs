@@ -94,22 +94,38 @@ impl LinkProfile {
 /// `0..paging` (the DRX paging cycle: the network waits for the phone's
 /// next paging slot) plus `promote` for one it receives. Datagrams in the
 /// meantime wait for the same moment. Off unless [`set_radio_model`].
+///
+/// Connected, the radio sleeps too (connected-mode DRX): after
+/// `drx_inactivity` with nothing crossing it, it listens only once per
+/// `drx_cycle`, so a datagram coming down waits for the next listening
+/// slot. A zero `drx_cycle` (the default) leaves it listening throughout.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RadioModel {
     pub tail: Duration,
     pub promote: Duration,
     pub paging: Duration,
+    pub drx_inactivity: Duration,
+    pub drx_cycle: Duration,
 }
 
 impl RadioModel {
     /// The paper's measured LTE values: an 11.576 s tail, 260 ms promotion,
-    /// a 1.28 s paging cycle.
+    /// a 1.28 s paging cycle, and its 100 ms DRX inactivity timer with
+    /// connected-mode DRX off ([`Self::with_drx`]).
     pub fn lte() -> Self {
         Self {
             tail: Duration::from_millis(11_576),
             promote: Duration::from_millis(260),
             paging: Duration::from_millis(1280),
+            drx_inactivity: Duration::from_millis(100),
+            drx_cycle: Duration::ZERO,
         }
+    }
+
+    /// Connected-mode DRX with a long cycle of `cycle` (the paper's 40 ms;
+    /// carriers run 40 to 320 ms).
+    pub fn with_drx(self, cycle: Duration) -> Self {
+        Self { drx_cycle: cycle, ..self }
     }
 }
 
@@ -129,6 +145,10 @@ struct Radio {
     /// When the radio is connected again after its last wake.
     awake_at: Instant,
     wakes: u64,
+    /// The last moment a datagram crossed the radio, on the phone's clock
+    /// (one coming down crosses half a round trip after it is sent): when
+    /// connected-mode DRX starts sleeping.
+    on_air: Option<Instant>,
 }
 
 /// Loss that comes back on a schedule, as a Starlink dish's every 15 s
@@ -196,7 +216,13 @@ pub fn set_link_profile(profile: Option<LinkProfile>, seed: u64) {
 /// [`shape_uplink`] and [`shape_downlink`] cross it.
 pub fn set_radio_model(model: Option<RadioModel>) {
     if let Some(air) = AIR.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
-        air.radio = model.map(|model| Radio { model, last_active: None, awake_at: Instant::now(), wakes: 0 });
+        air.radio = model.map(|model| Radio {
+            model,
+            last_active: None,
+            awake_at: Instant::now(),
+            wakes: 0,
+            on_air: None,
+        });
     }
 }
 
@@ -291,8 +317,33 @@ fn shape(via_turn: bool, from: &SocketAddr, len: usize, direction: Option<Direct
                     "radio wakes from idle"
                 );
             }
-            let awake = radio.awake_at.max(now);
+            let mut awake = radio.awake_at.max(now);
+            // Connected but asleep between listening slots: a datagram
+            // coming down reaches the radio half a round trip from now and
+            // waits there for the next slot.
+            let half = Duration::from_micros(air.profile.rtt_ms * 500);
+            if !radio.model.drx_cycle.is_zero()
+                && direction == Direction::Down
+                && let Some(last) = radio.on_air.filter(|_| !idle)
+            {
+                let reach = awake + half;
+                let asleep = last + radio.model.drx_inactivity;
+                if reach > asleep {
+                    let cycle = radio.model.drx_cycle.as_nanos();
+                    let into = (reach - asleep).as_nanos() % cycle;
+                    if into != 0 {
+                        let wait = Duration::from_nanos((cycle - into) as u64);
+                        tracing::trace!(
+                            wait_us = wait.as_micros() as u64,
+                            "radio listens at its next DRX slot"
+                        );
+                        awake += wait;
+                    }
+                }
+            }
             radio.last_active = Some(awake);
+            let crossed = if direction == Direction::Down { awake + half } else { awake };
+            radio.on_air = Some(radio.on_air.map_or(crossed, |last| last.max(crossed)));
             awake
         }
         _ => now,
@@ -397,6 +448,41 @@ mod tests {
         let up = shape_uplink(false, &from, 64).unwrap();
         assert_eq!(up, down);
         assert_eq!(radio_wakes(), 2);
+        set_link_profile(None, 0);
+    }
+
+    /// Connected-mode DRX: inside the inactivity timer a datagram coming
+    /// down is let through; past it, it waits for the next listening slot.
+    #[tokio::test(start_paused = true)]
+    async fn a_connected_radio_past_its_inactivity_timer_waits_for_its_slot() {
+        let _serial = SERIAL.lock().await;
+        let profile = LinkProfile {
+            name: "flat".into(),
+            up_kbit: 0,
+            down_kbit: 0,
+            rtt_ms: 70,
+            jitter_ms: 0,
+            loss_percent: 0.0,
+        };
+        let model = RadioModel::lte().with_drx(Duration::from_millis(320));
+        set_link_profile(Some(profile), 7);
+        set_radio_model(Some(model));
+        let from: SocketAddr = "127.0.0.1:9".parse().unwrap();
+        let one_way = Duration::from_millis(35);
+        assert_eq!(shape_uplink(false, &from, 64), Some(model.promote + one_way));
+        tokio::time::advance(model.promote).await;
+        // A key goes up; its echo, sent half a round trip later, reaches
+        // the radio 70 ms after the key: inside the 100 ms timer.
+        assert_eq!(shape_uplink(false, &from, 64), Some(one_way));
+        tokio::time::advance(one_way).await;
+        assert_eq!(shape_downlink(false, &from, 64), Some(one_way));
+        // 2 s of quiet. The echo crossed at t0; the radio sleeps from
+        // t0 + 100 ms with slots every 320 ms. The next datagram down
+        // reaches it at t0 + 2000 ms, 1900 ms into the sleep: it waits
+        // 20 ms for the slot at 1920 ms (6 x 320).
+        tokio::time::advance(Duration::from_secs(2)).await;
+        let down = shape_downlink(false, &from, 64).unwrap();
+        assert_eq!(down, one_way + Duration::from_millis(20));
         set_link_profile(None, 0);
     }
 }
