@@ -122,6 +122,12 @@
       "about": "Duration, 0 to 600 ms (ms or s). Unset: 180 ms: a fold or Show more growing or shrinking into its new height. Off or reduced motion keeps cmux's value."
     },
     {
+      "name": "--cmux-motion-arrive",
+      "kind": "duration",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "Duration, 0 to 600 ms (ms or s). Unset: the chat's move step (180 ms, after ui.animationSpeed): a row arriving in a running turn (a thought, a tool call, the reply's next block) fading in, and the rows it moves. 0 lands each row in place in its frame. Off or reduced motion keeps cmux's value."
+    },
+    {
       "name": "--cmux-motion-send",
       "kind": "duration",
       "owner": "webviews/src/pages/shared/desktop.css",
