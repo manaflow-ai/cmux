@@ -40,8 +40,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - leg: profile
-            ref: da5881a0b2876fd548be58f191b6662cc395ec3b
+          - leg: mirror
+            ref: 74b6e6ef7cbb99b6b9165372358210ba86f04c75
+            profile: "0"
+            nomirror: "0"
+          - leg: nomirror
+            ref: 74b6e6ef7cbb99b6b9165372358210ba86f04c75
+            profile: "0"
+            nomirror: "1"
+          - leg: nomirror-profile
+            ref: 74b6e6ef7cbb99b6b9165372358210ba86f04c75
+            profile: "1"
+            nomirror: "1"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -76,7 +86,8 @@ jobs:
         id: run
         env:
           JOBS: "6"
-          TEST_RUNNER_CMUX_MOBILE_LAUNCH_PROFILE: "1"
+          TEST_RUNNER_CMUX_MOBILE_LAUNCH_PROFILE: ${{ matrix.profile }}
+          TEST_RUNNER_CMUX_MOBILE_LAUNCH_NO_LOG_MIRROR: ${{ matrix.nomirror }}
         run: |
           set -uo pipefail
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -90,6 +101,7 @@ jobs:
           ls -la "$S" | head -40
           mkdir -p artifacts/ios-sim; tar -czf artifacts/ios-sim/samples.tgz -C "$RUNNER_TEMP" samples
           grep -rhoI 'LAUNCHPROFILE {.*' artifacts/ios-sim --include='*.txt' | sort -u > artifacts/ios-sim/launch-profile.txt || true
+          grep -rhoI 'LAUNCHENV .*' artifacts/ios-sim --include='*.txt' | sort -u > artifacts/ios-sim/launch-env.txt || true
 
       - name: Export the time-profile table
         if: ${{ !cancelled() }}
@@ -146,5 +158,6 @@ jobs:
             artifacts/ios-sim/ui-tests-failures.txt
             artifacts/ios-sim/launch-tti-error.txt
             artifacts/ios-sim/launch-profile.txt
+            artifacts/ios-sim/launch-env.txt
           retention-days: 3
           if-no-files-found: warn
