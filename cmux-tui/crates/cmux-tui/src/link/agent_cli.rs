@@ -396,6 +396,8 @@ pub(super) fn run(args: &[String]) -> i32 {
     let env = std::env::var("ACPMUX_MOVE_HISTORY_LATER").ok();
     args.history_later = history_later::turns(args.history_later, env.as_deref());
     let mut clock = Clock::new();
+    // Each daemon's `identify` is read once for the whole move (`machine_gate::Memo`).
+    let _memo = super::machine_gate::Memo::open();
     match move_chat(&args, &mut clock) {
         Ok(moved) => {
             let mut line = json!({"ok": true, "session_id": moved.session_id,
