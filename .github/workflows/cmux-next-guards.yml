@@ -106,6 +106,38 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Full-ci base merge carry (scripts/ci/head_tier.py, full_carry): a full-ci or ready-to-land label on a head that
+  # is only a base merge onto a head whose full run passed carries that run, so every job below that needs coalesce
+  # skips. Its tier is "none" only then; any lookup error, an overlap with the change's own files, a merge with its
+  # own edits, or no full run at the parent leaves it empty and everything runs. vars.CI_FULL_CI_BASE_MERGE_CARRY ==
+  # '0' turns it off.
+  full-carry:
+    name: full-ci base merge carry
+    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    continue-on-error: true
+    permissions:
+      actions: read
+      contents: read
+      statuses: read
+    outputs:
+      tier: ${{ steps.carry.outputs.tier }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: scripts/ci
+      - name: Full-ci base merge carry
+        id: carry
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
+          GH_TOKEN: ${{ github.token }}
+        run: if [ -f scripts/ci/head_tier.py ]; then python3 -I scripts/ci/head_tier.py; fi
+
   # Which fast checks this pull request can change the verdict of (scripts/ci/fast-check-inputs.json). The CI guard
   # group runs when the change routes a guard group (detect_linux_guard_changes.classify_feat), reaches what the `ci`
   # group reads (workflow_guard_groups.groups_for_path) or touches .github/, tests/ or scripts/ci/; a product-only
@@ -311,11 +343,11 @@ jobs:
   # Fork pull requests cannot receive the protected store key; their merge
   # push runs this check before any pool image or nightly can consume the pin.
   pinned-asset-store:
-    needs: coalesce
+    needs: [coalesce, full-carry]
     name: pinned assets exist in store
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ ((github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ ((github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false' && needs.full-carry.outputs.tier != 'none' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -382,8 +414,8 @@ jobs:
         run: scripts/cmux-next/check-pinned-assets.sh "${{ steps.base.outputs.base }}"
 
   nightly-guards:
-    needs: coalesce
-    if: ${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    needs: [coalesce, full-carry]
+    if: ${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false')) && needs.full-carry.outputs.tier != 'none' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     permissions:
       contents: read
       checks: read
@@ -473,7 +505,7 @@ jobs:
     # (175-359 s on 4 vCPU with 8 workers).
     # Linux only: the persistent cmux-linux pool, never a mini (on a mini 24 of its steps went red: no python3.9 or
     # node, temp-cwd scripts).
-    needs: [coalesce, fast-check-route]
+    needs: [coalesce, fast-check-route, full-carry]
     # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
     # full-ci no longer starts it on a pull request into feat-cmux-next either (land's full-ci pulse put it on
@@ -482,7 +514,7 @@ jobs:
     # read 403, so the base re-ran every red step; a step flagged new only by a memory address in its failure text).
     # In no hour did most of its pull request runs pass. The push still runs it at every tip, and the merge gate
     # judges a skipped job as no red. The repository variable CI_GUARD_GROUP_ON_FULL_CI=1 restores it.
-    if: ${{ (((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.ci_guard_group != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.fast-check-route.result == 'success' || needs.fast-check-route.result == 'skipped') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || vars.CI_GUARD_GROUP_ON_FULL_CI == '1') }}
+    if: ${{ (((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && needs.full-carry.outputs.tier != 'none' && needs.fast-check-route.outputs.ci_guard_group != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.fast-check-route.result == 'success' || needs.fast-check-route.result == 'skipped') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || vars.CI_GUARD_GROUP_ON_FULL_CI == '1') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Temporary 35 (was 25) until the head pass is short again: green p50 rose from about 15 min to 20-23 min on
     # 11-20 12Z, and a third of runs were cancelled at 25 with no verdict, then re-run (hq docs/ci/ci-cut-ledger.md).
@@ -776,11 +808,11 @@ jobs:
   # filter, so a catalog edit or a renamed setting is red where it lands. It runs last: it writes the generated
   # strings into the checkout.
   static-checks:
-    needs: coalesce
+    needs: [coalesce, full-carry]
     name: cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ ((github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ ((github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false' && needs.full-carry.outputs.tier != 'none') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Each former job's 5-minute cap is split among its steps (vt-link-graph 2+1+2, nightly static capabilities 5,
@@ -1127,11 +1159,11 @@ jobs:
   # when a pull request or push changes a Rust manifest or the notices tooling,
   # so such a change is red at its own landing.
   rust-notices-tree:
-    needs: coalesce
+    needs: [coalesce, full-carry]
     name: cmux-next Rust notices generate
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ ((github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ ((github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false' && needs.full-carry.outputs.tier != 'none') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
@@ -1223,10 +1255,10 @@ jobs:
     name: cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files
     # A pull request that touches none of these checks' trees, adds no file and touches no generated path or
     # generator (fast-check-route) skips it.
-    needs: [coalesce, fast-check-route]
+    needs: [coalesce, fast-check-route, full-carry]
     # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
-    if: ${{ (((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.own_change_checks != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.fast-check-route.result == 'success' || needs.fast-check-route.result == 'skipped') }}
+    if: ${{ (((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && needs.full-carry.outputs.tier != 'none' && needs.fast-check-route.outputs.own_change_checks != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.fast-check-route.result == 'success' || needs.fast-check-route.result == 'skipped') }}
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Each former job's cap goes to its steps (size cap 5, crash ratchet 10, localization 5, generated files 2+3+8), so
@@ -1446,12 +1478,12 @@ jobs:
   # and the binaries it calls; only the web lint hook's test also needs bun.
   tooling-tests:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER; others take the persistent cmux-linux pool.
-    needs: [coalesce, tooling-tests-base-red]
+    needs: [coalesce, tooling-tests-base-red, full-carry]
     # Runs on pull requests into feat-cmux-next too (it was Tier A, skipped; scripts/ci/affected-jobs.json says why it
     # is not now): setup-tooling-route below limits a pull request to the steps its diff can fail. On a pull request
     # into feat-cmux-next (not the docs-only fallback's call) it runs only tt-remote-p10k, tt-webviews-tests-per-file,
     # tt-web-lint-prepush and tt-tailnet; ci/steps.toml's tooling-tests-1..5 run the rest.
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ((!cancelled() && needs.coalesce.outputs.run != 'false') && needs.tooling-tests-base-red.outputs.base_red != 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ((!cancelled() && needs.coalesce.outputs.run != 'false') && needs.full-carry.outputs.tier != 'none' && needs.tooling-tests-base-red.outputs.base_red != 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     # actions: read lets setup-tooling-route read the steps earlier runs of this pull request passed
