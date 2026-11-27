@@ -35,7 +35,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 MANIFEST = HERE / "flows.json"
-REGRESSION_ROWS = 17
+REGRESSION_ROWS = 20
 
 
 @functools.lru_cache(maxsize=None)
