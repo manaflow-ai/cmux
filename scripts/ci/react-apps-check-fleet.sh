@@ -5,6 +5,7 @@
 # ci-web.yml's react-apps-check-shard matrix asks the same function and skips itself for those heads).
 #
 #   bash scripts/ci/react-apps-check-fleet.sh        from the merge commit's checkout (HEAD^1 is the base tip)
+#   CMUX_REACT_APPS_BASE=SHA bash scripts/ci/react-apps-check-fleet.sh    land-judge's fleet fallback (below)
 #
 # What ci-web.yml's shard 1 and react-apps-base-check do across 2 to 3 runners, on one: the source checks, the web
 # bundles, the PR-scoped webview rules (against the base, beside the build: they read no bundle), the bundle merge
@@ -21,8 +22,28 @@ rm -rf "$out"
 mkdir -p "$out/logs"
 fleet=scripts/ci/react_apps_fleet.py
 
+# land-judge's webview fleet fallback (leo-workspace tools/land_judge, WEBVIEW_FLEET_COMMAND; hq#15388): a PR whose
+# react-apps-check has not run at its head gets this check's verdict from a fast-checks run of its head, whose
+# snapshot's parent is the head itself, so HEAD^1 would pick nothing. CMUX_REACT_APPS_BASE names the PR's merge base
+# with feat-cmux-next instead (fetched when the shallow checkout lacks it), so the pick, the changed files and every
+# base comparison below are the PR's own, made by the same code. land-judge already chose this route (its base, its
+# labels), so the event and label rules do not apply, and a pick that runs whole shards runs those shards' files
+# here (webviews_pr_shards.py --files-of, the same split ci-web.yml's matrix runs) rather than handing them to
+# ci-web.yml. Leo, 2026-11-21: "whatever we need to cut, we cut. whatever we can reuse, we reuse."
+base_ref=HEAD^1
+fallback="${CMUX_REACT_APPS_BASE:-}"
+if [ -n "$fallback" ]; then
+  if ! [[ "$fallback" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "::error title=react-apps-check::CMUX_REACT_APPS_BASE is not a full commit sha: $fallback"
+    exit 2
+  fi
+  if ! git cat-file -e "$fallback^{commit}" 2> /dev/null; then
+    git fetch --no-tags --depth=1 origin "$fallback" || { sleep 10 && git fetch --no-tags --depth=1 origin "$fallback"; }
+  fi
+  base_ref="$fallback"
+  echo "react-apps-check: the PR's pick against its merge base $base_ref (land-judge's fleet fallback)"
 # The rules that need no pick first: an audit head, full-ci, the switch, another event or base run on Actions.
-if [ "$(python3 "$fleet" decide --before-pick)" != fleet ]; then
+elif [ "$(python3 "$fleet" decide --before-pick)" != fleet ]; then
   echo "react-apps-check: ci-web.yml's shards run this head; nothing to do here"
   exit 0
 fi
@@ -32,20 +53,32 @@ fi
 # The same pick ci-web.yml's web-subarea-scope makes (its environment comes from pr-pipeline.yml). The duration
 # manifest moves only which shard a touched test is in, never the class or which shards get a touched-test list.
 printf '{}\n' > "$out/manifest.json"
-export CI_WEBVIEWS_PR_BASE="${CI_PR_BASE_REF:-}" CMUX_WEB_TEST_DURATIONS="$out/manifest.json"
+# The fallback is a feat-cmux-next PR by land-judge's route (its base is not in a fast-checks run's environment).
+export CI_WEBVIEWS_PR_BASE="${CI_PR_BASE_REF:-${fallback:+feat-cmux-next}}" CMUX_WEB_TEST_DURATIONS="$out/manifest.json"
 if ! picked="$(CMUX_WEB_TEST_JOBS=8 CMUX_WEB_TEST_DEV_JOBS=4 CMUX_WEB_TEST_SHARD_HEAD_START=1:120 \
-  bash scripts/ci/timeout.sh 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count 8 \
+  bash scripts/ci/timeout.sh 150 python3 scripts/ci/webviews_pr_shards.py --base "$base_ref" --head HEAD --count 8 \
   --direct-out "$out/direct.json" --summary "$out/pick.md" --class-out "$out/class")"; then
   echo "::error title=react-apps-check::the shard pick failed here, so this head ran no react-apps-check; re-run the job, or add the full-ci label"
   exit 1
 fi
 class="$(cat "$out/class" 2> /dev/null || true)"
-if [ "$(python3 "$fleet" decide --class "$class" --matrix "$picked" --direct "$out/direct.json")" != fleet ]; then
+if [ -n "$fallback" ]; then
+  # The shards the pick runs whole (no touched-test entry), as ci-web.yml's matrix would, plus the touched tests.
+  whole="$(python3 -c 'import json, sys; d = json.load(open(sys.argv[2])); print(",".join(str(e["shard"]) for e in json.loads(sys.argv[1]) if str(e["shard"]) not in d))' "$picked" "$out/direct.json")"
+  if [ -n "$whole" ]; then
+    CMUX_WEB_TEST_JOBS=8 CMUX_WEB_TEST_DEV_JOBS=4 CMUX_WEB_TEST_SHARD_HEAD_START=1:120 \
+      bash scripts/ci/timeout.sh 150 python3 scripts/ci/webviews_pr_shards.py --base "$base_ref" --head HEAD --count 8 \
+      --files-of "$whole" --direct-in "$out/direct.json" > "$out/tests"
+  else
+    python3 "$fleet" tests --direct "$out/direct.json" > "$out/tests"
+  fi
+elif [ "$(python3 "$fleet" decide --class "$class" --matrix "$picked" --direct "$out/direct.json")" != fleet ]; then
   echo "react-apps-check: the pick runs whole shards, which ci-web.yml's matrix runs; nothing to do here"
   exit 0
+else
+  python3 "$fleet" tests --direct "$out/direct.json" > "$out/tests"
 fi
-python3 "$fleet" tests --direct "$out/direct.json" > "$out/tests"
-git diff --name-only --no-renames HEAD^1 HEAD > "$out/changed"
+git diff --name-only --no-renames "$base_ref" HEAD > "$out/changed"
 echo "react-apps-check on the fleet: class $class, $(grep -c . "$out/tests" || true) touched tests"
 
 # One lane's log and status: lane NAME CMD..., in the background; a lane's body chains its commands with &&.
@@ -81,7 +114,7 @@ hooks() {
 pr_scoped() {
   local check=scripts/tests/test_pr_scoped_webviews_checks.py base="$out/pr-scoped-base"
   python3 scripts/ci/unittest_results.py "$check" "$out/pr-scoped-head.json" && return 0
-  git worktree add --detach "$base" HEAD^1 &&
+  git worktree add --detach "$base" "$base_ref" &&
     ln -s "$root/webviews/node_modules" "$base/webviews/node_modules" || return 1
   if [ -f "$base/$check" ]; then
     python3 scripts/ci/unittest_results.py "$base/$check" "$out/pr-scoped-base.json" || true
@@ -91,7 +124,7 @@ pr_scoped() {
 }
 source_rules() {
   (cd webviews && CMUX_NEXT_STYLE_GUARDS=warn python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. \
-    --base HEAD^1 --skip typecheck)
+    --base "$base_ref" --skip typecheck)
 }
 # Warn-only on feat-cmux-next, as on ci-web.yml's shard 1 (its Fail on the gate checks step).
 style() {
@@ -106,11 +139,11 @@ tests() {
   (cd webviews && env -u CMUX_WEB_TEST_SHARD_HEAD_START CMUX_WEB_TEST_FILES="$(cat "$out/tests")" \
     CMUX_WEB_TEST_SHARD=1 CMUX_WEB_TEST_SHARD_COUNT=1 CMUX_WEB_TEST_SKIP_BASE=0 \
     CMUX_WEB_TEST_RESULTS="$out/head-results.json" CMUX_WEB_TEST_RAW_LOG_DIR="$out/raw-logs" \
-    CMUX_PR_CHANGED_FILES="$out/changed" CMUX_NEXT_STYLE_GUARDS=warn BASE_REF=HEAD^1 \
+    CMUX_PR_CHANGED_FILES="$out/changed" CMUX_NEXT_STYLE_GUARDS=warn BASE_REF="$base_ref" \
     CMUX_WEB_TEST_JOBS=8 CMUX_WEB_TEST_DEV_JOBS=4 CMUX_WEB_TEST_SIZED_FOR_VCPU=16 \
     CMUX_WEB_TEST_RETRY_POOL=3 CMUX_WEB_TEST_RETRY_BREAKER=5 \
     CMUX_WEB_TEST_RETRY_DEADLINE=900 CMUX_WEB_TEST_RETRY_BUDGET=900 \
-    ../scripts/ci/webviews-tests-new-reds.sh HEAD^1)
+    ../scripts/ci/webviews-tests-new-reds.sh "$base_ref")
 }
 
 lane build build
