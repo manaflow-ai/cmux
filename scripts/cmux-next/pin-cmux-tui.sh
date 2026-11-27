@@ -131,10 +131,10 @@
 #          commit has tree <key>; nothing when none; "unknown" when the runs cannot all be read;
 #          CMUX_TUI_TREE_SKIP_PUBLISHERS, space-separated commits, are passed over)
 #        | run-progress <commit> (its active cmux-tui artifacts runs, from their jobs:
-#          building, "failed <job>: <url>", "stalled <what>", none or unknown)
+#          building, "failing <job>: <url>", "failed <job>: <url>", "stalled <what>", none or unknown)
 #        | tree-publisher <key> <candidate>... (who will publish tree <key>, the nightly's one
 #          reading for resolve-tree-pending.sh and await-tree-client.sh: "building <commit>",
-#          "stuck <why>", ended, none or unknown; see tree_publisher)
+#          "retrying <why>", "stuck <why>", ended, none or unknown; see tree_publisher)
 #        | verify-key <key> (commit=<publishing commit> when tree <key> is published and its
 #          manifest sha256 verifies; exit 1 not published (a 404), 3 a read failure or unverifiable)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
@@ -536,7 +536,7 @@ def age(stamp):
         return 0
     t = datetime.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
     return now - int(t.timestamp())
-failed, stalled = [], []
+failed, stalled, failing = [], [], []
 for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
     run = runs.get(run_id, {})
     jobs = json.load(open(os.path.join(jobs_dir, "jobs", run_id)))["jobs"]
@@ -547,6 +547,16 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
         failed.append(f"{bad[0]['name']}: {url}")
         continue
     if run.get("status") == "completed":
+        continue
+    # An active attempt with a failed required job publishes no tree on this attempt: a retry
+    # re-runs the failed job only once the run ends, so the tree is a whole retry away
+    # (nightly 46048169625, 2026-11-27: run 46048170219's build-linux musl leg failed on
+    # attempt 1 while its other legs ran on, and the run ended failed).
+    # A failure an earlier attempt left in the latest-jobs list is one this retry is re-running.
+    attempt = int(run.get("run_attempt") or 1)
+    current = [j for j in bad if int(j.get("run_attempt") or attempt) >= attempt]
+    if current:
+        failing.append(f"{current[0]['name']} (attempt {attempt}; a retry starts only once the run ends): {url}")
         continue
     # Preflight, build and publish jobs hold the tree back; a shadow or upload job may queue.
     waiting = [j for j in jobs if j.get("status") in ("queued", "waiting", "pending") and not j.get("runner_name")
@@ -561,7 +571,10 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
         stalled.append(f"run pending {age(run.get('created_at')) // 60} min with no job started: {url}")
         continue
     print("building"); sys.exit(0)
-print(("failed " + failed[0]) if failed else ("stalled " + stalled[0]) if stalled else "none")
+# "failing" first: before it had its own word it read "building", and the resolver still
+# takes it as pending (tree_publisher prints "retrying" for it).
+print(("failing " + failing[0]) if failing else ("failed " + failed[0]) if failed
+      else ("stalled " + stalled[0]) if stalled else "none")
 PY
   rm -rf "$jobs_dir"
 }
@@ -573,6 +586,12 @@ PY
 #   stuck <why>        active runs exist, and none of them is making progress: a
 #                      build failed on its last retry attempt, or waits for a runner
 #                      past CMUX_TUI_TREE_RUNNER_STALL_SECONDS
+#   retrying <why>     no run is making progress, and one has a failed required job on
+#                      an attempt before the last (artifacts_run_progress "failing"):
+#                      it publishes only after it ends and a retry rebuilds that job.
+#                      resolve-tree-pending.sh keeps such a tree pending (as when this
+#                      read "building"); await-tree-client.sh gives the retry two checks
+#                      to start, then bundles the fallback tree
 #   ended              no active run, and a candidate's runs ended
 #   none               no active run, and no candidate has a run yet
 #   unknown            a runs list or a run's jobs could not be read
@@ -581,7 +600,7 @@ PY
 # (2026-11-18: the resolver took owner 44223233076, whose builds had sat queued with
 # no runner since 02:32Z, as a publisher; nightly 44235456054 then waited 45 min on it).
 tree_publisher() {
-  local key="$1" candidate state progress found scan stuck="" skip="" unknown=false ended=false
+  local key="$1" candidate state progress found scan stuck="" retrying="" skip="" unknown=false ended=false
   shift
   for candidate in "$@"; do
     state="$(artifacts_runs_state "$candidate")"
@@ -594,6 +613,7 @@ tree_publisher() {
           unknown) unknown=true ;;
           # The first read observed an active run; preserve it across list lag.
           none) [[ "$state" != active ]] || { echo "building $candidate"; return 0; } ;;
+          failing\ *) retrying="the run of ${candidate:0:12} is $progress"; skip="$skip $candidate" ;;
           *) stuck="the run of ${candidate:0:12} is $progress"; skip="$skip $candidate" ;;
         esac ;;
       unknown) unknown=true ;;
@@ -612,11 +632,13 @@ tree_publisher() {
         case "$progress" in
           building|none) echo "building $found"; return 0 ;;
           unknown) echo unknown; return 0 ;;
+          failing\ *) retrying="the run of ${found:0:12} is $progress"; skip="$skip $found" ;;
           *) stuck="the run of ${found:0:12} is $progress"; skip="$skip $found" ;;
         esac ;;
     esac
   done
   if (( scan >= 20 )); then echo unknown
+  elif [[ -n "$retrying" ]]; then echo "retrying $retrying"
   elif [[ -n "$stuck" ]]; then echo "stuck $stuck"
   elif [[ "$ended" == true ]]; then echo ended
   else echo none
