@@ -241,9 +241,6 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         }
     }
     let report = app.scope.close(std::time::Duration::from_secs(1)).await;
-    if !report.joined() {
-        tracing::warn!(%report, "terminal UI tasks ignored shutdown");
-    }
     app.set_pointer(false);
     let _ = crossterm::execute!(
         std::io::stdout(),
@@ -253,6 +250,9 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         crossterm::event::DisableMouseCapture
     );
     ratatui::restore();
+    if !report.joined() {
+        eprintln!("acpmux: {report}");
+    }
     if let Some(u) = &app.web_url {
         println!("acpmux: agents keep running. Web dashboard: {u}");
     }
