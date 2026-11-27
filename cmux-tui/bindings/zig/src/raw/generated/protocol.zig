@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2bad69e8f9b120d6c7f02ded8625b17f0323bbdb295b27f373e135904c9f0855";
+pub const ir_sha256 = "8643722ab2e1cf6dc9e0ce2e96aeba4a65938fa66bf35bef074884f46ce34b95";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1208,6 +1208,14 @@ pub const IdMapping = struct {
     short_id: []const u8,
 };
 
+pub const IdentifyRestore = struct {
+    done: wire.Nullable(u64),
+    elapsed_ms: u64,
+    last_advance_ms: u64,
+    phase: []const u8,
+    total: wire.Nullable(u64),
+};
+
 pub const IdentifyResult = struct {
     api_revision: wire.Field(u32) = .absent,
     api_version: wire.Field([]const u8) = .absent,
@@ -1235,6 +1243,7 @@ pub const IdentifyResult = struct {
     pid: u32,
     protocol: u32,
     registry_id: []const u8,
+    restore: ?IdentifyRestore = null,
     screen_device_id: wire.Field([]const u8) = .absent,
     session: []const u8,
     session_id: ?[]const u8 = null,
@@ -1252,6 +1261,7 @@ pub const IdentifyResult = struct {
         "machine_name",
         "machine_platform",
         "machine_symbol",
+        "restore",
         "session_id",
     };
 };
@@ -7060,10 +7070,12 @@ pub fn homeInbox(client: anytype, request: HomeInboxRequest) !wire.Decoded(HomeI
 
 pub const IdentifyRequest = struct {
     machine_metadata: ?bool = null,
+    restore_progress: ?bool = null,
     revisions: ?bool = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "machine_metadata",
+        "restore_progress",
         "revisions",
     };
 };
@@ -7078,6 +7090,7 @@ pub fn identify(client: anytype, request: IdentifyRequest) !wire.Decoded(Identif
             .capability = null,
             .fields = &.{
                 .{ .name = "machine_metadata", .since = 12, .capability = "machine-identity-v1" },
+                .{ .name = "restore_progress", .since = 12, .capability = null },
                 .{ .name = "revisions", .since = 12, .capability = null },
             },
         },
@@ -9555,6 +9568,11 @@ pub fn sendKey(client: anytype, request: SendKeyRequest) !wire.Decoded(SendKeyRe
 
 pub const ServerStatsRequest = struct {
     include: wire.Field([]const []const u8) = .absent,
+    restore_progress: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "restore_progress",
+    };
 };
 
 pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(ServerStatsResult) {
@@ -9565,6 +9583,9 @@ pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(S
             .authority = "local-admin",
             .since = 12,
             .capability = "server-stats-v1",
+            .fields = &.{
+                .{ .name = "restore_progress", .since = 12, .capability = null },
+            },
         },
         request,
     );
