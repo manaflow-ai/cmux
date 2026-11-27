@@ -187,18 +187,22 @@ def receipt(platform, sha, release_id, published_at, url):
 
 
 def appcast_receipts(text):
-    items = ET.fromstring(text).findall("./channel/item")
+    items = [item for item in ET.fromstring(text).findall("./channel/item")
+             if item.findtext(SPARKLE_NS + "channel") in (None, "cmux-next")]
     if not items:
         raise ValueError("NIGHTLY appcast has no published items")
     releases, previous = [], {}
     for item in items:
         sha = (item.findtext(CMUX_NS + "sourceCommit") or "").strip()
         release_id = (item.findtext(SPARKLE_NS + "version") or "").strip()
+        if not release_id.isdigit():
+            raise ValueError("NIGHTLY published build identity must be numeric")
         enclosure = item.find("enclosure")
         url = enclosure.get("url", "") if enclosure is not None else ""
         date = parsedate_to_datetime(item.findtext("pubDate") or "").isoformat()
         releases.append(receipt("mac", sha, release_id, date, url))
         previous[release_id] = (item.findtext(CMUX_NS + "sinceCommit") or "").strip()
+    releases.sort(key=lambda entry: int(entry["release_id"]), reverse=True)
     return releases, previous
 
 

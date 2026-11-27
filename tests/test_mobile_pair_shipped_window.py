@@ -216,6 +216,20 @@ class ShippedWindowTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, "live"):
                 self.refresh(feed=window.ET.tostring(feed, encoding="unicode"))
 
+    def test_mixed_ring_feed_uses_nightly_only_and_numeric_latest(self):
+        root = window.ET.fromstring(self.feed())
+        channel = root.find("channel")
+        live = channel.findall("item")
+        channel.remove(live[0])
+        channel.append(live[0])
+        dev = window.ET.Element("item")
+        window.ET.SubElement(dev, window.SPARKLE_NS + "version").text = "9999999999999"
+        window.ET.SubElement(dev, window.SPARKLE_NS + "channel").text = "cmux-next-dev"
+        channel.insert(0, dev)
+        result = window.resolve(self.refresh(feed=window.ET.tostring(root, encoding="unicode")))
+        self.assertEqual(result["include"][3]["sha"], self.registry["releases"][3]["sha"])
+        self.assertEqual(len(result["include"]), 6)
+
     def test_repeated_source_builds_keep_release_order_and_deduplicate_compilation(self):
         self.registry["releases"][4]["sha"] = self.registry["releases"][3]["sha"]
         result = window.resolve(self.refresh())
