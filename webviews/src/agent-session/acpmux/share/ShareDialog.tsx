@@ -66,6 +66,7 @@ export function ShareDialogBody({
   const roles = [
     { value: "view", label: t("share.role.view") },
     { value: "talk", label: t("share.role.talk") },
+    { value: "drive", label: t("share.role.drive") },
   ];
   /** The role each request row's picker shows (absent: Can view, the least). */
   const [asked, setAsked] = useState<Record<string, ShareRole>>({});
@@ -77,6 +78,7 @@ export function ShareDialogBody({
     if (!canInvite) return;
     onInvite(account.trim(), role);
     setAccount("");
+    if (role === "drive") setRole("view");
   };
   const canCopy = view.general === "anyone" || view.inviteUrl !== null;
   return (
@@ -90,14 +92,17 @@ export function ShareDialogBody({
           aria-label={t("share.addPeople")}
           autoComplete="off"
           spellCheck={false}
-          onChange={(event) => setAccount(event.currentTarget.value)}
+          onChange={(event) => {
+            setAccount(event.currentTarget.value);
+            if (role === "drive") setRole("view");
+          }}
         />
         <Select
           className="share-dialog__role"
           buttonClassName="ui-btn"
           label={t("share.roleFor")}
           value={role}
-          options={roles}
+          options={isAccount(account) ? roles : roles.filter((option) => option.value !== "drive")}
           closeOnPick
           align="end"
           onChange={(value) => setRole(value as ShareRole)}
@@ -109,7 +114,13 @@ export function ShareDialogBody({
       {/* One fixed line under the field: a refusal or a result when there is one, else what "Can
           send" means (each message waits for the owner), so the label stays short. */}
       <p className="share-dialog__status" role={status ? "alert" : undefined} data-hint={status ? undefined : ""}>
-        {status ?? notice ?? (role === "talk" || askedTalk ? t("share.role.talkHint") : "")}
+        {status ??
+          notice ??
+          (role === "drive"
+            ? t("share.role.driveDetail")
+            : role === "talk" || askedTalk
+              ? t("share.role.talkHint")
+              : "")}
       </p>
       {/* Accounts asking for access, above the people who have it: a band of at most two rows that
           scrolls past them, and the people band gives up the same room (share.css), so the dialog
@@ -131,7 +142,7 @@ export function ShareDialogBody({
                 request={request}
                 role={askedRole(request.account)}
                 busy={busy}
-                roles={roles}
+                roles={roles.filter((option) => option.value !== "drive")}
                 onRole={(next) => setAsked((was) => ({ ...was, [request.account]: next }))}
                 onApprove={onApprove}
                 onDecline={onDecline}
@@ -223,7 +234,9 @@ function PersonRow({
         value={row.role}
         disabled={busy}
         align="end"
-        options={roles}
+        options={roles.map((option) =>
+          option.value === "drive" ? { ...option, detail: t("share.role.driveDetail") } : option,
+        )}
         onChange={(value) => value !== row.role && onRole(row.account, value as ShareRole)}
       >
         <Face person={person(row.account)} size={28} />
@@ -328,7 +341,7 @@ function RowPicker({
 }: {
   className: string;
   value: string;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; detail?: string }[];
   disabled: boolean;
   align: "start" | "end";
   onChange(value: string): void;
@@ -344,7 +357,14 @@ function RowPicker({
         <MenuRadioGroup value={value} onValueChange={onChange}>
           {options.map((option) => (
             <MenuRadioItem key={option.value} value={option.value} closeOnClick className="ui-select-option">
-              {option.label}
+              {option.detail ? (
+                <span className="share-dialog__who">
+                  <span>{option.label}</span>
+                  <span className="share-dialog__hint">{option.detail}</span>
+                </span>
+              ) : (
+                option.label
+              )}
             </MenuRadioItem>
           ))}
         </MenuRadioGroup>
