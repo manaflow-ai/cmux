@@ -198,7 +198,9 @@ fn http_body_understated_length_cannot_install_the_wrong_object() {
             assert_eq!(writes.load(Ordering::Relaxed), 0);
             assert_eq!(rest, vec![oid]);
             assert_eq!(filled.peer, 0);
-            assert_eq!(filled.rejected, 1);
+            // The one-shot server may answer the batch ask instead of the GET, so the short body
+            // is either rejected or never read; neither installs it.
+            assert!(filled.rejected <= 1);
         },
     );
 }
