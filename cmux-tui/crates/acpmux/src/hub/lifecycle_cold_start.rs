@@ -683,10 +683,16 @@ impl Hub {
         // A guarded relay import may retire the source ACP id when its native agent files are
         // absent. Its carried choices still need replaying after the fresh session/new, just as
         // they do for an ordinary respawn or fork.
+        // A transcript fork has no agent session yet, but its first agent still inherits
+        // its parent's settings; the same applies to a fork of that fork.
         if saved.agent_session_id.is_some()
             || saved.fork_before.is_some()
             || saved.remote_origin
             || forked_here
+            || (saved.parent_id.is_some()
+                && (saved.modes.is_some()
+                    || saved.config_options.is_some()
+                    || saved.models.is_some()))
         {
             self.replay_config(session, &child, &saved, off).await;
         }

@@ -116,6 +116,7 @@ mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
 mod fork_own_process;
+mod fork_model;
 mod fork_replay;
 mod fork_request;
 #[cfg(test)]
