@@ -82,7 +82,7 @@ await requireBrowserLane("session-info-runs-on-popup-browser.test.ts", async () 
         expect(box.hints).toEqual([
           "Pauses when this Mac sleeps",
           "Moves to Cloud when this Mac sleeps",
-          "Always runs in Cloud, holds a slot",
+          "Always runs in Cloud",
         ]);
         expect(box.checkedName).toBe(chosen);
         expect(Math.max(...box.heights) - Math.min(...box.heights)).toBeLessThan(0.5);
