@@ -16,7 +16,8 @@ check   For each tracked Cargo.lock, `cargo update --workspace --locked` in its 
         answer then resolve with the network one at a time (touched workspaces first), since cargo holds its
         package cache lock for a whole resolve and parallel resolves only queue on it. Prints `stale: DIR/Cargo.lock:
         ...` for each lock cargo would have to rewrite and exits 1 when there is one. A workspace cargo could not
-        judge (no cargo, a network error, a timeout) prints `unchecked: DIR (...)` and does not fail, unless --strict.
+        judge (no cargo, a network error, a timeout, no `cargo metadata` resolve to compare the lock with) prints
+        `unchecked: DIR (...)` and does not fail, unless --strict.
         Under --strict a timed-out workspace is retried once with a longer limit; if it still times out it fails
         only when the change touches it (--base: a Cargo.toml or Cargo.lock in it or in a package it reaches by
         path; with no --base every workspace counts as touched), and otherwise prints a `warning:` line. A busy
@@ -260,7 +261,13 @@ def judge(repo: Path, root: str, env: dict[str, str], passes: tuple[list[str], .
             return "timeout", "not started: the deadline was spent"
         code, err = cargo(["update", "--workspace", "--locked", *network], repo / root, env, timeout=limit)
         if code == 0:
-            extra = orphans(repo, root, env, remaining(end, timeout))
+            extra, why = orphans(repo, root, env, remaining(end, timeout), network)
+            if extra is None:
+                # No resolve to compare the lock with: not judged, never ok (the next pass may fetch what the
+                # offline one lacked).
+                verdict, last = ("timeout" if why.startswith("timed out") or why.startswith("not started")
+                                 else "unchecked"), why
+                continue
             return ("stale", ORPHANED + ", ".join(extra)) if extra else ("ok", "")
         if DRIFT in err or STALE.search(err):
             return "stale", ""
@@ -364,34 +371,41 @@ def unreached(text: str, roots: set[tuple[str, str]],
     return set(graph) - seen
 
 
-def orphans(repo: Path, root: str, env: dict[str, str], timeout: float) -> list[str]:
-    """`name version` of each package ROOT's lock lists that its dependency lists do not reach from the packages
-    its resolve (`cargo metadata --all-features --locked --offline`) holds: a lock entry for a crate no manifest
-    names. Empty when cargo gives no resolve (a fake, a
-    failure, no time left): this only adds to cargo's own verdict."""
+def orphans(repo: Path, root: str, env: dict[str, str], timeout: float,
+            network: tuple[str, ...] | list[str] = ("--offline",)) -> tuple[list[str] | None, str]:
+    """(`name version` of each package ROOT's lock lists that its dependency lists do not reach from the packages
+    its resolve (`cargo metadata --all-features --locked`) holds: a lock entry for a crate no manifest names, '');
+    NETWORK is the pass's flags (`--offline` or none). (None, why) when cargo gives no resolve (a failure, an empty
+    or unreadable answer, no time left): the caller reports the workspace unchecked, never ok. It used to return []
+    there, and a host without the crates cached passed the check without checking anything (cmux#60140,
+    2026-11-27: `--all-features --offline` needs every optional crate's source)."""
+    command = ["metadata", "--format-version", "1", "--all-features", "--locked", *network]
+    called = "cargo " + " ".join(command)
     if timeout <= 1:
-        return []
+        return None, f"not started: the deadline was spent before {called}"
     out: list[str] = []
-    code, _ = cargo(["metadata", "--format-version", "1", "--all-features", "--locked", "--offline"], repo / root, env,
-                    timeout=timeout, out=out)
-    if code != 0 or not out or not out[0].strip():
-        return []
+    code, err = cargo(command, repo / root, env, timeout=timeout, out=out)
+    if code != 0:
+        detail = err.strip().splitlines()[-1] if err.strip() else f"exit {code}"
+        return None, (f"timed out: {called} ({detail})" if code == 124 else f"{called} failed: {detail}")
     try:
         import json
         resolved = {(p["name"], p["version"]) for p in json.loads(out[0]).get("packages", [])}
-    except (ValueError, KeyError, TypeError, AttributeError):
-        return []
+    except (ValueError, KeyError, TypeError, AttributeError, IndexError):
+        return None, f"{called} gave no readable resolve"
     lock = repo / root / "Cargo.lock"
     try:
         text = lock.read_text(encoding="utf-8")
-    except OSError:
-        return []
+    except OSError as error:
+        return None, f"cannot read {label(root)}/Cargo.lock: {error}"
     if not resolved:
-        return []
+        if lock_packages(text):
+            return None, f"{called} resolved no packages"
+        return [], ""
     # cargo's resolve is the roots, not the whole answer: an optional dependency is reached through the lock.
     names = manifest_names(repo)
     gone = set() if names is None else {key for key in sourceless(text) - resolved if key[0] not in names}
-    return sorted(f"{name} {version}" for name, version in unreached(text, resolved & lock_packages(text), gone))
+    return sorted(f"{name} {version}" for name, version in unreached(text, resolved & lock_packages(text), gone)), ""
 
 
 def label(root: str) -> str:

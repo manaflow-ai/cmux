@@ -102,13 +102,13 @@
    "test": "cmux-tui/crates/cmux-tui/src/carrier/tunnel_tests.rs::the_tunnel_read_carries_only_its_signed_proof"
   },
   "cmux_tui::cli::api_tokens": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/api_tokens_tests.rs::seeded_secrets_ride_only_in_authorization_the_team_header_and_the_create_body"
+   "test": "cmux-tui/crates/cmux-tui/src/cli/api_tokens_tests.rs::seeded_secrets_ride_only_in_their_headers"
   },
   "cmux_tui::cli::app::web_cas": {
    "none": "GETs of cas/1 objects under the published https base with only a Range header and the cmux-web-cas user-agent, no redirects: no token, cookie, prompt or person text"
   },
   "cmux_tui::cli::app::web_pieces": {
-   "none": "a GET of the published web-pieces switch file with Accept and an If-None-Match etag, no redirects: no token, cookie, prompt or person text"
+   "todo": true
   },
   "cmux_tui::cli::autocloud": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/autocloud_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
@@ -117,37 +117,40 @@
    "test": "cmux-tui/crates/cmux-tui/src/cli/automation_webhook_fire.rs::the_seeded_secret_never_leaves_the_machine"
   },
   "cmux_tui::cli::cloud_client_session": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_client_session/tests.rs::seeded_secrets_ride_only_in_authorization_the_team_header_and_the_exec_body"
+   "todo": true
   },
   "cmux_tui::cli::cloud_hands::socket": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_hands/tests.rs::the_socket_sends_the_bearer_only_in_authorization"
+   "todo": true
   },
   "cmux_tui::cli::cloud_journey": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_journey_tests.rs::seeded_secrets_ride_only_in_authorization_the_team_header_and_the_write_body"
+   "todo": true
   },
   "cmux_tui::cli::cloud_start_chat::direct": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/direct_seeded_tests.rs::seeded_secrets_ride_only_where_the_cmux_api_needs_them"
   },
   "cmux_tui::cli::customize::pr": {
-   "none": "GETs of published signed customization pointers and bundles with only an Accept header: no token, cookie, prompt or person text"
+   "todo": true
+  },
+  "cmux_tui::cli::device_login": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/device_login_tests.rs::seeded_secrets_ride_only_in_their_headers"
   },
   "cmux_tui::cli::ext::share": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/ext/tests.rs::search_sends_the_github_token_only_in_authorization"
+   "todo": true
   },
   "cmux_tui::cli::hub": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/hub_tests.rs::seeded_secrets_ride_only_where_the_hub_needs_them"
+   "todo": true
   },
   "cmux_tui::cli::inference_gateway": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/inference_gateway_tests.rs::seeded_secrets_ride_only_where_the_gateway_needs_them"
+   "todo": true
   },
   "cmux_tui::cli::inference_gateway_admin": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/inference_gateway_admin_tests.rs::seeded_secrets_ride_only_in_authorization_and_the_team_header"
+   "todo": true
   },
   "cmux_tui::cli::inference_setup": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/inference_setup_tests.rs::seeded_secrets_ride_only_in_authorization_and_the_team_header"
+   "todo": true
   },
   "cmux_tui::cli::key_broker": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/key_broker/tests.rs::the_live_client_sends_the_bootstrap_only_in_authorization"
+   "todo": true
   },
   "cmux_tui::cli::machine_join": {
    "todo": true

@@ -349,3 +349,26 @@ fn seeded_secrets_ride_only_in_authorization_the_team_header_and_the_create_body
     assert_eq!(places.len(), 1, "{places:?}");
     assert!(places[0].contains("POST /v1/tokens") && places[0].ends_with(": body"), "{places:?}");
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the person's sign-in rides only in
+/// `Authorization` and the team only in `x-cmux-team`. tests/egress_seeded.json names this test
+/// for `cmux_tui::cli::api_tokens`.
+#[test]
+fn seeded_secrets_ride_only_in_their_headers() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let sign_in = "SEEDapiTokensBearer-2f61";
+    let team = "SEEDapiTokensTeam-a07c";
+    let mut command = parse(&words(&format!("create seeded --team {team}"))).unwrap();
+    command.platform = Some(cmux_cloud_environment::PRODUCTION_PLATFORM.to_owned());
+    command.token = Some(TokenSource::Command(format!("printf %s {sign_in}")));
+    // The capture server answers `200 {}`: no token, but the request went out whole.
+    let _ = execute(&command, &|_| None);
+    let sent = cmux_egress::capture::requests_to("cmux-platform-production.debussy.workers.dev");
+    assert!(sent.iter().any(|r| r.target == "/v1/tokens"), "{sent:?}");
+    for (secret, place) in [(sign_in, ": header authorization"), (team, ": header x-cmux-team")] {
+        let places = cmux_egress::capture::leaks(secret);
+        assert!(!places.is_empty(), "{secret}: {sent:?}");
+        assert!(places.iter().all(|p| p.ends_with(place)), "{secret}: {places:?}");
+    }
+}
