@@ -17,7 +17,7 @@
   },
   "families": {
     "Agents": {
-      "$comment": "list-notifications stays hand-written: the schema adds a stats field the app never sends. The agent-inventory*, agent-session-share-* and agent-cli-update-job requests are not in the schema.",
+      "$comment": "The agent-inventory*, agent-session-share-* and agent-cli-update-job requests are not in the schema.",
       "enums": {},
       "requests": {
         "list-agents": {
@@ -177,6 +177,21 @@
           "fields": {
             "surface": {
               "type": "SurfaceID"
+            }
+          },
+          "response": "hand-written"
+        },
+        "list-notifications": {
+          "name": "ListNotificationsRequest",
+          "doc": [
+            "`list-notifications`: the agent notices, newest first; `stats` (the notice counters) is not sent by the app."
+          ],
+          "order": [
+            "limit"
+          ],
+          "fields": {
+            "limit": {
+              "type": "Int"
             }
           },
           "response": "hand-written"
@@ -1323,7 +1338,7 @@
       }
     },
     "Session": {
-      "$comment": "Hand-written still: browser-host-provider and device-setup (the schema adds a capability the app lacks), client-hello (not in the schema), set-client-info (sends person_name, defaults kind), ScopedPageCredentialRequest (a second type for page-credential).",
+      "$comment": "Hand-written still: browser-host-provider and device-setup (the schema adds a capability the app lacks), client-hello (not in the schema), set-client-info (sends person_name, which the schema lacks; defaults kind), ScopedPageCredentialRequest (a second type for page-credential). Chief inspect and machine-listening-tcp are hand-written for the same capability reason.",
       "enums": {},
       "requests": {
         "shutdown-daemon": {
@@ -1458,6 +1473,17 @@
           "order": [
             "allow_origin",
             "allow_origins"
+          ],
+          "response": "hand-written"
+        },
+        "pairing-response": {
+          "name": "PairingResponseRequest",
+          "doc": [
+            "`pairing-response` (cmux-tui spec/transports.md \"Authentication and Pairing\"): approves or denies one WebSocket pairing the daemon announced with `pairing-requested`. Only the verified app (the `frontend` actor) may approve; any other local connection may only deny."
+          ],
+          "order": [
+            "request",
+            "approve"
           ],
           "response": "hand-written"
         }
@@ -2511,6 +2537,51 @@
               ]
             }
           }
+        }
+      },
+      "requests": {
+        "get-frontend-projection": {
+          "name": "GetFrontendProjectionRequest",
+          "order": [
+            "frontend",
+            "scope",
+            "subject_key"
+          ],
+          "fields": {
+            "scope": {
+              "type": "ProjectionScope"
+            }
+          },
+          "response": "FrontendProjection"
+        },
+        "put-frontend-projection": {
+          "name": "PutFrontendProjectionRequest",
+          "doc": [
+            "CAS write of an opaque (<= 1 MiB) per-window/profile document."
+          ],
+          "order": [
+            "frontend",
+            "scope",
+            "subject_key",
+            "schema_version",
+            "projection",
+            "expected_projection_revision",
+            "mutation"
+          ],
+          "fields": {
+            "scope": {
+              "type": "ProjectionScope"
+            }
+          },
+          "mutation": true,
+          "response": "FrontendProjection"
+        },
+        "flush-launch-snapshot": {
+          "name": "FlushLaunchSnapshotRequest",
+          "doc": [
+            "`flush-launch-snapshot` (`launch-snapshot-flush-v1`, cmux-tui spec/commands.md): the daemon writes its launch snapshot now, not after changes settle, and answers once it landed (or after 1 s)."
+          ],
+          "response": "hand-written"
         }
       }
     },

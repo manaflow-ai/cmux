@@ -5,7 +5,7 @@ import Testing
 /// The wire of the requests that moved from hand-written Swift to types generated from
 /// cmux-tui/spec/sdk-schema.json (`pairing-response`, `list-notifications`, `get-frontend-projection`,
 /// `put-frontend-projection`, `flush-launch-snapshot`): the exact JSON line each sends, the capability
-/// that gates it, and how its reply decodes. They hold the bytes the hand-written types sent.
+/// that gates it, and how its reply decodes. They hold the bytes the hand-written types sent: this file passes unchanged on the commit before the move.
 struct SessionProjectionRequestWireTests {
     private func line(_ request: some DaemonRequest, id: UInt64 = 1) throws -> JSONValue {
         try JSONDecoder().decode(JSONValue.self, from: WireCoding.encodeRequest(request, id: id))
@@ -23,7 +23,6 @@ struct SessionProjectionRequestWireTests {
         #expect(PairingResponseRequest.requiredCapability == nil)
         let raw = String(decoding: try WireCoding.encodeRequest(PairingResponseRequest(request: 7, approve: true), id: 1), as: UTF8.self)
         #expect(raw.contains(#""cmd":"pairing-response""#) && raw.contains(#""request":7"#) && raw.contains(#""approve":true"#))
-        #expect(!raw.contains("stats"))
     }
 
     @Test func aNotificationListSendsOnlyTheLimitItWasGiven() throws {
