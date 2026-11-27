@@ -7423,7 +7423,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const first = !paintReported.current;
     // A null lazy screen is a paint observation, not the screen's completed first report.
     // Native keeps its cover until the loaded screen's observation follows.
-    paintReported.current = newTab === undefined || newTabChunkDrawn;
+    paintReported.current = newTab === undefined || newTabChunkDrawn || hostErrorSaid;
     if (settledNow) settledReported.current = settledSession;
     if (liveNow) liveReported.current = liveSession;
     // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
@@ -7447,7 +7447,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (first) acpmuxPerf.markLaunch("painted");
         void callNative("pane.painted", {
           drewKeptTail,
-          ...(newTab !== undefined ? { newTabDrawn: newTabChunkDrawn } : {}),
+          ...(newTab !== undefined ? { newTabDrawn: newTabChunkDrawn || hostErrorSaid } : {}),
           ...(settledNow ? { settled: true } : {}),
           ...(liveNow ? { live: true } : {}),
         }).catch(() => undefined);
@@ -7458,7 +7458,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         preloadNewTabWhenIdle();
       }, 0),
     );
-  }, [showsWhatItIs, heightsSettled, drewKeptTail, settledSession, liveSession, newTab, newTabChunkDrawn]);
+  }, [showsWhatItIs, heightsSettled, drewKeptTail, settledSession, liveSession, newTab, newTabChunkDrawn, hostErrorSaid]);
   // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
   // the visible window, written when it goes quiet and when the page hides. Only the shared page host
   // keeps copies (`chat.snapshot.put`); the legacy WebKit host has no such op and would count each
