@@ -30,6 +30,8 @@ jobs:
     uses: ./.github/workflows/classic-deploy-guard.yml
     with:
       role: docs
+    secrets:
+      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
 
   nightly:
     if: github.ref == 'refs/heads/main'

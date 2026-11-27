@@ -151,7 +151,9 @@ class PathFilterTests(unittest.TestCase):
 
     def test_renamed_required_job_is_reported(self) -> None:
         document = self.backend_migrations()
-        document["jobs"]["gate"]["name"] = "renamed"
+        # gate-no-change reports the same name (the persistent-pool echo when the plan found no migrations).
+        for job in ("gate", "gate-no-change"):
+            document["jobs"][job]["name"] = "renamed"
         self.assertTrue(any("matches no job" in f for f in self.check(document)))
 
 

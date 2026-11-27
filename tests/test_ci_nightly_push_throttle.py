@@ -696,6 +696,44 @@ def test_a_run_still_waiting_for_its_runner_counts_as_building() -> None:
     assert should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, runs=[run], jobs={"7": jobs}))
 
 
+def test_a_run_between_its_decide_and_its_pick_job_counts_as_building() -> None:
+    """Run 45668811281's decide ended at 17:54Z and GitHub created its pick job seconds later. A
+    tick reading in that gap saw a run with only `decide` and counted nothing."""
+    run, jobs = waiting_for_runner(7, HEAD_SHA)
+    decided_only = jobs[:1]
+    dup = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, runs=[run], jobs={"7": decided_only})
+    assert not should_build(dup)
+    assert summary_values(dup)["duplicate of run"] == "7"
+    runs = in_flight((1, "c" * 40), (2, "d" * 40))
+    run, jobs = waiting_for_runner(3, "e" * 40)
+    runs["runs"].append(run)
+    runs["jobs"]["3"] = jobs[:1]
+    assert not should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, **runs))
+    # A run whose decide is still queued or failed has started nothing.
+    for state in ({"status": "queued", "conclusion": None}, {"status": "completed", "conclusion": "failure"}):
+        run, jobs = waiting_for_runner(7, HEAD_SHA)
+        jobs = [{"name": "decide", **state}]
+        assert should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, runs=[run], jobs={"7": jobs}))
+
+
+def test_main_app_ticks_decide_one_at_a_time() -> None:
+    """11-25: with the decide runner pool stalled, ticks queued with decide pending, then decided
+    together; none saw the others' app jobs, so five main runs were in flight against a cap of 3.
+    The main app ticks share one decide concurrency group (one running, one pending, nothing running
+    cancelled); every other run, including the six-hour cache warmup, keeps a group of its own."""
+    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+    start = lines.index("  decide:")
+    end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("  ") and not lines[i].startswith("   "))
+    block = lines[start:end]
+    group = next(line for line in block if line.startswith("      group:"))
+    assert "'nightly-main-tick-decide'" in group
+    assert "github.event_name == 'schedule' && github.ref == 'refs/heads/main'" in group
+    assert "github.event.schedule != '17 */6 * * *'" in group
+    assert "format('nightly-decide-{0}', github.run_id)" in group
+    i = block.index(group)
+    assert block[i - 1] == "    concurrency:" and block[i + 1] == "      cancel-in-progress: false"
+
+
 def test_each_main_tick_has_its_own_concurrency_group() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "github.event_name == 'schedule' && format('main-tick-{0}', github.run_id)" in text

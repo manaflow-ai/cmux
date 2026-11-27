@@ -44,6 +44,9 @@
          location = "group:CmuxIrxTransport">
       </FileRef>
       <FileRef
+         location = "group:CmuxLinuxCompat">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMessagesLab">
       </FileRef>
       <FileRef

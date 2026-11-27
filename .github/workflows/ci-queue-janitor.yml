@@ -148,7 +148,7 @@ jobs:
       GH_BUDGET_WAIT_MAX_SECONDS: "900"
     steps:
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -223,9 +223,20 @@ jobs:
 
       - name: Check out trusted janitor
         if: steps.fresh.outputs.skip != 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+
+      # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this recurring pass sends
+      # nothing on it and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
+      - name: Read the GITHUB_TOKEN floor
+        id: job-floor
+        if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          JOB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/job_token_floor.py ci-queue-janitor/sweep
 
       # Only read as text: which of feat-cmux-next's workflows can schedule a macOS job, since a
       # feat-cmux-next run follows that branch's copy (queue_janitor.needs_jobs()). A git fetch spends
@@ -234,9 +245,9 @@ jobs:
         if: steps.fresh.outputs.skip != 'true'
         continue-on-error: true
         timeout-minutes: 2
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           path: branch-workflows/feat-cmux-next
           sparse-checkout: .github/workflows
           filter: blob:none
@@ -258,11 +269,12 @@ jobs:
           permission-organization-self-hosted-runners: read
 
       - name: Cancel wasted macOS runs
-        if: steps.fresh.outputs.skip != 'true'
+        if: steps.fresh.outputs.skip != 'true' && (steps.cmux-bot-token.outputs.token != '' || steps.glaeda-token.outputs.token != '' || steps.job-floor.outputs.held != 'true')
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token || github.token }}
-          # Takes over when the App's token is refused (queue_janitor.GitHub).
+          # Takes over when the App's token is refused (queue_janitor.GitHub). An App out of budget ends the sweep
+          # instead; with no App token at all the step runs only above the workflow token's floor (the if: above).
           GH_FALLBACK_TOKEN: ${{ github.token }}
           # The same cmux-bot token again, so the janitor knows GH_TOKEN is cmux-bot's: only then does
           # category e cancel a lost job at an open PR's head and re-run it as cmux-bot (open_head_lost()).

@@ -1,6 +1,8 @@
 import Foundation
 import Testing
+#if canImport(os)
 import os
+#endif
 @testable import CMUXMobileCore
 
 @Suite struct DiagnosticLogTests {
