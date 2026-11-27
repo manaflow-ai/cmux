@@ -81,8 +81,9 @@ impl Hub {
         };
         let route = routes::find(dir.as_deref(), &id).map_err(|e| {
             route_error(&routes::RouteError::NotFound(format!(
-                "{e}: this {scope}'s route is gone; put its file back in ~/.config/cmux/routes \
-                 or pick another account in the chat's Account menu"
+                "{e}: this {scope}'s route is gone; put its file back in ~/.config/{next}/routes \
+                 or pick another account in the chat's Account menu",
+                next = cmux_config::NEXT_DIR
             )))
         })?;
         if !route.serves(&family) {
@@ -98,10 +99,15 @@ impl Hub {
         let moved = route.clone();
         let before = route_account::home_var(&family).and_then(|var| env.get(var).cloned());
         let fam = family.clone();
-        let route_env = tokio::task::spawn_blocking(move || routes::env_for(&route, &fam, &state))
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
-            .map_err(|e| route_error(&e))?;
+        let marker_root = self.vm_marker_root();
+        let spawn_env = env.clone();
+        let route_env = tokio::task::spawn_blocking(move || {
+            let gateway = cloud_gateway(&marker_root, &spawn_env);
+            routes::env_for_on(&route, &fam, &state, gateway.as_deref())
+        })
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(|e| route_error(&e))?;
         routes::apply(env, &route_env);
         env.insert(routes::NAME_KEY.into(), name);
         // A home the profile pins (a Chief turn's, a claude-sr profile's) is
@@ -147,10 +153,14 @@ impl Hub {
             let found = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
             let family = crate::config::derive_family(&meta.harness, profile);
             let state2 = state.clone();
-            tokio::task::spawn_blocking(move || routes::env_for(&found, &family, &state2))
-                .await
-                .map_err(|e| RpcError::internal(e.to_string()))?
-                .map_err(|e| route_error(&e))?;
+            let marker_root = self.vm_marker_root();
+            tokio::task::spawn_blocking(move || {
+                let gateway = cloud_gateway(&marker_root, &Default::default());
+                routes::env_for_on(&found, &family, &state2, gateway.as_deref())
+            })
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| route_error(&e))?;
         }
         if let (Some(id), Some(profile)) = (&route, &profile)
             && route_account::has_home(&meta)
@@ -231,7 +241,8 @@ impl Hub {
     /// sessions, restarts its harness process and resumes the same agent
     /// session, as a route switch does but with no binding written: so it runs
     /// the version an update just installed. A session between turns restarts
-    /// now; one in a turn when the turn ends (never cancelled). Returns how
+    /// now; one in a turn when the turn ends (never cancelled), one with work
+    /// below it and no turn before its next turn. Returns how
     /// many restarted now, how many restart after their turn, and each one
     /// whose harness could not start again.
     pub async fn restart_harnesses(
@@ -256,8 +267,16 @@ impl Hub {
             // meanwhile. An open permission prompt is never cut either (the
             // restart's `detach_child` would cancel it): that session restarts
             // after its next turn, as `restart_unproven` waits for one.
+            // Nor is work below it with no turn open (a background subagent or process, a
+            // sub-session at work: `holds_work_below`), which the harness's exit would end: an
+            // app update now relaunches while agents work (Leo, 2026-11-22: "auto be de facto
+            // able to click the restart button"), so its restart must drop nothing. Such a
+            // session keeps its agent and moves before its next turn (`turns.rs`).
             let idle = || {
-                if session.turn().is_none() && session.pending_permissions().is_empty() {
+                if session.turn().is_none()
+                    && session.pending_permissions().is_empty()
+                    && !self.holds_work_below(&session)
+                {
                     session.turn_lock.try_lock().ok()
                 } else {
                     None
@@ -334,7 +353,7 @@ pub struct HarnessRestarts {
 /// `cmux.chief`, or named `optchat-…`, or of an `optchat-compact-…` preset
 /// harness (the app's `AcpmuxSessionCensus.isChief`). Update Everything
 /// never counts or restarts one; only a caller naming it in `sessions` does.
-pub(super) fn is_chief(meta: &SessionMeta) -> bool {
+pub(crate) fn is_chief(meta: &SessionMeta) -> bool {
     live_tags(meta).get("cmux.chief").is_some()
         || meta.name.starts_with("optchat-")
         || meta.harness.starts_with("optchat-compact-")
@@ -512,6 +531,19 @@ pub(crate) fn route_error(e: &routes::RouteError) -> RpcError {
         Some(reason) => base.with_data(json!({"reason": reason})),
         None => base,
     }
+}
+
+/// This machine's model plane origin when it is a cmux Cloud machine
+/// (`routes::cloud_gateway_origin`), read with the spawn's env over the daemon's.
+fn cloud_gateway(
+    root: &std::path::Path,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Option<String> {
+    let var =
+        |k: &str| env.get(k).cloned().or_else(|| std::env::var(k).ok()).filter(|v| !v.is_empty());
+    let home =
+        var("HOME").map(std::path::PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    routes::cloud_gateway_origin(root, &home, &var)
 }
 
 #[cfg(test)]

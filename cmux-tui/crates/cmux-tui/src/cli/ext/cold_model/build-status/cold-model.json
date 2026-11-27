@@ -1,0 +1,5 @@
+{
+  "model": "claude-haiku-5-5",
+  "task": "A CI build status widget: whether the last build of the main branch passed or failed (sample: failed, 12 minutes ago, 3 tests failing), and in the medium size the last three builds with their result and time.",
+  "page": "skills/cmux-customization/references/extension-design.md"
+}

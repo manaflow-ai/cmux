@@ -1,41 +1,32 @@
-// A sent prompt's way to the agent (plans/cmux-next/composer-delivery-DESIGN.md). One state per row,
-// said in one place: while the prompt is on its way (after a second, so a fast send shows nothing)
-// its footer's time slot says so ("Sending", "Queued, sends when the current turn ends", "Sending
-// when ready") with a clock, and the footer stays shown; once acpmux took it the slot is its time
-// again and the bubble's read check (UserBubble.tsx) says how far it got. Nothing else on the row
-// speaks to delivery meanwhile: before, a "Still sending" label beside a bubble whose footer already
-// said "just now", and a free "Not sent yet" line under it, said two things at once (Leo,
-// 2026-11-11: "what's up with this still sending thing? ... it already, like, shows that it's sent.
-// So this is incongruous."). Prompts that did not get there say why in one card per cause
-// (sendFailure.ts), under the last of them: one plain sentence, the fix when there is one (Trust
-// folder), Retry, Edit, Remove and Details: the hop it stopped at, the refuser's own words and
-// code, each hop's time and the ids, and Copy debug info.
+// A sent prompt's way to the agent (plans/cmux-next/composer-delivery-DESIGN.md). While it waits,
+// from its first second on its way until acpmux took it (or, queued, until the agent reads it), one look: the
+// queued row's copy, X and Send now (PendingSteer.tsx; Leo, 2026-11-24: "this one is good. why were
+// ther e2 of them"), never a separate "(clock) Sending" in its footer; a send that lands within a
+// second shows nothing. A prompt that did not get there for a reason that passes (no answer in
+// time, the link down, a busy agent) is still waiting: the same row, and it goes again by itself
+// (sendFailure.ts `sendRetriesItself`, direct.ts `resendItself`), with no Not sent, Retry, Edit,
+// Remove or Details (Leo, 2026-11-24: "these 4 buttons are really bad tho. i dont ever want to see
+// these, it should just fix itself automtically"). Only a refusal that would come back the same
+// says why, in one short line under its prompts.
 import { useContext, useEffect, useState } from "react";
 import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "../model";
 import { useT, type StringKey } from "../i18n";
-import { isTrustCause, retryHelps, sendCause } from "../sendFailure";
-import { copyText } from "./clipboard";
-import { Clock } from "./icons";
+import { isTrustCause, sendCause, sendRetriesItself } from "../sendFailure";
 import { useTranscriptReadOnly } from "./readOnly";
-import { FailedSendsContext, deliveryDebugText } from "./promptDeliveryModel";
+import { FailedSendsContext } from "./promptDeliveryModel";
+import { Clock, Close } from "./icons";
+import { ROW_ICON } from "./messageActionsModel";
 const PENDING_AFTER_MS = PROMPT_PENDING_AFTER_MS;
 
-const HOP_LABEL = {
-  connection: "prompt.delivery.hop.connection",
-  acpmux: "prompt.delivery.hop.acpmux",
-  agent: "prompt.delivery.hop.agent",
-} as const satisfies Record<NonNullable<PromptDelivery["hop"]>, StringKey>;
+/// A prompt that did not get there and goes again by itself: shown as on its way, never as failed.
+export const resendsItself = (delivery: PromptDelivery | undefined): boolean =>
+  delivery?.state === "failed" && sendRetriesItself(delivery);
 
-/// What a prompt still on its way says: the one sentence its footer shows. `queued`: it waits
-/// behind the running turn (a steer, or a prompt acpmux holds for the turn's end).
-export function pendingLabel(delivery: PromptDelivery, queued: boolean): StringKey {
-  if (delivery.waitingForHost) return "prompt.delivery.whenReady";
-  return queued ? "prompt.delivery.queued" : "prompt.delivery.sending";
-}
-
-/// Whether `delivery` shows as pending now: on its way, and either past its first second or held
-/// for the host (whose words show at once). Re-renders once when the second passes.
-export function usePendingShown(delivery: PromptDelivery | undefined): boolean {
+/// Whether `delivery` draws its pending row now: on its way past its first second, held for the host
+/// or not, so a send that lands within a second shows nothing (Leo, 2026-11-24: "this "sending" is
+/// bad"), or going again by itself. Re-renders once when the second passes. `queued`: a steer acpmux
+/// holds for the running turn draws that row on its own terms (PendingSteer.tsx).
+export function usePendingShown(delivery: PromptDelivery | undefined, queued = false): boolean {
   const sending = delivery?.state === "sending";
   const sentAt = delivery?.sentAt ?? 0;
   const [late, setLate] = useState(() => Date.now() - sentAt >= PENDING_AFTER_MS);
@@ -44,14 +35,26 @@ export function usePendingShown(delivery: PromptDelivery | undefined): boolean {
     const timer = setTimeout(() => setLate(true), Math.max(0, PENDING_AFTER_MS - (Date.now() - sentAt)));
     return () => clearTimeout(timer);
   }, [sending, late, sentAt]);
-  return sending && (late || delivery?.waitingForHost === true);
+  // Once it went again by itself, its next try keeps the row from its first frame: no footer
+  // flashing between tries.
+  const again = resendsItself(delivery);
+  useEffect(() => {
+    if (again && !late) setLate(true);
+  }, [again, late]);
+  if (again) return true;
+  return sending && late && !queued;
+}
+
+/// What a prompt still on its way says: the one sentence its footer shows.
+export function pendingLabel(delivery: PromptDelivery): StringKey {
+  return delivery.waitingForHost ? "prompt.delivery.whenReady" : "prompt.delivery.sending";
 }
 
 /// The footer's time slot while the prompt is on its way: a clock and its one sentence, in the
 /// slot the age takes once it lands, so the row moves nothing when it does.
-export function PendingDelivery({ delivery, queued }: { delivery: PromptDelivery; queued: boolean }) {
+export function PendingDelivery({ delivery }: { delivery: PromptDelivery }) {
   const t = useT();
-  const label = t(pendingLabel(delivery, queued));
+  const label = t(pendingLabel(delivery));
   return (
     <output className="cv-user__time cv-user__pending-state" data-delivery={delivery.state} aria-label={label}>
       <Clock size={12} />
@@ -60,26 +63,23 @@ export function PendingDelivery({ delivery, queued }: { delivery: PromptDelivery
   );
 }
 
-/// Under the last prompt of a run that did not get there for one cause: why, and how to recover
-/// them. The run's other prompts draw no card of their own.
+/// Under the last prompt of a run acpmux refused for one cause that would refuse it again (too
+/// large, the folder's trust question, any other refusal): why, in one short line, and Trust folder
+/// where that fixes it, and the pending row's X, which takes the run back into the composer to change
+/// (acpmux's table: a failed prompt is edited in place or removed; Retry is the message menu's where
+/// it helps). A send that goes again by itself draws nothing here. The run's other prompts draw no
+/// line of their own.
 export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const sends = useContext(FailedSendsContext);
-  const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const readOnly = useTranscriptReadOnly();
   const delivery = row.delivery;
-  if (!row.failed || readOnly) return null;
+  if (!row.failed || readOnly || resendsItself(delivery)) return null;
   const rowIds = sends?.runs.get(row.id)?.rowIds ?? [row.id];
   if (rowIds[rowIds.length - 1] !== row.id) return null;
   const cause = sendCause(delivery);
-  const trust = isTrustCause(cause);
-  const retryWaits = trust ? sends?.trustBlock : undefined;
-  const fix = trust ? sends?.trustFolder : undefined;
-  const act = (name: string) => void window.cmuxAcpmuxActions?.[name]?.({ rowId: row.id, rowIds });
-  const codes = [...new Set([delivery?.reason, delivery?.code].filter(Boolean))];
-  const since = (ms: number | undefined) =>
-    ms === undefined ? undefined : t("prompt.delivery.after", { ms: Math.max(0, ms - (delivery?.sentAt ?? ms)) });
+  const fix = isTrustCause(cause) ? sends?.trustFolder : undefined;
+  const takeBack = () => void window.cmuxAcpmuxActions?.["chat.editFailedPrompt"]?.({ rowId: row.id, rowIds });
   return (
     <div
       className="cv-user__status cv-user__status--failed"
@@ -96,74 +96,16 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
             {t("trust.trustFolder")}
           </button>
         )}
-        {/* A prompt too large to send is refused the same way again: Edit takes an attachment out. */}
-        {retryHelps(cause) && (
-          <button
-            type="button"
-            className="cv-user__cancel"
-            disabled={retryWaits !== undefined}
-            title={retryWaits && t(retryWaits)}
-            onClick={() => act("chat.retryPrompt")}
-          >
-            {t("turn.retry")}
-          </button>
-        )}
-        {delivery && (
-          <>
-            <button type="button" className="cv-user__cancel" onClick={() => act("chat.editFailedPrompt")}>
-              {t("message.edit")}
-            </button>
-            <button type="button" className="cv-user__cancel" onClick={() => act("chat.removeFailedPrompt")}>
-              {t("prompt.delivery.remove")}
-            </button>
-            <button
-              type="button"
-              className="cv-user__cancel"
-              aria-expanded={open}
-              onClick={() => setOpen((shown) => !shown)}
-            >
-              {t("prompt.delivery.details")}
-            </button>
-          </>
-        )}
+        <button
+          type="button"
+          className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
+          aria-label={t("composer.queueEditMessage")}
+          title={t("composer.queueEditMessage")}
+          onClick={takeBack}
+        >
+          <Close size={ROW_ICON} />
+        </button>
       </div>
-      {open && delivery && (
-        <div className="cv-user__delivery-details selectable">
-          {delivery.hop && <div>{t(HOP_LABEL[delivery.hop])}</div>}
-          {delivery.error && (
-            <div>
-              {delivery.error}
-              {codes.length ? ` (${codes.join(", ")})` : ""}
-            </div>
-          )}
-          <div>
-            {t("prompt.delivery.sentLabel")}: {new Date(delivery.sentAt).toLocaleTimeString()}
-          </div>
-          {delivery.acceptedAt !== undefined && (
-            <div>
-              {t("prompt.delivery.acceptedLabel")}: {since(delivery.acceptedAt)}
-            </div>
-          )}
-          {delivery.failedAt !== undefined && (
-            <div>
-              {t("prompt.delivery.failedLabel")}: {since(delivery.failedAt)}
-            </div>
-          )}
-          <div>{delivery.promptId}</div>
-          <button
-            type="button"
-            className="cv-user__cancel"
-            onClick={() =>
-              void copyText(deliveryDebugText(row, delivery)).then(
-                () => setCopied(true),
-                () => setCopied(false),
-              )
-            }
-          >
-            {copied ? t("turn.copied") : t("prompt.delivery.copyDebug")}
-          </button>
-        </div>
-      )}
     </div>
   );
 }

@@ -11,11 +11,13 @@ use serde_json::Value;
 use crate::cache::{read_cache, write_cache};
 use crate::domains::Domains;
 use crate::fsio::{publish, read_source, resolve_symlinks, write_atomic};
+use crate::history::{self, HistoryEntry, HistoryLog};
 use crate::location::team_policy_path;
 use crate::managed::{ManagedReader, TeamPolicyLayer};
 use crate::refusal::Refusal;
 use crate::schema::Schema;
-use crate::store::{self, Change, FileRead, Op, Outcome, State};
+use crate::store::{self, Change, FileRead, Op, Outcome, State, ThemeRead};
+use crate::theme_file;
 
 /// What one op did. `changes` holds every revision it produced (an external
 /// edit found by the write-time refresh comes first), emitted as events
@@ -34,6 +36,12 @@ pub struct ConfigStore {
     /// first write then creates `config_path` from that text.
     seed_path: Option<PathBuf>,
     state_dir: Option<PathBuf>,
+    /// The history of `config_path` in the state directory
+    /// ([`crate::history::history_file_name`]); `None` without one.
+    history: Option<HistoryLog>,
+    /// The file text the last time it parsed: what a change out of a file
+    /// that did not parse is recorded against.
+    last_good: Option<String>,
     reader: Box<dyn ManagedReader>,
 }
 
@@ -58,15 +66,94 @@ impl ConfigStore {
         let team =
             state_dir.as_deref().and_then(|dir| read_team_policy(dir, schema)).unwrap_or_default();
         let revision = cached.as_ref().map_or(0, |(revision, _)| *revision);
-        let mut state = State::new(schema, file, reader.read(), team, Domains::default(), revision);
+        let managed = reader.read();
+        let mut state =
+            State::new(schema, file.clone(), managed.clone(), team, Domains::default(), revision);
+        // The theme file the settings pick applies from the first read.
+        if state.theme_wanted().is_some() {
+            let config_dir = config_path.parent().map(Path::to_path_buf).unwrap_or_default();
+            state = state
+                .reload_with_theme(file, managed, |name| Some(read_theme(&config_dir, name)))
+                .0;
+            state = state.with_revision(revision);
+        }
         if let Some((revision, effective)) = cached
             && effective != state.effective().root
         {
             state = state.with_revision(revision + 1);
         }
-        let store = ConfigStore { state, config_path, seed_path, state_dir, reader };
+        let history = state_dir.as_deref().map(|dir| HistoryLog::new(dir, &config_path));
+        // Revisions continue past the history's too (a lost cache must not
+        // reuse a revision an entry already names).
+        if let Some(newest) = history.as_ref().and_then(HistoryLog::newest_revision)
+            && newest > state.revision()
+        {
+            state = state.with_revision(newest);
+        }
+        // Opened on a file that does not parse: the text it last parsed with
+        // is the saved one, so the change out of the broken text undoes alone.
+        let last_good = if state.file_problem().is_some() {
+            history.as_ref().and_then(HistoryLog::last_text)
+        } else {
+            None
+        };
+        let mut store =
+            ConfigStore { state, config_path, seed_path, state_dir, history, last_good, reader };
+        store.catch_up();
+        store.migrate_once();
+        store.note_good();
         store.write_cache();
         store
+    }
+
+    /// Apply new retirement-table entries to the person's own settings file.
+    /// An absent file may be backed by a classic seed, which we leave alone.
+    fn migrate_once(&mut self) {
+        use crate::migrations::once::{Ledger, pending};
+
+        let Some(dir) = self.state_dir.clone() else { return };
+        if self.state.file_problem.is_some()
+            || !self.config_path.is_file()
+            || pending(&self.state.file_root, &Ledger::read(&dir)).is_empty()
+        {
+            return;
+        }
+        // Other owners can open the same file. Plan against the latest source and
+        // keep the config and its ledger under the same lock through publication.
+        let Some(_lock) = lock_config(&self.config_path) else { return };
+        self.reload();
+        if self.state.file_problem.is_some() || !self.config_path.is_file() {
+            return;
+        }
+        let mut ledger = Ledger::read(&dir);
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs());
+        for migration in pending(&self.state.file_root, &ledger) {
+            let moved = !migration.edits.is_empty();
+            if moved {
+                let meta = store::WriteMeta {
+                    origin: store::Origin::App,
+                    if_revision: Some(self.state.revision()),
+                    ..Default::default()
+                };
+                let op = Op::Edit { edits: migration.edits, meta };
+                match self.apply_locked(op, true).result {
+                    Ok(_) => eprintln!("cmux settings migration: {}", migration.id),
+                    // A hand edit during migration or an I/O failure: retry next open.
+                    Err(
+                        Refusal::RevisionConflict { .. }
+                        | Refusal::FileUnreadable { .. }
+                        | Refusal::Io { .. },
+                    ) => break,
+                    // A managed or invalid replacement stays in the file. Other
+                    // entries can migrate independently.
+                    Err(_) => continue,
+                }
+            }
+            ledger.record(migration.id, moved, at);
+        }
+        let _ = ledger.write(&dir);
     }
 
     pub fn state(&self) -> &State {
@@ -88,52 +175,205 @@ impl ConfigStore {
         snapshot
     }
 
+    /// Whether `file` names the settings file this owner reads and writes,
+    /// both paths standardized without touching the disk (`.` and `..`
+    /// folded, as Swift's `standardizedFileURL`; symlinks not followed).
+    /// `settings.edit`'s `file`: an owner started on another file refuses.
+    pub fn serves(&self, file: &Path) -> bool {
+        standardized(file) == standardized(&self.config_path)
+    }
+
+    /// The settings history, newest first (at most
+    /// [`crate::history::HISTORY_CAPACITY`] entries); empty without a state
+    /// directory.
+    pub fn history(&self) -> Vec<HistoryEntry> {
+        let mut entries = self.history.as_ref().map(HistoryLog::read).unwrap_or_default();
+        entries.reverse();
+        entries
+    }
+
+    /// Records a change of the file made while no owner ran: the text last
+    /// seen parsing differs from the file's now. One entry (origin `file`),
+    /// under a new revision, so undo takes back that change alone.
+    fn catch_up(&mut self) {
+        if self.state.file_problem().is_some() {
+            return;
+        }
+        let Some(log) = self.history.as_mut() else { return };
+        let Some(before) = log.last_text() else { return };
+        if before == self.state.source() {
+            return;
+        }
+        let revision = self.state.revision().saturating_add(1);
+        self.state = self.state.clone().with_revision(revision);
+        log.append(&HistoryEntry {
+            revision,
+            at: history::now_ms(),
+            origin: crate::Origin::File.as_str().to_string(),
+            keys: Vec::new(),
+            before,
+            undoes: None,
+        });
+    }
+
+    /// Remembers the file text while it parses (see `last_good`).
+    fn note_good(&mut self) {
+        if self.state.file_problem().is_some() {
+            return;
+        }
+        let text = self.state.source();
+        if self.last_good.as_deref() == Some(text) {
+            return;
+        }
+        self.last_good = Some(text.to_string());
+        if let Some(log) = &self.history {
+            log.save_last_text(text);
+        }
+    }
+
+    /// Records a published change of the file whose text was `before`. A
+    /// change that left the file text alone (managed values, a theme file)
+    /// or that came from a file which did not parse is no setup to go back
+    /// to, and is not recorded.
+    /// A change out of a file that did not parse is recorded against the
+    /// text it last parsed with, so the change into the broken text and the
+    /// one out of it undo as one.
+    fn record(&mut self, change: &Change, before: &str, before_broken: bool, undoes: Option<u64>) {
+        let before = if before_broken {
+            match self.last_good.clone() {
+                Some(good) => good,
+                None => return,
+            }
+        } else {
+            before.to_string()
+        };
+        if before == self.state.source() {
+            return;
+        }
+        let Some(log) = self.history.as_mut() else { return };
+        log.append(&HistoryEntry {
+            revision: change.revision,
+            at: history::now_ms(),
+            origin: change.origin.as_str().to_string(),
+            keys: change.keys.clone(),
+            before,
+            undoes,
+        });
+        self.note_good();
+    }
+
+    /// A hand edit that changed the file's text but no setting (a comment,
+    /// formatting) still gets a history entry, under a revision of its own
+    /// with no keys: else an undo would skip it and take back the change
+    /// before it, losing the edit. Returns that change for the caller to emit
+    /// (clients then hold the new revision). Nothing without a history.
+    fn text_only_change(&mut self, before: &str, before_broken: bool) -> Option<Change> {
+        if self.history.is_none() || self.state.file_problem().is_some() {
+            return None;
+        }
+        let baseline = if before_broken { self.last_good.as_deref()? } else { before };
+        if baseline == self.state.source() {
+            return None;
+        }
+        let revision = self.state.revision().saturating_add(1);
+        self.state = self.state.clone().with_revision(revision);
+        Some(Change { revision, keys: Vec::new(), origin: crate::Origin::File })
+    }
+
     /// Runs `op`: refresh from disk (write ops), reduce, publish, adopt.
+    /// Every published change of the file is recorded in the history.
     pub fn apply(&mut self, op: Op) -> ApplyResult {
-        let mut changes = Vec::new();
-        let team_before = self.state.team().clone();
-        let writes =
-            matches!(op, Op::Set { .. } | Op::Reset { .. } | Op::ResetAll { .. } | Op::Edit { .. });
+        let writes = matches!(
+            op,
+            Op::Set { .. }
+                | Op::Reset { .. }
+                | Op::ResetAll { .. }
+                | Op::Edit { .. }
+                | Op::Undo { .. }
+                | Op::Restore { .. }
+                | Op::ResetGroup { .. }
+        );
         // Daemons of other sessions may own the same file: hold its advisory
         // lock across refresh, reduce and publish so no update is lost.
         let _lock = if writes { lock_config(&self.config_path) } else { None };
+        self.apply_locked(op, writes)
+    }
+
+    fn apply_locked(&mut self, op: Op, writes: bool) -> ApplyResult {
+        let mut changes = Vec::new();
+        let team_before = self.state.team().clone();
         if writes {
             // Fresh managed values too: macOS sends no notification for a new
             // MDM profile, so the watcher may not have seen it yet.
+            let before = self.state.source().to_string();
+            let broken = self.state.file_problem().is_some();
             let (refreshed, change) = self.state.reload(self.read_file(), self.reader.read());
             self.state = refreshed;
+            let change = change.or_else(|| self.text_only_change(&before, broken));
+            if let Some(change) = &change {
+                self.record(change, &before, broken, None);
+            }
             changes.extend(change);
         }
-        let result = match store::apply(&self.state, op) {
+        let history = match &op {
+            Op::Undo { .. } | Op::Restore { .. } => {
+                self.history.as_ref().map(HistoryLog::read).unwrap_or_default()
+            }
+            _ => Vec::new(),
+        };
+        let before = self.state.source().to_string();
+        let broken = self.state.file_problem().is_some();
+        let result = match store::apply_with_history(&self.state, op, &history) {
             Err(refusal) => Err(refusal),
             Ok(applied) => {
                 match applied.write.as_deref().map(|text| publish(&self.config_path, text)) {
                     Some(Err(error)) => Err(Refusal::Io { message: error.to_string() }),
-                    _ => {
+                    published => {
                         self.state = applied.state;
+                        if published.is_some() {
+                            for change in &applied.changes {
+                                self.record(change, &before, broken, applied.undoes);
+                            }
+                        }
                         changes.extend(applied.changes);
                         Ok(applied.outcome)
                     }
                 }
             }
         };
+        // A write that picks another theme file: read that file now.
+        if self.state.theme_wanted().is_some_and(|(_, stale)| stale)
+            && let Some(change) = self.reload()
+        {
+            changes.push(change);
+        }
         if *self.state.team() != team_before {
             self.write_team_policy();
         }
         if !changes.is_empty() {
             self.write_cache();
         }
+        self.note_good();
         ApplyResult { changes, result }
     }
 
     /// Re-reads cmux.json and the managed values (the watcher calls this).
     /// A change only when the effective settings changed.
     pub fn reload(&mut self) -> Option<Change> {
-        let (next, change) = self.state.reload(self.read_file(), self.reader.read());
+        let config_dir = self.config_dir();
+        let before = self.state.source().to_string();
+        let broken = self.state.file_problem().is_some();
+        let (next, change) =
+            self.state.reload_with_theme(self.read_file(), self.reader.read(), |name| {
+                Some(read_theme(&config_dir, name))
+            });
         self.state = next;
-        if change.is_some() {
+        let change = change.or_else(|| self.text_only_change(&before, broken));
+        if let Some(change) = &change {
+            self.record(change, &before, broken, None);
             self.write_cache();
         }
+        self.note_good();
         change
     }
 
@@ -141,10 +381,23 @@ impl ConfigStore {
         read_settings(&self.config_path, self.seed_path.as_deref())
     }
 
+    /// The folder of the settings file, where `themes/` is.
+    fn config_dir(&self) -> PathBuf {
+        self.config_path.parent().map(Path::to_path_buf).unwrap_or_default()
+    }
+
+    /// The active theme file's path (it may not exist), when one is picked.
+    /// It changes when `appearance.themeFile` does: a watcher of it is
+    /// re-armed then (`watch_paths` includes it).
+    pub fn theme_watch_path(&self) -> Option<PathBuf> {
+        self.state.theme_wanted().map(|(name, _)| theme_file::path(&self.config_dir(), name))
+    }
+
     /// Files whose changes may change the settings: cmux.json (and its
-    /// symlink target) and the managed reader's files.
+    /// symlink target), the managed reader's files and the active theme file.
     pub fn watch_paths(&self) -> Vec<PathBuf> {
         let mut paths = vec![self.config_path.clone()];
+        paths.extend(self.theme_watch_path());
         let resolved = resolve_symlinks(&self.config_path);
         if resolved != self.config_path {
             paths.push(resolved);
@@ -180,6 +433,16 @@ impl ConfigStore {
     }
 }
 
+/// Theme file `name` beside the settings file: the user's, else the one
+/// cmux ships.
+fn read_theme(config_dir: &Path, name: &str) -> ThemeRead {
+    ThemeRead {
+        name: name.to_string(),
+        read: theme_file::source(config_dir, name, None),
+        folder: Some(theme_file::folder(config_dir)),
+    }
+}
+
 /// The settings file's text, or the seed's while the file does not exist.
 fn read_settings(config_path: &Path, seed_path: Option<&Path>) -> FileRead {
     match seed_path {
@@ -193,6 +456,23 @@ fn read_settings(config_path: &Path, seed_path: Option<&Path>) -> FileRead {
     }
 }
 
+/// `path` made absolute with `.` and `..` folded, without reading the disk.
+fn standardized(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut out = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 /// The saved team layer, limited to the catalog of this build.
 fn read_team_policy(state_dir: &Path, schema: &Schema) -> Option<TeamPolicyLayer> {
     let text = std::fs::read_to_string(team_policy_path(state_dir)).ok()?;
@@ -204,10 +484,8 @@ fn read_team_policy(state_dir: &Path, schema: &Schema) -> Option<TeamPolicyLayer
 /// `None` when the lock file cannot be opened (a read-only directory): the
 /// write then goes ahead like before, and the publish reports any error.
 ///
-/// The Mac app takes this lock the same way (`flock`, the same file name)
-/// around its own writes of the settings file, until those writes are
-/// `settings.*` ops: Swift `SettingsFileLock` in `CmuxNextSettings`. Change
-/// the lock kind or the file name in both places.
+/// The Mac app no longer writes the settings file (its writes are
+/// `settings.edit` ops), so only owners in this crate take the lock.
 pub(crate) fn lock_config(config_path: &Path) -> Option<ConfigLock> {
     // Beside the configured path, not a symlink's target: a dotfiles repo
     // never gets a lock file.
@@ -246,3 +524,24 @@ impl Drop for ConfigLock {
 #[cfg(all(test, unix))]
 #[path = "owner_lock_tests.rs"]
 mod lock_tests;
+
+#[cfg(all(test, unix))]
+mod serves_tests {
+    use super::*;
+
+    /// `settings.edit`'s `file` check: the configured path, written with `.`
+    /// or `..`, is served; another file is not.
+    #[test]
+    fn the_owner_serves_its_own_file_only() {
+        let dir = std::env::temp_dir().join(format!("cmux-serves-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("cmux-next.json");
+        let reader = Box::new(crate::managed::FixedManagedReader::default());
+        let store = ConfigStore::open(config.clone(), None, None, reader);
+        assert!(store.serves(&config));
+        assert!(store.serves(&dir.join("./sub/../cmux-next.json")));
+        assert!(!store.serves(&dir.join("other.json")));
+        assert!(!store.serves(&dir.join("sub/cmux-next.json")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

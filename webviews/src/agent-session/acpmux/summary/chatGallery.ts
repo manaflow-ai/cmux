@@ -5,6 +5,8 @@ import { toolImages } from "../toolImages";
 import { loadedImageSrc } from "../chips/replyImageModel";
 import { mediaKind } from "../chips/mediaKind";
 import type { AcpmuxRow } from "../model";
+import { PrefixFold } from "../conversation/prefixFlatMap";
+import { RowMemo } from "../../shared/rowMemo";
 
 export type GalleryItem =
   | { kind: "image"; key: string; src: string; alt: string }
@@ -14,7 +16,7 @@ export type GalleryFilter = "all" | GalleryItem["kind"];
 
 /// Each reply's images, kept while the row is the same object: a live turn's updates leave the
 /// earlier rows alone, so an open gallery parses only the reply that changed.
-const rowImages = new WeakMap<AcpmuxRow, ChatImage[]>();
+const rowImages = new RowMemo<AcpmuxRow, ChatImage[]>();
 const imagesOf = (row: AcpmuxRow): ChatImage[] => {
   let images = rowImages.get(row);
   if (!images) rowImages.set(row, (images = chatImages([row])));
@@ -22,7 +24,7 @@ const imagesOf = (row: AcpmuxRow): ChatImage[] => {
 };
 
 /// Discovery only: local files still load through the host when their gallery tile is mounted.
-const rowTools = new WeakMap<AcpmuxRow, GalleryItem[]>();
+const rowTools = new RowMemo<AcpmuxRow, GalleryItem[]>();
 const toolsOf = (row: AcpmuxRow): GalleryItem[] => {
   let items = rowTools.get(row);
   if (!items) {
@@ -44,7 +46,31 @@ const toolsOf = (row: AcpmuxRow): GalleryItem[] => {
 /// calls the transcript draws as cards, oldest first. As turns.ts draws them, a render call is a
 /// card only in an ended turn, before its summary; a live turn's call and one after the summary
 /// stay tool rows, so they wait here too.
+/// Read on every update while Session Info shows: each row's steps are read again only past the prefix
+/// an update kept, and the gallery made again only when the steps changed (PrefixFold), so a streamed
+/// token walks neither the chat's rows nor its turns. The result is shared: callers must not change it.
 export function chatGallery(rows: readonly AcpmuxRow[]): GalleryItem[] {
+  return gallery.read(rows);
+}
+
+/// What a row adds to the gallery's walk: a prompt (accepted, or `unsent`), a turn's summary, a
+/// reply's images or an activity's tool media and render calls. The marks are constants, so a kept
+/// row's steps are the same objects in the next pass.
+type Mark = { readonly mark: "prompt" | "unsent" | "summary" };
+type Step = Mark | ChatImage | GalleryItem;
+const PROMPT: readonly Step[] = [{ mark: "prompt" }];
+const UNSENT: readonly Step[] = [{ mark: "unsent" }];
+const SUMMARY: readonly Step[] = [{ mark: "summary" }];
+const NO_STEPS: readonly Step[] = [];
+function rowSteps(row: AcpmuxRow): readonly Step[] {
+  if (row.kind === "user") return row.pending || row.failed ? UNSENT : PROMPT;
+  if (row.kind === "turnSummary") return SUMMARY;
+  if (row.kind === "assistant") return imagesOf(row);
+  if (row.kind === "activity") return toolsOf(row);
+  return NO_STEPS;
+}
+
+const gallery = new PrefixFold<AcpmuxRow, Step, GalleryItem[]>(rowSteps, (steps) => {
   const items: GalleryItem[] = [];
   const seen = new Set<string>();
   // The open turn's items, in order; its renders join only when its summary comes.
@@ -54,32 +80,29 @@ export function chatGallery(rows: readonly AcpmuxRow[]): GalleryItem[] {
     if (turn) items.push(...(ended ? turn : turn.filter((item) => item.kind !== "render")));
     turn = undefined;
   };
-  for (const row of rows) {
-    // A prompt not yet accepted neither ends a turn nor starts one (turns.ts isUnsent), except
-    // the first: with no accepted prompt loaded, the transcript's first turn starts at it.
-    if (row.kind === "user" && (!started || (!row.pending && !row.failed))) {
-      settle(false);
-      turn = [];
-      started = true;
-    } else if (row.kind === "turnSummary") settle(true);
-    else if (row.kind === "assistant")
-      for (const image of imagesOf(row)) {
-        if (seen.has(image.src)) continue;
-        seen.add(image.src);
-        (turn ?? items).push({ kind: "image", key: image.src, ...image });
+  for (const step of steps) {
+    if ("mark" in step) {
+      // A prompt not yet accepted neither ends a turn nor starts one (turns.ts isUnsent), except
+      // the first: with no accepted prompt loaded, the transcript's first turn starts at it.
+      if (step.mark === "summary") settle(true);
+      else if (!started || step.mark === "prompt") {
+        settle(false);
+        turn = [];
+        started = true;
       }
-    else if (row.kind === "activity")
-      for (const item of toolsOf(row)) {
-        if (item.kind === "tool") {
-          if (seen.has(item.source)) continue;
-          seen.add(item.source);
-          (turn ?? items).push(item);
-        } else if (turn) turn.push(item);
-      }
+    } else if (!("kind" in step)) {
+      if (seen.has(step.src)) continue;
+      seen.add(step.src);
+      (turn ?? items).push({ kind: "image", key: step.src, ...step });
+    } else if (step.kind === "tool") {
+      if (seen.has(step.source)) continue;
+      seen.add(step.source);
+      (turn ?? items).push(step);
+    } else if (turn) turn.push(step);
   }
   settle(false);
   return items;
-}
+});
 
 export const galleryItems = (items: readonly GalleryItem[], filter: GalleryFilter): readonly GalleryItem[] =>
   filter === "all" ? items : items.filter((item) => item.kind === filter);

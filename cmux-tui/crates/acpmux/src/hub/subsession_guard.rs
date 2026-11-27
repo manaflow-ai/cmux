@@ -699,7 +699,12 @@ impl Hub {
     ) -> Result<bool, RpcError> {
         self.subsession_harness_check(pm, harness, model, folder).await?;
         self.subsession_folder_check(pm, folder, Walk::BeforeCard).await?;
-        let decided = self.ensure_folder_trusted(parent, folder, harness, short).await?;
+        // None: the parent's full access lent its trust (no card, no decision). The walk before
+        // the card already refused a folder marked untrusted; the one after it is for an answer.
+        let Some(decided) = self.ensure_folder_trusted(parent, folder, harness, short).await?
+        else {
+            return Ok(false);
+        };
         let rules = !Self::web_turn(parent);
         // The parent as it is after the card: one that left full access meanwhile walks as it is now.
         self.subsession_folder_check(&parent.meta(), folder, Walk::Answered { rules }).await?;
@@ -743,6 +748,9 @@ impl Hub {
         if self.caller_access(pm) == Access::Full {
             return Ok(());
         }
+        // As `session/new` does next (`rediscover.rs`): a harness installed since the catalog
+        // loaded is checked here, never passed as not startable and then started.
+        self.rediscover_head(Some(harness), None).await;
         let resolved = {
             let cfg = self.config.read().await;
             self.resolve_new(
@@ -875,48 +883,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::argv_full_access;
-
-    fn argv(a: &[&str]) -> Vec<String> {
-        a.iter().map(|s| (*s).to_owned()).collect()
-    }
-
-    #[test]
-    fn a_command_that_skips_the_checks_is_full_access() {
-        for a in [
-            &["claude", "--dangerously-skip-permissions"][..],
-            &["claude", "--permission-mode", "bypassPermissions"],
-            &["claude", "--permission-mode=bypassPermissions"],
-            &["codex", "-s", "danger-full-access"],
-            &["codex", "--sandbox=danger-full-access"],
-            &["codex", "-c", "sandbox_mode=\"danger-full-access\""],
-            &["codex", "--dangerously-bypass-approvals-and-sandbox"],
-        ] {
-            assert!(argv_full_access(&argv(a)).is_some(), "{a:?}");
-        }
-        for a in [
-            &["claude", "--permission-mode", "default"][..],
-            &["codex", "-s", "workspace-write"],
-            &["opencode", "acp"],
-        ] {
-            assert!(argv_full_access(&argv(a)).is_none(), "{a:?}");
-        }
-    }
-
-    #[test]
-    fn attached_short_flags_and_gemini_auto_approval_are_full_access() {
-        for a in [
-            &["codex", "-sdanger-full-access"][..],
-            &["codex", "-csandbox_mode=danger-full-access"],
-            &["gemini", "-y"],
-            &["qwen", "--approval-mode", "yolo"],
-            &["gemini", "--approval-mode=auto_edit"],
-        ] {
-            assert!(argv_full_access(&argv(a)).is_some(), "{a:?}");
-        }
-        for a in [&["gemini", "--approval-mode", "default"][..], &["codex", "-sworkspace-write"]] {
-            assert!(argv_full_access(&argv(a)).is_none(), "{a:?}");
-        }
-    }
-}
+#[path = "subsession_guard_tests.rs"]
+mod tests;

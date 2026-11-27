@@ -10,6 +10,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
+import { JUMP_LATEST } from "../src/agent-session/acpmux/transcriptSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -103,7 +104,8 @@ async function frames(scroller: HTMLElement): Promise<number[]> {
 
 // Jump up is off by default (jumpUp.experiment.ts, #42247): these press the control while it is on.
 beforeEach(() => {
-  globalThis.cmuxExperiments = { "jump-up": "on" };
+  // The pair look: `single`, the default, draws no Jump up even with it on.
+  globalThis.cmuxExperiments = { "jump-up": "on", "jump-pair-look": "frosted" };
 });
 afterEach(() => {
   globalThis.cmuxExperiments = undefined;

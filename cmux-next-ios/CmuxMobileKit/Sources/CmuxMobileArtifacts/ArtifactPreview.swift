@@ -1,6 +1,7 @@
 #if os(iOS)
 import AVKit
 import CmuxMobileDesign
+import CmuxMobileTransport
 import CmuxSpinner
 import PDFKit
 import QuickLook
@@ -16,8 +17,10 @@ public struct ArtifactPreview: View {
     let source: any ArtifactSource
     @Binding var showSource: Bool
     @State private var content: Result<ArtifactContent, any Error>?
-    /// Bumped by Try Again: reloads the artifact.
-    @State private var attempt = 0
+    /// A failed read that can pass (no link yet, a stall) is read again on its own.
+    @State private var autoRetry = AutoRetry()
+    /// The newest load: an older one (another artifact, an earlier retry) writes nothing.
+    @State private var loadToken = UUID()
     /// A local file (or the link) Share hands to the share sheet: Save to
     /// Files, Save Image, AirDrop, Open In.
     @State private var shareItem: URL?
@@ -77,17 +80,18 @@ public struct ArtifactPreview: View {
             case nil:
                 CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityIdentifier("artifact.loading")
+            case .failure(let error) where Self.isTransient(error) && !autoRetry.isQuietLineShown:
+                // Read again on its own (AutoRetry): the spinner stays until the quiet bound.
+                CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("artifact.loading")
             case .failure(let error):
-                // Never a blank page: what the Mac said, and a way to try again.
+                // Never a blank page: what the Mac said. A passing failure keeps being read
+                // again (one quiet line says so); a refusal is not, and needs no button.
                 ArtifactDeadEnd(
                     headline: artifact.kind == .directory ? "Can't open this folder" : "Can't open this file",
                     systemImage: "exclamationmark.triangle", name: artifact.name, message: error.localizedDescription
                 ) {
-                    RetryButton("Try Again") {
-                        content = nil
-                        attempt += 1
-                    }
-                    .accessibilityIdentifier("artifact.retry")
+                    if Self.isTransient(error) { AutoRetryQuietLine(autoRetry) }
                     if let storage = error as? PreviewInsufficientSpace {
                         // The file stays on the Mac: share its reference, never
                         // pretend that a failed download produced a local file.
@@ -173,34 +177,51 @@ public struct ArtifactPreview: View {
                 }
             }
         }
-        .task(id: ArtifactLoad(artifact: artifact, attempt: attempt)) {
-            // A load replaced by another (a new artifact, a retry) is cancelled: after each
-            // wait it writes nothing, so it never overwrites the newer preview.
-            do {
-                let loaded = try await source.load(artifact)
-                guard !Task.isCancelled else { return }
-                if case .image(let data) = loaded {
-                    let image = await Task.detached(priority: .userInitiated) {
-                        UIImage(data: data).map { $0.preparingForDisplay() ?? $0 }
-                    }.value
-                    guard !Task.isCancelled else { return }
-                    decodedImage = image
-                } else {
-                    decodedImage = nil
-                }
-                content = .success(loaded)
-                // The share copy (up to the preview limit) is written off the main actor.
-                let artifact = artifact
-                let item = await Task.detached(priority: .utility) { Self.shareItem(for: loaded, artifact: artifact) }.value
-                guard !Task.isCancelled else { return }
-                shareItem = item
-            } catch {
-                guard !Task.isCancelled else { return }
-                content = .failure(error)
-                shareItem = nil
-            }
-        }
+        .task(id: artifact) { await load() }
+        .autoRetry(autoRetry, failing: isRetrying) { await load() }
         .offset(y: dismissDrag)
+    }
+
+    /// A failure the preview reads again on its own: the link was down or stalled, or the
+    /// file changed mid-read. A refusal, a missing file or too little space is not.
+    static func isTransient(_ error: any Error) -> Bool {
+        if let unavailable = error as? ArtifactUnavailable { return unavailable.isTransient }
+        return error is LinkError || error is URLError
+    }
+
+    private var isRetrying: Bool {
+        if case .failure(let error) = content { return Self.isTransient(error) }
+        return false
+    }
+
+    /// Reads the artifact. A load replaced by another (a new artifact, a retry) writes
+    /// nothing after its waits, so it never overwrites the newer preview.
+    private func load() async {
+        let token = UUID()
+        loadToken = token
+        do {
+            let loaded = try await source.load(artifact)
+            guard !Task.isCancelled, loadToken == token else { return }
+            if case .image(let data) = loaded {
+                let image = await Task.detached(priority: .userInitiated) {
+                    UIImage(data: data).map { $0.preparingForDisplay() ?? $0 }
+                }.value
+                guard !Task.isCancelled, loadToken == token else { return }
+                decodedImage = image
+            } else {
+                decodedImage = nil
+            }
+            content = .success(loaded)
+            // The share copy (up to the preview limit) is written off the main actor.
+            let artifact = artifact
+            let item = await Task.detached(priority: .utility) { Self.shareItem(for: loaded, artifact: artifact) }.value
+            guard !Task.isCancelled, loadToken == token else { return }
+            shareItem = item
+        } catch {
+            guard !Task.isCancelled, loadToken == token else { return }
+            content = .failure(error)
+            shareItem = nil
+        }
     }
 
     @ViewBuilder
@@ -389,12 +410,6 @@ struct SheetDetentExpander: UIViewRepresentable {
             }
         }
     }
-}
-
-/// What `ArtifactPreview` loads: the artifact, again for each Try Again.
-private struct ArtifactLoad: Hashable {
-    let artifact: TerminalArtifact
-    let attempt: Int
 }
 
 /// A video that starts playing when it opens (system controls on tap).
@@ -679,6 +694,9 @@ struct CodeView: View {
     var highlightLine: Int?
     @State private var wrap = false
     @State private var prepared = PreparedLines()
+    // Code and its line-number gutter grow with Dynamic Type.
+    @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
+    @ScaledMetric(relativeTo: .footnote) private var gutterWidth: CGFloat = 40
 
     struct Source: Hashable {
         let text: String
@@ -696,6 +714,17 @@ struct CodeView: View {
         }
     }
 
+    private func codeLine(_ line: AttributedString) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        let font = UIFont.monospacedSystemFont(ofSize: codeSize, weight: .regular)
+        for run in line.runs {
+            let color = run.swiftUI.foregroundColor.map { UIColor($0) } ?? .label
+            result.append(NSAttributedString(string: String(line[run.range].characters),
+                                             attributes: [.font: font, .foregroundColor: color]))
+        }
+        return result
+    }
+
     var body: some View {
         let lines = prepared.lines(for: Source(text: text, language: language))
         ScrollViewReader { proxy in
@@ -705,12 +734,15 @@ struct CodeView: View {
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
                             Text("\(index + 1)")
                                 .foregroundStyle(.tertiary)
-                                .frame(width: 40, alignment: .trailing)
+                                .frame(width: gutterWidth, alignment: .trailing)
                                 .padding(.trailing, 12)
-                            Text(lines[index])
+                            InPlaceSelectionLabel(codeLine(lines[index]))
                                 .fixedSize(horizontal: !wrap, vertical: true)
+                                .alignmentGuide(.firstTextBaseline) { _ in
+                                    UIFont.monospacedSystemFont(ofSize: codeSize, weight: .regular).ascender
+                                }
                         }
-                        .font(.system(size: 13, design: .monospaced))
+                        .font(.system(size: codeSize, design: .monospaced))
                         .padding(.vertical, 1)
                         .background(index + 1 == highlightLine ? Color.yellow.opacity(0.15) : .clear)
                         .id(index + 1)
@@ -718,7 +750,6 @@ struct CodeView: View {
                 }
                 .padding(.vertical, 12)
                 .padding(.trailing, 16)
-                .textSelection(.enabled)
             }
             .defaultScrollAnchor(.topLeading)
             .task(id: Source(text: text, language: language)) {

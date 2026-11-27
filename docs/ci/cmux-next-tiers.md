@@ -29,6 +29,11 @@ every tier on a branch, not just the routed ones, dispatch the workflow on it:
 gh workflow run cmux-next.yml --ref <branch>
 ```
 
+On a working branch (not feat-cmux-next or `next-batch/*`) that dispatch skips the two heavy
+Mac compiles, `cmux app scheme compile (Debug)` and the Release compile; add `-f full=true` to
+run them too (2026-11-15: lane dispatches starved glaeda-side-std-xcode-26.6;
+`docs/ci/cmux-next-workflow-notes.md#note-365`).
+
 Dispatch runs every tier on any ref of this repository (feat-cmux-next, a
 `next-batch/*` branch or a working branch). A newer plain dispatch on the same
 working branch cancels the older one, as a push to a pull request does, so a
@@ -51,15 +56,23 @@ is routed.
 | swift | `cmux-next swift test` (a pull request only with `full-ci`; the tip suite dispatch runs it on the `feat-cmux-next` tip) | the test targets the target graph reaches | mini |
 | daemon | `cmux-next daemon tests` (`same-tree cmux-tui` reports a tree that nothing will publish) | cmux-tui tree inputs, daemon capabilities, `pin-cmux-tui.sh`, CmuxNextDaemon or CmuxNextMobile and their dependencies, CmuxNextControl | a mini, once the tree is published |
 
-An app FFI re-pin runs only the app compile. When a pull request changes
-Package.swift alone, only the CCmuxAppFFI url's release sha and its checksum
-change, and that release's source commit has the head's FFI sources
-(`pure_ffi_repin` in the router), the native tier is its only Mac tier: the
-build fleet's app compile, with the Mac Release compile as the fallback when the
-fleet gives no verdict. `cmux-next checks` still runs "Check the app FFI pin".
-Any other Package.swift change runs every tier, as before. On 2026-11-10 re-pin
-#40576 waited 2 h 49 min behind the Mac queue that every tier took, and the base
-stayed red on the pin check for about five hours.
+An app FFI re-pin runs the app compile and `HandlerCoverageTests` in the existing
+Mac fast-tier job. A pure re-pin changes only `app-ffi-pin.json` and the checksum
+line in Package.swift, and its release source matches the head's FFI sources
+(`pure_ffi_repin`). The app compile retains the Mac Release fallback; the runtime
+check binds the app actions against the newly pinned catalog and rejects missing
+handlers before launch. Both fast-tier routes select only this suite for a pure
+re-pin; the other test, generated, daemon and scheme tiers stay off.
+`cmux-next checks` still runs "Check the app FFI pin". A source-only catalog PR
+still tests the current pin; this check catches the mismatch when the new pin arrives.
+The direct-base pin helper compares the candidate release's action catalog crate
+with the installed pin's source. Any catalog change goes through the re-pin PR
+and this runtime check, even when its C headers are additive. Unrelated additive
+FFI releases keep the direct-base path.
+
+Other Package.swift changes keep their usual routing. On 2026-11-10 re-pin
+#40576 waited 2 h 49 min behind the full Mac tier queue. The narrow runtime
+check addresses the later missing-handler launch crash without restoring those tiers.
 
 A web nit runs no Mac tier. When every changed file is under `webviews/`, the
 webviews app, the agent-pane bundle (`CmuxNextAgentPane/Resources/agent-pane/`)
@@ -252,6 +265,52 @@ No runner waits for the tree. `cmux-next path routing` probes it once
   scheme compile. A new linked library changes `Package.swift`, which runs
   every tier, so a source-only CmuxNext change cannot add one.
 
+## Docs-only pull requests start almost nothing
+
+A pull request that changes only prose nothing reads (a plan, a design note,
+`docs/`, a root guide, docs images) starts only the required checks and a few
+one-job policy and merge-contract checks. Before 2026-11-19 each one started
+22-23 workflows and 180-275 check runs (#44917, #40040).
+
+- **The block.** `scripts/ci/docs_only_paths.py` holds one `paths:` list
+  (`DOCS_ONLY_PATHS`): every path, then `!**/*.md` and docs images, then the
+  prose that code reads put back (`AGENTS.md`, `CLAUDE.md`, `SKILL.md`,
+  `.github/`, skills and references, templates, resources, fixtures, tests,
+  release notes, and each file an `include_str!` compiles in). The workflows in
+  its `WORKFLOWS` carry it on `pull_request` only; push, schedule and dispatch
+  are unchanged. Edit the list there, then run
+  `python3 scripts/ci/docs_only_paths.py --sync`.
+- **What still starts.** Required checks never get a path filter (a required
+  check that never starts stays Expected). The fast gates and the risk tier
+  start because next-autoland lands only on them; the rest are one-job policy
+  checks. `cmux-next.yml` leaves `plans/cmux-next/**/*.md` out of its pull
+  request list and puts back by name the plan docs a Swift target reads; the
+  detector routes every doc it leaves out and fails on one that reaches a tier.
+- **Over 300 files, and labels.** GitHub matches `paths:` against only a
+  pull request's first 300 changed files, so 300 prose files and one code
+  file would start none of the filtered workflows; and the filter applies to
+  label events too, so `full-ci` or `dev-build` on a docs-only pull request
+  started nothing. `.github/workflows/docs-only-fallback.yml` (written by
+  `docs_only_paths.py --sync`) covers both. It has no filter, and its gate job
+  skips with no runner unless the pull request has more than 300 changed files
+  or gets one of those labels. When the gate runs, it lists the changed files
+  and the head's runs through the API. It then calls each filtered workflow
+  that should have started and shows no run, as a reusable workflow (each has
+  `workflow_call:`) in the pull request's own context. Anything it cannot
+  read, it calls. A call passes no secrets, so the called workflow runs as it
+  does for a fork's pull request. The fallback does not listen for
+  description edits.
+- **The detector.** `tests/test_ci_docs_only_prs.py` (ci-guards `ci` group)
+  fails when a docs-only pull request would start a workflow outside its
+  `ALLOWED` table (each with its reason), when a required check gets a filter,
+  when a copy of the block drifts, when an `include_str!` reads a file the block
+  leaves out, or when a guard group test reads one. Path-filtered workflows
+  whose own list takes a package whole (a README inside `cmux-tui/**`) are
+  listed in `SCOPED` until their lists drop Markdown.
+  `tests/test_ci_workflow_paths_cover_inputs.py` checks the inputs of each
+  filtered workflow's tests, and no longer lets the guards workflow excuse an
+  input its own filter leaves out.
+
 ## Changes that need only a blaze build
 
 `scripts/ci/build_class.py [--base REF | --changed-files FILE]` says, from the
@@ -306,14 +365,10 @@ The defaults snapshot (`schemas/defaults/cmux-next.json`) is bot-only (#21946):
 no pull request commits it, and the PR autofix leaves it out. It is stale
 between a merge and the base autofix's commit, so CI never runs `check-fresh` on
 an event. The base autofix
-rewrites it after each merge. The defaults guard judges a pull request by the defaults its
-exports and sources produce, never by a committed snapshot. A changed default passes
-with an independent review receipt on the head (a comment or review whose first line is
-`Review (<reviewer>): SHIP at <full head sha>`, from a member, not a self-review; the
-newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP) or an
-approving review from a call owner in `.github/defaults-call-owners.json` other than the
-author. A new setting whose default is off (false, null, `off`, `never`, `none`,
-`disabled` or empty) keeps what everyone had before it existed and passes on its own.
+rewrites it after each merge. No check judges a pull request's default changes: the
+defaults guard that did was deleted (Leo, 2026-11-25: "the fuck is a defaults guard for.
+if it's not useful, get rid of it"). Flipping a default still needs Leo's say-so, quoted in
+the pull request.
 
 ## Warm sources
 

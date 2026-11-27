@@ -587,7 +587,7 @@ fn identify_and_ping_return_build_metadata() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, restore_progress: false },
         &test_writer(),
     )
     .unwrap();
@@ -601,7 +601,7 @@ fn identify_and_ping_return_build_metadata() {
     let revisions = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: true },
+        Command::Identify { machine_metadata: false, revisions: true, restore_progress: false },
         &test_writer(),
     )
     .unwrap();
@@ -642,7 +642,7 @@ fn lifecycle_ready_identity_advertises_new_public_protocol() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, restore_progress: false },
         &test_writer(),
     )
     .unwrap();
@@ -935,7 +935,14 @@ fn creation_attachment_identity_rejects_wrong_generation_and_terminal() {
             rows: None,
             expected_generation: Some(generation),
             expected_terminal_id: Some(terminal),
+            hybrid_stream: None,
+            hybrid_frame: None,
             replay_history_rows: None,
+            output_coalesce_ms: None,
+            replay_history_start: None,
+            resume_offset: None,
+            resume_generation: None,
+            resume_max_bytes: None,
             snapshot: Default::default(),
         };
         let error = handle_command(&mux, client, command, &writer).unwrap_err();
@@ -948,7 +955,14 @@ fn creation_attachment_identity_rejects_wrong_generation_and_terminal() {
         rows: None,
         expected_generation: Some(mux.registry_identity().1),
         expected_terminal_id: Some(terminal),
+        hybrid_stream: None,
+        hybrid_frame: None,
         replay_history_rows: None,
+        output_coalesce_ms: None,
+        replay_history_start: None,
+        resume_offset: None,
+        resume_generation: None,
+        resume_max_bytes: None,
         snapshot: Default::default(),
     };
     handle_command(&mux, client, command, &writer).unwrap();
@@ -988,7 +1002,14 @@ fn guarded_browser_attach_rejects_a_late_capability_upgrade() {
             rows: None,
             expected_generation: None,
             expected_terminal_id: None,
+            hybrid_stream: None,
+            hybrid_frame: None,
             replay_history_rows: None,
+            output_coalesce_ms: None,
+            replay_history_start: None,
+            resume_offset: None,
+            resume_generation: None,
+            resume_max_bytes: None,
             snapshot: Default::default(),
         },
         &writer,

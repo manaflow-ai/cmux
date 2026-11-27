@@ -37,6 +37,22 @@ test("the card shows this Mac with its badge and fingerprint and reads again whe
   page.unmount();
 });
 
+test("Mac rows expose Share or View screen without widening the name controls", async () => {
+  const page = await open();
+  const self = card(page.container).querySelector<HTMLElement>('[data-device="dev-mac-studio"]')!;
+  const share = self.querySelector<HTMLButtonElement>('[data-device-action="shareScreen"]')!;
+  expect(share.getAttribute("aria-label")).toBe("Share");
+  expect(share.textContent).toContain("Share");
+  await click(share);
+  const remote = card(page.container).querySelector<HTMLElement>('[data-device="dev-macbook"]')!;
+  const view = remote.querySelector<HTMLButtonElement>('[data-device-action="viewScreen"]')!;
+  expect(view.textContent).toContain("View screen");
+  expect(view.disabled).toBe(true);
+  expect(remote.querySelector('[data-device-action="shareScreen"]')).toBeNull();
+  expect(remote.querySelector("[data-device-name]")!.textContent).toBe("MacBook Pro");
+  page.unmount();
+});
+
 test("other devices show presence and an access picker that sends setAccess", async () => {
   const page = await open();
   const element = card(page.container);
@@ -113,6 +129,19 @@ test("the sharing switch sends setSharing; a permission's button sends openPermi
   // Off: the permission rows go away.
   expect(group().querySelector("[data-devices-permission]")).toBeNull();
   expect(group().querySelector('[role="switch"]')!.getAttribute("aria-checked")).toBe("false");
+  page.unmount();
+});
+
+test("the agents switch is off by default and sends setAgentsMayShare", async () => {
+  const page = await open();
+  const row = () =>
+    card(page.container).querySelector<HTMLElement>('[data-devices-group="sharing"] [data-devices-agents]')!;
+  expect(row().textContent).toContain("My agents can turn screen sharing and control on my machines");
+  const toggle = () => row().querySelector<HTMLButtonElement>('[role="switch"]')!;
+  expect(toggle().getAttribute("aria-checked")).toBe("false");
+  await click(toggle());
+  expect(nonRefresh(page.provider.deviceRuns).at(-1)).toEqual({ action: "setAgentsMayShare", on: true });
+  expect(toggle().getAttribute("aria-checked")).toBe("true");
   page.unmount();
 });
 
@@ -317,20 +346,28 @@ test("a fingerprint shows the whole key on hover and Copy writes it", async () =
     '[data-devices-group="this"] [data-device="dev-mac-studio"]',
   )!;
   const full = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809";
-  expect(self.querySelector("[data-device-fingerprint] code")!.getAttribute("title")).toBe(full);
+  // The whole key is the short one's hover card and its description (WithFacts, a1e7752d4c3d), not a
+  // title (c0ecbb88f123).
+  const code = self.querySelector<HTMLElement>("[data-device-fingerprint] code")!;
+  expect(code.getAttribute("title")).toBeNull();
+  const described = code.getAttribute("aria-describedby");
+  expect(described).toBeTruthy();
+  expect(self.ownerDocument.getElementById(described!)?.textContent).toBe(full);
   await click(self.querySelector("[data-device-copy-fingerprint]")!);
   expect(page.provider.clipboard).toBe(full);
   page.unmount();
 });
 
-test("history fits its card: fixed columns, names wrap at word boundaries, full text on hover", async () => {
+test("history fits its card: fixed columns, names wrap at word boundaries, their whole text shown", async () => {
   const page = await open();
   const table = card(page.container).querySelector<HTMLElement>(".devices-history")!;
   expect(table.classList.contains("devices-history-fixed")).toBe(true);
   expect(table.querySelectorAll("colgroup col").length).toBe(7);
   const first = table.querySelector("tbody tr")!;
-  for (const cell of first.querySelectorAll("td.devices-wrap"))
-    expect(cell.getAttribute("title")).toBe(cell.textContent);
+  // A wrapped cell shows its whole text, so it has no tooltip repeating it (c0ecbb88f123).
+  const cells = [...first.querySelectorAll("td.devices-wrap")];
+  expect(cells.length).toBeGreaterThan(0);
+  for (const cell of cells) expect(cell.getAttribute("title")).toBeNull();
   page.unmount();
 });
 

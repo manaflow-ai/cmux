@@ -2,7 +2,9 @@
 """Exercise build-script Go invocations without downloading or compiling Go."""
 import importlib.util
 import json
+import re
 import os
+import shlex
 from pathlib import Path
 import subprocess
 import tempfile
@@ -96,12 +98,21 @@ pathlib.Path(sys.argv[sys.argv.index("-o") + 1]).touch()
 
 
 class ShippingFeatureTests(unittest.TestCase):
-    def flags(self, manifest, target):
+    def flags(self, manifest, target, *dep):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "Cargo.toml"
             path.write_text(manifest)
             return subprocess.check_output([str(ROOT / "scripts/ci/acpmux-build-features.sh"),
-                                            str(path), target], text=True).strip()
+                                            str(path), target, *dep], text=True).strip()
+
+    def test_standalone_build_names_the_acpmux_dependency(self):
+        # The macOS legs build acpmux-standalone, which turns the shipping features on through its
+        # acpmux dependency; a bare `--features=tailnet` would name a feature it does not have.
+        manifest = "[features]\ntailnet = []\nhub-carrier = []\n"
+        self.assertEqual(self.flags(manifest, "aarch64-apple-darwin", "acpmux"),
+                         "--features=acpmux/tailnet,acpmux/hub-carrier")
+        self.assertEqual(self.flags(manifest, "x86_64-pc-windows-gnu", "acpmux"), "")
+        self.assertEqual(self.flags(manifest, "aarch64-apple-darwin"), "--features=tailnet,hub-carrier")
 
     def test_mac_ships_tailnet_when_supported(self):
         for target in ["aarch64-apple-darwin", "x86_64-apple-darwin"]:
@@ -116,6 +127,107 @@ class ShippingFeatureTests(unittest.TestCase):
 
     def test_dependency_name_does_not_enable_feature(self):
         self.assertEqual(self.flags("[dependencies]\ntailnet = {}\n", "aarch64-apple-darwin"), "")
+
+
+class ShippedAcpmuxCarriesItsFeaturesTests(unittest.TestCase):
+    """The Linux package's acpmux is acpmux-standalone (#42682), built with no features until this test: the published
+    x86_64-unknown-linux-musl acpmux had no hub carrier at all (a Linux machine on c10f26a1a, 2026-11-15)."""
+    STANDALONE = ROOT / "cmux-tui/crates/acpmux-standalone/Cargo.toml"
+    WORKFLOW = ROOT / ".github/workflows/cmux-tui-build-package.yml"
+
+    def flags(self, manifest, target):
+        return subprocess.check_output([str(ROOT / "scripts/ci/acpmux-build-features.sh"), str(manifest), target],
+                                       text=True).strip()
+
+    def test_standalone_gets_the_hub_carrier_on_every_shipped_unix_target(self):
+        for target in ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "x86_64-unknown-linux-gnu"]:
+            self.assertEqual(self.flags(self.STANDALONE, target), "--features=hub-carrier", target)
+        self.assertEqual(self.flags(self.STANDALONE, "aarch64-apple-darwin"), "--features=tailnet,hub-carrier")
+
+    def test_standalone_passes_each_feature_to_acpmux(self):
+        import tomllib
+        features = tomllib.loads(self.STANDALONE.read_text())["features"]
+        acpmux = tomllib.loads((ROOT / "cmux-tui/crates/acpmux/Cargo.toml").read_text())["features"]
+        for name in ["tailnet", "hub-carrier"]:
+            self.assertIn(name, acpmux)
+            self.assertEqual(features.get(name), [f"acpmux/{name}"], name)
+
+    def test_every_shipped_unix_acpmux_build_passes_the_shipping_features(self):
+        # The Mac-built macOS legs' cargo builds are in scripts/ci/cmux-tui-mac-cargo-builds.sh.
+        count = 0
+        for path in (self.WORKFLOW, ROOT / "scripts/ci/cmux-tui-mac-cargo-builds.sh"):
+            lines = path.read_text().splitlines()
+            builds = [(n, line) for n, line in enumerate(lines, 1)
+                      if re.search(r"-p acpmux(-standalone)? --bin", line) and "windows" not in line]
+            count += len(builds)
+            for n, line in builds:
+                text = line + (lines[n] if line.rstrip().endswith("\\") else "")
+                # A build may consume the shared shell variable or resolve the same
+                # feature flags inline.  Both paths execute the shipping-feature
+                # helper; require the inline form to name the standalone manifest so
+                # it cannot silently calculate flags for a different package.
+                has_shipping_features = (
+                    "acpmux_features" in text
+                    or re.search(
+                        r"acpmux-build-features\.sh\s+crates/acpmux-standalone/Cargo\.toml\s+\"\$t\"",
+                        text,
+                    )
+                )
+                self.assertTrue(has_shipping_features,
+                                f"{path.name}:{n} builds acpmux without its shipping features")
+        self.assertGreaterEqual(count, 3)
+        self.assertIn("acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml", self.WORKFLOW.read_text())
+
+    def test_grouped_and_inline_builds_resolve_shipping_feature_arguments(self):
+        # Execute the workflow's actual command construction, without running Cargo.
+        # The combined thin-LTO command must qualify features by package; the separate
+        # fat-LTO group can use the standalone package's unqualified features.
+        lines = self.WORKFLOW.read_text().splitlines()
+        assignments = [line.strip() for line in lines
+                       if line.strip().startswith('acpmux_features=')
+                       or (line.strip().startswith(('acpmux_group=(', 'lead+='))
+                           and '-p acpmux-standalone' in line)]
+        self.assertEqual(len(assignments), 3, "expected feature resolution and both build commands")
+        script = '\n'.join([
+            'set -euo pipefail', 't=$1', 'lead=""',
+            'zb() { echo cargo zigbuild; }', *assignments,
+            'printf "%s\\n" "${acpmux_group[1]}" "$lead"',
+        ])
+        for target in ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl",
+                       "x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-apple-darwin"]:
+            with self.subTest(target=target):
+                commands = subprocess.check_output(
+                    ['bash', '-c', script, 'shipping-features', target],
+                    cwd=ROOT / 'cmux-tui', text=True, timeout=10).splitlines()
+                self.assertEqual(len(commands), 2)
+                required = ['hub-carrier']
+                if target.endswith('apple-darwin'):
+                    required.insert(0, 'tailnet')
+                for command, prefix in zip(commands, ['', 'acpmux-standalone/']):
+                    args = shlex.split(command)
+                    self.assertIn('--features=' + ','.join(prefix + name for name in required), args)
+
+    def test_the_apps_acpmux_carries_the_hub_carrier(self):
+        """The app's acpmux is the cmux binary (bin/acpmux aliases bin/cmux), which took acpmux with no features:
+        a joined Mac on 64821ccc5 ran no hub carrier and logged nothing about it (2026-11-15)."""
+        import tomllib
+        manifest = tomllib.loads((ROOT / "cmux-tui/crates/cmux-tui/Cargo.toml").read_text())
+        unix = manifest["target"]["cfg(unix)"]["dependencies"].get("acpmux", {})
+        self.assertIn("hub-carrier", unix.get("features", []), "cmux-tui's unix acpmux lacks the hub carrier")
+
+    def test_every_shipping_script_builds_acpmux_with_its_features(self):
+        scripts = [*sorted((ROOT / "scripts/ci/nightly-steps").glob("*.sh")), ROOT / "scripts/ci/macos-cross.sh"]
+        found = set()
+        for path in scripts:
+            lines = path.read_text().splitlines()
+            for n, line in enumerate(lines, 1):
+                if not re.search(r"-p acpmux --bin acpmux\b", line):
+                    continue
+                found.add(path.name)
+                text = line + (lines[n] if line.rstrip().endswith("\\") and n < len(lines) else "")
+                self.assertIn("acpmux-build-features.sh", text, f"{path.relative_to(ROOT)}:{n} builds acpmux without its features")
+        # The fast nightly's acpmux, the one that once shipped without the carrier, is among those checked.
+        self.assertIn("app-build-fast-cmux-tui.sh", found)
 
 
 class TreeKeyTests(unittest.TestCase):

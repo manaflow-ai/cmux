@@ -1,5 +1,5 @@
 {
-  "//": "In this repository the SDK resolves from source, so the example builds with no install. Outside it, `npm install cmux-extension-sdk` and drop `paths`.",
+  "//": "In this repository the SDK resolves from source, so the example builds with no install. Outside it, drop `paths`: `cmux ext dev` builds on the SDK built into cmux.",
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",

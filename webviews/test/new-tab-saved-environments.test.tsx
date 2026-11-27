@@ -236,7 +236,7 @@ const type = async (input: HTMLInputElement | HTMLTextAreaElement | null, text: 
 };
 const environmentButton = () =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((button) =>
-    (button.getAttribute("aria-label") ?? "").startsWith(t("composer.environment") + ":"),
+    (button.getAttribute("aria-label") ?? "").startsWith(t("composer.computer") + ":"),
   );
 const folderButton = () =>
   host.querySelector<HTMLButtonElement>(`.acpmux-composer-context button[aria-label="${t("composer.folder")}"]`);
@@ -290,7 +290,8 @@ const started = (calls: Call[]) =>
 test("previews off: no saved environments and the host is not asked", async () => {
   const calls = await mount({ previews: false });
   expect(calls.some((call) => call.method.startsWith("environment."))).toBe(false);
-  expect(environmentButton()).toBeUndefined();
+  // Only the plain Computer chip, naming this Mac: no saved environment is offered or named.
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.computer")}: ${t("composer.thisMac")}`);
 });
 
 test("the saved environments are in Machines…, under This Mac; the main list is This Mac and Cloud", async () => {
@@ -328,7 +329,7 @@ test("a saved SSH environment names the strip and asks on its machine, in its fo
     target: { harness: "claude", host: "devbox", cwd: "/srv/api" },
   });
   expect(environmentButton()?.getAttribute("aria-label")).toBe(
-    `${t("composer.environment")}: ${t("composer.anotherMachine")} · Devbox API`,
+    `${t("composer.computer")}: ${t("composer.otherDevices")} · Devbox API`,
   );
   // The environment names where the chat starts: no folder control beside it.
   expect(folderButton()).toBeNull();
@@ -403,7 +404,7 @@ test("picking another machine acpmux lists starts the chat there", async () => {
     target: { harness: "claude", host: "devbox" },
   });
   expect(environmentButton()?.getAttribute("aria-label")).toBe(
-    `${t("composer.environment")}: ${t("composer.anotherMachine")} · devbox`,
+    `${t("composer.computer")}: ${t("composer.otherDevices")} · devbox`,
   );
   // The prompt takes the keyboard back, as after a folder pick.
   expect(doc().activeElement).toBe(host.querySelector(".nt-field [contenteditable]"));
@@ -488,7 +489,7 @@ test("Create environment saves where the page would start and picks it", async (
   });
   expect($(".acpmux-env-panel")).toBeNull();
   expect(environmentButton()?.getAttribute("aria-label")).toBe(
-    `${t("composer.environment")}: ${t("composer.thisMac")} · Sandbox`,
+    `${t("composer.computer")}: ${t("composer.thisMac")} · Sandbox`,
   );
   // Picked: Edit environment opens it again, with Remove.
   await click(await moreItem(t("environment.edit")));
@@ -538,9 +539,7 @@ test("a saved local environment that is only a folder is in the folder menu, not
   expect(row("Web")).toBeUndefined();
   await click(environmentButton());
   await pickFolderRow(APP);
-  expect(environmentButton()?.getAttribute("aria-label")).toBe(
-    `${t("composer.environment")}: ${t("composer.thisMac")}`,
-  );
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.computer")}: ${t("composer.thisMac")}`);
   expect(folderButton()).not.toBeNull();
   // It is still the saved environment: Edit environment opens it.
   await click(await moreItem(t("environment.edit")));
@@ -567,17 +566,28 @@ test("a start the SSH machine refused sends the prompt nowhere", async () => {
   expect(calls.some((call) => call.method === "chat.send")).toBe(false);
 });
 
-test("New chat after a refused worktree leaves the page's create buttons working", async () => {
+test("New chat after a refused worktree leaves searchable creation working", async () => {
   const calls = await mount({ worktree: "refused" });
   await openMachines();
   await click(row("API worktree"));
-  await typePrompt("fix the build");
-  await click(host.querySelector('[data-create="chat"]'));
+  await typePrompt("new chat");
+  await act(async () =>
+    [...dom.window.document.querySelectorAll<HTMLElement>('.nt-row[data-type="create"]')]
+      .find((row) => row.querySelector(".nt-row-title")?.textContent === "New chat")!
+      .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+  await settle();
   // Said plainly; the host's own words (git's) go to the log (Leo, 2026-11-12: "we want good error
   // states. We don't want busted errors.").
   expect(host.querySelector('[role="alert"]')?.textContent).toBe(t("worktree.failedPlain"));
   expect(host.textContent).not.toContain("not a git repository");
-  await click(host.querySelector('[data-create="terminal"]'));
+  await typePrompt("new terminal");
+  await act(async () =>
+    [...dom.window.document.querySelectorAll<HTMLElement>('.nt-row[data-type="create"]')]
+      .find((row) => row.querySelector(".nt-row-title")?.textContent === "New terminal")!
+      .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+  await settle();
   expect(calls.some((call) => call.method === "tab.open")).toBe(true);
 });
 

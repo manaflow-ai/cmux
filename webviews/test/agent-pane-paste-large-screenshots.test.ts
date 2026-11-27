@@ -8,7 +8,8 @@
 //   run in a worker (composer/imageWorker.ts), so the page's main thread never stalls on them.
 // - A host that never answers (`chat.attach.dropped`, `chat.upload.*`) never leaves a tile loading
 //   forever: an image becomes its chip once its preview is made, whatever its original's upload does.
-// - A loading tile spins and has a working ×; a tile that failed says why, and Retry tries again.
+// - A loading tile spins and has a working ×; a tile whose upload failed keeps loading and is asked
+//   again on its own, with no Retry (Leo, 2026-11-22; composer/uploadRetry.ts).
 // The page is the pane's dev entry with the in-page mock transport.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -17,10 +18,11 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () => {
   /// The longest the main thread may stall while screenshots attach: a key typed then lands within it.
-  const MAX_STALL_MS = 120;
+  const MAX_STALL_MS = 120; // motion-allow: a stall budget, not motion
   setDefaultTimeout(180_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -125,21 +127,24 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
   /// heartbeat that records the main thread's longest stall from then on.
   /// `paste` false only starts the heartbeat (a baseline with nothing pasted).
   const pasteScreenshots = (page: Page, paste = true) =>
-    page.evaluate((paste) => {
-      const state = window as unknown as { screenshots: File[]; stall: number; beat: number };
-      state.stall = 0;
-      let last = performance.now();
-      state.beat = window.setInterval(() => {
-        const now = performance.now();
-        state.stall = Math.max(state.stall, now - last);
-        last = now;
-      }, 4);
-      if (!paste) return;
-      const data = new DataTransfer();
-      for (const file of state.screenshots) data.items.add(file);
-      const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
-      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    }, paste);
+    page.evaluate(
+      ({ paste, COMPOSER_EDITOR }) => {
+        const state = window as unknown as { screenshots: File[]; stall: number; beat: number };
+        state.stall = 0;
+        let last = performance.now();
+        state.beat = window.setInterval(() => {
+          const now = performance.now();
+          state.stall = Math.max(state.stall, now - last);
+          last = now;
+        }, 4);
+        if (!paste) return;
+        const data = new DataTransfer();
+        for (const file of state.screenshots) data.items.add(file);
+        const target = document.querySelector(COMPOSER_EDITOR)!;
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      },
+      { paste, COMPOSER_EDITOR },
+    );
 
   const longestStall = (page: Page) =>
     page.evaluate(() => {
@@ -149,14 +154,15 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     });
 
   // The attachments the default inline view places in the prompt's line: one chip per attachment,
-  // a spinner while it loads, Retry when it failed (inlineAttachments.tsx).
+  // a spinner while it loads (and while a failed upload is asked again), its x when it failed
+  // (inlineAttachments.tsx).
   const INLINE = ".acpmux-composer-prompt .acpmux-md-inline-chip";
   const LOADING = `${INLINE}[data-state="loading"]`;
-  const FAILED = `${INLINE}[data-state="failed"]`;
+  const FAILED = `${INLINE} .acpmux-attachment-failed`;
 
   /// The prompt's text, without the attachments placed in it (each an atom in the line).
   const promptText = (page: Page) =>
-    page.locator(".acpmux-composer-prompt [contenteditable='true']").evaluate((node) => {
+    page.locator(COMPOSER_EDITOR).evaluate((node) => {
       const copy = node.cloneNode(true) as Element;
       for (const atom of copy.querySelectorAll("[data-inline-attachment]")) atom.remove();
       return copy.textContent?.replace(/\u00a0/g, " ");
@@ -164,7 +170,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
 
   test("pasting three large Retina screenshots never blocks typing", async () => {
     const page = await newChat();
-    const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
+    const prompt = page.locator(COMPOSER_EDITOR);
     await prompt.click();
     const sizes = await makeScreenshots(page, 3);
     expect(Math.min(...sizes)).toBeGreaterThan(2 * 1024 * 1024);
@@ -187,7 +193,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
 
   test("a host that never answers never leaves a pasted screenshot loading", async () => {
     const page = await newChat({ "chat.attach.dropped": "hang", "chat.upload.begin": "hang" });
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    await page.locator(COMPOSER_EDITOR).click();
     await makeScreenshots(page, 2);
     await pasteScreenshots(page);
     await page.waitForFunction(
@@ -203,7 +209,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
 
   test("a loading tile's × takes it away for good", async () => {
     const page = await newChat();
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    await page.locator(COMPOSER_EDITOR).click();
     await makeScreenshots(page, 1);
     await pasteScreenshots(page);
     const loading = page.locator(LOADING);
@@ -221,26 +227,38 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     await page.close();
   });
 
-  test("a file whose upload failed says why, and Retry attaches it", async () => {
+  test("a file whose upload failed keeps loading and is attached on its own once the host takes it", async () => {
     const page = await newChat({ "chat.upload.begin": "fail", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
-    await page.evaluate(() => {
-      const data = new DataTransfer();
-      data.items.add(new File([new Uint8Array(4096)], "notes.bin", { type: "application/octet-stream" }));
-      const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
-      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
-    // The failed chip is cut to its size in the line; its tooltip has the reason.
-    const failed = page.locator(FAILED);
-    await failed.waitFor();
-    expect(await failed.getAttribute("title")).toContain("The disk is full.");
-    // The host takes it this time.
+    await page.locator(COMPOSER_EDITOR).click();
+    await page.evaluate(
+      ({ COMPOSER_EDITOR }) => {
+        const data = new DataTransfer();
+        data.items.add(new File([new Uint8Array(4096)], "notes.bin", { type: "application/octet-stream" }));
+        const target = document.querySelector(COMPOSER_EDITOR)!;
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      },
+      { COMPOSER_EDITOR },
+    );
+    // The loading chip is cut to its size in the line; it keeps loading through the failure, with no
+    // Retry and never a failed tile (its tooltip says "Still trying" only after the house deadline).
+    const loading = page.locator(`${INLINE} .acpmux-attachment[aria-busy="true"]`);
+    await loading.waitFor();
+    const before = (await loading.boundingBox())!;
+    const composer = page.locator(".acpmux-composer-box");
+    const composerHeight = (await composer.boundingBox())!.height;
+    expect(await page.locator(FAILED).count()).toBe(0);
+    expect(await page.locator(`${INLINE} .acpmux-attachment-retry`).count()).toBe(0);
+    // The host takes it from now on: the next ask (its backoff, 0.5-2 s) attaches it, untouched.
     await page.evaluate(() => {
       (window as unknown as { host: Record<string, string> }).host["chat.upload.begin"] = "ok";
     });
-    await failed.locator(".acpmux-md-inline-retry").click();
-    await page.locator(".acpmux-attachment-link").waitFor();
-    expect(await failed.count()).toBe(0);
+    const ready = page.locator(`${INLINE} .acpmux-attachment-link`);
+    await ready.waitFor({ timeout: 10_000 });
+    expect(await page.locator(FAILED).count()).toBe(0);
+    const after = (await ready.boundingBox())!;
+    expect(after.width).toBeCloseTo(before.width);
+    expect(after.height).toBeCloseTo(before.height);
+    expect((await composer.boundingBox())!.height).toBeCloseTo(composerHeight);
     await page.close();
   });
 
@@ -248,8 +266,9 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
   // is converted to JPEG or PNG in the worker, never on the page. (Chromium has no HEIF decoder, so
   // here it goes as a file; the app's WebKit decodes it in the worker.)
   test("a 5.2 MB HEIF photo never blocks typing", async () => {
-    const page = await newChat();
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    // The host takes its upload: one that fails is asked again on its own and keeps loading.
+    const page = await newChat({ "chat.upload.begin": "ok", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
+    await page.locator(COMPOSER_EDITOR).click();
     await page.evaluate(() => {
       const bytes = new Uint8Array(5.2 * 1024 * 1024);
       for (let at = 0; at < bytes.length; at += 65536) crypto.getRandomValues(bytes.subarray(at, at + 65536));
@@ -281,7 +300,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
   // session's machine and the chip gets its path; removing the chip later stops it.
   test("a pasted screenshot's original uploads, and its chip's x stops the upload", async () => {
     const page = await newChat({ "chat.upload.begin": "ok", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    await page.locator(COMPOSER_EDITOR).click();
     await makeScreenshots(page, 1);
     await pasteScreenshots(page);
     await page.locator(".acpmux-attachment-image img").waitFor();

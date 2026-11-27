@@ -204,10 +204,14 @@ pub fn is_newer(latest: &str, installed: &str) -> bool {
 
 /// Numeric version ordering, retaining the difference between equality and
 /// a version that cannot be compared. Missing evidence is not equality.
+/// A placeholder version (`0.0.0`, `0.0.0-next`: a dev or nightly build, as
+/// `opencode2 v0.0.0-next-17403`) cannot be compared: it says nothing about
+/// which release it is ahead of or behind (msg 42278).
 pub fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     fn parts(v: &str) -> Option<Vec<u64>> {
         let core = v.trim().trim_start_matches('v').split(['-', '+', ' ']).next()?;
-        core.split('.').map(|p| p.parse().ok()).collect()
+        let parts: Vec<u64> = core.split('.').map(|p| p.parse().ok()).collect::<Option<_>>()?;
+        parts.iter().any(|&p| p != 0).then_some(parts)
     }
     let (mut a, mut b) = (parts(left)?, parts(right)?);
     let n = a.len().max(b.len());

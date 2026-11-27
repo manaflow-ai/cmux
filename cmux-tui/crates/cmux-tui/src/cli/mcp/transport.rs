@@ -165,8 +165,9 @@ pub(super) fn resource(
     ) {
         return opened.map_err(|failure| app_open_failure(failure, key.as_deref()));
     }
-    // `agents workspace create` from a cmux terminal against an older
-    // daemon: sent without `created_by`, as `cmux workspace create` is.
+    // A create from an agent session names it (`created_by_stamp.rs`); against an older
+    // daemon, only the `created_by` it takes, as `cmux workspace create` sends.
+    wire::stamp_created_by(&mut request);
     wire::drop_unsupported_created_by(&mut reader, &socket, &mut request);
     super::super::launch_credential::attach(&mut reader, &socket, &mut request);
     let encoded = resolve::encode_request_bytes(&request)
@@ -442,14 +443,18 @@ pub(super) fn browser_host_socket() -> std::path::PathBuf {
     base.join("browser-host.sock")
 }
 
-/// `params` with the server's own terminal (`CMUX_TUI_TERMINAL_ID`) on the
-/// operations that can open a session, so the app draws the session's lease
-/// in that agent's presence colour. Display only; the agent cannot name it.
+/// `params` with the server's own terminal (`CMUX_TUI_TERMINAL_ID`) and
+/// workspace (`CMUX_WORKSPACE_ID`) on the operations that can open a
+/// session, so the app draws the session's lease in that agent's presence
+/// colour and opens its tabs in the agent's own workspace, never the focused
+/// one. The agent cannot name either.
 fn with_caller_terminal(method: &str, mut params: Value) -> Value {
     let opens = matches!(method, "browser.repl.open" | "browser.repl.eval" | "browser.repl.reset");
-    let terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty());
-    if let (true, Some(terminal), Some(fields)) = (opens, terminal, params.as_object_mut()) {
-        fields.insert("terminal".into(), Value::String(terminal));
+    let Some(fields) = params.as_object_mut().filter(|_| opens) else { return params };
+    for (key, name) in [("terminal", "CMUX_TUI_TERMINAL_ID"), ("workspace", "CMUX_WORKSPACE_ID")] {
+        if let Some(value) = std::env::var(name).ok().filter(|id| !id.is_empty()) {
+            fields.insert(key.into(), Value::String(value));
+        }
     }
     params
 }

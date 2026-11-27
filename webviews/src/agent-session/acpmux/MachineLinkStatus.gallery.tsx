@@ -9,7 +9,8 @@
 //   - `words`: the dot and the state's word. Says what happens, not to which machine; a pane beside
 //     another machine's chat reads the same.
 //   - `named` (shipped): the dot, the machine and the state's word, the sidebar header's same word,
-//     with Reconnect when it is down. The words fold out of the dot, so the model chip and the
+//     and no Reconnect when it is down: the row redials on its own (Leo, 2026-11-22). The words
+//     fold out of the dot, so the model chip and the
 //     ring never move; connected folds back to the dot.
 //
 // References: claude/live/sidebar-project-groups-status-dots (a status dot per remote group, words
@@ -23,6 +24,8 @@ type Props = {
   link: PeerLink | null;
   look?: MachineLinkLook;
   /// The row as it was: the model chip's "Unavailable" and no link.
+  /// How long a link that comes back on its own stays unsaid; 0 (the default here) draws it at once.
+  quietMs?: number;
   before?: boolean;
 };
 
@@ -33,10 +36,10 @@ const reconnecting: PeerLink = { machine: MACHINE, link: "connecting", reconnect
 const offline: PeerLink = { machine: MACHINE, link: "offline" };
 const longName: PeerLink = { machine: "gcp-codex-lane-12-us-central1-a", link: "offline" };
 
-function Row({ link, look, before = false }: Props) {
+function Row({ link, look, before = false, quietMs = 0 }: Props) {
   return (
     <div className="acpmux-shell" data-machine-link-fixture style={{ padding: 16 }}>
-      <form className="acpmux-composer">
+      <form className="acpmux-composer" data-foot="">
         <div className="acpmux-composer-bar acpmux-composer-foot" data-footer-look="plain">
           <span className="acpmux-chips">
             <span className="acpmux-access">
@@ -51,7 +54,7 @@ function Row({ link, look, before = false }: Props) {
               </button>
             </span>
           </span>
-          {!before && <MachineLinkStatus link={link} look={look} onReconnect={() => undefined} />}
+          {!before && <MachineLinkStatus link={link} look={look} quietMs={quietMs} onReconnect={() => undefined} />}
         </div>
       </form>
     </div>
@@ -77,6 +80,15 @@ variants["named-long-name"] = {
   note: "A long machine name cuts at its end; the state and Reconnect stay whole.",
   props: { link: longName },
 };
+
+// Under LINK_DOWN_SAID_MS (afterDelay.ts) a link acpmux brings back on its own is not said (Leo,
+// 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"): the plain dot, no spinner,
+// no words, in every state that heals by itself.
+for (const [state, link] of Object.entries({ connecting, reconnecting, offline }))
+  variants[`quiet-${state}`] = {
+    note: `${state}, down for less than 10 s: the plain dot; nothing is said yet.`,
+    props: { link, quietMs: 3_600_000 },
+  };
 
 export default componentEntry<Props>({
   id: "agent-pane.machine-link",

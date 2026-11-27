@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.home.chiefPetEnabled.help" : {
+      "comment" : "Settings > Home: help under the Show Chief Pet toggle. Chief is a product name; a session is an agent or terminal session. ⌃⌥⌘C is the default key of Message the Chief from Any App; keep the symbols as they are.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A small Chief over every app shows agent events. ⌃⌥⌘C opens its reply box."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief صغير فوق كل التطبيقات يعرض أحداث الوكلاء. يفتح ⌃⌥⌘C مربع الرد الخاص به."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mali Chief iznad svih aplikacija prikazuje događaje agenata. ⌃⌥⌘C otvara njegovo polje za odgovor."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En lille Chief over alle apps viser agenthændelser. ⌃⌥⌘C åbner dens svarfelt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein kleiner Chief über allen Apps zeigt Agent-Ereignisse. ⌃⌥⌘C öffnet sein Antwortfeld."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un pequeño Chief sobre todas las apps muestra los eventos de los agentes. ⌃⌥⌘C abre su cuadro de respuesta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un petit Chief au-dessus de toutes les apps affiche les événements des agents. ⌃⌥⌘C ouvre sa zone de réponse."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un piccolo Chief sopra tutte le app mostra gli eventi degli agenti. ⌃⌥⌘C apre la sua casella di risposta."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "すべてのアプリの上に小さな Chief が浮かび、エージェントのイベントを表示します。⌃⌥⌘C で返信ボックスを開きます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief តូចមួយលើកម្មវិធីទាំងអស់បង្ហាញព្រឹត្តិការណ៍ភ្នាក់ងារ។ ⌃⌥⌘C បើកប្រអប់ឆ្លើយតបរបស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작은 Chief가 모든 앱 위에서 에이전트 이벤트를 보여 줍니다. ⌃⌥⌘C로 답장 상자를 엽니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En liten Chief over alle apper viser agenthendelser. ⌃⌥⌘C åpner svarfeltet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mały Chief nad wszystkimi aplikacjami pokazuje zdarzenia agentów. ⌃⌥⌘C otwiera jego pole odpowiedzi."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um pequeno Chief sobre todos os apps mostra eventos dos agentes. ⌃⌥⌘C abre a caixa de resposta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Маленький Chief поверх всех приложений показывает события агентов. ⌃⌥⌘C открывает его поле ответа."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief ตัวเล็กเหนือทุกแอปแสดงเหตุการณ์ของเอเจนต์ ⌃⌥⌘C เปิดช่องตอบกลับ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tüm uygulamaların üzerindeki küçük bir Chief aracı olaylarını gösterir. ⌃⌥⌘C yanıt kutusunu açar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Маленький Chief над усіма застосунками показує події агентів. ⌃⌥⌘C відкриває його поле відповіді."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một Chief nhỏ trên mọi ứng dụng hiện các sự kiện của tác tử. ⌃⌥⌘C mở ô trả lời của nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一个小小的 Chief 浮在所有应用上方，显示代理事件。⌃⌥⌘C 打开它的回复框。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一個小小的 Chief 浮在所有 App 上方顯示代理事件。按 ⌃⌥⌘C 打開它的回覆框。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

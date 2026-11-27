@@ -11,6 +11,14 @@ public nonisolated struct PageConfirmation: Sendable, Hashable {
         case install, uninstall, update, grant, delete, custom
     }
 
+    /// Why a confirmation stays (RFD 0132): before an action that can't be undone, one that spends
+    /// money, or one that exposes a machine. A confirm a person's click meets with none of these
+    /// guards nothing; it should be the default action with an undo instead
+    /// (``PageDescriptor/guardlessConfirms``; the cloud-ergonomics probe counts them as `confirms_guarding_nothing`).
+    public enum Guard: String, Sendable, Hashable, CaseIterable {
+        case irreversible, spends, exposes
+    }
+
     /// One scope the app asks for, with its class from scope-classes.json and the app's reason.
     public struct Scope: Sendable, Hashable {
         public var scope: String
@@ -36,10 +44,14 @@ public nonisolated struct PageConfirmation: Sendable, Hashable {
     public var detail: String?
     /// For `install` with a deploy: where the app's server runs (`self-hosted:<host>`, `cloud-vm:<machine>`).
     public var deployTarget: String?
+    /// Params the approved call must carry, set from what this sheet showed (an install from a git
+    /// repository binds the `commit` the card listed, so the daemon installs that one).
+    public var bind: [String: String]
 
     public init(kind: Kind, name: String, scopes: [Scope] = [], webURL: String? = nil, webOrigins: [String] = [], detail: String? = nil,
-                deployTarget: String? = nil) {
+                deployTarget: String? = nil, bind: [String: String] = [:]) {
         self.deployTarget = deployTarget
+        self.bind = bind
         self.kind = kind
         self.name = name
         self.scopes = scopes
@@ -139,7 +151,12 @@ public extension PageConfirmation {
         case "cmux.cloud.billing.open": return PageConfirmation(kind: .custom, name: PageStrings.cloudBilling)
         case "cmux.cloud.auth.sign_in": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignIn)
         case "cmux.cloud.auth.sign_out": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignOut)
-        case "cmux.cloud.machine.connect": return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudConnect, name))
+        case "cmux.cloud.machine.connect":
+            let displayName = args["displayName"].map { value in
+                value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? PageStrings.cloudMachine : value
+            } ?? PageStrings.cloudMachine
+            return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudConnect, displayName),
+                                    detail: PageStrings.cloudConnectDetail)
         default: return PageConfirmation(kind: kind, name: name)
         }
     }

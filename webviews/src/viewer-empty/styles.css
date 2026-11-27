@@ -49,18 +49,11 @@
 .ve-title {
   /* An empty state's title is the page heading step (design-tokens.md section 2: title 20/22 for
      onboarding and empty states), not the 15 px card title. */
-  margin: 0 0 var(--ds-space-1);
+  margin: 0 0 var(--ds-space-4);
   font-size: var(--text-heading);
   font-weight: var(--weight-emphasis);
   line-height: var(--text-heading--line-height);
   letter-spacing: var(--text-heading--letter-spacing);
-}
-
-.ve-subtitle {
-  margin: 0 0 var(--ds-space-4);
-  color: var(--ve-fg-2);
-  font-size: var(--text-detail);
-  text-wrap: pretty;
 }
 
 .ve-actions {
@@ -528,13 +521,8 @@
   font-size: var(--text-caption);
 }
 
-.ve-hint kbd {
-  margin-right: var(--ds-space-1);
-  padding: 0 var(--ds-space-1);
-  border: 1px solid var(--ve-line);
-  border-radius: var(--ui-row-radius, 4px);
-  color: var(--ve-fg-2);
-  font: var(--text-caption) / var(--text-caption--line-height) var(--ve-font);
+.ve-hint .ui-key-hint {
+  margin-inline-end: var(--ds-space-1);
 }
 
 .ve-picker-actions {

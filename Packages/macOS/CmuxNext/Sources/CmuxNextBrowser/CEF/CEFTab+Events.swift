@@ -16,7 +16,7 @@ extension CEFTab {
             machine.apply(.titleChanged(waiting.title))
         }
         switch event {
-        case .loadingState(_, let loading, let back, let forward):
+        case .loadingState(_, let loading, let back, let forward, let visible):
             nativeHistory = (back, forward)
             restored.applyAvailability()
             restored.dropForwardIfLeftFirstEntry()
@@ -25,7 +25,9 @@ extension CEFTab {
                 let id = makeNavigationID()
                 navigation = id
                 capturesTitleBeforeCommit = true
-                machine.apply(.started(id, url: nil))
+                // The address Chrome's omnibox shows from the load's start (Chromium's visible
+                // entry): a tab a page opened shows where it goes, not an empty field, until commit.
+                machine.apply(.started(id, url: visible.isEmpty ? nil : URL(string: visible)))
             } else if !loading, state.isLoading, let navigation {
                 machine.apply(.finished(navigation))
             }
@@ -37,6 +39,7 @@ extension CEFTab {
                 // A load that ends without OnLoadEnd (stopped, aborted) also leaves the page area to its document,
                 // through its background read like a load end (`documentDidPaint`; bounded wait).
                 documentDidPaint()
+                readDocumentFaviconIfUnreported() // a document restored or prerendered gets no favicon report (#42435)
             }
         case .loadStart(_, let url, let fromPost):
             // A new document: the link the pointer was over is gone (Chrome clears its bubble too).
@@ -47,14 +50,18 @@ extension CEFTab {
                 machine.apply(.started(id, url: URL(string: url)))
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
+            documentFaviconCommitted()
             restored.navigationCommitted(url: URL(string: url))
             restored.documentCommitted(url: URL(string: url), formPost: fromPost)
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
+            if firstCommittedURL == nil { firstCommittedURL = committedURL } // the tab's first page: was it opened for a sign-in (BrowserExternalApps.openOwn)
             // A new document: the one before is gone. Its own first paint may have come first, if this is the load's first commit.
             (documentLoaded, documentPainted, committedIsErrorPage) = (false, paintBeforeCommit && !committedThisLoad, false)
             (paintBeforeCommit, committedThisLoad) = (false, true)
+            refusesDownloadsUntilGesture = false // a document committed: its own downloads ask its gate
+            if documentPainted { removeStandIn() } // its first paint came before the commit
             paintAsk?.cancel() // an answer about the document before is not this one's
             paintAsk = nil
             if !hasDocument { host.lifecycleTrace.record(id, "cef-commit real=\(PageBackground.isRealPage(committedURL)) painted=\(documentPainted)") }
@@ -82,7 +89,7 @@ extension CEFTab {
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
             let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
-            if !error.isBenignInterruption { (documentLoaded, committedIsErrorPage) = (true, true) } // an error page; an aborted load (replaced) is none
+            if !error.isBenignInterruption { (documentLoaded, committedIsErrorPage) = (true, true); removeStandIn() } // an error page; an aborted load (replaced) is none
             if !hasDocument { host.lifecycleTrace.record(id, "cef-load-error code=\(code) page=\(!error.isBenignInterruption)") }
             documentMayTakeKeys()
             guard let navigation else { return }
@@ -110,8 +117,15 @@ extension CEFTab {
             if capturesTitleBeforeCommit, state.phase == .provisional { titleBeforeCommit = title.isEmpty ? nil : title }
         case .favicon(_, let url):
             let faviconURL = URL(string: url)
-            machine.apply(.faviconChanged(faviconURL))
-            loadFavicon(faviconURL)
+            // An empty report (a single-page app swapping its <head>, Chromium's list for a document without icon
+            // links) keeps the icon the tab has: the state machine clears it when the host changes, and the
+            // document read below answers a document that has none (the tab went back to the globe after a
+            // GitHub Turbo navigation).
+            if faviconURL != nil || state.faviconURL == nil {
+                documentFaviconReported()
+                machine.apply(.faviconChanged(faviconURL))
+                loadFavicon(faviconURL)
+            }
         case .progress(_, let value):
             machine.apply(.progress(value))
         case .fullscreen(_, let entering):
@@ -122,7 +136,7 @@ extension CEFTab {
             emit(.close)
         case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
-        case .externalURL(_, let url, let userGesture): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, userGesture: userGesture, ask: enqueuePrompt) }
+        case .externalURL(_, let url, let userGesture): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, engine: engineKind, userGesture: userGesture, firstPage: firstCommittedURL ?? committedURL, requestedPage: firstRequestedURL, close: { [weak self] in self?.closeAfterHandoff() }, ask: enqueuePrompt) }
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)
@@ -133,9 +147,10 @@ extension CEFTab {
             emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _):
             rendererTerminated(.cef(status: status, code: code))
-        case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
-        case .renderResponsive: machine.apply(.unresponsiveChanged(false))
+        case .renderUnresponsive: machine.apply(.unresponsiveChanged(true)); hiddenHangChanged()
+        case .renderResponsive: machine.apply(.unresponsiveChanged(false)); hiddenHangChanged()
         case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
+        case .authPrompt(_, let token, let host, let realm, let isSecure): CEFHTTPAuthPrompts(tab: self).ask(token: token, host: host, realm: realm, isSecure: isSecure)
         case .beforeUnloadDismissed: beforeUnloadDismissed()
         case .devToolsMessage(_, let json):
             agentRelay.deliver(json)
@@ -145,6 +160,13 @@ extension CEFTab {
         default:
             break
         }
+    }
+
+    /// A tab cmux adopted from Chromium (target=_blank, window.open) takes the load Chromium began
+    /// before the adoption: its address and loading state show from the first frame, as in Chrome.
+    func replayEarlyEvents() {
+        guard let browserID else { return }
+        for event in runtime.orphans.takeEarlyEvents(browserID) { handle(event) }
     }
 
     /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load (Stop,
@@ -170,7 +192,7 @@ extension CEFTab {
         -338, // ERR_INVALID_AUTH_CREDENTIALS
     ]
 
-    private func loadFavicon(_ url: URL?) {
+    func loadFavicon(_ url: URL?) {
         faviconTask?.cancel()
         // A machine store's loopback icon is the machine's: never fetched from this Mac.
         guard let url, url.isAppFetchableFavicon(remoteStore: machineStore != nil) else {
@@ -254,6 +276,14 @@ extension CEFTab {
     public func devTools(method: String, params: [String: any Sendable], timeout: Duration = .seconds(5)) async throws -> String {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
         return try await runtime.devTools(browserID, method: method, payload: params, timeout: timeout)
+    }
+
+    /// ``devTools(method:params:timeout:)`` sent now, in this tab's call order, with its answer awaited later: calls
+    /// started one after another in one turn reach Chromium in that order, and their answers come in about one round
+    /// trip instead of one each.
+    public func startDevTools(method: String, params: [String: any Sendable]) -> @MainActor @Sendable () async throws -> String {
+        guard let browserID, !isClosed else { return { throw BrowserTabError.closed } }
+        return runtime.startDevTools(browserID, method: method, payload: params)
     }
 
     // MARK: Find

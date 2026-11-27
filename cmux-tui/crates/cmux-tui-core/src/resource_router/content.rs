@@ -217,17 +217,19 @@ fn terminal_output_read(
     let after = optional_decimal(&request.fields, "after")?;
     // The catalog injects the default and enforces the 1..=4 MiB bounds.
     let max_bytes = required_u64(&request.fields, "max_bytes")?;
-    mux.terminal_output_read(&terminal_id, after, max_bytes).map_err(|error| {
-        // Journal failures can contain SQLite paths, trigger text, and other
-        // host diagnostics. Keep those details in daemon logs; this resource
-        // is user-facing and must return a stable, non-sensitive error.
-        eprintln!("cmux-tui: terminal output read failed for {terminal_id}: {error:#}");
-        ResourceError::operation_failed(
-            "terminal.output_read",
-            "could not read terminal output",
-            json!({}),
-        )
-    })
+    let recovery = super::optional_string(&request.fields, "recovery")?;
+    mux.terminal_output_read_with_recovery(&terminal_id, after, max_bytes, recovery.as_deref())
+        .map_err(|error| {
+            // Journal failures can contain SQLite paths, trigger text, and other
+            // host diagnostics. Keep those details in daemon logs; this resource
+            // is user-facing and must return a stable, non-sensitive error.
+            eprintln!("cmux-tui: terminal output read failed for {terminal_id}: {error:#}");
+            ResourceError::operation_failed(
+                "terminal.output_read",
+                "could not read terminal output",
+                json!({}),
+            )
+        })
 }
 
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -446,6 +448,7 @@ fn execute_terminal_effect(
         return finish_projection_commit(mux, prepared, commit);
     }
 
+    mux.wake_lazy_terminal(&terminal_id);
     let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
         return effects::commit_known_failure(
             mux,
@@ -1103,6 +1106,8 @@ fn resolve_terminal_surface(
     let path = mux.resolve_resource_path(ResourceTarget::Terminal, selectors)?;
     let terminal_id =
         path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+    // A parked terminal starts on its first need (mux/terminal_respawn/lazy.rs).
+    mux.wake_lazy_terminal(&terminal_id);
     let surface_id = mux
         .resource_surface_for_terminal(&terminal_id)
         .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
@@ -1559,56 +1564,9 @@ fn browser_key_description(value: &str) -> BrowserKeyDescription {
     }
 }
 
-#[cfg(target_os = "macos")]
+/// The terminal child's own children (`platform::child_pids`); none when the kernel did not answer.
 fn direct_child_pids(pid: u32) -> Vec<u32> {
-    let Ok(pid) = libc::pid_t::try_from(pid) else {
-        return Vec::new();
-    };
-    // SAFETY: the discovery call receives a null buffer as required by
-    // libproc. The second call writes at most `children.len()` pid_t values
-    // into an initialized, correctly aligned allocation.
-    let count = unsafe { libc::proc_listchildpids(pid, std::ptr::null_mut(), 0) };
-    let Ok(count) = usize::try_from(count) else {
-        return Vec::new();
-    };
-    if count == 0 {
-        return Vec::new();
-    }
-    let mut children = vec![0 as libc::pid_t; count];
-    let Ok(bytes) = libc::c_int::try_from(children.len().saturating_mul(size_of::<libc::pid_t>()))
-    else {
-        return Vec::new();
-    };
-    // SAFETY: `children` owns a writable buffer of exactly `bytes` bytes.
-    let written = unsafe { libc::proc_listchildpids(pid, children.as_mut_ptr().cast(), bytes) };
-    let Ok(written) = usize::try_from(written) else {
-        return Vec::new();
-    };
-    children
-        .into_iter()
-        .take(written.min(count))
-        .filter(|child| *child > 0)
-        .filter_map(|child| u32::try_from(child).ok())
-        .collect()
-}
-
-#[cfg(target_os = "linux")]
-fn direct_child_pids(pid: u32) -> Vec<u32> {
-    std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
-        .ok()
-        .into_iter()
-        .flat_map(|children| {
-            children
-                .split_whitespace()
-                .filter_map(|child| child.parse::<u32>().ok())
-                .collect::<Vec<_>>()
-        })
-        .collect()
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn direct_child_pids(_pid: u32) -> Vec<u32> {
-    Vec::new()
+    crate::platform::child_pids(pid).unwrap_or_default()
 }
 
 /// Browser bridge errors can echo a URL or typed text, so the daemon log

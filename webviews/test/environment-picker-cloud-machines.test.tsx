@@ -118,9 +118,7 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
 const doc = () => dom.window.document;
 const computerButton = () =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((button) =>
-    [t("composer.environment"), t("composer.computer")].some((name) =>
-      (button.getAttribute("aria-label") ?? "").startsWith(name + ":"),
-    ),
+    (button.getAttribute("aria-label") ?? "").startsWith(t("composer.computer") + ":"),
   );
 async function openPicker() {
   const button = computerButton();
@@ -200,7 +198,11 @@ test("signed out, the Cloud row is Sign in for Cloud: one row, never Cloud and s
   expect(CONNECT_ACTIONS.cloudSignIn).toBe("palette.auth.signIn");
 });
 
-test("a sign-in answer that lands while the menu is open changes the Cloud row in place", async () => {
+// A sign-in answer that lands while the menu is open moves none of its rows (Leo, 2026-11-07: "The
+// thing becomes just one state instead of rapidly switching to another"). Signed in, a chat not on
+// Cloud and with no new chat to point there (no `runMode`) has no Cloud row (cmux#47677, #47734), so
+// the next menu has neither row (the account-state tests below).
+test("a sign-in answer that lands while the menu is open moves none of its rows", async () => {
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
   setCloudMachinesForTestAccount(false);
   await mount(true, { cloudMachines: [], onConnect: () => undefined });
@@ -212,11 +214,7 @@ test("a sign-in answer that lands while the menu is open changes the Cloud row i
   const before = rows();
   expect(before.map(label)).toContain("Sign in for Cloud");
   await act(async () => setCloudMachinesForTestAccount(true));
-  const after = rows();
-  // The same rows, the same count: only the Cloud row's words change.
-  expect(after.length).toBe(before.length);
-  expect(after.map(label)).toContain(t("composer.cloud"));
-  expect(after.map(label)).not.toContain("Sign in for Cloud");
+  expect(rows().map(label)).toEqual(before.map(label));
 });
 
 test("with the account state kept from an earlier page, the menu's first rows are its settled rows", async () => {
@@ -253,8 +251,12 @@ test("with the account state kept from an earlier page, the menu's first rows ar
         await cloud.refreshCloudMachines();
       });
       expect(first).toEqual(labels());
-      expect(first.filter((name) => name === "Sign in for Cloud" || name === t("composer.cloud")).length).toBe(1);
-      expect(first).toContain(signedIn ? t("composer.cloud") : "Sign in for Cloud");
+      // Signed out it is Sign in for Cloud; signed in, with no new chat to point at Cloud, no Cloud row
+      // (cmux#47677, #47734).
+      expect(first.filter((name) => name === "Sign in for Cloud" || name === t("composer.cloud")).length).toBe(
+        signedIn ? 0 : 1,
+      );
+      if (!signedIn) expect(first).toContain("Sign in for Cloud");
       act(() => root?.unmount());
       root = undefined;
       host.replaceChildren();
@@ -265,10 +267,11 @@ test("with the account state kept from an earlier page, the menu's first rows ar
   }
 });
 
-// Leo, 2026-11-07: "that shouldn't be showing by default". Before any answer the row is Cloud;
-// only an explicit signed-out answer makes it Sign in for Cloud (replaces #27973's absent-state
-// sign-in row).
-test("an absent Cloud account state shows Cloud, not sign-in; only an explicit signed-out answer offers sign-in", async () => {
+// Leo, 2026-11-07: "that shouldn't be showing by default". Before any answer there is no sign-in
+// row; only an explicit signed-out answer makes it Sign in for Cloud (replaces #27973's absent-state
+// sign-in row). Signed in or unanswered, a chat not on Cloud with no `runMode` has no Cloud row at all
+// (cmux#47677, #47734: picking it made nothing).
+test("an absent Cloud account state offers no sign-in; only an explicit signed-out answer does", async () => {
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
   const rows = async () => {
     await openPicker();
@@ -277,15 +280,50 @@ test("an absent Cloud account state shows Cloud, not sign-in; only an explicit s
     );
   };
   for (const [state, shown, hidden] of [
-    [undefined, t("composer.cloud"), "Sign in for Cloud"],
-    [true, t("composer.cloud"), "Sign in for Cloud"],
-    [false, "Sign in for Cloud", t("composer.cloud")],
+    [undefined, undefined, ["Sign in for Cloud", t("composer.cloud")]],
+    [true, undefined, ["Sign in for Cloud", t("composer.cloud")]],
+    [false, "Sign in for Cloud", [t("composer.cloud")]],
   ] as const) {
     setCloudMachinesForTestAccount(state);
     await mount(true, { cloudMachines: [], onConnect: () => undefined });
     const labels = (await rows()).map(label);
-    expect(labels).toContain(shown);
-    expect(labels).not.toContain(hidden);
+    if (shown) expect(labels).toContain(shown);
+    for (const name of hidden) expect(labels).not.toContain(name);
+    expect(labels).toContain("This Mac");
+    act(() => root?.unmount());
+    root = undefined;
+    host.replaceChildren();
+  }
+});
+
+test("the Where list has one Cloud row, Cloud, whatever the account state (Send signs in)", async () => {
+  const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
+  const whereRows = async () => {
+    const button = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((candidate) =>
+      (candidate.getAttribute("aria-label") ?? "").startsWith(t("composer.computer") + ":"),
+    );
+    expect(button, "no Where control").toBeTruthy();
+    await act(async () => {
+      button!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+      button!.click();
+    });
+    return [
+      ...doc().querySelectorAll<HTMLElement>(
+        ".acpmux-env-popover.acpmux-env-rows-where:not([data-closed]) .acpmux-menu-item",
+      ),
+    ].map(label);
+  };
+  const where = {
+    cloudMachines: [],
+    stripLayout: "where-machine",
+    runMode: { mode: "persistent", onMode: () => undefined },
+  };
+  for (const account of [undefined, true, false]) {
+    setCloudMachinesForTestAccount(account);
+    await mount(true, where);
+    const names = await whereRows();
+    const cloudRows = names.filter((name) => name === t("composer.cloud") || name === "Sign in for Cloud");
+    expect(cloudRows, `account ${String(account)}`).toEqual([t("composer.cloud")]);
     act(() => root?.unmount());
     root = undefined;
     host.replaceChildren();
@@ -431,7 +469,7 @@ test("previews on: the account's machines join the other machines with their sta
   expect(picks).toEqual([["cloud", "vm-paused"]]);
   // No chat moved yet: the control names the machine the pick waits for, as starting.
   expect(computerButton()?.getAttribute("aria-label")).toBe(
-    `${t("composer.environment")}: build box · ${t("composer.envStarting")}`,
+    `${t("composer.computer")}: build box · ${t("composer.envStarting")}`,
   );
 });
 
@@ -489,7 +527,7 @@ test("a Cloud machine picked while paused takes the chat once acpmux lists it re
     ["cloud", "vm-paused"],
     ["computer", "build box"],
   ]);
-  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: build box`);
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.computer")}: build box`);
 });
 
 test("another pick ends the wait for a Cloud machine", async () => {
@@ -510,7 +548,7 @@ test("another pick ends the wait for a Cloud machine", async () => {
     ["cloud", "vm-paused"],
     ["computer", "gpu-box"],
   ]);
-  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: gpu-box`);
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.computer")}: gpu-box`);
 });
 
 /// The props of a New Tab composer waiting on `build box` (picked while paused), for a rerender.
@@ -557,7 +595,7 @@ test("a Cloud machine that fails to start ends the wait: the control says so and
   const { picks, render, ready } = await waitOnBuildBox();
   await render({ cloudMachines: [{ ...account[0]!, stage: "failed" }, ...account.slice(1)] });
   expect(computerButton()?.getAttribute("aria-label")).toBe(
-    `${t("composer.environment")}: build box · ${t("switch.failedShort")}`,
+    `${t("composer.computer")}: build box · ${t("switch.failedShort")}`,
   );
   await render({ ...ready, cloudMachines: [{ ...account[0]!, stage: "failed" }, ...account.slice(1)] });
   expect(picks).toEqual([["cloud", "vm-paused"]]);

@@ -1,4 +1,6 @@
+import CmuxNextAgentIntegrations
 import CmuxNextBrowserImport
+import CmuxNextSettings
 import Foundation
 
 /// The onboarding page's state (`webviews/src/pages/onboarding/ops.ts`, `OnboardingState`): what
@@ -90,6 +92,7 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let bookmarks: Int
         let history: Int
         let openTabs: Int
+        let extensions: Int
         let cookies: Int
         let passwords: Int
         let searchEngines: Int
@@ -98,6 +101,7 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
             bookmarks = counts.bookmarks
             history = counts.history
             openTabs = counts.openTabs
+            extensions = counts.extensions
             cookies = counts.cookies
             passwords = counts.passwords
             searchEngines = counts.searchEngines
@@ -243,6 +247,10 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let note: String?
         let showsRestart: Bool
         let comebacks: Int
+        /// The done view: the person's Allow got the last grant on (the window closes by itself).
+        let finished: Bool
+        /// The Screenshots row's screen capture note (``ComputerUseStepModel/confirmsCapture``).
+        let confirmsCapture: Bool
 
         func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
@@ -252,9 +260,82 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
             try c.encodeNullable(note, forKey: .note)
             try c.encode(showsRestart, forKey: .showsRestart)
             try c.encode(comebacks, forKey: .comebacks)
+            try c.encode(finished, forKey: .finished)
+            try c.encode(confirmsCapture, forKey: .confirmsCapture)
         }
 
-        private enum Keys: String, CodingKey { case helperIcon, rows, allGranted, note, showsRestart, comebacks }
+        private enum Keys: String, CodingKey { case helperIcon, rows, allGranted, note, showsRestart, comebacks, finished, confirmsCapture }
+    }
+
+    /// One background of Make cmux Yours (ops.ts `MakeItYoursBackground`).
+    struct Background: Encodable, Equatable {
+        let id: String
+        /// The work's name; empty for Shuffle Paintings (the page names it).
+        let name: String
+        let preview: Image?
+
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(id, forKey: .id)
+            try c.encode(name, forKey: .name)
+            try c.encodeNullable(preview, forKey: .preview)
+        }
+
+        private enum Keys: String, CodingKey { case id, name, preview }
+    }
+
+    /// One density of Make cmux Yours (ops.ts `MakeItYoursDensity`).
+    struct Density: Encodable, Equatable {
+        let id: String
+        let name: String
+    }
+
+    /// The Make cmux Yours step (ops.ts `MakeItYoursState`).
+    struct MakeItYours: Encodable, Equatable {
+        let workStyle: String
+        let density: String
+        let densities: [Density]
+        /// The background's id; null: none.
+        let background: String?
+        let backgrounds: [Background]
+        /// The Opacity slider's value (the one set, else what the window shows); null: unknown.
+        let opacity: Double?
+        /// Whether the person's settings set the Opacity (else it is the theme's).
+        let opacitySet: Bool
+        /// `appearance.backgroundBlur`; null: unset (the theme's).
+        let material: String?
+        let materials: [String]
+        /// Where a new chat runs: `local` or `cloud`.
+        let chatsRunIn: String
+        /// The intro walk's other settings now, by dotted path (absent: unset).
+        let walk: [String: JSONValue]
+        /// `experiments.introWalk`: the four screens; false: today's one screen.
+        let introWalk: Bool
+        /// `experiments.setupShelf`: the setups shelf (Try, Keep, Revert); false: no shelf.
+        var setupShelf = false
+        let loaded: Bool
+
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(workStyle, forKey: .workStyle)
+            try c.encode(density, forKey: .density)
+            try c.encode(densities, forKey: .densities)
+            try c.encodeNullable(background, forKey: .background)
+            try c.encode(backgrounds, forKey: .backgrounds)
+            try c.encodeNullable(opacity, forKey: .opacity)
+            try c.encode(opacitySet, forKey: .opacitySet)
+            try c.encodeNullable(material, forKey: .material)
+            try c.encode(materials, forKey: .materials)
+            try c.encode(chatsRunIn, forKey: .chatsRunIn)
+            try c.encode(walk, forKey: .walk)
+            try c.encode(introWalk, forKey: .introWalk)
+            try c.encode(setupShelf, forKey: .setupShelf)
+            try c.encode(loaded, forKey: .loaded)
+        }
+
+        private enum Keys: String, CodingKey {
+            case workStyle, density, densities, background, backgrounds, opacity, opacitySet, material, materials, chatsRunIn, walk, introWalk, setupShelf, loaded
+        }
     }
 
     let step: String
@@ -262,6 +343,11 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
     let agents: Agents?
     let importer: Importer?
     let computerUse: ComputerUse?
+    let makeItYours: MakeItYours?
+    /// The Agents step's sign-in rows and providers' readiness (``OnboardingSignIn``); left out when
+    /// null (a daemon without `_acpmux/account/readiness`, or another step), so the page is as before.
+    var signInAccounts: JSONValue = .null
+    var signInReadiness: JSONValue = .null
 
     /// Every field `ops.ts` types `T | null` is sent, as null when absent: the page reads `null`, never a
     /// missing key. (Synthesized `Encodable` leaves a nil out, so each such struct encodes itself.)
@@ -272,22 +358,52 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         try container.encodeNullable(agents, forKey: .agents)
         try container.encodeNullable(importer, forKey: .importer)
         try container.encodeNullable(computerUse, forKey: .computerUse)
+        try container.encodeNullable(makeItYours, forKey: .makeItYours)
+        if signInReadiness != .null {
+            try container.encode(signInAccounts, forKey: .signInAccounts)
+            try container.encode(signInReadiness, forKey: .signInReadiness)
+        }
     }
 
-    private enum Keys: String, CodingKey { case step, footer, agents, importer, computerUse }
+    private enum Keys: String, CodingKey {
+        case step, footer, agents, importer, computerUse, makeItYours, signInAccounts, signInReadiness
+    }
 }
 
 extension OnboardingPageState {
     /// The state of `model`'s window; `images` draws the icons (nil until drawn).
     @MainActor
-    init(model: OnboardingModel, images: OnboardingPageImages) {
+    init(model: OnboardingModel, images: OnboardingPageImages, signIn: (accounts: JSONValue, readiness: JSONValue)? = nil) {
         step = model.step.rawValue
-        footer = Footer(primary: Self.primary(model), primaryEnabled: model.canAdvance,
-                        skip: model.step == .importData && model.importer.isConfirmingPasswords ? "skipImporting" : "skip",
+        footer = Footer(primary: Self.primary(model), primaryEnabled: model.canAdvance, skip: Self.skip(model),
                         showsBack: model.flowProgress != nil, backEnabled: model.canGoBack, progress: model.flowProgress)
         agents = model.step == .agents ? Self.agents(model.agents, images) : nil
         importer = model.step == .importData ? Self.importer(model.importer, images) : nil
         computerUse = model.step == .computerUse ? Self.computerUse(model.computerUse, images) : nil
+        makeItYours = model.step == .makeItYours ? Self.makeItYours(model.makeItYours) : nil
+        if let signIn { (signInAccounts, signInReadiness) = signIn }
+    }
+
+    @MainActor
+    static func makeItYours(_ model: MakeItYoursStepModel) -> MakeItYours {
+        let choices = model.choices
+        return MakeItYours(workStyle: choices.workStyle.rawValue, density: choices.density,
+                           densities: model.densities.map { Density(id: $0.id, name: $0.name) },
+                           background: choices.background,
+                           backgrounds: model.backgrounds.map { Background(id: $0.id, name: $0.name, preview: $0.preview.map { Image(src: $0, template: false) }) },
+                           opacity: model.shownOpacity.map { ($0 * 100).rounded() / 100 }, opacitySet: choices.opacity != nil,
+                           material: choices.material?.rawValue, materials: FirstRunMaterial.allCases.map(\.rawValue),
+                           chatsRunIn: choices.chatsRunIn.rawValue,
+                           walk: model.walk, introWalk: model.introWalk, setupShelf: model.setupShelf, loaded: model.loaded)
+    }
+
+    /// The footer's quiet button: Skip Importing over the Keychain explainer.
+    @MainActor
+    static func skip(_ model: OnboardingModel) -> String {
+        switch model.step {
+        case .importData where model.importer.isConfirmingPasswords: "skipImporting"
+        default: "skip"
+        }
     }
 
     /// `OnboardingModel.primaryTitle`, as the page's label key.
@@ -295,7 +411,7 @@ extension OnboardingPageState {
     static func primary(_ model: OnboardingModel) -> String {
         let importer = model.importer
         switch model.step {
-        case .agents: return "continue"
+        case .agents, .makeItYours: return "continue"
         case .computerUse: return "done"
         case .importData:
             if importer.phase == .detecting { return "detecting" }
@@ -421,7 +537,7 @@ extension OnboardingPageState {
                         GrantRow(pane: pane.rawValue, control: control(pane, model), icon: images.grant(pane))
                     },
                     allGranted: model.allGranted, note: note(model), showsRestart: model.permissions.helperFailed,
-                    comebacks: model.comebacks)
+                    comebacks: model.comebacks, finished: model.finished, confirmsCapture: model.confirmsCapture)
     }
 
     /// The row's trailing control for the current grants.

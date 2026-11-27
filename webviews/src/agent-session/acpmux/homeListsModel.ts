@@ -15,6 +15,19 @@ export const HOME_LABELS = {
 /// Each list shows at most this many rows, newest first.
 export const HOME_ROWS = 3;
 
+/// Whether HomeLists draws anything for these inputs (it draws nothing when both lists are empty).
+/// The pane marks it (`data-home-lists`, App.tsx) so the hero keeps its room without a pane-level
+/// `:has()` (styles.css).
+export function homeListsShown(
+  sessions: AcpmuxSessionEntry[],
+  currentId?: string,
+  asks: readonly WatchedAsk[] = [],
+  tabs: readonly AttentionTab[] = [],
+): boolean {
+  const { waiting, review } = homeLists(sessions, currentId, asks, tabs);
+  return waiting.length > 0 || review.length > 0;
+}
+
 /// What a new chat's home offers besides the composer (its welcome screen): every ask waiting on
 /// the person (the inbox, HomeInbox.tsx: each open request of every other chat, newest first, none
 /// capped, so no ask is left to find in its chat), and the open pull requests ready for review. A
@@ -69,6 +82,21 @@ const newestReviewReady = (shown: readonly AcpmuxSessionEntry[]) =>
     .filter((session) => session.pullRequest?.state === "open" && session.pullRequest.reviewReady)
     .sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0))
     .slice(0, HOME_ROWS);
+
+/// First shared wall-clock minute where `age`'s text changes (clock.ts useLabelClock): the next
+/// minute in its first hour, hour in its first day, day in its first week; a date never changes.
+export function nextAge(at: number, now: number): number {
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const week = 7 * day;
+  if (!at || !Number.isFinite(at)) return Infinity;
+  const elapsed = Math.max(0, now - at);
+  if (elapsed >= week) return Infinity;
+  const size = elapsed < hour ? minute : elapsed < day ? hour : day;
+  const change = Math.min(at + (Math.floor(elapsed / size) + 1) * size, at + week);
+  return Math.max(now + minute, Math.ceil(change / minute) * minute);
+}
 
 /// A compact age for a row's right edge, from milliseconds since the epoch.
 export function age(updatedAt: number | undefined, now = Date.now(), t: Translate = translate): string | undefined {

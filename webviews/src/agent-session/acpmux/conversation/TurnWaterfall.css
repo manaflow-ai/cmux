@@ -74,7 +74,7 @@
 
 .cv-waterfall__span.is-link:hover,
 .cv-waterfall__span.is-link:focus-visible {
-  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+  background: var(--ds-surface-hover);
   color: var(--cv-text);
 }
 
@@ -109,7 +109,7 @@
   /* An 8px bar: the track is its padding, on the spacing scale. */
   padding-block: 4px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--cv-fg) 5%, transparent);
+  background: var(--ds-surface-card);
 }
 
 .cv-waterfall__bar {
@@ -141,9 +141,13 @@
   --wf-tone: var(--agent-status-success);
 }
 
+/* Web fetches and every other call (a sent message, an MCP call): a neutral ink from the theme's own
+   foreground, between a read's and full ink. It was the merged-PR purple, fixed in every theme, so the
+   chart's brightest bar was a color no theme chose (Leo, 2026-11-27, asked why the bar was purple if
+   it was only his theme). The slowest call is told by its outline, bold time and tag, not a hue. */
 .cv-waterfall .is-web,
 .cv-waterfall .is-other {
-  --wf-tone: var(--agent-status-merged);
+  --wf-tone: color-mix(in srgb, var(--cv-fg) 62%, transparent);
 }
 
 .cv-waterfall .is-thought {
@@ -169,7 +173,7 @@
   left: var(--wf-from);
   width: var(--wf-width);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--cv-fg) 9%, transparent);
+  background: var(--ds-surface-inset);
 }
 
 .cv-waterfall .is-failed {
@@ -197,6 +201,51 @@
 }
 
 .cv-waterfall-toggle.is-open {
+  color: var(--cv-text);
+}
+
+/* Plain (a turn not worth a chart: one call, or mostly the model): each line its name and its
+   time, no axis and no bars, and no head: two or more lines end on a Total line under a hairline. */
+.cv-waterfall__line.is-total {
+  margin-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--cv-fg) 12%, transparent);
+  border-radius: 0;
+}
+
+.cv-waterfall__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cv-waterfall__line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--wf-row);
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.cv-waterfall__line .cv-waterfall__name {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.cv-waterfall__line .cv-waterfall__time {
+  margin-left: auto;
+  flex: none;
+}
+
+.cv-waterfall__line.is-link:hover,
+.cv-waterfall__line.is-link:focus-visible {
+  background: var(--ds-surface-hover);
   color: var(--cv-text);
 }
 

@@ -121,8 +121,24 @@ extension TerminalAttachment {
     /// ``decodeAttachEvent(name:line:surface:)`` plus the generation an
     /// `output` carries, for ``TerminalSnapshotSequencer``.
     static func decodeAttachLine(name: String, line: Data, surface: SurfaceID) -> DecodedAttachLine? {
-        let decoder = WireCoding.decoder()
         func scoped(_ id: SurfaceID?) -> Bool { id == nil || id == surface }
+        // A plain `output` (the hot line) reads from one byte scan and a base64 decode straight from the line;
+        // anything unusual (colors, escapes, a bad chunk) takes the general decoder below.
+        if name == "output", let fast = AttachLineScanner.scanOutput(line), fast.event == "output", !fast.hasType,
+           let data = fast.data {
+            guard scoped(fast.surface.map(SurfaceID.init(rawValue:))) else { return nil }
+            return DecodedAttachLine(event: .output(data, colors: nil), generation: fast.generation)
+        }
+        // An `attach-frames-v1` OUTPUT frame: the payload is the PTY bytes as they are.
+        if name == LineTransport.outputFrameEvent {
+            guard let frame = AttachOutputFrame(message: line) else {
+                let count = undecodableLines.add(1, ordering: .relaxed).newValue
+                decodeLogger.error("attach frame failed to decode (\(count) so far)")
+                return nil
+            }
+            return DecodedAttachLine(event: .output(frame.payload, colors: nil), frameOffset: frame.offset)
+        }
+        let decoder = WireCoding.decoder()
         do {
             switch name {
             case "vt-state":

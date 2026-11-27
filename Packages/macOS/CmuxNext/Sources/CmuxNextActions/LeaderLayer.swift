@@ -21,7 +21,7 @@ public struct LeaderLayer {
     /// cannot run in this focus, so the overlay says what Cmd-J offers.
     /// Reads the event's keys once.
     public func chordPrefix(for event: NSEvent) -> Shortcut? {
-        let shortcuts = ActionRegistry.shortcuts(for: event)
+        let shortcuts = registry.shortcuts(for: event)
         if let first = shortcuts.first(where: registry.startsChord) { return first }
         return shortcuts.contains(Self.prefix) && hasChords(after: Self.prefix) ? Self.prefix : nil
     }
@@ -39,6 +39,20 @@ public struct LeaderLayer {
     public func hasChords(after prefix: Shortcut = Self.prefix) -> Bool {
         let index = registry.currentShortcutIndex()
         return index.chords[prefix]?.isEmpty == false || index.chordDigitFamilies[prefix]?.isEmpty == false
+    }
+
+    /// Whether a key that ended an armed chord without completing it is decided as a shortcut of its own (the key
+    /// router then routes it as usual): a Command or Control chord bound to a system or navigation action, other
+    /// than the leader prefix itself (a second Cmd-J still dismisses the leader). Content shortcuts and typing keep
+    /// going to the view.
+    ///
+    /// - Parameters:
+    ///   - event: The key-down that ended the chord.
+    ///   - resolved: What the key resolves to in the current context (``ActionRegistry/resolveShortcut(for:)``).
+    ///   - qwerty: `app.shortcutLayout` is Keep QWERTY Positions (``ActionRegistry/matchesQwertyPositions``).
+    public static func decidesAfterChord(_ event: NSEvent, resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?, qwerty: Bool) -> Bool {
+        guard !event.modifierFlags.isDisjoint(with: [.command, .control]), let resolved, resolved.tier != .content else { return false }
+        return !ActionRegistry.shortcuts(for: event, qwerty: qwerty).contains(prefix)
     }
 
     /// A default chord to show as `id`'s shortcut, when no single key or

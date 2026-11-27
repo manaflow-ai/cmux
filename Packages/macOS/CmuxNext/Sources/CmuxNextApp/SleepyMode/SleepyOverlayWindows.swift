@@ -1,3 +1,6 @@
+import CmuxNextDesign
+import CmuxNextFloating
+import CmuxNextKeepAwake
 import AppKit
 
 /// Covers every screen with a ``SleepyOverlayWindow`` showing ``SleepySceneView``,
@@ -25,7 +28,7 @@ final class SleepyOverlayWindows: SleepyOverlayPresenting {
         self.wake = wake
         rebuild()
         NSApp.unhide(nil)
-        NSApp.activate()
+        FocusRoute(.system, "sleepy mode wakes").activateApp()
         screenWatch?.cancel()
         screenWatch = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didChangeScreenParametersNotification) {
@@ -54,7 +57,7 @@ final class SleepyOverlayWindows: SleepyOverlayPresenting {
             windows.append(window)
             window.orderFrontRegardless()
         }
-        windows.first?.makeKeyAndOrderFront(nil)
+        FocusRoute(.system, "sleepy mode overlay rebuilt").makeKey(windows.first, front: true)
     }
 
     private func tearDown() {

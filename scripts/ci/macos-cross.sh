@@ -188,7 +188,7 @@ current-version: 7
 compatibility-version: 7
 ...
 EOF
-  # Apple framework stubs (CoreFoundation, CFNetwork, Security, CoreServices) from our own binaries' imports.
+  # Apple framework stubs (CoreFoundation, CFNetwork, Security, CoreServices, CoreGraphics, IOKit) from our own binaries' imports.
   python3 "$repo_root/scripts/ci/macos_stubs.py" install "$STUBS_DIR" "$SYSROOT"
   # The SDK version clang records in LC_BUILD_VERSION; the caller passes the Mac build's.
   cat > "$SYSROOT/SDKSettings.json" <<EOF
@@ -197,6 +197,14 @@ EOF
  "LLVMTargetTripleVendor":"apple","DefaultDeploymentTarget":"$sdk","MinimumDeploymentTarget":"10.13",
  "MaximumDeploymentTarget":"$sdk.99","PlatformFamilyName":"macOS"}}}
 EOF
+  # rustc strips release binaries for Apple targets with its own rust-objcopy, whose
+  # RUNPATH ($ORIGIN/../lib) finds libLLVM only in rustlib/<host>/lib, which the
+  # llvm-tools component installs. Without it each strip fails ("libLLVM.so...: cannot
+  # open shared object file") and the binaries ship with debug info.
+  (cd "$repo_root/cmux-tui" && rustup component add llvm-tools >/dev/null)
+  local objcopy
+  objcopy="$(cd "$repo_root/cmux-tui" && rustc --print sysroot)/lib/rustlib/$(cd "$repo_root/cmux-tui" && rustc -vV | awk '/^host:/{print $2}')/bin/rust-objcopy"
+  "$objcopy" --version >/dev/null || die "$objcopy does not run; rustc cannot strip the macOS binaries"
   "$LLVM_BIN/clang" --version | head -1
   echo "sysroot: $SYSROOT (zig $(zig version), SDK version label $sdk)"
 }
@@ -287,16 +295,26 @@ cmd_bins() {
       # of cmd_bins up to the line above for its cmux-tui-only fast path.
       cargo build -p cmux-tui --bin cmux-tui-host --release --locked --target "$t"
       cargo build -p cmux-holder --bin cmux-holder --release --locked --target "$t"
+      if [[ -f crates/cmux-launch-preread/Cargo.toml ]]; then
+        cargo build -p cmux-launch-preread --bin cmux-launch-preread --release --locked --target "$t"
+      fi
       cargo build -p cmux-relay --bin cmux-relay --release --locked --target "$t"
       cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target "$t"
-      cargo build -p acpmux --bin acpmux --release --locked --target "$t" \
-        $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$t"))
+      cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target "$t" \
+        $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$t" acpmux))
     echo "bins $t: $(( $(date +%s) - start )) s"
     local r="$CARGO_TARGET_DIR/$t/release"
+    # acpmux-standalone is acpmux with its build id stamped in this binary only, so a new commit
+    # does not recompile the acpmux lib. Staged, and read by the package build, as acpmux.
+    cp "$r/acpmux-standalone" "$r/acpmux"
     cp "$r/cmux-tui" "$out/cmux-tui-$t"
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
     cp "$r/cmux-tui-host" "$out/cmux-tui-host-$t"
     cp "$r/cmux-holder" "$out/cmux-tui-holder-$t"
+    rm -f "$out/cmux-tui-launch-preread-$t"
+    if [[ -f "$repo_root/cmux-tui/crates/cmux-launch-preread/Cargo.toml" ]]; then
+      cp "$r/cmux-launch-preread" "$out/cmux-tui-launch-preread-$t"
+    fi
     cp "$r/acpmux" "$out/cmux-tui-acpmux-$t"
     cp "$r/cmux-relay" "$out/cmux-relay-$t"
     cp "$r/chatmux-relay" "$out/chatmux-relay-$t"
@@ -320,8 +338,15 @@ cmd_all() {
   for t in "${TARGETS[@]}"; do
     use_target "$t" "${MIN_OS[$t]}"
     local start; start=$(date +%s)
-    local build="cargo build --release --locked --target $t"
+    # --timings: cargo-groups.sh prints each long group's slowest and last units (compile vs
+    # the fat-LTO link of the "bin" unit). It changes no output.
+    local build="cargo build --release --locked --timings --target $t"
+    local preread_group=()
+    if [[ -f "$tui/crates/cmux-launch-preread/Cargo.toml" ]]; then
+      preread_group=("cmux-launch-preread" "cd $(q "$tui") && $build -p cmux-launch-preread --bin cmux-launch-preread")
+    fi
     "$repo_root/scripts/ci/cargo-groups.sh" "$target_dir" "$t" \
+      ${preread_group[@]+"${preread_group[@]}"} \
       "cmux-tui cmux-tui-hook cmux-tui-host" "cd $(q "$tui") && $stamps $build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
       "cmux-holder" "cd $(q "$tui") && $stamps $build -p cmux-holder --bin cmux-holder" \
       "cmux-app-host" "cd $(q "$tui") && $stamps $build -p cmux-app-host --bin cmux-app-host" \
@@ -330,9 +355,13 @@ cmd_all() {
       "cmux-agent-screen-detection" "cd $(q "$tui") && $build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml" \
       "cmux-relay" "cd $(q "$tui") && $stamps $build -p cmux-relay --bin cmux-relay" \
       "chatmux-relay" "cd $(q "$tui") && $stamps $build -p chatmux-relay --bin chatmux-relay" \
-      "acpmux" "cd $(q "$tui") && $stamps $build -p acpmux --bin acpmux $("$repo_root/scripts/ci/acpmux-build-features.sh" "$tui/crates/acpmux/Cargo.toml" "$t")"
+      "acpmux-standalone" "cd $(q "$tui") && $stamps $build -p acpmux-standalone --bin acpmux-standalone $("$repo_root/scripts/ci/acpmux-build-features.sh" "$tui/crates/acpmux/Cargo.toml" "$t" acpmux)"
     echo "all $t: $(( $(date +%s) - start )) s"
     local r="$target_dir/$t/release"
+    # acpmux-standalone is acpmux with its build id stamped in this binary only, so a new commit
+    # that leaves its sources alone does not recompile the acpmux lib (the lib took 390 s of this
+    # group's 678 s in run 43727128661). Staged, and read by "Stage binary", as acpmux.
+    cp "$r/acpmux-standalone" "$r/acpmux"
     cp "$r/cmux-app-host" "$out/cmux-tui-app-host-$t"
     cp "$r/cmux-browser-host" "$out/cmux-tui-browser-host-$t"
     cp "$r/cmux-cloud" "$out/cmux-tui-cloud-server-$t"
@@ -343,6 +372,10 @@ cmd_all() {
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
     cp "$r/cmux-tui-host" "$out/cmux-tui-host-$t"
     cp "$r/cmux-holder" "$out/cmux-tui-holder-$t"
+    rm -f "$out/cmux-tui-launch-preread-$t"
+    if [[ -f "$repo_root/cmux-tui/crates/cmux-launch-preread/Cargo.toml" ]]; then
+      cp "$r/cmux-launch-preread" "$out/cmux-tui-launch-preread-$t"
+    fi
     cp "$r/acpmux" "$out/cmux-tui-acpmux-$t"
     cp "$r/cmux-relay" "$out/cmux-relay-$t"
     cp "$r/chatmux-relay" "$out/chatmux-relay-$t"
@@ -484,7 +517,12 @@ cmd_parity_ffi() {
   LLVM_NM="$(cd "$repo_root/cmux-tui" && rustc --print sysroot)/lib/rustlib/$(cd "$repo_root/cmux-tui" && rustc -vV | awk '/^host:/{print $2}')/bin/llvm-nm"
   export LLVM_NM
   for t in "${TARGETS[@]}"; do
-    "$LLVM_BIN/llvm-lipo" -thin "$(arch_of "$t")" "$mac" -output "$out/mac-$t.a"
+    # The Mac build is arm64 alone unless a stable release asked for universal: a thin archive is its one slice.
+    if [[ "$("$LLVM_BIN/llvm-lipo" -archs "$mac")" == "$(arch_of "$t")" ]]; then
+      cp "$mac" "$out/mac-$t.a"
+    else
+      "$LLVM_BIN/llvm-lipo" -thin "$(arch_of "$t")" "$mac" -output "$out/mac-$t.a"
+    fi
     python3 "$repo_root/scripts/ci/macho_parity.py" "app-ffi-$t" "$out/mac-$t.a" "$out/slices/$t.a" \
       > "$reports/app-ffi-$t.json" || status=1
     report_line "$reports/app-ffi-$t.json"

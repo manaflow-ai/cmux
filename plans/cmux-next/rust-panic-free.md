@@ -37,6 +37,21 @@ stack overflow, out of memory, a signal) never loses user state.
    from the journal and the output store (crash-only design, section 6).
 6. Every parser that sees outside bytes has a fuzz target (section 7).
 
+### Fixed-record codecs
+
+A fixed record size does not prove a slice passed to its encoder or decoder has
+that size. Consume fields with `Read::read_exact` / `Write::write_all` or checked
+chunks, propagate short-buffer errors through spill sorting and optional-index
+writers, and use `get_mut` for calculated page offsets. Constant ranges into
+fixed-size arrays are bounded by the array type. Do not silence the entire codec
+module's indexing lint.
+
+Detector: `scripts/cmux-next/rust_panic_ratchet.py` enables production-target
+`clippy::indexing_slicing`; ordinary `clippy --all-targets -- -D warnings` does not
+cover that lint by itself. Run both. The kin-table regression
+`fixed_records_reject_every_truncation_without_panicking` covers every cut of the
+entry, edge and level record encodings (cmux#44281).
+
 ## 2. Inventory (before, feat-cmux-next 7c48cdf2c40e, 2026-10-22)
 
 The baseline file is measured at the landing's merged head (65a4003019ad):
@@ -306,3 +321,28 @@ went down by 972: acpmux 1021 to 697, cmux-tui 1141 to 833, cmux-tui-core
 cmux-host 1 to 0, and 1 to 3 each in 8 small crates. Use `v.set("key", x)`
 for new writes; the rest of these counts are reads (`v["key"]`, which
 return `Null`) and slice indexing.
+
+Re-baseline 2026-11-26 (the base's red, recorded). feat-cmux-next has been over
+this baseline in 18 deny cells, all `indexing_slicing` or `string_slice`, at
+the same counts on every base from 15:00Z to 19:00Z. So the fleet's
+`clippy-changed` step (`cmux-tui-clippy-changed.py --panic-ratchet
+--compare-base`) failed the strict judge on 45 of 50 sampled heads. Each of
+those heads linted the workspace a second time at its base, only to excuse
+those counts as "the base's red, not this change's". That second lint takes
+70 to 210 s of each run. Each count below is the base run's own count for that
+cell, from Linux pool runs on the whole workspace: jobs
+1a0ee27e341d97ab59a33038 (base a949dc0c1732), f8917bdac6ffc267c13cbef9
+(3821f0249528), 53e23e940564cc1432bd0790 (423297352cfa),
+f145553aab9b1b8c7f40b394 (a94af72496a7) and ef3f7a86af9399534c5d526a
+(2aa28cdb0113). All five read the same values. The gate judges every change
+exactly as before: `--base-clippy-json` already allowed these counts. Only
+the base lint is gone.
+
+The cells: acpmux indexing_slicing 679 to 818 and string_slice 92 to 102;
+cmux-tui 830 to 902 and 82 to 99; cmux-tui-core 852 to 865 and 50 to 52;
+cmux-server 57 to 58; cmux-config 35 to 41; cmux-app-host 2 to 3;
+cmux-cloud-start-core 0 to 26; cmux-wg 0 to 21 and 0 to 2; cmux-host 0 to 7
+and 0 to 2; cmux-cloud-api, cmux-cloud-handlers, cmux-mobile-core and
+cmux-rd-engine 0 to 1 each. Next step for them is the same as above. Use
+`v.set` for JSON writes and `get`/`split_at_checked` for slices, then lower
+these counts with `--update-baseline`.

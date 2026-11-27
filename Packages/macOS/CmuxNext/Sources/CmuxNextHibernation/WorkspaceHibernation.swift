@@ -20,10 +20,15 @@ public protocol WorkspaceHibernationHost: AnyObject {
     /// As ``hibernate(workspace:)``; `byPerson` is the person's Hibernate Workspace, whose pages then
     /// restore only when shown, never on a hover (plans/cmux-next/hover-preload-DESIGN.md).
     func hibernate(workspace: String, byPerson: Bool)
+    /// Tells each of `workspaces`' daemons it is kept awake (`keptAwake`) or not, so the daemon's own freeing timer keeps
+    /// what this Mac keeps; a daemon whose flag already says so gets nothing.
+    func mirrorKeepAwake(_ workspaces: Set<String>, keptAwake: Bool)
 }
 
 extension WorkspaceHibernationHost {
     public func hibernate(workspace: String, byPerson: Bool) { hibernate(workspace: workspace) }
+    /// No daemon to tell (tests).
+    public func mirrorKeepAwake(_ workspaces: Set<String>, keptAwake: Bool) {}
 }
 
 extension WorkspaceHibernationHost {
@@ -227,6 +232,9 @@ public final class WorkspaceHibernation {
         defer { passing = false }
         memoryPressure?.refresh() // a changed level comes back through pressureDidChange(_:), planned by this pass
         dueAt = nil
+        // A daemon that missed a toggle (offline, upgraded, the set predates the flag) learns the set again; one Mac's
+        // pass never clears another Mac's Keep Awake, only its own toggle does.
+        if !keepAwake.all.isEmpty { host.mirrorKeepAwake(keepAwake.all, keptAwake: true) }
         let time = now()
         let residents = host.hibernationResidents()
         let live = Set(residents.map(\.workspace))
@@ -282,6 +290,9 @@ public final class WorkspaceHibernation {
         return plan.nextCheck
     }
 
+    /// Whether a window shows `workspace`: Hibernate Workspace does not apply to it.
+    public func isShown(_ workspace: String) -> Bool { host.hibernationShownWorkspaces().contains(workspace) }
+
     /// Hibernate Workspace (palette, CLI): hibernates `workspace` now, idle or not, unless it is shown.
     public func hibernateNow(_ workspace: String) throws(WorkspaceHibernationRefusal) {
         guard !host.hibernationShownWorkspaces().contains(workspace) else { throw .shown }
@@ -292,6 +303,7 @@ public final class WorkspaceHibernation {
     @discardableResult
     public func toggleKeepAwake(_ workspace: String) -> Bool {
         let kept = keepAwake.toggle(workspace)
+        host.mirrorKeepAwake([workspace], keptAwake: kept)
         if !kept { schedulePass(after: .seconds(1)) }
         return kept
     }

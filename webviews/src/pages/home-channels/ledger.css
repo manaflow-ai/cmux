@@ -34,18 +34,6 @@
 .lg-spacer {
   flex: 1;
 }
-.lg-kbd {
-  padding: 0 var(--ds-space-1);
-  border: 1px solid var(--lg-line);
-  border-radius: 4px;
-  font: inherit;
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  color: var(--page-text-3);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-
 /* ---------- List ---------- */
 /* Transparent: the window's material shows through, as the native sidebar. */
 .lg-list {
@@ -79,7 +67,8 @@
   border: 1px solid var(--lg-line);
   border-radius: var(--ds-radius-control);
   background: var(--lg-fill);
-  color: var(--page-text-3);
+  /* A control's label is text: the secondary ink (4.5:1), not the tertiary hint (3:1). */
+  color: var(--page-text-2);
   font: inherit;
   font-size: var(--text-detail);
   text-align: start;
@@ -88,11 +77,6 @@
 }
 .lg-search span {
   flex: 1;
-}
-.lg-search kbd {
-  font: inherit;
-  font-size: var(--text-caption);
-  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-search:hover {
   color: var(--page-text-2);
@@ -152,9 +136,33 @@
   font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.lg-list-group.after-pinned {
-  margin-top: var(--ds-space-1);
-  padding-top: var(--ds-space-2);
+/* Windowed (ConversationList.tsx): only the label, line and rows near the viewport are mounted,
+   each placed at its offset in a box as tall as the whole list. */
+.lg-list-space {
+  position: relative;
+  width: 100%;
+}
+.lg-list-section-host,
+.lg-list-divider,
+.lg-list-space .lg-list-group > li {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+/* Its own block, so the label's margins count in its measured height. */
+.lg-list-section-host {
+  display: flow-root;
+}
+/* The hairline between my pins and the rest, with the space the rest's list had above it. */
+.lg-list-divider {
+  padding-top: var(--ds-space-1);
+}
+.lg-list-divider::after {
+  content: "";
+  display: block;
+  height: var(--ds-space-2);
   border-top: 1px solid var(--lg-line);
 }
 /* A row's context-menu host takes no box of its own. */
@@ -274,7 +282,7 @@
   min-width: 16px;
   height: 16px;
   padding: 0 var(--ds-space-1);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   background: var(--page-text);
   color: var(--lg-solid);
   font-size: var(--text-caption);
@@ -552,7 +560,7 @@
 .hc-msg.lg-msg .hc-tag {
   padding: 0 var(--ds-space-1);
   border: 1px solid var(--lg-line);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: none;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -987,10 +995,13 @@
   /* One rim: the hairline in --ui-popup-shadow (ui/popupSurface.css), no border over it. */
   border: 0;
   border-radius: 12px;
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
+  /* Its fill, frost and rim are the dialog glass (.ui-dialog.ui-glass, ui/popupSurface.css). */
+  --glass-elevation: var(--elevation-2);
   overflow: hidden;
   z-index: var(--layer-overlay);
+}
+.lg-palette.ui-glass {
+  border-radius: var(--ds-radius-xl);
 }
 .lg-palette-root {
   display: flex;
@@ -1134,7 +1145,7 @@
   margin: 0 var(--ds-space-2) var(--ds-space-1) 0;
   padding: 0 var(--ds-space-1);
   border: 1px solid var(--page-text-3);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: var(--lg-fill);
   color: var(--page-text);
   font: inherit;
@@ -1723,6 +1734,7 @@
 /* The lightbox: the page dims and blurs behind one image (board principle 9). */
 .hc-lightbox-backdrop {
   background: color-mix(in srgb, var(--lg-solid) 72%, transparent);
+  /* one-material-allow: the lightbox's modal scrim (the dialog above it is the glass), not a glass surface */
   backdrop-filter: var(--surface-blur);
 }
 .hc-lightbox.ui-dialog {
@@ -1838,6 +1850,10 @@
 .hc-tray-item.failed .hc-att-meta {
   color: var(--lg-warn);
 }
+/* A failed upload's Retry, after its note: the item's text gives it the room. */
+.hc-tray-retry {
+  flex: none;
+}
 .hc-tray-thumb {
   display: grid;
   place-items: center;
@@ -1845,7 +1861,7 @@
   width: 32px;
   height: 32px;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: var(--lg-fill-strong);
   color: var(--page-text-2);
 }
@@ -1877,7 +1893,7 @@
   height: var(--ds-control-icon);
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: transparent;
   color: var(--page-text-3);
   opacity: 0;
@@ -2097,7 +2113,7 @@
   width: 56px;
   height: 56px;
   margin-top: var(--ds-space-5);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
   overflow: hidden;
 }
 .lg-chief-picture img {

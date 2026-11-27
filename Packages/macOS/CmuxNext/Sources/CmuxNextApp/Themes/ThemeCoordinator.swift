@@ -35,7 +35,7 @@ final class ThemeCoordinator {
     /// Which room, workspace or terminal a theme action acts on, resolved
     /// like its handler (`ThemeHandlers`), for picker previews.
     var previewTarget: (@MainActor (ActionID, ActionTargetRef?, _ machineID: String?) -> ThemePreview.Target?)?
-    private var observation: Task<Void, Never>?
+    private var observation: OwnedTask?
     /// Each workspace's own background (`ThemeCoordinator+Backgrounds`).
     let workspaceBackgrounds: WorkspaceBackgroundStore
     /// Each workspace's own glass tint over art, as text ("0.6").
@@ -75,10 +75,11 @@ final class ThemeCoordinator {
 
     /// `appearance.appTheme` as last read; nil follows the terminal theme.
     private var chromeTheme: String?
-    private var chromeObservation: Task<Void, Never>?
-    private var accentObservation: Task<Void, Never>?
-    private var artAccentObservation: Task<Void, Never>?
-    private var machineColorsObservation: Task<Void, Never>?
+    private var chromeObservation: OwnedTask?
+    private var accentObservation: OwnedTask?
+    private var artAccentObservation: OwnedTask?
+    private var artObservation: OwnedTask?
+    private var machineColorsObservation: OwnedTask?
 
     /// Follows `appearance.appTheme`: the theme the native chrome (window, sidebar, tab strips, light/dark)
     /// and the pages (`--cmux-app-*`, `WebTheme`) take: the system appearance's variant, its file and edits only
@@ -87,7 +88,7 @@ final class ThemeCoordinator {
         let store = services.themeStore
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
         chromeTheme = settings.applied.chromeTheme
-        store.setAccent(settings.applied.accent)
+        _ = (store.setAccent(settings.applied.accent), store.setSelection(settings.applied.selection))
         store.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
         artAccentObservation = Task { [weak self] in
@@ -95,29 +96,45 @@ final class ThemeCoordinator {
                 guard store.setAccentFollowsArt(follows) else { continue }
                 self?.applyChromeTheme()
             }
-        }
-        // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
+        }.owned()
+        // Art Color: another picture (a pick, a shuffle or rotation step, a preview) is another hue,
+        // and pages' `--cmux-app-*` accent comes from the app theme made here, so make it again. The
+        // native scopes re-derive on their own (ThemeScope.repaintBackdropArt).
+        // The revision applied now, read before the task starts: a picture change between here and
+        // the task's first read would otherwise count as already shown and never re-derive.
+        let appliedRevision = store.backdropRevision.value
+        artObservation = Task { [weak self] in
+            var shown = appliedRevision
+            for await revision in ObservationStream({ store.backdropRevision.value }) {
+                guard revision != shown else { continue }
+                shown = revision
+                guard store.accentFollowsArt else { continue }
+                self?.applyChromeTheme()
+            }
+        }.owned()
+        // `appearance.accent` and `.selection` re-derive the terminal-theme tokens (the store) and the app theme.
         accentObservation = Task { [weak self] in
-            for await accent in ObservationStream({ settings.applied.accent }) {
-                guard let self, store.setAccent(accent) else { continue }
+            for await (accent, selection) in ObservationStream({ (settings.applied.accent, settings.applied.selection) }) {
+                guard let self, (store.setAccent(accent), store.setSelection(selection)) != (false, false) else { continue }
                 self.applyChromeTheme()
             }
-        }
+        }.owned()
         chromeObservation = Task { [weak self] in
             for await theme in ObservationStream({ settings.applied.chromeTheme }) {
                 guard let self, theme != self.chromeTheme else { continue }
                 self.chromeTheme = theme
                 self.applyChromeTheme()
             }
-        }
+        }.owned()
         // `appearance.machineColors`: every machine mark reads the store's picks (MachineColor).
         store.setMachineColors(settings.applied.machineColors)
         machineColorsObservation = Task {
             for await colors in ObservationStream({ settings.applied.machineColors }) { store.setMachineColors(colors) }
-        }
+        }.owned()
     }
 
     private func applyChromeTheme() {
+        defer { services.windows.recordSaver.launchRecord.schedule() }
         let store = services.themeStore
         let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
         // The theme file's colors, never the config's own color lines (the terminals keep those).
@@ -184,7 +201,7 @@ final class ThemeCoordinator {
                 self?.migrateTerminalThemes()
                 self?.apply()
             }
-        }
+        }.owned()
     }
 
     // MARK: Mounts
@@ -203,6 +220,7 @@ final class ThemeCoordinator {
         applyWorkspaceBackground(content)
         for pane in content.panes.values { applyPaneBackground(pane) }
         for id in content.panes.values.flatMap(\.orderedIDs) { services.cache.existingTerminal(id.rawValue).map { catchUp($0, fresh: false) } }
+        for pane in content.panes.values { pane.guestTerminal.map { catchUp($0.entry, fresh: false) } }
     }
 
     /// `entry` takes its theme as of the last `apply`. `fresh`: its surface was just made or
@@ -257,9 +275,10 @@ final class ThemeCoordinator {
     /// every live surface's config at once: the config event pays for it, never a later workspace
     /// or tab switch (the perf gate's relaunch tab switches caught a config apply on the switch).
     func apply(forceSurfaces: Bool = false) {
+        defer { services.windows.recordSaver.launchRecord.schedule() }
         applies.advance()
         for controller in services.windows.controllers { windowDidChange(controller) }
-        if forceSurfaces { for entry in services.cache.terminals.values { entry.themeBinding.syncSurface(force: true) } }
+        if forceSurfaces { for entry in Array(services.cache.terminals.values) + services.cache.guestTerminals.values.map(\.entry) { entry.themeBinding.syncSurface(force: true) } }
     }
 
     func setTheme(of scope: ThemeScope, to text: String?) {
@@ -269,6 +288,7 @@ final class ThemeCoordinator {
         guard resolved != nil || themed.contains(scope) else { return }
         if resolved == nil { themed.remove(scope) } else { themed.add(scope) }
         scope.setOverride(resolved?.spec, input: resolved?.input)
+        services.windows.recordSaver.launchRecord.schedule()
     }
 
     // MARK: Commit and preview

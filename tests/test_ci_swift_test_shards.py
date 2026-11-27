@@ -24,6 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "Packages" / "macOS" / "CmuxNext"
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next.yml"
 SCRIPT = ROOT / "scripts" / "cmux-next" / "swift-test-shards.py"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import step_run  # noqa: E402
 
 def load(name: str, path: Path):
     """A script as a module, registered in sys.modules first: a @dataclass reads its module from there
@@ -231,10 +233,10 @@ class Workflow(unittest.TestCase):
     def test_the_broad_pass_runs_the_shards(self) -> None:
         steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["swift-test"]["steps"]
         broad = next(s for s in steps if s.get("name", "").startswith("Run package tests (changed suites first"))
-        self.assertIn("swift-test-shards.py run", broad["run"])
-        self.assertIn('--targets "$SWIFT_TARGETS"', broad["run"])
-        self.assertIn("--exclude CmuxNextControlTests", broad["run"])
-        self.assertNotIn("swift-test-with-hang-sampler.sh --skip-build ${filter", broad["run"])
+        self.assertIn("swift-test-shards.py run", step_run(broad))
+        self.assertIn('--targets "$SWIFT_TARGETS"', step_run(broad))
+        self.assertIn("--exclude CmuxNextControlTests", step_run(broad))
+        self.assertNotIn("swift-test-with-hang-sampler.sh --skip-build ${filter", step_run(broad))
 
     def test_the_spilled_shards_run_in_the_next_step_after_a_red_broad_pass_too(self) -> None:
         steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["swift-test"]["steps"]
@@ -242,7 +244,7 @@ class Workflow(unittest.TestCase):
         broad = next(i for i, n in enumerate(names) if n.startswith("Run package tests (changed suites first"))
         spill = steps[broad + 1]
         self.assertEqual(steps[broad]["id"], "broad-tests")
-        self.assertIn('--spill "$RUNNER_TEMP/cmux-next-spilled-shards.json"', steps[broad]["run"])
+        self.assertIn('--spill "$RUNNER_TEMP/cmux-next-spilled-shards.json"', step_run(steps[broad]))
         self.assertIn('spilled --from "$RUNNER_TEMP/cmux-next-spilled-shards.json"', spill["run"])
         self.assertIn("steps.broad-tests.outcome == 'failure'", spill["if"])
 
@@ -253,14 +255,14 @@ class Workflow(unittest.TestCase):
         steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["swift-test"]["steps"]
         broad = next(s for s in steps if s.get("name", "").startswith("Run package tests (changed suites first"))
         self.assertNotIn("CMUX_NEXT_TUI_TREE_PATH", broad.get("env", {}))
-        run = broad["run"]
+        run = step_run(broad)
         resolve = run.index('tree_path="$(../../../scripts/cmux-next/pin-cmux-tui.sh path')
         self.assertLess(run.index("SWIFT_PRIORITY_FILTER\" ]]; then"), resolve)
         self.assertLess(resolve, run.index('CMUX_NEXT_TUI_TREE_PATH="$tree_path" python3 ../../../scripts/cmux-next/swift-test-shards.py run'))
         self.assertIn("tree_path=/dev/null/no-same-tree-here", run)
         # Every live-daemon helper reads a set path that is no binary as none, without looking again.
         tests = ROOT / "Packages" / "macOS" / "CmuxNext" / "Tests"
-        for helper in ("CmuxNextAppTests/FirstLaunchTests.swift", "CmuxNextMobileTests/LiveDaemonTests.swift",
+        for helper in ("CmuxNextAppTests/FirstLaunchTests.swift",
                        "CmuxNextDaemonTests/IntegrationTests.swift"):
             with self.subTest(helper=helper):
                 self.assertRegex((tests / helper).read_text(),

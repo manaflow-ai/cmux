@@ -56,6 +56,38 @@ import Testing
         #expect(ControlMethod.authTokenError(AuthTokenRefusal(code: "bad_reply"), team: nil).code == "unavailable")
     }
 
+    /// Probe cloud-signed-in-after-update-production, 2026-11-15: a Keychain refusal read "cmux Cloud sent an answer
+    /// cmux can't use", and a terminal prints only the message. The cause rides in the code and the text.
+    @Test func aLocalFailureNamesItsCauseInTheCodeAndTheText() {
+        let cause = "keychain(-25244: Invalid attempt to change the owner of this item.)"
+        let local = ControlMethod.authTokenError(AuthTokenRefusal(code: "local_failure", detail: cause), team: nil)
+        #expect(local.code == "local_failure")
+        #expect(local.message.contains(cause))
+        #expect(!local.message.contains("cmux Cloud sent an answer"))
+        #expect(local.data?["detail"]?.stringValue == cause)
+        let reply = ControlMethod.authTokenError(AuthTokenRefusal(code: "bad_reply", detail: "unexpected_challenge"), team: nil)
+        #expect(reply.message.contains("unexpected_challenge"))
+        // A refusal's detail is the owner's code, already in its own words: not repeated.
+        let refused = ControlMethod.authTokenError(AuthTokenRefusal(code: "forbidden", detail: "auth.forbidden"), team: nil)
+        #expect(!refused.message.contains("(auth.forbidden)"))
+    }
+
+    /// Probes cloud-chat-replies-production and kin, 2026-11-24 and 11-25: the probe account's full head answered
+    /// install.register `owner.state_full`, and the CLI said "Check that your account belongs to it", so the class read
+    /// as a stale team for a day. A non-membership owner code names itself and gives no membership advice.
+    @Test func aNonMembershipRefusalNamesItsOwnerCode() {
+        let full = ControlMethod.authTokenError(AuthTokenRefusal(code: "forbidden", detail: "owner.state_full", team: team), team: nil)
+        #expect(full.code == "forbidden")
+        #expect(full.message.contains(team))
+        #expect(full.message.contains("owner.state_full"))
+        #expect(!full.message.contains("belongs to it"))
+        #expect(full.data?["detail"]?.stringValue == "owner.state_full")
+        for membership in [nil, "auth.forbidden", "team.not_member"] as [String?] {
+            let error = ControlMethod.authTokenError(AuthTokenRefusal(code: "forbidden", detail: membership, team: team), team: nil)
+            #expect(error.message.contains("belongs to it"))
+        }
+    }
+
     /// Leo's NIGHTLY, 2026-11-11: `cmux whoami` (no `--team`) said "refused a token for team -". The refusal
     /// names the team the mint was for, the app's own team too.
     @Test func aRefusalForTheAppsOwnTeamNamesThatTeam() {

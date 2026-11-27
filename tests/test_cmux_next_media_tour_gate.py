@@ -192,8 +192,22 @@ def main():
            "re-adding the label cancels the pull request's older tour")
     _check(not expression(cancel, push_event()), "a nightly tour in progress is never cancelled")
     merge_group = expression(group, push_event())
-    _check(merge_group != expression(group, dict(push_event(), github=dict(push_event()["github"], sha="b" * 40))),
-           f"each nightly tip has its own group, so no tour is replaced by a newer one ({merge_group!r})")
+    # One group for every nightly tip: one tours at a time, the newest waiting tip runs next, and the
+    # next tour's base is the last toured tip (scripts/ci/media_last_toured.py), so a replaced tip's
+    # changes still tour.
+    _check(merge_group == expression(group, dict(push_event(), github=dict(push_event()["github"], sha="b" * 40))),
+           f"nightly tips share one group, so tours never run side by side ({merge_group!r})")
+    route_steps = {step.get("id"): step for step in workflow["jobs"]["route"]["steps"] if step.get("id")}
+    _check("last_toured" in route_steps and "media_last_toured.py" in route_steps["last_toured"]["run"],
+           "the route finds the last toured tip, so a replaced or deferred tip is in the next tour's range")
+    # A tip under the gap holds (takes no Mac) unless What's New clips wait (#57326).
+    hold = route_steps.get("hold", {})
+    _check("steps.last_toured.outputs.defer == 'true'" in hold.get("if", "")
+           and "held=true" in hold.get("run", "")
+           and "steps.hold.outputs.held != 'true'" in route_steps["pick"]["if"],
+           "a tip under the tour gap takes no Mac")
+    _check("needs.route.outputs.base" in workflow["jobs"]["tour"]["env"]["BASE_SHA"],
+           "the tour compares the last toured tip with the new one")
 
     # The route job decides; without a wanted tour no Mac is taken and nothing is posted.
     _check(jobs["tour"]["if"] == "${{ needs.route.outputs.runs_on != '' }}", "the tour needs a picked runner")

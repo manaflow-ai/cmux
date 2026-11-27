@@ -34,8 +34,9 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     /// The clocks and what they decide.
     private(set) lazy var pages: HiddenChatPages<AgentPageHibernation> = HiddenChatPages(
         host: self, deadline: DemandTimer(owner: "AgentPageHibernation"), freezeDeadline: DemandTimer(owner: "AgentPageFreeze"))
-    /// The acpmux turn state of the tab's chat; injected by the App.
-    var turnState: (String) -> AgentTurnState? = { _ in nil }
+    /// The acpmux session of the tab's chat, whose turn, work and archive tag `turns` mirrors; injected by the App.
+    var chat: (String) -> AgentSessionRef? = { _ in nil }
+    var turns = AgentTurnStateStore.shared // the mirror of acpmux's facts (tests set their own)
     /// The acpmux turn watch is up. While it is down no chat's turn is known, so every chat counts as busy.
     var turnsWatched: () -> Bool = { true }
     /// What the page holds that acpmux does not (attachments, shell text, scroll), kept with its
@@ -58,6 +59,13 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     /// while its tab does not draw (restored or opened in the background) starts its hidden clock at
     /// the next plan, as an adopted browser tab does.
     var isRendering: (String) -> Bool = { _ in true }
+    /// Builds a shown chat again when that lets a later renderer exit (``RendererPackingRun``); nil in tests.
+    private(set) var packing: RendererPackingRun<AgentPageHibernation>?
+    /// The engine's live pages and a chat's browser id; the pane showing tab `key` lets its page go, runs `swap` and
+    /// shows the tab again, its new page held off the window until it painted (false: no pane shows it). The App's.
+    var livePages: () -> [RendererPacking.LivePage] = { [] }
+    var browserID: (AgentPaneView) -> Int32? = { _ in nil }
+    var reshow: (_ key: String, _ swap: () -> Void) -> Bool = { _, _ in false }
     private func scopedKey(_ storageKey: String, in tabs: AgentTabStore) -> AgentTabKey {
         let parsed = AgentTabKey(relaunchStorageKey: storageKey)
         return parsed.machine.isEmpty ? tabs.tabKey(parsed.key) : parsed
@@ -76,25 +84,43 @@ final class AgentPageHibernation: HiddenChatPagesHost {
             let scoped = parsed.machine.isEmpty ? services.madeAgentTabs?.tabKey(parsed.key) ?? parsed : parsed
             return (scoped.machine.isEmpty ? services.locateTab(scoped.key) : services.locateTab(scoped.key, onMachine: scoped.machine))?.0.pinned ?? false
         }
-        turnState = { [weak services] key in
+        chat = { [weak services] key in
             guard let tabs = services?.madeAgentTabs else { return nil }
             let parsed = AgentTabKey(relaunchStorageKey: key)
             let scoped = parsed.machine.isEmpty ? tabs.tabKey(parsed.key) : parsed
             guard var (record, _) = tabs.record(for: tabs.resolvedKey(scoped)) else { return nil }
             // The session the page runs, as its rebuild uses it: a refused bind leaves the record on the old one.
             record.session = tabs.existingView(scoped.key, machine: scoped.machine)?.model.sessionId ?? tabs.sessions[tabs.resolvedKey(scoped)] ?? record.session
-            return AgentTurnStateStore.shared.state(for: record)
+            return record
         }
         // A run without the watch (showcase, the mock pane) has no turns to wait for.
         turnsWatched = { AgentTurnStateFeed.shared == nil || AgentTurnStateStore.shared.watching }
         displace = { [weak services] key in services?.cache.presenter(of: key)?.surfaceWasDisplaced(key) }
         let cache = services.cache
         isRendering = { [weak cache] key in cache?.isRendering(key) ?? true }
+        pages.pairedFace = { [weak services, weak cache] key in // Toggle Terminal and Chat: a chat whose pane draws its terminal face
+            guard let services, let cache, let (tab, pane) = services.locateTab(AgentTabKey(relaunchStorageKey: key).key), tab.kind != .pty,
+                  let session = TerminalChatHandler.chatSession(of: tab, services: services)?.agentSessionId else { return false }
+            return pane.tabs.contains { $0.kind == .pty && $0.agent?.harnessSessionID == session && cache.isRendering($0.id) }
+        }
         cache.presentationChanges.subscribe("agent-page-hibernation") { [weak self, weak cache] in
             guard let cache else { return }
             self?.sync(cache.presentationChanges.changedKeys) { cache.isRendering($0) }
         }
         followTurns(AgentTurnStateStore.shared)
+        let cef = cache.cef
+        livePages = { cef.rendererPages.map { .init(browser: $0.browserID, origin: $0.origin, rendererClients: $0.rendererClients, exited: $0.exited) } }
+        browserID = { cef.browserID(showing: $0.focusTarget) }
+        reshow = { [weak services] key, swap in
+            guard let services, let tabs = services.madeAgentTabs, let pane = services.cache.presenter(of: key) as? PaneController,
+                  pane.currentTabKey == key else { return false }
+            pane.letGo(key, parks: false)
+            swap()
+            tabs.rebuiltAway.insert(key)
+            if services.presentation.showNow(pane) { tabs.rebuiltAway.remove(key) } // shown: its page is held already
+            return true
+        }
+        packing = RendererPackingRun(host: self, cap: CEFEngine.cmuxPagesPerRenderer, timer: DemandTimer(owner: "AgentPageRendererPacking"))
     }
 
     /// A turn that ends, or the watch coming back, makes its hidden page due again (a busy page
@@ -104,7 +130,6 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     // The planner's surface, as the App and the tests call it.
     var hasDeadline: Bool { pages.hasDeadline }
     var frozen: Set<String> { pages.frozen }
-    var hasFreezeDeadline: Bool { pages.hasFreezeDeadline }
     func update(setting: BrowserHibernationSetting, pressure: MemoryPressureLevel) { pages.update(setting: setting, pressure: pressure) }
     func sync(_ changed: Set<String>? = nil, _ isRendering: (String) -> Bool) {
         let changed = changed.map { ids in
@@ -113,14 +138,9 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         }
         pages.sync(changed) { let scoped = AgentTabKey(relaunchStorageKey: $0); return !scoped.machine.isEmpty || isRendering(scoped.key) } // the cache keys renderers by tab id: a page whose id two machines share stays awake
     }
-    func forget(_ key: String) { pages.forget(key) }
     func replan() { pages.replan() }
     func keepsPage(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? { pages.keepsPage(key, onScreen: onScreen) }
     func keepsAwake(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? { pages.keepsAwake(key, onScreen: onScreen) }
-    @discardableResult
-    func releaseForWorkspace(_ key: String) -> HibernationPlanner.Exemption? { pages.releaseForWorkspace(key) }
-    func pageBuilt(_ key: String) { pages.pageBuilt(key) }
-    func holdAwake(_ held: Bool) { pages.holdAwake(held) }
 
     // MARK: HiddenChatPagesHost
 
@@ -138,7 +158,8 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     func pageClock() -> ContinuousClock.Instant { now() }
     func pagePinned(_ key: String) -> Bool { isPinned(key) }
     func pageTurnsKnown() -> Bool { turnsWatched() }
-    func pageTurnBusy(_ key: String) -> Bool { turnState(key).map { $0 == .working || $0 == .needsInput } ?? false }
+    func pageTurnBusy(_ key: String) -> Bool { chat(key).map { AgentTurnState.isWorking(turns.state(for: $0), detail: turns.detail(for: $0)) } ?? false }
+    func pageArchived(_ key: String) -> Bool { chat(key).flatMap(turns.detail(for:))?.archived == true }
     func freezeControl(of page: AgentPaneView) -> (any BrowserFreezing)? { freezer(page) }
     func setFrozen(_ control: any BrowserFreezing, _ frozen: Bool) -> Bool { control.setFrozen(frozen) }
     func setPageWork(_ page: AgentPaneView, _ work: (@MainActor () -> Void)?) { page.model.transport.beforePageWork = work }
@@ -147,10 +168,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     func pageIsUntouchedNewTab(_ key: String) -> Bool {
         guard let tabs = store() else { return false }
         let scoped = scopedKey(key, in: tabs)
-        guard let view = tabs.existingView(scoped.key, machine: scoped.machine),
-              let page = view.model.newTab, !view.model.userTouched, !view.model.remoteChat,
-              page.draft?.isEmpty != false, view.model.sessionId == nil, tabs.sessions[scoped] == nil,
-              !view.model.shell.hasRuns, !view.showsCrashNotice,
+        guard let view = tabs.existingView(scoped.key, machine: scoped.machine), view.isUntouchedNewTab, tabs.sessions[scoped] == nil,
               let (record, _) = tabs.record(for: tabs.resolvedKey(scoped)), record.session == nil,
               tabs.hostKind(record, listedHere: true) == .local,
               tabs.daemon(for: tabs.resolvedKey(scoped))?.isLocal != false else { return false }
@@ -200,8 +218,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         let takeSnapshot = snapshot
         let cause = started.cause
         Task { @MainActor [weak self] in
-            let captured = await AgentPaneHibernationCapture(view: view).capture(key: tabID, images: tabs.launchImages, requiresFrame: started.requiresFrame,
-                                                           keepsDraft: started.byChatPolicy, wake: readWake, snapshot: takeSnapshot)
+            let captured = await AgentPaneHibernationCapture(view: view).capture(key: tabID, images: tabs.launchImages, requiresFrame: started.requiresFrame, wake: readWake, snapshot: takeSnapshot)
             guard let self else { return }
             pages.endRelease(key)
             if let reason = captured.kept {
@@ -225,9 +242,41 @@ final class AgentPageHibernation: HiddenChatPagesHost {
             tabs.retirer.retire(view)
             tabs.stopCustomizationWhenUnused()
             pages.released(key)
+            packing?.schedule() // the release may have made room in an older renderer
             // Notice, not info: the field log keeps it (the page is built again when shown).
             logger.notice("released agent page \(key, privacy: .public) cause=\(cause, privacy: .public); it is built again when shown")
         }
     }
 
+}
+
+extension AgentPageHibernation: RendererPackingHost {
+    func packingMayMove(_ key: String, _ page: AgentPaneView) -> Bool {
+        guard AgentTabKey(relaunchStorageKey: key).machine.isEmpty, page.pageDrawsOverCovers, page.model.hasPainted,
+              AgentPaneHibernationCapture(view: page).isOnScreen, pageTurnsKnown(), !pageTurnBusy(key) else { return false }
+        return pageMayRelease(key, onScreen: false)
+    }
+    func packingBrowser(_ page: AgentPaneView) -> Int32? { browserID(page) }
+    func packingLivePages() -> [RendererPacking.LivePage] { livePages() }
+    /// The release's steps on a shown page: its picture is taken by hand (a visible Chromium page captures safely).
+    func packingRebuild(_ key: String, _ page: AgentPaneView, stillIdle: @escaping @MainActor () -> Bool) async -> String? {
+        guard let tabs = store() else { return "no agent tabs" }
+        let scoped = scopedKey(key, in: tabs)
+        let slot = tabs.launchImages.slot(scoped.key, machine: scoped.machine)
+        let wake = await wakeState(page)
+        if let kept = AgentPaneWakeState.keepReason(wake, hasHandshake: page.model.hasHandshake) { return kept }
+        guard let frame = await snapshot(page), await tabs.launchImages.hold(slot, frame.image, size: frame.size, appearance: frame.appearance) else { return "no frame" }
+        guard let stored = tabs.views.entries.first(where: { $0.value === page }).map({ tabs.resolvedKey($0.key) }), stillIdle() else {
+            tabs.launchImages.drop(slot)
+            return "in use"
+        }
+        if let session = page.model.sessionId { tabs.sessions[stored] = session }
+        tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
+        guard reshow(scoped.key, { tabs.views[stored] = nil; tabs.retirer.retire(page) }) else {
+            tabs.wakeStates[stored] = nil
+            tabs.launchImages.drop(slot)
+            return "no pane shows it"
+        }
+        return nil
+    }
 }

@@ -1,0 +1,20 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-starter-actions",
+  "description": "Run tests, start a dev server and open Claude in a new tab, from the Command Palette or a shortcut. Remove it and your own actions and shortcuts are as they were.",
+  "created_ms": 0,
+  "settings": {},
+  "files": {
+    "keybindings.json": "[\n  { \"key\": \"cmd+shift+t\", \"command\": \"cmuxConfig.starter-tests\" },\n  { \"key\": \"cmd+shift+d\", \"command\": \"cmuxConfig.starter-dev\" }\n]\n"
+  },
+  "x-setup": {
+    "id": "manaflow-ai/starter-actions",
+    "name": "Starter Actions",
+    "source": "gallery/actions-and-keys",
+    "actions": [
+      "starter-claude",
+      "starter-dev",
+      "starter-tests"
+    ]
+  }
+}

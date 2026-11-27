@@ -13,6 +13,14 @@
 //! the workspace, the parts state for each screen, pane, tab and terminal the value that a full
 //! projection states.
 //!
+//! THE CHECK AFTER THE PARTS. In a build that runs the projection cross-check the worker
+//! compares one full projection with the journal, one time. These tests assert that the compare
+//! finds no difference in a session that the parts stated, that it sees a value of the live
+//! tree that no commit stated, and that it commits nothing.
+//!
+//! THE WORKER STAYS AWAY WITH NO LOCK. The worker's sleep is a parameter; a test gives a
+//! function that tries the registry lock and the state lock in place of each sleep.
+//!
 //! WHAT KEEPS A PART OUT. A part that the registry refuses keeps only its own workspace out; the
 //! restatement stops after 8 workspaces that an error kept out; no part starts while the daemon
 //! ends terminals.
@@ -304,6 +312,11 @@ fn waiters_counts_a_locker_that_waits_and_no_locker_that_holds() {
 /// the hold that each committed part returned, so that compare guards the choice. The clock
 /// guards the sleep: the thread ran at least as long as its parts held the locks plus that
 /// pause, so it did stay away from the locks for it.
+///
+/// THE CHECK. In a build that runs the projection cross-check, the worker compares one full
+/// projection with the journal after its last step and records the lap `session.restate.check`:
+/// no difference in a session that the parts stated. That projection is not committed and is
+/// not in the count of full projections.
 #[test]
 fn the_worker_thread_states_the_session_and_records_its_laps() {
     let mux = without_crosscheck(|| session_in(test_mux(), 10));
@@ -321,17 +334,29 @@ fn the_worker_thread_states_the_session_and_records_its_laps() {
     let laps = mux.session_restate_laps_for_test().expect("the worker recorded no laps");
     let laps = laps.as_array().unwrap();
     let steps = laps.iter().map(|lap| lap["step"].as_str().unwrap()).collect::<Vec<_>>();
-    assert_eq!(
-        steps,
-        [
-            "session.restate.wait",
-            "session.restate.part",
-            "session.restate.part",
-            "session.restate.pause",
-            "session.restate"
-        ],
-        "{laps:?}"
-    );
+    let mut expected = vec![
+        "session.restate.wait",
+        "session.restate.part",
+        "session.restate.part",
+        "session.restate.pause",
+        "session.restate",
+    ];
+    // A build that runs the projection cross-check (a Debug build; it is on in the worker
+    // thread) compares one full projection with the journal after the last step.
+    let compares = cfg!(debug_assertions)
+        || std::env::var_os("CMUX_TUI_PROJECTION_CROSSCHECK").is_some_and(|value| value == "1");
+    if compares {
+        expected.push("session.restate.check");
+    }
+    assert_eq!(steps, expected, "{laps:?}");
+    if compares {
+        let check = &laps[5];
+        assert_eq!(check["difference"], false, "the journal differs after the parts: {check}");
+        assert!(
+            check["equal"].as_u64().unwrap() >= 10,
+            "the compare read fewer values than the session has workspaces: {check}"
+        );
+    }
     assert_eq!(laps[1]["workspaces"], 8, "{laps:?}");
     assert_eq!(laps[2]["workspaces"], 2, "{laps:?}");
     let (pause, sum) = (&laps[3], &laps[4]);
@@ -353,6 +378,81 @@ fn the_worker_thread_states_the_session_and_records_its_laps() {
         "the worker ran {ran} ms, less than its holds plus its pause: {laps:?}"
     );
     assert_journal_states_the_session(&mux);
+    mux.shutdown();
+}
+
+/// THE CHECK AFTER THE PARTS. The compare that the worker runs after its last step
+/// (`Mux::session_journal_check`), called here with no worker. After the parts it finds no
+/// difference and reads at least the 10 workspace values. A name of the live tree that no
+/// commit stated is a difference, and the line names that workspace. The compare commits
+/// nothing and does not count as a full projection.
+#[test]
+fn the_check_after_the_parts_sees_a_value_that_no_commit_stated() {
+    let mux = without_crosscheck(|| session_in(test_mux(), 10));
+    lose_the_fold(&mux);
+    let tally = mux.restate_session_in_parts().unwrap();
+    assert_eq!((tally.workspaces(), tally.failed, tally.skipped), (10, 0, 0), "{tally:?}");
+    assert!(tally.check.is_none(), "the steps with no worker ran the compare: {tally:?}");
+    let (revision, full) = (revision_of(&mux), full_projections(&mux));
+
+    let stated = mux.session_journal_check().unwrap();
+    assert_eq!(stated.difference, None, "the journal differs after the parts: {stated:?}");
+    assert!(stated.equal >= 10, "the compare read fewer values than workspaces: {stated:?}");
+
+    drift_a_name(&mux, 7);
+    let drifted = mux.session_journal_check().unwrap();
+    let difference = drifted.difference.expect("the compare did not see the name that drifted");
+    assert!(
+        difference.contains(&format!("workspace {}", workspace_ids(&mux)[7])),
+        "the difference is not the workspace that drifted: {difference}"
+    );
+    assert_eq!(revision_of(&mux), revision, "the compare committed a record");
+    assert_eq!(full_projections(&mux), full, "the compare counts as a full projection");
+    mux.shutdown();
+}
+
+/// THE WORKER STAYS AWAY WITH NO LOCK. In place of each sleep of the worker, on the worker's
+/// own thread, the test takes the registry lock and the state lock with `try_lock`. A guard of
+/// the worker that is alive at the sleep makes each try fail: one thread does not take a lock
+/// two times. The assert has no clock in it. A try can fail for a moment when another thread
+/// of the mux holds the lock, so each lock is tried again, at most 10,000 times with a yield
+/// between; a guard of the worker itself fails each of them. The worker pauses after each of
+/// its 2 parts; a step that stands back for a locker that waits is one more pause, so the count
+/// is at least 2.
+#[test]
+fn the_worker_holds_no_lock_while_it_stays_away() {
+    let mux = without_crosscheck(|| session_in(test_mux(), 10));
+    lose_the_fold(&mux);
+    mux.startup_adoptions_released.store(true, Ordering::Release);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (weak, record) = (Arc::downgrade(&mux), seen.clone());
+    let free = |try_lock: &dyn Fn() -> bool| {
+        (0..10_000).any(|_| {
+            let taken = try_lock();
+            if !taken {
+                std::thread::yield_now();
+            }
+            taken
+        })
+    };
+    let worker = mux
+        .spawn_session_restate_with(move |pause| {
+            let Some(mux) = weak.upgrade() else { return };
+            let registry = free(&|| mux.workspace_registry.try_lock().is_ok());
+            let state = free(&|| mux.state.try_lock().is_ok());
+            record.lock().unwrap().push((pause, registry, state));
+        })
+        .expect("the worker thread did not start");
+    worker.join().unwrap();
+
+    let seen = seen.lock().unwrap().clone();
+    assert!(seen.len() >= 2, "no pause after each of the 2 parts: {seen:?}");
+    for (pause, registry, state) in &seen {
+        assert!(!pause.is_zero(), "a pause of no length: {seen:?}");
+        assert!(*registry, "the worker held the registry lock at its pause: {seen:?}");
+        assert!(*state, "the worker held the state lock at its pause: {seen:?}");
+    }
+    assert_eq!(whole_workspaces(&mux), 10);
     mux.shutdown();
 }
 

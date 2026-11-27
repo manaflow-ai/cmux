@@ -3,7 +3,6 @@
   "ops": {
     "account.add": "account.add",
     "acpmux.restart": "acpmux.restart",
-    "acpmux.restartStuck": "acpmux.restartStuck",
     "action.run": "action.run",
     "agent.avatar": "agent.avatar",
     "agent.avatar.remove": "agent.avatar.remove",
@@ -20,10 +19,11 @@
     "chat.asks.pending": "chat.asks.pending",
     "chat.attach.choose": "chat.attach.choose",
     "chat.attach.dropped": "chat.attach.dropped",
+    "chat.attach.external": "chat.attach.external",
     "chat.attach.source": "chat.attach.source",
     "chat.attention.open": "chat.attention.open",
     "chat.btw.inline": "chat.btw.inline",
-    "chat.cloudCredentialTransfer": "chat.cloudCredentialTransfer",
+    "chat.cloudStartQueue": "chat.cloudStartQueue",
     "chat.computerUsePreview": "chat.computerUsePreview",
     "chat.draftAttachments": "chat.draftAttachments",
     "chat.draftAttachments.get": "chat.draftAttachments.get",
@@ -36,6 +36,11 @@
     "chat.openTab": "chat.openTab",
     "chat.processTerminal": "chat.processTerminal",
     "chat.rewindTurn": "chat.rewindTurn",
+    "chat.rows.blob": "chat.rows.blob",
+    "chat.rows.close": "chat.rows.close",
+    "chat.rows.open": "chat.rows.open",
+    "chat.rows.page": "chat.rows.page",
+    "chat.rows.taken": "chat.rows.taken",
     "chat.scrollAnchor": "chat.scrollAnchor",
     "chat.scrollAnchor.get": "chat.scrollAnchor.get",
     "chat.sideChat": "chat.sideChat",
@@ -70,6 +75,7 @@
     "cloud.environment.list": "cloud.environment.list",
     "cloud.environment.update": "cloud.environment.update",
     "cloud.handoffTurn": "cloud.handoffTurn",
+    "cloud.plan.subscribe": "cloud.plan.subscribe",
     "cloud.preview.open": "cloud.preview.open",
     "cloud.releaseReservation": "cloud.releaseReservation",
     "cloud.repickChat": "cloud.repickChat",
@@ -80,6 +86,7 @@
     "cloud.repo.sync": "cloud.repo.sync",
     "cloud.repo.wait_github": "cloud.repo.wait_github",
     "cloud.reserve": "cloud.reserve",
+    "cloud.setUp": "cloud.setUp",
     "cloud.signIn": "cloud.signIn",
     "cloud.signInCancel": "cloud.signInCancel",
     "cloud.startChat": "cloud.startChat",
@@ -91,8 +98,16 @@
     "cloudMachine.prewarm": "cloudMachine.prewarm",
     "cloudMachine.recoveryList": "cloudMachine.recoveryList",
     "cloudMachine.resume": "cloudMachine.resume",
+    "cloudMachine.wakeHint": "cloudMachine.wakeHint",
     "composer.capture": "composer.capture",
     "composer.copy": "composer.copy",
+    "composer.copy.begin": "composer.copy.begin",
+    "composer.copy.cancel": "composer.copy.cancel",
+    "composer.copy.chunk": "composer.copy.chunk",
+    "composer.copy.finish": "composer.copy.finish",
+    "composer.copy.staged": "composer.copy.staged",
+    "customizations.menu": "customizations.menu",
+    "designSelection.released": "designSelection.released",
     "diag.flicker": "diag.flicker",
     "dictation.audio": "dictation.audio",
     "dictation.cancel": "dictation.cancel",
@@ -104,6 +119,7 @@
     "dictation.start": "dictation.start",
     "dictation.stop": "dictation.stop",
     "dictation.toggle": "dictation.toggle",
+    "editors.list": "editors.list",
     "environment.list": "environment.list",
     "environment.remove": "environment.remove",
     "environment.save": "environment.save",
@@ -111,6 +127,7 @@
     "file.drag": "file.drag",
     "file.open": "file.open",
     "file.search": "file.search",
+    "folder.complete": "folder.complete",
     "git.checkpoint.diff": "git.checkpoint.diff",
     "git.commit": "git.commit",
     "git.diff": "git.diff",
@@ -126,6 +143,11 @@
     "git.worktree.create": "git.worktree.create",
     "git.worktree.remove": "git.worktree.remove",
     "git.worktree.setup": "git.worktree.setup",
+    "git.worktree.setup.run": "git.worktree.setup.run",
+    "github.connect": "github.connect",
+    "github.repos.checkout": "github.repos.checkout",
+    "github.repos.list": "github.repos.list",
+    "github.status": "github.status",
     "handshake": "ready",
     "harness.restart": "harness.restart",
     "harness.symbol": "harness.symbol",
@@ -165,6 +187,8 @@
     "pane.finishSound": "pane.finishSound",
     "pane.framePacing": "pane.framePacing",
     "pane.glass": "pane.glass",
+    "pane.inputEchoed": "pane.inputEchoed",
+    "pane.launchSettle": "pane.launchSettle",
     "pane.moveToMachine": "pane.moveToMachine",
     "pane.noticeAction": "pane.noticeAction",
     "pane.painted": "pane.painted",
@@ -187,6 +211,7 @@
     "pane.tabRowTools.openMenu": "pane.tabRowTools.openMenu",
     "pane.tabRowTools.set": "pane.tabRowTools.set",
     "pane.tabState": "pane.tabState",
+    "pane.toast": "pane.toast",
     "pane.toastAvoidance": "pane.toastAvoidance",
     "pr.inspect": "pr.inspect",
     "project.addFiles": "project.addFiles",
@@ -194,6 +219,9 @@
     "project.icon": "project.icon",
     "project.instructions": "project.instructions",
     "project.list": "project.list",
+    "projectPalette.close": "projectPalette.close",
+    "projectPalette.show": "projectPalette.show",
+    "projectPalette.update": "projectPalette.update",
     "quick.context": "quick.context",
     "quick.dismiss": "quick.dismiss",
     "quick.floatingState": "quick.floatingState",
@@ -203,6 +231,7 @@
     "quick.startInBackground": "quick.startInBackground",
     "readAloud.speak": "readAloud.speak",
     "readAloud.stop": "readAloud.stop",
+    "repo.clone": "repo.clone",
     "run.attach": "run.attach",
     "sandbox.run": "sandbox.run",
     "sandbox.state": "sandbox.state",
@@ -216,6 +245,7 @@
     "tab.open": "tab.open",
     "tab.typeAhead": "tab.typeAhead",
     "tips.state": "tips.state",
+    "transport.ack": "transport.ack",
     "transport.close": "transport.close",
     "transport.gesture": "transport.gesture",
     "transport.gesture.release": "transport.gesture.release",
@@ -225,6 +255,7 @@
     "uiPointer.report": "uiPointer.report",
     "video.frames": "video.frames",
     "video.info": "video.info",
+    "video.probes": "video.probes",
     "video.quickLook": "video.quickLook",
     "video.transcript": "video.transcript",
     "workspace.chooseFolder": "workspace.chooseFolder",
@@ -238,6 +269,28 @@
     ],
     "composer.copy": [
       "items",
+      "text"
+    ],
+    "composer.copy.begin": [
+      "batch",
+      "batchToken",
+      "name",
+      "size"
+    ],
+    "composer.copy.cancel": [
+      "token"
+    ],
+    "composer.copy.chunk": [
+      "data",
+      "offset",
+      "token"
+    ],
+    "composer.copy.finish": [
+      "token"
+    ],
+    "composer.copy.staged": [
+      "items",
+      "order",
       "text"
     ],
     "environment.list": [],
@@ -284,6 +337,7 @@
       "urls"
     ],
     "link.openPath": [
+      "line",
       "path"
     ],
     "link.preview": [
@@ -301,6 +355,9 @@
       "times"
     ],
     "video.info": [
+      "src"
+    ],
+    "video.probes": [
       "src"
     ],
     "video.quickLook": [

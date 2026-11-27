@@ -53,6 +53,13 @@
 .acpmux-machine-link[data-link="offline"] .acpmux-machine-link-dot {
   background: var(--agent-danger, currentColor);
 }
+/* A link down, dialing or slow for less than LINK_DOWN_SAID_MS (afterDelay.ts) is not said: the dot
+   keeps its connected look, with no spinner and no words, so a drop that heals on its own shows
+   nothing (Leo, 2026-11-14). */
+.acpmux-machine-link[data-quiet] .acpmux-machine-link-dot {
+  opacity: 1;
+  background: var(--agent-success, var(--acpmux-add, currentColor));
+}
 .acpmux-machine-link-spinner {
   position: absolute;
   top: 50%;
@@ -100,26 +107,6 @@
 }
 .acpmux-machine-link[data-link="offline"] .acpmux-machine-link-state {
   color: var(--agent-danger, var(--agent-muted));
-}
-/* Reconnect is a text button in the row's ink, with the row's own small-radius hover fill: never a pill. */
-.acpmux-machine-link-reconnect {
-  flex: none;
-  margin: 0;
-  padding: 0 var(--acpmux-machine-link-gap);
-  border: 0;
-  border-radius: var(--ds-radius-control, 6px);
-  background: none;
-  color: var(--agent-text);
-  font: inherit;
-  cursor: default;
-}
-.acpmux-machine-link-reconnect:disabled {
-  color: var(--agent-muted);
-}
-@media (hover: hover) and (pointer: fine) {
-  .acpmux-machine-link-reconnect:not(:disabled):hover {
-    background: var(--acpmux-pill-open, color-mix(in srgb, var(--agent-text) 10%, transparent));
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .acpmux-machine-link-dot,

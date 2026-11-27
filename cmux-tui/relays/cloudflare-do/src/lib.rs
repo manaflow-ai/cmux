@@ -3,9 +3,13 @@ mod attachment;
 mod auth;
 mod circuit;
 mod daemon;
+mod forward;
+mod inline;
 #[cfg(test)]
 mod interleavings;
 mod park;
+mod placement;
+mod retire;
 mod routing;
 mod slot;
 mod wire;

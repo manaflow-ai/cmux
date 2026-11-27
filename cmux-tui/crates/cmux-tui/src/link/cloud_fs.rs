@@ -1,7 +1,11 @@
-//! `fs-v1` on cmux Cloud hosts only (decision D4, 2026-10-04): the daemon
-//! of a Cloud VM serves file ops over the VM home, because the link token's
-//! team policy already decided who reaches its `daemon` service. Every
-//! other host (a Mac above all) installs no owner, does not advertise
+//! `fs-v1` (decision D4, 2026-10-04, widened 2026-11-19): the daemon of a
+//! Cloud VM serves file ops over the VM home to every peer, because the link
+//! token's team policy already decided who reaches its `daemon` service. A
+//! Linux machine of the person's own (a lane VM, a CI machine) serves them
+//! over its home to its owner's connections only (`fs_ops::Scope::Owner`),
+//! so a Mac folder can be projected or copied there too (Leo, 2026-11-19:
+//! "especially for remote ... we can use it for our lanes, the lane
+//! machines, plus our CI"). A Mac installs no owner, does not advertise
 //! `fs-v1`, and answers `fs.unavailable` to every fs op. File ops on a Mac
 //! come later with an allow-list of user-chosen roots.
 //!
@@ -15,8 +19,8 @@
 //!   `CMUX_VM_ID`, from the process environment,
 //!   `$HOME/.config/cmux/model-plane.env`, the image's
 //!   `/etc/cmux/model-plane.env` and the bound `/etc/cmux/daemon-instance-id`;
-//!   the source the machine spend readout uses,
-//!   `coderouter_usage::machine_source`).
+//!   its reader,
+//!   `machine_identity::machine_source`).
 //!
 //! No argv flag is added, so an upgraded daemon starts with the guest's
 //! existing command line.
@@ -32,7 +36,7 @@
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
-use cmux_tui_core::fs_ops::{FsService, Roots};
+use cmux_tui_core::fs_ops::{FsService, Roots, Scope};
 use cmux_tui_core::server::agent_transfer::AgentTransferHost;
 
 /// What a Cloud image stamp starts with (the devbox and cmux-vm bakes).
@@ -76,7 +80,7 @@ pub(super) fn trusted_stamp(stamp: &Path, top: &Path, owner_uid: u32) -> bool {
 
 /// True when this machine is a cmux Cloud host (the module's test).
 fn this_is_a_cloud_host() -> bool {
-    let identity = crate::coderouter_usage::machine_source().is_some();
+    let identity = crate::machine_identity::machine_source().is_some();
     let linux = cfg!(target_os = "linux");
     // The root-owned stamp of a Cloud image (`/etc/cmux/image-stamp`).
     let etc = crate::agent_start_host::cloud_etc();
@@ -92,18 +96,34 @@ pub(super) fn agent_transfer_host() -> Option<AgentTransferHost> {
     Some(AgentTransferHost { cloud: this_is_a_cloud_host(), home })
 }
 
-/// Installs the file owner over `HOME` when this is a Cloud host. Returns
-/// whether `fs-v1` is now served.
-pub(super) fn install_if_cloud_host() -> bool {
-    if !this_is_a_cloud_host() {
+/// Who the file owner serves on this host: every peer on a Cloud host, the
+/// owner's connections only on another Linux machine (a lane VM, a CI
+/// machine), and nobody on a Mac or Windows (`None`, no owner installed).
+pub(super) fn file_scope(linux: bool, cloud: bool) -> Option<Scope> {
+    match (linux, cloud) {
+        (true, true) => Some(Scope::Cloud),
+        (true, false) => Some(Scope::Owner),
+        (false, _) => None,
+    }
+}
+
+/// Installs the file owner over `HOME` on a Linux host, scoped by
+/// [`file_scope`]. Returns whether `fs-v1` is now served.
+pub(super) fn install_file_owner() -> bool {
+    // Test seam, debug builds only: a Linux daemon that stands in for a Mac (no file owner).
+    #[cfg(debug_assertions)]
+    if std::env::var_os("CMUX_TEST_NO_FILE_OWNER").is_some() {
         return false;
     }
+    let Some(scope) = file_scope(cfg!(target_os = "linux"), this_is_a_cloud_host()) else {
+        return false;
+    };
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return false };
     let roots = Roots::new([home]);
     if roots.is_empty() {
         return false;
     }
-    if !cmux_tui_core::fs_ops::install(FsService::new(roots)) {
+    if !cmux_tui_core::fs_ops::install_scoped(FsService::new(roots), scope) {
         return false;
     }
     // Leftover temporaries of writes a previous daemon did not finish; off

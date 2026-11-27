@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 mod layout_column;
 #[path = "model_tab.rs"]
 mod tab;
-pub use layout_column::{LayoutColumn, LayoutColumnDock, LayoutRow};
+pub use layout_column::{ColumnRole, LayoutColumn, LayoutColumnDock, LayoutRow};
 pub use tab::{TabContentId, TabContentKind, TabSnapshot};
 
 /// JSON retained only where the catalog explicitly declares a JSON or extension value.
@@ -76,7 +76,6 @@ pub enum LayoutDirection {
 
 /// One pane and its ordered tabs in a layout document.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct LayoutLeaf {
     pub pane_id: PaneId,
     pub tab_ids: Vec<TabId>,
@@ -86,7 +85,6 @@ pub struct LayoutLeaf {
 
 /// Two recursively nested layout nodes separated by one stable split.
 #[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct LayoutSplit {
     pub split_id: SplitId,
     pub direction: LayoutDirection,
@@ -101,7 +99,6 @@ impl<'de> Deserialize<'de> for LayoutSplit {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
         struct Wire {
             split_id: SplitId,
             direction: LayoutDirection,
@@ -128,7 +125,6 @@ impl<'de> Deserialize<'de> for LayoutSplit {
 
 /// Ordered panes collapsed into one stack.
 #[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct LayoutStack {
     pub pane_ids: Vec<PaneId>,
     pub expanded_pane_id: PaneId,
@@ -140,7 +136,6 @@ impl<'de> Deserialize<'de> for LayoutStack {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
         struct Wire {
             pane_ids: Vec<PaneId>,
             expanded_pane_id: PaneId,
@@ -161,7 +156,6 @@ impl<'de> Deserialize<'de> for LayoutStack {
 
 /// Horizontally scrolling viewport with stable columns.
 #[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct LayoutViewport {
     pub base_width: f64,
     pub columns: Vec<LayoutColumn>,
@@ -173,7 +167,6 @@ impl<'de> Deserialize<'de> for LayoutViewport {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
         struct Wire {
             base_width: f64,
             columns: Vec<LayoutColumn>,
@@ -263,7 +256,6 @@ impl LayoutNode {
 
 /// Complete, lossless screen layout document.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct LayoutDocument {
     pub version: u32,
     pub screen_id: ScreenId,
@@ -310,14 +302,13 @@ pub struct PaneSnapshot {
 
 /// Optional pane found in a requested direction.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct PaneNeighborResult {
     pub pane: Option<PaneSnapshot>,
 }
 
 /// Durable process outcome retained for a terminal.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TerminalExitOutcome {
     Exit {
         code: i32,
@@ -335,7 +326,6 @@ pub enum TerminalExitOutcome {
 
 /// Durable terminal exit record.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct TerminalExit {
     pub outcome: TerminalExitOutcome,
     #[serde(deserialize_with = "deserialize_decimal")]
@@ -489,6 +479,10 @@ pub enum ClientTransport {
     Unix,
     #[serde(rename = "websocket")]
     WebSocket,
+    /// A client of another machine that reaches the daemon through its
+    /// remote link.
+    #[serde(rename = "remote")]
+    Remote,
 }
 
 /// Terminal dimensions reported by one connected client.
@@ -506,7 +500,6 @@ impl<'de> Deserialize<'de> for ClientTerminalSize {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
         struct Wire {
             terminal_id: TerminalId,
             #[serde(deserialize_with = "deserialize_nullable_positive_u16")]
@@ -689,7 +682,6 @@ pub struct SidebarViewSnapshot {
 
 /// Current durable session revision and generation.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct Cursor {
     #[serde(deserialize_with = "deserialize_generation")]
     pub generation: String,
@@ -698,7 +690,6 @@ pub struct Cursor {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct ConfirmationRequiredDetails {
     #[serde(deserialize_with = "deserialize_bounded_nonempty_string")]
     pub confirmation_token: String,
@@ -754,7 +745,7 @@ pub enum ResourceEntitySnapshot {
 
 /// Exact path returned by create and run operations.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CreatedPath {
     Workspace {
         workspace_id: WorkspaceId,
@@ -813,7 +804,6 @@ impl<'de> Deserialize<'de> for CreationResolution {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
         struct Wire {
             #[serde(deserialize_with = "deserialize_bounded_nonempty_string")]
             correlation_key: String,
@@ -979,7 +969,6 @@ impl<T> Created<T> {
 
 /// Result of a session liveness read.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct PingResult {
     pub alive: bool,
     pub cursor: Cursor,
@@ -987,14 +976,12 @@ pub struct PingResult {
 
 /// Result of a session shutdown request.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct ShutdownResult {
     pub accepted: bool,
 }
 
 /// Result of reloading server configuration.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct ReloadConfigResult {
     pub reloaded: bool,
     pub warnings: Vec<String>,
@@ -1002,7 +989,6 @@ pub struct ReloadConfigResult {
 
 /// Updated terminal defaults returned by the session.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct TerminalDefaultsSnapshot {
     pub foreground: Option<String>,
     pub background: Option<String>,
@@ -1017,7 +1003,6 @@ pub struct TerminalDefaultsSnapshot {
 
 /// Visible terminal text and cursor metadata.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct TerminalScreenResult {
     pub text: String,
     /// Monotonic terminal output revision. Null means that the server cannot
@@ -1042,7 +1027,6 @@ pub struct TerminalScreenResult {
 
 /// Serialized terminal emulator state and its dimensions.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct TerminalStateResult {
     #[serde(rename = "state_base64", deserialize_with = "deserialize_base64")]
     pub state: Vec<u8>,
@@ -1062,7 +1046,6 @@ pub struct TerminalHistoryResult {
 
 /// Result of waiting for a terminal pattern.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct TerminalWaitResult {
     pub matched: bool,
     pub text: String,
@@ -1082,7 +1065,6 @@ pub enum TerminalExitedLifecycle {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct TerminalWaitExitPending {
     pub terminal_id: TerminalId,
     pub lifecycle: TerminalPendingLifecycle,
@@ -1091,7 +1073,6 @@ pub struct TerminalWaitExitPending {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct TerminalWaitExitExited {
     pub terminal_id: TerminalId,
     pub lifecycle: TerminalExitedLifecycle,
@@ -1112,7 +1093,6 @@ pub enum TerminalWaitExitResult {
 
 /// Text copied from a selected terminal scope.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct TerminalCopyResult {
     pub mode: CopyMode,
     pub text: String,
@@ -1120,7 +1100,6 @@ pub struct TerminalCopyResult {
 
 /// Current terminal process metadata.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct ProcessInfoResult {
     pub pid: u32,
     #[serde(default, deserialize_with = "deserialize_optional_non_null")]
@@ -1143,7 +1122,6 @@ pub struct ProcessInfoResult {
 
 /// Result of assigning terminal viewer dimensions.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct ViewerResizeResult {
     pub accepted: bool,
     #[serde(deserialize_with = "deserialize_size")]
@@ -1153,7 +1131,6 @@ pub struct ViewerResizeResult {
 
 /// Result of assigning browser viewer dimensions.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct BrowserViewerResizeResult {
     pub accepted: bool,
     #[serde(deserialize_with = "deserialize_pixel_size")]
@@ -1170,14 +1147,12 @@ pub enum ViewAttachmentOutcome {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct ViewerReleaseResult {
     pub outcome: ViewAttachmentOutcome,
 }
 
 /// Result of publishing client cell pixel dimensions.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct CellPixelsResult {
     #[serde(deserialize_with = "deserialize_positive_u32")]
     pub width_px: u32,
@@ -1189,7 +1164,6 @@ pub struct CellPixelsResult {
 
 /// Result of resolving a pairing request.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct PairingResolutionResult {
     pub pairing_request: PairingRequestSnapshot,
 }
@@ -1498,7 +1472,6 @@ where
     D: Deserializer<'de>,
 {
     #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
     struct Wire {
         #[serde(deserialize_with = "deserialize_positive_u16")]
         cols: u16,
@@ -1515,7 +1488,6 @@ where
     D: Deserializer<'de>,
 {
     #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
     struct Wire {
         #[serde(deserialize_with = "deserialize_positive_u32")]
         width_px: u32,

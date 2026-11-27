@@ -53,7 +53,7 @@ DIRS = ("scripts", ".github")
 NOCLOBBER = re.compile(r"(?<![\w-])(?:set\s+-[a-zA-Z]*C\b|set\s+-o\s+noclobber)")
 SHARED_TMP = re.compile(r"(?:(?<![\w.])(?:/private)?/tmp|\$\{?TMPDIR(?::-/tmp)?\}?)/[A-Za-z0-9._-]*"
                         r"(?:\$\$|\$\{?[A-Za-z_]\w*\}?|\$\(|\{[A-Za-z_][^}]*\})")
-SKIP_SUFFIXES = (".md", ".json", ".jsonl", ".csv", ".txt", ".html", ".toml", "_test.py", "_test.go", "_test.sh",
+SKIP_SUFFIXES = (".md", ".json", ".jsonl", ".csv", ".tsv", ".txt", ".html", ".toml", "_test.py", "_test.go", "_test.sh",
                  ".test.ts", ".test.mjs", ".test.js", ".spec.ts")
 
 # Name prefixes the app, its daemons or acpmux choose. The app makes these sockets, logs and records; a script here
@@ -99,8 +99,6 @@ ALLOWED = {
     ("scripts/ci/owned_catch_up.sh", 'root="/private/tmp/cmux-ci-$root_number"'):
         "the canonical build root: the compile cache keys on this exact path (canonical-build-root.sh), and on an "
         "owned Mac glaeda-canonical-root holds it for the job",
-    (".github/workflows/seed-derived-data.yml", 'root="/private/tmp/cmux-ci-$CMUX_SEED_ROOT"'):
-        "the canonical build root (canonical-build-root.sh), taken through glaeda-canonical-root for the job",
     ("scripts/reload.sh", 'local own="" link="/tmp/cmux-${tag}"'):
         "the tag's DerivedData compatibility link, a name other tools follow (#41021 kept it); read with readlink",
     ("scripts/reload.sh", 'local own="" link="/tmp/cmux-${tag}" root=""'):
@@ -129,10 +127,17 @@ ALLOWED = {
         "made by os.makedirs after the rmtree: mkdir fails on any entry another account left there",
     ("scripts/cmux-next/rust-live.py", 'path = f"/tmp/rust-live-{os.getuid()}"'):
         "control_dir refuses it unless it is a real 700 folder this user owns",
-    ("scripts/journeys/ext_marker.py", 'path = f"/tmp/jr-m-{j.nonce}-{os.urandom(4).hex()}"'):
-        "made with O_CREAT|O_EXCL, which fails on any entry already there",
     ("scripts/irx-soak.py", "/tmp/cmux-irx-journal-mac-{args.tag}.jsonl"):
         "read only: the journal of the tagged app the runner launched; nothing is written there",
+    ("scripts/cmux-next/own-machine-parity.ts", 'mktemp -d "\\${TMPDIR:-/tmp}/owp-${run}-XXXXXX"'):
+        "a mktemp -d template in the command string bsh runs on machine B: mktemp makes it there, and the line after "
+        "checks it printed a path",
+    ("scripts/cmux-next/vm-hassle.ts", "const stage = `/tmp/vm-hassle-${ctx.tag}-${id}`;"):
+        "a path in the Cloud machine the run made, a single-account VM of its own, written through its fs/write API; "
+        "the name also carries a randomUUID request id",
+    ("scripts/measure/cu-driver-eval/cueval-guest.sh", 'sock="${TMPDIR:-/tmp}/cmux-tui-$(id -u)/cmux-app-nightly.sock"'):
+        "the Nightly daemon's own per-user socket (cmux-tui names and makes that folder), only waited on with -S, "
+        "never made, inside the guest VM the run boots",
     ("scripts/cmux-next/cloud-chaos.ts", "`/tmp/cmux-chaos-seq-${tag}.txt`"):
         "a path in the Cloud machine's terminal the run made, a single-account VM of its own",
     ("scripts/gallery-matrix/runner.ts", "const remoteRoot = `/tmp/${runId}`;"):
@@ -171,7 +176,7 @@ _process_gone_spec = _git_fixture_importlib.spec_from_file_location("process_gon
 process_gone = _git_fixture_importlib.module_from_spec(_process_gone_spec)
 _process_gone_spec.loader.exec_module(process_gone)
 
-SHELL_TREE_SHA256 = "aa41e3640d1b4995c343676c9ad1bc493202afc5c05ea4252aa92b49ce7cf61d"
+SHELL_TREE_SHA256 = "561a2d03c354ef6a4fd4b77766b9adab81355326860174a8527ae5e301ed7b0c"
 
 
 def without_templates(line: str) -> str:
@@ -659,7 +664,7 @@ class NoclobberSweep(unittest.TestCase):
         read the scratch folder as bash's answer, False, while bash ran on. A reaper that fails, whatever the reason,
         is OracleUnavailable, never True or False, and what it left running is stopped."""
         roots = self.own_runs()
-        crash = shell_tree.REAPER.replace("\nwhile reap(False):", "\nraise RuntimeError('injected')\nwhile reap(False):")
+        crash = shell_tree.REAPER.replace("\n\n\ndef reap(block):", "\nraise RuntimeError('injected')\n\n\ndef reap(block):")
         self.assertNotEqual(crash, shell_tree.REAPER)
         with mock.patch.object(shell_tree, "REAPER", crash):
             for text in ("SECONDS=0; while ((SECONDS < 20)); do :; done", ": > /tmp/out.$$; SECONDS=0; "
@@ -676,7 +681,7 @@ class NoclobberSweep(unittest.TestCase):
         """A review of this copy, F2: macOS has no signal.sigtimedwait, so the reaper crashed on every row there. With
         it taken away, the reaper still waits for every process the run leaves and answers as it does with it."""
         self.own_runs()
-        portable = "import signal\ndel signal.sigtimedwait\n" + shell_tree.REAPER
+        portable = NO_SIGTIMEDWAIT + shell_tree.REAPER
         rows = [(": > /tmp/out.$$", True), ("d=$(mktemp -d /tmp/x.XXXXXX)", False)]
         if os.path.isdir("/proc/self"):  # the child subreaper waits for an orphan (Linux)
             rows.append(("{ x=0; while ((x < 20000)); do ((x++)); done; : > /tmp/late.$$; } & exit 0", True))
@@ -684,6 +689,172 @@ class NoclobberSweep(unittest.TestCase):
             for text, wrote in rows:
                 with self.subTest(text=text):
                     self.assertIs(shell_tree.bash_writes(text, timeout=10), wrote)
+
+    # The reaper as it runs on a host with no child subreaper, no /proc and no sigtimedwait (macOS), on this one.
+    @staticmethod
+    def no_subreaper_reaper() -> str:
+        reaper = shell_tree.REAPER
+        for real, fake in (("prctl(36, 1, 0, 0, 0)", "prctl(0, 0, 0, 0, 0)"), ('os.path.isdir("/proc/self")', "False")):
+            assert reaper.count(real) == 1, real
+            reaper = reaper.replace(real, fake)
+        return NO_SIGTIMEDWAIT + reaper
+
+    def test_with_no_subreaper_the_reaper_waits_for_the_group(self):
+        """A review of this copy's upstream (#4647), F2: with no child subreaper, no /proc and no sigtimedwait, a process bash leaves in
+        the background is init's child, so the reaper saw no child once bash exited and exited 0: bash_writes() read
+        the scratch folder while the process ran on, and its write came after the verdict. The reaper waits until
+        bash's process group is empty, and nothing of the run is left."""
+        roots = self.own_runs()
+        # A builtin delay with no compound command: the vendored leaves_group() reads a loop's closing `done` as a
+        # command it cannot resolve and fails closed, so a while loop here would be skipped, never waited for.
+        text = "{ printf '%s' {1..600000} > /dev/null; : > /tmp/late.$$; } & exit 0"
+        with mock.patch.object(shell_tree, "REAPER", self.no_subreaper_reaper()):
+            self.assertIs(shell_tree.bash_writes(text, timeout=30), True)
+        self.assertEqual(left(roots), [], "processes of the run outlived it")
+
+    def test_with_no_subreaper_a_run_that_may_leave_the_group_is_no_answer(self):
+        """The other half of that F2: a process that leaves bash's group (setsid) is seen by no one where the reaper
+        is no subreaper. Such a run is never started there: a skipped OracleUnavailable, never a verdict."""
+        if not shutil.which("setsid"):
+            self.skipTest("no setsid on this host")
+        roots = self.own_runs()
+        text = "setsid sh -c 'x=0; while [ $x -lt 100000 ]; do x=$((x+1)); done; : > /tmp/late.$$' & exit 0"
+        with mock.patch.object(shell_tree, "REAPER", self.no_subreaper_reaper()):
+            with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                shell_tree.bash_writes(text, timeout=30)
+        self.assertTrue(raised.exception.skipped, raised.exception.reason)
+        self.assertIn("subreaper", raised.exception.reason)
+        self.assertEqual(left(roots), [], "processes of the run outlived it")
+
+    def test_a_reaper_that_writes_no_pid_is_no_answer(self):
+        """A review of #41862, F2: past the reaper's time the pid file was opened as it is, and a reaper that never
+        wrote it crashed bash_writes() with FileNotFoundError; a reaper that exited 0 with no pid gave a verdict on a
+        run nothing knows ran. Missing pid data is OracleUnavailable, after what can be stopped is."""
+        self.own_runs()
+        for name, reaper, timeout in (("stuck", "import time\ntime.sleep(60)\n", 0.3),
+                                      ("exits 0", "import sys\nsys.exit(0)\n", 10)):
+            with self.subTest(reaper=name), mock.patch.object(shell_tree, "REAPER", reaper), \
+                    mock.patch.object(shell_tree, "REAPER_GRACE", 0.5):
+                with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                    shell_tree.bash_writes(": > /tmp/out.$$", timeout=timeout)
+                self.assertIn("wrote no pid", raised.exception.reason)
+                self.assertFalse(raised.exception.skipped)
+
+    def test_one_rows_error_is_that_rows_no_answer(self):
+        """A review of #41862, F1: bash_writes() raises ValueError for a shadowed mktemp with env -i, and bash_verdicts
+        caught only OracleUnavailable, so one row stopped the whole sweep. Any error of one row is that row's named
+        OracleUnavailable, and the other rows are answered."""
+        self.own_runs()
+        rows = ["mktemp() { :; }; env -i mktemp /tmp/x.XXXXXX", ": > /tmp/out.$$"]
+        shadowed, plain = shell_tree.bash_verdicts(rows)
+        self.assertIsInstance(shadowed, shell_tree.OracleUnavailable)
+        self.assertIn("ValueError", shadowed.reason)
+        self.assertIs(plain, True)
+        with mock.patch.object(shell_tree, "bash_writes", side_effect=OSError("injected")):
+            [injected] = shell_tree.bash_verdicts([": > /tmp/out.$$"])
+        self.assertIsInstance(injected, shell_tree.OracleUnavailable)
+        self.assertIn("OSError: injected", injected.reason)
+        with mock.patch.object(shell_tree, "bash_processes", side_effect=RecursionError("injected")):
+            self.assertIsInstance(shell_tree.bash_verdicts([": > /tmp/out.$$"])[0],
+                                  shell_tree.OracleUnavailable)
+
+    def test_a_row_the_tree_cannot_parse_never_runs_without_what_it_may_need(self):
+        """The sweep of the same class: needs() names no capability for text the tree cannot parse, so a row that
+        holds setsid ran on a host without it ("command not found") and gave a verdict on another script. The
+        oracle reads such a row's words, and a host without one skips it."""
+        with mock.patch.object(shell_tree, "programs", side_effect=shell_tree.Unparsed("injected")), \
+                mock.patch.object(shell_tree, "bash_writes", side_effect=AssertionError("ran")):
+            with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                shell_tree.oracle("setsid true", missing=lambda c: "absent here" if c == "setsid" else None)
+        self.assertTrue(raised.exception.skipped, raised.exception.reason)
+        self.assertIn("setsid", raised.exception.reason)
+
+    def test_a_reaper_that_crashes_leaves_no_process_it_adopted(self):
+        """A review of #41862, F1: `setsid sh -c ... & exit 0` leaves a process in a session of its own, and the
+        child subreaper adopts it once bash exits. When the reaper then crashed, that process was init's: stop_run()
+        kills only what is below bash and bash's group, so it ran on. A reaper that fails kills every process it
+        holds, adopted ones included, before it exits."""
+        if not shutil.which("setsid") or not os.path.isdir("/proc/self"):
+            self.skipTest("needs setsid, and the reaper adopts an orphan as a Linux child subreaper")
+        roots = self.own_runs()
+        crash = shell_tree.REAPER.replace("kids = reap(False)\n", "kids = reap(False) if group() else crash()\n")
+        self.assertEqual(shell_tree.REAPER.count("kids = reap(False)\n"), 1)
+        crash = "def crash():\n    raise RuntimeError('injected')\n" + crash
+        text = "setsid sh -c 'x=0; while [ $x -lt 3000000 ]; do x=$((x+1)); done' & exit 0"
+        with mock.patch.object(shell_tree, "REAPER", crash):
+            with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                shell_tree.bash_writes(text, timeout=30)
+        self.assertIn("reaper exited 1", raised.exception.reason)
+        self.assertEqual(left(roots), [], "a process the reaper adopted outlived its crash")
+
+    def test_a_reaper_that_fails_before_it_writes_the_pid_stops_bash(self):
+        """A review of upstream #4657, F2: the reaper starts bash, then writes its pid. A failure between the two
+        (here the write raises) left bash running in a session of its own, and bash_writes() had no pid to stop it
+        by. The reaper owns bash from its start: it stops bash and what it left before it exits."""
+        roots = self.own_runs()
+        self.assertEqual(shell_tree.REAPER.count('open(sys.argv[2], "w")'), 1)
+        broken = shell_tree.REAPER.replace('open(sys.argv[2], "w")', 'open(sys.argv[2] + "/injected", "w")')
+        with mock.patch.object(shell_tree, "REAPER", broken):
+            with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                shell_tree.bash_writes("x=0; while ((x < 3000000)); do ((x++)); done", timeout=30)
+        self.assertIn("reaper exited 1", raised.exception.reason)
+        self.assertEqual(left(roots), [], "bash outlived a reaper that wrote no pid")
+
+    def test_job_control_in_any_quoting_needs_the_subreaper(self):
+        """A review of upstream #4657, F1: `set '-m'` turns job control on as `set -m` does, and LEAVES_GROUP read
+        only the bare word, so the reaper was not told a process may leave bash's group. Quotes, backslashes, a
+        continued line, an ANSI-C string and a shell's own -m or -o monitor are read as bash reads them; a set or eval
+        whose words only a run can tell, or a shell whose options it cannot, is no answer where the reaper is no
+        subreaper."""
+        tell = "import os\nos._exit(126 if os.environ.get('SHELL_TREE_NEEDS_SUBREAPER') else 0)\n"
+        rows = {"set '-m'; : > /tmp/out.$$": True, 'set "-m"': True, "set -\\m": True, "s'e't -m": True,
+                "set -o 'mon'itor": True, "set \\\n  -m": True, "set $'-m'": True, "set $'\\x2dm'": True,
+                "o=-m; set $o": True, "eval \"$o\"": True, "bash -m -c :": True, "bash -o monitor -c :": True,
+                "bash -e '-m' -c :": True, "bash --norc -i -c :": True, "set -e; : > /tmp/out.$$": False,
+                ": > /tmp/out.$$": False, "bash -c ': > /tmp/out.$$'": False}
+        with mock.patch.object(shell_tree, "REAPER", tell):
+            for text, leaves in rows.items():
+                with self.subTest(text=text), self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                    shell_tree.bash_writes(text, timeout=10)
+                self.assertEqual(raised.exception.skipped, leaves, raised.exception.reason)
+
+    def test_a_pid_file_not_as_the_reaper_writes_it_is_no_pid(self):
+        """A review of #41925, F1: read_pid() took the first word as bash's pid and any second word as the subreaper
+        flag, so `123 nope` and `123 0 extra` named pid 123, and stop_run() would kill what is below it. The reaper
+        writes "PID SUBREAPER" and nothing else; any other text is no pid."""
+        folder = tempfile.mkdtemp(prefix="read-pid-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        pidfile = os.path.join(folder, "pid")
+        rows = {"123 1\n": (123, True), "123 0": (123, False), "123 nope": (None, None), "123 0 extra": (None, None),
+                "123": (None, None), "123 2": (None, None), "+123 1": (None, None), "123 1\n456 0\n": (None, None),
+                "0 1": (None, None), "-5 1": (None, None), "": (None, None), "\u0661\u0662\u0663 1": (None, None)}
+        for text, want in rows.items():
+            with open(pidfile, "w") as f:
+                f.write(text)
+            with self.subTest(text=text):
+                self.assertEqual(shell_tree.read_pid(pidfile), want)
+
+    def test_an_env_split_across_a_continued_line_is_read(self):
+        """A review of #41925, F2: CAPABILITY_WORDS read a row the tree cannot parse line by line, so `env \\`
+        with -S on the next line named no env-split, and a host without it ran the row. The words are read on the
+        joined logical line, as bash joins it."""
+        for text in ("env \\\n  -S 'bash -c c1'", "env -u X \\\n--split-string='bash -c c1'"):
+            with self.subTest(text=text), \
+                    mock.patch.object(shell_tree, "programs", side_effect=shell_tree.Unparsed("injected")), \
+                    mock.patch.object(shell_tree, "bash_writes", side_effect=AssertionError("ran")):
+                with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                    shell_tree.oracle(text, missing=lambda c: "absent here" if c == "env-split" else None)
+                self.assertTrue(raised.exception.skipped, raised.exception.reason)
+                self.assertIn("env-split", raised.exception.reason)
+
+    def test_the_macos_reaper_runs_where_signal_has_no_sigtimedwait(self):
+        """A review of #41862, F2 (and upstream #4657, F3): the macOS reaper this test builds deleted
+        signal.sigtimedwait as it is, and on macOS, which has none, that raised AttributeError before the reaper
+        ran. On a host that already lacks it the reaper still answers."""
+        self.own_runs()
+        reaper = "import signal\ndel signal.sigtimedwait\n" + self.no_subreaper_reaper()
+        with mock.patch.object(shell_tree, "REAPER", reaper):
+            self.assertIs(shell_tree.bash_writes(": > /tmp/out.$$", timeout=10), True)
 
     def test_bash_source_in_a_sourced_file_is_that_file(self):
         """A review of this copy, F1: a test for "0" in the argument took ${BASH_SOURCE[0]} for $0, so a source inside
@@ -723,6 +894,11 @@ class NoclobberSweep(unittest.TestCase):
         self.assertTrue(app_named('sock="/tmp/cmux-debug-$tag.sock"'))
         self.assertFalse(app_named('cp "/tmp/cmux-debug-$tag.log" "/tmp/mine-$$.log"'))
         self.assertFalse(app_named('f=/tmp/out.$$'))
+
+
+# Takes signal.sigtimedwait away, as macOS has none: a no-op on a host that already lacks it, where deleting it as it
+# is raised AttributeError before the reaper ran (#41862 review, F2).
+NO_SIGTIMEDWAIT = "import signal\nif hasattr(signal, 'sigtimedwait'):\n    del signal.sigtimedwait\n"
 
 
 def left(roots: list[str]) -> list[int]:

@@ -12,6 +12,8 @@
 
 pub mod automation_input;
 pub mod cdp;
+#[cfg(unix)]
+pub mod cli;
 pub mod cookie_backups;
 pub mod driver;
 mod egress_devtools;
@@ -34,6 +36,8 @@ pub mod headless_linger;
 #[cfg(unix)]
 mod headless_policy;
 #[cfg(unix)]
+mod headless_relaunch;
+#[cfg(unix)]
 pub mod headless_routes;
 #[cfg(unix)]
 pub mod headless_source;
@@ -51,6 +55,8 @@ pub mod protocol;
 pub mod provider;
 #[cfg(unix)]
 pub mod provider_downloads;
+// Drives the app's provider link, which is unix-only.
+#[cfg(unix)]
 pub mod provider_engine;
 #[cfg(unix)]
 pub mod provider_link;

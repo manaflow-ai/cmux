@@ -3,14 +3,14 @@
 // starts with a `snapshot`; records at or below the newest seq held are dropped, so a record the
 // snapshot already had, or one sent twice, folds once. A closed socket reconnects after a one-shot
 // backoff timer and gets a fresh snapshot; `end` and `kicked` stop it for good.
-import type { EventRecord } from "../acpmux/direct";
+import type { EventRecord } from "../acpmux/eventRecord";
 
 export type GuestChat = { title?: string; harness?: string; status?: string };
 export type GuestParticipant = { id: string; name: string; kind?: string; viewing?: boolean; typing?: boolean };
 export type GuestPromptState = {
   client_id: string;
   prompt_id?: string;
-  state: "held" | "approved" | "declined" | "removed" | "refused";
+  state: "held" | "sent" | "approved" | "declined" | "removed" | "refused";
   reason?: string;
 };
 /** Why the share ended for this guest: the room's `end` reason, or `kicked`. */
@@ -181,7 +181,7 @@ const promptStateOf = (value: unknown): GuestPromptState | undefined => {
   if (
     !isObject(value) ||
     typeof value.client_id !== "string" ||
-    !["held", "approved", "declined", "removed", "refused"].includes(String(value.state))
+    !["held", "sent", "approved", "declined", "removed", "refused"].includes(String(value.state))
   )
     return undefined;
   return {

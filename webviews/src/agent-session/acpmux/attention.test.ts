@@ -70,6 +70,16 @@ test("each kind of input keeps the reader here, and touch counts as one", () => 
   }
 });
 
+test("window blur immediately ends attention until the next input", () => {
+  const h = harness();
+  h.fire("blur");
+  expect(h.attention.present()).toBe(false);
+  expect(h.changes()).toBe(1);
+  h.fire("pointermove");
+  expect(h.attention.present()).toBe(true);
+  expect(h.changes()).toBe(2);
+});
+
 test("moves arm no timer of their own: one per idle time at most", () => {
   const h = harness();
   for (let i = 0; i < 500; i++) {
@@ -112,14 +122,4 @@ test("dispose stops listening and tells no one", () => {
 test("presentAt is the idle rule", () => {
   expect(presentAt(0, 999, 1000)).toBe(true);
   expect(presentAt(0, 1000, 1000)).toBe(false);
-});
-
-test("lastInputAt is when the hand was last on the page, not when it was noticed away", () => {
-  const h = harness();
-  h.advance(300);
-  h.fire("wheel");
-  h.advance(2000);
-  // Away was noticed at 1300; the reader last saw the chat at 300.
-  expect(h.attention.present()).toBe(false);
-  expect(h.attention.lastInputAt()).toBe(300);
 });

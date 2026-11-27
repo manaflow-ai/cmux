@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+"""compare-mobile FLOW: our iPhone app next to Claude, Codex and other chat apps, measured frame by frame.
+
+    scripts/mobile-bench/compare-mobile FLOW|all [--ref SHA] [--ours DIR] [--refs DIR] [--out DIR]
+
+1. Captures our app at --ref (default: this checkout's HEAD, which must be pushed) on a fleet iOS
+   simulator: one `cmux-ci run --class simulator` step of scripts/ci/cmux-next-ios-sim.sh running
+   MobileBenchFlowsUITests with the screen recorded. --ours DIR skips this and measures clips you
+   already have (a previous run's OUT/ours).
+2. Cuts the recording into one clip per flow (cut.py) and measures each (measure.py).
+3. Reads the competitors' measured clips from cmux-design-references (apps/<app>-mobile/bench/<flow>/;
+   --refs, else $CMUX_DESIGN_REFS, else ~/Projects/cmux-design-references), measuring any clip that
+   has no result.json yet.
+4. Prints the side-by-side table (table.py) and the clip paths, and writes OUT/table.md.
+
+FLOW is an id from flows.json (`compare-mobile --list`), or `all`. Nothing builds on this machine.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import time
+import zipfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+FLOWS = json.loads((HERE / "flows.json").read_text())["flows"]
+SIM_SCRIPT = "scripts/ci/cmux-next-ios-sim.sh"
+UI_SUITE = "MobileBenchFlowsUITests"
+
+
+def sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, text=True, capture_output=True, **kw)
+
+
+def default_refs() -> Path:
+    env = os.environ.get("CMUX_DESIGN_REFS")
+    return Path(env) if env else Path.home() / "Projects" / "cmux-design-references"
+
+
+def head_sha() -> str:
+    sha = sh(["git", "-C", str(REPO), "rev-parse", "HEAD"]).stdout.strip()
+    on_remote = sh(["git", "-C", str(REPO), "branch", "-r", "--contains", sha]).stdout.strip()
+    if not on_remote:
+        sys.exit(f"compare-mobile: HEAD {sha[:10]} is not pushed; push it, or pass --ref SHA (a pushed commit)")
+    return sha
+
+
+def capture_ours(sha: str, out: Path) -> Path:
+    """One fleet simulator step; returns the folder of per-flow clips."""
+    work = out / "fleet"
+    work.mkdir(parents=True, exist_ok=True)
+    cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", sha,
+           "--arg", "test", "--arg", f"ui={UI_SUITE}", "--arg", "video",
+           "--artifact", "artifacts/ios-sim/evidence.zip", "--key", f"compare-mobile-{sha[:12]}-{int(time.time())}"]
+    print("compare-mobile: capturing our app on a fleet simulator (about 15 min):\n  " + " ".join(cmd), flush=True)
+    log = work / "step.log"
+    job = ""
+    with log.open("w") as fh:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            fh.write(line)
+            if not job:
+                import re
+                m = re.search(r"\b([0-9a-f]{24})\b", line)
+                job = m.group(1) if m else ""
+        code = proc.wait()
+    if code:
+        sys.exit(f"compare-mobile: fleet step {job or 'unknown'} failed with exit {code}; "
+                 f"log: {log}")
+    if not job:
+        sys.exit(f"compare-mobile: the fleet step did not start; see {log}")
+    zpath = work / "evidence.zip"
+    got = sh(["cmux-ci", "artifact", job, str(zpath)])
+    if got.returncode != 0 or not zpath.exists():
+        sys.exit(f"compare-mobile: step {job} exited {code} and left no artifact ({got.stderr.strip()[-300:]}); log: {log}")
+    with zipfile.ZipFile(zpath) as z:
+        z.extractall(work / "evidence")
+    videos = sorted((work / "evidence").rglob("ui-video.mp4"))
+    if not videos:
+        sys.exit(f"compare-mobile: step {job} recorded no ui-video.mp4 (exit {code}); log: {log}")
+    texts = [p for p in (work / "evidence").rglob("*") if p.is_file() and p.suffix in (".log", ".txt")]
+    markers = work / "markers.txt"
+    markers.write_text("".join(l for p in texts + [log] for l in p.read_text(errors="replace").splitlines(True)
+                               if "MOBILEBENCH" in l))
+    device = next((l.split("device=", 1)[1].split()[0] for l in markers.read_text().splitlines() if "device=" in l), None)
+    clips = out / "ours"
+    r = sh([sys.executable, str(HERE / "cut.py"), str(videos[0]), str(markers), str(clips), "--app", "cmux",
+            "--source", "simulator", "--build", sha] + (["--device", device] if device else []))
+    print(r.stdout.strip() or r.stderr.strip())
+    if r.returncode != 0:
+        sys.exit(f"compare-mobile: no clips cut from {videos[0]} (markers: {markers})")
+    print(f"compare-mobile: fleet step {job}, recording {videos[0]}")
+    return clips
+
+
+def inputs_key(d: Path, flow_id: str) -> str:
+    """Everything a result depends on: the clip, its meta.json, the flow's definition and the measuring code.
+    A result.json carrying another key is stale and measured again."""
+    h = hashlib.sha256()
+    clip = d / "clip.mp4"
+    st = clip.stat()
+    h.update(f"{st.st_size}:{st.st_mtime_ns}\n".encode())
+    h.update((d / "meta.json").read_bytes())
+    h.update(json.dumps(next((f for f in FLOWS if f["id"] == flow_id), None), sort_keys=True).encode())
+    for code in ("measure.py", "flows.json"):
+        h.update((HERE / code).read_bytes())
+    return h.hexdigest()[:16]
+
+
+def measure_all(root: Path, flow: str | None, refresh: bool = False) -> list[str]:
+    """Measures every clip under root whose result is missing or stale; returns the failures."""
+    failed = []
+    for meta in sorted(root.rglob("meta.json")):
+        d = meta.parent
+        m = json.loads(meta.read_text())
+        if m.get("unsupported") or (flow and m.get("flow") != flow):
+            continue
+        if not (d / "clip.mp4").exists():
+            failed.append(f"{d}: no clip.mp4")
+            continue
+        key = inputs_key(d, m.get("flow", ""))
+        res = d / "result.json"
+        if not refresh and res.exists():
+            try:
+                if json.loads(res.read_text()).get("inputs_key") == key:
+                    continue
+            except ValueError:
+                pass
+        res.unlink(missing_ok=True)
+        r = sh([sys.executable, str(HERE / "measure.py"), str(d)])
+        if r.returncode != 0 or not res.exists():
+            failed.append(f"{d}: {r.stderr.strip()[-300:]}")
+            continue
+        data = json.loads(res.read_text())
+        data["inputs_key"] = key
+        res.write_text(json.dumps(data, indent=2) + "\n")
+    for f in failed:
+        print(f"compare-mobile: measure failed for {f}", file=sys.stderr)
+    return failed
+
+
+def check_ours(ours: Path, flow: str | None) -> list[str]:
+    """Every requested flow of our app has a result or is marked unsupported; returns what is missing."""
+    want = [flow] if flow else [f["id"] for f in FLOWS]
+    missing = []
+    for fid in want:
+        d = ours / fid
+        meta = d / "meta.json"
+        if meta.exists() and json.loads(meta.read_text()).get("unsupported"):
+            continue
+        if not (d / "clip.mp4").exists():
+            missing.append(f"{fid} (no clip in {d})")
+            continue
+        res = d / "result.json"
+        if not res.exists():
+            missing.append(f"{fid} (no measured clip in {d})")
+        elif json.loads(res.read_text()).get("response_ms") is None:
+            missing.append(f"{fid} ({json.loads(res.read_text()).get('note', 'no response found')})")
+    return missing
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("flow", nargs="?")
+    ap.add_argument("--list", action="store_true", help="print the flow ids")
+    ap.add_argument("--ref", help="the pushed cmux commit to capture (default: HEAD)")
+    ap.add_argument("--ours", type=Path, help="clips of our app already cut (skip the fleet step)")
+    ap.add_argument("--refs", type=Path, default=None, help="a cmux-design-references checkout")
+    ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--refresh", action="store_true", help="measure every clip again, ignoring saved results")
+    args = ap.parse_args()
+    if args.list or not args.flow:
+        for f in FLOWS:
+            print(f"{f['id']:24} {f['title']}")
+        return 0 if args.list else 2
+    ids = {f["id"] for f in FLOWS}
+    if args.flow != "all" and args.flow not in ids:
+        sys.exit(f"compare-mobile: unknown flow {args.flow!r}; one of: all, {', '.join(sorted(ids))}")
+    flow = None if args.flow == "all" else args.flow
+    refs = args.refs or default_refs()
+    bench_dirs = sorted(refs.glob("apps/*-mobile/bench")) if refs.exists() else []
+    if not bench_dirs:
+        print(f"compare-mobile: no competitor clips under {refs}/apps/*-mobile/bench "
+              "(clone manaflow-ai/cmux-design-references there, or pass --refs DIR)", file=sys.stderr)
+    out = args.out or Path(os.environ.get("TMPDIR", "/tmp")) / f"compare-mobile-{int(time.time())}"
+    out.mkdir(parents=True, exist_ok=True)
+    if args.ours is not None and not args.ours.is_dir():
+        sys.exit(f"compare-mobile: --ours {args.ours} is not a folder of clips")
+    ours = args.ours or capture_ours(args.ref or head_sha(), out)
+    failed = measure_all(ours, flow, args.refresh)
+    for d in bench_dirs:
+        failed += measure_all(d, flow, args.refresh)
+    missing = check_ours(ours, flow)
+    sys.path.insert(0, str(HERE))
+    import table  # noqa: E402
+
+    def clip_rows(dirs: list[Path]) -> list[dict]:
+        return [r for r in table.load(dirs) if r.get("unsupported") or Path(r["_clip"]).is_file()]
+
+    own_rows = clip_rows([ours])
+    ref_rows = clip_rows(bench_dirs)
+    rows = own_rows + ref_rows
+    requested = [flow] if flow else [f["id"] for f in FLOWS]
+    own_flows = {r["flow"] for r in own_rows if r.get("response_ms") is not None}
+    ref_flows = {r["flow"] for r in ref_rows if r.get("response_ms") is not None}
+    comparable = set(requested) & own_flows & ref_flows
+    text, verdict = table.tables(rows, flow, None, None)
+    verdict = {fid: apps for fid, apps in verdict.items() if fid in comparable}
+    gaps = []
+    for fid in requested:
+        reasons = []
+        if fid not in own_flows:
+            reasons.append("our app has no measured clip")
+        if fid not in ref_flows:
+            reasons.append("no measured reference clip")
+        if reasons:
+            gaps.append(f"- `{fid}`: {', '.join(reasons)}")
+    if gaps:
+        text += "\nComparison coverage gaps\n\n" + "\n".join(gaps) + "\n"
+    (out / "table.md").write_text(text + "\n")
+    (out / "slower.json").write_text(json.dumps(verdict, indent=2) + "\n")
+    print(text)
+    print("Clips:")
+    for r in rows:
+        if not flow or r["flow"] == flow:
+            print(f"  {r.get('app'):10} {r['flow']:24} {r['_clip']}")
+    ours_slow = [fid for fid, apps in verdict.items() if "cmux" in apps]
+    if missing:
+        # no verdict without our own numbers: an unmeasured flow is not "not slower"
+        print(f"\ncompare-mobile: our app has no measurement for: {'; '.join(missing)}", file=sys.stderr)
+        print(f"No verdict (table: {out / 'table.md'})")
+        return 1
+    if not comparable:
+        print(f"\nNo comparative verdict: no paired measurements. See {out / 'table.md'}.")
+    else:
+        print(f"\nWe are slower in: {', '.join(ours_slow) or 'none'} "
+              f"({len(comparable)}/{len(requested)} flows compared; table: {out / 'table.md'})")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

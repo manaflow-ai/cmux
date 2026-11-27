@@ -81,6 +81,9 @@ class LiteralReadsCase(unittest.TestCase):
             'let checkoutState = ".git/config"\n'
             'let home = ".claude/settings.json"\n'
             'let codexHome = ".codex/hooks.json"\n'
+            # AppWebPaneTests' rejected roots: a "." segment names no repository file ("./web" made
+            # every web/ pull request a Mac one).
+            'let rejectedRoot = "./schemas"\n'
             'let real = "App/README.md"\n',
             encoding="utf-8",
         )
@@ -98,6 +101,46 @@ class LiteralReadsCase(unittest.TestCase):
             self.graph.literal_reads(self.tests),
             ["App/README.md", "schemas/settings/schema.json"],
         )
+
+    def test_a_non_input_marker_only_applies_to_the_next_literal(self):
+        source = self.tests / "SomeTests.swift"
+        source.write_text(
+            'let values = [/* ci-target-graph: non-input */ "schemas/settings", "App/README.md"]\n'
+            'let mockPath = /* ci-target-graph: non-input */ "schemas/settings/schema.json"\n'
+            'let actualPath = "schemas/settings/schema.json"\n',
+            encoding="utf-8",
+        )
+        self.assertEqual(self.graph.literal_reads(self.tests), ["App/README.md", "schemas/settings/schema.json"])
+
+
+class DotSlashReadsCase(unittest.TestCase):
+    """A leading "./" is no path segment: AppWebPaneTests' rejected app root "./web" named the whole
+    web/ folder a read of CmuxNextAppsTests, and every web-only pull request then ran the Mac tier."""
+
+    def setUp(self):
+        self.graph = load_graph_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name).resolve()
+        (root / "web" / "app").mkdir(parents=True)
+        (root / "web" / "app" / "page.tsx").write_text("x\n", encoding="utf-8")
+        (root / "schemas" / "settings").mkdir(parents=True)
+        (root / "schemas" / "settings" / "schema.json").write_text("{}\n", encoding="utf-8")
+        package = root / "Packages" / "macOS" / "CmuxNext"
+        self.tests = package / "Tests" / "AppsTests"
+        self.tests.mkdir(parents=True)
+        (self.tests / "AppsTests.swift").write_text(
+            'for root in ["./web", "././web/"] {}\n'
+            'let schema = "./schemas/settings/schema.json"\n',
+            encoding="utf-8",
+        )
+        for name, value in (("ROOT", root), ("PACKAGE", package)):
+            patcher = mock.patch.object(self.graph, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_a_dot_slash_folder_is_not_a_read(self):
+        self.assertEqual(self.graph.literal_reads(self.tests), ["schemas/settings/schema.json"])
 
 
 class GlobReadsCase(unittest.TestCase):

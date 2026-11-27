@@ -102,9 +102,9 @@ ENABLED_VALUE = "1"
 SIGNING_JOBS = {
     "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization",
                     "generate-nightly-deltas", "publish-nightly",
-                    "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one"),
+                    "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one",
+                    "nightly-next-pkg", "sign-live-code-variant", "nightly-next-deltas"),
     "release.yml": ("build-sign-notarize",),
-    "repair-v0-64-25-helper-rpaths.yml": ("repair",),
     "cmux-next-dev-daily.yml": ("Sign cmux NEXT DEV",),
 }
 # At most this many minis are held for signing at once (the coordinator's cap, 2026-10-29): a drained mini is taken
@@ -402,8 +402,8 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
             kept.append(blacksmith_picker.read_snapshot(lambda: reader(token, repo), "signing runner", sleep=sleep))
         return kept[0]
 
-    # `owned` is nightly.yml's signing pick: it may name only the signer (SIGNER_LABEL). release.yml, the DEV daily and
-    # the repair workflow keep their own owned pick.
+    # `owned` is nightly.yml's signing pick: it may name only the signer (SIGNER_LABEL). release.yml and the DEV daily
+    # keep their own owned pick.
     owned, owned_why = owned_pick(env, read_runners, read_jobs, read_snapshot, now, sleep, bounded,
                                   signer_only=list(argv[:1]) == ["owned"])
     # A shared pool label is only safe once the controller can prove every eligible listener has the

@@ -59,6 +59,15 @@ struct Slot {
     /// Nanoseconds since [`epoch`] when the producer first saw the terminal
     /// in a synchronized update that still holds; 0: none.
     sync_since: AtomicU64,
+    /// The terminal's synchronized update start count when the producer
+    /// last saw it in an update (`Terminal::synchronized_update_starts`).
+    /// Another count means a new update began since, even when the last one
+    /// ended and the next began between two looks.
+    sync_starts: AtomicU64,
+    /// The hold that runs (or ran out) began because a new update started
+    /// after an expired one, and no frame was built since: it ends with a
+    /// frame before another new update can hold again.
+    sync_restarted: AtomicBool,
     surface: Mutex<Weak<Surface>>,
 }
 
@@ -66,17 +75,20 @@ struct Slot {
 /// terminal leaves the producer when this is dropped (the producer holds
 /// only a weak reference to its slot).
 ///
-/// It also holds the terminal's scroll position change that output caused
-/// and no `scroll-changed` event has published yet. Output moves the scroll
+/// It also holds the newest terminal scroll position change that no
+/// `scroll-changed` event has published yet. Output moves the scroll
 /// offset on almost every chunk (93k events/s while one terminal floods,
 /// perf100 tui lane), so output only records the newest position here and
 /// the producer publishes it once per frame. Every other scroll change (a
-/// viewport scroll, a resize, a clear, a replay) publishes at once and drops
-/// a recorded one, under the same lock, so an older position can never be
-/// published after a newer one.
+/// viewport scroll, a resize, a clear, a replay) records its position under
+/// the terminal lock too, then flushes after unlocking. Publishers never
+/// reinsert captured positions, so a delayed publisher cannot undo a newer
+/// scroll. A separate publication lock serializes flushes; recording never
+/// waits for a publisher that may be waiting for mux state.
 pub(crate) struct FrameRequests {
     slot: Arc<Slot>,
     scroll: Mutex<Option<(u64, bool)>>,
+    scroll_publication: Mutex<()>,
 }
 
 impl FrameRequests {
@@ -84,7 +96,7 @@ impl FrameRequests {
     pub(super) fn new() -> Self {
         // The producer thread starts with the first terminal.
         let _ = scheduler();
-        Self { slot: Arc::default(), scroll: Mutex::new(None) }
+        Self { slot: Arc::default(), scroll: Mutex::new(None), scroll_publication: Mutex::new(()) }
     }
 
     /// Ask for a frame of at least `generation`; `announce`: the producer
@@ -109,31 +121,23 @@ impl FrameRequests {
 }
 
 impl FrameRequests {
-    /// Output moved the scroll position: publish it with the next frame.
+    /// Record a viewport transition while holding the terminal lock.
+    /// Output flushes it at the next frame; explicit scrolls flush after
+    /// releasing the terminal lock. Never record a captured position later:
+    /// another transition could already have recorded or published its move.
     pub(super) fn defer_scroll(&self, offset: u64, at_bottom: bool) {
         *self.scroll.lock().recover_poison() = Some((offset, at_bottom));
     }
 
-    /// Publish a recorded output scroll change, if any; whether one was.
+    /// Publish the newest recorded position. Call without mux, terminal or
+    /// geometry locks. Release the recording lock before calling the mux:
+    /// mux state may already be held by a thread waiting for the terminal.
     pub(super) fn flush_scroll(&self, mux: &Mux, surface: SurfaceId) -> bool {
-        let mut pending = self.scroll.lock().recover_poison();
-        let Some((offset, at_bottom)) = pending.take() else { return false };
+        let _publication = self.scroll_publication.lock().recover_poison();
+        let pending = self.scroll.lock().recover_poison().take();
+        let Some((offset, at_bottom)) = pending else { return false };
         mux.emit_terminal_scroll(surface, offset, at_bottom);
         true
-    }
-
-    /// A scroll change that is not output's: publish it now, replacing a
-    /// recorded one.
-    pub(super) fn publish_scroll_now(
-        &self,
-        mux: &Mux,
-        surface: SurfaceId,
-        offset: u64,
-        at_bottom: bool,
-    ) {
-        let mut pending = self.scroll.lock().recover_poison();
-        *pending = None;
-        mux.emit_terminal_scroll(surface, offset, at_bottom);
     }
 }
 
@@ -323,13 +327,29 @@ enum Produced {
 }
 
 /// Whether a synchronized update holds `slot`'s frame now, and until when.
-/// `synchronized`: the terminal is in mode 2026. The hold starts when the
-/// producer first sees the mode and ends when the mode is off or after
-/// [`SYNCHRONIZED_OUTPUT_HOLD`].
-fn sync_hold(slot: &Slot, synchronized: bool, now: Instant) -> Option<Instant> {
-    if !synchronized {
+/// `update`: the update the terminal holds open (mode 2026), by its start
+/// count; `None` when it holds none. The hold starts when the producer
+/// first sees the mode and ends when the mode is off or after
+/// [`SYNCHRONIZED_OUTPUT_HOLD`]. An update that began after a hold ran out
+/// holds again, even when the program ended the old one and began this one
+/// between two looks, unless that hold was itself such a restart and no
+/// frame was built since; one that began while a hold runs keeps that
+/// hold's end. So a program that starts updates nonstop is shown at least
+/// every other hold.
+fn sync_hold(slot: &Slot, update: Option<u64>, now: Instant) -> Option<Instant> {
+    let Some(starts) = update else {
         slot.sync_since.store(0, Ordering::Release);
+        slot.sync_restarted.store(false, Ordering::Release);
         return None;
+    };
+    let seen = slot.sync_starts.swap(starts, Ordering::AcqRel);
+    let since_nanos = slot.sync_since.load(Ordering::Acquire);
+    if seen != starts
+        && since_nanos != 0
+        && epoch() + Duration::from_nanos(since_nanos) + SYNCHRONIZED_OUTPUT_HOLD <= now
+        && !slot.sync_restarted.swap(true, Ordering::AcqRel)
+    {
+        slot.sync_since.store(0, Ordering::Release);
     }
     let since = match slot.sync_since.load(Ordering::Acquire) {
         0 => {
@@ -339,7 +359,12 @@ fn sync_hold(slot: &Slot, synchronized: bool, now: Instant) -> Option<Instant> {
         nanos => epoch() + Duration::from_nanos(nanos),
     };
     let until = since + SYNCHRONIZED_OUTPUT_HOLD;
-    (now < until).then_some(until)
+    if now < until {
+        return Some(until);
+    }
+    // The hold ran out: this look builds a frame.
+    slot.sync_restarted.store(false, Ordering::Release);
+    None
 }
 
 /// Build one terminal's frame and publish output's scroll position, unless
@@ -361,8 +386,9 @@ fn produce(slot: &Slot, surface: &Weak<Surface>, requested: u64, announce: bool)
     // Only a render viewer draws the half-drawn screen; with none, no frame is
     // built and the output event is not held.
     let viewed = pty.render.lock().is_ok_and(|render| !render.taps.is_empty());
-    let synchronized = viewed && term.mode(SYNCHRONIZED_OUTPUT, false);
-    if let Some(until) = sync_hold(slot, synchronized, Instant::now())
+    let update = (viewed && term.mode(SYNCHRONIZED_OUTPUT, false))
+        .then(|| term.synchronized_update_starts());
+    if let Some(until) = sync_hold(slot, update, Instant::now())
         && !announce
     {
         return Produced::Held(until);

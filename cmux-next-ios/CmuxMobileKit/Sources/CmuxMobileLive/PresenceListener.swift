@@ -1,3 +1,5 @@
+import CmuxEgress
+import CmuxMobileTransport
 import Foundation
 import OSLog
 
@@ -29,6 +31,9 @@ public final class PresenceListener {
     private let fetchMacs: @MainActor () async throws -> [LiveAPI.Mac]
     private let makeSocket: @MainActor (URLRequest) -> any PresenceSocket
     private let clock: any Clock<Duration>
+    /// Settings → Transport → Align Keepalives: the ping waits for the 10 s
+    /// keepalive beat instead of 15 s after the pong.
+    private let beat: KeepaliveBeat
     private let onUpdate: @MainActor (Update) -> Void
     private var task: Task<Void, Never>?
     private var socket: (any PresenceSocket)?
@@ -45,20 +50,29 @@ public final class PresenceListener {
     /// list, and the foreground's `kick` reconnects and the socket's hello brings it.
     var backgrounded = false
     /// Poll interval while the socket is down.
-    static let pollInterval: Duration = .seconds(20)
+    static let pollInterval = PresenceTiming.pollInterval
     static let pingInterval: Duration = .seconds(15)
     static let pingTimeout: Duration = .seconds(5)
-    static let helloTimeout: Duration = .seconds(10)
+    static let helloTimeout = PresenceTiming.helloTimeout
+    /// Presence down at least this long before its return redials the links
+    /// (`LiveCoordinator.presenceOutageMin`; ``PresenceTiming/outageMin``).
+    static let outageMin = PresenceTiming.outageMin
+
+    /// The socket's retry after `failures` failures in a row (``PresenceTiming/retryDelay(afterFailures:)``).
+    static func retryDelay(afterFailures failures: Int) -> Duration {
+        PresenceTiming.retryDelay(afterFailures: failures)
+    }
 
     public convenience init(api: LiveAPI, teamID: String, deviceID: String, clock: any Clock<Duration> = ContinuousClock(),
                 onUpdate: @escaping @MainActor (Update) -> Void) {
         self.init(clock: clock,
                   signalRequest: { try await api.signalRequest(teamID: teamID, deviceID: deviceID) },
                   fetchMacs: { try await api.macs(teamID: teamID) },
-                  makeSocket: { URLSession.shared.webSocketTask(with: $0) }, onUpdate: onUpdate)
+                  makeSocket: { CmuxEgress.websocket(CmuxEgress.shared(site: "CmuxMobileLive.PresenceListener"), with: $0, site: "CmuxMobileLive.PresenceListener") }, onUpdate: onUpdate)
     }
 
     init(clock: any Clock<Duration>,
+         beat: KeepaliveBeat = .live,
          signalRequest: @escaping @MainActor () async throws -> URLRequest,
          fetchMacs: @escaping @MainActor () async throws -> [LiveAPI.Mac],
          makeSocket: @escaping @MainActor (URLRequest) -> any PresenceSocket,
@@ -67,6 +81,7 @@ public final class PresenceListener {
         self.fetchMacs = fetchMacs
         self.makeSocket = makeSocket
         self.clock = clock
+        self.beat = beat
         self.onUpdate = onUpdate
     }
 
@@ -188,7 +203,8 @@ public final class PresenceListener {
                 if let error {
                     self.failed(generation, reason: String(describing: error))
                 } else {
-                    self.pingTimer = self.timer(after: Self.pingInterval, generation: generation) { listener in
+                    let next = self.beat.delay(toNextBeatOf: KeepaliveBeat.period) ?? Self.pingInterval
+                    self.pingTimer = self.timer(after: next, generation: generation) { listener in
                         listener.ping(generation)
                     }
                 }
@@ -213,7 +229,7 @@ public final class PresenceListener {
         onUpdate(.connected(false))
         guard isCurrent(recoveryGeneration) else { return }
         failures += 1
-        let delay: Duration = failures < 4 ? .seconds(1 << failures) : Self.pollInterval
+        let delay = Self.retryDelay(afterFailures: failures)
         if backgrounded {
             task = timer(after: delay, generation: recoveryGeneration) { listener in
                 listener.connect()

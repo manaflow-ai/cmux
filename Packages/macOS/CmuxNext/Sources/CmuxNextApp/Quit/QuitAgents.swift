@@ -7,18 +7,11 @@ import os
 /// 4.3): an End quit's end of every agent except the Home Chief's.
 @MainActor
 enum QuitAgents {
-    /// The acpmux this app starts (its build's home), or nil when the app runs
-    /// a mock agent host or has no acpmux binary. A DEV build with
-    /// `CMUX_NEXT_ACPMUX_ATTACH` gets that home's daemon instead, attached (never its own).
+    /// The acpmux this app starts (its build's home), or nil when the app runs a mock agent host or has no acpmux binary. A DEV
+    /// build with `CMUX_NEXT_ACPMUX_ATTACH` gets that home's daemon instead, attached (never its own). Each ask searches paths and
+    /// checks a signature on the calling thread: a path that runs for each key or frame asks nothing here (a bench's span shows each ask).
     static func environment(_ services: AppServices) -> AcpmuxEnvironment? {
-        AcpmuxEnvironment.app(build: services.environment.build, mock: services.environment.showcase)
-    }
-
-    /// Whether `environment` is attached to the daemon of `home`.
-    static func isAttached(_ environment: AcpmuxEnvironment?, to home: URL) -> Bool {
-        func canonical(_ url: URL) -> String { url.standardizedFileURL.resolvingSymlinksInPath().path }
-        guard let environment, environment.isAttached else { return false }
-        return canonical(environment.home) == canonical(home)
+        BenchSpans.measure("agents.environment") { AcpmuxEnvironment.app(build: services.environment.build, mock: services.environment.showcase) }
     }
 
     /// The quit's view of one end: only proof is success (an ended

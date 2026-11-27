@@ -8,17 +8,23 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * The timing, in ms. AppKit's tooltip waits `NSInitialToolTipDelay` (about 1000 ms at the default
- * setting). cmux waits 450 ms (Leo, 2026-10-14: 400-500): a pointer sweeping across a toolbar
+ * setting). cmux waits 250 ms (Leo, 2026-10-14 asked 400-500; 2026-11-22, on a keyed tooltip:
+ * "such a bullshit long hover"): a pointer sweeping across a toolbar
  * button is on it for 30-100 ms, far under the delay, while a deliberate rest gets its answer in
- * under half a second. Mirrors `HoverIntentTiming.standard`.
+ * a quarter second. Mirrors `HoverIntentTiming.standard`.
  */
 export const HOVER_INTENT = {
   /** Pointer rest before the first tooltip of a group shows. */
-  tooltipDelay: 450,
+  tooltipDelay: 250,
   /** After the last tooltip hid, how long the next one still shows at once. */
   tooltipWarm: 500,
-  /** Pointer rest on a row before its hover card shows. */
-  cardDwell: 1000,
+  /**
+   * Pointer rest before any hover card shows: Chrome's 1300 ms for a standard-width tab
+   * (tab_hover_card_controller.cc `GetShowDelay`: `kMaximumTriggerDelay` 800 ms plus
+   * `kTabHoverCardAdditionalMaxWidthDelay` 500 ms), the native `HoverIntentTiming.cardDelay`
+   * (Lawrence 2026-11-15: "copy chrome's delay exactly ... consistent between every thing").
+   */
+  cardDwell: 1300,
   /** How long a card stays after the pointer leaves its target and the card. */
   cardGrace: 200,
   /** How long a pointer heading for a shown card may pause on a target it crosses. */

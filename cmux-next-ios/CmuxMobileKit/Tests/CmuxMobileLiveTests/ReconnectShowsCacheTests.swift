@@ -45,6 +45,8 @@ import UIKit
             }
         }
         func send(_ bytes: Data) { inner.send(bytes) }
+        // A reply forwarded as `send` would count as typed keys.
+        func sendReply(_ bytes: Data) { inner.sendReply(bytes) }
         func resize(columns: Int, rows: Int) { inner.resize(columns: columns, rows: rows) }
         func stop() { inner.stop() }
         func setOutputPaused(_ paused: Bool) { inner.setOutputPaused(paused) }
@@ -87,6 +89,8 @@ import UIKit
     func forcedDisconnect() async throws -> (Numbers, Recording, TerminalModel) {
         let daemon = FakeTerminalDaemon()
         daemon.afterAttach = nil
+        // One refused attach, with the grid beside identify or in series: an
+        // "unknown surface" is the attach's own failure (TerminalAttachPlan).
         daemon.failNextAttaches = 1
         let link = MockMacLink { service, line in daemon.respond(service, line) }
         let inner = DaemonTerminalSession(surface: 7) {
@@ -140,6 +144,7 @@ import UIKit
         let back = CACurrentMediaTime()
         inner.reconnect()
         try await waitUntil { inner.isAttached && model.coldFrame == nil }
+        #expect(inner.isAttached, "the link's return reattached: last error \(inner.lastError ?? "none")")
         numbers.timeToContentMs = model.coldFrame == nil ? (CACurrentMediaTime() - back) * 1000 : -1
         if let since = blankSince { numbers.blankMs += (CACurrentMediaTime() - since) * 1000 }
         numbers.transportBytes = session.bytesBeforeAttach

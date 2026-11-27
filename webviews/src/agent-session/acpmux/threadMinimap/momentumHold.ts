@@ -1,6 +1,7 @@
-/// The momentum hold (`holdMomentum`, `installMomentumHold`). A leaf module with no imports, so
-/// `links.ts` can hold a reveal's momentum without pulling the transcript's model (and its fonts)
-/// into every page that copies a link.
+/// The momentum hold (`holdMomentum`, `installMomentumHold`). A leaf module (its one import, the
+/// scroll controller, imports nothing), so `links.ts` can hold a reveal's momentum without pulling
+/// the transcript's model (and its fonts) into every page that copies a link.
+import { writeScrollTop } from "../conversation/scrollController";
 
 /// A trackpad fling's momentum after a scroll made from code (Leo 2026-11-12: "it doesn't, like,
 /// break the momentum and jump to bottom immediately"). WebKit keeps sending the fling's momentum as
@@ -13,6 +14,7 @@
 /// window capture listener installed first stops it), and the view is put back where that scroll
 /// put it. Its events stay uncancelable (WebKit latches a gesture's first event's handling), so the
 /// pin, not preventDefault, is what keeps the view still. Passive throughout: no wheel waits on the page.
+// motion-allow: a wheel gap threshold, not a motion
 export const MOMENTUM_GAP_MS = 80;
 /// A scroll that comes this long after the hold started and the last wheel arrived is no momentum's.
 const MOMENTUM_ARRIVAL_MS = 250;
@@ -76,7 +78,7 @@ export function installMomentumHold(node: HTMLElement, scrolling: (node: HTMLEle
     if (!hold || scrolling(node)) return;
     const target = hold.target();
     if (Math.abs(node.scrollTop - target) > 0.5) {
-      node.scrollTop = target;
+      writeScrollTop(node, target, "momentum");
       hold.echo = true;
       event.stopImmediatePropagation();
     } else if (hold.echo) {

@@ -14,8 +14,6 @@ name: macOS cross-compile parity
 # A difference fails the run. It publishes nothing and holds no credentials.
 
 on:
-  schedule:
-    - cron: "17 6 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -23,6 +21,10 @@ concurrency:
   cancel-in-progress: false
 
 permissions: {}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   # The Mac reference: the build job of cmux-tui artifacts with the Mac builder.
@@ -43,15 +45,17 @@ jobs:
   linux-build:
     name: build on Linux and compare (no Apple SDK)
     needs: [mac-build]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 60
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Cold, this job builds both macOS targets one after the other: on cmux-gcp-lane-build-x64 (LINUX_RUNNER_DARWIN_CROSS)
+    # run 44985475776 took 1934 s for aarch64-apple-darwin alone and was cancelled at 60 min mid x86_64. 90 fits two cold targets.
+    timeout-minutes: 90
     permissions:
       contents: read
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CMUX_SERVER_RELEASE_KEYS: ${{ vars.CMUX_SERVER_RELEASE_KEYS }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -64,9 +68,7 @@ jobs:
         run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install LLVM 19 (clang, ld64.lld, llvm tools)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-19 lld-19 llvm-19
+        run: bash scripts/ci/apt-ensure.sh clang-19 lld-19 llvm-19
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
@@ -80,6 +82,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
 
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
@@ -92,11 +98,18 @@ jobs:
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Download the Mac-built references
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: "*-apple-darwin"
           path: ${{ runner.temp }}/macos-cross/ref
           merge-multiple: true
+
+      # cmux-tailnet's build.rs builds libtailscale with this Go (cmux-tui-build-package.yml pins the same).
+      - name: Install Go for the embedded tailnet archive
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cmux-tui/crates/cmux-tailnet/go-version
+          cache: false
 
       - name: Build on Linux (no Apple SDK)
         run: |
@@ -104,9 +117,11 @@ jobs:
           sdk="$(./scripts/ci/macos-cross.sh ref-sdk "$RUNNER_TEMP/macos-cross/ref/cmux-tui-app-host-aarch64-apple-darwin")"
           ./scripts/ci/macos-cross.sh toolchain "$sdk"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
-          ./scripts/ci/macos-cross.sh hosts "$GITHUB_SHA" "$ghostty"
+          # all: the package build's own pass (cmux-tui-build-package.yml), every cargo invocation of a target at once in
+          # its own target dir (cargo-groups.sh). hosts then bins ran them one at a time: with codegen-units 1 the slowest
+          # crate's last unit holds one core while the rest wait (run 44985475776: bins 1934 s for aarch64 alone).
+          ./scripts/ci/macos-cross.sh all "$GITHUB_SHA" "$ghostty" "0.0.0-r2.sha-$GITHUB_SHA"
           ./scripts/ci/macos-cross.sh vt
-          ./scripts/ci/macos-cross.sh bins "$GITHUB_SHA" "$ghostty" "0.0.0-r2.sha-$GITHUB_SHA"
 
       - name: Compare with the Mac builds
         run: |
@@ -142,12 +157,12 @@ jobs:
   runtime-x86_64:
     name: run-time check (x86_64 under Rosetta)
     needs: [linux-build]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.CI_BLACKSMITH_MACOS == 'on' && vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 20
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -169,13 +184,13 @@ jobs:
           /usr/bin/arch -x86_64 /usr/bin/uname -m | grep -qx x86_64
 
       - name: Download the Linux-built macOS binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: macos-cross-binaries
           path: ${{ runner.temp }}/linux
 
       - name: Download the Mac-built references
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: "*-x86_64-apple-darwin"
           path: ${{ runner.temp }}/mac

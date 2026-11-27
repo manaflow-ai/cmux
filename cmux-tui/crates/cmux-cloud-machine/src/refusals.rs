@@ -203,6 +203,55 @@ pub struct Facts {
     /// The VM limit's `details.oldest_vm_age_s`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oldest_vm_age_s: Option<u64>,
+    /// `cloud.size.locked`'s `details.needed`: the size the create asked for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub needed: Option<LadderSize>,
+    /// `cloud.size.locked`'s `details.allowed`: the largest size the plan gives.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed: Option<LadderSize>,
+    /// `cloud.size.locked`'s `details.upgrade_plan`: the plan that lifts it, or [`UpgradePlan::Nothing`] when the body
+    /// named none (null).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upgrade_plan: Option<UpgradePlan>,
+}
+
+/// A size of the Cloud size ladder (cmux-platform `Sizes.ts`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum LadderSize {
+    #[serde(rename = "sm")]
+    Sm,
+    #[serde(rename = "md")]
+    Md,
+    #[serde(rename = "lg")]
+    Lg,
+    #[serde(rename = "xl")]
+    Xl,
+    #[serde(rename = "2xl")]
+    Xxl,
+}
+
+impl LadderSize {
+    /// The size `name` names, or None.
+    pub fn named(name: &str) -> Option<Self> {
+        Some(match name {
+            "sm" => Self::Sm,
+            "md" => Self::Md,
+            "lg" => Self::Lg,
+            "xl" => Self::Xl,
+            "2xl" => Self::Xxl,
+            _ => return None,
+        })
+    }
+}
+
+/// The plan a refusal says lifts it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpgradePlan {
+    Pro,
+    Max,
+    /// The body said null: no plan lifts it.
+    Nothing,
 }
 
 impl Facts {
@@ -217,6 +266,12 @@ impl Facts {
         let number = |value: Option<&Value>| value.and_then(Value::as_u64);
         let detail = |name: &str| number(details.and_then(|details| details.get(name)));
         let header = retry_after_header.and_then(|text| text.trim().parse::<u64>().ok());
+        let size = |name: &str| {
+            details
+                .and_then(|details| details.get(name))
+                .and_then(Value::as_str)
+                .and_then(LadderSize::named)
+        };
         Self {
             retryable: error.and_then(|error| error.get("retryable")).and_then(Value::as_bool),
             retry_after_s: number(error.and_then(|error| error.get("retryAfterSeconds")))
@@ -226,6 +281,16 @@ impl Facts {
             used: detail("used").or_else(|| detail("team_vms")),
             orphans: detail("orphans"),
             oldest_vm_age_s: detail("oldest_vm_age_s"),
+            needed: size("needed"),
+            allowed: size("allowed"),
+            upgrade_plan: details.and_then(|details| details.get("upgrade_plan")).and_then(
+                |plan| match plan {
+                    Value::Null => Some(UpgradePlan::Nothing),
+                    Value::String(name) if name == "pro" => Some(UpgradePlan::Pro),
+                    Value::String(name) if name == "max" => Some(UpgradePlan::Max),
+                    _ => None,
+                },
+            ),
         }
     }
 

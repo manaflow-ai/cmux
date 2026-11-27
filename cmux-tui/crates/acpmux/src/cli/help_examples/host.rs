@@ -47,6 +47,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine cells",
+        &[
+            ("See which lane hosts run past their lane cap", "acpmux machine cells"),
+            ("The same as JSON, for a script or a dashboard row", "acpmux machine cells --json"),
+        ],
+    ),
+    (
         "machine dedicated",
         &[
             (
@@ -141,10 +148,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "machine consent grant",
-        &[(
-            "Ask to turn control consent on; a shell is refused, the cmux app changes it",
-            "acpmux machine consent grant --control",
-        )],
+        &[
+            (
+                "Ask to turn control consent on; a shell is refused, the cmux app changes it",
+                "acpmux machine consent grant --control",
+            ),
+            (
+                "Turn control consent on as this Mac's admin, with no app or screen",
+                "sudo acpmux machine consent grant --control",
+            ),
+        ],
     ),
     (
         "machine consent revoke",
@@ -192,11 +205,46 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine leave-intent",
+        &[(
+            "Record that this account signs out, before the daemon leaves",
+            "acpmux machine leave-intent --user-id \"$CMUX_USER_ID\"",
+        )],
+    ),
+    (
+        "machine enroll-self",
+        &[(
+            "Enroll this machine as the signed-in person, the token on stdin",
+            "printf '%s\\n' \"$CMUX_ACCESS_TOKEN\" | acpmux machine enroll-self --access-token-stdin --user-id \"$CMUX_USER_ID\"",
+        )],
+    ),
+    (
         "machine vault",
         &[
             ("Pull this machine's vault now", "acpmux machine vault pull"),
             ("See which vault env vars this machine holds", "acpmux machine vault status"),
+            (
+                "Keep a key you made, sent only to its host",
+                "mint-token | acpmux machine vault keep DEPLOY_TOKEN --host api.example.com",
+            ),
         ],
+    ),
+    (
+        "machine vault keep",
+        &[
+            (
+                "Keep a key you made; new agents get cmux-secret://DEPLOY_TOKEN, filled only toward the host",
+                "mint-token | acpmux machine vault keep DEPLOY_TOKEN --host api.example.com",
+            ),
+            (
+                "A key that signs requests itself (an S3 SigV4 secret): give agents the value (weaker)",
+                "mint-secret | acpmux machine vault keep STORAGE_SECRET_ACCESS_KEY --env",
+            ),
+        ],
+    ),
+    (
+        "machine vault drop",
+        &[("Remove a kept key from this machine", "acpmux machine vault drop DEPLOY_TOKEN")],
     ),
     (
         "machine vault pull",
@@ -351,6 +399,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine broker-forward",
+        &[(
+            "Reach huge-blue's lane-gh broker over the carrier for lane-gh here",
+            "acpmux machine broker-forward huge-blue --socket ~/.cache/lane-gh/carrier.sock",
+        )],
+    ),
+    (
         "machine agents",
         &[
             (
@@ -402,5 +457,93 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux machine deps key ~/src/app --json",
             ),
         ],
+    ),
+    (
+        "machine hypervisor",
+        &[
+            (
+                "Run the host agent on this libvirt host",
+                "acpmux machine hypervisor serve --base-image /var/lib/cmux/base.qcow2",
+            ),
+            ("List this host's cmux VMs and their leases", "acpmux machine hypervisor ls"),
+        ],
+    ),
+    (
+        "machine hypervisor serve",
+        &[
+            (
+                "Serve VMs backed by a base image",
+                "acpmux machine hypervisor serve --base-image /var/lib/cmux/base.qcow2",
+            ),
+            (
+                "One pass against the system libvirt, as JSON",
+                "acpmux machine hypervisor serve --connect qemu:///system --once --json",
+            ),
+        ],
+    ),
+    (
+        "machine hypervisor apply",
+        &[
+            (
+                "Queue a VM that is deleted after a day",
+                "cat create.json | acpmux machine hypervisor apply",
+            ),
+            (
+                "Queue a command under your own id",
+                "cat pause.json | acpmux machine hypervisor apply --id pause-a1",
+            ),
+        ],
+    ),
+    (
+        "machine hypervisor ls",
+        &[
+            ("List this host's cmux VMs", "acpmux machine hypervisor ls"),
+            ("List them with their leases as JSON", "acpmux machine hypervisor ls --json"),
+        ],
+    ),
+    (
+        "channel",
+        &[
+            (
+                "Ask an agent on another machine and print its answer",
+                "acpmux channel open box review --text 'pr 42?' --reply",
+            ),
+            (
+                "Answer every channel to a service by echoing it",
+                "acpmux channel listen review --echo",
+            ),
+        ],
+    ),
+    (
+        "channel listen",
+        &[
+            ("Print each channel to SERVICE as JSON lines", "acpmux channel listen review"),
+            (
+                "Echo the first channel back, then exit",
+                "acpmux channel listen review --echo --once",
+            ),
+        ],
+    ),
+    (
+        "channel open",
+        &[
+            (
+                "Send stdin to a service on a peer, print what comes back",
+                "acpmux channel open box review",
+            ),
+            (
+                "Send one message with the open and time the answer",
+                "acpmux --json channel open box review --text hi --reply",
+            ),
+            (
+                "Open a channel to a service on this machine",
+                "acpmux channel open review --text hi --reply",
+            ),
+        ],
+    ),
+    ("machine vault audit", &[("Audit this machine's vault state", "acpmux machine vault audit")]),
+    (
+        "machine approvals grant",
+        &[("Record a standing pre-grant on this machine", "acpmux machine approvals grant")],
     ),
 ];

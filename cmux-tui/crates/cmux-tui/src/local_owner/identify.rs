@@ -81,7 +81,7 @@ pub(super) fn identify(
     if writeln!(
         connection.get_mut(),
         "{}",
-        serde_json::json!({"id":1,"cmd":"identify","revisions":true})
+        serde_json::json!({"id":1,"cmd":"identify","revisions":true,"restore_progress":true})
     )
     .and_then(|()| connection.get_mut().flush())
     .is_err()
@@ -134,19 +134,5 @@ pub(super) fn identify(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::is_refusal;
-
-    #[test]
-    fn connection_limit_refusal_requires_the_cmux_protocol() {
-        assert!(is_refusal(
-            br#"{"protocol":"cmux.protocol/2","type":"refused","code":"server.busy"}"#
-        ));
-        for other_service in [
-            br#"{"type":"refused","code":"server.busy"}"#.as_slice(),
-            br#"{"protocol":"another.protocol/2","type":"refused","code":"server.busy"}"#,
-        ] {
-            assert!(!is_refusal(other_service), "an unrelated service must not be replaced");
-        }
-    }
-}
+#[path = "identify_tests.rs"]
+mod tests;

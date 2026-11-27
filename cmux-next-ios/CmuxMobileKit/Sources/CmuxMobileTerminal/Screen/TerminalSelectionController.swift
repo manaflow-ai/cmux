@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import UIKit
 
 /// Text selection over the terminal's rows, scrollback included (G-14,
@@ -29,19 +30,49 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     var autoscrollBegan: () -> Void = {}
     var autoscrollEnded: () -> Void = {}
     /// The web link that covers a cell (nil: none): a long press on a link offers
-    /// Open Link and Open in Safari beside Copy, as iOS text does.
+    /// Open Link, the other device and Open in Safari beside Copy, as iOS text does.
     var linkAt: (TerminalCellPoint) -> URL? = { _ in nil }
-    /// Opens a link: in a cmux browser tab, or (`external`) in Safari.
-    var openLink: ((URL, _ external: Bool) -> Void)?
+    /// Opens a link the way the menu row says (``TerminalLinkRoute``).
+    var openLink: ((URL, TerminalLinkAction) -> Void)?
+    /// The menu's row for the device Open Link does not open the link on (Open on Mac or
+    /// Open on iPhone), nil for none.
+    var otherLinkDevice: (URL) -> TerminalLinkAction? = { _ in nil }
     /// The link under the long press that made the selection.
     private var pressedLink: URL?
 
     private(set) var selection: TerminalTextSelection? {
         didSet {
             guard selection != oldValue else { return }
+            if followsRows {
+                captureRows()
+                lostGrace.reset()
+            }
             redraw()
             selectionChanged(selection)
         }
+    }
+
+    /// The selection's rows are viewport rows of a screen the app redraws (a full-screen
+    /// app): ``followRows()`` keeps it on its text when the app moves it.
+    var followsRows = false
+    /// The selected rows' text as it read when the selection was made (``followsRows``).
+    private var selectedRows: [String] = []
+    /// The rows just above and below the selection as they read then (nil past the screen's
+    /// edge): they tell a row rewritten in place from text that scrolled away.
+    private var rowAbove: String?
+    private var rowBelow: String?
+
+    private func captureRows() {
+        guard let selection else {
+            selectedRows = []
+            rowAbove = nil
+            rowBelow = nil
+            return
+        }
+        let rows = documentRows()
+        selectedRows = (selection.start.row...selection.end.row).map { rowText($0) ?? "" }
+        rowAbove = rows.contains(selection.start.row - 1) ? rowText(selection.start.row - 1) ?? "" : nil
+        rowBelow = rows.contains(selection.end.row + 1) ? rowText(selection.end.row + 1) ?? "" : nil
     }
 
     /// Every change of the selection (a handle drag, a tap that ends it): Copy Mode follows it.
@@ -124,9 +155,57 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         selection = current
     }
 
+    /// The app redrew its screen (``followsRows``): the selection moves with its text to the
+    /// rows it is on now, or ends when that text left the screen, never staying behind over
+    /// other text (Leo, 2026-11-24: "sometimes the highlights in terminal just float and dont
+    /// move when i scroll?"). Rows rewritten where they are (the rows around them did not move)
+    /// keep it. Select All covers the whole screen, whatever it shows.
+    ///
+    /// A screen drawn in more than one batch (cleared, then drawn again) can lack the text for
+    /// a moment: the highlight hides, and ends only when the text is still gone
+    /// ``lostGrace`` later.
+    func followRows() {
+        guard followsRows, let current = selection, !selectedRows.isEmpty else { return }
+        let rows = documentRows()
+        guard !rows.isEmpty, current.start.row > rows.lowerBound || current.end.row < rows.upperBound - 1 else { return }
+        let screen = rows.map { rowText($0) ?? "" }
+        switch TerminalRowFollow.follow(selected: selectedRows, above: rowAbove, below: rowBelow,
+                                        firstRow: current.start.row - rows.lowerBound, screen: screen) {
+        case .gone:
+            switch lostGrace.lost(lookAgain: { [weak self] in self?.followRows() }) {
+            case .hide:
+                menu?.dismissMenu()
+                redraw()
+            case .wait:
+                break
+            case .end:
+                clear()
+            }
+        case .rewritten:
+            // The same rows, new text (htop, a spinner, a streamed line, Copy Mode's cursor
+            // cell): the selection stays and follows the rows' new text from here on.
+            if lostGrace.reset() { redraw() }
+            captureRows()
+        case .moved(let delta):
+            let wasLost = lostGrace.reset()
+            if delta == 0 {
+                // Rows around it may have changed: read them again so a later rewrite in place
+                // is told from a scroll by the rows as they are now.
+                captureRows()
+                if wasLost { redraw() }
+            } else {
+                shiftRows(by: delta)
+            }
+        }
+    }
+
+    /// A followed selection whose text left the screen hides, and ends when it is still gone
+    /// ``TerminalLostTextGrace/grace`` later.
+    private lazy var lostGrace = TerminalLostTextGrace(now: { CACurrentMediaTime() }, schedule: TerminalMainQueue.schedule)
+
     /// Re-lays the highlight (the document or the cell size changed).
     func redraw() {
-        guard let selection, isEnabled() else {
+        guard let selection, isEnabled(), !lostGrace.isLost else {
             highlight.isHidden = true
             startHandle.isHidden = true
             endHandle.isHidden = true
@@ -150,6 +229,11 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         endHandle.isHidden = !showsHandles
     }
 
+    #if DEBUG
+    /// The highlight's rects drawn now, one per row, in the host's coordinates (the highlight demo).
+    var drawnRects: [CGRect] { highlight.isHidden ? [] : highlight.rects }
+    #endif
+
     // MARK: Gestures
 
     @objc private func longPressed(_ press: UILongPressGestureRecognizer) {
@@ -161,7 +245,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
             pressedLink = openLink == nil ? nil : linkAt(cell)
             showsHandles = true
             selection = TerminalTextSelection.word(at: cell, line: rowText(cell.row) ?? "", columns: columns())
-            UISelectionFeedbackGenerator().selectionChanged()
+            CmuxMobileTheme.standard.haptics.selectionChanged()
         case .changed:
             // Moving after the press extends the selection, like a drag-select.
             guard var current = selection, let cell = cellAt(point) else { return }
@@ -298,13 +382,26 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         guard let link = pressedLink, openLink != nil else { return UIMenu(children: [copy, all]) }
         let open = UIAction(title: String(localized: "Open Link"), image: UIImage(systemName: "globe")) { [weak self] _ in
             self?.clear()
-            self?.openLink?(link, false)
+            self?.openLink?(link, .openLink)
         }
         let safari = UIAction(title: String(localized: "Open in Safari"), image: UIImage(systemName: "safari")) { [weak self] _ in
             self?.clear()
-            self?.openLink?(link, true)
+            self?.openLink?(link, .openInSafari)
         }
-        return UIMenu(children: [open, safari, copy, all])
+        let other: [UIAction] = switch otherLinkDevice(link) {
+        case .openOnMac?:
+            [UIAction(title: String(localized: "Open on Mac"), image: UIImage(systemName: "desktopcomputer")) { [weak self] _ in
+                self?.clear()
+                self?.openLink?(link, .openOnMac)
+            }]
+        case .openOnPhone?:
+            [UIAction(title: String(localized: "Open on iPhone"), image: UIImage(systemName: "iphone")) { [weak self] _ in
+                self?.clear()
+                self?.openLink?(link, .openOnPhone)
+            }]
+        default: []
+        }
+        return UIMenu(children: [open] + other + [safari, copy, all])
     }
 
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, targetRectFor configuration: UIEditMenuConfiguration) -> CGRect {

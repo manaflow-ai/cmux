@@ -11,8 +11,10 @@ impl Mux {
         self.journal_plugin.configure(options);
     }
 
-    /// Start the configured journal plugin against the bound local socket.
-    pub fn start_journal_plugin(&self, socket: std::path::PathBuf) {
+    /// Start the configured journal plugin against the bound local socket. An
+    /// `on_demand` plugin waits for the first running program
+    /// (`mux/journal_plugin_demand.rs`).
+    pub fn start_journal_plugin(self: &Arc<Self>, socket: std::path::PathBuf) {
         let generation = match self.workspace_registry.lock() {
             Ok(registry) => registry.reserve_journal_plugin_generation(),
             Err(_) => Err(anyhow::anyhow!("workspace registry mutex is poisoned")),
@@ -23,10 +25,14 @@ impl Mux {
                 self.session.clone(),
                 generation,
             ),
-            Err(error) => eprintln!(
-                "cmux-tui: journal plugin not started because its generation could not be reserved: {error}"
-            ),
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: journal plugin not started because its generation could not be reserved: {error}"
+                );
+                return;
+            }
         }
+        self.watch_journal_plugin_demand();
     }
 
     /// The running journal plugin's process group, if one runs.
@@ -52,6 +58,18 @@ impl Mux {
         if let Err(error) = self.append_journal_ingress(&ingress, "journal-plugin-supervisor", &key)
         {
             eprintln!("cmux-tui: journal plugin exit cleanup could not be journaled: {error}");
+        }
+    }
+
+    /// One line in the slow request log (`diagnostics/request_log.rs`, kind `plugin_restart`)
+    /// for a restart that the plugin's supervisor scheduled: three numbers, no plugin id and no
+    /// exit text. Never waits: a full queue of the log drops the line and counts it.
+    pub(crate) fn record_journal_plugin_restart(
+        &self,
+        restart: crate::journal_plugin::JournalPluginRestart,
+    ) {
+        if let Some(log) = self.connection_stats().request_log() {
+            log.plugin_restart(restart.restarts, restart.failures, restart.delay);
         }
     }
 }

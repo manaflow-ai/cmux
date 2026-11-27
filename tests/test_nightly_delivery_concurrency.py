@@ -50,6 +50,20 @@ SHARED_NIGHTLY_GROUPS = {
 }
 
 
+# The nightly-next push slot with the one job on (docs/ci/nightly-workflow-notes.md#note-19): the
+# workflow-level push group moved to the one job, with the same rule. A newer loop run replaces only a pending
+# one, and main's tick promotes nothing while one is pending (run_holds_group), so none is ever replaced; other
+# runs' nightly-next-one stays run-scoped. tests/test_nightly_next_push_slot_at_build.py evaluates it.
+PUSH_SLOT_JOBS = {
+    # One slot per signer Mac (docs/ci/nightly-workflow-notes.md#note-33).
+    "nightly-next-one": "${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || "
+                        "inputs.nightly_next_loop_retry != '') && (vars.NIGHTLY_NEXT_SLOTS == '2' && vars.CI_NIGHTLY_MINI == '' && format('nightly-next-one-push-{0}', "
+                        "needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && "
+                        "needs.pick-nightly-next-signer.outputs.host || 'cmux15') || 'nightly-next-one-push') || "
+                        "format('nightly-next-one-{0}', github.run_id) }}",
+}
+
+
 # A group scoped to its run with nothing conditional: a fixed prefix and github.run_id, so no branch of
 # an expression can fall back to a shared name (the old warm slot named github.run_id only in its fallback).
 RUN_SCOPED = re.compile(
@@ -81,12 +95,11 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
     # newest head builds and signs (Leo, 2026-11-05: "why do multiple merges even build the f***ing
     # nightlies anyway?"); the loop's own retry (nightly_next_loop_retry) joins it, and every other
     # nightly-next run stays run-scoped, among them the tail a loop run dispatches after its GitHub release
-    # (nightly_next_post_publish), so nothing replaces that tail and it never holds the push group. A push run's
-    # sign stage (nightly_next_sign_stage) takes the sign group, which works like the push group.
+    # (nightly_next_post_publish), so nothing replaces that tail and it never holds the push group.
     assert re.match(r"nightly-build-\$\{\{[^}]*\}\}-\$\{\{ github\.ref == 'refs/heads/nightly-next' && "
                     r"\(\(github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch' && "
-                    r"inputs\.nightly_next_loop_retry != ''\) && 'push' \|\| github\.event_name == 'workflow_dispatch' && "
-                    r"inputs\.nightly_next_sign_stage != '' && 'sign' \|\| format\('run-\{0\}', github\.run_id\)\) \|\|",
+                    r"inputs\.nightly_next_loop_retry != ''\) && \(vars\.NIGHTLY_NEXT_ONE_JOB != 'on' [^)]*\) && 'push' \|\| "
+                    r"format\('run-\{0\}', github\.run_id\)\) \|\|",
                     top), top
     assert "nightly_next_post_publish" not in top, top
     assert document["concurrency"]["cancel-in-progress"] is False
@@ -98,6 +111,8 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
         if isinstance(concurrency, dict):
             assert concurrency.get("cancel-in-progress") is not True, name
         if RUN_SCOPED.fullmatch(group):
+            continue
+        if name in PUSH_SLOT_JOBS and group == PUSH_SLOT_JOBS[name]:
             continue
         allowed = SHARED_NIGHTLY_GROUPS.get(name)
         assert allowed and group.startswith(allowed), (
@@ -231,7 +246,9 @@ def test_next_feed_writers_take_the_r2_lease() -> None:
     assert all(len(ttls) == 1 for ttls in by_key.values()), by_key
     # publish-nightly takes it only on nightly-next; classic and RC keep their group.
     lock = next(s for s in jobs["publish-nightly"]["steps"] if "publish-lease.sh lock" in str(s.get("run", "")))
-    assert lock["if"] == "needs.decide.outputs.track == 'nightly-next'", lock.get("if")
+    # nightly-next-one shares the step; there it also skips once the run left the push slot (LEFT_SLOT).
+    assert lock["if"] in ("needs.decide.outputs.track == 'nightly-next'",
+                          "needs.decide.outputs.track == 'nightly-next' && !env.LEFT_SLOT"), lock.get("if")
     # The notes job's sparse tooling checkout carries the lease's scripts.
     notes_checkout = next(s for s in jobs["publish-release-notes"]["steps"] if s.get("with", {}).get("path") == ".publish-tooling")
     for path in ("scripts/ci/nightly-steps/publish-lease.sh", "scripts/ci/r2_cas.py", "scripts/ci/upload-r2-object.py",
@@ -252,7 +269,7 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
     assert 'cron: "2-59/5 * * * *"' in dev or 'cron: "7,22,37,52 * * * *"' in dev
     assert "cancel-in-progress: false" in dev
     cmux_next = (WORKFLOWS / "cmux-next.yml").read_text(encoding="utf-8")
-    assert "group: ${{ format('cmux-next-release-compile-{0}', github.run_id) }}" in cmux_next
+    assert "format('cmux-next-release-compile-{0}', github.run_id) }}" in cmux_next
     assert "needs.push-head-preflight.outputs.current == 'true'" in cmux_next
 
 

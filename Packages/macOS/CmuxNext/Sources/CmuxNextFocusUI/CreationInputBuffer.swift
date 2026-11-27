@@ -9,8 +9,8 @@ public final class CreationInputBuffer {
     /// The held keys in typing order, each with the creation it was typed for (its lane): the creation whose tab the
     /// focus named when the key was typed (the pane the person saw get the focus), nil for none. A key goes only to
     /// its own creation's terminal, never to another creation's (P0 1193: after Cmd-D, keys, Cmd-D, keys, the first
-    /// new terminal ran the second one's keys while the second's focus was on its way).
-    private var events: [(event: NSEvent, creation: Int?)] = []
+    /// new terminal ran the second one's keys while the second's focus was on its way). `pane`: the pane that had the focus at the key's press (nil: not known), or, for a key that the hold keeps for a new workspace's terminal, that terminal's pane from the time the hold gives the key to it (``bindNewWorkspaceKeys(to:machine:paneOf:)``); it stays with the key at each place where a key leaves this list or comes back (the tab keys' rule, ``reduceTabKeys(dropsLoneClose:kind:)``).
+    private var events: [(event: NSEvent, creation: Int?, pane: String?)] = []
     /// Each creation's provisional tab, kept after its reply: the terminal its lane goes to.
     private var laneTabs: [Int: String] = [:]
     /// The machine each creation's terminal is on (its daemon), when it was known at its start.
@@ -79,6 +79,7 @@ public final class CreationInputBuffer {
     /// (its keys reach the daemon by terminal id, which queues them, cx-wb5.78).
     /// `tab`: the provisional tab the creation shows, so a close of it can cancel the hold (`cancel(tab:)`).
     /// `machine`: the machine the creation's terminal is on (its keys reach it there when its view is gone). `newTerminal`: a New Terminal Tab, which owns the keys typed for it (``NewTerminalKeys``); `standInSends`: its stand-in's view sends keys by the terminal's id before the daemon made it.
+    /// `typesIntoTab`: false for a tab that is no terminal (a new browser tab): a close of `tab` still cancels it, but no key is bound to it as a terminal's (its keys run again into what has the keyboard, its omnibar).
     /// `newWorkspace`: the creation makes a new workspace with its terminal; the keys typed for it wait until the window
     /// shows that workspace with its terminal, also after the person left it (``shownWorkspaceToWaitFor``,
     /// ``leftWorkspaceWithKeys``), and are dropped when it fails or has not shown by the hold's limit
@@ -88,7 +89,7 @@ public final class CreationInputBuffer {
     /// `pressTerminal`, `personMoves`: a new workspace's: the terminal that had the keyboard at the press, and the count of
     /// the person's focus choices then (``FocusState/personMoveSeq``, ``pressLanes``).
     public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newWorkspace: Bool = false,
-                     newTerminal: Bool = false, standInSends: Bool = true, pressTerminal: HeldLane? = nil, personMoves: UInt64 = 0, at start: ContinuousClock.Instant = .now) -> Ticket {
+                     newTerminal: Bool = false, standInSends: Bool = true, typesIntoTab: Bool = true, pressTerminal: HeldLane? = nil, personMoves: UInt64 = 0, at start: ContinuousClock.Instant = .now) -> Ticket {
         nextID += 1
         (newestCreation, newestOpenedAt) = (nextID, start)
         if newWorkspace, let pressTerminal { pressLanes[nextID] = (pressTerminal, personMoves) }
@@ -98,7 +99,7 @@ public final class CreationInputBuffer {
         if newWorkspace { workspaceTickets.insert(nextID) }
         if newTerminal { newTerminals.tickets.insert(nextID); laneMachines[nextID] = machine; if !standInSends { newTerminals.silentStandIns.insert(nextID) } }
         if let earlyTab { earlyTabs[nextID] = earlyTab }
-        if let tab { tabs[nextID] = tab; laneTabs[nextID] = tab; laneMachines[nextID] = machine }
+        if let tab { tabs[nextID] = tab; if typesIntoTab { (laneTabs[nextID], laneMachines[nextID]) = (tab, machine) } }
         if let tab { madeTabs.insert(tab) }
         return Ticket(id: nextID, owner: ObjectIdentifier(self))
     }
@@ -175,7 +176,7 @@ public final class CreationInputBuffer {
         guard let closing = closingTabs.removeValue(forKey: ticket.id) ?? answered else { return }
         everyKeyCloses.remove(ticket.id)
         if !stays, let next = Set(closingTabs.keys).union(answered == nil ? Array(answering.keys) : []).max() {
-            events = events.map { $0.creation == ticket.id ? ($0.event, next) : $0 }
+            events = events.map { $0.creation == ticket.id ? ($0.event, next, $0.pane) : $0 }
             return resolve(ticket, awaitsFocus: false)
         }
         if stays { laneTabs[ticket.id] = closing.first } else { (laneTabs[ticket.id], laneMachines[ticket.id]) = (tab.flatMap { closing.contains($0) ? nil : $0 }, machine) }
@@ -272,6 +273,12 @@ public final class CreationInputBuffer {
     /// of #32148). A failed one alone is not enough: until the person acts, their claim keeps the keys.
     public var personLeftEveryCreation: Bool { !movedOnFrom.isEmpty && movedOnFrom.union(failedWorkspaces).count == nextID }
 
+    /// A key typed now makes this hold wait for the focused content still to show, in its own lane (``awaitContent(_:machine:)``):
+    /// the hold waits for no creation (a selection's hold, `holdUntilShown`: at launch it opens before the restored terminal's
+    /// surface, and its keys, with no lane, ran into no view at its bound, hq#22681), it already waits for content (a second
+    /// one gets its own lane), or the person left every creation (``personLeftEveryCreation``).
+    public var mayAwaitFocusedContent: Bool { !holdsCreation || awaitedTab != nil || personLeftEveryCreation }
+
     /// Whether a key typed now with the focus on `focusedTab` goes on to the view at once: the person moved on from every
     /// creation of this hold (new workspaces only), the key is for no creation's or surface's terminal, and no key that
     /// runs as typed waits before it (their order).
@@ -283,7 +290,12 @@ public final class CreationInputBuffer {
     /// The keys held for a new workspace's terminal (no terminal lane yet) go into `tab` on `machine`: once the window
     /// shows the workspace they run in that terminal, never in what has the keyboard instead (Home's message box beside
     /// the pinned dock). With no terminal found (nil) they are dropped, as for a workspace that never showed.
-    public func bindNewWorkspaceKeys(to tab: String?, machine: String?) {
+    /// `paneOf`: the pane that shows a tab (nil: not known). A key that the hold keeps for a new workspace's terminal is
+    /// a key of that terminal's pane, not of the pane that had the focus at its press (a pane
+    /// that changes with no focus move of the person is not another place). So the tab keys' rule reads the keys that
+    /// the person pressed before and after the window showed the workspace as keys of one pane
+    /// (``reduceTabKeys(dropsLoneClose:kind:)``).
+    public func bindNewWorkspaceKeys(to tab: String?, machine: String?, paneOf: (String) -> String? = { _ in nil }) {
         let unbound = workspaceTickets.filter { laneTabs[$0] == nil }
         guard let tab else {
             let before = events.count
@@ -291,6 +303,8 @@ public final class CreationInputBuffer {
             return Self.logDropped(before - events.count, why: "its workspace shows no terminal")
         }
         for id in unbound { (laneTabs[id], laneMachines[id]) = (tab, machine) }
+        guard let pane = paneOf(tab) else { return }
+        events = events.map { $0.creation.map(unbound.contains) == true ? ($0.event, $0.creation, pane) : $0 }
     }
 
     /// Drops the held keys typed for a new workspace's terminal that the window does not show (`shown`: the workspace it
@@ -315,21 +329,62 @@ public final class CreationInputBuffer {
     /// Holds `event`, typed while the focus named `focusedTab` (``lane(focusedTab:)``). A key typed for no creation's tab
     /// while a new workspace's terminal is on its way and the person has not moved on (`forNewWorkspace`) is that
     /// terminal's: its keys wait for the window to show it. An adopted lane (a cold terminal's surface hold, keys carried
-    /// from another hold) is the terminal the person typed into before they asked for the workspace: it gives way to it.
-    public func capture(_ event: NSEvent, focusedTab: String?, forNewWorkspace: Bool = false, forNewestIntent: Bool = false) {
+    /// from another hold) is the terminal the person typed into before they asked for the workspace: it gives way to it. `pane`: the pane that has the focus at the press.
+    public func capture(_ event: NSEvent, focusedTab: String?, forNewWorkspace: Bool = false, forNewestIntent: Bool = false, pane: String? = nil) {
         let workspace = forNewWorkspace ? workspaceTickets.subtracting(movedOnFrom).max() : nil // never one the person left
         let own = lane(focusedTab: focusedTab).flatMap { $0 < 0 && workspace != nil ? nil : $0 }
         let terminal = forNewestIntent ? newTerminals.ticket(newest: newestCreation, over: own) : nil // `forNewestIntent`: the person did nothing since they asked for it
-        events.append((event, terminal ?? own ?? workspace))
+        events.append((event, terminal ?? own ?? workspace, pane))
+    }
+
+    /// Whether a close key that is typed now is not held: the hold ends, and the key acts on what it closes after the held
+    /// keys. A close key is not held (held, it ran later with the other keys), with one case that waits (an act
+    /// never runs before the act of a key that the person pressed before it): the Close Tab key while this
+    /// hold keeps a key that makes or closes a tab and that the person pressed in the same pane (`pane`: the pane that has the focus now). That key is
+    /// held behind it as any other key, and the hold's end pairs it with its New Tab key (``reduceTabKeys(dropsLoneClose:kind:)``).
+    /// A Close Tab key of another pane is for that pane's tab, so it is not held. `key`: whether the typed key's action is a close action, and what it does to the tabs (``TabKey``). `kind`: what a held key does to the tabs.
+    /// The same pane also means this (a pane that changes with no focus move of the person is
+    /// not another place): the window shows the newest new workspace of this hold that the person did not leave
+    /// (`shown`: the workspace that the window shows), and the hold keeps a key that makes or closes a tab for that
+    /// workspace's terminal. The hold's end gives those keys that terminal's pane (``bindNewWorkspaceKeys(to:machine:paneOf:)``).
+    public func closeKeyActsNow(_ key: (closes: Bool, tabKey: TabKey?), pane: String?, shown: String? = nil, kind: (NSEvent) -> TabKey?) -> Bool {
+        guard key.closes, key.tabKey == .closes else { return key.closes }
+        let workspace = shown != nil && shownWorkspaceToWaitFor == shown ? workspaceTickets.subtracting(movedOnFrom).max() : nil
+        return !events.contains { ($0.pane == pane || workspace != nil && $0.creation == workspace) && kind($0.event) != nil }
+    }
+
+    /// Reduces the held keys by their own meaning before an end of the hold runs them (an act
+    /// never runs before the act of a key that the person pressed before it). This is the one rule for a held Close Tab
+    /// key. The end that runs each held key uses it; the end of a closed window and a lane whose own view takes its keys early do not:
+    /// - A Close Tab key cancels the newest New Tab key before it that the person pressed in the same pane and that is not cancelled yet, and the two go together:
+    ///   the person's keys asked for no change and get none, and the close key can take no other tab. Keys of two panes make no pair.
+    /// - A key of another kind was typed for the tab of the New Tab key before it. It stops the pairing: the New Tab keys
+    ///   before it pair with no later Close Tab key, and those keys run in the order of the keys.
+    /// - `dropsLoneClose` (a forced end: at the reply bound the held keys run at the thing that has the focus then; at the limit and when the focus left, each for its own terminal): a Close Tab key with no
+    ///   New Tab key that it can cancel goes too. It is a lost key, and it never closes a tab that was there before the
+    ///   keys.
+    /// `kind`: what a held key does to the tabs. Returns how many pairs went and how many lone Close Tab keys were lost.
+    public func reduceTabKeys(dropsLoneClose: Bool, kind: (NSEvent) -> TabKey?) -> (pairs: Int, lost: Int) {
+        var open: [String?: [Int]] = [:], gone: Set<Int> = [], pairs = 0, lost = 0 // the New Tab keys that a Close Tab key can cancel, by the pane of their press
+        for (index, key) in events.enumerated() {
+            switch kind(key.event) {
+            case .makes?: open[key.pane, default: []].append(index)
+            case .closes?:
+                if let made = open[key.pane]?.popLast() { gone.formUnion([made, index]); pairs += 1 } else if dropsLoneClose { gone.insert(index); lost += 1 }
+            case nil: open.removeAll()
+            }
+        }
+        if !gone.isEmpty { events = events.enumerated().filter { !gone.contains($0.offset) }.map(\.element) }
+        return (pairs, lost)
     }
 
     /// Holds `earlier` (keys taken and not run yet, typed after the key that started the newest creation) before the
     /// keys held now. Each keeps the terminal it was typed for, also when it came from another hold: only the keys of
     /// `issuer`'s lane (the lane of the key that started the creation; nil: no lane) move to the new creation, as the
     /// person typed them after that lane's Cmd-D (P0 1193 follow-up: a key held for another terminal went to the split).
-    public func prepend(_ earlier: [(event: NSEvent, lane: HeldLane?)], issuer: HeldLane?) {
+    public func prepend(_ earlier: [(event: NSEvent, lane: HeldLane?, pane: String?)], issuer: HeldLane?) {
         let creation = nextID > 0 ? nextID : nil
-        let entries = earlier.map { key in (event: key.event, creation: key.lane == issuer ? creation : key.lane.map(adopt)) }
+        let entries = earlier.map { key in (event: key.event, creation: key.lane == issuer ? creation : key.lane.map(adopt), pane: key.pane) }
         events.insert(contentsOf: entries, at: 0)
     }
 
@@ -422,7 +477,7 @@ public final class CreationInputBuffer {
     /// the others keep waiting.
     public func take(lane: Int) -> [HeldKey] {
         defer { events.removeAll { $0.creation == lane } }
-        return events.filter { $0.creation == lane }.map { .run($0.event, lane: heldLane(lane)) }
+        return events.filter { $0.creation == lane }.map { .run($0.event, lane: heldLane(lane), pane: $0.pane) }
     }
 
     /// Ends the hold: every held key in typing order, each for its own terminal while the focus is on tab `focused`.
@@ -430,18 +485,18 @@ public final class CreationInputBuffer {
     /// `keeping`: a creation whose keys stay held (a left workspace still to show, ``leftWorkspaceWithKeys``).
     public func take(focused: String?, keeping kept: Int? = nil, isShortcut: (NSEvent, String) -> Bool) -> [HeldKey] {
         var keys: [HeldKey] = []
-        for (event, id) in events where kept == nil || id != kept {
+        for (event, id, pane) in events where kept == nil || id != kept {
             if isStranded(id) { untypedTerminalKeys += 1; continue } // the person moved on, or no terminal: counted, never typed
             guard let lane = heldLane(id), lane.tab != focused || id.map(pressDelivered.contains) == true else { // a run goes to the KEY window
-                keys.append(.run(event, lane: heldLane(id)))
+                keys.append(.run(event, lane: heldLane(id), pane: pane))
                 continue
             }
             if !event.modifierFlags.isDisjoint(with: [.command, .control]), isShortcut(event, lane.tab) {
-                keys.append(.command(event, lane: lane))
-            } else if case .type(let earlier, let last)? = keys.last, last == lane {
-                keys[keys.count - 1] = .type(earlier + [event], lane: lane)
+                keys.append(.command(event, lane: lane, pane: pane))
+            } else if case .type(let earlier, let last, let panes)? = keys.last, last == lane {
+                keys[keys.count - 1] = .type(earlier + [event], lane: lane, panes: panes + [pane])
             } else {
-                keys.append(.type([event], lane: lane))
+                keys.append(.type([event], lane: lane, panes: [pane]))
             }
         }
         events.removeAll { kept == nil || $0.creation != kept }; endMadeTabWatch() // no key of a made terminal waits for its tab any more

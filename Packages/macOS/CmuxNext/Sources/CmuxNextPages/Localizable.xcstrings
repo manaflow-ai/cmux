@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "customizeDoctor.notice.review": {
+      "comment": "Button on the toast that names customization problems; opens Settings at the card that lists them",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مراجعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregledaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gennemse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Examiner"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rivedi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검토"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se gjennom"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przejrzyj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просмотреть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İncele"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переглянути"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xem lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢視"
+          }
+        }
+      }
+    },
     "projection.workspace.named": {
       "comment": "Name of a projection window's first workspace; %@ is the worktree folder's name",
       "extractionState": "manual",
@@ -1459,127 +1591,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artifacts could not be loaded. Try again."
+            "value": "Artifacts could not be loaded."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر تحميل العناصر المحفوظة. أعد المحاولة."
+            "value": "تعذّر تحميل العناصر المحفوظة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artefakti se nisu mogli učitati. Pokušajte ponovo."
+            "value": "Artefakti se nisu mogli učitati."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artefakter kunne ikke indlæses. Prøv igen."
+            "value": "Artefakter kunne ikke indlæses."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artefakte konnten nicht geladen werden. Versuche es erneut."
+            "value": "Artefakte konnten nicht geladen werden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudieron cargar los artefactos. Vuelve a intentarlo."
+            "value": "No se pudieron cargar los artefactos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de charger les artefacts. Réessayez."
+            "value": "Impossible de charger les artefacts."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile caricare gli artefatti. Riprova."
+            "value": "Impossibile caricare gli artefatti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アーティファクトを読み込めませんでした。もう一度お試しください。"
+            "value": "アーティファクトを読み込めませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចផ្ទុកវត្ថុបុរាណបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+            "value": "មិនអាចផ្ទុកវត្ថុបុរាណបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아티팩트를 불러올 수 없습니다. 다시 시도하세요."
+            "value": "아티팩트를 불러올 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke laste inn artefakter. Prøv igjen."
+            "value": "Kunne ikke laste inn artefakter."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie można wczytać artefaktów. Spróbuj ponownie."
+            "value": "Nie można wczytać artefaktów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível carregar os artefatos. Tente de novo."
+            "value": "Não foi possível carregar os artefatos."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось загрузить артефакты. Повторите попытку."
+            "value": "Не удалось загрузить артефакты."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "โหลดอาร์ติแฟกต์ไม่ได้ ลองอีกครั้ง"
+            "value": "โหลดอาร์ติแฟกต์ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yapıtlar yüklenemedi. Yeniden deneyin."
+            "value": "Yapıtlar yüklenemedi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося завантажити артефакти. Спробуйте ще раз."
+            "value": "Не вдалося завантажити артефакти."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể tải tạo phẩm. Hãy thử lại."
+            "value": "Không thể tải tạo phẩm."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法加载制品。请重试。"
+            "value": "无法加载制品。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法載入成品。請再試一次。"
+            "value": "無法載入成品。"
           }
         }
       }
@@ -1983,127 +2115,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artifacts could not be reached. Check that you are signed in and online, then try again."
+            "value": "Artifacts could not be reached. Check that you are signed in and online."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر الوصول إلى العناصر المحفوظة. تأكد من تسجيل الدخول ومن اتصالك بالإنترنت، ثم أعد المحاولة."
+            "value": "تعذّر الوصول إلى العناصر المحفوظة. تأكد من تسجيل الدخول ومن اتصالك بالإنترنت."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artefakti nisu dostupni. Provjerite jeste li prijavljeni i povezani na internet, pa pokušajte ponovo."
+            "value": "Artefakti nisu dostupni. Provjerite jeste li prijavljeni i povezani na internet."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artefakter kunne ikke nås. Tjek, at du er logget ind og online, og prøv igen."
+            "value": "Artefakter kunne ikke nås. Tjek, at du er logget ind og online."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Artefakte sind nicht erreichbar. Prüfe, ob du angemeldet und online bist, und versuche es erneut."
+            "value": "Artefakte sind nicht erreichbar. Prüfe, ob du angemeldet und online bist."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo acceder a los artefactos. Comprueba que has iniciado sesión y tienes conexión, y vuelve a intentarlo."
+            "value": "No se pudo acceder a los artefactos. Comprueba que has iniciado sesión y tienes conexión."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible d'accéder aux artefacts. Vérifiez que vous êtes connecté à votre compte et à Internet, puis réessayez."
+            "value": "Impossible d'accéder aux artefacts. Vérifiez que vous êtes connecté à votre compte et à Internet."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile raggiungere gli artefatti. Verifica di aver effettuato l'accesso e di essere online, poi riprova."
+            "value": "Impossibile raggiungere gli artefatti. Verifica di aver effettuato l'accesso e di essere online."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アーティファクトに接続できませんでした。サインインしてオンラインであることを確認してから、もう一度お試しください。"
+            "value": "アーティファクトに接続できませんでした。サインインしてオンラインであることを確認してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចភ្ជាប់ទៅវត្ថុបុរាណបានទេ។ សូមពិនិត្យថាអ្នកបានចូលគណនី និងមានអ៊ីនធឺណិត រួចព្យាយាមម្ដងទៀត។"
+            "value": "មិនអាចភ្ជាប់ទៅវត្ថុបុរាណបានទេ។ សូមពិនិត្យថាអ្នកបានចូលគណនី និងមានអ៊ីនធឺណិត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아티팩트에 연결할 수 없습니다. 로그인되어 있고 온라인인지 확인한 후 다시 시도하세요."
+            "value": "아티팩트에 연결할 수 없습니다. 로그인되어 있고 온라인인지 확인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke nå artefakter. Sjekk at du er logget på og tilkoblet, og prøv igjen."
+            "value": "Kunne ikke nå artefakter. Sjekk at du er logget på og tilkoblet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie można połączyć się z artefaktami. Sprawdź, czy jesteś zalogowany i online, a potem spróbuj ponownie."
+            "value": "Nie można połączyć się z artefaktami. Sprawdź, czy jesteś zalogowany i online."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível acessar os artefatos. Verifique se você entrou na conta e está online e tente de novo."
+            "value": "Não foi possível acessar os artefatos. Verifique se você entrou na conta e está online."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось подключиться к артефактам. Проверьте, что вы вошли в аккаунт и в сети, и повторите попытку."
+            "value": "Не удалось подключиться к артефактам. Проверьте, что вы вошли в аккаунт и в сети."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เข้าถึงอาร์ติแฟกต์ไม่ได้ ตรวจสอบว่าคุณลงชื่อเข้าใช้และออนไลน์อยู่ แล้วลองอีกครั้ง"
+            "value": "เข้าถึงอาร์ติแฟกต์ไม่ได้ ตรวจสอบว่าคุณลงชื่อเข้าใช้และออนไลน์อยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yapıtlara ulaşılamadı. Oturum açtığınızdan ve çevrimiçi olduğunuzdan emin olup yeniden deneyin."
+            "value": "Yapıtlara ulaşılamadı. Oturum açtığınızdan ve çevrimiçi olduğunuzdan emin olun."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося під'єднатися до артефактів. Перевірте, що ви ввійшли в обліковий запис і в мережі, і спробуйте ще раз."
+            "value": "Не вдалося під'єднатися до артефактів. Перевірте, що ви ввійшли в обліковий запис і в мережі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể kết nối tới tạo phẩm. Hãy kiểm tra bạn đã đăng nhập và đang trực tuyến, rồi thử lại."
+            "value": "Không thể kết nối tới tạo phẩm. Hãy kiểm tra bạn đã đăng nhập và đang trực tuyến."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法连接到制品。请确认你已登录并且网络正常，然后重试。"
+            "value": "无法连接到制品。请确认你已登录并且网络正常。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法連線到成品。請確認你已登入且網路正常，然後再試一次。"
+            "value": "無法連線到成品。請確認你已登入且網路正常。"
           }
         }
       }
@@ -6830,7 +6962,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect to “%@”?"
+            "value": "Open “%@”"
           }
         },
         "ar": {
@@ -7615,133 +7747,133 @@
       }
     },
     "chiefUsage.failed": {
-      "comment": "Chief Usage page: reading the usage ledger failed; the page offers to try again",
+      "comment": "Chief Usage page: reading the usage ledger failed",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Chief's usage could not be read. Try again."
+            "value": "The Chief's usage could not be read."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّرت قراءة استخدام Chief. حاول مرة أخرى."
+            "value": "تعذّرت قراءة استخدام Chief."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Upotreba Chiefa nije mogla biti pročitana. Pokušajte ponovo."
+            "value": "Upotreba Chiefa nije mogla biti pročitana."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiefs forbrug kunne ikke læses. Prøv igen."
+            "value": "Chiefs forbrug kunne ikke læses."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Nutzung des Chiefs konnte nicht gelesen werden. Versuche es erneut."
+            "value": "Die Nutzung des Chiefs konnte nicht gelesen werden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo leer el uso del Chief. Vuelve a intentarlo."
+            "value": "No se pudo leer el uso del Chief."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de lire l’utilisation du Chief. Réessayez."
+            "value": "Impossible de lire l’utilisation du Chief."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile leggere l’utilizzo del Chief. Riprova."
+            "value": "Impossibile leggere l’utilizzo del Chief."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief の使用量を読み取れませんでした。もう一度お試しください。"
+            "value": "Chief の使用量を読み取れませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចអានការប្រើប្រាស់របស់ Chief បានទេ។ សូមព្យាយាមម្ដងទៀត។"
+            "value": "មិនអាចអានការប្រើប្រាស់របស់ Chief បានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief의 사용량을 읽을 수 없습니다. 다시 시도하세요."
+            "value": "Chief의 사용량을 읽을 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiefs forbruk kunne ikke leses. Prøv igjen."
+            "value": "Chiefs forbruk kunne ikke leses."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie udało się odczytać użycia Chiefa. Spróbuj ponownie."
+            "value": "Nie udało się odczytać użycia Chiefa."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível ler o uso do Chief. Tente de novo."
+            "value": "Não foi possível ler o uso do Chief."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось прочитать использование Chief. Повторите попытку."
+            "value": "Не удалось прочитать использование Chief."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อ่านการใช้งานของ Chief ไม่ได้ ลองอีกครั้ง"
+            "value": "อ่านการใช้งานของ Chief ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief’in kullanımı okunamadı. Yeniden deneyin."
+            "value": "Chief’in kullanımı okunamadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося прочитати використання Chief. Спробуйте ще раз."
+            "value": "Не вдалося прочитати використання Chief."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không đọc được mức sử dụng của Chief. Hãy thử lại."
+            "value": "Không đọc được mức sử dụng của Chief."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法读取 Chief 的用量。请重试。"
+            "value": "无法读取 Chief 的用量。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法讀取 Chief 的用量。請再試一次。"
+            "value": "無法讀取 Chief 的用量。"
           }
         }
       }
@@ -8135,6 +8267,399 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉「%@」的沙盒？"
+          }
+        }
+      }
+    },
+    "pages.confirm.apps.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "من %1$@ عند %2$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iz %1$@ na %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra %1$@ ved %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von %1$@ bei %2$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From %1$@ at %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De %1$@ en %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depuis %1$@ à %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da %1$@ a %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ の %2$@ から。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពី %1$@ នៅ %2$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@의 %2$@에서."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra %1$@ ved %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Z %1$@ w wersji %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De %1$@ em %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Из %1$@, версия %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จาก %1$@ ที่ %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ kaynağından, %2$@ sürümü."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "З %1$@, версія %2$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Từ %1$@ tại %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自 %1$@，版本 %2$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自 %1$@，版本 %2$@。"
+          }
+        }
+      }
+    },
+    "pages.confirm.apps.notReviewed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تراجعه cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ga nije pregledao."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke gennemgået af cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht von cmux geprüft."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not reviewed by cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No revisado por cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non vérifié par cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non verificato da cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の審査を受けていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនទាន់បានពិនិត្យដោយ cmux ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 검토하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke gjennomgått av cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niesprawdzone przez cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não revisado pelo cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не проверено cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่ได้รับการตรวจสอบโดย cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tarafından incelenmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не перевірено cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa được cmux xem xét."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未经 cmux 审核。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未經 cmux 審核。"
+          }
+        }
+      }
+    },
+    "pages.confirm.apps.verifiedSource": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مصدر موثّق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjeren izvor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificeret kilde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifizierte Quelle."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verified source."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origen verificado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source vérifiée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonte verificata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検証済みのソースです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រភពដែលបានផ្ទៀងផ្ទាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인된 소스입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifisert kilde."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zweryfikowane źródło."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origem verificada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверенный источник."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แหล่งที่มาที่ยืนยันแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doğrulanmış kaynak."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевірене джерело."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nguồn đã xác minh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已验证的来源。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已驗證的來源。"
           }
         }
       }
@@ -9975,6 +10500,928 @@
           "stringUnit": {
             "state": "translated",
             "value": "檢查元素"
+          }
+        }
+      }
+    },
+    "pages.confirm.cloud.machine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آلة سحابية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud mašina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "máquina Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "machine Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macchina Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 머신"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "maszyna Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "máquina Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "облачная машина"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud makinesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "хмарна машина"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "máy Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端機器"
+          }
+        }
+      }
+    },
+    "pages.confirm.cloud.connectDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect opens %@ in this tab so you can see what is running."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتح الاتصال %@ في علامة التبويب هذه لتعرف ما الذي يعمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veza otvara %@ u ovoj kartici da vidiš šta radi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelsen åbner %@ i dette faneblad, så du kan se, hvad der kører."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung öffnet %@ in diesem Tab, damit du siehst, was läuft."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión abre %@ en esta pestaña para que veas lo que está ejecutándose."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion ouvre %@ dans cet onglet pour voir ce qui fonctionne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connessione apre %@ in questa scheda per mostrarti cosa è in esecuzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続すると、このタブで%@を開き、実行中の内容を確認できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការតភ្ជាប់នឹងបើក %@ ក្នុងផ្ទាំងនេះ ដើម្បីឲ្យអ្នកឃើញអ្វីកំពុងដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결하면 이 탭에서 %@을(를) 열어 실행 중인 내용을 볼 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilkoblingen åpner %@ i denne fanen, så du kan se hva som kjører."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączenie otworzy %@ w tej karcie, aby pokazać, co działa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conexão abre %@ nesta aba para você ver o que está em execução."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключение откроет %@ в этой вкладке, чтобы показать запущенные процессы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเชื่อมต่อจะเปิด %@ ในแท็บนี้เพื่อให้คุณเห็นสิ่งที่กำลังทำงานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlantı, neyin çalıştığını görebilmen için %@ öğesini bu sekmede açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключення відкриє %@ у цій вкладці, щоб показати запущене."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối sẽ mở %@ trong thẻ này để bạn xem nội dung đang chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接会在此标签页打开%@，让你查看正在运行的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線會在此分頁開啟%@，讓你查看正在執行的內容。"
+          }
+        }
+      }
+    },
+    "customizeExperiments.mark.one": {
+      "comment": "Sidebar bottom-left mark while one unmerged pull request's pages are on in this app (cmux customize use pr:N). Followed by ' · #N', the pull request's number.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experiment on"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجربة مفعّلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksperiment uključen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksperiment slået til"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Experiment aktiv"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Experimento activo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expérience active"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperimento attivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "実験中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការពិសោធន៍បើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실험 켜짐"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksperiment på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksperyment włączony"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Experimento ativo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эксперимент включён"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดการทดลองอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deney açık"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Експеримент увімкнено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang bật thử nghiệm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "实验已开启"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "實驗已開啟"
+          }
+        }
+      }
+    },
+    "customizeExperiments.mark.many": {
+      "comment": "Sidebar bottom-left mark while two or more unmerged pull requests' pages are on in this app. Followed by ' · N', the count.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experiments on"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجارب مفعّلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksperimenti uključeni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksperimenter slået til"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Experimente aktiv"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Experimentos activos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expériences actives"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperimenti attivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "実験中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការពិសោធន៍បើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실험 켜짐"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksperimenter på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksperymenty włączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Experimentos ativos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эксперименты включены"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดการทดลองอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deneyler açık"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Експерименти увімкнено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang bật thử nghiệm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "实验已开启"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "實驗已開啟"
+          }
+        }
+      }
+    },
+    "customizeExperiments.help": {
+      "comment": "Tooltip and accessibility label of the sidebar's experiments mark.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some pages come from an unmerged pull request. Click to see it in the Customization Library."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بعض الصفحات تأتي من طلب سحب غير مدمج. انقر لعرضه في مكتبة التخصيصات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neke stranice dolaze iz nespojenog pull requesta. Kliknite da ga vidite u Biblioteci prilagodbi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nogle sider kommer fra en pull request, der ikke er flettet. Klik for at se den i Tilpasningsbiblioteket."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Einige Seiten stammen aus einem nicht zusammengeführten Pull Request. Klicken, um ihn in der Anpassungsbibliothek zu sehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Algunas páginas vienen de un pull request sin fusionar. Haz clic para verlo en la Biblioteca de personalizaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Certaines pages viennent d'une pull request non fusionnée. Cliquez pour la voir dans la Bibliothèque de personnalisations."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alcune pagine vengono da una pull request non unita. Fai clic per vederla nella Libreria delle personalizzazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一部のページは未マージのプルリクエストから読み込まれています。クリックするとカスタマイズライブラリで確認できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រខ្លះមកពី pull request ដែលមិនទាន់បញ្ចូល។ ចុចដើម្បីមើលវានៅក្នុងបណ្ណាល័យការប្ដូរតាមបំណង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "일부 페이지가 병합되지 않은 풀 리퀘스트에서 옵니다. 클릭하면 사용자화 라이브러리에서 볼 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noen sider kommer fra en pull request som ikke er slått sammen. Klikk for å se den i Tilpasningsbiblioteket."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niektóre strony pochodzą z niescalonego pull requesta. Kliknij, aby zobaczyć go w Bibliotece dostosowań."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Algumas páginas vêm de um pull request não mesclado. Clique para vê-lo na Biblioteca de personalizações."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Некоторые страницы взяты из неслитого pull request. Нажмите, чтобы увидеть его в Библиотеке настроек."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บางหน้ามาจาก pull request ที่ยังไม่ได้รวม คลิกเพื่อดูในคลังการปรับแต่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bazı sayfalar birleştirilmemiş bir pull request'ten geliyor. Özelleştirme Kitaplığı'nda görmek için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Деякі сторінки взято з незлитого pull request. Натисніть, щоб побачити його в Бібліотеці налаштувань."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một số trang đến từ một pull request chưa hợp nhất. Bấm để xem trong Thư viện tùy chỉnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "部分页面来自未合并的拉取请求。点按可在自定义库中查看。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "部分頁面來自未合併的提取要求。按一下可在自訂資料庫中查看。"
+          }
+        }
+      }
+    },
+    "customizeExperiments.turnOffFailed": {
+      "comment": "Alert title when turning off a pull request entry from the sidebar's experiments mark failed; the alert's body is the CLI's own words. %@ is the entry's name (pr-N).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't turn off %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذر إيقاف %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće isključiti %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke slå %@ fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ konnte nicht ausgeschaltet werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo desactivar %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de désactiver %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile disattivare %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ をオフにできませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចបិទ %@ បានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@을(를) 끌 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke slå av %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się wyłączyć %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível desativar %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось выключить %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด %@ ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ kapatılamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося вимкнути %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể tắt %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法关闭 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法關閉 %@"
+          }
+        }
+      }
+    },
+    "customizeExperiments.turnOff": {
+      "comment": "Button on the sidebar's experiments mark, kept to one short word so the PR number beside it fits: turns off every pull request entry that is on (cmux customize library off pr-N), which puts back the app's own pages.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إيقاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isključi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desactivar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactiver"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disattiva"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyłącz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desativar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выключить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вимкнути"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉"
           }
         }
       }

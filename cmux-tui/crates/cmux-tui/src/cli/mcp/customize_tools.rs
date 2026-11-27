@@ -19,6 +19,8 @@ struct CustomizeTool {
     argument: Option<(&'static str, bool, Kind, &'static str)>,
     /// A second, optional free-text argument (a note).
     note: Option<&'static str>,
+    /// Takes an optional `minutes` (a try-on's length).
+    minutes: bool,
     mutation: bool,
 }
 
@@ -35,6 +37,7 @@ const TOOLS: &[CustomizeTool] = &[
         description: "Start here when the person wants cmux itself changed (look, layout, sidebar, theme, shortcuts, their own views or widgets, automations). Opens a draft for what they asked and returns the brief: which files to edit and the rules. You make the edits yourself; each save shows live in their cmux window as a preview, with no restart. Call it again with the next wish to refine the same draft.",
         argument: Some(("wish", true, Kind::Text, "What the person asked for, in their words.")),
         note: None,
+        minutes: false,
         mutation: true,
     },
     CustomizeTool {
@@ -43,6 +46,7 @@ const TOOLS: &[CustomizeTool] = &[
         description: "After your edits: validate what is live and mark your turn done. Returns the changes and `problems` (file, line, message); fix every problem and check again. `can_apply` is true when there are none.",
         argument: None,
         note: None,
+        minutes: false,
         mutation: true,
     },
     CustomizeTool {
@@ -51,6 +55,7 @@ const TOOLS: &[CustomizeTool] = &[
         description: "What is previewing and not yet applied, which files the person edited by hand since your last turn (`by_hand`: read those again before writing), the problems, and the generation that is applied. Reads only.",
         argument: None,
         note: None,
+        minutes: false,
         mutation: false,
     },
     CustomizeTool {
@@ -59,6 +64,7 @@ const TOOLS: &[CustomizeTool] = &[
         description: "The preview as text: a unified diff of every file that differs from the applied generation.",
         argument: None,
         note: None,
+        minutes: false,
         mutation: false,
     },
     CustomizeTool {
@@ -67,6 +73,7 @@ const TOOLS: &[CustomizeTool] = &[
         description: "Keep the preview: it becomes the next numbered generation. Refused with the problems when the live files do not validate. Only when the person said to apply or keep it.",
         argument: None,
         note: Some("A short label for the generation; the wish is used when absent."),
+        minutes: false,
         mutation: true,
     },
     CustomizeTool {
@@ -75,6 +82,7 @@ const TOOLS: &[CustomizeTool] = &[
         description: "Put the applied generation back on screen. The discarded draft is kept as a numbered generation (`kept_as`), so it can be brought back with customize_rollback. Only when the person said to discard or undo the preview.",
         argument: None,
         note: None,
+        minutes: false,
         mutation: true,
     },
     CustomizeTool {
@@ -88,6 +96,7 @@ const TOOLS: &[CustomizeTool] = &[
             "A generation number from customize_generations.",
         )),
         note: None,
+        minutes: false,
         mutation: true,
     },
     CustomizeTool {
@@ -96,6 +105,7 @@ const TOOLS: &[CustomizeTool] = &[
         description: "The history, newest first: every applied, discarded and autosaved generation with its number, label, who made it and how many files it changed; `current` is the live one.",
         argument: None,
         note: None,
+        minutes: false,
         mutation: false,
     },
     CustomizeTool {
@@ -109,6 +119,7 @@ const TOOLS: &[CustomizeTool] = &[
             "A generation number from customize_generations.",
         )),
         note: None,
+        minutes: false,
         mutation: false,
     },
     CustomizeTool {
@@ -122,6 +133,7 @@ const TOOLS: &[CustomizeTool] = &[
             "Lowercase letters, digits, '-' and '_', like compact-night.",
         )),
         note: Some("One line about the profile."),
+        minutes: false,
         mutation: true,
     },
     CustomizeTool {
@@ -135,7 +147,54 @@ const TOOLS: &[CustomizeTool] = &[
             "A saved profile's name, or the path of a profile file.",
         )),
         note: None,
+        minutes: false,
         mutation: true,
+    },
+    CustomizeTool {
+        name: "customize_try",
+        verb: "try",
+        description: "Try something on: applies a profile (by name or path; a recipe file in profile format) or, with no profile, what is previewing now, and reverts it by itself after `minutes` (10 by default) unless the person keeps it. Checked whole first, like customize_use. Use it when the person wants to see something for real without committing; `try_on.expires_ms` is when it reverts.",
+        argument: Some((
+            "profile",
+            false,
+            Kind::Text,
+            "A saved profile's name or the path of a profile file; absent tries on the preview.",
+        )),
+        note: None,
+        minutes: true,
+        mutation: true,
+    },
+    CustomizeTool {
+        name: "customize_keep",
+        verb: "keep",
+        description: "Keep what is being tried on: it stays applied and no longer reverts. Only when the person said to keep it.",
+        argument: None,
+        note: None,
+        minutes: false,
+        mutation: true,
+    },
+    CustomizeTool {
+        name: "customize_revert",
+        verb: "revert",
+        description: "Stop a try-on now: what was applied before it is back. Edits made during the try-on are kept as a numbered generation.",
+        argument: None,
+        note: None,
+        minutes: false,
+        mutation: true,
+    },
+    CustomizeTool {
+        name: "customize_schema",
+        verb: "schema",
+        description: "Every key you can customize, from this build's own tables, so you never guess one: each setting with its type (JSON Schema), choices, range, default and whether you may set it; what a theme file holds and the theme tokens; the view slots and where each goes; and every extension point with its options. Reads only.",
+        argument: Some((
+            "part",
+            false,
+            Kind::Text,
+            "Only one part: settings, theme, views or extensions. Omit for all of them.",
+        )),
+        note: None,
+        minutes: false,
+        mutation: false,
     },
     CustomizeTool {
         name: "customize_profiles",
@@ -143,6 +202,25 @@ const TOOLS: &[CustomizeTool] = &[
         description: "The saved profiles: name, description, how many settings and files each holds.",
         argument: None,
         note: None,
+        minutes: false,
+        mutation: false,
+    },
+    CustomizeTool {
+        name: "customize_recipes",
+        verb: "recipes",
+        description: "Ready-made customizations (a compact sidebar, a different font, a PR widget, a tiling look, pane keys, vertical tabs, larger text, calm, glass, a clock, a look like the Claude desktop app): each one's name, title, wish, what it changes and the `path` of its profile file. To try one, call customize_use with that path: it previews as a draft the person applies or discards. To tailor one, use its `ask` with customize_ask. It writes the recipe files and their guide into cmux's state folder.",
+        argument: None,
+        note: None,
+        minutes: false,
+        mutation: true,
+    },
+    CustomizeTool {
+        name: "customize_doctor",
+        verb: "doctor",
+        description: "What changes the person's customization in a way they may not expect: a pr or other code layer left on, a web-dev overlay, a layer that pins an old build, files that do not load, files or keys cmux skips, values another file or layer overrides, leftovers of a removed layer, unknown settings keys, files in the wrong folder, and stray JSON or config files and environment variables that change cmux outside the usual settings. Warnings break something now; info findings are listed only. Each finding has its file, line, what it changes and its fixes; the app shows the same list. Reads only: a fix (`cmux customize doctor fix ID off|remove|restore`, or `recover` back to a setup that loads) is the person's to choose.",
+        argument: None,
+        note: None,
+        minutes: false,
         mutation: false,
     },
 ];
@@ -167,6 +245,13 @@ fn descriptor(tool: &CustomizeTool) -> Value {
     if let Some(what) = tool.note {
         properties.insert("note".into(), json!({"type": "string", "description": what}));
     }
+    if tool.minutes {
+        properties.insert(
+            "minutes".into(),
+            json!({"type": "number", "exclusiveMinimum": 0, "maximum": cmux_customize::MAX_TRY_ON_MINUTES,
+                "description": "How long the try-on lasts before it reverts by itself, in minutes (10 by default)."}),
+        );
+    }
     json!({
         "name": tool.name, "description": tool.description,
         "inputSchema": {"type": "object", "properties": properties, "required": required,
@@ -181,7 +266,8 @@ fn descriptor(tool: &CustomizeTool) -> Value {
 fn words(tool: &CustomizeTool, arguments: &Map<String, Value>) -> Result<Vec<String>, String> {
     for name in arguments.keys() {
         let known = tool.argument.is_some_and(|(argument, ..)| argument == name.as_str())
-            || (tool.note.is_some() && name == "note");
+            || (tool.note.is_some() && name == "note")
+            || (tool.minutes && name == "minutes");
         if !known {
             return Err(format!("{} has no argument {name:?}", tool.name));
         }
@@ -219,6 +305,14 @@ fn words(tool: &CustomizeTool, arguments: &Map<String, Value>) -> Result<Vec<Str
         Some(Value::String(note)) => out.push(plain("note", note)?),
         Some(_) => return Err("note must be a string".to_owned()),
     }
+    match arguments.get("minutes") {
+        None | Some(Value::Null) => {}
+        Some(value) => match value.as_f64().filter(|minutes| minutes.is_finite() && *minutes > 0.0)
+        {
+            Some(minutes) => out.extend(["--minutes".to_owned(), minutes.to_string()]),
+            None => return Err("minutes is a number above 0".to_owned()),
+        },
+    }
     Ok(out)
 }
 
@@ -239,53 +333,5 @@ pub(super) fn call(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn w(name: &str, args: Value) -> Result<Vec<String>, String> {
-        let tool = TOOLS.iter().find(|tool| tool.name == name).unwrap();
-        words(tool, args.as_object().unwrap())
-    }
-
-    #[test]
-    fn customize_tool_arguments_become_the_cli_words() {
-        assert_eq!(
-            w("customize_ask", json!({"wish": "--compact sidebar, please"})).unwrap(),
-            ["brief", "--", "--compact sidebar, please"]
-        );
-        assert_eq!(w("customize_check", json!({})).unwrap(), ["check"]);
-        assert_eq!(w("customize_apply", json!({"note": "compact"})).unwrap(), ["apply", "compact"]);
-        assert_eq!(w("customize_apply", json!({})).unwrap(), ["apply"]);
-        assert_eq!(w("customize_rollback", json!({})).unwrap(), ["rollback"]);
-        assert_eq!(w("customize_rollback", json!({"generation": 3})).unwrap(), ["rollback", "3"]);
-        assert_eq!(w("customize_show", json!({"generation": 2})).unwrap(), ["show", "2"]);
-        assert_eq!(
-            w("customize_save", json!({"name": "compact-night", "note": "small and dark"}))
-                .unwrap(),
-            ["save", "compact-night", "small and dark"]
-        );
-        assert_eq!(
-            w("customize_use", json!({"profile": "compact-night"})).unwrap(),
-            ["use", "compact-night"]
-        );
-        for (name, bad) in [
-            ("customize_ask", json!({})),
-            ("customize_ask", json!({"wish": " "})),
-            ("customize_show", json!({})),
-            ("customize_show", json!({"generation": "2"})),
-            ("customize_rollback", json!({"generation": 0})),
-            ("customize_save", json!({"name": "--help"})),
-            ("customize_use", json!({"profile": "-x"})),
-            ("customize_status", json!({"extra": 1})),
-            ("customize_discard", json!({"note": "x"})),
-        ] {
-            assert!(w(name, bad.clone()).is_err(), "{name} {bad}");
-        }
-        let names: Vec<String> = descriptors()
-            .iter()
-            .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_owned))
-            .collect();
-        assert_eq!(names.len(), 12);
-        assert!(names.iter().all(|name| name.starts_with("customize_")));
-    }
-}
+#[path = "customize_tools_tests.rs"]
+mod tests;

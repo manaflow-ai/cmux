@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed SwiftPM's binary-artifact cache with curl before a Linux `swift build|test`.
+"""Seed SwiftPM's binary-artifact cache with curl before a `swift build|test` (Linux, and owned Macs).
 
 Linux SwiftPM (Swift 6.2 and 6.3) downloads a package's binary targets with FoundationNetworking, which
 crashes (signal 4, `try!` in EasyHandle.swift:312, libcurl code 43) when several redirected downloads run at
@@ -24,10 +24,26 @@ Trust: `dump-package` evaluates the snapshot's own manifests, which the command 
 the same job anyway (contents: read, no secrets), so this adds no reach; the store only ever serves a file
 whose SHA-256 matches the manifest that asks for it.
 
+Owned Macs (glaeda runners): every runner slot on a mini runs as one user, so all share one SwiftPM cache
+(~/Library/Caches/org.swift.swiftpm). On a cache miss SwiftPM downloads the artifact and copies it in at its
+cache name, and a second SwiftPM that missed the same URL at the same moment fails with "failed downloading
+'<url>' ... /artifacts/<name> already exists in file system" (cmux#43892's daemon test, six artifacts new to
+cmux11s-mac-mini, 2026-11-15). Seeded first, SwiftPM only reads the cache ("Fetching binary artifact ...
+from cache"): each file goes in with an atomic rename, and an exclusive lock on the store (.seed.lock) makes
+jobs starting together download each artifact once, the later ones waiting and then linking the store's
+copy. The cache stays the host's own and warm; nothing is per runner. The Mac store defaults to MAC_STORE,
+on the cache's volume, so a cache entry is a hard link to it.
+
+GitHub 403 (11-26): GitHub answers anonymous github.com downloads and git from the office Macs' shared address
+with 403. With GH_TOKEN (or GITHUB_TOKEN) set, a github.com release asset is downloaded through the API with
+the token, and the pin manifest fetches send it too (github_fetch_auth.py); without one, nothing changes.
+
 Fails soft: a manifest that does not evaluate, or an artifact that does not download, is reported with a
 ::warning:: and left for SwiftPM to fetch itself. A checksum that does not match the manifest is never cached.
 
-    swiftpm_prefetch_binary_artifacts.py --store DIR (--package-path PATH | --command CMD [--directory DIR])
+    swiftpm_prefetch_binary_artifacts.py [--store DIR] (--package-path PATH | --command CMD [--directory DIR])
+
+--store is required on Linux; on macOS it defaults to MAC_STORE.
 
 --command takes the shell command fast checks runs: it seeds only for `swift build|test` (or swift-build,
 swift-test), at its --package-path (else --directory), and does nothing for any other command.
@@ -37,16 +53,22 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
+import fcntl
 import hashlib
+import importlib.util
 import json
 import os
+import pwd
 import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
+from urllib.parse import unquote
 
 SWIFTPM_VERBS = ("build", "test")
 SWIFTPM_TOOLS = ("swift-build", "swift-test")
@@ -55,6 +77,19 @@ SWIFTPM_INFO = ("-h", "-help", "--version", "--show-bin-path")
 CHECKSUM = re.compile(r"[0-9a-f]{64}")
 MANIFEST = re.compile(r"Package(@swift-[0-9.]+)?\.swift")
 PIN_CACHE_VERSION = 1
+MAC_STORE = Path(pwd.getpwuid(os.getuid()).pw_dir) / "Library/Caches/cmux-swiftpm-artifact-store"
+SEED_LOCK = ".seed.lock"
+# How long a seed waits for another job's seed on the host before going on without the lock (still safe:
+# every write is an atomic rename). Above a cold download of every artifact on a mini (about 2 GB).
+SEED_LOCK_WAIT_SECONDS = 900
+# A slow GitHub response must end and be retried instead of holding a worker for the full transfer timeout.
+# Keep these aligned with the nightly network helpers: a healthy release asset can be large, but a transfer
+# below 1 KB/s for two minutes is a stalled upstream, not useful progress.
+DOWNLOAD_LOW_SPEED_BYTES = "1000"
+GIT_HTTP_LOW_SPEED_TIME = "120"
+# A git fetch ends only on no byte at all: while GitHub builds a pack it sends only keepalives, and a 1 KB/s floor
+# kills a fetch that is working (hq#29032).
+GIT_HTTP_LOW_SPEED_LIMIT = "1"
 
 
 def warn(message: str) -> None:
@@ -148,11 +183,14 @@ def swiftpm_cache_key(url: str) -> str:
     return "_" + mangled[1:] if mangled[:1].isdigit() else mangled
 
 
-def swiftpm_artifact_cache(env=os.environ, cache_path: str | None = None) -> Path:
-    """SwiftPM's shared binary-artifact cache on Linux: <--cache-path>/artifacts when the command passes one,
-    else FileManager's caches directory ($XDG_CACHE_HOME, else ~/.cache) / org.swift.swiftpm / artifacts."""
+def swiftpm_artifact_cache(env=os.environ, cache_path: str | None = None, platform: str = sys.platform) -> Path:
+    """SwiftPM's shared binary-artifact cache: <--cache-path>/artifacts when the command passes one, else
+    FileManager's caches directory / org.swift.swiftpm / artifacts: the account's ~/Library/Caches on macOS
+    (Foundation reads the account's home there, not $HOME), $XDG_CACHE_HOME else ~/.cache on Linux."""
     if cache_path:
         return Path(os.path.expanduser(cache_path)) / "artifacts"
+    if platform == "darwin":
+        return Path(pwd.getpwuid(os.getuid()).pw_dir) / "Library" / "Caches" / "org.swift.swiftpm" / "artifacts"
     caches = env.get("XDG_CACHE_HOME") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".cache")
     return Path(caches) / "org.swift.swiftpm" / "artifacts"
 
@@ -215,7 +253,9 @@ def dump_package(path: Path, swift: str = "swift", env: dict[str, str] | None = 
 def pin_manifests(location: str, revision: str, into: Path) -> None:
     """Write the pin's root Package*.swift files at `revision` into `into` (one-commit, blob-less fetch)."""
     git = ["git", "-C", str(into)]
-    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0",
+               GIT_HTTP_LOW_SPEED_LIMIT=os.environ.get("GIT_HTTP_LOW_SPEED_LIMIT", GIT_HTTP_LOW_SPEED_LIMIT),
+               GIT_HTTP_LOW_SPEED_TIME=os.environ.get("GIT_HTTP_LOW_SPEED_TIME", GIT_HTTP_LOW_SPEED_TIME))
     subprocess.run(git + ["init", "-q"], check=True, env=env, timeout=60)
     subprocess.run(git + ["fetch", "-q", "--depth=1", "--filter=blob:none", "--no-tags", location, revision],
                    check=True, env=env, timeout=600, capture_output=True)
@@ -291,10 +331,87 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def curl_download(url: str, destination: Path) -> None:
-    subprocess.run(["curl", "--fail", "--location", "--silent", "--show-error", "--retry", "4",
-                    "--retry-all-errors", "--connect-timeout", "30", "--output", str(destination), url],
-                   check=True, timeout=1800)
+GITHUB_RELEASE_URL = re.compile(r"^https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+/[^/]+)$")
+
+
+def release_proxy_url(url: str, environ=os.environ) -> str | None:
+    """The fleet controller's copy of a GitHub release asset, or None.
+
+    While GitHub refuses a fleet Mac's address (403 to every anonymous request from the office, 2026-11-26),
+    its worker sets CMUX_CI_GITHUB_RELEASE_PROXY to the controller's release route, which downloads
+    https://github.com/OWNER/NAME/releases/download/TAG/FILE once with its own read token and caches it
+    (cmuxterm-hq build-fleet/cmd/controller/github_release_proxy.go). The checksum is still checked here.
+    """
+    proxy = environ.get("CMUX_CI_GITHUB_RELEASE_PROXY", "").strip().rstrip("/")
+    match = GITHUB_RELEASE_URL.match(url)
+    if not proxy or not match:
+        return None
+    return f"{proxy}/{match.group(1)}/{match.group(2)}"
+
+
+CURL_ARGS = ["curl", "--fail", "--location", "--silent", "--show-error", "--retry", "4",
+             "--retry-all-errors", "--connect-timeout", "30", "--max-time", "1800",
+             "--speed-limit", DOWNLOAD_LOW_SPEED_BYTES, "--speed-time", GIT_HTTP_LOW_SPEED_TIME]
+GITHUB_RELEASE = re.compile(r"https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/?#]+)$")
+
+
+def github_release_asset_url(url: str, token: str, run=subprocess.run) -> str | None:
+    """The API URL of a github.com release asset, read with the job's token. GitHub answers anonymous
+    github.com downloads from the office Macs' shared address with 403 (11-26); api.github.com with a token
+    is counted against the token. None when `url` is not a release download or the API does not list it."""
+    match = GITHUB_RELEASE.match(url)
+    if not match or not token:
+        return None
+    owner, repo, tag, name = match.groups()
+    api = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
+    # The token goes to curl on stdin (a config file), never argv.
+    done = run(["curl", "--fail", "--silent", "--show-error", "--connect-timeout", "30", "--max-time", "120",
+                "--config", "-", api],
+               input=f'header = "Authorization: Bearer {token}"\nheader = "Accept: application/vnd.github+json"\n',
+               capture_output=True, text=True, timeout=180)
+    if done.returncode != 0:
+        return None
+    for asset in json.loads(done.stdout).get("assets") or []:
+        if asset.get("name") == unquote(name) and asset.get("url"):
+            return asset["url"]
+    return None
+
+
+def github_download(url: str, destination: Path, environ=os.environ, run=subprocess.run) -> None:
+    """Download `url`. A github.com release asset is fetched through the API with the job's token
+    (GH_TOKEN or GITHUB_TOKEN) first; curl drops the Authorization header on the redirect to GitHub's asset
+    host. Anything else, or an authenticated try that fails, is the anonymous download it always was."""
+    token = (environ.get("GH_TOKEN") or environ.get("GITHUB_TOKEN") or "").strip()
+    try:
+        asset = github_release_asset_url(url, token, run)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        warn(f"could not look up {url} through the API: {error}")
+        asset = None
+    if asset:
+        done = run(CURL_ARGS + ["--config", "-", "--output", str(destination), asset],
+                   input=f'header = "Authorization: Bearer {token}"\nheader = "Accept: application/octet-stream"\n',
+                   text=True, timeout=1800)
+        if done.returncode == 0:
+            return
+        warn(f"authenticated download of {url} exited {done.returncode}; trying it anonymously")
+    run(CURL_ARGS + ["--output", str(destination), url], check=True, timeout=1800)
+
+
+def curl_download(url: str, destination: Path, environ=os.environ, run=subprocess.run,
+                  fetch=github_download) -> None:
+    """Download `url`, through the controller's release proxy first when the worker names one; then GitHub
+    (the job's token through the API when it has one, else anonymously)."""
+    proxied = release_proxy_url(url, environ)
+    if proxied:
+        try:
+            # Two retries, not four: GitHub is the fallback.
+            proxy_args = ["2" if arg == "4" and CURL_ARGS[i - 1] == "--retry" else arg for i, arg in enumerate(CURL_ARGS)]
+            run(proxy_args + ["--output", str(destination), proxied],
+                check=True, timeout=1800)
+            return
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as error:
+            warn(f"the controller's release proxy failed for {url} ({error}); trying GitHub")
+    fetch(url, destination, environ, run)
 
 
 def stored_artifact(url: str, checksum: str, store: Path, download=curl_download) -> Path:
@@ -322,8 +439,8 @@ def link_into_cache(blob: Path, cache: Path, url: str) -> Path:
     cache.mkdir(parents=True, exist_ok=True)
     entry = cache / swiftpm_cache_key(url)
     if entry.is_file() and not entry.is_symlink() and entry.stat().st_size == blob.stat().st_size \
-            and os.path.samefile(entry, blob):
-        return entry
+            and (os.path.samefile(entry, blob) or sha256(entry) == blob.stem):
+        return entry  # already the right file (SwiftPM's own download of it, too): never swapped under a reader
     tmp = entry.with_name(f".{entry.name}.{os.getpid()}.tmp")
     tmp.unlink(missing_ok=True)
     try:
@@ -332,6 +449,28 @@ def link_into_cache(blob: Path, cache: Path, url: str) -> Path:
         shutil.copyfile(blob, tmp)
     tmp.replace(entry)
     return entry
+
+
+@contextlib.contextmanager
+def seed_lock(store: Path, wait: float = SEED_LOCK_WAIT_SECONDS):
+    """The host's seed lock on `store`, held exclusively; after `wait` seconds of another holder, go on without."""
+    store.mkdir(parents=True, exist_ok=True)
+    with open(store / SEED_LOCK, "a") as handle:
+        deadline = time.monotonic() + wait
+        said = False
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    warn(f"another job held {store / SEED_LOCK} for {wait:.0f}s; seeding without it")
+                    break
+                if not said:
+                    say(f"waiting for another job's seed ({store / SEED_LOCK})")
+                    said = True
+                time.sleep(1)
+        yield  # closing the file releases the lock
 
 
 def seed(packages: list[Path], store: Path, cache: Path, swift: str = "swift", download=curl_download,
@@ -347,20 +486,40 @@ def seed(packages: list[Path], store: Path, cache: Path, swift: str = "swift", d
         except Exception as error:  # noqa: BLE001 - SwiftPM fetches whatever is not seeded
             warn(f"could not list {package}'s binary artifacts: {error}")
     missed = 0
-    for url, checksum in sorted(artifacts.items()):
-        try:
-            entry = link_into_cache(stored_artifact(url, checksum, store, download), cache, url)
-            say(f"cached {url} ({checksum[:12]}) at {entry}")
-        except Exception as error:  # noqa: BLE001 - SwiftPM downloads it as before
-            missed += 1
-            warn(f"left {url} for SwiftPM to download: {error}")
+    with seed_lock(store):
+        for url, checksum in sorted(artifacts.items()):
+            try:
+                entry = link_into_cache(stored_artifact(url, checksum, store, download), cache, url)
+                say(f"cached {url} ({checksum[:12]}) at {entry}")
+            except Exception as error:  # noqa: BLE001 - SwiftPM downloads it as before
+                missed += 1
+                warn(f"left {url} for SwiftPM to download: {error}")
     say(f"{len(artifacts) - missed} of {len(artifacts)} binary artifacts are in {cache}")
     return missed
 
 
+def authenticate_pin_fetches(environ, packages: list[Path]) -> None:
+    """Give this process's pin fetches the job token (github_fetch_auth.py's per-repository extraheaders), so
+    reading a pin's manifests does not meet the anonymous 403 either. No token, nothing changes."""
+    if environ.get("CMUX_GITHUB_FETCH_AUTH") or not (environ.get("GH_TOKEN") or environ.get("GITHUB_TOKEN")):
+        return
+    try:
+        spec = importlib.util.spec_from_file_location("github_fetch_auth", Path(__file__).with_name("github_fetch_auth.py"))
+        auth = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(auth)
+        repos = auth.pinned_repos([package / "Package.resolved" for package in packages])
+        for line in auth.env_lines(auth.config_entries(repos, auth.token_from(environ)), environ):
+            key, _, value = line.partition("=")
+            environ[key] = value
+    except Exception as error:  # noqa: BLE001 - anonymous fetches as before
+        warn(f"pin fetches stay anonymous: {error}")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--store", required=True, type=Path, help="persistent store (checksum-keyed)")
+    darwin = sys.platform == "darwin"
+    parser.add_argument("--store", type=Path, required=not darwin, default=MAC_STORE if darwin else None,
+                        help=f"persistent store (checksum-keyed); macOS default {MAC_STORE}")
     parser.add_argument("--package-path", action="append", default=[])
     parser.add_argument("--command", help="the shell command about to run; seeds only for swift build|test")
     parser.add_argument("--directory", default=".", help="the directory --command runs in")
@@ -376,6 +535,7 @@ def main(argv=None) -> int:
         cache_path = command_cache_path(args.command, args.directory)
     if not paths:
         return 0
+    authenticate_pin_fetches(os.environ, [Path(path) for path in paths])
     if shutil.which(args.swift) is None:
         warn(f"{args.swift} is not on PATH; nothing seeded")
         return 0

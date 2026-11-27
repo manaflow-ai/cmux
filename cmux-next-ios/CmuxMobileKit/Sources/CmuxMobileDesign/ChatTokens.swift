@@ -33,6 +33,14 @@ extension Color {
     /// the view redraws when the choice changes. Never hard-code a hue in its place.
     public static var cmuxMobileAccent: Color { CmuxMobileAccentTheme.shared.accentToken.color }
     public static var cmuxMobileOnAccent: Color { CmuxMobileAccentTheme.shared.onAccentToken.color }
+    /// Send's fill and ink in the composers: the accent's hue, or the theme's blue with Default
+    /// (`CmuxMobileAccentTheme.sendToken`), never a white or black disk.
+    public static var cmuxMobileSend: Color { CmuxMobileAccentTheme.shared.sendToken.color }
+    public static var cmuxMobileOnSend: Color { CmuxMobileAccentTheme.shared.onSendToken.color }
+    /// The band between a composer and the system keyboard while it is up: the page darkened, as
+    /// the ChatGPT and Claude iOS apps draw it, so the composer sits on the keyboard instead of
+    /// floating over a strip of transcript (Leo, 2026-11-23).
+    public static let cmuxMobileKeyboardSkirt = dynamic(dark: rgba(0x000000, 0.55), light: rgba(0x000000, 0.10))
     public static let cmuxMobileSuccess = dynamic(dark: rgba(0x30D158), light: rgba(0x34C759))
     public static let cmuxMobileDanger = dynamic(dark: rgba(0xFF453A), light: rgba(0xFF3B30))
     public static let cmuxMobileWarning = dynamic(dark: rgba(0xFFD60A), light: rgba(0xFFCC00))
@@ -68,6 +76,9 @@ extension UIColor {
     /// The user's accent: resolved from the current choice each time a trait collection resolves it.
     public static let cmuxMobileAccent = UIColor { CmuxMobileAccentTheme.shared.accentToken.uiColor.resolvedColor(with: $0) }
     public static let cmuxMobileOnAccent = UIColor { CmuxMobileAccentTheme.shared.onAccentToken.uiColor.resolvedColor(with: $0) }
+    public static let cmuxMobileSend = UIColor { CmuxMobileAccentTheme.shared.sendToken.uiColor.resolvedColor(with: $0) }
+    public static let cmuxMobileOnSend = UIColor { CmuxMobileAccentTheme.shared.onSendToken.uiColor.resolvedColor(with: $0) }
+    public static let cmuxMobileKeyboardSkirt = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0x000000, 0.55) : Color.rgba(0x000000, 0.10) }
     public static let cmuxMobileSuccess = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0x30D158) : Color.rgba(0x34C759) }
     public static let cmuxMobileDanger = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFF453A) : Color.rgba(0xFF3B30) }
     public static let cmuxMobileWarning = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFFD60A) : Color.rgba(0xFFCC00) }
@@ -96,6 +107,30 @@ extension Animation {
     public static let cmuxMobileGentle = Animation.spring(duration: 0.5, bounce: 0)
 }
 
+/// A composer gaining or losing a line (typing a newline, wrapping, deleting one, a send
+/// clearing the draft): the field, the stack around it and the transcript above it move
+/// together on one short spring, never the 0.35 s `cmuxMobileSmooth` the stack's other
+/// changes take (Leo, 2026-11-23: "We can very easily just have this be one good motion and
+/// feeling nigh instant."). 150 ms is the ChatGPT composer's measured growth
+/// (hq docs/design/chatgpt-send-pattern.md, section 7).
+public enum ComposerLineMotion {
+    public static let defaultSeconds: Double = 0.15
+    /// `-cmux-mobile-line-motion-ms N` (DEBUG) picks another length for gallery runs; 0 is
+    /// no motion at all (the line lands in one frame).
+    public static let seconds: Double = {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "-cmux-mobile-line-motion-ms"),
+           arguments.indices.contains(index + 1), let ms = Double(arguments[index + 1]), ms >= 0 {
+            return ms / 1000
+        }
+        #endif
+        return defaultSeconds
+    }()
+    /// The spring, or nil when the line lands at once (no motion configured).
+    public static var animation: Animation? { seconds > 0 ? .spring(duration: seconds, bounce: 0) : nil }
+}
+
 /// SPEC 4.1 `IconAction`: a 32 pt hit target around a 17 pt `label2` symbol.
 public struct IconAction: View {
     let systemImage: String
@@ -112,7 +147,7 @@ public struct IconAction: View {
         Button(action: action) {
             IconActionLabel(systemImage)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(label)
     }
 }
@@ -170,10 +205,8 @@ public struct CmuxMobileCapsuleButtonStyle: ButtonStyle {
             .frame(minHeight: height, maxHeight: size == .bar || dynamicTypeSize.isAccessibilitySize ? nil : height)
             .frame(maxWidth: size == .inline ? nil : .infinity)
             .foregroundStyle(foreground)
-            .background(background, in: .capsule)
-            .opacity(configuration.isPressed ? 0.85 : 1)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.cmuxMobileSnap.unlessReduceMotion, value: configuration.isPressed)
+            // Held: the pressed wash over the fill; the label never dims, shrinks or changes weight.
+            .cmuxMobilePressFill(configuration.isPressed, rest: AnyShapeStyle(background), in: Capsule())
             // 40 pt capsules keep a 44 pt hit target (HIG): 2 pt of invisible margin above and below.
             .padding(.vertical, height < 44 ? (44 - height) / 2 : 0)
             .contentShape(.rect)

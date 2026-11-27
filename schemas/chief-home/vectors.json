@@ -1,5 +1,5 @@
 {
-  "description": "Chief home resolution shared by the cmux-next app (ChiefHome.swift) and the cmux CLI (cmux-tui cli/chief/home.rs). `tag` is the app's build tag; the CLI reads it from CMUX_TAG. `isolated` null: the app and the CLI may differ (an explicit home).",
+  "description": "Chief home resolution shared by the cmux-next app (ChiefHome.swift) and the cmux CLI (cmux-tui cli/chief/home.rs). `tag` is the app's build tag; the CLI reads it from CMUX_TAG. `isolated` null: the app and the CLI may differ (an explicit home). `environment.CMUX_BUNDLE_ID` is the app's bundle id (the app's own; the CLI reads it from the app terminal's variable); a DEV build's home is named by its build key (BuildIdentity), so two copies of one bundle id with their own tags never share a Chief.",
   "cases": [
     {
       "name": "the default Chief",
@@ -62,6 +62,72 @@
       "root": "/tmp/chief/iso",
       "session": "cmux-chief-cb3f73eb",
       "isolated": null
+    },
+    {
+      "name": "a tagged DEV build keeps the home of its bundle id",
+      "user_home": "/Users/cmux",
+      "tag": "my-tag",
+      "environment": {
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.my-tag"
+      },
+      "root": "/Users/cmux/.cmux/chief/com.cmuxterm.app.debug.my-tag",
+      "session": "cmux-chief-efd67488",
+      "isolated": false
+    },
+    {
+      "name": "the untagged DEV bundle keeps its home",
+      "user_home": "/Users/cmux",
+      "tag": null,
+      "environment": {
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug"
+      },
+      "root": "/Users/cmux/.cmux/chief/com.cmuxterm.app.debug",
+      "session": "cmux-chief-380d0293",
+      "isolated": false
+    },
+    {
+      "name": "a copy of the plain DEV bundle with its own tag has its own home",
+      "user_home": "/Users/cmux",
+      "tag": "copy-a",
+      "environment": {
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug"
+      },
+      "root": "/Users/cmux/.cmux/chief/com.cmuxterm.app.debug--copy-a",
+      "session": "cmux-chief-817c65ae",
+      "isolated": false
+    },
+    {
+      "name": "another copy of the plain DEV bundle never shares it",
+      "user_home": "/Users/cmux",
+      "tag": "copy-b",
+      "environment": {
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug"
+      },
+      "root": "/Users/cmux/.cmux/chief/com.cmuxterm.app.debug--copy-b",
+      "session": "cmux-chief-807c641b",
+      "isolated": false
+    },
+    {
+      "name": "NIGHTLY keeps the shared home",
+      "user_home": "/Users/cmux",
+      "tag": null,
+      "environment": {
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"
+      },
+      "root": "/Users/cmux/.cmux/chief/default",
+      "session": "cmux-chief-b902d10e",
+      "isolated": false
+    },
+    {
+      "name": "cmux NEXT keeps the home of its bundle id",
+      "user_home": "/Users/cmux",
+      "tag": "cmux-next",
+      "environment": {
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly.cmux-next"
+      },
+      "root": "/Users/cmux/.cmux/chief/com.cmuxterm.app.nightly.cmux-next",
+      "session": "cmux-chief-01c91c5e",
+      "isolated": false
     }
   ]
 }

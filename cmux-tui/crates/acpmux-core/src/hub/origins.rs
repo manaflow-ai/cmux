@@ -1,8 +1,14 @@
 //! Origin ownership and the bounded end of an origin's life.
+use super::mirror::TakeoverTurn;
 use super::*;
 use std::collections::VecDeque;
 
-const MAX_ORIGINS: usize = 256;
+/// The most origins the index admits: a window carries every origin record.
+/// Measured: about 300 bytes a record (an id of at most 256 bytes, its seq, state and time) in
+/// every list window: 77 KB a window at 256.
+pub const MAX_ORIGINS: usize = 256;
+/// The most rows one origin holds while its writer is away.
+/// Measured: a row summary is at most MAX_SUMMARY_BYTES (2 KiB): 32 MiB an origin.
 const MAX_HELD_ROWS: usize = 16_384;
 static REFUSED_HELD_ROWS: AtomicU64 = AtomicU64::new(0);
 
@@ -206,6 +212,7 @@ impl HubWriter {
             return Ok(());
         }
         REFUSED_ORIGINS.fetch_add(1, Ordering::Relaxed);
+        self.origins_refused.fetch_add(1, Ordering::Release);
         Err(HubError::OriginLimit)
     }
 
@@ -242,13 +249,22 @@ impl HubWriter {
 
     pub fn takeover(&mut self, origin: &str, source: Source) -> Result<(), HubError> {
         validate_takeover(origin, source)?;
-        self.admit_origin(origin)?;
+        if let Err(error) = self.admit_origin(origin) {
+            // Counted, so a dialer waiting on this takeover sees it end.
+            self.mirror.counters.note_takeover(origin, TakeoverTurn::Refused);
+            return Err(error);
+        }
         if self.holds_origin(origin) {
-            return self.hold_update(
+            let held = self.hold_update(
                 UpdateKey::Source(origin.into()),
                 PendingUpdate::Takeover { origin: origin.into(), source },
             );
+            self.mirror.counters.note_takeover(origin, TakeoverTurn::Held);
+            return held;
         }
+        // Even a takeover by the owner starts a walk: its mark goes off now.
+        self.write_mark_off(origin);
+        self.mirror.counters.note_takeover(origin, TakeoverTurn::Applied);
         if self.sources.load().get(origin) == Some(&source) {
             self.origins.ended.remove(origin);
             return Ok(());
@@ -297,6 +313,7 @@ impl HubWriter {
         self.admit_origin(id)?;
         self.persist_origin(&record)?;
         let wire = Origin { id: id.into(), state, since, extra: None };
+        self.hold_history(current.seq(), record.seq);
         self.publish_folder_origin(current.apply_origin(record.seq, record.clone()), wire.clone());
         self.record_history(ListItem::Origin { seq: record.seq, origin: wire.clone() });
         self.publish_origin(record.seq, wire);
@@ -326,6 +343,7 @@ impl HubWriter {
                 self.origin(&record.id, record.state, record.since).map(|_| ())
             }
             PendingUpdate::Takeover { origin, source } => self.takeover(&origin, source),
+            PendingUpdate::Unit { source, unit } => self.apply_unit(source, *unit),
         }
     }
 
@@ -360,7 +378,7 @@ impl HubWriter {
                 self.origins.releasing = true;
                 let result = self.dispatch_update(key, update);
                 self.origins.releasing = false;
-                if result.is_err() {
+                if let Err(HubError::Log(_)) = result {
                     self.log_errors.fetch_add(1, Ordering::Relaxed);
                 }
                 used += 1;
@@ -400,15 +418,32 @@ impl HubWriter {
             && !self.origins.held.contains_key(id)
         {
             let mut sources = self.sources.load_full().as_ref().clone();
-            sources.remove(id);
+            let dropped = sources.remove(id).is_some();
             self.sources.store(Arc::new(sources));
             self.origins.ended.remove(id);
+            if dropped {
+                self.origin_slot_freed();
+            }
         }
     }
 
-    pub(super) fn retire_origin_sources(&mut self, old: &SummaryIndex, next: &SummaryIndex) {
+    /// A source or record was dropped: a slot of `MAX_ORIGINS` may be free
+    /// (`Hub::origin_slots_freed`). Called after the index without it is published.
+    pub(super) fn origin_slot_freed(&self) {
+        self.origin_slots_freed.fetch_add(1, Ordering::Release);
+    }
+
+    /// Answers whether `next` dropped a removed origin's record (a compaction
+    /// does), which frees its slot whether or not a source goes with it.
+    pub(super) fn retire_origin_sources(
+        &mut self,
+        old: &SummaryIndex,
+        next: &SummaryIndex,
+    ) -> bool {
         let mut sources = None;
+        let mut freed = false;
         for origin in old.origins() {
+            freed |= next.origin(&origin.id).is_none();
             if origin.state == OriginState::Removed
                 && next.origin(&origin.id).is_none()
                 && !next.has_origin_rows(&origin.id)
@@ -423,5 +458,6 @@ impl HubWriter {
         if let Some(sources) = sources {
             self.sources.store(Arc::new(sources));
         }
+        freed
     }
 }

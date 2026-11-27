@@ -26,16 +26,65 @@ const HEREDOC = /^<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|\\?([A-Za-z_][\w.-]*))/
 /// stays on its step). A subshell or `{ …; }` group is its own steps; `if`/`while`/`do` before a
 /// command go, and `for … in`, `fi`, `done` are no steps.
 export function splitSteps(command: string): string[] {
-  const out: string[] = [];
+  return loopSteps(command).steps;
+}
+
+/// A `for NAME in WORDS` loop around a step: the words its variable takes, one per pass (undefined
+/// when a word is not a plain value: a `$(…)`, a `$VAR`, a glob). A `while`/`until`/`select` loop
+/// binds nothing the line names (`name` undefined) and only keeps `done` paired.
+export type Loop = { name?: string; values?: string[] };
+
+const FOR_HEADER = /^for\s+([A-Za-z_]\w*)\s+in\s+([\s\S]*)$/;
+const OTHER_LOOP = /^(?:while|until|select|for)\s/;
+
+/// `splitSteps`, with the loops each step runs inside (outermost first): `for f in a b; do cat
+/// "$f"; done` is the step `cat "$f"` inside the loop `f` over `a`, `b` (Leo, 2026-11-21, on a
+/// row that read "Read $f": "this is not a good enough tool call heading that we have derived").
+export function loopSteps(command: string, open: Loop[] = []): { steps: string[]; loops: Loop[][] } {
+  const steps: string[] = [];
+  const loops: Loop[][] = [];
+  const stack = [...open];
+  // Where each loop this call opened began in `steps`, innermost last.
+  const starts: number[] = [];
   for (const step of rawSteps(command)) {
     let text = step.trim();
+    const header = FOR_HEADER.exec(text);
+    if (!header && OTHER_LOOP.test(text)) {
+      stack.push({});
+      starts.push(steps.length);
+    }
     while (KEYWORD_PREFIX.test(text)) text = text.replace(KEYWORD_PREFIX, "").trim();
+    if (header) {
+      const words = shellWords(header[2]!).filter((word): word is Word => word !== "|");
+      const plain = words.every((word) => !/[$`*?[]/.test(word.raw));
+      stack.push({ name: header[1]!, values: plain ? words.map((word) => word.text) : undefined });
+      starts.push(steps.length);
+      continue;
+    }
+    // The loop ends at `done`. What follows it applies to every step inside: `done | sh` runs what
+    // they printed and `done > out` writes it, so each step carries it on to the same checks a
+    // pipeline or a write gets (`cat "$f" | sh` is no read); `done | head` only trims it.
+    if (/^done(?:\s|$)/.test(text)) {
+      if (stack.length > open.length) {
+        stack.pop();
+        const from = starts.pop() ?? steps.length;
+        const after = text.slice(4).trim();
+        if (after) for (let at = from; at < steps.length; at += 1) steps[at] = `${steps[at]} ${after}`;
+      }
+      continue;
+    }
     if (!text || KEYWORD_ALONE.test(text) || HEADER.test(text)) continue;
     const group = groupBody(text);
-    if (group !== undefined) out.push(...splitSteps(group));
-    else out.push(text);
+    if (group !== undefined) {
+      const inner = loopSteps(group, stack);
+      steps.push(...inner.steps);
+      loops.push(...inner.loops);
+    } else {
+      steps.push(text);
+      loops.push([...stack]);
+    }
   }
-  return out;
+  return { steps, loops };
 }
 
 /// `( … )` or `{ …; }` around a whole step: its inside.
@@ -432,9 +481,16 @@ export function isPlumbing(step: string, feeding = false): boolean {
 /// The step that names the command and whether steps follow it: the first that is neither setup
 /// nor plumbing, else the first that is not setup, else the first. `before` are the steps ahead of
 /// it (an assignment there can say what a later `$V` holds).
-export function mainStep(command: string): { step: string; more: boolean; before: string[]; bodies: string[] } {
-  const all = splitSteps(command.trim());
-  if (all.length === 0) return { step: "", more: false, before: [], bodies: [] };
+export function mainStep(command: string): {
+  step: string;
+  more: boolean;
+  before: string[];
+  bodies: string[];
+  loops: Loop[];
+} {
+  const split = loopSteps(command.trim());
+  const all = split.steps;
+  if (all.length === 0) return { step: "", more: false, before: [], bodies: [], loops: [] };
   let at = all.findIndex((step) => !isSetup(step) && !isPlumbing(step));
   if (at < 0) at = all.findIndex((step) => !isSetup(step));
   const more = at >= 0 && at < all.length - 1;
@@ -443,7 +499,7 @@ export function mainStep(command: string): { step: string; more: boolean; before
   const docs = heredocBodies(command.trim());
   const skip = all.slice(0, at).reduce((n, step) => n + heredocMarkers(step), 0);
   const bodies = docs.slice(skip, skip + heredocMarkers(all[at]!));
-  return { step: all[at]!, more, before: all.slice(0, at), bodies };
+  return { step: all[at]!, more, before: all.slice(0, at), bodies, loops: split.loops[at] ?? [] };
 }
 
 /// Every heredoc's body in the command, in the order their markers open them.

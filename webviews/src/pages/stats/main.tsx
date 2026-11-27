@@ -1,9 +1,10 @@
 // Boots the Stats page (`cmux-page://cmux.stats/`, hq#1920). In the app the host installs the
 // `cmuxPage` bridge; in the browser dev loop (`/stats/?mock`) the mock provider stands in.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { createStrings } from "../shared/i18n";
+import { renderLocalized } from "../shared/localizedRoot";
 import table from "./generated/strings.json";
 import { MockStatsProvider } from "./mockProvider";
 import { StatsPage } from "./StatsPage";
@@ -13,10 +14,12 @@ import "./styles.css";
 
 export function mountStatsPage(root: HTMLElement, client: PageClient | null = defaultClient()): StatsStore {
   const store = new StatsStore(client);
-  const strings = createStrings(table);
-  document.documentElement.lang = strings.language;
-  document.title = strings.t("stats.page.title");
-  createRoot(root).render(<StatsPage store={store} strings={strings} />);
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => <StatsPage store={store} strings={strings} />,
+    (strings) => strings.t("stats.page.title"),
+  );
   void store.start();
   // Coming back to the tab reads the logs again: agents kept working meanwhile.
   document.addEventListener("visibilitychange", () => {

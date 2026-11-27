@@ -2,20 +2,42 @@
 // `?mock`: the page on fixture states, answering gestures the way the host would, closely enough to
 // click through each step in a plain browser.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { agentsState, computerUseState, importState } from "./fixtures";
-import { OPS, type ImportDataKind, type OnboardingState } from "./ops";
+import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
+import {
+  OPS,
+  type ChatsRunIn,
+  type ImportDataKind,
+  type MakeItYoursMaterial,
+  type OnboardingState,
+  type WorkStyle,
+} from "./ops";
+import type { AccountRowWire, AccountRunParams } from "../shared/signIn/accountSignIn";
+import { MockAccountSignIn } from "../shared/signIn/mockSignIn";
 
 export class MockOnboardingProvider implements PageClient {
   private state: OnboardingState;
+  /** Make cmux Yours' choices before its first pick: what Skip puts back, as the host's revert() does. */
+  private openedChoices: OnboardingState["makeItYours"];
   private readonly listeners = new Set<(state: OnboardingState) => void>();
 
-  constructor(step: string = "agents") {
+  /** The in-place sign-in (`cmux.onboarding.accounts.run`), the same mock Settings runs; tests and
+   * the gallery set its `hold` and `refusal`. */
+  readonly signIn = new MockAccountSignIn({
+    rows: () => this.state.signInAccounts ?? [],
+    set: (next) => this.change(withAccounts(this.state, next)),
+  });
+
+  /** `initial`: the gallery's and tests' state instead of the step's fixture. */
+  constructor(step: string = "agents", initial?: OnboardingState) {
     this.state =
-      step === "importData"
+      initial ??
+      (step === "importData"
         ? importState("idle")
         : step === "computerUse"
           ? computerUseState("fresh")
-          : agentsState("mixed");
+          : step === "makeItYours"
+            ? makeItYoursState("fresh")
+            : agentsState("mixed"));
   }
 
   private change(next: OnboardingState): void {
@@ -24,7 +46,17 @@ export class MockOnboardingProvider implements PageClient {
   }
 
   async call<R>(op: string, params: unknown): Promise<R> {
-    const input = (params ?? {}) as { id?: string; kind?: ImportDataKind; target?: string | null; pane?: string };
+    // The intro walk probe (scripts/intro-walk.mjs) counts the ops each click sends.
+    const log = (globalThis as { cmuxOnboardingMockCalls?: { op: string; params: unknown }[] }).cmuxOnboardingMockCalls;
+    log?.push({ op, params });
+    const input = (params ?? {}) as {
+      id?: string | null;
+      kind?: ImportDataKind;
+      target?: string | null;
+      pane?: string;
+      value?: string | number;
+      writes?: { path: string; value: string | number | boolean | null }[];
+    };
     const state = this.state;
     switch (op) {
       case OPS.state:
@@ -40,6 +72,8 @@ export class MockOnboardingProvider implements PageClient {
       case OPS.back:
         if (state.step === "importData") this.change(importState("ready"));
         return {} as R;
+      case OPS.accountsRun:
+        return (await this.signIn.run(params as AccountRunParams)) as R;
       case OPS.signIn:
         if (state.agents) this.change({ ...state, agents: { ...state.agents, signingIn: input.id ?? null } });
         return {} as R;
@@ -85,6 +119,9 @@ export class MockOnboardingProvider implements PageClient {
           computerUse: {
             ...computerUse,
             allGranted,
+            // The mock's Allow is the person's: the last grant shows the done view.
+            finished: allGranted,
+            confirmsCapture: computerUse.confirmsCapture || input.pane === "screenRecording",
             comebacks: computerUse.comebacks + 1,
             rows: rows.map((row) => (row === next ? { ...row, control: "allowPrimary" as const } : row)),
           },
@@ -92,6 +129,58 @@ export class MockOnboardingProvider implements PageClient {
         return {} as R;
       }
       case OPS.skip:
+        // Skip on Make cmux Yours puts back what was set when it opened (MakeItYoursStepModel.revert).
+        if (state.step === "makeItYours" && state.makeItYours && this.openedChoices)
+          this.change({ ...state, makeItYours: this.openedChoices });
+        return {} as R;
+      case OPS.workStyle:
+      case OPS.density:
+      case OPS.chatsRunIn:
+      case OPS.background:
+      case OPS.opacity:
+      case OPS.material: {
+        const choices = state.makeItYours;
+        if (!choices) return {} as R;
+        this.openedChoices ??= choices;
+        const next =
+          op === OPS.workStyle
+            ? { ...choices, workStyle: input.value as WorkStyle }
+            : op === OPS.density
+              ? { ...choices, density: String(input.value) }
+              : op === OPS.chatsRunIn
+                ? { ...choices, chatsRunIn: input.value as ChatsRunIn }
+                : op === OPS.opacity
+                  ? { ...choices, opacity: Number(input.value), opacitySet: true }
+                  : op === OPS.material
+                    ? { ...choices, material: input.value as MakeItYoursMaterial }
+                    : { ...choices, background: input.id ?? null };
+        this.change({ ...state, makeItYours: next });
+        return {} as R;
+      }
+      case OPS.walk: {
+        const choices = state.makeItYours;
+        if (!choices) return {} as R;
+        const walk = { ...choices.walk };
+        const next = { ...choices };
+        for (const { path, value } of (input.writes ?? []) as {
+          path: string;
+          value: string | number | boolean | null;
+        }[]) {
+          if (path === "tabs.newTabTemplate") next.workStyle = value === "terminal" ? "terminal" : "gui";
+          else if (path === "appearance.density") next.density = String(value ?? "cozy");
+          else if (path === "appearance.background")
+            next.background = value == null || value === "none" ? null : String(value);
+          else if (path === "appearance.backgroundOpacity") {
+            next.opacity = value == null ? 1 : Number(value);
+            next.opacitySet = value != null;
+          } else if (path === "appearance.backgroundBlur")
+            next.material = value == null ? null : (value as MakeItYoursMaterial);
+          else if (value == null) delete walk[path];
+          else walk[path] = value;
+        }
+        this.change({ ...state, makeItYours: { ...next, walk } });
+        return {} as R;
+      }
       case OPS.install:
       case OPS.openFullDiskAccess:
       case OPS.fromFiles:
@@ -115,4 +204,20 @@ export class MockOnboardingProvider implements PageClient {
   handle(_op: string, _handler: PageHandler): () => void {
     return () => {};
   }
+}
+
+/** What the daemon decides once the accounts change: a provider with a signed-in account is ready
+ * (its default account's name), one without needs a sign-in; one not installed stays so. */
+function withAccounts(state: OnboardingState, accounts: AccountRowWire[]): OnboardingState {
+  const readiness = state.signInReadiness;
+  if (!readiness) return { ...state, signInAccounts: accounts };
+  const providers = readiness.providers.map((provider) => {
+    if (provider.state === "notInstalled") return provider;
+    const signedIn = accounts.filter((row) => row.family === provider.family && row.signedIn);
+    const shown = signedIn.find((row) => row.default) ?? signedIn[0];
+    return shown
+      ? { family: provider.family, state: "ready" as const, account: shown.id, label: shown.name }
+      : { family: provider.family, state: "signInRequired" as const };
+  });
+  return { ...state, signInAccounts: accounts, signInReadiness: { providers } };
 }

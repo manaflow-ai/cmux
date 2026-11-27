@@ -1,8 +1,14 @@
+public import CmuxNextDaemon
+import CmuxNextCloud
 public import Foundation
 import os
 
 /// Answers one G8 approval request (`apr_…`, cx-wb5.65) as the signed-in
 /// person's own session, only when it is the create the person confirmed:
+///
+/// cmux-api's `integration.approval.approve` checks and answers it in one call,
+/// carrying the approved run's reply; a backend without it gets the same three
+/// checks as calls (Rust decides each, cmux-cloud-start-core `approval_answer`):
 ///
 /// 1. `integration.approval.get {request}` (session only) must name `op`,
 ///    be pending, and carry exactly the confirmed params;
@@ -47,10 +53,13 @@ public nonisolated struct CloudApprovalAnswer: Sendable {
 
     /// Approves `request` when it holds `op` with exactly `params` (a JSON
     /// object) in `team`, the backend team the create was sent for (the
-    /// install token's team, captured when the person confirmed).
-    public func approve(request: String, op: String, params: Data, team: String) async throws {
+    /// install token's team, captured when the person confirmed). Returns the
+    /// approved run's answer (`{machine, …}`) when the backend carried it in the
+    /// same call, so the create needs no same-key retry; nil otherwise.
+    @discardableResult
+    public func approve(request: String, op: String, params: Data, team: String) async throws -> JSONValue? {
         do {
-            try await checkedApprove(request: request, op: op, params: params, team: team)
+            return try await checkedApprove(request: request, op: op, params: params, team: team)
         } catch let failure as Failure {
             if case .mismatch(_, let reason) = failure {
                 Self.logger.error("approval \(request, privacy: .public) refused: \(reason, privacy: .public) differs")
@@ -59,62 +68,32 @@ public nonisolated struct CloudApprovalAnswer: Sendable {
         }
     }
 
-    private func checkedApprove(request: String, op: String, params: Data, team: String) async throws {
+    /// Rust decides every call and the outcome (cmux-cloud-start-core `approval_answer`, op `cloud_approval_next`): the
+    /// one-call `integration.approval.approve`, or the three calls on a backend without it. This only makes the calls.
+    private func checkedApprove(request: String, op: String, params: Data, team: String) async throws -> JSONValue? {
         if let answered, await answered(request, team) { throw Failure.answered(request: request) }
-        let read = try await post("v1/read", ["op": "integration.approval.get", "params": ["request": request]])
-        let held = read["value"] as? [String: Any] ?? [:]
-        guard held["op"] as? String == op else { throw Failure.mismatch(request: request, reason: "op") }
-        guard held["state"] as? String == "pending" else { throw Failure.mismatch(request: request, reason: "state") }
-        let confirmed = try JSONSerialization.jsonObject(with: params) as? NSDictionary
-        guard let confirmed, let heldParams = held["params"] as? NSDictionary, heldParams.isEqual(confirmed) else {
-            throw Failure.mismatch(request: request, reason: "params")
-        }
-        guard let digest = held["digest"] as? String else { throw Failure.mismatch(request: request, reason: "digest") }
-        guard let item = Self.item(carrying: request, op: op, digest: digest, team: team, in: try await approveItems("open")) else {
-            // No open item: answered elsewhere when this team's closed item carries it (cmux#32354); another
-            // team's item, or none, is still the mismatch.
-            if Self.item(carrying: request, op: op, digest: digest, team: team, in: try await approveItems("closed")) != nil {
-                throw Failure.answered(request: request)
+        let confirmed = try JSONSerialization.jsonObject(with: params)
+        var steps: [Any] = []
+        // At most one call per step of the longest path (one call, then approval.get, two feed.list, feed.answer).
+        for _ in 0..<8 {
+            let ask = try JSONSerialization.data(withJSONObject: ["request": request, "op": op, "params": confirmed, "team": team, "steps": steps])
+            guard let data = CloudStartCore().callData("cloud_approval_next", ask, startingCapacity: 16_384),
+                  let next = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw Failure.refused(code: "core_unavailable") }
+            if next["next"] as? String == "call", let path = next["path"] as? String, let body = next["body"] {
+                let reply = try await call(path, try JSONSerialization.data(withJSONObject: body))
+                steps.append((try? JSONSerialization.jsonObject(with: reply)) ?? [String: Any]())
+                continue
             }
-            throw Failure.mismatch(request: request, reason: Self.closedItem)
+            let outcome = next["outcome"] as? [String: Any] ?? [:]
+            let reply = (outcome["reply"]).flatMap { $0 is NSNull ? nil : (try? JSONSerialization.data(withJSONObject: $0)).flatMap { try? JSONDecoder().decode(JSONValue.self, from: $0) } }
+            switch outcome["kind"] as? String {
+            case "approved": return reply
+            case "answeredElsewhere": throw Failure.answered(request: request)
+            case "mismatch": throw Failure.mismatch(request: request, reason: outcome["reason"] as? String ?? "params")
+            default: throw Failure.refused(code: outcome["code"] as? String ?? "unknown")
+            }
         }
-        let reply = try await post("v1/ops", ["op": "feed.answer", "origin": "user", "idempotency_key": "approve:\(request)",
-                                              "params": ["item": item, "answer": ["decision": "allow", "scope": "once"]]])
-        if reply["ok"] as? Bool == false {
-            throw Failure.refused(code: (reply["error"] as? [String: Any])?["code"] as? String ?? "unknown")
-        }
-    }
-
-    /// The person's integration approve items in `state` (`open`, `closed`), newest first for closed ones.
-    private func approveItems(_ state: String) async throws -> [String: Any] {
-        var params: [String: Any] = ["state": state, "type": "request", "kind": "approve", "poster_kind": "integration", "limit": 100]
-        if state != "open" { params["order"] = "recent" }
-        return try await post("v1/read", ["op": "feed.list", "params": params])
-    }
-
-    private func post(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
-        let data = try await call(path, try JSONSerialization.data(withJSONObject: body))
-        guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw Failure.refused(code: "bad_reply") }
-        if let error = reply["error"] as? [String: Any], reply["ok"] as? Bool != true, reply["value"] == nil {
-            throw Failure.refused(code: error["code"] as? String ?? "unknown")
-        }
-        return reply
-    }
-
-    /// The id of the open approve item for `request`: for `team` (the
-    /// create's own team, never another team the person belongs to), posted
-    /// by that team's Cloud owner (`system:cloud:<team>`), for `op`, with the
-    /// same digest; nil for any other item.
-    static func item(carrying request: String, op: String, digest: String, team: String, in reply: [String: Any]) -> String? {
-        let items = (reply["value"] as? [String: Any])?["items"] as? [[String: Any]] ?? []
-        return items.first { item in
-            let action = (item["prompt"] as? [String: Any])?["action"] as? [String: Any]
-            let approval = (action?["input"] as? [String: Any])?["approval"] as? [String: Any]
-            let poster = item["poster"] as? [String: Any]
-            guard approval?["request"] as? String == request, approval?["digest"] as? String == digest,
-                  action?["tool"] as? String == op, !team.isEmpty, approval?["team"] as? String == team else { return false }
-            return poster?["kind"] as? String == "integration" && poster?["scope"] as? String == "system:cloud:\(team)"
-        }?["id"] as? String
+        throw Failure.refused(code: "too_many_steps")
     }
 }
 
@@ -139,7 +118,9 @@ extension CloudApprovalAnswer.Failure {
     }
 }
 
-extension CloudApprovalAnswer.Failure: CustomStringConvertible {
+extension CloudApprovalAnswer.Failure: CustomStringConvertible, LocalizedError {
+    /// What a person reads for it (`PlainErrorText.personal`), not "Something went wrong".
+    public var errorDescription: String? { description }
     public var description: String {
         switch self {
         case .notInFeed, .answered: CloudStrings.createApproveInFeed

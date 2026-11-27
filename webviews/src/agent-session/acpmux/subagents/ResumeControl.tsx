@@ -4,20 +4,21 @@
 // the transcript (SubagentDoneLine.tsx), the tray's finished lines (SubagentTray.tsx), the summary
 // card's and Session Info's Subagents (summary/SubagentStatusList.tsx, summary/SubagentsTab.tsx,
 // session-info/SubagentsSection.tsx; the native panel's button is session-info/native/subagents.ts),
-// an open group's line (SubagentGroup.tsx `SubagentListRow`) and the helper's own pane, on its
-// "Subagent of" line (SubagentGroup.tsx `SubagentOfRow`). A stopped acpmux sub-session offers it on
+// an open group's line (SubagentGroup.tsx `SubagentListRow`) and the helper's own view, in its
+// top end corner (SubagentViewCorner.tsx). A stopped acpmux sub-session offers it on
 // the same rows, and on its card in the transcript (conversation/SubsessionCallCard.tsx), from its
 // session row (resumeState.ts ``subsessionResumeRow``).
 //
 // The gate (resumeState.ts `canResume`), the call (`TurnActions.resumeAgent`) and what it leaves
 // (``ResumeRun``: busy while acpmux has it, else a refusal's note) are the same everywhere: here.
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Retry } from "../conversation/icons";
 import type { TurnActions } from "../conversation/turnActions";
 import { useT } from "../i18n";
-import type { RetryNote } from "./retryState";
+import { untilNotBusy, type RetryNote } from "./retryState";
 import { canResume, resumeVersion, settledResume, shownResume, type ResumeRun } from "./resumeState";
 import type { Subagent } from "./subagentFold";
+import { Described } from "../chips/FactsHoverCard";
 
 /// What a surface needs for Resume: the chat's `resumeAgent` and the capabilities acpmux named. A
 /// surface inside the transcript reads them from TurnActionsContext; one outside it takes them as
@@ -32,16 +33,34 @@ export function useResumeRuns(): {
 } {
   const [runs, setRuns] = useState<ReadonlyMap<string, ResumeRun>>(() => new Map());
   const set = (id: string, next: ResumeRun) => setRuns((current) => new Map(current).set(id, next));
+  // A Resume acpmux refuses `retry.busy` (one is already out, or a turn runs) stays busy and is asked
+  // again on its own (retryState.ts ``untilNotBusy``), never a "try again shortly" to click; the
+  // list going away stops every wait.
+  const asking = useRef(new Map<string, () => void>());
+  useEffect(
+    () => () => {
+      for (const stop of asking.current.values()) stop();
+      asking.current.clear();
+    },
+    [],
+  );
   const shown = (id: string, version: unknown) => shownResume(runs.get(id), version);
   return {
     shown,
     run: (agent, version, resume) => {
       if (shown(agent.id, version)?.busy) return;
       set(agent.id, { version, busy: true });
-      void resume(agent).then(
-        (key) => set(agent.id, settledResume(version, key)),
-        () => set(agent.id, settledResume(version, "retry.failed")),
-      );
+      asking.current.get(agent.id)?.();
+      const asked = untilNotBusy(() => resume(agent));
+      asking.current.set(agent.id, asked.stop);
+      void asked.answer
+        .finally(() => {
+          if (asking.current.get(agent.id) === asked.stop) asking.current.delete(agent.id);
+        })
+        .then(
+          (key) => set(agent.id, settledResume(version, key)),
+          () => set(agent.id, settledResume(version, "retry.failed")),
+        );
     },
   };
 }
@@ -79,17 +98,21 @@ export function ResumeButton({ busy, onResume }: { busy: boolean; onResume: () =
   const t = useT();
   const label = t("subagents.resume");
   return (
-    <button
-      type="button"
-      className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart cv-subagent-resume"
-      aria-label={label}
-      title={label}
-      data-tooltip-detail={t("subagents.resumeDetail")}
-      disabled={busy}
-      onClick={onResume}
-    >
-      <Retry size={14} />
-    </button>
+    <Described text={t("subagents.resumeDetail")}>
+      {(described) => (
+        <button
+          {...described}
+          type="button"
+          className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart cv-subagent-resume"
+          aria-label={label}
+          title={label}
+          disabled={busy}
+          onClick={onResume}
+        >
+          <Retry size={14} />
+        </button>
+      )}
+    </Described>
   );
 }
 

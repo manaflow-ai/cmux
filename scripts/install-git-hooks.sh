@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tooling-steps runs: scripts/git-hooks/* (its other variable commands are the chosen python3 and git)
 # Point this clone's git at scripts/git-hooks/ for tracked, reviewed hooks.
 # Installs tracked pre-commit checks and the post-merge merge-driver refresh
 # without hiding custom hooks.
@@ -45,6 +46,15 @@ case "$PYTHON3_BIN" in
         exit 1
         ;;
 esac
+# PATH's python3 is recorded when it imports yaml; else the first of the hooks' candidates that does; else PATH's
+# (scripts/git-hooks/hook_python.sh, the same picker pre-push runs each time).
+# shellcheck source=git-hooks/hook_python.sh
+source "$REPO_ROOT/scripts/git-hooks/hook_python.sh"
+if ! hook_python_pick 1 "$PYTHON3_BIN" "$REPO_ROOT" "$(cd "$GIT_COMMON_DIR" && pwd -P)"; then
+    echo "error: no Python 3.9+ here runs the hooks. Tried: $HOOK_PYTHON_TRIED." >&2
+    exit 1
+fi
+PYTHON3_BIN="$HOOK_PYTHON"
 # One install at a time per clone. post-merge runs this in every worktree that pulls a hook change, and every
 # worktree shares this hook folder and .git/config: two at once collide on `git config` (its lock file), and
 # two cleanups would remove one tree together. The installer runs as the child of a python3 that holds an
@@ -157,6 +167,10 @@ install -m 0755 scripts/git-hooks/pre-commit "$TRUSTED_HOOK_DIR/pre-commit"
 install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
 # pre-push always runs the web lint and the cmux-next checks gate; its namespace autofix part runs only when
 # the --namespace-fix helpers below are installed.
+# Its per-host Python picker first, so a push that starts mid-install never finds the new hook without it.
+install -m 0644 scripts/git-hooks/hook_python.sh "$TRUSTED_HOOK_DIR/hook_python.sh"
+# The merge drivers run through the same picker (their git config names this, below).
+install -m 0755 scripts/git-hooks/merge_python.sh "$TRUSTED_HOOK_DIR/merge_python.sh"
 install -m 0755 scripts/git-hooks/pre-push "$TRUSTED_HOOK_DIR/pre-push"
 install -m 0644 scripts/web_lint_prepush.py "$TRUSTED_HOOK_DIR/web_lint_prepush.py"
 install -m 0644 scripts/cmux-next/prepush-gate.py "$TRUSTED_HOOK_DIR/cmux_next_prepush_gate.py"
@@ -169,6 +183,10 @@ install -m 0644 scripts/ci/github_release_download.py "$TRUSTED_HOOK_DIR/github_
 # ...and the HTTP transport that fallback imports from beside itself.
 install -m 0644 scripts/ci/deadline_http.py "$TRUSTED_HOOK_DIR/deadline_http.py"
 install -m 0644 scripts/ci/base_merge_warning.py "$TRUSTED_HOOK_DIR/base_merge_warning.py"
+# ...and the workflow job-bounds reader its JOB_BOUNDS_CHECK loads from beside itself.
+install -m 0644 scripts/ci/workflow_job_bounds.py "$TRUSTED_HOOK_DIR/workflow_job_bounds.py"
+# ...and the reusable-workflow permission reader its REUSABLE_PERMS_CHECK loads from beside itself.
+install -m 0644 scripts/ci/check_reusable_workflow_permissions.py "$TRUSTED_HOOK_DIR/check_reusable_workflow_permissions.py"
 # The hooks are per clone: every worktree of it (main-based ones too) runs these copies. A push in another
 # worktree can run while this installs, so each install writes a new versioned copy and points the
 # cmux-next-checks symlink at it with one rename: the checks are never missing (a missing guardrails.py
@@ -289,24 +307,39 @@ fi
 # checking out a fork branch, so resolving a driver or helper from that branch
 # would execute untrusted code with the contributor's credentials.
 MERGE_DRIVER_DIR="$GIT_COMMON_DIR/cmux-merge-drivers"
+# leo-workspace's wt runs only this section, from the MERGE_DRIVER_DIR= line
+# down, into every worktree mirror it makes. The driver commands below name
+# merge_python.sh, so the section installs it (and the picker it sources)
+# itself: without them it stopped at an unset TRUSTED_HOOK_DIR, and those
+# clones merged generated files by line (tests/test_install_git_hooks.py,
+# test_the_merge_driver_section_runs_alone).
+TRUSTED_HOOK_DIR="${TRUSTED_HOOK_DIR:-$GIT_COMMON_DIR/cmux-git-hooks}"
+mkdir -p "$TRUSTED_HOOK_DIR"
+install -m 0644 scripts/git-hooks/hook_python.sh "$TRUSTED_HOOK_DIR/hook_python.sh"
+install -m 0755 scripts/git-hooks/merge_python.sh "$TRUSTED_HOOK_DIR/merge_python.sh"
 mkdir -p "$MERGE_DRIVER_DIR/ci"
 install -m 0755 scripts/merge-xcstrings.py "$MERGE_DRIVER_DIR/merge-xcstrings.py"
 install -m 0755 scripts/merge-pbxproj.py "$MERGE_DRIVER_DIR/merge-pbxproj.py"
 install -m 0755 scripts/merge-baseline.py "$MERGE_DRIVER_DIR/merge-baseline.py"
 install -m 0755 scripts/merge-daemon-capabilities.py "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
 install -m 0755 scripts/merge-insertions.py "$MERGE_DRIVER_DIR/merge-insertions.py"
+install -m 0755 scripts/merge-cargo-lock.py "$MERGE_DRIVER_DIR/merge-cargo-lock.py"
 install -m 0644 scripts/ci/merge_main_resolver.py "$MERGE_DRIVER_DIR/ci/merge_main_resolver.py"
 install -m 0755 scripts/normalize-pbxproj.py "$MERGE_DRIVER_DIR/normalize-pbxproj.py"
-printf -v XCSTRINGS_DRIVER '%q -I %q %%O %%A %%B %%P %%L' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-xcstrings.py"
-printf -v PBXPROJ_DRIVER '%q -I %q %%O %%A %%B %%P' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-pbxproj.py"
-printf -v BASELINE_DRIVER '%q -I %q %%O %%A %%B %%P' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-baseline.py"
-printf -v CAPABILITIES_DRIVER '%q -I %q %%O %%A %%B %%P' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
-printf -v INSERTIONS_DRIVER '%q -I %q %%O %%A %%B %%P %%L' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-insertions.py"
+printf -v XCSTRINGS_DRIVER '/bin/bash %q %q %%O %%A %%B %%P %%L' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-xcstrings.py"
+printf -v PBXPROJ_DRIVER '/bin/bash %q %q %%O %%A %%B %%P' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-pbxproj.py"
+printf -v BASELINE_DRIVER '/bin/bash %q %q %%O %%A %%B %%P' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-baseline.py"
+printf -v CAPABILITIES_DRIVER '/bin/bash %q %q %%O %%A %%B %%P' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
+printf -v INSERTIONS_DRIVER '/bin/bash %q %q %%O %%A %%B %%P %%L' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-insertions.py"
+printf -v CARGO_LOCK_DRIVER '/bin/bash %q %q %%O %%A %%B %%P' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-cargo-lock.py"
+printf -v GENERATED_DRIVER '/bin/bash %q %q --generated %%O %%A %%B %%P %%L' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-insertions.py"
 git config merge.xcstrings-v2.name "Xcode string catalog (trusted key-wise three-way merge)"
 git config merge.xcstrings-v2.driver "$XCSTRINGS_DRIVER"
 # Neutralize the checkout-relative command installed by older setup versions.
@@ -329,12 +362,21 @@ echo "==> daemon capability merge driver installed (merge.cmux-capabilities-v1.d
 git config merge.cmux-insertions-v1.name "Lists and logs both sides inserted into (trusted union of insertions)"
 git config merge.cmux-insertions-v1.driver "$INSERTIONS_DRIVER"
 echo "==> insertions merge driver installed (merge.cmux-insertions-v1.driver)."
-# Generated web bundles keep the current branch's copy and are rebuilt by
-# scripts/cmux-next/regenerate-web-bundles.sh. `true` is a git no-op, not a
-# checkout path, so this driver needs no trusted copy.
-git config merge.cmux-generated-v1.name "Generated web bundle (keep ours, then regenerate)"
-git config merge.cmux-generated-v1.driver true
-echo "==> generated web bundle merge driver installed (merge.cmux-generated-v1.driver)."
+git config merge.cmux-cargo-lock-v1.name "Cargo.lock (trusted package-wise three-way merge, in cargo's order)"
+git config merge.cmux-cargo-lock-v1.driver "$CARGO_LOCK_DRIVER"
+echo "==> Cargo.lock merge driver installed (merge.cmux-cargo-lock-v1.driver)."
+# Generated files a merge host rebuilds (scripts/cmux-next/generated_merge.py regenerate) merge three-way
+# when that is clean, so the other side's rows stay even when no rebuild runs; otherwise they keep the current
+# branch's copy, said on stderr, for the rebuild. It was `true` (always keep ours): a merge stopped on a
+# hand-written file never runs post-merge, so the kept copy was committed without base's rows (cmux#47525).
+git config merge.cmux-generated-v1.name "Generated file (three-way, else keep ours; then regenerate)"
+git config merge.cmux-generated-v1.driver "$GENERATED_DRIVER"
+echo "==> generated file merge driver installed (merge.cmux-generated-v1.driver)."
+# The exports only a Mac writes (settings schema, docs/mdm, action exports): never one side, a three-way merge
+# or a conflict that names the file (cmux#45928, cmux#47525).
+git config merge.cmux-export-v1.name "Mac-only generated export (trusted three-way merge, union of insertions)"
+git config merge.cmux-export-v1.driver "$INSERTIONS_DRIVER"
+echo "==> export merge driver installed (merge.cmux-export-v1.driver)."
 
 # Last, so a failure here never leaves the hooks half installed: remove every checks copy nobody holds. Only an
 # install removes copies, and installs run one at a time (the install lock), so each tree has one remover: not

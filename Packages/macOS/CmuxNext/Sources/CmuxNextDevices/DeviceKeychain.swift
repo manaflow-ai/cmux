@@ -5,7 +5,7 @@ import Security
 /// Generic password items under one service (`<bundle id>.device-hub`), for
 /// this device only, never synced. A tagged build has its own bundle id and
 /// so its own items; the Keychain trusts only the app that made an item.
-public struct DeviceKeychain: Sendable {
+public struct DeviceKeychain: DeviceIdentityKeychain, Sendable {
     public let service: String
     /// Items in the data-protection keychain (`kSecUseDataProtectionKeychain`),
     /// as the app's other secrets: relay secrets. The device keys stay in the
@@ -13,11 +13,20 @@ public struct DeviceKeychain: Sendable {
     public let dataProtection: Bool
     /// The app's one guard of the Keychain UI switch.
     let loginKeychain: LoginKeychain
+    /// Whether this user has no default keychain (``LoginKeychain/defaultKeychainMissing()``; tests: a fixed answer).
+    let defaultKeychainMissing: @Sendable () -> Bool
 
     public init(service: String, dataProtection: Bool = false, loginKeychain: LoginKeychain) {
+        self.init(service: service, dataProtection: dataProtection, loginKeychain: loginKeychain,
+                  defaultKeychainMissing: { loginKeychain.defaultKeychainMissing() })
+    }
+
+    init(service: String, dataProtection: Bool = false, loginKeychain: LoginKeychain,
+         defaultKeychainMissing: @escaping @Sendable () -> Bool) {
         self.service = service
         self.dataProtection = dataProtection
         self.loginKeychain = loginKeychain
+        self.defaultKeychainMissing = defaultKeychainMissing
     }
 
     public func read(_ account: String) throws -> Data? {
@@ -37,28 +46,65 @@ public struct DeviceKeychain: Sendable {
         let update = loginKeychain.withoutUI { SecItemUpdate(query(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary) }
         if update == errSecSuccess { return }
         guard update == errSecItemNotFound else { throw DeviceIdentity.Failure.keychain(update) }
-        var add = query(account)
-        add[kSecValueData as String] = data
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(add as CFDictionary, nil)
-        guard status == errSecSuccess else { throw DeviceIdentity.Failure.keychain(status) }
+        try addItem(data, account: account)
     }
 
     /// Every account under this service (empty when none or unreadable).
     public func accounts() -> [String] {
+        (try? accountsThrowing()) ?? []
+    }
+
+    /// Every account under this service, preserving Security errors for
+    /// capture cleanup. A failed enumeration must never look like empty.
+    public func accountsThrowing() throws -> [String] {
         var query = query("")
         query.removeValue(forKey: kSecAttrAccount as String)
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitAll
         var out: CFTypeRef?
-        guard loginKeychain.withoutUI({ SecItemCopyMatching(query as CFDictionary, &out) }) == errSecSuccess,
-              let items = out as? [[String: Any]] else { return [] }
-        return items.compactMap { $0[kSecAttrAccount as String] as? String }
+        let status = loginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &out) }
+        if status == errSecItemNotFound { return [] }
+        guard status == errSecSuccess, let items = out as? [[String: Any]] else {
+            throw DeviceIdentity.Failure.keychain(status)
+        }
+        var accounts: [String] = []
+        accounts.reserveCapacity(items.count)
+        for item in items {
+            guard let account = item[kSecAttrAccount as String] as? String else {
+                throw DeviceIdentity.Failure.keychain(errSecDecode)
+            }
+            accounts.append(account)
+        }
+        return accounts
     }
 
     public func delete(_ account: String) throws {
-        let status = loginKeychain.withoutUI { SecItemDelete(query(account) as CFDictionary) }
+        let status = deleteStatus(account)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw DeviceIdentity.Failure.keychain(status) }
+    }
+
+    /// Deletes the item and answers the Keychain's status: an item another build of this bundle id
+    /// made answers errSecInvalidOwnerEdit, which the identity's rules read instead of a throw.
+    public func deleteStatus(_ account: String) -> OSStatus {
+        loginKeychain.withoutUI { SecItemDelete(query(account) as CFDictionary) }
+    }
+
+    /// Adds the item, never replacing one (another build's item refuses an update too).
+    public func add(_ data: Data, account: String) throws {
+        try addItem(data, account: account)
+    }
+
+    /// Every new item, with no UI. A file-keychain add with no default keychain never fails: macOS shows "Keychain
+    /// Not Found" and waits for a person, and the device hub's start waited with it ("Loading your devices…" on a
+    /// Mac nobody sits at). That throws errSecNoDefaultKeychain instead, which the page's startup error names.
+    /// The data-protection keychain needs no default keychain.
+    private func addItem(_ data: Data, account: String) throws {
+        if !dataProtection, defaultKeychainMissing() { throw DeviceIdentity.Failure.keychain(errSecNoDefaultKeychain) }
+        var add = query(account)
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = loginKeychain.withoutUI { SecItemAdd(add as CFDictionary, nil) }
+        guard status == errSecSuccess else { throw DeviceIdentity.Failure.keychain(status) }
     }
 
     func query(_ account: String) -> [String: Any] {
@@ -77,4 +123,12 @@ public struct DeviceKeychain: Sendable {
         }
         return access
     }
+}
+
+/// The Keychain calls the device identity makes (``DeviceKeychain``; tests: a Keychain of several builds).
+protocol DeviceIdentityKeychain: Sendable {
+    func accountsThrowing() throws -> [String]
+    func read(_ account: String) throws -> Data?
+    func add(_ data: Data, account: String) throws
+    func deleteStatus(_ account: String) -> OSStatus
 }

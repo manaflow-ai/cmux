@@ -51,7 +51,7 @@ struct ChiefCallsPage: View {
                     } label: {
                         Label("Call Chief", systemImage: "phone.fill")
                             .font(theme.type.rowTitle)
-                            .foregroundStyle(.green)
+                            .foregroundStyle(theme.colors.success.color)
                     }
                     .accessibilityIdentifier("settings.chiefCalls.call")
                 }
@@ -94,6 +94,7 @@ struct ChiefCallsPage: View {
         .settingsPage("Chief Calls")
         .confirmationDialog("Remove your OpenAI API key?", isPresented: $confirmsRemove, titleVisibility: .visible) {
             Button("Remove Key", role: .destructive) { keys.remove() }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Chief calls stop working on this iPhone until you add a key again.")
         }
@@ -117,7 +118,7 @@ struct ChiefCallsPage: View {
                 } label: {
                     Image(systemName: "doc.on.clipboard")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.cmuxPressFillTinted)
                 .accessibilityLabel("Paste")
                 .accessibilityIdentifier("settings.chiefCalls.paste")
             }
@@ -127,7 +128,7 @@ struct ChiefCallsPage: View {
                         replacing = false
                         draft = ""
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.cmuxPressFillTinted)
                 }
                 Spacer()
                 if keys.isChecking {

@@ -45,5 +45,4 @@
 .ui-toggle-set[data-variant="segmented"] .ui-btn.ui-toggle-button[data-pressed] {
   background: var(--ds-color-surface);
   box-shadow: var(--elevation-1);
-  font-weight: var(--weight-emphasis);
 }

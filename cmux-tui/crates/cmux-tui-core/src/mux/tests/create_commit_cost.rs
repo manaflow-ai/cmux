@@ -2,7 +2,7 @@
 //! lock and the state lock in a bigger session, and the journal writer's disk time for it must
 //! not hold a lock that a request of the person takes.
 //!
-//! Lawrence's Mac (2026-11-10, build 824dfe557cb2: 826 workspaces, 798 terminals, a 10 GB
+//! A large session (2026-11-10, build 824dfe557cb2: 826 workspaces, 798 terminals, a 10 GB
 //! registry file, 13 clients): the registry lock was held at `creation_settlement.rs:183`, the
 //! commit of a create, for 739 ms in the mean and 2157 ms at the most (9 creates), and the state
 //! lock at the same site for 2105 ms at the most. Requests waited behind it: a terminal read
@@ -234,7 +234,7 @@ fn file_session(workspaces: usize) -> FileSession {
         crate::workspace_registry::new_uuid_v4()
     ));
     let mux = open_persistent_test_mux("create-commit-cost", &root);
-    assert!(mux.disk_usage_stats().is_some(), "the registry of this session is not a file");
+    assert!(mux.disk_usage_stats(false).is_some(), "the registry of this session is not a file");
     assert!(mux.journal_writer_stats().is_some(), "this session has no journal writer thread");
     // Made with the debug cross-check off: with it, each create also runs a full projection.
     let (mux, target) = without_crosscheck(|| {

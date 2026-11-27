@@ -57,6 +57,26 @@ fn paths(changes: &[cmux_customize::Change]) -> Vec<(&str, ChangeKind, bool)> {
 }
 
 #[test]
+fn editor_citation_profile_applies_and_rolls_back() {
+    let home = Home::new();
+    let prior = r#"{"appearance":{"density":"cozy"}}"#;
+    home.write("cmux-next.json", prior);
+    let customize = home.customize();
+    let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../examples/looks/claude-code/open-in-editor/profile.json");
+    let profile = customize.load_profile(file.to_str().unwrap()).unwrap();
+    customize.preview_profile(&profile, "cli", 1).unwrap();
+    assert!(customize.status().unwrap().problems.is_empty());
+    assert!(customize.apply(None, "cli", 2).unwrap().recorded);
+    let live: serde_json::Value =
+        serde_json::from_str(&home.read("cmux-next.json").unwrap()).unwrap();
+    assert_eq!(live["agentPane"]["links"]["openCitationsInEditor"], true);
+    assert_eq!(live["appearance"]["density"], "cozy");
+    customize.rollback(None, "cli", 3).unwrap();
+    assert_eq!(home.read("cmux-next.json").unwrap(), prior);
+}
+
+#[test]
 fn a_person_alone_edits_applies_and_rolls_back_and_forward() {
     let home = Home::new();
     home.write("cmux-next.json", COZY);
@@ -109,6 +129,9 @@ fn an_agent_alone_asks_previews_and_applies_under_what_was_asked() {
     assert!(text.contains("> make the sidebar compact and add a PR widget"));
     assert!(text.contains("customize status --json"));
     assert!(text.contains(&home.config("cmux-next.json").display().to_string()));
+    // A New Tab page in the views folder shows only once picked (ask-7fc19bd861: a Clock page
+    // was written there and reported as shown while Cmd-T drew cmux's own page).
+    assert!(text.contains("cmux settings set tabs.newTabApp local/customize"), "{text}");
 
     home.write("cmux-next.json", COMPACT);
     home.write("customize/main.js", "export function renderSection() {}\n");
@@ -357,6 +380,23 @@ fn a_hostile_or_broken_profile_writes_nothing() {
     assert_eq!(home.read("cmux-next.json").unwrap(), COZY);
     assert_eq!(customize.generations().unwrap().generations.len(), 0);
     assert!(!home.config("themes").exists() && !home.config("customize").exists());
+}
+
+#[test]
+fn a_profile_applies_over_a_legacy_workspace_indicator_style() {
+    let home = Home::new();
+    home.write(
+        "cmux-next.json",
+        "{\n  \"appearance\": { \"density\": \"cozy\" },\n  \"workspaceColors\": { \"indicatorStyle\": \"solidFill\" }\n}\n",
+    );
+    let customize = home.customize();
+    let profile = profile_of("{\"appearance.density\":\"compact\"}", "{}");
+
+    customize.preview_profile(&profile, "cli", 1).unwrap();
+
+    let settings = home.read("cmux-next.json").unwrap();
+    assert!(settings.contains("\"density\": \"compact\""), "{settings}");
+    assert!(settings.contains("\"indicatorStyle\": \"solidFill\""), "{settings}");
 }
 
 const SECRET_SETTINGS: &str = "{\n  \"browser\": { \"newTabPage\": \"https://alice:credential@example.com\" },\n  \"appearance\": { \"density\": \"compact\" },\n  \"updates\": { \"channel\": \"nightly\" }\n}\n";
@@ -714,8 +754,10 @@ fn the_verbs_cost_no_more_than_the_files_they_read() {
     );
 }
 
-const CU_ON: &str = "{\n  \"appearance\": { \"density\": \"cozy\" },\n  \"computerUse\": { \"enabled\": true }\n}\n";
-const CU_OFF: &str = "{\n  \"appearance\": { \"density\": \"compact\" },\n  \"computerUse\": { \"enabled\": false }\n}\n";
+// Exercise the current protected key; the retired `enabled` spelling is
+// unknown to the schema and cannot test the restore permission boundary.
+const CU_ON: &str = "{\n  \"appearance\": { \"density\": \"cozy\" },\n  \"computerUse\": { \"mode\": \"fullAccess\" }\n}\n";
+const CU_OFF: &str = "{\n  \"appearance\": { \"density\": \"compact\" },\n  \"computerUse\": { \"mode\": \"off\" }\n}\n";
 
 /// An agent's rollback or discard never turns back on what the person
 /// turned off: it is held to the settings an agent may set, like
@@ -732,13 +774,13 @@ fn an_agent_cannot_restore_a_setting_only_the_person_can_change() {
     customize.apply(None, "cli", 2).unwrap();
 
     match customize.rollback(Some(1), "mcp", 3) {
-        Err(Error::Protected(keys)) => assert_eq!(keys, ["computerUse.enabled"]),
+        Err(Error::Protected(keys)) => assert_eq!(keys, ["computerUse.mode"]),
         other => panic!("the agent turned Computer Use back on: {other:?}"),
     }
     assert_eq!(home.read("cmux-next.json").unwrap(), CU_OFF);
     assert_eq!(customize.generations().unwrap().current, Some(2));
-    let said = Error::Protected(vec!["computerUse.enabled".to_owned()]).to_string();
-    assert!(said.contains("computerUse.enabled") && !said.contains("true"), "{said}");
+    let said = Error::Protected(vec!["computerUse.mode".to_owned()]).to_string();
+    assert!(said.contains("computerUse.mode") && !said.contains("fullAccess"), "{said}");
 
     // The same through a draft: the person turns it on again without
     // applying, then off is what a discard would restore. Going the other

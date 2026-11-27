@@ -1,6 +1,15 @@
 // l10n-allow-file: test fixtures.
 import { afterEach, expect, test } from "bun:test";
-import { forgetShareLinks, isAccount, shareClient, shareView, type ChatShare } from "./shareState";
+import {
+  forgetShareLinks,
+  isAccount,
+  shareClient,
+  shareView,
+  type ChatShare,
+  normalAccount,
+  inviteStep,
+  type ShareView,
+} from "./shareState";
 
 const base: ChatShare = {
   shareId: "s",
@@ -48,9 +57,49 @@ test("invitees across live shares are one row each; removed and ended ones are n
       invitees: [{ account: "@old", role: "view", state: "invited", joined: false }],
     },
   ]);
-  expect(view.people).toEqual([{ account: "ana@example.com", role: "talk", joined: true }]);
+  expect(view.people).toEqual([{ account: "ana@example.com", role: "talk", joined: true, opened: true }]);
   expect(view.inviteUrl).toBe("https://room/i/b");
   expect(view.general).toBe("restricted");
+});
+
+// An invite nobody has opened yet is pending: the row says "Hasn't opened it yet" (opened false),
+// while someone who joined and left is neither pending nor in the chat now.
+test("an invitee with no guest record is pending; one who left has opened it", () => {
+  const view = shareView([
+    {
+      ...base,
+      shareId: "p",
+      invitees: [
+        { account: "@new", role: "view", state: "invited", joined: false },
+        { account: "@left", role: "talk", state: "invited", joined: false },
+      ],
+      guests: [{ guestId: "g", name: "Left", account: "@left", role: "talk", joined: false }],
+    },
+  ]);
+  expect(view.people).toEqual([
+    { account: "@new", role: "view", joined: false, opened: false },
+    { account: "@left", role: "talk", joined: false, opened: true },
+  ]);
+});
+
+test("normalAccount compares accounts as the daemon does", () => {
+  expect(normalAccount("  Ana@Example.COM ")).toBe("ana@example.com");
+  expect(normalAccount("@Sam")).toBe("@sam");
+});
+
+// Inviting someone already in People with access never makes a second row or a daemon refusal
+// (share.invited): the same role says they have access; another role changes theirs.
+test("Invite on someone with access says so, or changes their role", () => {
+  const view: ShareView = {
+    people: [{ account: "ana@example.com", role: "view", joined: false, opened: false }],
+    general: "restricted",
+    links: [],
+    inviteUrl: null,
+    guestsNow: 0,
+  };
+  expect(inviteStep(view, " Ana@Example.com", "view")).toEqual({ kind: "already", account: "ana@example.com" });
+  expect(inviteStep(view, "ana@example.com", "talk")).toEqual({ kind: "role", account: "ana@example.com" });
+  expect(inviteStep(view, "@sam", "view")).toEqual({ kind: "invite" });
 });
 
 test("a live viewer link is Anyone with the link; a Share with Guest link is not", () => {

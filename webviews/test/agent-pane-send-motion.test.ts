@@ -6,9 +6,9 @@
 // and the prompt. Like, it's all just one unified motion." Then Leo, 2026-11-11: "that slow settle
 // animation is just so bad. Like, just do it." The one motion's clock (the send step,
 // MOTION_SEND_MS) is 0: a prompt sent from the latest row has its room, its bubble and the thinking
-// row in place, whole, in the frame the composer empties, and the thread does not rise; no flight
-// (sendMorph.ts), rise (followGlide.ts `sent`) or entrance (conversation.css SEND-ENTRANCE) plays
-// on a clock above 0. Every frame from the send is read in the agent pane's dev entry, with the
+// row in place, whole, in the frame the composer empties; no flight (sendMorph.ts) or entrance
+// (conversation.css SEND-ENTRANCE) plays on a clock above 0. The thread's rise is compound motion's
+// one glide since #52754 (expectLanded). Every frame from the send is read in the agent pane's dev entry, with the
 // agent's answer held back as a real agent's is. The second case reads the bubble's own entrance
 // (a prompt from another device, a send while scrolled up) through the gallery's `inplace` switch.
 //
@@ -17,9 +17,10 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { MOTION_SEND_MS } from "../src/motion/scale.generated";
+import { MOTION_SEND_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 /// One frame after the send: the bubble's clip from the left (% of its width), the opacity of its
 /// text, of its row and of the thinking row, and how far the thread is drawn back (px).
@@ -63,11 +64,11 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
     });
     const port = (pane!.httpServer!.address() as { port: number }).port;
     await page.goto(`http://127.0.0.1:${port}/`);
-    await page.locator('.acpmux-composer-prompt [contenteditable="true"]').waitFor();
+    await page.locator(COMPOSER_EDITOR).waitFor();
   };
 
   const send = async (page: Page, line: string) => {
-    await page.locator('.acpmux-composer-prompt [contenteditable="true"]').click();
+    await page.locator(COMPOSER_EDITOR).click();
     await page.keyboard.type(line);
     await page.keyboard.press("Enter");
   };
@@ -170,16 +171,39 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
     );
   };
 
-  /// Lands at once: no animation the send started (the thread's rise, the flight, the bubble's
-  /// opening, the thinking row's fade) runs a clock above 0, and from the bubble's first frame the
-  /// thread is not drawn back, the bubble is open and its text, its row and the thinking row are whole.
-  const expectLanded = (frames: Frame[], clocks: Clock[], label: string) => {
+  /// Lands at once: no animation the send started (the flight, the bubble's opening, the thinking
+  /// row's fade) runs a clock above 0, and from the bubble's first frame the bubble is open and its
+  /// text, its row and the thinking row are whole.
+  ///
+  /// The thread: since compound motion's one-motion arm became the default (#49854, #52754, #52775;
+  /// Leo, 2026-11-22: "when i send it collapses the compser then sends it to you... but i think we
+  /// should be able to calculate it out to be like one smooth motion"), a send from the latest row
+  /// holds the rows where they were drawn and plays the composer's room and the prompt's rows as ONE
+  /// glide on the settle (motionTransaction.ts, `expect("send")` then `release("send")`). So with
+  /// motion on (`oneMotion`) the thread takes at most that one clock, and its offset only ever goes
+  /// home: never drawn back further, and at rest by the last frame. Under Reduce Motion the
+  /// transaction lands at once (foldMs 0) and the thread is never drawn back.
+  const expectLanded = (frames: Frame[], clocks: Clock[], label: string, oneMotion = true) => {
     expect(MOTION_SEND_MS, "the scale's send step").toBe(0);
-    for (const clock of clocks)
+    const threadClocks = clocks.filter((clock) => clock.target === "thread");
+    for (const clock of clocks) {
+      if (oneMotion && clock.target === "thread") continue;
       expect(clock.duration, `${label}: the ${clock.target}'s clock (${JSON.stringify(clocks)})`).toBe(0);
+    }
+    if (oneMotion) {
+      expect(threadClocks.length, `${label}: the thread moves once (${JSON.stringify(clocks)})`).toBeLessThanOrEqual(1);
+      for (const clock of threadClocks) {
+        expect(clock.duration, `${label}: the one motion's clock`).toBeLessThanOrEqual(MOTION_SETTLE_MS);
+        expect(clock.easing, `${label}: the one motion's curve`).toBe(MOTION_SETTLE);
+      }
+    }
     expect(frames.length, `${label}: the sent prompt was never drawn`).toBeGreaterThan(5);
+    let drawnBack = Number.POSITIVE_INFINITY;
     for (const frame of frames) {
-      expect(frame.thread, `${label}: the thread is not drawn back at ${frame.at} ms`).toBeLessThan(0.5);
+      if (oneMotion) {
+        expect(frame.thread, `${label}: the thread only goes home at ${frame.at} ms`).toBeLessThan(drawnBack + 0.5);
+        drawnBack = frame.thread;
+      } else expect(frame.thread, `${label}: the thread is not drawn back at ${frame.at} ms`).toBeLessThan(0.5);
       expect(frame.clip, `${label}: the bubble is open at ${frame.at} ms`).toBeLessThan(0.05);
       expect(frame.text, `${label}: the text is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
       expect(frame.row, `${label}: the prompt is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
@@ -187,6 +211,7 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
       if (frame.thinking >= 0)
         expect(frame.thinking, `${label}: the thinking row is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
     }
+    expect(frames.at(-1)!.thread, `${label}: the thread is at rest by the last frame`).toBeLessThan(0.5);
   };
 
   test("from the latest row, the composer's prompt is the bubble at once: nothing flies, rises or fades", async () => {
@@ -233,7 +258,7 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
       await watchSend(page, line);
       await send(page, line);
       const { frames, clocks } = await sendFrames(page);
-      expectLanded(frames, clocks, "Reduce Motion");
+      expectLanded(frames, clocks, "Reduce Motion", false);
     } finally {
       await page.close();
     }

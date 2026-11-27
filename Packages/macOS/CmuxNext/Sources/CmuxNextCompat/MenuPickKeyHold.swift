@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 public import AppKit
 
 /// Holds the keys typed right after a menu item was picked, until the item's action ran.
@@ -20,7 +21,8 @@ public import AppKit
 public final class MenuPickKeyHold {
     private let replay: @MainActor (NSEvent) -> Void
     private let afterMenuAction: @MainActor (@escaping @MainActor () -> Void) -> Void
-    private let tracking: MenuTracking
+    /// The app's menu tracking this hold follows; other app-wide menu followers subscribe here, not with an observer of their own.
+    public let tracking: MenuTracking
     /// Menus tracking now (a pick's blink comes before its menu's end).
     private var openMenus = 0
     private var held: [NSEvent] = []
@@ -63,3 +65,4 @@ public final class MenuPickKeyHold {
         }
     }
 }
+#endif

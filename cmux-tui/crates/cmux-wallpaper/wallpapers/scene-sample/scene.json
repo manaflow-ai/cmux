@@ -1,0 +1,36 @@
+{
+  "loop": 12,
+  "field": {
+    "points": [
+      { "at": [0.08, 0.15], "color": "#C9B8F0", "radius": 0.85 },
+      { "at": [0.92, 0.12], "color": "#F6C9A8", "radius": 0.8 },
+      { "at": { "keys": [[0, [0.82, 0.92]], [6, [0.7, 0.85], "sine"], [12, [0.82, 0.92], "sine"]] }, "color": "#F08A4B", "radius": 0.7 },
+      { "at": [0.15, 0.88], "color": "#A9C4F5", "radius": 0.8 }
+    ],
+    "warp": 0.3
+  },
+  "grain": { "amount": 0.14, "size": 1.0 },
+  "light": { "at": [0.62, 0.22], "color": "#FFF4E8", "intensity": 0.55, "radius": 0.55, "followPointer": 0.3 },
+  "shapes": [
+    { "kind": "circle", "at": [0.16, 0.3], "size": [0.3, 0.3],
+      "fill": { "type": "linear", "from": "#F6C9A8", "to": "#F08A4B", "angle": 70 }, "lit": 0.6 },
+    { "kind": "halfDisc", "at": [0.16, 0.78], "size": [0.34, 0.34], "rotate": 0,
+      "fill": { "type": "linear", "from": "#8FA8F0", "to": "#C9B8F0", "angle": -90 } },
+    { "kind": "lens", "at": [0.4, 0.28], "size": [0.3, 0.18], "shape": 0.9,
+      "fill": { "type": "linear", "from": "#F08A4B", "to": "#C9B8F0", "angle": 0 }, "opacity": 0.9 },
+    { "kind": "eye", "at": [0.4, 0.72], "size": [0.3, 0.16], "shape": 0.38,
+      "fill": { "type": "linear", "from": "#F4ECFF", "to": "#5A6FD8", "angle": 0 } },
+    { "kind": "arcs", "at": [0.63, 0.88], "size": [0.4, 0.4], "shape": 4,
+      "fill": { "type": "radial", "from": "#F08A4B", "to": "#C9B8F0" } },
+    { "kind": "roundRect", "at": [0.86, 0.3], "size": [0.24, 0.3], "shape": 0.18, "rotate": { "keys": [[0, -8], [6, 8, "sine"], [12, -8, "sine"]] },
+      "fill": { "type": "linear", "from": "#A9C4F5", "to": "#C9B8F0", "angle": 90 }, "opacity": 0.85 },
+    { "kind": "cube", "at": [0.63, 0.4], "size": [0.26, 0.3], "shape": 0.5,
+      "fill": { "type": "linear", "from": "#EDE6FF", "to": "#A9C4F5" }, "lit": 1 },
+    { "kind": "ring", "at": [0.87, 0.74], "size": [0.22, 0.22], "shape": 0.12,
+      "fill": { "type": "linear", "from": "#F6C9A8", "to": "#8FA8F0", "angle": -45 } }
+  ],
+  "guides": [
+    { "from": [0.05, 0.52], "to": [0.95, 0.52], "width": 0.0012, "opacity": 0.55, "color": "#2B2640", "handles": true },
+    { "from": [0.515, 0.08], "to": [0.515, 0.94], "width": 0.0012, "opacity": 0.45, "color": "#2B2640", "handles": true, "dash": 0.012 }
+  ]
+}

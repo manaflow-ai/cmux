@@ -32,10 +32,6 @@
   padding: var(--ds-space-4);
 }
 
-.sv-add {
-  width: 380px;
-}
-
 /* Layout helpers */
 .sv-stack {
   display: flex;
@@ -172,7 +168,6 @@
 
 .sv-glyph[data-tone="ok"],
 .sv-caption[data-tone="ok"],
-.sv-added [data-tone="ok"],
 .sv-surface span[data-tone="ok"] {
   color: var(--cmux-app-success);
 }
@@ -182,8 +177,7 @@
 }
 
 .sv-glyph[data-tone="critical"],
-.sv-caption[data-tone="critical"],
-.sv-add [data-tone="critical"] {
+.sv-caption[data-tone="critical"] {
   color: var(--cmux-app-danger);
 }
 
@@ -233,7 +227,7 @@
   min-height: 32px;
   padding: 0 var(--ds-space-2);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -342,8 +336,8 @@ button.sv-role:focus-visible {
 /* Boxes: the dashboard's roles, the pairing box, Health's summary alerts, the candidate's facts. */
 .sv-box,
 .sv-role {
-  border: 0.5px solid var(--page-separator);
-  border-radius: 8px;
+  border: var(--cmux-hairline, 0.5px) solid var(--page-separator);
+  border-radius: var(--ds-radius-lg);
   background: var(--page-elevated);
 }
 
@@ -440,14 +434,14 @@ button.sv-role:focus-visible {
 .sv-qr {
   display: block;
   flex: none;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: white;
   image-rendering: pixelated;
 }
 
 .sv-qr-tile {
   padding: var(--ds-space-2);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   background: white;
 }
 
@@ -476,7 +470,7 @@ button.sv-role:focus-visible {
   gap: var(--ds-space-2);
   min-width: 0;
   padding: var(--ds-space-1) var(--ds-space-2);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   background: var(--page-hover);
 }
 
@@ -582,97 +576,15 @@ button.sv-role:focus-visible {
   width: 100%;
   height: 28px;
   padding: 0 var(--ds-space-3);
-  border: 0.5px solid var(--page-separator);
-  border-radius: 6px;
+  border: var(--cmux-hairline, 0.5px) solid var(--page-separator);
+  border-radius: var(--ds-radius-md);
   outline: none;
   background: var(--page-elevated);
   color: var(--page-text);
   font: inherit;
 }
 
-.sv-code-input {
-  height: auto;
-  padding-block: var(--ds-space-2);
-  font-family: ui-monospace, "SF Mono", monospace;
-  font-size: var(--text-heading);
-  line-height: var(--text-heading--line-height);
-  text-align: center;
-  letter-spacing: 0.08em;
-}
-
-.sv-input[data-refused] {
-  border-color: var(--cmux-app-danger);
-}
-
 .sv-input:focus-visible {
   border-color: var(--cmux-accent, var(--page-text-2));
 }
 
-.sv-review {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-4);
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.sv-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--ds-space-2);
-}
-
-.sv-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  padding: 0 var(--ds-space-3);
-  border: 0;
-  border-radius: 999px;
-  background: var(--page-hover);
-  color: var(--page-text-2);
-  font: inherit;
-}
-
-.sv-chip-input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.sv-chip:is(:focus-visible, :has(:focus-visible)) {
-  outline: 2px solid var(--cmux-accent, var(--page-text-2));
-}
-
-.sv-chip:has(:checked) {
-  background: var(--page-selection);
-  color: var(--page-text);
-  font-weight: 600;
-}
-
-.sv-check {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
-}
-
-.sv-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--ds-space-2);
-  padding: var(--ds-space-3);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--cmux-app-danger) 12%, transparent);
-  color: var(--cmux-app-danger);
-}
-
-.sv-added {
-  gap: var(--ds-space-2);
-  padding: var(--ds-space-3) 0;
-}
-
-.sv-added .server-card-title {
-  margin: 0;
-}
