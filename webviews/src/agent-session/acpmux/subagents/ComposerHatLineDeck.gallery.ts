@@ -50,6 +50,12 @@ const snapshotOf = (agents: readonly Subagent[], withCommand: boolean) =>
     summary(1, { status: "completed", durationMs: 600_000, toolCount: 3 }),
   ]);
 
+const MANY = snapshotOf(
+  Array.from({ length: 14 }, (_, index) =>
+    running(`Audit package ${index + 1}`, 19 - index, "Read package.json", ["claude", "codex", "gemini"][index % 3]),
+  ),
+  true,
+);
 const THREE = snapshotOf(AGENTS.slice(0, 3), false);
 const EIGHT = snapshotOf(AGENTS, true);
 
@@ -81,7 +87,7 @@ export default agentPaneEntry({
   title: "Composer hat: marks on the one line",
   area: "Agent pane",
   height: 420,
-  widths: { narrow: 360, wide: 900 },
+  widths: { narrow: 300, medium: 440, normal: 560, wide: 900 },
   anchors: [{ selector: ".acpmux-composer" }],
   covers: [
     "agent-session/acpmux/subagents/SubagentTray.tsx",
@@ -98,6 +104,40 @@ export default agentPaneEntry({
   },
   keywords: ["composer hat", "running tray", "subagents", "rolodex", "thumb", "hide"],
   variants: {
+    // Leo, 2026-11-27: "hm should we compact these and drop them away in favour of text when things
+    // shrink?" / "this is just an awkward looking layout"; "overlapping text here what do we doooo".
+    "fit-steps": {
+      note: "The pick: fourteen subagents and a command, the marks stepping down by width (eight side by side and '+N more', five overlapped, three, then words only), so '+N more' never meets the panel button.",
+      play: folded,
+      snapshot: MANY,
+      experiments: { ...pins("trail"), "composer-hat-deck-fit": "steps" },
+    },
+    "fit-stack": {
+      note: "Variant: always an overlapped stack of five and '+N', at every width.",
+      play: folded,
+      snapshot: MANY,
+      experiments: { ...pins("trail"), "composer-hat-deck-fit": "stack" },
+    },
+    "fit-before": {
+      note: "Before: eight marks side by side and '+N more' at every width.",
+      play: folded,
+      snapshot: MANY,
+      experiments: { ...pins("trail"), "composer-hat-deck-fit": "before" },
+    },
+    "fit-steps-open": {
+      note: "The pick, opened: the panel button at the bar's end, nothing under it.",
+      play: async (ctx) => {
+        await folded(ctx);
+        ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head")!.click();
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list > li") ?? undefined);
+        const bar = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
+        if (bar.scrollWidth > bar.clientWidth) throw new Error("the bar's content runs past its end");
+        const title = bar.querySelector<HTMLElement>(".acpmux-running-tray__title");
+        if (title && title.scrollWidth > title.clientWidth) throw new Error("the sentence is cut");
+      },
+      snapshot: MANY,
+      experiments: { ...pins("trail"), "composer-hat-deck-fit": "steps" },
+    },
     ...Object.fromEntries(
       arms.flatMap(([arm, what]) => [
         [

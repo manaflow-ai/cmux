@@ -2946,7 +2946,7 @@ button.cv-subagent > :last-child {
    headers are (Leo, 2026-11-27: "add the opaque backing to it again with proper size"). The header is
    the composer's row height, as every other hat header, and the words are the chat's text size, the
    prompt's and the replies' (--text-content), never a smaller metadata step. No marks, time or chevron;
-   hovered or pressed, the words take the accent on a small rounded chip. A tray with no card (a
+   hovered or pressed, the words take the full text colour, never the accent or a chip. A tray with no card (a
    surface arm of `none`, settled) keeps the bare line. */
 .acpmux-dock > .acpmux-running-tray[data-line]:not([data-card]) {
   min-height: 0;
@@ -2968,13 +2968,13 @@ button.cv-subagent > :last-child {
   color: var(--agent-muted);
   font-size: var(--text-content);
   line-height: var(--text-content--line-height);
-  transition: color var(--cv-actions-out) var(--cv-actions-out-ease),
-    background-color var(--cv-actions-out) var(--cv-actions-out-ease);
+  transition: color var(--cv-actions-out) var(--cv-actions-out-ease);
 }
 .acpmux-running-tray[data-line] > .acpmux-running-tray__head:is(:hover, :focus-visible, [aria-expanded="true"])
   > .acpmux-running-tray__title {
-  color: var(--agent-link, var(--agent-accent));
-  background: var(--agent-control-hover);
+  /* Neutral: the words take the full text colour, no blue, no plate (Leo, 2026-11-27: "dont put this
+     garish blue in man we dont need it to be blue or highlighted"). */
+  color: var(--agent-text);
 }
 .acpmux-running-tray[data-line]:not([data-card]) > .acpmux-running-tray__rim {
   display: none;

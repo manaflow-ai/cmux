@@ -255,8 +255,28 @@
   align-self: center;
   height: var(--acpmux-tray-head-height);
 }
-/* The trailing deck's empty slots keep their room and take no pointer. */
-.acpmux-hat-deck__mark[data-blank] {
-  pointer-events: none;
-  visibility: hidden;
+/* ---------- the deck's forms (deckFit.ts, HatHeadDeck.tsx) ----------
+   The deck measures its bar and sets `data-fit` on itself: 0 marks side by side, 1 up to five overlapped,
+   2 up to three overlapped, 3 none, the sentence alone. Every form's marks and counts are drawn and the
+   form's rules hide the rest, so measuring a form needs no render. */
+.acpmux-hat-deck__rest {
+  display: none;
+}
+.acpmux-hat-deck:not([data-fit]) > .acpmux-hat-deck__rest[data-form="0"],
+.acpmux-hat-deck[data-fit="0"] > .acpmux-hat-deck__rest[data-form="0"],
+.acpmux-hat-deck[data-fit="1"] > .acpmux-hat-deck__rest[data-form="1"],
+.acpmux-hat-deck[data-fit="2"] > .acpmux-hat-deck__rest[data-form="2"] {
+  display: block;
+}
+.acpmux-hat-deck[data-fit="1"] > .acpmux-hat-deck__mark:nth-child(n + 6),
+.acpmux-hat-deck[data-fit="2"] > .acpmux-hat-deck__mark:nth-child(n + 4),
+.acpmux-hat-deck[data-fit="3"] > .acpmux-hat-deck__mark {
+  display: none;
+}
+/* Overlapped, each mark tucks under the one before it (the first is on top, HatHeadDeck's z-index). */
+.acpmux-hat-deck:is([data-fit="1"], [data-fit="2"]) > .acpmux-hat-deck__mark + .acpmux-hat-deck__mark {
+  margin-inline-start: calc(-5 * var(--grid-half-step));
+}
+.acpmux-hat-deck[data-fit="3"] {
+  margin: 0;
 }

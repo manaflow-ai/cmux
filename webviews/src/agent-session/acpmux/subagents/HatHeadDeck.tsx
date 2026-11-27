@@ -10,13 +10,16 @@
 //
 // The marks are pointer twins of the list's lines (aria-hidden): the header button stays the one
 // keyboard control, and the open list reaches each line, as the stacked marks do today.
-import { type CSSProperties, type WheelEvent, useRef } from "react";
+import { type CSSProperties, type WheelEvent, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { AgentIdentity } from "./AgentIdentity";
 import { SUBAGENT_FALLBACK } from "./agentIdentityModel";
+import { experimentArm } from "../../../experiments/experiment";
 import { agentTone } from "./agentTones";
+import { deckFitLook } from "./deckFit.experiment";
+import { type DeckLevel, deckLevelAt, deckMarksAt } from "./deckFit";
 import { SILENT_TURN_ICON, trayItemKey, type TrayItem } from "./runningTray";
 
 const ROW_ICON = rowIconSize(12);
@@ -62,11 +65,38 @@ export function HatHeadDeck({
   onOpenItem: (item: TrayItem) => void;
 }) {
   const t = useT();
+  const root = useRef<HTMLSpanElement>(null);
+  const [fitArm] = useState(() => experimentArm(deckFitLook));
+  // The form the bar's width holds (deckFit.ts): marks side by side, overlapped, fewer, or none. It
+  // lives on the deck as `data-fit` (set here, never by the render, so a render never undoes it) and
+  // subagents CSS hides the marks and counts of the forms it gave up; every form's pieces are drawn.
+  useLayoutEffect(() => {
+    const deck = root.current;
+    const bar = deck?.closest<HTMLElement>(".acpmux-running-tray__head");
+    if (!deck || !bar) return;
+    if (fitArm === "before") {
+      deck.dataset.fit = "0";
+      return;
+    }
+    const fit = () => {
+      // Start at the width's level, then take the next while the words truncate or the bar's end is
+      // pushed out (its panel button lies over that end). Each step is set on the deck and measured
+      // before paint, so the bar never shows an overlapped form.
+      let next: number = fitArm === "stack" ? 1 : deckLevelAt(bar.clientWidth);
+      for (; next < (fitArm === "stack" ? 1 : 3); next += 1) {
+        deck.dataset.fit = String(next);
+        const title = bar.querySelector<HTMLElement>(".acpmux-running-tray__title");
+        const cut = title ? title.scrollWidth > title.clientWidth : false;
+        if (!cut && bar.scrollWidth <= bar.clientWidth) break;
+      }
+      deck.dataset.fit = String(next);
+    };
+    fit();
+    const watch = new ResizeObserver(fit);
+    watch.observe(bar);
+    return () => watch.disconnect();
+  }, [items.length, fitArm]);
   const shown = items.slice(0, DECK_MARKS);
-  const rest = items.length - shown.length;
-  // After the one line's words (`trail`) the deck keeps all DECK_MARKS slots, empty ones too, so "+N
-  // more" sits in one place however many lines run and the bar never re-lays out as lines come and go.
-  const blanks = at === "trail" ? DECK_MARKS - shown.length : 0;
   const wheel = useRef(0);
   // The `cards` look: the wheel over the deck thumbs from card to card, wrapping, from the one in front.
   const onWheel = (event: WheelEvent<HTMLSpanElement>) => {
@@ -84,6 +114,7 @@ export function HatHeadDeck({
   };
   return (
     <span
+      ref={root}
       className="acpmux-hat-deck"
       data-look={look}
       data-at={at}
@@ -123,12 +154,16 @@ export function HatHeadDeck({
           </span>
         );
       })}
-      {Array.from({ length: blanks }, (_, index) => (
-        <span key={`blank-${index}`} className="acpmux-hat-deck__mark" data-blank aria-hidden="true">
-          <span className="acpmux-hat-deck__face" style={{ width: ROW_ICON, height: ROW_ICON }} />
-        </span>
-      ))}
-      {rest > 0 && <span className="acpmux-summary-meta acpmux-hat-deck__rest">{t("tools.more", { n: rest })}</span>}
+      {([0, 1, 2] as const).map((form) => {
+        const rest = items.length - deckMarksAt(form, items.length, DECK_MARKS);
+        return (
+          rest > 0 && (
+            <span key={form} className="acpmux-summary-meta acpmux-hat-deck__rest" data-form={form}>
+              {form === 0 ? t("tools.more", { n: rest }) : `+${rest}`}
+            </span>
+          )
+        );
+      })}
     </span>
   );
 }
