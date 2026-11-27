@@ -1,0 +1,95 @@
+name: cmux-next agent connection chaos
+
+# The agent connection chaos suite (scripts/cmux-next/agent-conn-chaos/CONTRACT.md) on a fleet Mac, for each pull
+# request that touches the link between the chat pane and the acpmux daemon. The suite updates the app, kills the
+# daemon and the app, stops both (a sleep simulation) and takes the socket and port away mid-turn, and fails when
+# the link does not come back by itself, the page shows an error or Retry, or a turn is lost or doubled.
+# One fleet step (--class exclusive --measurement --label measure --display): it launches and kills an app, so it
+# runs alone on its host. The entry script refuses cosmic-gray, air-blue (Leo's own Macs) and big-red by name.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/acpmux/src/daemon/**"
+      - "cmux-tui/crates/acpmux/src/server/**"
+      - "cmux-tui/crates/acpmux/src/hub/**"
+      - "cmux-tui/crates/acpmux/src/daemon*.rs"
+      - "cmux-tui/crates/acpmux/src/server*.rs"
+      - "cmux-tui/crates/acpmux/src/hub*.rs"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Acpmux*"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneHost*"
+      - "webviews/src/agent-session/acpmux/**"
+      - "scripts/cmux-next/agent-conn-chaos/**"
+      - "scripts/measure/agent-conn-chaos.sh"
+      - ".github/workflows/cmux-next-agent-conn-chaos.yml"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "commit sha (40 hex)"
+        required: true
+      cases:
+        description: "cases (comma list; empty: all)"
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-agent-conn-chaos-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  chaos:
+    if: >-
+      github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    timeout-minutes: 120
+    permissions: {}
+    steps:
+      # No checkout: the gateway runner takes only thin cmux-ci clients. The fleet Mac checks the sha out itself.
+      - name: chaos suite on a fleet Mac
+        env:
+          SHA: ${{ github.event.pull_request.head.sha || inputs.ref }}
+          CASES: ${{ inputs.cases }}
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; nothing was run."
+            exit 127
+          fi
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=Agent connection chaos::'$SHA' is not a 40-hex commit sha"
+            exit 1
+          fi
+          extra=()
+          if [[ -n "$CASES" ]]; then
+            [[ "$CASES" =~ ^[a-z,-]+$ ]] || { echo "::error::cases must be a comma list of case names"; exit 1; }
+            extra=(--arg="--cases=$CASES")
+          fi
+          out="$RUNNER_TEMP/chaos"
+          mkdir -p "$out"
+          status=0
+          "$client" run --class exclusive --measurement --label measure --display \
+            --script scripts/measure/agent-conn-chaos.sh --ref "$SHA" --timeout 5400 \
+            --key "agent-conn-chaos-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --artifact artifacts/agent-conn-chaos/result.json ${extra[@]+"${extra[@]}"} \
+            2>&1 | tee "$out/step.log" || status=1
+          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$out/step.log" | head -1)"
+          if [[ -n "$step" ]]; then
+            "$client" artifact "$step" "$out/result.json" || "$client" artifact --failed "$step" "$out/result.json" || true
+          fi
+          {
+            echo "## Agent connection chaos at ${SHA:0:12}"
+            sed -n '/AGENT-CONN-CHAOS-TABLE-BEGIN/,/AGENT-CONN-CHAOS-TABLE-END/p' "$out/step.log" | grep -v 'TABLE-' || echo "no table: see the log"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Upload the result
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-conn-chaos-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/chaos/
+          if-no-files-found: warn
