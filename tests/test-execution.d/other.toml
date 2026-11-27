@@ -84,6 +84,11 @@ path = "tests/test_build_metrics.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_bun_options_join.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_bun_options_join.py"
+
+[[test]]
 path = "tests/test_car_guards.py"
 lane = "linux-guard"
 
@@ -980,6 +985,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_strings_output_encoding.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_submit_fleet_test.py"
 lane = "linux-guard"
 
 [[test]]
