@@ -232,6 +232,9 @@ public final class AgentPaneModel {
     /// The empty chat of this pane a `cloud.startChat` named as the one it replaces (``AgentPaneCloudStart/replacesChat``):
     /// its start's `cloud.signIn` and `cloud.setUp` are taken while this pane still shows that chat.
     @ObservationIgnored var cloudStartReplaces: String?
+    /// The Cloud start this pane's page sent, from its run to its end, for a page built again meanwhile
+    /// (``AgentPaneCloudStartResume``): nil when none runs or ended unseen.
+    @ObservationIgnored public internal(set) var cloudStartResume: AgentPaneCloudStartResume?
     /// This pane's browser sign-in while a `cloud.signIn` waits on it; an expired `cloud.signInCancel` cancels it.
     @ObservationIgnored var cloudSignInBrowser: Task<Bool, Never>?
     /// This pane's Set up Cloud wait while a `cloud.setUp` waits on it; `cloud.signInCancel` cancels it.

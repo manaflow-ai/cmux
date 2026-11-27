@@ -23,11 +23,17 @@ test("a start just sent is starting its machine, with no usual-wait hint", () =>
 });
 
 test("the copy stage says the copy's own progress when the host reports it", () => {
-  const copying = { ...base, step: "folder" } as const;
-  expect(stage(copying)).toMatchObject({
+  // Before any copy line the folder is connected, not copied: a folder of this Mac is projected by default.
+  const connecting = { ...base, step: "folder" } as const;
+  expect(stage(connecting)).toMatchObject({
+    id: "clone",
+    label: "Connecting your project",
+    step: 2,
+  });
+  // A seed or copy under way says it copies.
+  expect(stage({ ...connecting, clone: { state: "running", phase: "copy" } })).toMatchObject({
     id: "clone",
     label: "Copying your project",
-    step: 2,
   });
   const clone = {
     state: "running",
@@ -45,8 +51,13 @@ test("the copy stage says the copy's own progress when the host reports it", () 
 test("a GitHub repository's start says it clones from GitHub, never that it copies the project (cmux#53226)", () => {
   const cloning = { ...base, step: "folder", cwd: "github:manaflow-ai/cmuxterm-hq", folder: "cmuxterm-hq" } as const;
   expect(stage(cloning)).toMatchObject({ id: "clone", label: "Cloning from GitHub" });
-  // A folder of this Mac is still copied.
-  expect(stage({ ...base, step: "folder", cwd: "/Users/dev/paint" })).toMatchObject({ label: "Copying your project" });
+  // A folder of this Mac is connected (projected), and says it copies once a copy is under way.
+  expect(stage({ ...base, step: "folder", cwd: "/Users/dev/paint" })).toMatchObject({
+    label: "Connecting your project",
+  });
+  expect(
+    stage({ ...base, step: "folder", cwd: "/Users/dev/paint", clone: { state: "running", phase: "prepare" } }),
+  ).toMatchObject({ label: "Copying your project" });
 });
 
 test("setup counts only once the host reports it, and a cached snapshot is quick", () => {

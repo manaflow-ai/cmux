@@ -117,6 +117,9 @@ export type CloudStartProgress = {
   /// The folder needs a larger machine than the plan includes (`cloud_size_locked`): the card names the size and
   /// offers the plan that includes it (none: the largest plan already), This Mac and Retry.
   sizeLocked?: CloudSizeLocked;
+  /// This page did not send the start: an earlier page of this pane did, and this one was built again while it ran
+  /// (the host's `cloudStartResume`, cloudStartResume.ts). No answer comes to this page; the host's `ended` push ends it.
+  resumed?: true;
 };
 
 /// The host's `cloud_folder_too_big` details (CloudMoveCLI.StartChatPreflightRefusal `details`).

@@ -137,6 +137,7 @@ import {
   wakeSubagentDrafts,
 } from "../subagents/subagentDrafts";
 import { type CloudStartProgress, cloudStartPushed } from "../cloudStartProgress";
+import { cloudStartEndPushed, readCloudStartResume, resumedCloudStart } from "../cloudStartResume";
 import { configureQuickActions } from "../header/quickActions";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "../sidebarPreview";
 import { handoffTurns } from "../cloudHandoffTurn";
@@ -766,7 +767,12 @@ export function paneSnapshotEffect({
       setShortcuts(readShortcuts(labels));
     },
     cloudStartProgress(push) {
-      setCloudStart((current) => cloudStartPushed(current, push));
+      // A start's end the host pushes ends only a start this page did not send (cloudStartResume.ts); the
+      // sending page ends its start with its own answer.
+      setCloudStart((current) => {
+        const ended = cloudStartEndPushed(current, push);
+        return ended.ended ? ended.next : cloudStartPushed(current, push);
+      });
     },
     applyPreview(on) {
       // The environment picker, Cloud (Move to Cloud, the account's Cloud machines) and Sandboxed
@@ -1100,6 +1106,8 @@ export function paneSnapshotEffect({
         /// Another chat's `/side --on cloud` or `/cd --on cloud` opened this tab (commandPlace.ts).
         cloudStartHandoff?: unknown;
         autoCloudStartKey?: string;
+        /// A Cloud start an earlier page of this pane sent, running or ended unseen (cloudStartResume.ts).
+        cloudStartResume?: unknown;
         model?: unknown;
         sandboxState?: unknown;
         /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
@@ -1134,6 +1142,10 @@ export function paneSnapshotEffect({
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
       if (typeof host.autoCloudStartKey === "string") setAutoCloudStartKey(host.autoCloudStartKey);
+      // A page built again while its pane's Cloud start ran shows that start, never an empty New Tab with the
+      // prompt gone (a health reload of a page that stopped answering, a hibernated page shown again).
+      const resume = !reconnect ? readCloudStartResume(host.cloudStartResume) : undefined;
+      if (resume) setCloudStart((current) => resumedCloudStart(current, resume));
       setCloudTeamMachine(host.cloudTeamMachine === true);
       const turnRewind =
         Array.isArray(host.cloudTurnRewind) && host.cloudTurnRewind.every((id) => typeof id === "string")

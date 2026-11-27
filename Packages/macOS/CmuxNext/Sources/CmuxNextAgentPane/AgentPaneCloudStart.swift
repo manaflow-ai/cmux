@@ -405,6 +405,7 @@ extension AgentPaneCloudStart {
         if let setupHasScript { setupFields["hasScript"] = .bool(setupHasScript) }
         if !setupFields.isEmpty { value["setup"] = .object(setupFields) }
         let push = JSONValue.object(value)
+        view.model.noteCloudStartProgress(push) // a page built again shows the steps so far (AgentPaneCloudStartResume)
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                      scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])
     }

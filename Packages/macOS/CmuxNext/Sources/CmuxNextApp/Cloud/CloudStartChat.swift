@@ -38,9 +38,9 @@ struct CloudStartChat {
             guard let view, let tab = localTab(view, tabs, services) else { return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat) }
             let timeline = CloudSendTimeline() // from the Send's arrival here (cmux#45953)
             let titles = services.cloudStartTitles, workspace = services.workspaceID(ofTab: tab.id); titles.begin(tab, task: start.task, untitled: AgentPaneModel.tabTitle); defer { titles.end(tab); titles.endWorkspace(workspace) } // the page reads as its chat from the Send
-            return await CloudStartChat(services: services, asker: .card(view, start: start.key), timeline: timeline, tabs: tabs).reply(start, tab: tab) { [weak view] step in
+            return await start.resumable(on: view) { await CloudStartChat(services: services, asker: .card(view, start: start.key), timeline: timeline, tabs: tabs).reply(start, tab: tab) { [weak view] step in
                 if let view { start.progress(step, to: view) }
-            }
+            } } // a page built again meanwhile shows the start and hears its end, never an empty New Tab
         }
     }
 
@@ -89,7 +89,7 @@ struct CloudStartChat {
         } catch {
             let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
-            services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public)")
+            services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public) [\(String(reflecting: type(of: error)), privacy: .public): \(String(describing: error), privacy: .private)]")
             // A failure a retry can help gets the card's Retry; a plan refusal keeps its code and the teams (CloudStartView).
             let plan = CloudMachineCreation.proRefusal(error) != nil
             if !plan, let move = error as? CloudMove.Failure { failed = .init(code: move.code, message: message, retryable: move.retry != nil || move.sendAgain) }

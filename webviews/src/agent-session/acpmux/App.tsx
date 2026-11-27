@@ -6701,6 +6701,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
   const newChatLeftover = useRef<() => { leave: () => void; cancel: () => void } | undefined>(() => undefined);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
+  /// A start an earlier page of this pane sent that failed (cloudStartResume.ts): its prompt comes back in the
+  /// composer once, as the sending page's failure puts it back, so Retry sends it again and nothing is lost.
+  const resumedPromptBack = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!cloudStart?.resumed || cloudStart.state !== "failed" || resumedPromptBack.current === cloudStart.key) return;
+    resumedPromptBack.current = cloudStart.key;
+    if (cloudStart.task) restoreComposerDraft(composerHandle, heldBack, cloudStart.task, []);
+  }, [cloudStart]);
   /// Quote in Reply picks made while no composer is mounted (a Sandboxed receipt or a handoff review
   /// in its place): they go in after the draft, in order, when it mounts (composerRestore.ts).
   const heldQuotes = useRef<string[] | undefined>(undefined);
