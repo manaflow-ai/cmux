@@ -1,6 +1,6 @@
 //! Which of a workspace's panes the phone's tab overview shows: agent
 //! sessions only, or agent sessions and terminals, with browsers (and the
-//! Mac's simulator screens) behind their own toggle.
+//! Mac's simulator screens) controlled by their own toggle.
 //!
 //! Leo, 2026-11-23: "we want a ... filtering mechanism for only agent
 //! sessions, agent sessions/terminals, and ... browsers on their own honestly
@@ -13,9 +13,8 @@
 //! linear in the number of panes: the overview's cost stays constant per
 //! pane however many the Mac has.
 //!
-//! [`PaneFilter::default`] is agent sessions and terminals, browsers tucked
-//! behind their toggle: Leo called the dev-server browser case rare and said
-//! to tuck it in a toggle (his proxy's answer on the default, 2026-11-23).
+//! [`PaneFilter::default`] is agent sessions and terminals with browsers shown.
+//! The toggle remains available when the overview needs a narrower view.
 
 /// What a pane is, as the overview sorts it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, uniffi::Enum)]
@@ -51,10 +50,9 @@ pub struct PaneFilter {
 }
 
 impl Default for PaneFilter {
-    /// Agent sessions and terminals; browsers and simulator screens one toggle
-    /// away.
+    /// Agent sessions and terminals with browsers and simulator screens shown.
     fn default() -> Self {
-        Self { scope: PaneScope::AgentsAndTerminals, show_browsers: false }
+        Self { scope: PaneScope::AgentsAndTerminals, show_browsers: true }
     }
 }
 
@@ -72,7 +70,7 @@ pub struct PaneFilterResult {
 }
 
 /// The overview's filter until the person picks another: agent sessions and
-/// terminals, browsers behind their toggle.
+/// terminals with browsers shown.
 #[uniffi::export]
 pub fn pane_filter_default() -> PaneFilter {
     PaneFilter::default()
@@ -153,12 +151,12 @@ mod tests {
     }
 
     #[test]
-    fn the_default_tucks_browsers_behind_their_toggle() {
-        assert_eq!(pane_filter_default(), AGENTS_TERMINALS);
+    fn the_default_shows_browsers() {
+        assert_eq!(pane_filter_default(), EVERYTHING);
         let result = pane_filter_apply(mixed(), None, pane_filter_default());
-        assert_eq!(result.shown, vec![0, 1, 3, 5, 6]);
-        assert_eq!(result.hidden_browsers, 2);
-        assert!(result.filtering);
+        assert_eq!(result.shown, vec![0, 1, 2, 3, 4, 5, 6]);
+        assert_eq!(result.hidden_browsers, 0);
+        assert!(!result.filtering);
     }
 
     #[test]

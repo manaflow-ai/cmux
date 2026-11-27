@@ -403,10 +403,10 @@ struct WorkspaceGridHeader: View {
             .buttonStyle(.cmuxPressGlass)
             .glassEffect(.regular.interactive(), in: .circle)
             .accessibilityLabel("Workspaces")
-            // The title takes the room between Back and the filter: centered over the grid it ran
-            // under the filter ("2 of 3 t…" in the simulator's grid shot).
+            // The title takes the room between equal Back and More slots, keeping it centered.
             VStack(spacing: 1) {
                 Text(source.workspace?.title ?? "").font(.headline)
+                    .accessibilityIdentifier("workspace.grid.title")
                 // The Mac's name gives way first: the tab count says when panes are hidden.
                 HStack(spacing: 0) {
                     Text(macName).truncationMode(.tail)
@@ -416,8 +416,6 @@ struct WorkspaceGridHeader: View {
             }
             .lineLimit(1)
             .frame(maxWidth: .infinity)
-            // The pane filter, beside TabsKit's More (drawn by the grid at the trailing edge).
-            PaneFilterControl(setting: source.paneFilter, result: source.paneFilterResult)
             Color.clear.frame(width: metrics.overviewTopControl, height: 1)
         }
         .padding(.horizontal, 20)

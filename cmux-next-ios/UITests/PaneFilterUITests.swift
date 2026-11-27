@@ -4,20 +4,18 @@ import XCTest
 /// mechanism for only agent sessions, agent sessions/terminals, and ... browsers on their own
 /// honestly should be a ... toggle"). Mock workspace `ws-cmux`: an agent, a terminal, a browser.
 ///
-/// The default is agents and terminals, the browser tucked away and counted on the control; the
-/// menu's Show Browsers brings it back, and Agents leaves the agent and the browser.
+/// The default is agents and terminals with browsers shown. More owns the filter rows, and the
+/// menu's Show Browsers toggle can narrow and restore the grid.
 final class PaneFilterUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
     }
 
     @MainActor
-    func testTheFilterTucksBrowsersAwayAndBringsThemBack() throws {
+    func testTheFilterShowsBrowsersByDefaultAndCanHideThem() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        // The saved choice starts at the default (the argument domain wins over a past run's).
-        app.launchArguments += ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore",
-                                "-cmux.mobile.overview.paneFilter", "agents+terminals"]
+        app.launchArguments += ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore"]
         app.launch()
 
         let choose = app.scrollViews["setup.teams.choose"]
@@ -32,38 +30,39 @@ final class PaneFilterUITests: XCTestCase {
 
         let cards = app.buttons.matching(NSPredicate(format: "label ENDSWITH ', tab'"))
         XCTAssertTrue(cards.firstMatch.waitForExistence(timeout: 15), "grid cards\n\(app.debugDescription)")
-        let filter = app.buttons["workspace.grid.paneFilter"]
-        XCTAssertTrue(filter.waitForExistence(timeout: 5), "filter control\n\(app.debugDescription)")
-        expectCards(cards, 2, "default: agent and terminal")
-        let value = (filter.value as? String) ?? ""
-        XCTAssertTrue(value.contains("1 browser hidden"), "hidden count: \(value)")
-        // The header's tab count is never drawn under the filter: centered over the grid it ran
-        // under the control and read "2 of 3 t".
-        let count = app.staticTexts.matching(NSPredicate(format: "label CONTAINS '2 of 3 tabs'")).firstMatch
-        XCTAssertTrue(count.waitForExistence(timeout: 5), "tab count\n\(app.debugDescription)")
-        XCTAssertLessThanOrEqual(count.frame.maxX, filter.frame.minX, "tab count \(count.frame) clear of the filter \(filter.frame)")
+        expectCards(cards, 3, "default: all panes")
+        let title = app.staticTexts["workspace.grid.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "workspace title\n\(app.debugDescription)")
+        XCTAssertEqual(title.frame.midX, app.windows.firstMatch.frame.midX, accuracy: 2,
+                       "title midpoint \(title.frame) vs screen \(app.windows.firstMatch.frame)")
         attach(app, "1-default")
 
-        filter.tap()
-        // A Toggle inside a menu is a menu button, not a switch.
+        let more = app.buttons["More"]
+        XCTAssertTrue(more.waitForExistence(timeout: 5), "More\n\(app.debugDescription)")
+        more.tap()
         let browsers = app.buttons["Show Browsers"].firstMatch
         XCTAssertTrue(browsers.waitForExistence(timeout: 5), "Show Browsers\n\(app.debugDescription)")
         attach(app, "2-menu")
         browsers.tap()
         dismissMenu(app)
-        expectCards(cards, 3, "browsers shown: every tab")
-        let all = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH '3 tabs' AND NOT label CONTAINS ' of '")).firstMatch
-        XCTAssertTrue(all.waitForExistence(timeout: 5), "tab count\n\(app.debugDescription)")
-        XCTAssertLessThanOrEqual(all.frame.maxX, filter.frame.minX, "tab count \(all.frame) clear of the filter \(filter.frame)")
-        attach(app, "3-every-tab")
+        expectCards(cards, 2, "browsers hidden")
+        attach(app, "3-browsers-hidden")
 
-        filter.tap()
+        more.tap()
+        let showBrowsers = app.buttons["Show Browsers"].firstMatch
+        XCTAssertTrue(showBrowsers.waitForExistence(timeout: 5), "Show Browsers\n\(app.debugDescription)")
+        showBrowsers.tap()
+        dismissMenu(app)
+        expectCards(cards, 3, "browsers shown again")
+        attach(app, "4-every-tab")
+
+        more.tap()
         let agents = app.buttons["Agents"].firstMatch
         XCTAssertTrue(agents.waitForExistence(timeout: 5), "Agents\n\(app.debugDescription)")
         agents.tap()
         dismissMenu(app)
         expectCards(cards, 2, "agents and browsers")
-        attach(app, "4-agents-browsers")
+        attach(app, "5-agents-browsers")
     }
 
     @MainActor

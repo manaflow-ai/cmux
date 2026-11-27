@@ -587,6 +587,7 @@ struct TabOverview<Source: TabsDataSource>: View {
         let y = layout.safeTop + 4 + d / 2
         return ZStack(alignment: .topLeading) {
             Menu {
+                source.overviewMenuContent()
                 Button("Close All Tabs", systemImage: "xmark", role: .destructive, action: onCloseAll)
             } label: {
                 Image(systemName: "ellipsis")
