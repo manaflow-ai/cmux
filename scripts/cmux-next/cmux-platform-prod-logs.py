@@ -127,6 +127,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.claim_fence_retry_read_failed",
     "cloud.claim_fence_retry_reset_failed",
     "cloud.claim_fence_retry_write_failed",
+    "cloud.commit_probe.size",
     "cloud.connect.read",
     "cloud.create.adopted",
     "cloud.create.approved",
@@ -143,6 +144,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.egress.read",
     "cloud.entitlement.profile_heal_failed",
     "cloud.entitlement.read_failed",
+    "cloud.flight_join.long",
     "cloud.fold.parked",
     "cloud.fold.read",
     "cloud.fold.read_failed",
@@ -236,6 +238,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.verify.slow",
     "cloud.wake_echo.note_failed",
     "cloud.wake_served.note_failed",
+    "cloud.wake_probe.long",
     "cloud.work_machine.failed",
     "cloud.work_machine.not_ready",
     "cloud.work_machine.ready",
@@ -475,7 +478,11 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  # call, claim to fill start, the fill's age; and how many spares a claim could take.
                  "reserve_ms": INT, "claim_to_fill_ms": INT, "fill_age_ms": INT, "claimable": INT,
                  # cloud.prune_probe.long (cmux-platform#2391): ledger rows pruneAt walked on one commit, and how many abandoned.
-                 "walked": INT, "abandoned": INT}
+                 "walked": INT, "abandoned": INT,
+                 # cmux-platform#2407's busy-object probe: cloud.commit_probe.size (state and last event's sizes, commits
+                 # in the minute), cloud.wake_probe.long (an alarm run split drain/onWake), cloud.flight_join.long.
+                 "state_bytes": INT, "effects_bytes": INT, "commits": INT, "drain_ms": INT, "wake_ms": INT,
+                 "waited_ms": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
