@@ -157,10 +157,14 @@ jobs:
               print("answer (not JSON):", raw[:2000]); raise SystemExit
           print({k: a.get(k) for k in ("subtype","is_error","api_error_status","terminal_reason","stop_reason","num_turns")})
           print("result:", str(a.get("result"))[:2000])' "$RUNNER_TEMP/answer.json" || true
-            # The login's usage cap (429, "hit your limit", weekly limit) is not a broken fill: the strings fall back to
-            # English until a later hourly pass gets an answer. Run 45952417153: CLAUDE_CODE_OAUTH_TOKEN's weekly cap
-            # turned main red for days. A skip with a notice; any other failure stays red.
-            if grep -qiE '"api_error_status": *429|hit your (\w+[ -])?limit|usage limit|weekly limit|rate[ _-]?limit|limit reached|out of extra usage|credit balance is too low' "$RUNNER_TEMP/answer.json"; then
+            # The login's usage cap (429) is not a broken fill: the strings fall back to English until a later hourly
+            # pass gets an answer. Run 45952417153: CLAUDE_CODE_OAUTH_TOKEN's weekly cap turned main red for days.
+            # Read only the CLI's structured fields (is_error, api_error_status), never the result text, which the
+            # model writes from strings a PR controls (docs/handbook/shared-ci-credential-quota-reds-every-pr.md).
+            # A skip with a notice; any other failure stays red.
+            if python3 -I -c 'import json,sys
+          a=json.load(open(sys.argv[1]))
+          sys.exit(0 if a.get("is_error") is True and a.get("api_error_status") == 429 else 1)' "$RUNNER_TEMP/answer.json" 2>/dev/null; then
               echo "limited=true" >> "$GITHUB_OUTPUT"
               echo "::notice::localization-fill skipped: the Claude login is at its usage limit (429); a later pass fills these rows"
               echo "localization-fill: skipped, Claude login at its usage limit; strings fall back to English until a later pass." >> "$GITHUB_STEP_SUMMARY"
@@ -180,7 +184,7 @@ jobs:
     name: Open the fill
     needs: [gaps, translate]
     if: ${{ needs.translate.outputs.limited != 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     env:
       # The wait gives up after 10 minutes; the next run fills what this one could not.

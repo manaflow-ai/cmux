@@ -52,7 +52,7 @@ jobs:
     concurrency:
       group: risk-evidence-${{ github.event.pull_request.number }}${{ (((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base)) && format('-ignored-{0}', github.run_id) || '' }}
       cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: trusted pull-request-write token
     timeout-minutes: 8
     permissions:
       contents: read
