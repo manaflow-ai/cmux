@@ -333,15 +333,45 @@ impl Repository {
     /// The main checkout of a linked worktree (one `git worktree add` made);
     /// `None` in the main checkout itself or a bare repository's.
     pub fn main_checkout(&self) -> Option<PathBuf> {
+        let (common, own) = self.git_folders()?;
+        main_checkout_of(&common, &own)
+    }
+
+    /// The common git directory and this checkout's own one, canonical:
+    /// one `rev-parse` run.
+    pub fn git_folders(&self) -> Option<(PathBuf, PathBuf)> {
         let arguments = ["rev-parse", "--path-format=absolute", "--git-common-dir", "--git-dir"];
         let output = self.run(&arguments, MAX_SMALL_OUTPUT_BYTES).ok()?;
         let (common, own) = two_folders(&output.stdout)?;
-        let (common, own) = (std::fs::canonicalize(common).ok()?, std::fs::canonicalize(own).ok()?);
-        if common == own {
-            return None;
-        }
-        main_root(&common).map(Path::to_path_buf)
+        Some((std::fs::canonicalize(common).ok()?, std::fs::canonicalize(own).ok()?))
     }
+}
+
+/// The main checkout of the linked worktree whose git directories are
+/// `common` and `own`; `None` when they are one (a main checkout) or the
+/// common one is a bare repository's.
+pub fn main_checkout_of(common: &Path, own: &Path) -> Option<PathBuf> {
+    if common == own {
+        return None;
+    }
+    main_root(common).map(Path::to_path_buf)
+}
+
+/// State files in a checkout's own git directory that say an operation
+/// stopped partway and waits for the person, and the operation's name.
+const IN_PROGRESS: [(&str, &str); 5] = [
+    ("MERGE_HEAD", "merge"),
+    ("rebase-merge", "rebase"),
+    ("rebase-apply", "rebase"),
+    ("CHERRY_PICK_HEAD", "cherry-pick"),
+    ("REVERT_HEAD", "revert"),
+];
+
+/// The merge, rebase, cherry-pick or revert in progress in the checkout
+/// whose own git directory is `git_dir`, or `None`. Looks only for files:
+/// no run, and no read of the index.
+pub fn in_progress(git_dir: &Path) -> Option<&'static str> {
+    IN_PROGRESS.iter().find(|(file, _)| git_dir.join(file).exists()).map(|(_, state)| *state)
 }
 
 /// Whether git's error text `stderr` is its error for a folder that is in no
