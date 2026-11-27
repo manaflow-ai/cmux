@@ -41,6 +41,11 @@ READS_A_WORKFLOW = re.compile(r"\.github[/\"'\s,)]+.{0,4}workflows")
 # keeps this indifferent to which interpreter a step chooses.
 INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 
+# A manifest can also run scripts/ci/tests/test_*.py, a different file from tests/test_*.py.
+MANIFEST_TEST = re.compile(r"^\s*(?:(?:python3|bash)(?:\s+-[A-Za-z]+)*\s+)?(?:\./)?(tests(?:_v2)?/[\w.-]+\.(?:py|sh))(?:\s|$)")
+POOL_MANIFEST = re.compile(r"scripts/ci/run-checks-concurrently\.sh --start[^\n]*?<\s*(scripts/ci/[\w.-]+\.txt)")
+
+
 # Guards that are knowingly unwired. Each entry needs a reason and an exit:
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
@@ -355,15 +360,31 @@ def workflow_guards() -> set[str]:
 
 def invoked_by_workflows() -> set[str]:
     sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+    import ci_steps
     import workload_entrypoints
+    from test_ci_post_merge_checks import TABLE_JOB_RUN
 
     invoked = set()
+    table_jobs = set()
     for workflow in sorted(WORKFLOW_DIR.glob("*.yml")):
         text = workflow.read_text(encoding="utf-8")
         invoked.update(INVOKED_PATH.findall(text))
         # A workload profile step runs everything its entrypoint names.
         for _, script in workload_entrypoints.entrypoints(text, ROOT):
             invoked.update(INVOKED_PATH.findall(script))
+        # Follow the commands the workflow passes to the background pool and the step table.
+        commands = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+        commands = commands.replace("\\\n", " ")
+        for manifest in POOL_MANIFEST.findall(commands):
+            for line in (ROOT / manifest).read_text().splitlines():
+                if match := MANIFEST_TEST.match(line):
+                    invoked.add(match[1])
+        table_jobs.update(match["job"] for match in TABLE_JOB_RUN.finditer(commands))
+    for step in ci_steps.load().steps.values():
+        if step.job in table_jobs:
+            for line in step.run.splitlines():
+                if match := MANIFEST_TEST.match(line):
+                    invoked.add(match[1])
     return invoked
 
 

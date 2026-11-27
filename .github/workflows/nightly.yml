@@ -2182,9 +2182,8 @@ jobs:
           submodules: recursive
 
       # Why: docs/ci/nightly-workflow-notes.md#note-20, note-54
-      - &x9
-        name: Checkout build ref (warm nightly-next builder)
-        if: inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
+      - name: Checkout build ref (warm nightly-next builder)
+        if: &warm-checkout-if inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
         # Usually 10-40 s. Run 45782377330 (2026-11-26) sat in this step 40+ min holding the signing Mac,
         # under only the job's 300 min; failing at 15 lets retry-nightly-next and the tick move on.
         timeout-minutes: 15
@@ -2192,8 +2191,8 @@ jobs:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           WORKFLOW_SHA: ${{ github.sha }}
-          FETCH_TOKEN: ${{ steps.warm-fetch-token.outputs.token || github.token }}
-        run: |
+          FETCH_TOKEN: ${{ github.token }}
+        run: &warm-checkout-script |
           set -euo pipefail
           [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "bad build sha: $BUILD_SHA" >&2; exit 1; }
           fetch_auth=$(printf 'x-access-token:%s' "${FETCH_TOKEN:-}" | base64 | tr -d '\n')
@@ -4215,11 +4214,11 @@ jobs:
           CMUX_NEXT_CEF_RUNTIME_OUT: ${{ runner.temp }}/cef-runtime
           CMUX_NEXT_CEF_RUNTIME_BASE_URL: https://files-next.cmux.com
           # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-sign-notarize-nightly-3.md
-          CMUX_NEXT_LANGUAGE_PACKS: ${{ needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && '1' || '' }}
+          CMUX_NEXT_LANGUAGE_PACKS: ${{ needs.decide.outputs.track == 'nightly-next' && (vars.CMUX_NEXT_LANGUAGE_PACKS || '1') != '0' && '1' || '' }}
           CMUX_NEXT_LANGUAGE_PACKS_OUT: ${{ runner.temp }}/language-packs
           CMUX_NEXT_LANGUAGE_PACKS_BASE_URL: https://files-next.cmux.com/language-packs
           # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-sign-notarize-nightly-4.md
-          CMUX_NEXT_TOOL_PACKS: ${{ needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && vars.CMUX_NEXT_TOOL_PACKS != '0' && '1' || '' }}
+          CMUX_NEXT_TOOL_PACKS: ${{ needs.decide.outputs.track == 'nightly-next' && (vars.CMUX_NEXT_LANGUAGE_PACKS || '1') != '0' && (vars.CMUX_NEXT_TOOL_PACKS || '1') != '0' && '1' || '' }}
           CMUX_NEXT_TOOL_PACKS_BASE_URL: https://files-next.cmux.com/tool-packs
           # sign-cef.sh reuses it when it is the same code and signer, so deltas leave Chromium out.
           CMUX_CEF_REUSE_FRAMEWORK: ${{ runner.temp }}/cef-reuse/Chromium Embedded Framework.framework
@@ -4265,7 +4264,7 @@ jobs:
       - name: Upload the language packs
         id: upload-the-language-packs
         continue-on-error: true
-        if: needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && !env.LEFT_SLOT
+        if: needs.decide.outputs.track == 'nightly-next' && (vars.CMUX_NEXT_LANGUAGE_PACKS || '1') != '0' && !env.LEFT_SLOT
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: language-packs
@@ -4277,7 +4276,7 @@ jobs:
           retention-days: 7
 
       - name: Upload the language packs (retry)
-        if: "!cancelled() && steps.upload-the-language-packs.outcome == 'failure' && (needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && !env.LEFT_SLOT)"
+        if: "!cancelled() && steps.upload-the-language-packs.outcome == 'failure' && (needs.decide.outputs.track == 'nightly-next' && (vars.CMUX_NEXT_LANGUAGE_PACKS || '1') != '0' && !env.LEFT_SLOT)"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: language-packs
@@ -7096,13 +7095,11 @@ jobs:
       - *x8
       - *checkout-publication-tooling-a
       - *claim-publication-mac
-      # After the claim (the release App key comes after it, rule 7a of
-      # tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py): the key reaches only the action, the
-      # read-only token only the warm checkout's env, which keeps .publish-tooling through its clean. One installation token for this checkout, so its GitHub reads spend the App's own
-      # quota (5,000+ an hour) and never the Mac's shared unauthenticated per-IP limit (run 45744507889).
+      # Mint only after the claim (signing rule 7a). Only the checkout receives the read-only token.
+      # Its App quota avoids the shared unauthenticated limit hit in run 45744507889.
       - name: Mint the release App token for the warm checkout
         id: warm-fetch-token
-        if: inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
+        if: *warm-checkout-if
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -7112,7 +7109,15 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: read
-      - *x9
+      - name: Checkout build ref (warm nightly-next builder)
+        if: *warm-checkout-if
+        timeout-minutes: 15
+        env:
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          FETCH_TOKEN: ${{ steps.warm-fetch-token.outputs.token || github.token }}
+        run: *warm-checkout-script
       # Before the leave step's gh calls (tests/test_publish_app_token_workflow.py).
       - *x12
       # Latest wins at the slot too, with no wait on this Mac: it asks main's tick and leaves; bounded gh calls,
@@ -7425,7 +7430,7 @@ jobs:
           BEHIND: ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }}
           BEHIND_HOURS: ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }}
           CEF: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' }}
-          LANGUAGE_PACKS: ${{ vars.CMUX_NEXT_LANGUAGE_PACKS != '0' }}
+          LANGUAGE_PACKS: ${{ (vars.CMUX_NEXT_LANGUAGE_PACKS || '1') != '0' }}
           SOURCE_ARCHIVE: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' }}
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" source
       - name: Refuse stray processes before secrets (publication)
@@ -8245,7 +8250,7 @@ jobs:
   # Why: docs/ci/nightly-workflow-notes/2026-11-26-retry-nightly-next-1.md
   fixit-handoff:
     needs: [resolve-nightly-cmux-tui-client, check-nightly-webviews, nightly-next-one]
-    if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && (needs.check-nightly-webviews.outputs.fixit_nofix == 'true' || needs.nightly-next-one.outputs.fixit_nofix == 'true') }}
+    if: ${{ !cancelled() && (vars.FIXIT_HANDOFF || '1') != '0' && (needs.check-nightly-webviews.outputs.fixit_nofix == 'true' || needs.nightly-next-one.outputs.fixit_nofix == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 5
     permissions:

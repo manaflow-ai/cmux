@@ -47,6 +47,14 @@ EXEMPTIONS: dict[str, str] = {
 # patterns may appear on push without pull_request. Any other difference in the
 # workflow, including any path guarded only on pull requests, still fails.
 PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
+    "cas-replay.yml": (
+        "paths", frozenset({"webviews/**"}),
+        "Every web merge replays the published bundles on the base.",
+    ),
+    "cloudflare-relay.yml": (
+        "paths", frozenset({"scripts/cmux-next/cloud-journey*"}),
+        "A journey change on the base retries deployment of the relay it exercises.",
+    ),
     # A nightly repair must earn this commit's Release compile before promotion
     # carries it to nightly-next, so feat-cmux-next and main pushes also start
     # cmux-next.yml for the nightly release inputs (#21144).

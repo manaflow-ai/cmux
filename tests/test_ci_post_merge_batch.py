@@ -411,7 +411,10 @@ class WiringTest(unittest.TestCase):
             job = jobs[key]
             self.assertEqual(job["uses"], f"./.github/workflows/{suite.workflow}", key)
             self.assertEqual(job["if"], f"contains(needs.plan.outputs.suites, ' {key} ')", key)
-            self.assertEqual(job["with"], {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
+            expected_inputs = {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}
+            if key == "gallery-health":
+                expected_inputs["base"] = "${{ needs.plan.outputs.base }}"
+            self.assertEqual(job["with"], expected_inputs, key)
             self.assertNotIn("name", job, f"{key}: the caller job's name must be the suite key")
         self.assertEqual(set(jobs["judge"]["needs"]), {"plan", *self.suites})
 

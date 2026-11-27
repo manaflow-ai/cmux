@@ -135,7 +135,7 @@ jobs:
       SHA: ${{ inputs.sha }}
       # Keep these paths in step with testflight-build.sh's source inputs. The
       # source review also reads string catalogs anywhere under the iOS tree.
-      ARCHIVE_PATHS: &archive-paths |
+      ARCHIVE_PATHS: |
         /.gitmodules
         /.gitattributes
         /.xcode-version
@@ -360,7 +360,7 @@ jobs:
           REMOTE: ${{ steps.source.outputs.remote }}
         run: |
           rm -rf "$RUNNER_TEMP/handoff"
-          if [[ "$REMOTE" =~ ^ios-source\.[[:alnum:]]{6}$ ]]; then rm -rf "$GITHUB_WORKSPACE/$REMOTE"; fi
+          if [[ "$REMOTE" =~ ^ios-source\.[[:alnum:]]{6}$ ]]; then rm -rf "${GITHUB_WORKSPACE:?}/$REMOTE"; fi
 
   # Only when the dispatch has no base (the first build after a manual or
   # retired-lane upload): the newest processed build's note records the commit

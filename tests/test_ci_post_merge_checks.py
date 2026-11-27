@@ -224,6 +224,7 @@ class PostMergeOnlyMatcherTest(unittest.TestCase):
 FOLDED: dict[str, tuple[str, ...]] = {
     # The push run restores the pinned Bun from the CI cache bucket first (toolchain-r2.sh, #53053).
     "app-platform.yml": ("app-platform",),
+    "app-store-shelf.yml": ("app-store-shelf",),
     "cmux-next-ios-kit.yml": ("ios-kit",),
     "ios-reliability-matrix.yml": ("ios-matrix-protocol", "ios-phone-cells"),
 }

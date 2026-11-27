@@ -2297,7 +2297,7 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
         token = steps[ids.index("reuse-token")]
         # The mirror's candidate lookup runs inside the fingerprint step, so the token comes first.
         self.assertLess(ids.index("reuse-token"), ids.index("reuse-key"))
-        self.assertIn("vars.CI_FAST_TIER_CARGO_BOT_READ != '0'", token["if"])
+        self.assertIn("(vars.CI_FAST_TIER_CARGO_BOT_READ || '1') != '0'", token["if"])
         self.assertIn("inputs.no_reuse != true", token["if"])
         self.assertEqual(token.get("timeout-minutes"), 1)
         for step_id in ("reuse-key", "reuse", "planner-reuse"):
