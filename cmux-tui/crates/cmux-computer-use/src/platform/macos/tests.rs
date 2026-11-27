@@ -2958,6 +2958,52 @@ fn the_web_value_route_writes_only_into_plain_visible_text_fields() {
     assert!(roles::web_value_gate(Some(&proxy), setting).is_err(), "a padded 1x1 helper");
 }
 
+/// A web slider (`<input type="range">`) takes set_value, which writes its
+/// number straight to it with no page-focus wait: its increment action
+/// moves it by 5% (WebKit), so 42 of 0-100 was out of reach in the
+/// background (cu suite form-slider, 0 of 3 on 2026-11-26: "the slider can
+/// only be set to multiples of 5 in the background"). Typing into one stays
+/// refused, and every other rule of the gate still holds.
+#[test]
+#[allow(clippy::redundant_clone)]
+fn a_web_slider_takes_set_value_without_waiting_for_page_focus() {
+    assert_eq!(roles::web_kind("AXSlider", 0), roles::WebKind::Range);
+    assert_eq!(roles::web_kind("AXSlider", 1), roles::WebKind::Range, "WebKit's thumb child");
+    let slider = roles::WebField {
+        kind: roles::WebKind::Range,
+        secure: false,
+        width: 129.0,
+        height: 21.0,
+        on_screen: true,
+        hidden: false,
+        limited: false,
+        center: Point { x: 0.0, y: 0.0 },
+    };
+    let setting = roles::SecureField::Allow;
+    assert!(roles::web_value_gate(Some(&slider), setting).is_ok());
+    assert!(
+        roles::web_value_gate(Some(&slider), roles::SecureField::Refuse).is_err(),
+        "nothing types into a slider"
+    );
+    assert!(
+        roles::web_value_gate(Some(&roles::WebField { hidden: true, ..slider.clone() }), setting)
+            .is_err(),
+        "hidden"
+    );
+    assert!(
+        roles::web_value_gate(
+            Some(&roles::WebField { on_screen: false, ..slider.clone() }),
+            setting
+        )
+        .is_err(),
+        "off screen"
+    );
+    assert!(!roles::web_write_needs_page_focus(Some(roles::WebKind::Range)));
+    for kind in [None, Some(roles::WebKind::Plain), Some(roles::WebKind::Other)] {
+        assert!(roles::web_write_needs_page_focus(kind), "text inputs keep the focus rule");
+    }
+}
+
 /// Live in Safari (macOS 27.0.1): an <input> has no children; a native
 /// <textarea> and a one-paragraph contenteditable (an empty ProseMirror
 /// `<p><br></p>`, a one-paragraph Quill, a one-line CodeMirror 6) are both an
