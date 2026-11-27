@@ -168,7 +168,7 @@ fn ask(socket: &Path, machine: &str) -> Result<Value, Failure> {
 /// The RPC error's `{code, message, data}`, when the client kept it; its text otherwise.
 fn error_value(error: &anyhow::Error) -> Value {
     if let Some(acpmux::client::DaemonError(rpc)) = error.downcast_ref() {
-        return rpc.to_value();
+        return serde_json::to_value(rpc).unwrap_or_else(|_| json!({"message": rpc.message}));
     }
     json!({"message": format!("{error:#}")})
 }

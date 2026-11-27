@@ -28,7 +28,7 @@ fn answer_carries_port_numbers_only_and_refuses_an_unreadable_table() {
     );
     assert_eq!(answer(Some(Vec::new())).unwrap(), json!({"ports": []}));
     let refused = answer(None).unwrap_err();
-    assert_eq!(refused.to_value()["data"]["reason"], "ports.unreadable");
+    assert_eq!(refused.data.as_ref().map(|data| &data["reason"]), Some(&json!("ports.unreadable")));
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
