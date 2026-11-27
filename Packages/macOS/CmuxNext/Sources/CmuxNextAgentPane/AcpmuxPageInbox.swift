@@ -18,9 +18,9 @@ nonisolated struct AcpmuxPageInbox: Sendable {
 
     mutating func append(contentsOf frames: [String]) { storage.append(contentsOf: frames) }
 
-    /// Removes and returns the first `k` frames (`k <= count`).
-    mutating func removeFirst(_ k: Int) -> [String] {
-        precondition(k >= 0 && k <= count, "AcpmuxPageInbox.removeFirst past its count")
+    /// Removes and returns the first `k` frames (clamped to `0...count`).
+    mutating func removeFirst(_ requested: Int) -> [String] {
+        let k = min(max(requested, 0), count)
         let taken = Array(storage[head..<(head + k)])
         head += k
         if head == storage.count {
