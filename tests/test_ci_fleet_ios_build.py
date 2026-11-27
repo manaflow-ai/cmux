@@ -4,6 +4,7 @@ and keeps `cmux-ci ios-build`'s exit codes (0 pass with every output, 1 a failed
 link-ffi-fleet job calls it from a Linux runner, so no Mac sits idle waiting for the build."""
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import io
 import json
@@ -123,6 +124,33 @@ class FleetIOSBuild(unittest.TestCase):
         route = Route({"job": "j1"}, [{"state": "failed", "verdict": "fail", "reason": "bindings drifted"}])
         self.assertEqual(run(route, self.out), 1)
 
+    def test_failed_build_prints_each_compiler_error_as_an_annotation(self):
+        errors = [
+            {"file": "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileModelTests/WorkspaceGroupTests.swift", "line": 476,
+             "col": 1, "message": "unexpected conditional compilation block terminator"},
+            {"file": "Packages/Shared/A.swift", "line": 3, "col": 9, "message": "50% of\nit, here: x"},
+            {"file": "/etc/passwd", "line": 1, "col": 1, "message": "no"},
+            {"file": "cmux-next-ios/../x.swift", "line": 1, "col": 1, "message": "no"},
+            {"file": "cmux-next-ios/B.swift", "line": "1", "message": "no"},
+            "not a dict",
+        ]
+        route = Route({"job": "j1"}, [{"state": "failed", "verdict": "fail", "reason": "build", "errors": errors}])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(run(route, self.out), 1)
+        self.assertEqual(out.getvalue().splitlines(), [
+            "::error file=cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileModelTests/WorkspaceGroupTests.swift,line=476,col=1,"
+            "title=build fleet::unexpected conditional compilation block terminator",
+            "::error file=Packages/Shared/A.swift,line=3,col=9,title=build fleet::50%25 of%0Ait, here: x",
+        ])
+
+    def test_failed_build_without_errors_prints_none(self):
+        route = Route({"job": "j1"}, [{"state": "failed", "verdict": "fail", "reason": "build"}])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(run(route, self.out), 1)
+        self.assertEqual(out.getvalue(), "")
+
     def test_route_not_enabled_is_2(self):
         route = Route((503, "10"), [])
         self.assertEqual(run(route, self.out), 2)
@@ -240,8 +268,10 @@ class KitWorkflow(unittest.TestCase):
         self.assertIn("steps.sim-products.outputs.name", steps["sim-linux-start"]["env"]["PRODUCTS"])
         self.assertIn("steps.sim-products.outputs.ready", steps["sim-linux-start"]["if"])
         self.assertIn("steps.sim-products.outputs.name", self.jobs["kit-tests"]["outputs"]["sim_products"])
-        pool = next(s for s in self.jobs["kit-sim-pool"]["steps"] if s.get("id") == "pool")
-        self.assertIn("needs.kit-tests.outputs.sim_products", pool["env"]["PRODUCTS"])
+        pool_steps = {s.get("id"): s for s in self.jobs["kit-sim-pool"]["steps"] if s.get("id")}
+        # The pool job's wait step names the products (#60129); the pool run reads that name from it.
+        self.assertIn("needs.kit-tests.outputs.sim_products", pool_steps["wait"]["env"]["PRODUCTS"])
+        self.assertIn("steps.wait.outputs.products", pool_steps["pool"]["env"]["PRODUCTS"])
 
     def test_a_shadow_job_never_fails_the_workflow(self):
         steps = {s.get("id"): s for s in self.jobs["kit-sim-fleet"]["steps"] if s.get("id")}
