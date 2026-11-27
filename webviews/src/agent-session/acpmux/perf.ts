@@ -217,7 +217,15 @@ export type LaunchMark =
   /// The page's first paint report of a chat (App.tsx `pane.painted`): its rows are on screen.
   | "rowsDrawn"
   /// The frame that drew acpmux's settled view of the chat was reported (`pane.painted` `settled`).
-  | "settledDrawn";
+  | "settledDrawn"
+  // The connect's steps, for where a restart's time goes (bench/first-load-after-restart.bench.ts WIRE_TRACE=1): the
+  // socket open, `initialize` answered and taken, the open's attach sent and answered, the kept tail drawn.
+  | "socketOpen"
+  | "initialized"
+  | "attachSent"
+  | "attachAnswered"
+  | "restoredTailDrawn"
+  | "tailWhileConnecting";
 /** An event that arrives this soon after acpmux recorded it is live, not backlog. */
 export const LIVE_EVENT_LAG_MS = 1000;
 /// How many of a page's start states `startStateTrail` keeps (the newest).
