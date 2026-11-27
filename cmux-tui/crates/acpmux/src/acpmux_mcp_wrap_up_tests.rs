@@ -179,8 +179,7 @@ fn summary_and_other_aliases_are_taken_as_their_field_and_said_so() {
 /// still builds the whole box for the one drawer that reads a result (`code_mode.rs`).
 #[test]
 fn the_answer_says_the_box_was_drawn_and_echoes_none_of_it() {
-    let recap =
-        "Landed the echo cut. The suite is green; the row on hq#15832 is not posted yet.";
+    let recap = "Landed the echo cut. The suite is green; the row on hq#15832 is not posted yet.";
     let ask = "Post the row now?";
     let args = json!({
         "recap": recap,
@@ -226,8 +225,7 @@ fn the_answer_says_the_box_was_drawn_and_echoes_none_of_it() {
     assert_eq!(call(&json!({}))["isError"], true);
     // The box itself is whole for `code_mode.rs`, aliases and trims applied.
     assert_eq!(
-        box_of(&json!({"summary": " Done. ", "question": "Open?", "options": ["Yes"]}))
-            .unwrap(),
+        box_of(&json!({"summary": " Done. ", "question": "Open?", "options": ["Yes"]})).unwrap(),
         json!({"recap": "Done.", "ask": "Open?", "actions": ["Yes"]})
     );
     assert!(box_of(&json!({})).is_none());
