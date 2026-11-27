@@ -127,6 +127,29 @@ class CrashClassRuleSignature(unittest.TestCase):
         self.assertNotEqual(tests, other)
 
 
+def suite_commits(args, jobs, runs=()):
+    """SuiteChecks' by-commit GraphQL read as GitHub answers it under `repository`: each asked commit's check suites
+    (a run's, CS_<run id>, from RUNS and from JOBS' runs at that commit) with their check runs of the asked name. The
+    classifier never sends `nodes(ids:)`: the lane-gh broker refuses that root field (hq#30852)."""
+    assert args[:2] == ["api", "graphql"], args
+    query = next(arg for arg in args if arg.startswith("query="))
+    assert "nodes(ids:" not in query and "repository(owner: $owner" in query, query
+    assert any(arg.startswith("owner=") for arg in args) and any(arg.startswith("name=") for arg in args), args
+    check = next(arg for arg in args if arg.startswith("check="))[len("check="):]
+    jobs = list(jobs)
+    commits = {}
+    for alias, sha in re.findall(r'(c\d+): object\(oid: "([0-9a-f]{40})"\)', query):
+        suites = dict.fromkeys([run["check_suite_node_id"] for run in runs
+                                if run.get("head_sha") == sha and run.get("check_suite_node_id")]
+                               + [f"CS_{job['run_id']}" for job in jobs if job.get("head_sha") == sha])
+        commits[alias] = {"checkSuites": {"pageInfo": {"hasNextPage": False}, "nodes": [
+            {"id": suite, "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
+                {"conclusion": (job["conclusion"] or "").upper() or None}
+                for job in jobs if f"CS_{job['run_id']}" == suite and job["name"] == check]}}
+            for suite in suites]}}
+    return json.dumps({"data": {"repository": commits}})
+
+
 class FakeGitHub:
     """The head run 10 (workflow 7) and feat-cmux-next's latest completed run 20 of the same workflow."""
 
@@ -1813,7 +1836,7 @@ class Excusing(unittest.TestCase):
         title = "cmux-next base tier · "
         older = {"id": 40, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "in_progress",
                  "conclusion": None, "display_title": title + "e" * 40, "created_at": "2026-11-09T12:00:00Z",
-                 "check_suite_node_id": "CS_40"}
+                 "check_suite_node_id": "CS_40", "head_sha": "e" * 40}
         self.gh.jobs[4] = failed_job(4, 40, "e" * 40, name=name, step="Run the suites")
         self.gh.logs[4] = log(name, "Run the suites", ISSUE, OTHER)
         runs = [older]
@@ -1822,20 +1845,15 @@ class Excusing(unittest.TestCase):
             runs.append({"id": run_id, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
                          "status": "completed", "conclusion": "cancelled",
                          "display_title": title + f"{offset % 16:x}" * 39 + "0",
-                         "created_at": f"2026-11-09T13:{offset:02d}:00Z", "check_suite_node_id": f"CS_{run_id}"})
+                         "created_at": f"2026-11-09T13:{offset:02d}:00Z", "check_suite_node_id": f"CS_{run_id}",
+                         "head_sha": "0" * 40})
             self.gh.jobs[run_id] = dict(failed_job(run_id, run_id, "0" * 40, name=name), conclusion="cancelled",
                                         steps=[])
         self.gh.base_runs = sorted(runs, key=lambda run: run["created_at"], reverse=True)
 
         def run(args, *, repo=None):
-            # The check suites of the listed runs: every check run of the asked name in each, as GraphQL answers.
-            query = next(arg for arg in args if arg.startswith("query="))
-            asked = next(arg for arg in args if arg.startswith("name="))[len("name="):]
-            return json.dumps({"data": {"nodes": [
-                {"id": f"CS_{suite}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
-                    {"conclusion": (job["conclusion"] or "").upper() or None}
-                    for job in self.gh.jobs.values() if job["run_id"] == int(suite) and job["name"] == asked]}}
-                for suite in re.findall(r'"CS_(\d+)"', query)]}})
+            # The check suites of the listed runs, by commit: every check run of the asked name in each.
+            return suite_commits(args, self.gh.jobs.values(), self.gh.base_runs)
 
         self.gh.run = run
 
@@ -1849,7 +1867,7 @@ class Excusing(unittest.TestCase):
                 self.gh.base_runs.insert(0, {
                     "id": 41, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
                     "conclusion": "cancelled", "display_title": "cmux-next base tier · " + "d" * 40,
-                    "created_at": "2026-11-09T12:15:00Z", "check_suite_node_id": "CS_41"})
+                    "created_at": "2026-11-09T12:15:00Z", "check_suite_node_id": "CS_41", "head_sha": "d" * 40})
                 self.gh.jobs[5] = dict(failed_job(5, 41, "d" * 40, name=name, step="Run the suites"),
                                        conclusion="success")
                 self.gh.jobs[5]["steps"][-1]["conclusion"] = "success"
@@ -10260,14 +10278,8 @@ class SweepGitHub(FakeGitHub):
         assert args[:2] == ["api", "graphql"], args
         self.graphql += 1
         query = next(arg for arg in args if arg.startswith("query="))
-        name = next(arg for arg in args if arg.startswith("name="))[len("name="):]
-        suites = __import__("re").findall(r'"CS_(\d+)"', query)
-        assert 0 < len(suites) <= excuse.SUITES_PER_QUERY, suites
-        return json.dumps({"data": {"nodes": [
-            {"id": f"CS_{run}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
-                {"conclusion": (job["conclusion"] or "").upper() or None}
-                for job in self.jobs.values() if job["run_id"] == int(run) and job["name"] == name]}}
-            for run in suites]}})
+        assert 0 < len(re.findall(r"c\d+: object\(oid:", query)) <= excuse.SUITES_PER_QUERY, query
+        return suite_commits(args, self.jobs.values(), list(self.runs.values()))
 
     def judge(self, reds):
         try:
@@ -10326,13 +10338,8 @@ class TreeReuseGitHub(FakeGitHub):
         assert args[:2] == ["api", "graphql"], args
         query = next(arg for arg in args if arg.startswith("query="))
         self.graphql.append(query)
-        if "nodes(ids:" in query:
-            if not self.nodes:
-                raise excuse.Refused("GitHub evidence request failed: gh: lane-gh call graphql manaflow-ai/cmux: "
-                                     "refused: graphql: root field nodes is refused")
-            name = next(arg for arg in args if arg.startswith("name="))[len("name="):]
-            return json.dumps({"data": {"nodes": [{"id": f"CS_{run}", "checkRuns": self.checks(int(run), name)}
-                                                  for run in re.findall(r'"CS_(\d+)"', query)]}})
+        # The lane-gh broker refuses the `nodes` root field on every call (hq#30852): the classifier never sends it.
+        assert "nodes(ids:" not in query, query
         assert "owner=manaflow-ai" in args and "name=cmux" in args, args
         name = next(arg for arg in args if arg.startswith("check="))[len("check="):]
         commits = {}
@@ -10420,6 +10427,70 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
             self.judge(gh)
         self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.CALL_JOB_READS)
 
+    def test_a_broker_refused_query_is_a_tool_error_that_names_the_fix_never_quota(self):
+        # hq#30852 (2026-11-27): the broker refused SUITE_CHECKS_QUERY's root `nodes` on every call; the classifier
+        # read that as "a read that never happened" (exit 3), and land-judge waited for a quota reset that could
+        # never help. A shape refusal is exit 4, "not judged, tool error", naming the fix, and never retried.
+        fixture = TreeReuseGitHub(nodes=True)
+        for run in fixture.base_runs:
+            run["conclusion"] = "cancelled"
+        fixture.jobs = {job_id: fixture.jobs[job_id] for job_id in (1, 2)}
+        fixture.run = excuse.GitHub().run
+        said = ("gh: lane-gh call graphql manaflow-ai/cmux: refused: graphql: root field repository is refused "
+                "(allowed: rateLimit; see GRAPHQL_ROOT_FIELDS, GRAPHQL_FIELDS)\n")
+        calls = []
+
+        def gh(argv, *, stdout, stderr, env=None):
+            calls.append(argv)
+            stderr.write(said.encode())
+            return unittest.mock.Mock(returncode=1)
+
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with unittest.mock.patch.dict(os.environ, {"TAP_TESTS_STATE": "off"}), \
+                unittest.mock.patch.object(excuse, "GitHub", return_value=fixture), \
+                unittest.mock.patch.object(subprocess, "Popen", gh), \
+                unittest.mock.patch.object(time, "sleep", side_effect=AssertionError("a refusal is never waited on")), \
+                contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"])
+        self.assertEqual(code, 4, stderr.getvalue())
+        self.assertEqual(len(calls), 1, calls)  # one call: a refusal is the same on every retry
+        self.assertIn("not judged, tool error", stderr.getvalue())
+        self.assertIn("refused: graphql: root field repository is refused", stderr.getvalue())
+        self.assertIn("fix the query, not the broker", stderr.getvalue())
+        self.assertNotIn("rate", stderr.getvalue().replace("rateLimit", ""))
+
+    def test_only_a_graphql_shape_refusal_is_a_broker_refusal(self):
+        # Any other failed gh call stays a read that never happened (Unread: exit 3, a retry).
+        evidence = excuse._evidence
+        for said, refused in (
+                ("gh: lane-gh call graphql manaflow-ai/cmux: refused: graphql: root field nodes is refused\n", True),
+                ("gh: lane-gh call api manaflow-ai/cmux: refused: rate limited, retry after 02:28Z\n", False),
+                ("gh: HTTP 502: Bad Gateway (https://api.github.com/graphql)\n", False)):
+            with self.subTest(said=said):
+                def gh(argv, *, stdout, stderr, env=None):
+                    stderr.write(said.encode())
+                    return unittest.mock.Mock(returncode=1)
+
+                with unittest.mock.patch.object(subprocess, "Popen", gh), \
+                        self.assertRaises(evidence.Unread if not refused else evidence.BrokerRefused) as caught:
+                    evidence.GitHub().run(["api", "graphql", "-f", "query={ rateLimit { remaining } }"])
+                self.assertEqual(isinstance(caught.exception, evidence.BrokerRefused), refused)
+
+    def test_suite_checks_never_send_a_root_the_broker_refuses(self):
+        # Every SuiteChecks read is rooted at `repository`, naming the call's repo, with GH_REPO set to it too.
+        sent = []
+        suites = excuse.SuiteChecks(unittest.mock.Mock(run=lambda args, repo=None: sent.append((args, repo)) or "{}"),
+                                    REPO)
+        runs = [{"check_suite_node_id": f"CS_{n}", "head_sha": f"{n:040x}"} for n in range(3)]
+        self.assertIsNone(suites.conclusions(runs, 0, SWIFT))
+        ((args, repo),) = sent
+        query = next(arg for arg in args if arg.startswith("query="))
+        self.assertNotIn("nodes(ids:", query)
+        self.assertRegex(query, r"^query=query\(\$owner: String!, \$name: String!, \$check: String!\) \{ repository\(")
+        self.assertEqual(repo, REPO)
+        self.assertIn("owner=manaflow-ai", args)
+        self.assertIn("name=cmux", args)
+
 
 class SweepLimit(unittest.TestCase):
     """glaeda-gh refuses a caller past 30 distinct job reads in ten minutes; land-judge judges every red of a head in
@@ -10446,7 +10517,9 @@ class SweepLimit(unittest.TestCase):
                 # One head run and one base run per red, and none of the 32 head runs the status was looked for in.
                 self.assertEqual(len(gh.targets), 2 * reds)
                 self.assertLess(len(gh.targets), limit)
-                self.assertEqual(gh.graphql, 2 + 2 * reds)  # 32 head runs and 36 base runs each: two requests apiece
+                # By commit (hq#30852): the 32 head runs share HEAD, so one request; each red's 36 base runs share
+                # BASE_SHA, one request apiece. (By suite ID, 25 to a request, it took two each.)
+                self.assertEqual(gh.graphql, 1 + reds)
         rest = SweepGitHub(1, suites=False)
         rest.judge(1)
         self.assertGreater(len(rest.targets), limit)  # what land-judge hit on cmux#36958
@@ -15468,15 +15541,8 @@ class StepFixture:
                 return found
 
             def run(self, args, *, repo=None):
-                # SuiteChecks' GraphQL read: each suite's check runs of the name, from this fixture's jobs.
-                assert args[:2] == ["api", "graphql"], args
-                query = next(arg for arg in args if arg.startswith("query="))
-                name = next(arg for arg in args if arg.startswith("name="))[len("name="):]
-                return json.dumps({"data": {"nodes": [
-                    {"id": f"CS_{run}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
-                        {"conclusion": (job["conclusion"] or "").upper() or None}
-                        for job in self.jobs.values() if job["run_id"] == int(run) and job["name"] == name]}}
-                    for run in re.findall(r'"CS_(\d+)"', query)]}})
+                # SuiteChecks' GraphQL read, by commit: each suite's check runs of the name, from this fixture's jobs.
+                return suite_commits(args, self.jobs.values())
 
         github = GitHub()
         jobs, logs = {}, {}
@@ -17676,15 +17742,8 @@ class SpawnOwnerGitHub:
         return self.logs[job["id"]]
 
     def run(self, args, *, repo=None):
-        # SuiteChecks' GraphQL read: each suite's check runs of the name, from these jobs.
-        assert args[:2] == ["api", "graphql"], args
-        query = next(arg for arg in args if arg.startswith("query="))
-        name = next(arg for arg in args if arg.startswith("name="))[len("name="):]
-        return json.dumps({"data": {"nodes": [
-            {"id": f"CS_{run}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
-                {"conclusion": (job["conclusion"] or "").upper() or None}
-                for job in self.jobs.values() if job["run_id"] == int(run) and job["name"] == name]}}
-            for run in re.findall(r'"CS_(\d+)"', query)]}})
+        # SuiteChecks' GraphQL read, by commit: each suite's check runs of the name, from these jobs.
+        return suite_commits(args, self.jobs.values(), list(self.runs.values()))
 
 
 class SpawnOwnerFixedOnBase(unittest.TestCase):

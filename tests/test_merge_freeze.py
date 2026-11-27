@@ -610,9 +610,10 @@ class BrokerGraphqlFieldsTests(unittest.TestCase):
     # SOURCES lists the same files.
     CLASSIFIER_FILES = ("base_red_excuse.py", "test_reds.py", "main_fix_evidence.py", "gh_pages.py",
                         "webviews_test_results.py")
-    # Refused on purpose, with why the classifier still answers (the broker's REFUSED_ON_PURPOSE): root `nodes` can
-    # name a node of any repo, so SuiteChecks.read catches the refusal and reads those runs over REST.
-    CLASSIFIER_REFUSED_ON_PURPOSE = frozenset({"SUITE_CHECKS_QUERY"})
+    # Refused on purpose, with why the classifier still answers: none. SUITE_CHECKS_QUERY's root `nodes` was here,
+    # but its refusal raised Unread, not Refused, so the REST fallback never ran and every land with a base red
+    # stopped as "quota" (hq#30852, 2026-11-27); SuiteChecks now reads only under `repository`.
+    CLASSIFIER_REFUSED_ON_PURPOSE: frozenset[str] = frozenset()
 
     def gate_queries(self):
         import ast
