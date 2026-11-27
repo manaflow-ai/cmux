@@ -213,11 +213,13 @@ def change_problems(base: str, paths: list[str], data: dict, privacy_doc: str, r
     gained = {h: f for h, f in {**code_hosts(head, privacy_doc), **head_ice}.items()
               if h not in was and h not in was_ice}
     lost = (set(was) | set(was_ice)) - set(head) - set(head_ice)
-    stale = {e["host"] for e in data["hosts"] if e["named_in"] == "code"} & lost
+    code_entries = {e["host"] for e in data["hosts"] if e["named_in"] == "code"}
+    stale = code_entries & lost
     named = set(outbound.named_anywhere(stale, root)) | ice_named_anywhere(stale, root)
-    # coverage_problems on just these: the gained hosts' entries, and the named_in "code" entries for lost hosts.
-    sub = {**data, "hosts": [e for e in data["hosts"] if e["named_in"] != "code" or e["host"] in stale or e["host"] in gained]}
-    return coverage_problems(sub, gained, {}, relays, named | (set(head) | set(head_ice)))
+    # Keep every entry for exact and wildcard coverage. Only lost code names can become stale;
+    # the remaining entries' naming status belongs to the base, not this change.
+    named |= code_entries - stale
+    return coverage_problems(data, gained, {}, relays, named | set(head) | set(head_ice))
 
 
 def coverage(root: Path = ROOT) -> list[str]:
