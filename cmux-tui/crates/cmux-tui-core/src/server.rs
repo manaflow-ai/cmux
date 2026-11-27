@@ -90,10 +90,13 @@ use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::AttachLifecycle;
 use crate::surface::{ClearHistoryDelivery, ClearHistoryFailure};
 use crate::{
-    Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec, MachineUsage, Mux, MuxEvent, Node,
+    Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec, MachineUsage, Mux, MuxEvent,
     PairingDecision, PaneId, ScreenId, SplitDir, SplitId, SurfaceId, SurfaceKind, TreeDecorations,
     ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
 };
+// `Node`: only the tests below `server` build layout nodes; `node_json` is in `tree_wire`.
+#[cfg(test)]
+use crate::Node;
 #[cfg(test)]
 use crate::{Rgb, TerminalColors};
 #[cfg(test)]
@@ -297,6 +300,7 @@ mod tab_create_wire;
 mod tab_park;
 mod tab_restart;
 mod websocket_listener;
+use crate::tree_wire::{home, node_json, raw_tab, screen_json, tree_json};
 pub(crate) use cmd_subscribe::AGENT_PRESENCE_REPLAY_CAPABILITY;
 pub(crate) use cmd_subscribe::SCREEN_DEVICE_IDENTITY_CAPABILITY;
 pub(crate) use cmd_subscribe::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY;
@@ -319,7 +323,6 @@ use responses::{
     response_error_code, send_bad_request, send_request_error, send_request_error_with_delivery,
     send_response,
 };
-use crate::tree_wire::{home, node_json, raw_tab, screen_json, tree_json};
 use screen_json::screen_json;
 mod group_outcome_json;
 use group_outcome_json::{
@@ -3178,7 +3181,6 @@ use connection_frame::{
     auth_token, constant_time_eq, handle_connection_frame, handle_request,
     handle_request_with_cancellation, pairing_request, zeroize_string,
 };
-
 
 fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
     match layout {

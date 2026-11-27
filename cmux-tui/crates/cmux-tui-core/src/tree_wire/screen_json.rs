@@ -2,6 +2,7 @@
 //! `dock-columns-v1` flags and their `rows-v1` rows.
 
 use super::*;
+use crate::model::Screen;
 use crate::panic_free::JsonFields;
 
 pub(crate) fn screen_json(

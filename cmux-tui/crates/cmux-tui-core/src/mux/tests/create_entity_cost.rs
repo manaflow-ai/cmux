@@ -48,7 +48,12 @@ fn the_entity_check_holds_when_a_reader_changes_the_title_between_its_builds() {
     let moving = surface.clone();
     crate::tree_wire::set_entity_check_hook_for_test(move || moving.set_test_title("after"));
     let entity = mux.with_state(|state| {
-        crate::tree_wire::tree_entity_json(state, &decorations, TreeDeltaKind::TabChanged, surface.id)
+        crate::tree_wire::tree_entity_json(
+            state,
+            &decorations,
+            TreeDeltaKind::TabChanged,
+            surface.id,
+        )
     });
     assert!(entity.is_some(), "the tab has an entity");
     assert_eq!(surface.title(), "after", "the hook ran between the two builds");

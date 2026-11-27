@@ -19,16 +19,16 @@ use crate::state::conversation_tabs_store::CONVERSATION_KIND;
 use crate::state::remote_terminal_tabs_store::{REMOTE_TERMINAL_KIND, RemoteTerminalRecord};
 use crate::{Node, PaneId, SplitDir, SplitId, TreeDecorations};
 
-pub(crate) use screen_json::screen_layout_json;
 use screen_json::screen_json;
+pub(crate) use screen_json::screen_layout_json;
 #[cfg(all(test, unix))]
 pub(crate) use tree_json::skip_entity_check_on_this_thread_for_bench as skip_tree_entity_check;
-pub(crate) use tree_json::{
-    selection_changed_json, tree_entity_json, workspace_presentation_changed_json, workspaces_json,
-};
 use tree_json::{ShortIds, pane_json};
 #[cfg(test)]
 pub(crate) use tree_json::{panes_built_for_test, set_entity_check_hook_for_test};
+pub(crate) use tree_json::{
+    selection_changed_json, tree_entity_json, workspace_presentation_changed_json, workspaces_json,
+};
 
 /// One layout node. `split_ids`: the public ids of the splits
 /// (`State::resource_indexes`); a split with one carries it as `split_id`

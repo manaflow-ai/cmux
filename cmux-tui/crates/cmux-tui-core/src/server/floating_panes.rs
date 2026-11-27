@@ -10,9 +10,9 @@
 use cmux_layout_reducer::floating_panes::{FloatFrame, FloatMode, Floating, Quick, QuickMode};
 
 use super::*;
-pub(super) use crate::tree_wire::{floating_json, quick_terminal_json};
 use crate::FloatPaneError;
 use crate::panic_free::JsonFields;
+pub(super) use crate::tree_wire::{floating_json, quick_terminal_json};
 
 /// `float-pane` and the optional `Screen.floating` field.
 pub(super) const FLOATING_PANES_CAPABILITY: &str = "floating-panes-v1";
@@ -180,7 +180,6 @@ fn frame_json(frame: FloatFrame) -> Value {
     let [x, y, w, h] = frame.fractions();
     json!({"x": x, "y": y, "w": w, "h": h})
 }
-
 
 #[cfg(test)]
 #[path = "floating_panes_tests.rs"]

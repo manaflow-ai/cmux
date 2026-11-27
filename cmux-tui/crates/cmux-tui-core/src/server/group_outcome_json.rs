@@ -3,8 +3,10 @@
 //! behavior unchanged).
 
 use super::*;
-pub(super) use crate::tree_wire::{pane_tab_group_json, workspace_group_json, workspace_groups_json};
 use crate::panic_free::JsonFields;
+pub(super) use crate::tree_wire::{
+    pane_tab_group_json, workspace_group_json, workspace_groups_json,
+};
 
 pub(super) fn screen_group_outcome_json(outcome: &crate::ScreenGroupOutcome) -> Value {
     json!({
@@ -47,4 +49,3 @@ pub(super) fn tab_drag_outcome_json(outcome: &crate::TabDragOutcome) -> Value {
         "undoable": outcome.undoable,
     })
 }
-
