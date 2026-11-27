@@ -395,10 +395,7 @@ pub fn frame_command(line: &str) -> Option<&'static str> {
         return None;
     }
     let cmd = object.get("cmd")?.as_str()?;
-    [
-        SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, DETACH, PIN, UNPIN, PINS, WARM,
-        UNSYNCED,
-    ]
+    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, DETACH, PIN, UNPIN, PINS, WARM, UNSYNCED]
         .into_iter()
         .find(|known| *known == cmd)
 }

@@ -478,9 +478,8 @@ fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
 
 #[test]
 fn brought_back_and_release_are_projection_frames() {
-    for op in [
-        BROUGHT_BACK, RELEASE, DETACH, LAYER, FILES, DROP, PIN, UNPIN, PINS, WARM, UNSYNCED,
-    ] {
+    for op in [BROUGHT_BACK, RELEASE, DETACH, LAYER, FILES, DROP, PIN, UNPIN, PINS, WARM, UNSYNCED]
+    {
         let line = json!({"id": 1, "cmd": op, "name": "a"}).to_string();
         assert_eq!(frame_command(&line), Some(op));
     }
