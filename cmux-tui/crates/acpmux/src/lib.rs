@@ -75,6 +75,8 @@ pub mod cloud_model_plane;
 pub mod cloud_readme;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
+/// The pinned cmux-rd a joined Linux machine installs, and its `linux-host enable` (`cmux_rd.rs`).
+pub mod cmux_rd;
 /// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod cmux_tui_service;
@@ -92,6 +94,10 @@ pub mod complete;
 pub mod computer_use;
 pub mod config;
 pub mod conn_origin;
+/// Control and Screen switched from the owner's app on another machine, over the hub carrier
+/// (`consent_grant_service.rs`, `cli/consent_grant.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod consent_grant_service;
 pub mod context_inventory;
 pub mod cpu_class;
 pub mod customize_run;
@@ -131,6 +137,7 @@ pub mod github_budget;
 pub mod github_lane_mint;
 #[cfg(unix)]
 pub mod github_mcp;
+pub mod github_pool;
 pub mod github_rest_op;
 #[cfg(unix)]
 pub mod github_session_env;
