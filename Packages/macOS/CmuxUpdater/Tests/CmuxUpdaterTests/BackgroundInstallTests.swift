@@ -99,6 +99,26 @@ import Testing
         #expect(harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
     }
 
+    /// cmux NEXT leaves the shared Sparkle preference on, then intercepts Sparkle's silent
+    /// callback so the staged update still returns through the cancellable app-owned flow.
+    @Test func sharedDefaultsSilentCallbackStillReturnsThroughTheDriver() {
+        let harness = Harness(automaticDownloads: true)
+        harness.controller.disablesSparkleSilentStagingPreference = false
+        harness.controller.installsUpdatesInBackground = true
+        let updater = unsafeBitCast(NSNull(), to: SPUUpdater.self)
+        let held = harness.controller.driver.updater(updater, willInstallUpdateOnQuit: item, immediateInstallationBlock: {})
+
+        #expect(!held, "the shared Sparkle silent callback was not intercepted")
+        #expect(harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey),
+                "the shared Sparkle preference was cleared while handling the callback")
+        #expect(harness.controller.driver.quitInstallItem?.versionString == item.versionString)
+
+        harness.finishSparkleCycle()
+        let resumed = ChoiceBox()
+        find(harness, into: resumed)
+        #expect(resumed.choice == .skip, "the intercepted silent callback did not resume through the driver")
+    }
+
     /// A build the host refuses (cmux NEXT: a pulled build) is never downloaded, offered or
     /// accepted: background mode does not accept it, the prompt flow does not show it, and a
     /// prompt that waits when the host comes to refuse it is not downloaded.
