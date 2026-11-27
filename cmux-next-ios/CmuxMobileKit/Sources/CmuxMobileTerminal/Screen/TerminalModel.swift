@@ -476,6 +476,9 @@ public final class TerminalModel {
             heldKeyBytes = max(0, bytes)
         case .hostGrid, .hostGridOwner, .paintMark:
             break
+        case .openLink(let url):
+            // The same Safari view a tapped public link opens in (``TerminalLinkRoute``).
+            openLink(url, action: .openOnPhone)
         }
     }
 
