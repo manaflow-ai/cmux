@@ -124,6 +124,21 @@ fn customizing_the_app_is_told_from_paths_and_commands() {
 }
 
 #[test]
+fn window_frames_follow_the_swift_live_build_only_while_its_socket_is_there() {
+    let home = tempfile::tempdir().unwrap();
+    assert_eq!(live_socket(home.path()), None);
+    let named = home.path().join(LIVE_PREVIEW);
+    std::fs::create_dir_all(named.parent().unwrap()).unwrap();
+    let socket = home.path().join("cmux-debug-swift-ui.sock");
+    std::fs::write(&named, json!({"socket": socket, "tag": "swift-ui"}).to_string()).unwrap();
+    assert_eq!(live_socket(home.path()), None, "a stale name whose socket is gone");
+    std::fs::write(&socket, b"").unwrap();
+    assert_eq!(live_socket(home.path()), Some(socket));
+    std::fs::write(&named, b"{\"socket\": \"\"}").unwrap();
+    assert_eq!(live_socket(home.path()), None);
+}
+
+#[test]
 fn driving_the_simulator_is_told_from_commands_and_ios_swift_paths() {
     for command in [
         "xcrun simctl launch booted dev.cmux.ios",
