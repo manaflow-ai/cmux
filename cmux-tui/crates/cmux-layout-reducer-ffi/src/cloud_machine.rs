@@ -6,7 +6,7 @@
 use cmux_cloud_machine::record::{self, Machine, Operation, Status};
 use cmux_cloud_machine::{
     cap, changes, error, github, github_setup, harness_copy, limits, list_facts, models, preview,
-    push, record_reads, rules, vm_host,
+    push, reads, rules, vm_host,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -15,12 +15,13 @@ use serde_json::{Value, json};
 use crate::ERR_INVALID;
 
 /// Whether `operation` is one of this module's: `cloud_model_*`, and `cloud_machine_*` but for
-/// `cloud_bootstrap`'s `cloud_machine_config_*` and `cloud_machine_step_*`.
+/// `cloud_bootstrap`'s `cloud_machine_config_*`, `cloud_machine_step_*` and `cloud_machine_repo_*`.
 pub(crate) fn handles(operation: &[u8]) -> bool {
     operation.starts_with(b"cloud_model_")
         || (operation.starts_with(b"cloud_machine_")
             && !operation.starts_with(b"cloud_machine_config_")
-            && !operation.starts_with(b"cloud_machine_step_"))
+            && !operation.starts_with(b"cloud_machine_step_")
+            && !operation.starts_with(b"cloud_machine_repo_"))
 }
 
 fn read<T: DeserializeOwned>(request: &[u8]) -> Result<T, i32> {
@@ -39,17 +40,24 @@ struct ChangesRequest {
     id: String,
 }
 
-/// The record reads' state, the machines the app holds sessions for, whether Cloud is turned off,
-/// and the read: `cloud_machine_reads_finish`'s request (`_apply` and `_reconcile` add to it).
+/// The read order's state and its arguments, the shape of every `cloud_machine_reads_*` but begin.
 #[derive(Deserialize)]
 struct ReadsRequest {
     #[serde(default)]
-    state: record_reads::Reads,
+    state: reads::Reads,
     #[serde(default)]
-    sessions: std::collections::BTreeSet<String>,
+    read: i64,
+    #[serde(default)]
+    machine: String,
+    /// A list's machines.
+    #[serde(default)]
+    machines: Vec<String>,
+    /// The machines the app holds sessions for.
+    #[serde(default)]
+    held: Vec<String>,
+    /// Cloud is off: tickets retire, no omission is released.
     #[serde(default)]
     disabled: bool,
-    read: i64,
 }
 
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
@@ -212,14 +220,13 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!({"delayMs": changes::next_delay(request.delay_ms, request.listed), "settleDelayMs": changes::SETTLE_DELAY_MS})
         }
-        // The pushed state's rules; the app holds the sockets.
-        // The order of record reads (`record_reads`): each op answers the new state and the steps
-        // the app runs, in order (`apply`, `add` or `remove` a machine's session).
+        // The order of record reads (`reads::Reads`): each answers the new state; the app removes
+        // the `removals` it holds.
         b"cloud_machine_reads_begin" => {
             #[derive(Deserialize)]
             struct Request {
                 #[serde(default)]
-                state: record_reads::Reads,
+                state: reads::Reads,
                 #[serde(default)]
                 machine: Option<String>,
             }
@@ -228,54 +235,27 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             json!({"state": state, "read": ticket})
         }
         b"cloud_machine_reads_finish" => {
-            let ReadsRequest { mut state, mut sessions, disabled, read: ticket } = read(request)?;
-            let steps = state.finish(ticket, &mut sessions, disabled);
-            json!({"state": state, "steps": steps})
+            let ReadsRequest { mut state, read: ticket, disabled, .. } = read(request)?;
+            let removals = state.finish(ticket, disabled);
+            json!({"state": state, "removals": removals, "idle": state.is_idle()})
         }
-        b"cloud_machine_reads_apply" => {
-            // No `flatten`: it buffers the state, and its integer-keyed maps then fail to read.
-            #[derive(Deserialize)]
-            struct Request {
-                #[serde(default)]
-                state: record_reads::Reads,
-                #[serde(default)]
-                sessions: std::collections::BTreeSet<String>,
-                #[serde(default)]
-                disabled: bool,
-                read: i64,
-                machine: String,
-                #[serde(default)]
-                destroyed: bool,
-                current: bool,
-            }
-            let Request {
-                mut state,
-                mut sessions,
-                disabled,
-                read: ticket,
-                machine,
-                destroyed,
-                current,
-            } = read(request)?;
-            let steps = state.apply(&machine, destroyed, ticket, current, &mut sessions, disabled);
-            json!({"state": state, "steps": steps})
+        b"cloud_machine_reads_admit" => {
+            let ReadsRequest { mut state, read: ticket, machine, .. } = read(request)?;
+            let admitted = state.admit(&machine, ticket);
+            json!({"state": state, "admitted": admitted})
         }
-        b"cloud_machine_reads_reconcile" => {
-            #[derive(Deserialize)]
-            struct Request {
-                #[serde(default)]
-                state: record_reads::Reads,
-                #[serde(default)]
-                sessions: std::collections::BTreeSet<String>,
-                #[serde(default)]
-                disabled: bool,
-                read: i64,
-                list: Vec<record_reads::Listed>,
-            }
-            let Request { mut state, mut sessions, disabled, read: ticket, list } = read(request)?;
-            let steps = state.reconcile(&list, ticket, &mut sessions, disabled);
-            json!({"state": state, "steps": steps})
+        b"cloud_machine_reads_listed" => {
+            let ReadsRequest { mut state, read: ticket, machines, held, disabled, .. } =
+                read(request)?;
+            let listed = state.listed(&machines, &held, ticket, disabled);
+            json!({"state": state, "add": listed.add, "removals": listed.removals})
         }
+        b"cloud_machine_reads_removed" => {
+            let ReadsRequest { mut state, machine, .. } = read(request)?;
+            state.removed(&machine);
+            json!({"state": state})
+        }
+        // The pushed state's rules; the app holds the sockets.
         b"cloud_machine_push_url" => {
             #[derive(Deserialize)]
             struct Request {

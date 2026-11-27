@@ -97,6 +97,40 @@ fn the_overlay_round_trips_its_state() {
 }
 
 #[test]
+fn the_read_order_round_trips_its_state() {
+    let (code, list) = call(c"cloud_machine_reads_begin", &json!({}));
+    assert_eq!(code, OK);
+    assert_eq!(list["read"], 1);
+    let (_, status) =
+        call(c"cloud_machine_reads_begin", &json!({"state": list["state"], "machine": "vm_a"}));
+    assert_eq!(status["read"], 2);
+    let (_, omitted) = call(
+        c"cloud_machine_reads_listed",
+        &json!({"state": status["state"], "machines": ["vm_c"], "held": ["vm_a"], "read": 1}),
+    );
+    assert_eq!(omitted["add"], json!(["vm_c"]));
+    assert_eq!(omitted["removals"], json!([]), "a newer read of vm_a holds the removal");
+    assert_eq!(omitted["state"]["deferred"], json!({"vm_a": 1}));
+    let (_, stale) = call(
+        c"cloud_machine_reads_admit",
+        &json!({"state": omitted["state"], "machine": "vm_b", "read": 1}),
+    );
+    assert_eq!(stale["admitted"], true);
+    let (_, finished) =
+        call(c"cloud_machine_reads_finish", &json!({"state": stale["state"], "read": 2}));
+    assert_eq!(finished["removals"], json!(["vm_a"]), "the failed read released it");
+    assert_eq!(finished["idle"], true);
+    let (_, again) = call(
+        c"cloud_machine_reads_admit",
+        &json!({"state": finished["state"], "machine": "vm_a", "read": 1}),
+    );
+    assert_eq!(again["admitted"], false, "the omission's list is vm_a's read now");
+    let (_, removed) =
+        call(c"cloud_machine_reads_removed", &json!({"state": again["state"], "machine": "vm_a"}));
+    assert_eq!(removed["state"]["deferred"], json!({}));
+}
+
+#[test]
 fn a_push_frame_says_what_to_show() {
     let id = "vm_aaaaaaaaaaaaaaaaaaaa";
     let text = json!({"t": "state", "machine": id, "state": {"record": {"id": id, "status": "paused", "revision": "4"}}}).to_string();
@@ -237,56 +271,4 @@ fn github_setup_checks_the_identity_builds_the_script_and_reads_the_answer() {
         call(c"cloud_model_github_setup_read", &json!({"exitCode": 0, "app": "bogus"})).0,
         ERR_INVALID
     );
-}
-
-#[test]
-fn record_reads_order_answers_and_say_which_sessions_join_change_or_go() {
-    let (status, begun) = call(c"cloud_machine_reads_begin", &json!({}));
-    assert_eq!(status, OK);
-    assert_eq!(begun["read"], 1);
-    let list = begun["read"].clone();
-    let (_, begun) =
-        call(c"cloud_machine_reads_begin", &json!({"state": begun["state"], "machine": "a"}));
-    assert_eq!(begun["read"], 2);
-    assert_eq!(begun["state"]["outstanding"], json!({"2": "a"}));
-
-    // The list leaves `a` out while a newer status read of it runs: it waits, `b` joins.
-    let (status, reconciled) = call(
-        c"cloud_machine_reads_reconcile",
-        &json!({"state": begun["state"], "sessions": ["a"], "read": list, "list": [{"id": "b"}, {"id": "c", "destroyed": true}]}),
-    );
-    assert_eq!(status, OK);
-    assert_eq!(reconciled["steps"], json!([{"do": "add", "machine": "b"}]));
-    assert_eq!(reconciled["state"]["deferred"], json!({"a": 1}));
-
-    // The status read says `a` was destroyed.
-    let (status, applied) = call(
-        c"cloud_machine_reads_apply",
-        &json!({"state": reconciled["state"], "sessions": ["a", "b"], "read": 2, "machine": "a", "destroyed": true, "current": true}),
-    );
-    assert_eq!(status, OK);
-    assert_eq!(applied["steps"], json!([{"do": "remove", "machine": "a", "destroyed": true}]));
-    assert_eq!(applied["state"]["deferred"], json!({}));
-    assert_eq!(applied["state"]["outstanding"], json!({}));
-
-    // A failed status read ends and lets a waiting removal go.
-    let state = json!({"issued": 3, "outstanding": {"3": "b"}, "deferred": {"b": 2}});
-    let (status, finished) =
-        call(c"cloud_machine_reads_finish", &json!({"state": state, "sessions": ["b"], "read": 3}));
-    assert_eq!(status, OK);
-    assert_eq!(finished["steps"], json!([{"do": "remove", "machine": "b", "destroyed": false}]));
-    // Turned off: the read ends and nothing goes.
-    let (_, finished) = call(
-        c"cloud_machine_reads_finish",
-        &json!({"state": state, "sessions": ["b"], "read": 3, "disabled": true}),
-    );
-    assert_eq!(finished["steps"], json!([]));
-    assert_eq!(finished["state"]["outstanding"], json!({}));
-
-    assert_eq!(call(c"cloud_machine_reads_finish", &json!({"state": {}})).0, ERR_INVALID);
-    assert_eq!(
-        call(c"cloud_machine_reads_apply", &json!({"read": 1, "machine": "a"})).0,
-        ERR_INVALID
-    );
-    assert_eq!(call(c"cloud_machine_reads_reconcile", &json!({"read": 1})).0, ERR_INVALID);
 }
