@@ -705,6 +705,9 @@ mod incognito_history_tests;
 #[cfg(all(test, unix))]
 mod shell_state_tests;
 
+#[cfg(all(test, unix))]
+mod omz_update_tests;
+
 #[cfg(all(test, target_os = "macos"))]
 mod fork_watch;
 
