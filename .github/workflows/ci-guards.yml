@@ -775,6 +775,11 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_cron_concurrency.py
 
+      # namespace-autofix lists a PR's files again once after a refused budget's reset, bounded, never skipping.
+      - name: Check namespace autofix waits out a refused file listing once
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_namespace_autofix_rate_limit_wait.py
+
       # Warn-level: a dispatched or PR workflow with macOS or long jobs needs a
       # concurrency group not keyed by SHA or run id (cmuxterm-hq#2568 flood).
       - name: Warn about workflows that can flood the queue
