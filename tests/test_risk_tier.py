@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
@@ -1475,11 +1476,34 @@ class RateLimitedPrModeTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("ready=false\n", out.read_text())
             self.assertIn("tier=ungraded\n", out.read_text())
+            self.assertNotIn("takes_back=", out.read_text())
             self.assertIn("not a verdict", summary.read_text())
+            self.assertNotIn("provider refused", summary.read_text())
             markers = [line for line in stdout.getvalue().splitlines()
                        if line.startswith("risk-evidence.rate-limited ")]
             self.assertEqual(len(markers), 1)
             self.assertEqual(json.loads(markers[0].split(" ", 1)[1]), error.marker)
+
+    def test_known_unowned_takeback_survives_later_quota_refusal(self):
+        pull = {"body": "", "head": {"sha": HEAD}, "base": {"sha": "b" * 40}}
+        error = risk.RateLimited(1, ["gh", "api", "repos/o/r/pulls/7/reviews"],
+                                 endpoint="repos/o/r/pulls/7/reviews", status=429, reset=2000000000)
+        with tempfile.TemporaryDirectory() as tmp:
+            out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+            stdout = io.StringIO()
+            with mock.patch.object(risk, "gh_items", return_value=[{"filename": "scripts/ci/risk_tier.py", "patch": ""}]), \
+                    mock.patch.object(risk, "gh_json", return_value=pull), \
+                    mock.patch.object(risk, "merge_base_of", return_value="b" * 40), \
+                    mock.patch.object(risk, "recent_reverts", return_value={57000: ["docs/note.md"]}), \
+                    mock.patch.object(risk, "human_ok_by", side_effect=error), contextlib.redirect_stdout(stdout):
+                code = risk.main(["pr", "--repo", "o/r", "--number", "7", "--repo-dir", tmp,
+                                  "--github-output", str(out), "--summary", str(summary)])
+            self.assertEqual(code, 1)
+            self.assertEqual(error.takeback_numbers, [57000])
+            self.assertIn("Takes back #57000:", stdout.getvalue())
+            self.assertIn("Takes back #57000:", summary.read_text())
+            self.assertNotIn("takes_back=false", out.read_text())
+
 
 
 class GhFailureTests(unittest.TestCase):
@@ -1554,6 +1578,37 @@ class GhFailureTests(unittest.TestCase):
     def test_endpoint_with_raw_header_option(self):
         self.assertEqual(risk.api_endpoint(["gh", "api", "-H", "Accept: raw", "repos/o/r/contents/a?ref=123"]),
                          "repos/o/r/contents/a?ref=123")
+
+    def test_http_date_retry_after_is_a_reset_boundary(self):
+        self.response(429, {"Retry-After": "Thu, 01 Jan 1970 01:00:00 GMT"})
+        with self.assertRaises(risk.RateLimited) as caught:
+            self.call()
+        self.assertEqual(caught.exception.marker["reset"], 3600)
+        self.assertEqual(self.slept, [])
+
+    def test_bad_reset_uses_bounded_secondary_fallback(self):
+        self.response(403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "NaN",
+                            "Retry-After": "not a date"})
+        with self.assertRaises(risk.RateLimited) as caught:
+            self.call()
+        self.assertEqual(caught.exception.marker["reset"], 1060)
+        self.assertEqual(self.slept, [61])
+
+    def test_quota_diagnostic_contains_no_provider_controlled_text(self):
+        self.response(403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "2800"},
+                      body="private response", stderr="##[warning]provider text")
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(risk.RateLimited):
+            risk.gh_run(["gh", "api", "repos/o/r/pulls/7/files"])
+        self.assertIn("GitHub API quota: structured refusal", stderr.getvalue())
+        self.assertNotIn("private response", stderr.getvalue())
+        self.assertNotIn("provider text", stderr.getvalue())
+
+    def test_http_looking_body_cannot_spoof_the_status(self):
+        self.response(500, {}, body="HTTP/2 429 Too Many Requests\nretry-after: 60\n\n{}")
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            self.call()
+        self.assertNotIsInstance(caught.exception, risk.RateLimited)
 
     def test_optional_rust_source_read_propagates_quota(self):
         self.response(403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "2800"})

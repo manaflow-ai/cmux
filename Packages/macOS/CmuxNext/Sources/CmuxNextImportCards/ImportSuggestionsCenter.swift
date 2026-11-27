@@ -153,6 +153,7 @@ public final class ImportSuggestionsCenter {
         let imported = await host.importedProfiles()
         // The daemon checks for Classic files without opening them.
         let classic = await host.classicAvailability()
+        let offersAutoCloud = host.autoCloud?.offered() ?? false
         // Browser import turned off meanwhile: no other browser's data is read. The scan itself
         // runs detached, so the cancel reaches it through `stop`, checked before each source.
         guard !Task.isCancelled else { return [] }
@@ -160,7 +161,8 @@ public final class ImportSuggestionsCenter {
         return await withTaskCancellationHandler {
             await Task.detached(priority: .utility) {
                 ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
-                              importedProfiles: imported, classicAvailability: classic, shouldStop: { stop.isSet }).scan()
+                              importedProfiles: imported, classicAvailability: classic, shouldStop: { stop.isSet },
+                              offersAutoCloud: offersAutoCloud).scan()
             }.value
         } onCancel: {
             stop.set()
@@ -231,6 +233,10 @@ public final class ImportSuggestionsCenter {
             case .conductor:
                 put(job)
                 runConductor(id)
+            case .autoCloud:
+                // A fresh plan: `cmux migrate`'s ledger skips projects already moved.
+                put(job)
+                runMoveToAutoCloud(id)
             case .claudeCode, .codex, .ghostty: finish(job)
             }
         case .dismiss:
@@ -362,6 +368,10 @@ public final class ImportSuggestionsCenter {
         case .conductor:
             put(ImportJob(finding: finding, now: now()))
             runConductor(id)
+        case .autoCloud:
+            // Its own preview asks before anything moves.
+            put(ImportJob(finding: finding, now: now()))
+            runMoveToAutoCloud(id)
         case .iterm2:
             run(id, writingTheme: ImportJob(finding: finding, now: now()))
         case .ghostty:
@@ -380,7 +390,7 @@ public final class ImportSuggestionsCenter {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
                 NSWorkspace.shared.openInBackground(url)
             }
-        case .cmuxClassic, .conductor, nil: break
+        case .cmuxClassic, .conductor, .autoCloud, nil: break
         }
     }
 
