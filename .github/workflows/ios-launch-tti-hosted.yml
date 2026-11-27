@@ -40,21 +40,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Chat-open split: both fixes still fail chat open (run 45926759178); each leg reverts one
-          # group of c180b906 (#57970) on both fixes: A composer width, B history head, C layout shift.
-          # Was: c180b906 (#57970) hangs at chat open, its parent passes
-          # (run 45923179190); terminal input from 5645d3ad (#55155). Base vs each fix and both, one harness.
+          # Chat-open cause (run 45931115481): only reverting #57970's history-as-head fixed it. The
+          # waiting chat ws-s0 now opens on its permission bar and never builds a composer, so its
+          # ready mark never fired. The second leg adds the mark fix (lane/ios-chat-ready-mark-ask).
+          # Restore the before/after pins (38721c8c / 9b3a8cad) once this reads green.
           - leg: base+both-fixes
             ref: edabb86f3748eec650913dddab24d2577d3db762
             buildfix: false
-          - leg: both-revert-A-composer-width
-            ref: da5c3acf071040f15a43bccd1a824357ba56c878
-            buildfix: false
-          - leg: both-revert-B-history-head
-            ref: 2a0098f46008e41b721609affd7a3bea2f76e9a0
-            buildfix: false
-          - leg: both-revert-C-layout-shift
-            ref: 5643ac38e001180c5c156cbcb014e6d02e9a8af9
+          - leg: both-fixes+ready-mark
+            ref: c71eb301f1cfb0a2c7a1a1998ee195cbdd0ad926
             buildfix: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
