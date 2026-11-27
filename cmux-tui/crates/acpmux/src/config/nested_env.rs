@@ -100,10 +100,10 @@ pub(crate) const TURN_SCOPED_ENV: [&str; 13] = [
     "CMUX_DEADLINE_OWNER",
     // One tool call's wait cap (leo-workspace tools/tool_rewrites.py `helper_wait_cap` exports
     // them, 150 s, for a 5-minute-cache session's foreground wait). A daemon that call started
-    // kept them, and so did every background task and agent it ran: cosmic-gray, 2026-11-27,
-    // the daemon started 05:09Z from a capped `task-wait` call cut background task
-    // bg-f40741ed789e (`cmux-gh wait pr ... --timeout 2400`) to 150 s ("giving up after 150s
-    // with no change"), and handed every task-wait in a task a deadline hours past.
+    // kept them, and so did every background task and agent it ran: 2026-11-27, a daemon
+    // started from a capped `task-wait` call cut a background task (`cmux-gh wait pr ...
+    // --timeout 2400`) to 150 s ("giving up after 150s with no change"), and handed every
+    // task-wait in a task a deadline hours past.
     "GLAEDA_WAIT_CACHE_WARM_S",
     "TASK_WAIT_MAX_S",
     "TASK_WAIT_DEADLINE",
