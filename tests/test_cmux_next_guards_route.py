@@ -130,13 +130,13 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertIn(  # then the land tier (tests/test_head_tier.py)
                         "((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
-                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && ",
+                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))))) && ",
                         group["if"])
         # The route feeds only the group and own-change-checks, both skipped on a pull request into feat-cmux-next
         # without full-ci, so the route skips there too (1,115 runner starts in 5.1 h of 11-25 no job read).
         self.assertIn("(github.event_name == 'pull_request' && (github.event_name != 'pull_request' || "
                       "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || "
-                      "contains(github.event.pull_request.labels.*.name, 'full-ci')))",
+                      "(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))))",
                       jobs["fast-check-route"]["if"])
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]
@@ -257,6 +257,89 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
                                capture_output=True)
                 lines = out.read_text().splitlines()
                 self.assertIn(f"ios_placeholder={want}", lines)
+
+
+    def test_spec_checks_run_on_every_head_whose_diff_reaches_the_spec(self):
+        # #56203 (dd19a6ecf137, 2026-11-27) added the control event `client-disconnected-by` in server code and
+        # merged with the spec inventory red: cmux-tui-spec.yml's `inventory` job skips a feat-cmux-next pull request
+        # without `full-ci` (run 45977048802: `changes` and `inventory` skipped), the step table's linux job is
+        # full-tier only, and the land ran the affected tier, so the check first ran after the merge. The cheap
+        # spec and bindings checks run here instead, on every pull request head and push whose diff reaches what
+        # they read (scripts/ci/spec_checks.py INPUTS), on our own runners, never a GitHub-hosted one.
+        import os  # noqa: PLC0415
+        import subprocess  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        jobs = workflow["jobs"]
+        job = jobs["spec-checks"]
+        self.assertIn("workflow-start-lint", job["needs"])
+        self.assertIn("needs.workflow-start-lint.outputs.spec_checks != 'false'", job["if"])
+        self.assertIn("!cancelled()", job["if"])
+        # No land tier skip: a cheap head runs it (tests/test_head_tier.py KEEP_ON_EVERY_HEAD).
+        self.assertNotIn("ready-to-land') && vars.CI_LAND_FULL_PER_PR", job["if"])
+        # Own branches on the cmux-linux pool (or the overflow variable), fork pull requests on Blacksmith; the
+        # GitHub-hosted label only where Blacksmith is not installed (a copy of this repository under another owner).
+        sys.path.insert(0, str(ROOT / "tests"))
+        import workflow_jobs  # noqa: PLC0415
+
+        values, unresolved = workflow_jobs.runs_on_values(job)
+        self.assertEqual(values, {"ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404", "cmux-linux"})
+        self.assertEqual(unresolved, {"vars.CI_OVERFLOW_LINUX"})
+        runs = [s.get("run", "") for s in job["steps"]]
+        self.assertIn("python3 -I tests/test_ci_spec_checks.py", runs)
+        self.assertTrue(any('python3 -I scripts/ci/spec_checks.py run "${base[@]}"' in r and "--base HEAD^1" in r
+                            for r in runs), runs)
+        checkout = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))
+        self.assertEqual(checkout["with"]["fetch-depth"], 2)  # the merge commit and its base, for the base rerun
+        lint = jobs["workflow-start-lint"]
+        self.assertEqual(lint["outputs"]["spec_checks"], "${{ steps.touched.outputs.spec_checks }}")
+        lint_checkout = next(s for s in lint["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))
+        self.assertIn("/scripts/ci/spec_checks.py", lint_checkout["with"]["sparse-checkout"].split())
+        step = next(s for s in lint["steps"] if s.get("id") == "touched")
+        cases = [
+            ("pull_request", "cmux-tui/spec/events.md", "true"),
+            ("pull_request", "cmux-tui/spec/sdk-schema.json", "true"),
+            ("pull_request", "cmux-tui/bindings/go/raw/events.go", "true"),
+            ("pull_request", "cmux-tui/crates/cmux-tui-core/src/server.rs", "true"),
+            ("pull_request", "cmux-tui/crates/cmux-tui-core/src/server/client_kick.rs", "true"),
+            ("pull_request", "cmux-tui/scripts/check-spec-inventory.py", "true"),
+            ("pull_request", "scripts/ci/spec_checks.py", "true"),
+            ("pull_request", "cmux-tui/crates/acpmux/src/lib.rs", "false"),
+            ("pull_request", "docs/cmux-next-ios.md", "false"),
+            ("pull_request", "webviews/src/App.tsx", "false"),
+            ("push", "docs/cmux-next-ios.md", "true"),
+            # A server file moved out of the inputs: its old path routes (git diff detects the rename otherwise).
+            ("pull_request", "rename:cmux-tui/crates/cmux-tui-core/src/server/kick.rs:cmux-tui/crates/kick/src/k.rs",
+             "true"),
+        ]
+        spec_checks = (ROOT / "scripts/ci/spec_checks.py").read_text()
+        for event, changed, want in cases:
+            with self.subTest(event=event, changed=changed), tempfile.TemporaryDirectory() as tmp:
+                git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+                subprocess.run(["git", "init", "-q", tmp], check=True)
+                Path(tmp, "scripts/ci").mkdir(parents=True)
+                Path(tmp, "scripts/ci/spec_checks.py").write_text(spec_checks)
+                moved = changed.split(":")[1:] if changed.startswith("rename:") else None
+                body = "".join(f"fn f{i}() {{}}\n" for i in range(40))
+                if moved:
+                    Path(tmp, moved[0]).parent.mkdir(parents=True)
+                    Path(tmp, moved[0]).write_text(body)
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "base"], check=True)
+                if moved:
+                    Path(tmp, moved[1]).parent.mkdir(parents=True)
+                    subprocess.run(git + ["mv", moved[0], moved[1]], check=True)
+                else:
+                    Path(tmp, changed).parent.mkdir(parents=True, exist_ok=True)
+                    Path(tmp, changed).write_text("change\n")
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "change"], check=True)
+                out = Path(tmp, "github_output")
+                env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(out), "EVENT_NAME": event}
+                subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=tmp, env=env, check=True,
+                               capture_output=True)
+                self.assertIn(f"spec_checks={want}", out.read_text().splitlines())
 
 if __name__ == "__main__":
     unittest.main()
