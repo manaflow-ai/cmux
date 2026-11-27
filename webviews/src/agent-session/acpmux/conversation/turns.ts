@@ -59,7 +59,7 @@ import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
-import { turnWork } from "./waterfallSpans";
+import { turnWork, wallSpan } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { agentCall } from "./agentCalls";
 import { hidesEveryCall } from "./mcpPresentation";
@@ -150,13 +150,12 @@ export function formatDuration(ms: number): string {
   return [h && `${h}h`, m && `${m}m`, s && `${s}s`].filter(Boolean).join(" ");
 }
 
-/// A turn's time on its "Worked for" / "Working for" line: as `formatDuration`, but "<1s" under one
-/// second, never "0s" (Leo, 2026-11-25, on the line that read 0s: "let's just fix forward and improve
-/// it all"). The running line reads "Working for <1s" from its first frame, so its words keep one shape
-/// from the prompt to "Worked for": no "Working" that swaps to a time, and no fold that vanishes at
-/// the end because the turn was quick.
+/// A turn's time on its "Worked for" / "Working for" line: `formatDuration`, so a turn under a second
+/// reads "0s" (Leo, 2026-11-27: "let's do not <1 but 0s and revert that situatoin", reverting
+/// #56185's "<1s"). The running line still reads "Working for 0s" from its first frame, so its words
+/// keep one shape from the prompt to "Worked for", and a quick turn keeps its fold.
 export function turnSpan(ms: number): string {
-  return ms < 1000 ? "<1s" : formatDuration(ms);
+  return formatDuration(ms);
 }
 
 /// A finished span's own time: "856ms" under a second, else as `formatDuration`; none for a span
@@ -2329,7 +2328,9 @@ function shapeTurn(
   const firstFinal = body.find(isFinalAnswer);
   // The turn's one clock (`turnClock`): the "Worked for" reads what its "Working for" read, from the
   // same start to the same end.
-  const workedDurationMs = turnClock(user, body, live ? turnStartedAtMs : undefined, summary).durationMs;
+  // Its timed work, once: the clock reads its spans and the footer's Timeline draws them.
+  const timedWork = turnWork(body);
+  const workedDurationMs = turnClock(user, body, live ? turnStartedAtMs : undefined, summary, timedWork).durationMs;
   // A tagged ask the answer ends on (nextStepAsk.ts) draws as a card under it, answerable until a
   // later prompt picks one of its answers or the person moves on past a later card
   // (`settleNextSteps`), whatever turns come between. Read once per ended turn, never while the turn
@@ -2526,7 +2527,7 @@ function shapeTurn(
           : Math.max(0, (segment.until ?? firstFinal?.at ?? summary.at) - segment.anchor.at);
     // A fold with no time and nothing counted would read "0 tool calls" over, say, a subagent's end
     // alone: it draws no fold, its rows in place (`outside`), nor does a turn of subagents alone with
-    // no recorded time. A quick one keeps its fold, "Worked for <1s" (`turnSpan`): the "Working for"
+    // no recorded time. A quick one keeps its fold, "Worked for 0s" (`turnSpan`): the "Working for"
     // that stood over it while it ran stays, so the end swaps no line for loose rows (Leo, 2026-11-25:
     // "i think it was replacing the "worked for" as it went", after cmux#55191 dropped its fold).
     const shown = shownAgentNames(body);
@@ -2790,7 +2791,7 @@ function shapeTurn(
   // its tail: its footer keeps its Timeline then. Dropping it for that window and putting it back when
   // the prompt was accepted moved the footer's Read aloud by one button on every send. One pass over
   // the body, as turnCopyParts below.
-  const work = turnWork(body);
+  const work = timedWork;
   const copyParts = turnCopyParts(body);
   const stoppedQuietly = isStopped(summary) && !turnCopySaid(copyParts);
   // The chat's last turn, ended, whose GitHub call found no connection for this chat: its footer
@@ -3685,8 +3686,8 @@ function shapeLiveRows(
   const line = shaped.at(-1);
   if (line?.kind === THINKING) line.untimed = true;
   // The turn's header, in its running phase: the row its end draws "Worked for" in (one id, kind and
-  // element from the turn's start to its end; only its phase and words change). Once the answer
-  // came, its clock holds where the ended line reads, so it never runs backwards at the end.
+  // element from the turn's start to its end; only its phase and words change). Its clock ticks
+  // until the turn ends, where the ended line reads the same span (`turnClock`).
   // Under `folded` it toggles the work under its own id, the key its "Worked for" opens with, so the
   // reader's open or closed state carries through the end and the line only changes its words (#50987).
   const header: AcpmuxRow = {
@@ -3695,7 +3696,6 @@ function shapeLiveRows(
     at,
     kind: WORKED,
     turnPhase: "running",
-    ...(clock.durationMs !== undefined && clock.answered && { durationMs: clock.durationMs }),
   };
   if (folds) header.foldOpen = workOpen;
   // A /compact the person steered into: the stretch before the steer is the compaction alone, which
@@ -3773,14 +3773,20 @@ const isRunningHeader = (user: AcpmuxRow) => (row: AcpmuxRow) =>
 /// turn's `liveStart`, else the turn's latest row that carries it; else its end less its duration,
 /// else the prompt; another agent's message that
 /// came after it, or the latest notice that set the agent going again, `continuationStart`) to its
-/// first final answer from then on, else to its end (`summary`). Running, `durationMs` is set once
-/// the answer came (`answered`); the clock ticks until then.
+/// last event: the turn's end (`summary`) or the last of its timed work's own ends, whichever came
+/// later. Ended, it never reads less than the footer's Timeline total (waterfallSpans.ts
+/// `wallSpan`, the one span both read; Leo, 2026-11-27: "but shouldn't the worked for count the
+/// timelines of the tool calls"). It no longer stops at the first final answer (#42247 ended it
+/// there, so a call that outlasted the answer read longer in the Timeline than the whole turn).
+/// Running, the clock ticks until the turn ends. `work` is the turn's `turnWork(rows)` when the
+/// caller already has it.
 export function turnClock(
   user: AcpmuxRow,
   rows: readonly AcpmuxRow[],
   liveStart?: number,
   summary?: AcpmuxRow,
-): { start: number; durationMs?: number; answered: boolean } {
+  work: readonly AcpmuxActivity[] | undefined = summary ? turnWork(rows) : undefined,
+): { start: number; durationMs?: number } {
   let recorded = summary?.turnStartedAtMs ?? liveStart;
   for (let index = rows.length - 1; recorded === undefined && index >= 0; index -= 1)
     recorded = rows[index]!.turnStartedAtMs;
@@ -3789,14 +3795,25 @@ export function turnClock(
     rows,
     !sentByPerson(user) && hasTimestamp(user.at) && user.at > opened ? user.at : opened,
   );
-  const answer = rows.find((row) => isFinalAnswer(row) && row.at >= start);
-  if (answer) return { start, durationMs: Math.max(0, answer.at - start), answered: true };
-  if (!summary) return { start, answered: false };
-  // The harness's own measure of the turn, when nothing moved its start.
-  if (start === opened && summary.durationMs !== undefined)
-    return { start, durationMs: summary.durationMs, answered: false };
-  if (user.kind !== "user" && recorded === undefined) return { start, answered: false };
-  return { start, durationMs: Math.max(0, summary.at - start), answered: false };
+  if (!summary) return { start };
+  const timed = summary.durationMs !== undefined;
+  // Unknown stays unknown: a turn whose prompt is in an older page, with no record of its start and
+  // no answer to end on, starts at a row inside it, and the time since that row is too short.
+  if (!(start === opened && timed) && user.kind !== "user" && recorded === undefined)
+    if (!rows.some((row) => isFinalAnswer(row) && row.at >= start)) return { start };
+  const ended = summary.workEndedAt ?? summary.at;
+  // The footer's Timeline axis (waterfallSpans.ts `waterfall`): the harness's own measure of the
+  // turn, widened to every timed span.
+  const panel =
+    work || timed
+      ? wallSpan(timed ? ended - summary.durationMs! : undefined, timed ? ended : undefined, work)
+      : undefined;
+  const panelMs = panel && panel.end > panel.start ? panel.end - panel.start : 0;
+  // The harness's own measure of the turn, when nothing moved its start; else from the start to the
+  // turn's last event.
+  const own =
+    start === opened && timed ? summary.durationMs! : Math.max(0, wallSpan(undefined, summary.at, work).end - start);
+  return { start, durationMs: Math.max(own, panelMs) };
 }
 
 /// When the live turn's current stretch began: `start`, or the latest notice (a prompt the person did
