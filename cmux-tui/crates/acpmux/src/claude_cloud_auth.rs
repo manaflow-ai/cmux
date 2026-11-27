@@ -347,7 +347,7 @@ pub(crate) fn without_settings(argv: &[String]) -> Vec<String> {
 }
 
 /// `argv` without any `--settings` (before a `--`), and the last one's value.
-fn settings_args(argv: &[String]) -> (Vec<String>, Option<String>) {
+pub(crate) fn settings_args(argv: &[String]) -> (Vec<String>, Option<String>) {
     let mut rest = Vec::with_capacity(argv.len());
     let mut last = None;
     let mut words = argv.iter();

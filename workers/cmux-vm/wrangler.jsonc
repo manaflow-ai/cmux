@@ -8,6 +8,10 @@
   //   STACK_WEBHOOK_SECRET  Stack webhook signing secret; without it POST /v1/webhooks/stack answers 503.
   "name": "cmux-vm-local",
   "main": "src/index.ts",
+  // Keep deploys within the bundle budget without losing names used in diagnostics.
+  "minify": true,
+  "keep_names": true,
+  "upload_source_maps": true,
   "compatibility_date": "2026-08-15",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
