@@ -105,6 +105,31 @@ struct SpacesOffKeepsCurrentSpaceTests {
         #expect(windows.pinSelections.isEmpty)
     }
 
+    /// A banner click reveals a workspace the window's room hides while Spaces is off, and daemon deltas arrive before its
+    /// pin lands (a burst of chats making workspaces): the window stays on the revealed workspace, which then joins its view.
+    @Test func aRevealKeepsItsPickThroughDeltasBeforeThePinLands() async throws {
+        let fixture = try await Fixture(settings: #"{"sidebar":{"showSpaces":true}}"#)
+        defer { fixture.close() }
+        let windows = fixture.services.windows
+        windows.switchProfile(Fixture.work, in: fixture.state)
+        try await fixture.write("{}")
+
+        windows.reveal(workspaceID: "k1")
+        #expect(fixture.state.workspaceID == "k1")
+        #expect(windows.pinSelections["k1"]?.window == fixture.state.id)
+        // Deltas before the pin lands: each repairs selections; none moves the window off the revealed workspace.
+        windows.reconcileMembership()
+        windows.reconcileMembership()
+        #expect(fixture.state.workspaceID == "k1", "a delta repaired the reveal away (via \(fixture.state.shownVia))")
+        #expect(windows.pinSelections["k1"] != nil, "the pin's selection was dropped before it landed")
+
+        fixture.store.apply(snapshot: Fixture.tree(pinned: ["k1": Fixture.work]))
+        windows.reconcileMembership()
+        #expect(fixture.shown == ["k1", "k2", "k3"])
+        #expect(fixture.state.workspaceID == "k1")
+        #expect(windows.pinSelections.isEmpty)
+    }
+
     /// Merge All Windows while Spaces is off: the other window's workspaces join this window's view; it keeps its space.
     @Test func mergeAllKeepsThisWindowsViewAndShowsTheMergedWorkspaces() async throws {
         let fixture = try await Fixture(settings: #"{"sidebar":{"showSpaces":true}}"#)
