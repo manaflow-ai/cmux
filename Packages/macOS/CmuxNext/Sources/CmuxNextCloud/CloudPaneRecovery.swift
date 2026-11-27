@@ -5,7 +5,8 @@ import os
 /// what its card's Retry runs (the same send, the same key), as the one recovery table says (cmux-cloud-start-core
 /// `recover::pane_step`, the table `cmux cloud start-chat` runs too), so the card shows only what a person must act
 /// on, or what recovery could not fix.
-public enum CloudPaneRecovery {
+public struct CloudPaneRecovery {
+    public init() {}
     /// A failure the table may rerun: its code, words and whether the card would offer Retry.
     public struct Failure: Sendable, Equatable {
         public let code: String?, message: String, retryable: Bool
