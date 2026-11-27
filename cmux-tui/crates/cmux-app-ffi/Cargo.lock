@@ -191,6 +191,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-acpmux-remote-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-action-catalog"
 version = "0.1.0"
 dependencies = [
@@ -222,9 +230,11 @@ version = "0.1.0"
 dependencies = [
  "acpmux-client",
  "cbindgen",
+ "cmux-acpmux-remote-wire",
  "cmux-action-catalog",
  "cmux-agent-pane-policy",
  "cmux-background-ready",
+ "cmux-chat-markdown",
  "cmux-config",
  "cmux-cookie-sync",
  "cmux-daemon-conn-core",
@@ -245,7 +255,9 @@ dependencies = [
  "cmux-rd-ffi",
  "cmux-screenshots",
  "cmux-sdk-ffi",
+ "cmux-sign-clone-sweep",
  "cmux-terminal-prediction",
+ "cmux-update-prewarm-core",
  "cmux-url-input",
  "cmux-wallpaper",
  "serde",
@@ -290,6 +302,15 @@ version = "0.1.0"
 dependencies = [
  "cmux-agent-pane-policy",
  "http",
+]
+
+[[package]]
+name = "cmux-chat-markdown"
+version = "0.1.0"
+dependencies = [
+ "unicode-general-category",
+ "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -558,6 +579,7 @@ dependencies = [
  "cmux-imessage",
  "cmux-layout-reducer",
  "cmux-mobile-host-core",
+ "cmux-rd-core",
  "cmux-rd-screen",
  "cmux-tab-discard",
  "cmux-tasks-core",
@@ -622,6 +644,8 @@ name = "cmux-rd-core"
 version = "0.1.0"
 dependencies = [
  "cmux-rd-proto",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -710,6 +734,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-sign-clone-sweep"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-tab-discard"
 version = "0.1.0"
 dependencies = [
@@ -745,6 +776,14 @@ name = "cmux-unix-socket"
 version = "0.1.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "cmux-update-prewarm-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
