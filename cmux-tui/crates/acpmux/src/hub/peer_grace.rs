@@ -257,13 +257,27 @@ impl Hub {
             };
             let started = Instant::now();
             let queued = rx.len() as u64;
-            let label = notice.label();
             if let Some(bytes) = notice.list_bytes() {
                 crate::gauges::peer_lists().taken(bytes);
             }
             let Some(current) = this.peer(&peer).filter(|p| p.generation == generation) else {
                 continue;
             };
+            let notice = match notice {
+                PeerNotice::WaitingList(number) => {
+                    let Some(rows) = current.take_waiting_list(number) else {
+                        continue;
+                    };
+                    PeerNotice::Sessions(rows)
+                }
+                other => other,
+            };
+            if matches!(notice, PeerNotice::SessionsPatch { .. })
+                && current.list_baseline_missing.load(Ordering::SeqCst)
+            {
+                continue;
+            }
+            let label = notice.label();
             let settles = matches!(
                 notice,
                 PeerNotice::Connected | PeerNotice::Disconnected(_) | PeerNotice::Restarting

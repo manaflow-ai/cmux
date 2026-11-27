@@ -29,7 +29,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-pr-pipeline-linux-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: cmux-next-pr-pipeline-linux-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
@@ -38,7 +40,7 @@ jobs:
     if: ${{ (inputs.only == '' || inputs.only == 'linux') && github.repository == 'manaflow-ai/cmux' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # pr-pipeline.yml's bound for the same job: every linux step runs here.
-    timeout-minutes: 488
+    timeout-minutes: 629
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -66,16 +68,41 @@ jobs:
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
           cd "$GITHUB_WORKSPACE"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-          git init -q .
-          echo "$mirror" > .git/objects/info/alternates
-          git config gc.auto 0
-          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
+          # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
+          reuse=fresh
+          if [[ -d .git && "$(cat .git/objects/info/alternates 2>/dev/null)" == "$mirror" ]] \
+            && [[ -z "$(git config --get remote.origin.promisor || true)$(git config --get extensions.partialclone || true)$(git config --get remote.origin.partialclonefilter || true)" ]] \
+            && [[ "$(git config --get remote.origin.url || true)" == "https://github.com/$GITHUB_REPOSITORY" ]] \
+            && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+            reuse=reused
+            if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
+            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
+            git config --unset-all extensions.worktreeConfig || true
+          fi
+          if [[ $reuse == fresh ]]; then
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            git init -q .
+            echo "$mirror" > .git/objects/info/alternates
+            git config gc.auto 0
+            git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          fi
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
-          git checkout -q --detach "$SHA"
-          echo "checked out $(git rev-parse HEAD) from the pool mirror"
+          # GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never
+          # 1000 B/s), bound each try and try 3 times (handbook network-transfer-stalls-the-whole-job). The mirror holds
+          # the objects, so this repository is complete without a failed try and a retry into it is safe.
+          for try in 1 2 3; do
+            if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"; then break; fi
+            [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+            echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
+          done
+          # 8 parallel workers halve writing the ~69k-file tree (12.5 -> 6.2 s median, fresh .git or a sparse widen after a
+          # narrower job on this VM; rnd rc-c6f133b4).
+          git -c checkout.workers=8 checkout -q -f --detach "$SHA"
+          [[ $reuse == fresh ]] || git sparse-checkout disable
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
       - name: List the changed paths
         # Every path the merge commit changes against the base tip, both sides of a rename (what the
         # router read). With no merge commit there is no list, and ci/run then runs every step.
@@ -94,7 +121,7 @@ jobs:
       # steps are left out of the run rather than passed, so no skip is stored as a pass under their inputs.
       - name: Tooling tests red on the base right now?
         id: tooling-tests-base-red
-        if: ${{ github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        if: ${{ github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
         continue-on-error: true
         timeout-minutes: 2
         env:
