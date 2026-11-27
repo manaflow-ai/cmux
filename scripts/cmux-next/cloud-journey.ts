@@ -563,6 +563,13 @@ export const ownerUnreachable = (body: any): boolean => {
   const e = body?.error && typeof body.error === "object" ? body.error : body;
   return e?.code === "owner.unreachable" && e?.retryable === true;
 };
+/**
+ * A machine delete sends the same key again on either retryable answer: a cut-off provider call, or an owner reset
+ * (owner.unreachable). Retrying only the first leaked all six machines of drill run 45979891007 (staging's team
+ * object overloaded and reset, 2026-11-27): each delete answered owner.unreachable once and gave up, and the drills'
+ * long names keep a leak for LONG_JOURNEY_MS before any sweep may delete it.
+ */
+export const deleteRetryable = (body: any): boolean => opRetryable(body) || ownerUnreachable(body);
 /** How long the resume matrix's send arm waits for cmux's own idle pause: the aggressive policy's 60 s window after
  * the turn ends, the VM's next activity report, and the pause itself. */
 const AUTO_PAUSE_WAIT_MS = 300_000;
@@ -633,7 +640,7 @@ export class Api {
   }
   /**
    * A machine delete that must not leak: retried under the same key while the ops API answers it was cut off
-   * (mutation.indeterminate, retryable), for up to `budgetMs`. op() gives up after three tries in about six
+   * (mutation.indeterminate, retryable) or its owner was reset (owner.unreachable), for up to `budgetMs`. op() gives up after three tries in about six
    * seconds, which leaked a machine on a 502 storm (cmux-vm run 42485334511).
    */
   async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
@@ -641,7 +648,7 @@ export class Api {
     await this.fresh();
     for (let attempt = 1; ; attempt++) {
       const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, await this.headers(), 60_000, true);
-      if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
+      if (deleteRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
