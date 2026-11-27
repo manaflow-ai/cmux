@@ -1,6 +1,17 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "agentPane.github.requested": {"comment":"The new chat folder picker after the person asked their GitHub organization's owners to install the cmux App (GitHub sent the request to the owners).","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Asked the organization's owners to approve cmux. Its repositories appear here once they do."}},"ar":{"stringUnit":{"state":"translated","value":"طُلب من مالكي المؤسسة الموافقة على cmux. ستظهر مستودعاتها هنا بعد موافقتهم."}},"bs":{"stringUnit":{"state":"translated","value":"Zatraženo je od vlasnika organizacije da odobre cmux. Njeni repozitoriji će se pojaviti ovdje kada to urade."}},"da":{"stringUnit":{"state":"translated","value":"Organisationens ejere er blevet bedt om at godkende cmux. Dens repositories vises her, når de gør."}},"de":{"stringUnit":{"state":"translated","value":"Die Inhaber der Organisation wurden gebeten, cmux zu genehmigen. Ihre Repositorys erscheinen hier, sobald sie zustimmen."}},"es":{"stringUnit":{"state":"translated","value":"Se pidió a los propietarios de la organización que aprueben cmux. Sus repositorios aparecerán aquí cuando lo hagan."}},"fr":{"stringUnit":{"state":"translated","value":"Les propriétaires de l'organisation ont été invités à approuver cmux. Ses dépôts apparaîtront ici dès qu'ils l'auront fait."}},"it":{"stringUnit":{"state":"translated","value":"È stato chiesto ai proprietari dell'organizzazione di approvare cmux. I suoi repository compariranno qui quando lo faranno."}},"ja":{"stringUnit":{"state":"translated","value":"組織のオーナーに cmux の承認を依頼しました。承認されると、ここにリポジトリが表示されます。"}},"km":{"stringUnit":{"state":"translated","value":"បានស្នើសុំម្ចាស់ស្ថាប័នឱ្យយល់ព្រម cmux។ ឃ្លាំងរបស់វានឹងបង្ហាញនៅទីនេះ នៅពេលពួកគេយល់ព្រម។"}},"ko":{"stringUnit":{"state":"translated","value":"조직 소유자에게 cmux 승인을 요청했습니다. 승인되면 저장소가 여기에 표시됩니다."}},"nb":{"stringUnit":{"state":"translated","value":"Organisasjonens eiere er bedt om å godkjenne cmux. Repositoriene vises her når de gjør det."}},"pl":{"stringUnit":{"state":"translated","value":"Poproszono właścicieli organizacji o zatwierdzenie cmux. Jej repozytoria pojawią się tutaj, gdy to zrobią."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pedimos aos proprietários da organização que aprovem o cmux. Os repositórios aparecem aqui assim que aprovarem."}},"ru":{"stringUnit":{"state":"translated","value":"Владельцам организации отправлен запрос на одобрение cmux. Её репозитории появятся здесь после одобрения."}},"th":{"stringUnit":{"state":"translated","value":"ขอให้เจ้าขององค์กรอนุมัติ cmux แล้ว ที่เก็บของจะปรากฏที่นี่เมื่ออนุมัติ"}},"tr":{"stringUnit":{"state":"translated","value":"Kuruluş sahiplerinden cmux'u onaylamaları istendi. Onayladıklarında depoları burada görünür."}},"uk":{"stringUnit":{"state":"translated","value":"Власникам організації надіслано запит на схвалення cmux. Її репозиторії з'являться тут після схвалення."}},"vi":{"stringUnit":{"state":"translated","value":"Đã đề nghị chủ sở hữu tổ chức phê duyệt cmux. Các kho mã sẽ hiện ở đây khi họ phê duyệt."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已请组织所有者批准 cmux。批准后，其仓库会显示在这里。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已請組織擁有者核准 cmux。核准後，其儲存庫會顯示在這裡。"}}}},
+    "agentPane.github.requestedOwner": {"comment":"The new chat folder picker after the person asked a GitHub organization's owners to install the cmux App; %@ is the organization's name.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Asked the owners of %@ to approve cmux. Its repositories appear here once they do."}},"ar":{"stringUnit":{"state":"translated","value":"طُلب من مالكي %@ الموافقة على cmux. ستظهر مستودعاتها هنا بعد موافقتهم."}},"bs":{"stringUnit":{"state":"translated","value":"Zatraženo je od vlasnika %@ da odobre cmux. Njeni repozitoriji će se pojaviti ovdje kada to urade."}},"da":{"stringUnit":{"state":"translated","value":"Ejerne af %@ er blevet bedt om at godkende cmux. Dens repositories vises her, når de gør."}},"de":{"stringUnit":{"state":"translated","value":"Die Inhaber von %@ wurden gebeten, cmux zu genehmigen. Die Repositorys erscheinen hier, sobald sie zustimmen."}},"es":{"stringUnit":{"state":"translated","value":"Se pidió a los propietarios de %@ que aprueben cmux. Sus repositorios aparecerán aquí cuando lo hagan."}},"fr":{"stringUnit":{"state":"translated","value":"Les propriétaires de %@ ont été invités à approuver cmux. Ses dépôts apparaîtront ici dès qu'ils l'auront fait."}},"it":{"stringUnit":{"state":"translated","value":"È stato chiesto ai proprietari di %@ di approvare cmux. I suoi repository compariranno qui quando lo faranno."}},"ja":{"stringUnit":{"state":"translated","value":"%@ のオーナーに cmux の承認を依頼しました。承認されると、ここにリポジトリが表示されます。"}},"km":{"stringUnit":{"state":"translated","value":"បានស្នើសុំម្ចាស់ %@ ឱ្យយល់ព្រម cmux។ ឃ្លាំងរបស់វានឹងបង្ហាញនៅទីនេះ នៅពេលពួកគេយល់ព្រម។"}},"ko":{"stringUnit":{"state":"translated","value":"%@ 소유자에게 cmux 승인을 요청했습니다. 승인되면 저장소가 여기에 표시됩니다."}},"nb":{"stringUnit":{"state":"translated","value":"Eierne av %@ er bedt om å godkjenne cmux. Repositoriene vises her når de gjør det."}},"pl":{"stringUnit":{"state":"translated","value":"Poproszono właścicieli %@ o zatwierdzenie cmux. Repozytoria pojawią się tutaj, gdy to zrobią."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pedimos aos proprietários de %@ que aprovem o cmux. Os repositórios aparecem aqui assim que aprovarem."}},"ru":{"stringUnit":{"state":"translated","value":"Владельцам %@ отправлен запрос на одобрение cmux. Репозитории появятся здесь после одобрения."}},"th":{"stringUnit":{"state":"translated","value":"ขอให้เจ้าของ %@ อนุมัติ cmux แล้ว ที่เก็บของจะปรากฏที่นี่เมื่ออนุมัติ"}},"tr":{"stringUnit":{"state":"translated","value":"%@ sahiplerinden cmux'u onaylamaları istendi. Onayladıklarında depoları burada görünür."}},"uk":{"stringUnit":{"state":"translated","value":"Власникам %@ надіслано запит на схвалення cmux. Репозиторії з'являться тут після схвалення."}},"vi":{"stringUnit":{"state":"translated","value":"Đã đề nghị chủ sở hữu %@ phê duyệt cmux. Các kho mã sẽ hiện ở đây khi họ phê duyệt."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已请 %@ 的所有者批准 cmux。批准后，其仓库会显示在这里。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已請 %@ 的擁有者核准 cmux。核准後，其儲存庫會顯示在這裡。"}}}},
+    "agentPane.insertPhoto.prompt": {"comment":"Insert Photo: the open panel's button that inserts the chosen pictures into the focused pane.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Insert"}},"ar":{"stringUnit":{"state":"translated","value":"إدراج"}},"bs":{"stringUnit":{"state":"translated","value":"Umetni"}},"da":{"stringUnit":{"state":"translated","value":"Indsæt"}},"de":{"stringUnit":{"state":"translated","value":"Einfügen"}},"es":{"stringUnit":{"state":"translated","value":"Insertar"}},"fr":{"stringUnit":{"state":"translated","value":"Insérer"}},"it":{"stringUnit":{"state":"translated","value":"Inserisci"}},"ja":{"stringUnit":{"state":"translated","value":"挿入"}},"km":{"stringUnit":{"state":"translated","value":"បញ្ចូល"}},"ko":{"stringUnit":{"state":"translated","value":"삽입"}},"nb":{"stringUnit":{"state":"translated","value":"Sett inn"}},"pl":{"stringUnit":{"state":"translated","value":"Wstaw"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Inserir"}},"ru":{"stringUnit":{"state":"translated","value":"Вставить"}},"th":{"stringUnit":{"state":"translated","value":"แทรก"}},"tr":{"stringUnit":{"state":"translated","value":"Yerleştir"}},"uk":{"stringUnit":{"state":"translated","value":"Вставити"}},"vi":{"stringUnit":{"state":"translated","value":"Chèn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"插入"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"插入"}}}},
+    "agentPane.insertPhoto.noTarget": {"comment":"Insert Photo: refusal when the focused pane is neither an agent chat nor a terminal.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Insert Photo puts a picture into an agent chat or a terminal; focus one first."}},"ar":{"stringUnit":{"state":"translated","value":"يضع «إدراج صورة» صورة في دردشة وكيل أو في طرفية؛ ركّز على إحداهما أولًا."}},"bs":{"stringUnit":{"state":"translated","value":"Umetni fotografiju stavlja sliku u chat agenta ili terminal; prvo fokusiraj jedno od njih."}},"da":{"stringUnit":{"state":"translated","value":"Indsæt foto sætter et billede ind i en agentchat eller en terminal; fokuser på en først."}},"de":{"stringUnit":{"state":"translated","value":"„Foto einfügen“ fügt ein Bild in einen Agent-Chat oder ein Terminal ein; fokussiere zuerst eines davon."}},"es":{"stringUnit":{"state":"translated","value":"Insertar foto pone una imagen en un chat de agente o en un terminal; enfoca uno primero."}},"fr":{"stringUnit":{"state":"translated","value":"Insérer une photo place une image dans une discussion d’agent ou un terminal ; activez-en un d’abord."}},"it":{"stringUnit":{"state":"translated","value":"Inserisci foto mette un’immagine in una chat dell’agente o in un terminale; seleziona prima uno dei due."}},"ja":{"stringUnit":{"state":"translated","value":"「写真を挿入」はエージェントのチャットかターミナルに画像を入れます。先にどちらかにフォーカスしてください。"}},"km":{"stringUnit":{"state":"translated","value":"បញ្ចូលរូបថត ដាក់រូបភាពទៅក្នុងការជជែករបស់ភ្នាក់ងារ ឬទែមីណាល់; សូមផ្ដោតលើមួយជាមុនសិន។"}},"ko":{"stringUnit":{"state":"translated","value":"사진 삽입은 에이전트 채팅이나 터미널에 사진을 넣습니다. 먼저 둘 중 하나에 초점을 맞추세요."}},"nb":{"stringUnit":{"state":"translated","value":"Sett inn bilde legger et bilde inn i en agentchat eller en terminal; fokuser på én først."}},"pl":{"stringUnit":{"state":"translated","value":"Wstaw zdjęcie umieszcza obraz w czacie agenta lub w terminalu; najpierw ustaw fokus na jednym z nich."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Inserir foto coloca uma imagem em um chat de agente ou em um terminal; foque um deles primeiro."}},"ru":{"stringUnit":{"state":"translated","value":"«Вставить фото» помещает изображение в чат агента или в терминал; сначала выберите одно из них."}},"th":{"stringUnit":{"state":"translated","value":"แทรกรูปภาพจะใส่รูปลงในแชทของเอเจนต์หรือเทอร์มินัล โปรดโฟกัสที่อย่างใดอย่างหนึ่งก่อน"}},"tr":{"stringUnit":{"state":"translated","value":"Fotoğraf Ekle, bir resmi bir ajan sohbetine veya terminale koyar; önce birine odaklanın."}},"uk":{"stringUnit":{"state":"translated","value":"«Вставити фото» додає зображення в чат агента або в термінал; спершу виберіть одне з них."}},"vi":{"stringUnit":{"state":"translated","value":"Chèn ảnh đặt một hình vào cuộc trò chuyện với tác tử hoặc vào terminal; hãy chọn một trong hai trước."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"“插入照片”会把图片放入智能体聊天或终端；请先聚焦其中之一。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"「插入照片」會把圖片放入代理聊天或終端機；請先聚焦其中之一。"}}}},
+    "agentPane.insertPhoto.localOnly": {"comment":"Insert Photo: refusal in a remote (Cloud or SSH) terminal without a path argument.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Insert Photo picks files on this Mac; a remote terminal can't read them. Pass a path on that machine with --arg path=<file>."}},"ar":{"stringUnit":{"state":"translated","value":"يختار «إدراج صورة» ملفات على جهاز Mac هذا؛ ولا يمكن لطرفية بعيدة قراءتها. مرّر مسارًا على ذلك الجهاز باستخدام --arg path=<file>."}},"bs":{"stringUnit":{"state":"translated","value":"Umetni fotografiju bira datoteke na ovom Macu; udaljeni terminal ih ne može čitati. Proslijedi putanju na toj mašini s --arg path=<file>."}},"da":{"stringUnit":{"state":"translated","value":"Indsæt foto vælger filer på denne Mac; en fjernterminal kan ikke læse dem. Angiv en sti på den maskine med --arg path=<file>."}},"de":{"stringUnit":{"state":"translated","value":"„Foto einfügen“ wählt Dateien auf diesem Mac; ein entferntes Terminal kann sie nicht lesen. Übergib einen Pfad auf jenem Rechner mit --arg path=<file>."}},"es":{"stringUnit":{"state":"translated","value":"Insertar foto elige archivos de este Mac; un terminal remoto no puede leerlos. Pasa una ruta de esa máquina con --arg path=<file>."}},"fr":{"stringUnit":{"state":"translated","value":"Insérer une photo choisit des fichiers sur ce Mac ; un terminal distant ne peut pas les lire. Passez un chemin sur cette machine avec --arg path=<file>."}},"it":{"stringUnit":{"state":"translated","value":"Inserisci foto sceglie file su questo Mac; un terminale remoto non può leggerli. Passa un percorso su quella macchina con --arg path=<file>."}},"ja":{"stringUnit":{"state":"translated","value":"「写真を挿入」はこの Mac 上のファイルを選びます。リモートのターミナルはそれを読めません。そのマシン上のパスを --arg path=<file> で渡してください。"}},"km":{"stringUnit":{"state":"translated","value":"បញ្ចូលរូបថត ជ្រើសឯកសារនៅលើ Mac នេះ; ទែមីណាល់ពីចម្ងាយមិនអាចអានវាបានទេ។ សូមបញ្ជូនផ្លូវនៅលើម៉ាស៊ីននោះជាមួយ --arg path=<file>។"}},"ko":{"stringUnit":{"state":"translated","value":"사진 삽입은 이 Mac의 파일을 선택합니다. 원격 터미널은 그 파일을 읽을 수 없습니다. --arg path=<file>로 그 컴퓨터의 경로를 전달하세요."}},"nb":{"stringUnit":{"state":"translated","value":"Sett inn bilde velger filer på denne Macen; en ekstern terminal kan ikke lese dem. Send en sti på den maskinen med --arg path=<file>."}},"pl":{"stringUnit":{"state":"translated","value":"Wstaw zdjęcie wybiera pliki na tym Macu; zdalny terminal nie może ich odczytać. Przekaż ścieżkę na tamtej maszynie przez --arg path=<file>."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Inserir foto escolhe arquivos neste Mac; um terminal remoto não consegue lê-los. Passe um caminho naquela máquina com --arg path=<file>."}},"ru":{"stringUnit":{"state":"translated","value":"«Вставить фото» выбирает файлы на этом Mac; удалённый терминал не может их прочитать. Передайте путь на той машине через --arg path=<file>."}},"th":{"stringUnit":{"state":"translated","value":"แทรกรูปภาพจะเลือกไฟล์บน Mac เครื่องนี้ เทอร์มินัลระยะไกลอ่านไฟล์เหล่านั้นไม่ได้ ส่งพาธบนเครื่องนั้นด้วย --arg path=<file>"}},"tr":{"stringUnit":{"state":"translated","value":"Fotoğraf Ekle bu Mac'teki dosyaları seçer; uzak bir terminal bunları okuyamaz. O makinedeki bir yolu --arg path=<file> ile verin."}},"uk":{"stringUnit":{"state":"translated","value":"«Вставити фото» вибирає файли на цьому Mac; віддалений термінал не може їх прочитати. Передайте шлях на тій машині через --arg path=<file>."}},"vi":{"stringUnit":{"state":"translated","value":"Chèn ảnh chọn tệp trên máy Mac này; terminal từ xa không đọc được chúng. Hãy truyền một đường dẫn trên máy đó bằng --arg path=<file>."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"“插入照片”选取的是这台 Mac 上的文件；远程终端无法读取。请用 --arg path=<file> 传入那台机器上的路径。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"「插入照片」選取的是這台 Mac 上的檔案；遠端終端機無法讀取。請用 --arg path=<file> 傳入那台機器上的路徑。"}}}},
+    "agentPane.cloudChatEnded.titleOn": {"comment":"Agent pane: notice title on a Mac tab whose Cloud chat ended; %@ is the Cloud machine's name (cmux#55066).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انتهت محادثة Cloud على %@."}},"bs":{"stringUnit":{"state":"needs_review","value":"Cloud chat na %@ je završen."}},"da":{"stringUnit":{"state":"needs_review","value":"Cloud-chatten på %@ er slut."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Cloud-Chat auf %@ wurde beendet."}},"en":{"stringUnit":{"state":"translated","value":"The Cloud chat on %@ ended."}},"es":{"stringUnit":{"state":"needs_review","value":"El chat en Cloud de %@ terminó."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le chat Cloud sur %@ s’est terminé."}},"it":{"stringUnit":{"state":"needs_review","value":"La chat Cloud su %@ è terminata."}},"ja":{"stringUnit":{"state":"needs_review","value":"%@ の Cloud チャットは終了しました。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែក Cloud នៅលើ %@ បានបញ្ចប់។"}},"ko":{"stringUnit":{"state":"needs_review","value":"%@의 Cloud 채팅이 종료되었습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Cloud-chatten på %@ er avsluttet."}},"pl":{"stringUnit":{"state":"needs_review","value":"Czat w Cloud na %@ się zakończył."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O chat no Cloud em %@ terminou."}},"ru":{"stringUnit":{"state":"needs_review","value":"Чат в Cloud на %@ завершился."}},"th":{"stringUnit":{"state":"needs_review","value":"แชต Cloud บน %@ จบแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"%@ üzerindeki Cloud sohbeti sona erdi."}},"uk":{"stringUnit":{"state":"needs_review","value":"Чат у Cloud на %@ завершився."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện Cloud trên %@ đã kết thúc."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"%@ 上的 Cloud 聊天已结束。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"%@ 上的 Cloud 聊天已結束。"}}}},
+    "agentPane.cloudChatEnded.title": {"comment":"Agent pane: notice title on a Mac tab whose Cloud chat ended (cmux#55066).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انتهت محادثة Cloud."}},"bs":{"stringUnit":{"state":"needs_review","value":"Cloud chat je završen."}},"da":{"stringUnit":{"state":"needs_review","value":"Cloud-chatten er slut."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Cloud-Chat wurde beendet."}},"en":{"stringUnit":{"state":"translated","value":"The Cloud chat ended."}},"es":{"stringUnit":{"state":"needs_review","value":"El chat en Cloud terminó."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le chat Cloud s’est terminé."}},"it":{"stringUnit":{"state":"needs_review","value":"La chat Cloud è terminata."}},"ja":{"stringUnit":{"state":"needs_review","value":"Cloud チャットは終了しました。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែក Cloud បានបញ្ចប់។"}},"ko":{"stringUnit":{"state":"needs_review","value":"Cloud 채팅이 종료되었습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Cloud-chatten er avsluttet."}},"pl":{"stringUnit":{"state":"needs_review","value":"Czat w Cloud się zakończył."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O chat no Cloud terminou."}},"ru":{"stringUnit":{"state":"needs_review","value":"Чат в Cloud завершился."}},"th":{"stringUnit":{"state":"needs_review","value":"แชต Cloud จบแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloud sohbeti sona erdi."}},"uk":{"stringUnit":{"state":"needs_review","value":"Чат у Cloud завершився."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện Cloud đã kết thúc."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Cloud 聊天已结束。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Cloud 聊天已結束。"}}}},
+    "agentPane.cloudChatEnded.promptBack": {"comment":"Agent pane: the line under the Cloud-chat-ended notice when the message went back into the composer (cmux#55066).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"انتهت مباشرة بعد بدئها: ربما نفد استخدام الوكيل، أو توقف الجهاز. عادت رسالتك؛ أرسلها مجددًا أو بدّل الوكيل."}},"bs":{"stringUnit":{"state":"translated","value":"Završio je odmah nakon početka: agentu je možda nestalo korištenja ili je mašina stala. Poruka ti je vraćena; pošalji je ponovo ili promijeni agenta."}},"da":{"stringUnit":{"state":"translated","value":"Den sluttede lige efter start: agenten kan være løbet tør for forbrug, eller maskinen stoppede. Din besked er tilbage; send den igen eller skift agent."}},"de":{"stringUnit":{"state":"translated","value":"Direkt nach dem Start beendet: Der Agent hat vielleicht kein Kontingent mehr, oder der Rechner wurde gestoppt. Deine Nachricht ist zurück; sende sie erneut oder wechsle den Agenten."}},"en":{"stringUnit":{"state":"translated","value":"Ended right after starting: the agent may be out of usage, or the machine stopped. Your message is back; send it again or switch agents."}},"es":{"stringUnit":{"state":"translated","value":"Terminó justo al empezar: el agente puede haberse quedado sin uso, o la máquina se detuvo. Tu mensaje volvió; envíalo de nuevo o cambia de agente."}},"fr":{"stringUnit":{"state":"translated","value":"Terminé juste après le démarrage : l’agent n’a peut-être plus de quota, ou la machine s’est arrêtée. Votre message est revenu ; renvoyez-le ou changez d’agent."}},"it":{"stringUnit":{"state":"translated","value":"Terminata subito dopo l’avvio: l’agente potrebbe aver esaurito l’utilizzo, o la macchina si è fermata. Il messaggio è tornato; invialo di nuovo o cambia agente."}},"ja":{"stringUnit":{"state":"translated","value":"開始直後に終了しました。エージェントの使用量が上限に達したか、マシンが停止した可能性があります。メッセージは戻されました。もう一度送信するか、エージェントを切り替えてください。"}},"km":{"stringUnit":{"state":"translated","value":"បានបញ្ចប់ភ្លាមៗបន្ទាប់ពីចាប់ផ្ដើម៖ ភ្នាក់ងារប្រហែលអស់ការប្រើប្រាស់ ឬម៉ាស៊ីនបានឈប់។ សាររបស់អ្នកបានត្រឡប់មកវិញ; ផ្ញើម្ដងទៀត ឬប្ដូរភ្នាក់ងារ។"}},"ko":{"stringUnit":{"state":"translated","value":"시작 직후 종료되었습니다. 에이전트 사용량이 소진되었거나 머신이 중지되었을 수 있습니다. 메시지가 돌아왔습니다. 다시 보내거나 에이전트를 바꾸세요."}},"nb":{"stringUnit":{"state":"translated","value":"Den avsluttet rett etter start: agenten kan ha brukt opp kvoten, eller maskinen stoppet. Meldingen din er tilbake; send den igjen eller bytt agent."}},"pl":{"stringUnit":{"state":"translated","value":"Zakończył się tuż po starcie: agentowi mógł skończyć się limit albo maszyna się zatrzymała. Wiadomość wróciła; wyślij ją ponownie lub zmień agenta."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Terminou logo após começar: o agente pode estar sem uso, ou a máquina parou. Sua mensagem voltou; envie de novo ou troque de agente."}},"ru":{"stringUnit":{"state":"translated","value":"Завершился сразу после запуска: у агента мог закончиться лимит или машина остановилась. Сообщение возвращено; отправьте его снова или смените агента."}},"th":{"stringUnit":{"state":"translated","value":"จบลงทันทีหลังเริ่ม: เอเจนต์อาจใช้งานหมดโควตา หรือเครื่องหยุดทำงาน ข้อความของคุณกลับมาแล้ว ส่งอีกครั้งหรือเปลี่ยนเอเจนต์"}},"tr":{"stringUnit":{"state":"translated","value":"Başladıktan hemen sonra bitti: ajanın kullanımı bitmiş olabilir veya makine durdu. Mesajınız geri geldi; yeniden gönderin veya ajan değiştirin."}},"uk":{"stringUnit":{"state":"translated","value":"Завершився одразу після запуску: в агента міг закінчитися ліміт або машина зупинилася. Повідомлення повернуто; надішліть його знову або змініть агента."}},"vi":{"stringUnit":{"state":"translated","value":"Đã kết thúc ngay sau khi bắt đầu: tác tử có thể hết lượt dùng, hoặc máy đã dừng. Tin nhắn của bạn đã quay lại; hãy gửi lại hoặc đổi tác tử."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"刚开始就结束了：智能体可能用量已尽，或机器已停止。你的消息已退回；请重新发送或切换智能体。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"剛開始就結束了：代理可能用量已盡，或機器已停止。你的訊息已退回；請重新傳送或切換代理。"}}}},
+    "agentPane.cloudChatEnded.dismiss": {"comment":"Agent pane: button that closes the Cloud-chat-ended notice (cmux#55066).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إغلاق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbaci"}},"da":{"stringUnit":{"state":"needs_review","value":"Luk"}},"de":{"stringUnit":{"state":"needs_review","value":"Schließen"}},"en":{"stringUnit":{"state":"translated","value":"Dismiss"}},"es":{"stringUnit":{"state":"needs_review","value":"Descartar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ignorer"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiudi"}},"ja":{"stringUnit":{"state":"needs_review","value":"閉じる"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទ"}},"ko":{"stringUnit":{"state":"needs_review","value":"닫기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lukk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zamknij"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Dispensar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Закрыть"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kapat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Закрити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đóng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"关闭"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"關閉"}}}},
+    "agentPane.cloudChatEnded.detail": {"comment":"Agent pane: the line under the Cloud-chat-ended notice when no message came back (cmux#55066).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"اختفى جهازها أو علامة تبويبها هناك. أرسل رسالة لبدء محادثة جديدة هنا، أو اختر وكيلًا أو جهازًا آخر أولًا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Njegova mašina ili kartica tamo je nestala. Pošalji poruku da ovdje započneš novi chat ili prvo izaberi drugog agenta ili mašinu."}},"da":{"stringUnit":{"state":"needs_review","value":"Dens maskine eller fane der forsvandt. Send en besked for at starte en ny chat her, eller vælg først en anden agent eller maskine."}},"de":{"stringUnit":{"state":"needs_review","value":"Seine Maschine oder sein Tab dort ist weg. Sende eine Nachricht, um hier einen neuen Chat zu starten, oder wähle zuerst einen anderen Agenten oder eine andere Maschine."}},"en":{"stringUnit":{"state":"translated","value":"Its machine or its tab there went. Send a message to start a new chat here, or pick another agent or machine first."}},"es":{"stringUnit":{"state":"needs_review","value":"Su máquina o su pestaña allí desapareció. Envía un mensaje para empezar un chat nuevo aquí o elige antes otro agente o máquina."}},"fr":{"stringUnit":{"state":"needs_review","value":"Sa machine ou son onglet là-bas a disparu. Envoyez un message pour démarrer un nouveau chat ici, ou choisissez d’abord un autre agent ou une autre machine."}},"it":{"stringUnit":{"state":"needs_review","value":"La sua macchina o la sua scheda lì non c’è più. Invia un messaggio per iniziare qui una nuova chat o scegli prima un altro agente o un’altra macchina."}},"ja":{"stringUnit":{"state":"needs_review","value":"マシンまたはそこでのタブがなくなりました。メッセージを送ってここで新しいチャットを始めるか、先に別のエージェントやマシンを選んでください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ាស៊ីន ឬផ្ទាំងរបស់វានៅទីនោះបានបាត់។ ផ្ញើសារដើម្បីចាប់ផ្តើមការជជែកថ្មីនៅទីនេះ ឬជ្រើសភ្នាក់ងារ ឬម៉ាស៊ីនផ្សេងជាមុនសិន។"}},"ko":{"stringUnit":{"state":"needs_review","value":"머신 또는 그곳의 탭이 사라졌습니다. 메시지를 보내 여기서 새 채팅을 시작하거나 먼저 다른 에이전트나 머신을 선택하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Maskinen eller fanen der forsvant. Send en melding for å starte en ny chat her, eller velg først en annen agent eller maskin."}},"pl":{"stringUnit":{"state":"needs_review","value":"Jego maszyna lub karta tam zniknęła. Wyślij wiadomość, aby zacząć tu nowy czat, albo najpierw wybierz innego agenta lub maszynę."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"A máquina ou a aba dele lá sumiu. Envie uma mensagem para começar um novo chat aqui ou escolha antes outro agente ou máquina."}},"ru":{"stringUnit":{"state":"needs_review","value":"Его машина или вкладка там пропала. Отправьте сообщение, чтобы начать здесь новый чат, или сначала выберите другого агента или машину."}},"th":{"stringUnit":{"state":"needs_review","value":"เครื่องหรือแท็บของแชตนั้นหายไปแล้ว ส่งข้อความเพื่อเริ่มแชตใหม่ที่นี่ หรือเลือกเอเจนต์หรือเครื่องอื่นก่อน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makinesi veya oradaki sekmesi gitti. Burada yeni bir sohbet başlatmak için mesaj gönderin ya da önce başka bir ajan veya makine seçin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Його машина або вкладка там зникла. Надішліть повідомлення, щоб почати тут новий чат, або спершу виберіть іншого агента чи машину."}},"vi":{"stringUnit":{"state":"needs_review","value":"Máy hoặc thẻ của nó ở đó đã mất. Gửi tin nhắn để bắt đầu cuộc trò chuyện mới ở đây, hoặc chọn agent hay máy khác trước."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"它的机器或那里的标签页已不在。发送消息在这里开始新的聊天，或先选择其他智能体或机器。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"它的機器或那裡的分頁已不在。傳送訊息在這裡開始新的聊天，或先選擇其他智慧代理或機器。"}}}},
+    "agentPane.computerUse.notSetUp": {"comment":"Native New Tab: notice when a prompt that names @computer-use is held while Computer Use is not set up","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer use is not set up"}},"ar":{"stringUnit":{"state":"needs_review","value":"لم يتم إعداد استخدام الكمبيوتر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Korištenje računara nije podešeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Computerbrug er ikke konfigureret"}},"de":{"stringUnit":{"state":"needs_review","value":"Computernutzung ist nicht eingerichtet"}},"es":{"stringUnit":{"state":"needs_review","value":"El uso del ordenador no está configurado"}},"fr":{"stringUnit":{"state":"needs_review","value":"L’utilisation de l’ordinateur n’est pas configurée"}},"it":{"stringUnit":{"state":"needs_review","value":"L’uso del computer non è configurato"}},"ja":{"stringUnit":{"state":"needs_review","value":"コンピュータ操作が設定されていません"}},"km":{"stringUnit":{"state":"needs_review","value":"ការប្រើកុំព្យូទ័រមិនទាន់បានរៀបចំទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"컴퓨터 사용이 설정되지 않았습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Datamaskinbruk er ikke konfigurert"}},"pl":{"stringUnit":{"state":"needs_review","value":"Obsługa komputera nie jest skonfigurowana"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O uso do computador não está configurado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Управление компьютером не настроено"}},"th":{"stringUnit":{"state":"needs_review","value":"ยังไม่ได้ตั้งค่าการใช้คอมพิวเตอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bilgisayar kullanımı ayarlanmadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Керування комп’ютером не налаштовано"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa thiết lập sử dụng máy tính"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"尚未设置电脑操作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"尚未設定電腦操作"}}}},
     "editor.refusal.noEditor": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No code editor is installed on this Mac."}},"ar":{"stringUnit":{"state":"needs_review","value":"لا يوجد محرر شيفرة مثبت على جهاز Mac هذا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Na ovom Macu nije instaliran nijedan uređivač koda."}},"da":{"stringUnit":{"state":"needs_review","value":"Der er ingen kodeeditor installeret på denne Mac."}},"de":{"stringUnit":{"state":"needs_review","value":"Auf diesem Mac ist kein Code-Editor installiert."}},"es":{"stringUnit":{"state":"needs_review","value":"No hay ningún editor de código instalado en este Mac."}},"fr":{"stringUnit":{"state":"needs_review","value":"Aucun éditeur de code n’est installé sur ce Mac."}},"it":{"stringUnit":{"state":"needs_review","value":"Su questo Mac non è installato alcun editor di codice."}},"ja":{"stringUnit":{"state":"needs_review","value":"この Mac にはコードエディタがインストールされていません。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនមានកម្មវិធីកែកូដដែលបានដំឡើងនៅលើ Mac នេះទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 Mac에 설치된 코드 편집기가 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Ingen koderedigerer er installert på denne Macen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Na tym Macu nie zainstalowano żadnego edytora kodu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nenhum editor de código está instalado neste Mac."}},"ru":{"stringUnit":{"state":"needs_review","value":"На этом Mac не установлен ни один редактор кода."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่มีโปรแกรมแก้ไขโค้ดติดตั้งอยู่บน Mac เครื่องนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu Mac'te yüklü kod düzenleyici yok."}},"uk":{"stringUnit":{"state":"needs_review","value":"На цьому Mac не встановлено жодного редактора коду."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không có trình soạn thảo mã nào được cài trên máy Mac này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"这台 Mac 上没有安装代码编辑器。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"這台 Mac 上沒有安裝程式碼編輯器。"}}}},
     "editor.refusal.notInstalled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The editor %@ is not installed on this Mac."}},"ar":{"stringUnit":{"state":"needs_review","value":"المحرر %@ غير مثبت على جهاز Mac هذا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Uređivač %@ nije instaliran na ovom Macu."}},"da":{"stringUnit":{"state":"needs_review","value":"Editoren %@ er ikke installeret på denne Mac."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Editor %@ ist auf diesem Mac nicht installiert."}},"es":{"stringUnit":{"state":"needs_review","value":"El editor %@ no está instalado en este Mac."}},"fr":{"stringUnit":{"state":"needs_review","value":"L’éditeur %@ n’est pas installé sur ce Mac."}},"it":{"stringUnit":{"state":"needs_review","value":"L’editor %@ non è installato su questo Mac."}},"ja":{"stringUnit":{"state":"needs_review","value":"エディタ %@ はこの Mac にインストールされていません。"}},"km":{"stringUnit":{"state":"needs_review","value":"កម្មវិធីកែ %@ មិនបានដំឡើងនៅលើ Mac នេះទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"편집기 %@이(가) 이 Mac에 설치되어 있지 않습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Redigereren %@ er ikke installert på denne Macen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Edytor %@ nie jest zainstalowany na tym Macu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O editor %@ não está instalado neste Mac."}},"ru":{"stringUnit":{"state":"needs_review","value":"Редактор %@ не установлен на этом Mac."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่ได้ติดตั้งโปรแกรมแก้ไข %@ บน Mac เครื่องนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"%@ düzenleyicisi bu Mac'te yüklü değil."}},"uk":{"stringUnit":{"state":"needs_review","value":"Редактор %@ не встановлено на цьому Mac."}},"vi":{"stringUnit":{"state":"needs_review","value":"Trình soạn thảo %@ chưa được cài trên máy Mac này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"这台 Mac 上没有安装编辑器 %@。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"這台 Mac 上沒有安裝編輯器 %@。"}}}},
     "editor.openIn.finder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Finder"}},"ar":{"stringUnit":{"state":"needs_review","value":"Finder"}},"bs":{"stringUnit":{"state":"needs_review","value":"Finder"}},"da":{"stringUnit":{"state":"needs_review","value":"Finder"}},"de":{"stringUnit":{"state":"needs_review","value":"Finder"}},"es":{"stringUnit":{"state":"needs_review","value":"Finder"}},"fr":{"stringUnit":{"state":"needs_review","value":"Finder"}},"it":{"stringUnit":{"state":"needs_review","value":"Finder"}},"ja":{"stringUnit":{"state":"needs_review","value":"Finder"}},"km":{"stringUnit":{"state":"needs_review","value":"Finder"}},"ko":{"stringUnit":{"state":"needs_review","value":"Finder"}},"nb":{"stringUnit":{"state":"needs_review","value":"Finder"}},"pl":{"stringUnit":{"state":"needs_review","value":"Finder"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Finder"}},"ru":{"stringUnit":{"state":"needs_review","value":"Finder"}},"th":{"stringUnit":{"state":"needs_review","value":"Finder"}},"tr":{"stringUnit":{"state":"needs_review","value":"Finder"}},"uk":{"stringUnit":{"state":"needs_review","value":"Finder"}},"vi":{"stringUnit":{"state":"needs_review","value":"Finder"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Finder"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Finder"}}}},
@@ -10679,137 +10690,6 @@
         }
       }
     },
-    "agentPane.personUnproven.message": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم يتم التحقق من أنك أنت. جارٍ إعادة ربط هويتك بخدمة الوكلاء…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nije potvrđeno da ste to vi. Vaš identitet se ponovo povezuje sa servisom agenata…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ikke bekræftet som dig. Forbinder din identitet til agenttjenesten igen…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nicht als du bestätigt. Deine Identität wird erneut mit dem Agentendienst verbunden…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not verified as you. Reconnecting your identity to the agent service…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se verificó que seas tú. Reconectando tu identidad con el servicio de agentes…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non vérifié comme étant vous. Reconnexion de votre identité au service d’agents…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non verificato come te. Ricollegamento della tua identità al servizio agenti…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "あなたとして確認されていません。エージェントサービスとの本人確認を再接続しています…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនទាន់បានផ្ទៀងផ្ទាត់ថាជាអ្នកទេ។ កំពុងភ្ជាប់អត្តសញ្ញាណរបស់អ្នកទៅសេវាភ្នាក់ងារឡើងវិញ…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "본인으로 확인되지 않았습니다. 에이전트 서비스에 본인 확인을 다시 연결하는 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ikke bekreftet som deg. Kobler identiteten din til agenttjenesten på nytt…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie potwierdzono, że to Ty. Ponowne łączenie Twojej tożsamości z usługą agentów…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não verificado como você. Reconectando sua identidade ao serviço de agentes…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не подтверждено, что это вы. Повторно подключаем вашу личность к службе агентов…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ยังไม่ได้ยืนยันว่าเป็นคุณ กำลังเชื่อมต่อตัวตนของคุณกับบริการเอเจนต์อีกครั้ง…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Siz olduğunuz doğrulanmadı. Kimliğiniz ajan hizmetine yeniden bağlanıyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не підтверджено, що це ви. Повторно підключаємо вашу особу до служби агентів…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chưa xác minh là bạn. Đang kết nối lại danh tính của bạn với dịch vụ tác tử…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未验证为你本人。正在将你的身份重新连接到代理服务…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未驗證為你本人。正在將你的身分重新連接到代理服務…"
-          }
-        }
-      }
-    },
     "agentPane.otherInstall.message": {
       "extractionState": "manual",
       "localizations": {
@@ -10947,258 +10827,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعطلت لوحة الوكيل."
+            "value": "تتعطل لوحة الوكيل باستمرار. سيعيد cmux تحميلها قريبًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Panel agenta se srušio."
+            "value": "Panel agenta se stalno ruši. cmux će ga uskoro ponovo učitati."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentpanelet gik ned."
+            "value": "Agentpanelet bliver ved med at gå ned. cmux indlæser det igen om lidt."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Agentenbereich ist abgestürzt."
+            "value": "Der Agentenbereich stürzt immer wieder ab. cmux lädt ihn gleich neu."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent pane crashed."
+            "value": "The agent pane keeps crashing. cmux will load it again shortly."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El panel del agente se bloqueó."
+            "value": "El panel del agente se sigue bloqueando. cmux lo volverá a cargar en breve."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le panneau de l’agent a planté."
+            "value": "Le panneau de l’agent plante sans cesse. cmux va le recharger sous peu."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il pannello dell’agente si è arrestato."
+            "value": "Il pannello dell’agente continua ad arrestarsi. cmux lo ricaricherà a breve."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントペインがクラッシュしました。"
+            "value": "エージェントペインがクラッシュを繰り返しています。cmux がまもなく再読み込みします。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ផ្ទាំងភ្នាក់ងារបានគាំង។"
+            "value": "ផ្ទាំងភ្នាក់ងារគាំងជាបន្តបន្ទាប់។ cmux នឹងផ្ទុកវាឡើងវិញក្នុងពេលឆាប់ៗ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트 패널이 충돌했습니다."
+            "value": "에이전트 패널이 계속 충돌합니다. cmux가 곧 다시 로드합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentpanelet krasjet."
+            "value": "Agentpanelet krasjer gang på gang. cmux laster det inn på nytt om litt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Panel agenta uległ awarii."
+            "value": "Panel agenta wciąż ulega awarii. cmux wkrótce załaduje go ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O painel do agente travou."
+            "value": "O painel do agente continua travando. O cmux vai recarregá-lo em breve."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Панель агента аварийно завершилась."
+            "value": "Панель агента постоянно аварийно завершается. cmux скоро загрузит её снова."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บานหน้าต่างเอเจนต์ขัดข้อง"
+            "value": "บานหน้าต่างเอเจนต์ขัดข้องซ้ำ ๆ cmux จะโหลดใหม่ในอีกสักครู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajan bölmesi çöktü."
+            "value": "Ajan bölmesi sürekli çöküyor. cmux birazdan yeniden yükleyecek."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Панель агента аварійно завершилася."
+            "value": "Панель агента постійно аварійно завершується. cmux незабаром завантажить її знову."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ngăn tác tử đã gặp sự cố."
+            "value": "Ngăn tác tử liên tục gặp sự cố. cmux sẽ sớm tải lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理窗格已崩溃。"
+            "value": "代理窗格反复崩溃。cmux 稍后会重新载入它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理窗格已當機。"
-          }
-        }
-      }
-    },
-    "agentPane.crashed.reload": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة التحميل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ponovo učitaj"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Genindlæs"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neu laden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reload"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recargar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recharger"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ricarica"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再読み込み"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ទុកឡើងវិញ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 로드"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Last inn på nytt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Załaduj ponownie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recarregar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перезагрузить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โหลดใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeniden yükle"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перезавантажити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tải lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新载入"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新載入"
+            "value": "代理窗格反覆當機。cmux 稍後會重新載入。"
           }
         }
       }
@@ -23269,6 +23018,138 @@
       }
     }
   },
+    "agentPane.error.folderMissing": {
+     "comment": "Agent pane: a folder picked for a chat no longer exists (a reboot wiped it, it was removed). %@ is its path.",
+     "extractionState": "manual",
+     "localizations": {
+      "ar": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "لم يعد المجلد %@ موجودًا. اختر مجلدًا آخر."
+       }
+      },
+      "bs": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Folder %@ više ne postoji. Odaberi drugi folder."
+       }
+      },
+      "da": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Mappen %@ findes ikke længere. Vælg en anden mappe."
+       }
+      },
+      "de": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Der Ordner %@ existiert nicht mehr. Wähle einen anderen Ordner."
+       }
+      },
+      "en": {
+       "stringUnit": {
+        "state": "translated",
+        "value": "The folder %@ no longer exists. Pick another folder."
+       }
+      },
+      "es": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "La carpeta %@ ya no existe. Elige otra carpeta."
+       }
+      },
+      "fr": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Le dossier %@ n’existe plus. Choisissez un autre dossier."
+       }
+      },
+      "it": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "La cartella %@ non esiste più. Scegli un’altra cartella."
+       }
+      },
+      "ja": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "フォルダー %@ はもう存在しません。別のフォルダーを選んでください。"
+       }
+      },
+      "km": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "ថត %@ លែងមានទៀតហើយ។ សូមជ្រើសថតផ្សេង។"
+       }
+      },
+      "ko": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "%@ 폴더가 더 이상 존재하지 않습니다. 다른 폴더를 선택하세요."
+       }
+      },
+      "nb": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Mappen %@ finnes ikke lenger. Velg en annen mappe."
+       }
+      },
+      "pl": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Folder %@ już nie istnieje. Wybierz inny folder."
+       }
+      },
+      "pt-BR": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "A pasta %@ não existe mais. Escolha outra pasta."
+       }
+      },
+      "ru": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Папки %@ больше нет. Выберите другую папку."
+       }
+      },
+      "th": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "โฟลเดอร์ %@ ไม่มีอยู่แล้ว เลือกโฟลเดอร์อื่น"
+       }
+      },
+      "tr": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "%@ klasörü artık yok. Başka bir klasör seç."
+       }
+      },
+      "uk": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Папка %@ більше не існує. Виберіт іншу папку."
+       }
+      },
+      "vi": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Thư mục %@ không còn tồn tại. Hãy chọn thư mục khác."
+       }
+      },
+      "zh-Hans": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "文件夹 %@ 已不存在。请选择其他文件夹。"
+       }
+      },
+      "zh-Hant": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "資料夾 %@ 已不存在。請選擇其他資料夾。"
+       }
+      }
+     }
+    },
     "agentPane.error.transport": {
     "extractionState": "manual",
     "localizations": {
@@ -26017,6 +25898,270 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "打開影像"
+          }
+        }
+      }
+    },
+    "agentPane.menu.attachmentsInline" : {
+      "comment" : "Agent pane context menu on a sent prompt with attachments: draw every attachment in the text, where it was added (agentPane.attachmentView inline).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المرفقات داخل النص"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prilozi u tekstu"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vedhæftninger i teksten"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Anhänge im Text"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attachments Inline"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Adjuntos en el texto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pièces jointes dans le texte"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Allegati nel testo"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "添付ファイルを文中に表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ឯកសារភ្ជាប់ក្នុងអត្ថបទ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "첨부 파일을 본문에 표시"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vedlegg i teksten"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Załączniki w tekście"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Anexos no texto"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вложения в тексте"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไฟล์แนบในข้อความ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ekler metnin içinde"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладення в тексті"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tệp đính kèm trong văn bản"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "附件显示在文字中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "附件顯示在文字中"
+          }
+        }
+      }
+    },
+    "agentPane.menu.attachmentsAtTop" : {
+      "comment" : "Agent pane context menu on a sent prompt with attachments: draw every attachment in one row above the text (agentPane.attachmentView strip).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المرفقات في الأعلى"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prilozi na vrhu"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vedhæftninger øverst"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Anhänge oben"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attachments at Top"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Adjuntos arriba"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pièces jointes en haut"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Allegati in alto"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "添付ファイルを上部に表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ឯកសារភ្ជាប់នៅខាងលើ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "첨부 파일을 위쪽에 표시"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vedlegg øverst"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Załączniki na górze"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Anexos no topo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вложения сверху"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไฟล์แนบที่ด้านบน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ekler üstte"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладення вгорі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tệp đính kèm ở trên cùng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "附件显示在顶部"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "附件顯示在頂部"
           }
         }
       }
@@ -35013,6 +35158,137 @@
         }
       }
     },
+    "agentPane.error.gitMergeUnconfirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قبل GitHub الدمج لكنه لم يؤكده بعد. افتح طلب السحب لمعرفة ما إذا تم دمجه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub je prihvatio spajanje, ali ga nije potvrdio. Otvorite zahtjev za povlačenje da vidite je li spojen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub tog imod fletningen, men har ikke bekræftet den. Åbn pull requesten for at se, om den blev flettet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub hat das Zusammenführen angenommen, aber nicht bestätigt. Öffne den Pull Request, um zu sehen, ob er zusammengeführt wurde."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub took the merge but hasn't confirmed it. Open the pull request to see whether it merged."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub aceptó la fusión, pero no la ha confirmado. Abre la solicitud de incorporación para ver si se fusionó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub a accepté la fusion mais ne l'a pas confirmée. Ouvrez la pull request pour voir si elle a été fusionnée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ha accettato l'unione ma non l'ha confermata. Apri la pull request per vedere se è stata unita."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub はマージを受け付けましたが、まだ確認していません。プルリクエストを開いてマージされたか確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub បានទទួលការបញ្ចូល ប៉ុន្តែមិនទាន់បញ្ជាក់ទេ។ សូមបើកសំណើទាញ ដើម្បីមើលថាតើវាត្រូវបានបញ្ចូលឬអត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub가 병합을 받았지만 아직 확인하지 않았습니다. 풀 리퀘스트를 열어 병합되었는지 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub tok imot sammenslåingen, men har ikke bekreftet den. Åpne pull requesten for å se om den ble slått sammen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub przyjął scalenie, ale go nie potwierdził. Otwórz pull request, aby sprawdzić, czy został scalony."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O GitHub aceitou o merge, mas não o confirmou. Abra o pull request para ver se ele foi mesclado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub принял слияние, но не подтвердил его. Откройте пул-реквест, чтобы узнать, было ли оно выполнено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub รับการผสานแล้วแต่ยังไม่ยืนยัน เปิดคำขอดึงเพื่อดูว่าผสานแล้วหรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub birleştirmeyi aldı ancak onaylamadı. Birleştirilip birleştirilmediğini görmek için çekme isteğini açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub прийняв злиття, але не підтвердив його. Відкрийте пул-реквест, щоб побачити, чи його злито."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub đã nhận yêu cầu hợp nhất nhưng chưa xác nhận. Hãy mở pull request để xem nó đã được hợp nhất chưa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 已接受合并，但尚未确认。请打开拉取请求查看是否已合并。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 已接受合併，但尚未確認。請開啟提取要求查看是否已合併。"
+          }
+        }
+      }
+    },
     "agentPane.error.gitMergeChanged": {
       "extractionState": "manual",
       "localizations": {
@@ -35545,6 +35821,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "GitHub säger att den här pull requesten inte kan slås ihop ännu."
+          }
+        }
+      }
+    },
+    "agentPane.error.gitGitHubSignedOut": {
+      "comment": "Agent pane Create PR / Merge: gh is installed but has no GitHub login",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى GitHub: شغّل gh auth login في الطرفية، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavite se na GitHub: pokrenite gh auth login u terminalu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på GitHub: kør gh auth login i en terminal, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich bei GitHub an: Führe gh auth login in einem Terminal aus und versuche es dann erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to GitHub: run gh auth login in a terminal, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en GitHub: ejecuta gh auth login en una terminal y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous à GitHub : exécutez gh auth login dans un terminal, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi a GitHub: esegui gh auth login in un terminale, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub にサインインしてください: ターミナルで gh auth login を実行してから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលទៅ GitHub៖ ដំណើរការ gh auth login នៅក្នុងទែមីណាល់ រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub에 로그인하세요: 터미널에서 gh auth login을 실행한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på GitHub: kjør gh auth login i en terminal, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się do GitHub: uruchom gh auth login w terminalu, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entre no GitHub: execute gh auth login em um terminal e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войдите в GitHub: выполните gh auth login в терминале, затем повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ GitHub: เรียกใช้ gh auth login ในเทอร์มินัล แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub'da oturum açın: bir terminalde gh auth login komutunu çalıştırın, ardından tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійдіть у GitHub: виконайте gh auth login у терміналі, а потім спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập GitHub: chạy gh auth login trong terminal, rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 GitHub：在终端中运行 gh auth login，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 GitHub：在終端機中執行 gh auth login，然後再試一次。"
           }
         }
       }
@@ -42322,133 +42730,289 @@
       }
     },
     "agentPane.github.cloneNeedsAccess": {
-      "comment": "A Cloud chat's start in a GitHub repository: the Cloud machine can't read the repository (%@ is owner/name). The card shows Connect GitHub, then Retry.",
+      "comment": "A Cloud chat's start in a GitHub repository: the Cloud machine can't read the repository (%@ is owner/name). The card shows Sign in with GitHub.",
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with GitHub so Cloud can clone %@."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اربط GitHub ليتمكن Cloud من استنساخ %@، ثم أعد المحاولة."
+            "value": "سجّل الدخول باستخدام GitHub حتى يتمكن Cloud من استنساخ %@."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povežite GitHub da Cloud može klonirati %@, zatim pokušajte ponovo."
+            "value": "Prijavi se putem GitHuba da Cloud može klonirati %@."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbind GitHub, så Cloud kan klone %@, og prøv igen."
+            "value": "Log ind med GitHub, så Cloud kan klone %@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbinde GitHub, damit Cloud %@ klonen kann, und versuche es dann erneut."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connect GitHub so Cloud can clone %@, then retry."
+            "value": "Melde dich mit GitHub an, damit Cloud %@ klonen kann."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecta GitHub para que Cloud pueda clonar %@ y vuelve a intentarlo."
+            "value": "Inicia sesión con GitHub para que Cloud pueda clonar %@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connectez GitHub pour que Cloud puisse cloner %@, puis réessayez."
+            "value": "Connectez-vous avec GitHub pour que Cloud puisse cloner %@."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collega GitHub perché Cloud possa clonare %@, poi riprova."
+            "value": "Accedi con GitHub perché Cloud possa clonare %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud が %@ をクローンできるように GitHub を接続してから、もう一度お試しください。"
+            "value": "Cloud が %@ をクローンできるように、GitHub でサインインしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្ជាប់ GitHub ដើម្បីឱ្យ Cloud អាចក្លូន %@ បាន រួចព្យាយាមម្ដងទៀត។"
+            "value": "ចូលដោយប្រើ GitHub ដើម្បីឱ្យ Cloud អាចក្លូន %@។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud가 %@을(를) 복제할 수 있도록 GitHub를 연결한 다음 다시 시도하세요."
+            "value": "Cloud가 %@을(를) 클론할 수 있도록 GitHub로 로그인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble til GitHub så Cloud kan klone %@, og prøv igjen."
+            "value": "Logg på med GitHub så Cloud kan klone %@."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log in met GitHub zodat Cloud %@ kan klonen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połącz GitHub, aby Cloud mógł sklonować %@, a potem spróbuj ponownie."
+            "value": "Zaloguj się przez GitHub, aby Cloud mógł sklonować %@."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecte o GitHub para que o Cloud possa clonar %@ e tente novamente."
+            "value": "Entre com o GitHub para que o Cloud possa clonar %@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключите GitHub, чтобы Cloud мог клонировать %@, и повторите попытку."
+            "value": "Войдите через GitHub, чтобы Cloud мог клонировать %@."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logga in med GitHub så att Cloud kan klona %@."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อ GitHub เพื่อให้ Cloud โคลน %@ ได้ แล้วลองอีกครั้ง"
+            "value": "ลงชื่อเข้าใช้ด้วย GitHub เพื่อให้ Cloud โคลน %@ ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud'un %@ deposunu klonlayabilmesi için GitHub'ı bağlayın, ardından tekrar deneyin."
+            "value": "Cloud'un %@ deposunu klonlayabilmesi için GitHub ile oturum açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключіть GitHub, щоб Cloud міг клонувати %@, і спробуйте ще раз."
+            "value": "Увійдіть через GitHub, щоб Cloud міг клонувати %@."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối GitHub để Cloud có thể sao chép %@, rồi thử lại."
+            "value": "Đăng nhập bằng GitHub để Cloud có thể sao chép %@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连接 GitHub 以便 Cloud 克隆 %@，然后重试。"
+            "value": "使用 GitHub 登录，以便 Cloud 克隆 %@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連接 GitHub 讓 Cloud 可以複製 %@，然後再試一次。"
+            "value": "使用 GitHub 登入，讓 Cloud 可以複製 %@。"
+          }
+        }
+      }
+    },
+    "agentPane.github.cloneLoginCantReach": {
+      "comment": "A Cloud chat's start in a GitHub repository: the person's own GitHub login, carried to the Cloud machine, can't read the repository. %1$@ is the GitHub login, %2$@ owner/name. The card shows Sign in with GitHub.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your GitHub login %1$@ has no access to %2$@. Sign in with GitHub to give Cloud access to it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لحساب GitHub %1$@ الوصول إلى %2$@. سجّل الدخول باستخدام GitHub لمنح Cloud حق الوصول إليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tvoja GitHub prijava %1$@ ne može pristupiti %2$@. Prijavi se putem GitHuba da Cloudu daš pristup."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit GitHub-login %1$@ kan ikke nå %2$@. Log ind med GitHub for at give Cloud adgang til det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein GitHub-Login %1$@ kann %2$@ nicht erreichen. Melde dich mit GitHub an, um Cloud Zugriff darauf zu geben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu inicio de sesión de GitHub %1$@ no puede acceder a %2$@. Inicia sesión con GitHub para dar acceso a Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre compte GitHub %1$@ ne peut pas accéder à %2$@. Connectez-vous avec GitHub pour y donner accès à Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo accesso GitHub %1$@ non raggiunge %2$@. Accedi con GitHub per dare a Cloud l'accesso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ログイン %1$@ は %2$@ にアクセスできません。GitHub でサインインして Cloud にアクセスを許可してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូល GitHub របស់អ្នក %1$@ មិនអាចចូលដល់ %2$@ បានទេ។ ចូលដោយប្រើ GitHub ដើម្បីផ្ដល់សិទ្ធិឱ្យ Cloud។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 로그인 %1$@(으)로는 %2$@에 접근할 수 없습니다. GitHub로 로그인해 Cloud에 접근 권한을 주세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub-påloggingen din %1$@ når ikke %2$@. Logg på med GitHub for å gi Cloud tilgang."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je GitHub-login %1$@ kan %2$@ niet bereiken. Log in met GitHub om Cloud er toegang toe te geven."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twój login GitHub %1$@ nie ma dostępu do %2$@. Zaloguj się przez GitHub, aby dać Cloud dostęp."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu login do GitHub %1$@ não alcança %2$@. Entre com o GitHub para dar acesso ao Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш вход GitHub %1$@ не имеет доступа к %2$@. Войдите через GitHub, чтобы дать Cloud доступ."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din GitHub-inloggning %1$@ når inte %2$@. Logga in med GitHub för att ge Cloud åtkomst."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเข้าสู่ระบบ GitHub %1$@ ของคุณเข้าถึง %2$@ ไม่ได้ ลงชื่อเข้าใช้ด้วย GitHub เพื่อให้ Cloud เข้าถึงได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub oturumunuz %1$@, %2$@ deposuna erişemiyor. Cloud'a erişim vermek için GitHub ile oturum açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш вхід GitHub %1$@ не має доступу до %2$@. Увійдіть через GitHub, щоб надати Cloud доступ."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tài khoản GitHub %1$@ của bạn không truy cập được %2$@. Đăng nhập bằng GitHub để cấp quyền cho Cloud."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 GitHub 登录 %1$@ 无法访问 %2$@。使用 GitHub 登录以授予 Cloud 访问权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 GitHub 登入 %1$@ 無法存取 %2$@。使用 GitHub 登入以授予 Cloud 存取權。"
           }
         }
       }
@@ -43373,6 +43937,930 @@
           "stringUnit": {
             "state": "translated",
             "value": "Liên kết đã hết hạn; hãy kết nối lại."
+          }
+        }
+      }
+    },
+    "agentPane.repo.invalidURL": {
+      "comment": "Local HTTPS repository clone error",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter an HTTPS repository URL."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل عنوان HTTPS للمستودع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unesi HTTPS adresu repozitorija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv repositoryets HTTPS-adresse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib eine HTTPS-URL für das Repository ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce una URL HTTPS del repositorio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez l’URL HTTPS d’un dépôt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci l’URL HTTPS di un repository."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリの HTTPS URL を入力してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចូល URL HTTPS របស់ឃ្លាំងកូដ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소의 HTTPS URL을 입력하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv inn en HTTPS-adresse til repositoriet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wpisz adres HTTPS repozytorium."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite a URL HTTPS do repositório."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите HTTPS-адрес репозитория."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ป้อน URL แบบ HTTPS ของที่เก็บโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deponun HTTPS URL’sini girin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введіть HTTPS-адресу репозиторію."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập URL HTTPS của kho mã."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入仓库的 HTTPS 网址。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入儲存庫的 HTTPS 網址。"
+          }
+        }
+      }
+    },
+    "agentPane.repo.credentials": {
+      "comment": "Local HTTPS repository clone error",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a URL without credentials, query parameters, or a fragment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم عنوانًا بلا بيانات اعتماد أو معلمات استعلام أو معرّف جزء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi adresu bez podataka za prijavu, parametara upita i fragmenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug en URL uden loginoplysninger, forespørgselsparametre eller fragment."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende eine URL ohne Anmeldedaten, Abfrageparameter oder Fragment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa una URL sin credenciales, parámetros de consulta ni fragmento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez une URL sans identifiants, paramètres de requête ni fragment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa un URL senza credenziali, parametri di ricerca o frammento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証情報、クエリパラメータ、フラグメントのない URL を使用してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើ URL ដែលគ្មានព័ត៌មានចូលគណនី ប៉ារ៉ាម៉ែត្រសំណួរ ឬផ្នែកសម្គាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자격 증명, 쿼리 매개변수, 프래그먼트가 없는 URL을 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk en URL uten påloggingsopplysninger, søkeparametere eller fragment."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj adresu URL bez danych logowania, parametrów zapytania ani fragmentu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use uma URL sem credenciais, parâmetros de consulta ou fragmento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Используйте URL без учётных данных, параметров запроса и фрагмента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ URL ที่ไม่มีข้อมูลเข้าสู่ระบบ พารามิเตอร์การค้นหา หรือส่วนย่อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimlik bilgisi, sorgu parametresi veya parça içermeyen bir URL kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовуйте URL без облікових даних, параметрів запиту та фрагмента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng URL không chứa thông tin xác thực, tham số truy vấn hay đoạn định danh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用不含凭据、查询参数或片段的网址。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請使用不含憑證、查詢參數或片段的網址。"
+          }
+        }
+      }
+    },
+    "agentPane.repo.destinationTaken": {
+      "comment": "Local HTTPS repository clone error",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another folder already uses this clone location."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم مجلد آخر موقع الاستنساخ هذا بالفعل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Druga mapa već koristi odredište kloniranja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En anden mappe bruger allerede denne klonplacering."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein anderer Ordner belegt bereits das Klonziel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otra carpeta ya ocupa el destino de la clonación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un autre dossier occupe déjà l’emplacement du clone."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un’altra cartella occupa già la destinazione della clonazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クローン先はすでに別のフォルダが使用しています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតផ្សេងប្រើទីតាំងក្លូននេះរួចហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 폴더가 이미 이 복제 위치를 사용 중입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En annen mappe bruker allerede denne kloneplasseringen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miejsce docelowe klonowania zajmuje już inny folder."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outra pasta já ocupa o local da clonagem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Место для клонирования уже занято другой папкой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีโฟลเดอร์อื่นใช้ตำแหน่งที่จะโคลนนี้อยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu klonlama konumunu başka bir klasör kullanıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Місце для клонування вже зайняте іншою папкою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một thư mục khác đang dùng vị trí sao chép này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一个文件夹已占用此克隆位置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個資料夾已占用此複製位置。"
+          }
+        }
+      }
+    },
+    "agentPane.repo.cloneFailed": {
+      "comment": "Local HTTPS repository clone error",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t clone the repository. Check the URL and your Git access, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر استنساخ المستودع. تحقّق من العنوان وصلاحيات Git ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kloniranje repozitorija nije uspjelo. Provjeri adresu i pristup Gitu pa pokušaj ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke klone repositoryet. Tjek URL’en og din Git-adgang, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Repository konnte nicht geklont werden. Prüfe die URL und deinen Git-Zugriff und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo clonar el repositorio. Comprueba la URL y tu acceso de Git e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de cloner le dépôt. Vérifiez l’URL et votre accès Git, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile clonare il repository. Controlla l’URL e il tuo accesso Git, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリをクローンできませんでした。URL と Git のアクセス権を確認して再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចក្លូនឃ្លាំងកូដបានទេ។ ពិនិត្យ URL និងសិទ្ធិចូលប្រើ Git រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소를 복제할 수 없습니다. URL과 Git 접근 권한을 확인한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke klone repositoriet. Sjekk URL-en og Git-tilgangen, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się sklonować repozytorium. Sprawdź adres URL i uprawnienia Git, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível clonar o repositório. Verifique a URL e seu acesso ao Git e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось клонировать репозиторий. Проверьте URL и доступ к Git, затем повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โคลนที่เก็บโค้ดไม่ได้ ตรวจสอบ URL และสิทธิ์เข้าถึง Git แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depo klonlanamadı. URL’yi ve Git erişiminizi kontrol edip yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося клонувати репозиторій. Перевірте URL і доступ до Git, а потім повторіть спробу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể sao chép kho mã. Hãy kiểm tra URL và quyền truy cập Git rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法克隆仓库。请检查网址和 Git 访问权限，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法複製儲存庫。請檢查網址與 Git 存取權限後再試。"
+          }
+        }
+      }
+    },
+    "terminalHistory.open": {
+      "comment": "Native terminal agent pane control that opens earlier transcript history as a read-only chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Earlier history — open as chat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السجل السابق — فتح كمحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ranija istorija — otvori kao chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidligere historik — åbn som chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frühere Historie — als Chat öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historial anterior — abrir como chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historique antérieur — ouvrir comme chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronologia precedente — apri come chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "以前の履歴 — チャットとして開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រវត្តិមុន — បើកជាជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이전 기록 — 채팅으로 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidligere historikk — åpne som chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wcześniejsza historia — otwórz jako czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Histórico anterior — abrir como chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предыдущая история — открыть как чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประวัติก่อนหน้า — เปิดเป็นแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önceki geçmiş — sohbet olarak aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попередня історія — відкрити як чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lịch sử trước đó — mở dưới dạng trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更早的历史记录 — 作为聊天打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "較早的歷史記錄 — 以聊天開啟"
+          }
+        }
+      }
+    },
+    "terminalHistory.openDays": {
+      "comment": "Native terminal agent pane control that includes the number of transcript days available.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Earlier history (%lld days) — open as chat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السجل السابق (%lld يومًا) — فتح كمحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ranija istorija (%lld dana) — otvori kao chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidligere historik (%lld dage) — åbn som chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frühere Historie (%lld Tage) — als Chat öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historial anterior (%lld días) — abrir como chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historique antérieur (%lld jours) — ouvrir comme chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronologia precedente (%lld giorni) — apri come chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "以前の履歴（%lld日間）— チャットとして開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រវត្តិមុន (%lld ថ្ងៃ) — បើកជាជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이전 기록(%lld일) — 채팅으로 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidligere historikk (%lld dager) — åpne som chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wcześniejsza historia (%lld dni) — otwórz jako czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Histórico anterior (%lld dias) — abrir como chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предыдущая история (%lld дн.) — открыть как чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประวัติก่อนหน้า (%lld วัน) — เปิดเป็นแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önceki geçmiş (%lld gün) — sohbet olarak aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попередня історія (%lld днів) — відкрити як чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lịch sử trước đó (%lld ngày) — mở dưới dạng trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更早的历史记录（%lld 天）— 作为聊天打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "較早的歷史記錄（%lld 天）— 以聊天開啟"
+          }
+        }
+      }
+    },
+    "terminalHistory.unavailable": {
+      "comment": "Read-only terminal transcript page error when the local agent history service is unavailable.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat history is unavailable."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجل الدردشة غير متاح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Istorija chata nije dostupna."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chathistorikken er ikke tilgængelig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Chatverlauf ist nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El historial del chat no está disponible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’historique du chat n’est pas disponible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La cronologia della chat non è disponibile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャット履歴を利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រវត្តិជជែកមិនអាចប្រើបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 기록을 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chatthistorikken er ikke tilgjengelig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historia czatu jest niedostępna."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O histórico do chat está indisponível."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "История чата недоступна."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประวัติแชตไม่พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet geçmişi kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Історія чату недоступна."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lịch sử trò chuyện không khả dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天记录不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天記錄無法使用。"
           }
         }
       }
