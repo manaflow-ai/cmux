@@ -524,7 +524,6 @@ pub(super) fn transcript_rows_range(
                                     .filter(|&j| match &t.items[j] {
                                         Item::Tool { .. }
                                         | Item::Permission { decided: Some(_), .. }
-                                        | Item::Plan { .. }
                                         | Item::Thought { .. } => true,
                                         Item::Status { .. } => !show_system,
                                         Item::Assistant { text } => text.trim().is_empty(),
@@ -1091,23 +1090,15 @@ mod late_steer_tests {
 
     #[test]
     fn calls_after_the_final_reply_fold_with_the_work() {
-        // cmux#41774, #41537: a todo update, a finished call and an empty message after the
-        // answer fold; the answer is the last reply with words.
+        // cmux#41774, #41537: a finished call and an empty message after the answer fold;
+        // the answer is the last reply with words.
         let t = transcript(
-            vec![
-                user("fix it", false),
-                tool("a.rs"),
-                said("Fixed it"),
-                Item::Plan { entries: vec![("completed".into(), "fix it".into())] },
-                tool("b.rs"),
-                said("  "),
-            ],
+            vec![user("fix it", false), tool("a.rs"), said("Fixed it"), tool("b.rs"), said("  ")],
             "ready",
         );
         let out = drawn(&t);
         assert!(out.contains("Fixed it"), "{out}");
         assert!(!out.contains("Read b.rs"), "{out}");
         assert!(!out.contains("Read a.rs"), "{out}");
-        assert!(!out.contains("[completed]") && !out.contains("fix it\nfix it"), "{out}");
     }
 }
