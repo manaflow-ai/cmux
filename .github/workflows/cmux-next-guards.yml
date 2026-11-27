@@ -117,7 +117,9 @@ jobs:
   # '0' turns it off.
   full-carry:
     name: full-ci base merge carry
-    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    # Only where a root job below would run on this event: with full-ci (or CI_LAND_FULL_PER_PR, which runs the full
+    # tier on ready-to-land); otherwise those jobs skip anyway and this job's runner decides nothing.
+    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     continue-on-error: true
@@ -974,7 +976,7 @@ jobs:
           INPUT_KEY: ${{ steps.step-keys.outputs.defaults-snapshot }}
         run: python3 scripts/ci/receipt_input_key.py record static-checks-defaults-snapshot --input-key "$INPUT_KEY" --out "$RUNNER_TEMP/ci-step-receipt/defaults-snapshot/receipt.json"
       - name: Save the defaults snapshot step's receipt (shadow)
-        if: ${{ !cancelled() && steps.defaults-snapshot-record.outcome == 'success' }}
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.defaults-snapshot-record.outcome == 'success' }}
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1001,7 +1003,7 @@ jobs:
           INPUT_KEY: ${{ steps.step-keys.outputs.group-menus }}
         run: python3 scripts/ci/receipt_input_key.py record static-checks-group-menus --input-key "$INPUT_KEY" --out "$RUNNER_TEMP/ci-step-receipt/group-menus/receipt.json"
       - name: Save the group menus step's receipt (shadow)
-        if: ${{ !cancelled() && steps.group-menus-record.outcome == 'success' }}
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.group-menus-record.outcome == 'success' }}
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1049,7 +1051,7 @@ jobs:
           INPUT_KEY: ${{ steps.step-keys.outputs.page-strings }}
         run: python3 scripts/ci/receipt_input_key.py record static-checks-page-strings --input-key "$INPUT_KEY" --out "$RUNNER_TEMP/ci-step-receipt/page-strings/receipt.json"
       - name: Save the page strings step's receipt (shadow)
-        if: ${{ !cancelled() && steps.page-strings-record.outcome == 'success' }}
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.page-strings-record.outcome == 'success' }}
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1237,7 +1239,7 @@ jobs:
     needs: coalesce
     name: ios-placeholder-bounds
     if: ${{ github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -1318,7 +1320,7 @@ jobs:
     name: workflow start lint (a change that stops a workflow starting)
     if: ${{ github.event.action != 'ready_for_review' }}
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
