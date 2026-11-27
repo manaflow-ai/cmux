@@ -143,6 +143,87 @@ class LintTests(unittest.TestCase):
         code, _ = self.check(files)
         self.assertEqual(code, 0)
 
+    def test_github_script_dispatch_on_its_default_token_fails(self):
+        # Six nightly dispatchers (cmux#61103) called createWorkflowDispatch through github-script's `github`, which
+        # is the job token unless `github-token:` names another; the run:-only lint never saw them.
+        steps = """
+      - name: Start it
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: 'x.yml', ref: 'main' });
+"""
+        on = "schedule:\n  - cron: '0 4 * * *'"
+        code, out = self.check({".github/workflows/a.yml": workflow(on, steps)})
+        self.assertEqual(code, 1)
+        self.assertIn("a.yml: start: Start it: dispatches with ${{ github.token }}", out)
+        # A step env naming the App token does not move github-script's own token.
+        withenv = steps.replace("        with:\n", "        env:\n          GH_TOKEN: ${{ steps.app-token.outputs.token }}\n        with:\n", 1)
+        self.assertEqual(self.check({".github/workflows/a.yml": workflow(on, MINT + withenv)})[0], 0,
+                         "another env value naming the App token passes, as for run: steps")
+        own = steps.replace("        with:\n", "        with:\n          github-token: ${{ github.token }}\n", 1)
+        self.assertEqual(self.check({".github/workflows/a.yml": workflow(on, own)})[0], 1)
+        app = steps.replace("        with:\n",
+                            "        with:\n          github-token: ${{ steps.app-token.outputs.token || github.token }}\n", 1)
+        self.assertEqual(self.check({".github/workflows/a.yml": workflow(on, MINT + app)}), (0, ""))
+
+    def test_github_script_rest_route_dispatch_fails_and_message_text_does_not(self):
+        on = "schedule:\n  - cron: '0 4 * * *'"
+        route = """
+      - name: Start it
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            await github.request('POST /repos/{owner}/{repo}/actions/workflows/x.yml/dispatches', { ref: 'main' });
+"""
+        self.assertEqual(self.check({".github/workflows/a.yml": workflow(on, route)})[0], 1)
+        # nightly-next-canary.yml's issue step names `gh workflow run ...` in the issue text it posts.
+        text = """
+      - name: Comment
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const pull = '`gh workflow run rollback.yml --ref nightly-next`';
+            await github.rest.issues.createComment({ owner, repo, issue_number: 1, body: pull });
+"""
+        self.assertEqual(self.check({".github/workflows/a.yml": workflow(on, text)})[0], 0)
+
+    def test_import_lists_and_relative_imports_resolve_to_siblings(self):
+        steps = """
+      - name: Resume
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/resume.py
+"""
+        client = "def dispatch(w):\n    call('POST', f'/actions/workflows/{w}/dispatches')\n"
+        on = "schedule:\n  - cron: '0 4 * * *'"
+        for head in ("import json, client\n", "import json as j, client as c\n", "from . import json_util, client\n",
+                     "from .client import GitHub\n", "from client import (\n    GitHub,\n)\n"):
+            with self.subTest(head=head):
+                code, _ = self.check({
+                    ".github/workflows/a.yml": workflow(on, steps),
+                    "scripts/ci/resume.py": head + "main()\n",
+                    "scripts/ci/client.py": client,
+                })
+                self.assertEqual(code, 1)
+
+    def test_import_walk_stops_at_one_level(self):
+        # main_full_suite.py > classify_failures.py > ui_tests_dispatch.py: the shared helper's rerun dispatch is not
+        # a call the step makes, and a deeper walk flagged three steps that dispatch nothing.
+        steps = """
+      - name: Report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/report.py
+"""
+        code, _ = self.check({
+            ".github/workflows/a.yml": workflow("schedule:\n  - cron: '0 4 * * *'", steps),
+            "scripts/ci/report.py": "import helper\nhelper.key()\n",
+            "scripts/ci/helper.py": "import rerun\ndef key():\n    return 1\n",
+            "scripts/ci/rerun.py": "def go():\n    call('POST', '/actions/workflows/x.yml/dispatches')\n",
+        })
+        self.assertEqual(code, 0)
+
     def test_repository_is_clean(self):
         out = io.StringIO()
         with redirect_stdout(out):

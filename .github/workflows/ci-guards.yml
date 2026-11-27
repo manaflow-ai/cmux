@@ -911,6 +911,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cron_dispatch_token_lint.py
 
+      - name: Validate the Debug and Labs keys dispatch skips a ref without the report
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_debug_labs_keys_dispatch.py
+
       - name: Validate the nightly-next tick waits through GitHub API rate limits
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_budget_wait.py
@@ -1690,9 +1694,17 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_github_release_publication.py
 
+      - name: Validate the nightly publish guard reads the release through gh with retries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_publication_guard_release_read.py
+
       - name: Validate publish gh calls go out as the release App first, github.token as fallback
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_app_token.py
+
+      - name: Validate the token-spread action reads on the quota-goblin pool before minting the routing App
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_app_token_spread_pool.py
 
       - name: Validate every continuation job waits through a GitHub API rate limit
         if: ${{ matrix.group == 'release-notary' }}
