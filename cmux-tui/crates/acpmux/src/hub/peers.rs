@@ -6,7 +6,9 @@ use acpmux_book::index::OriginState;
 use cmux_json::JsonSet as _;
 
 mod resolve;
-pub(super) use resolve::{RemoteName, names_remote, remote_closed, remote_match, remote_segment};
+pub(super) use resolve::{RemoteName, remote_closed, remote_match};
+#[cfg(test)]
+pub(super) use resolve::{names_remote, remote_segment};
 #[cfg(test)]
 mod test_hooks;
 #[cfg(test)]
@@ -210,6 +212,13 @@ impl Hub {
         // link as its backup path (`peer_overlay.rs`), before its first dial.
         peer.set_explicit_route(pc.names_route());
         peer.recall_overlay();
+        // A plain ssh machine that runs the transport too gets a WireGuard route found for it
+        // (`peer_wg_learn.rs`); the one kept from an earlier run comes back now.
+        if let Some(transport) = &self.wireguard
+            && pc.wireguard.is_none()
+        {
+            peer.set_wireguard_learner(transport.clone());
+        }
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_group_override(pc.group.clone());
         peer.set_wake_hook(self.peer_wake.clone());
@@ -556,6 +565,7 @@ impl Hub {
         // Its link's channels close for their local side now: the link's own `Disconnected`
         // notice finds the peer gone (`server/channels.rs`).
         crate::server::channels::link_lost(self, &peer.name, peer.generation);
+        self.presence.clear_remote(&peer.name);
         self.peer_states().removed(&peer.name, peer.generation, peer.link().last_seen);
         self.events.origin_tee(&peer.name, OriginState::Removed, crate::store::now_ms());
     }
@@ -959,6 +969,14 @@ impl Hub {
                     }
                 }
                 PeerNotice::Listed => self.peer_listed(&peer, generation),
+                PeerNotice::PresenceReset { link } => {
+                    if self
+                        .peer(&peer)
+                        .is_some_and(|p| p.generation == generation && p.link_epoch() == link)
+                    {
+                        self.presence.reset_remote(&peer);
+                    }
+                }
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");
                     self.peer_ready_rows(&peer, generation);
@@ -966,6 +984,7 @@ impl Hub {
                     // The link takes requests again: messages waiting for a peer go now, not
                     // after the rest of their retry delay (`server/outbox.rs` `deliver`).
                     self.outbox.note_peer_ready(&peer);
+                    self.presence.peer_connected();
                     // Chat state edited on either side while the link was down crosses now
                     // (`synced.rs`).
                     self.synced_on_connect(&peer, generation);
@@ -996,6 +1015,7 @@ impl Hub {
                     // Channels that rode the link end for their local side.
                     crate::server::channels::link_lost(self, &peer, generation);
                     if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation) {
+                        self.presence.clear_remote(&peer);
                         p.rows_ready.store(false, std::sync::atomic::Ordering::SeqCst);
                     }
                     // Called directly, with no grace: this drop is its outage's first
@@ -1390,6 +1410,22 @@ impl Hub {
                         params.get("seq").and_then(Value::as_u64),
                     ) {
                         self.capture_peer_unsent((&peer, generation, link), id, seq);
+                    }
+                }
+                PeerNotice::Notification { method: m, params, link }
+                    if m == method::MUX_PRESENCE =>
+                {
+                    if self
+                        .peer(&peer)
+                        .is_some_and(|p| p.generation == generation && p.link_epoch() == link)
+                    {
+                        if params.get(crate::hub::presence::BASELINE_MARKER)
+                            == Some(&Value::Bool(true))
+                        {
+                            self.presence.publish_remote_baseline(&params, &peer);
+                        } else {
+                            self.presence.publish_remote(&params, &peer);
+                        }
                     }
                 }
                 PeerNotice::Notification { method: m, mut params, link } => {
