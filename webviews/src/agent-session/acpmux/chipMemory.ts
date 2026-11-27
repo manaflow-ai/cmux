@@ -5,6 +5,21 @@
 /// in instead (`_acpmux/start_mode`, startMode.ts): the last chat's mode is not the next one's.
 export type LastChips = { effort?: string };
 
+/** Keep the cached effort visible through the fresh-chat attach gap. */
+export function shouldUseLastChips(input: {
+  chipHarness: string | undefined;
+  opensListed: boolean;
+  awaiting: boolean;
+  fresh: boolean;
+  effortKnown: boolean;
+}): boolean {
+  return (
+    input.chipHarness !== undefined &&
+    !input.opensListed &&
+    (input.awaiting || (input.fresh && !input.effortKnown))
+  );
+}
+
 const STORAGE_KEY = "cmux.acpmux.lastChips";
 
 export function loadLastChips(): Record<string, LastChips> {

@@ -29,7 +29,7 @@ import {
   rememberResolvedDefault,
   resolvedModel,
 } from "./defaultChoice";
-import { loadLastChips, rememberLastChips } from "./chipMemory";
+import { loadLastChips, rememberLastChips, shouldUseLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
 import { useComposerContribution } from "./composer/extensionCommands";
 import { modelPickerLayoutFrom } from "./composer/modelPickerLayoutFrom";
@@ -954,11 +954,20 @@ export function ComposerPickers({
   const effortChoice = efforts.find((choice) => choice.id === effortValue);
   const ultracodeOn = ultracode !== undefined && ultracode.current === ultracode.on;
   // Another chat's chips are no guess for an opened chat that ran before (opensListed).
-  const lastChips = awaiting && chipHarness && !opensListed ? loadLastChips()[chipHarness] : undefined;
+  // A fresh New Tab can have a session id before its effort option arrives. Keep the cached
+  // value through that attach gap so the first frame and settled frame show the same chip.
+  const effortAwaited = shouldUseLastChips({
+    chipHarness,
+    opensListed,
+    awaiting,
+    fresh,
+    effortKnown: effort !== undefined && efforts.length > 1,
+  });
+  const lastChips = effortAwaited && chipHarness ? loadLastChips()[chipHarness] : undefined;
   // A harness no chat has shown here yet (a fresh profile, the New Tab's first chat) names the
   // level acpmux starts it on (`_acpmux/harnesses` start).
   // An opened chat that ran before names the level its listed row reports, never a start level.
-  const startEffort = !awaiting
+  const startEffort = !effortAwaited
     ? undefined
     : opensListed
       ? openingEntry?.effort
@@ -1348,8 +1357,8 @@ export function ComposerPickers({
   const studioEffort = studio && !held ? quickEffort : undefined;
   const quickDetail = studioEffort
     ? undefined
-    : (effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined));
-  const quickShort = studioEffort ? undefined : effortLabel ? effortShort : awaiting ? heldShort : undefined;
+    : (effortLabel ?? (effortAwaited ? (heldChoice?.name ?? pendingEffort) : undefined));
+  const quickShort = studioEffort ? undefined : effortLabel ? effortShort : effortAwaited ? heldShort : undefined;
   const usageNote =
     showContextUsage && contextPercent !== undefined
       ? t(PICKER_LABELS.context, { percent: contextPercent })
