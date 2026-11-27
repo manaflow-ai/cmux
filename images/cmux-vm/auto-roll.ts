@@ -558,9 +558,9 @@ function probePublished(candidate: string, lock: string): Promise<{ commit: stri
 
 /**
  * The newest first-parent commit of TIP after PINNED whose cmux-tui build files.cmux.com publishes (pin-cmux-tui.ts
- * --commit reads its manifest; a commit with no build answers non-zero), at most PUBLISHED_PROBE_LIMIT asked,
- * PUBLISHED_PROBE_PARALLEL at a time, newest batch first. Builds coalesce, so most commits have none. commit "" with
- * why when none is found.
+ * --commit reads its manifest, or its Cloud machine build under machine/ (MACHINE_BUILD); a commit with neither
+ * answers non-zero), at most PUBLISHED_PROBE_LIMIT asked, PUBLISHED_PROBE_PARALLEL at a time, newest batch first.
+ * Builds coalesce, so most commits have none. commit "" with why when none is found.
  */
 async function publishedOnTip(pinned: string, tip: string, lock: string): Promise<{ commit: string; unchanged: boolean; why: string }> {
   const list = git(["rev-list", "--first-parent", `--max-count=${PUBLISHED_PROBE_LIMIT}`, `${pinned}..${tip}`]);

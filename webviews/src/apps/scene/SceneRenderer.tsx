@@ -1000,12 +1000,11 @@ const SceneNodeView = memo(function SceneNodeView({
   const entering = useSceneEntering(store, node, scrolledIn?.(id) !== true);
   const inheritedDisabled = useContext(DisabledContext);
   const element = useRef<HTMLElement>(null);
-  // One ref for both readers: the motion hook's `element` and a windowed LazyVStack's `measure`.
-  // Two `ref` keys on the props object kept only the last, so the stack never measured its rows.
+  // One ref for both: the motion hooks read `element`, and the stack measures the node.
   const ref = useCallback(
-    (node: HTMLElement | null) => {
-      element.current = node;
-      measure?.(node);
+    (el: HTMLElement | null) => {
+      element.current = el;
+      measure?.(el);
     },
     [measure],
   );
