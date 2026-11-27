@@ -395,6 +395,14 @@ pub fn resolve(hub: &Hub, key: &str) -> Result<String, RpcError> {
     }
     hub.resolve_remote(key)
         .map(|(p, id, _)| format!("{}/{id}", p.name))
+        .or_else(|| {
+            let id = hub.mesh_book_resolve(key)?;
+            let host = key
+                .split_once('/')
+                .map(|(host, _)| host.to_owned())
+                .or_else(|| hub.mesh_book_host(&id))?;
+            Some(format!("{host}/{id}"))
+        })
         .ok_or_else(|| RpcError::not_found(format!("no session matches {key:?}; run acpmux ls")))
 }
 pub(super) fn summary(hub: &Hub, key: &str) -> Value {
@@ -404,10 +412,14 @@ pub(super) fn summary(hub: &Hub, key: &str) -> Value {
     if let Some((_, _, s)) = hub.resolve_remote(key) {
         return s;
     }
+    if let Some(row) = hub.mesh_book_row(key) {
+        return row.summary.value();
+    }
     if let Some((peer, _)) = key.split_once('/') {
         if hub.peer(peer).is_some_and(|p| {
             p.connected.load(std::sync::atomic::Ordering::SeqCst) && *p.settled().borrow() > 0
-        }) {
+        }) || hub.mesh_book_has_host(peer)
+        {
             return json!({"status": "closed", "missing": true});
         }
         json!({"status": "unreachable", "stale": true})
