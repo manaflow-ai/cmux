@@ -167,7 +167,7 @@ public final class BrowserTabModel: BrowserTabState {
         problem = Problem(url: target, isMacOnly: false, isPrivateNetwork: PhoneReach(target) == .privateNetwork,
                           isInsecure: (error as NSError).domain == NSURLErrorDomain && code == NSURLErrorAppTransportSecurityRequiresSecureConnection,
                           message: UserFacingError.message(error, fallback: "This page couldn't load."),
-                          detail: PhoneReach(target) == .macLoopback ? loopbackRefusal?(target) : nil)
+                          detail: PhoneReach.forwardingTarget(target).flatMap { _ in loopbackRefusal?(target) })
     }
 
     public func clearProblem() { problem = nil }
@@ -291,7 +291,7 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
     /// Same scheme, host and port.
     static func sameOrigin(_ a: URL, _ b: URL) -> Bool {
         a.scheme?.lowercased() == b.scheme?.lowercased() && a.host()?.lowercased() == b.host()?.lowercased()
-            && PhoneReach.port(a) == PhoneReach.port(b)
+            && PhoneReach.portForAddress(a) == PhoneReach.portForAddress(b)
     }
 
     /// What a page loads itself; anything else belongs to another app.
@@ -306,7 +306,8 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
         // A tap or Back/Forward; a form a page submits by itself (a sign-in step) is not the person's.
         if [.linkActivated, .backForward].contains(action.navigationType) { model?.personNavigated?() }
         let reach = PhoneReach(target)
-        if reach == .macLoopback, let model, let policy = model.loopbackPolicy, let forward = model.forwardLoopback {
+        if let model, let policy = model.loopbackPolicy, let forward = model.forwardLoopback,
+           reach == .macLoopback || (reach == .privateNetwork && policy(target) == .forwarded) {
             if case .macOnly(let detail) = policy(target) {
                 model.refuse(target, detail: detail)
                 decisionHandler(.cancel)
@@ -322,7 +323,8 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
             let source = (action.sourceFrame as WKFrameInfo?)?.request.url
             let sameOrigin = source.map { Self.sameOrigin($0, target) } ?? false
             let open = model.loopbackIsOpen?(target) ?? false
-            guard own || open || sameOrigin || [.linkActivated, .backForward].contains(action.navigationType) else {
+            let privateForward = reach == .privateNetwork
+            guard privateForward || own || open || sameOrigin || [.linkActivated, .backForward].contains(action.navigationType) else {
                 model.refuse(target, detail: String(localized: "A page tried to open \(WorkspaceTabsSource.addressLabel(target)). Type it in the address bar to open it on this iPhone, or mirror it from the Mac."))
                 decisionHandler(.cancel)
                 return
