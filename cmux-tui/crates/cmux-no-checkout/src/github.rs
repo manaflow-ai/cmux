@@ -159,9 +159,10 @@ impl GitHub {
         if !(url.scheme() == "https" || loopback) {
             bail!("{api} is not an https API; the token goes only to one");
         }
-        // The API is the one the caller configured (GitHub's, or an enterprise or loopback one):
-        // admit that host and nothing else through the egress gate.
-        cmux_egress::allow_named(api);
+        if api != GITHUB_API && !loopback {
+            // A GitHub Enterprise API the caller named is theirs to reach.
+            cmux_egress::allow_named(api);
+        }
         let mut builder = cmux_egress::client_builder("cmux_no_checkout::github")
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
@@ -435,6 +436,10 @@ impl GitWriter for GitHub {
         Self::open_pull(self, title, body, head, base, draft).await
     }
 }
+
+#[cfg(test)]
+#[path = "github_seeded_tests.rs"]
+mod seeded_tests;
 
 #[cfg(test)]
 mod tests {

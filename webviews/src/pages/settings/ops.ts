@@ -355,6 +355,8 @@ export type IPhoneHostState = {
   status: string;
   /** The Sign In button's title while the status says to sign in; null (or absent from an older host) otherwise. */
   sign_in?: string | null;
+  /** With `sign_in`: what it signs in to ("Signs in to cmux.com"), the line under the button. */
+  sign_in_backend?: string | null;
   /** `off`, `unavailable`, `connecting`, `online` or `waiting`. */
   phase: string;
   account_title: string;
@@ -540,6 +542,8 @@ export type AccountsCmux = {
   buttons: AccountsButton[];
   note: string | null;
   error: string | null;
+  /** Signed out: what Sign In signs in to ("Signs in to cmux.com"), the line under the buttons. */
+  signInBackend?: string | null;
 };
 
 /** An inline team name form (New Team, Rename Team); the field starts at `value`. */
@@ -643,6 +647,11 @@ export type GitHubConnectionState = {
   }>;
   /** The Sign In button's title while nobody is signed in to cmux; null (or absent from an older host) otherwise. */
   signIn?: string | null;
+  /** The optional personal GitHub CLI login shown below the App connection. */
+  cliSignIn?: string;
+  cliSignInDetail?: string;
+  /** With `signIn`: what it signs in to ("Signs in to cmux.com"), the line under the button. */
+  signInBackend?: string | null;
 };
 
 /** One agent's team key as the host draws it: never the key, only whether one is set and its summary. */
@@ -669,6 +678,8 @@ export type TeamAgentKeysState = {
   /** Signed out, personal team, or read-only member copy; null otherwise. */
   note: string | null;
   signIn: string | null;
+  /** With `signIn`: what it signs in to ("Signs in to cmux.com"), the line under the button. */
+  signInBackend?: string | null;
   busy: boolean;
   canManage: boolean;
   error: string | null;
@@ -748,6 +759,9 @@ export interface AllotmentView {
   decision: AllotmentDecision;
   hard_cap_micros: number | null;
   as_of: number;
+  /** Each member id's display name, as the platform's view carries it; a member missing here is
+   * shown by id. */
+  names?: Record<string, string>;
 }
 
 export type AllotmentPosition = AllotmentDecision["position"];
@@ -988,7 +1002,7 @@ export type HarnessRow = {
   update?: { command: string; elevated: boolean } | null;
   /** The update owner runs this channel (npm, Bun or native); without it Update is not offered. */
   ownerUpdate?: boolean;
-  /** acpmux runs its update on its own when a check finds it outdated (off by default). */
+  /** acpmux runs its update on its own when a check finds it outdated (on unless turned off). */
   autoUpdate?: boolean;
   /** What auto-update last did for it. */
   lastAutoUpdate?: { ok: boolean; detail: string } | null;
@@ -1938,6 +1952,88 @@ export type HubRun =
   | { action: "pause"; paused: boolean }
   | ({ action: "addRule" } & HubRuleFields);
 
+/** An API token's scope (cmux platform `/v1/tokens`): exactly these three. A token never reads the vault. */
+export type TokenScope = "machines" | "chats" | "usage";
+
+/** One API token as `cmux token list --json` passes the platform's `TokenView` through. Never the secret. */
+export type ApiToken = {
+  id: string;
+  name: string;
+  /** `cmux_pat_AbCd…wXyZ`. */
+  display: string;
+  scopes: TokenScope[];
+  /** `team`: a team service token, not tied to a person. */
+  owner: "me" | "team";
+  source: "personal" | "service" | "github";
+  createdBy: string;
+  createdByName?: string;
+  createdAt: string;
+  /** ISO, or null when it never expires. */
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  spendCapUsd: number | null;
+  /** `owner/name`, for a token a GitHub Actions run exchanged. */
+  repository?: string;
+};
+
+/** A repository whose GitHub Actions runs may exchange their OIDC token for a one-hour cmux token. */
+export type GithubTokenRule = {
+  id: string;
+  repository: string;
+  ref?: string;
+  environment?: string;
+  scopes: TokenScope[];
+  spendCapUsd: number | null;
+  createdAt: string;
+  createdBy: string;
+  lastUsedAt: string | null;
+};
+
+/** Settings > Developer (`SettingsDeveloperTokens.state`). */
+export type DeveloperTokensState = {
+  loading: boolean;
+  /** `unavailable`: no bundled cmux CLI; `failed`: the list did not answer (its words in `listError`). */
+  problem: "unavailable" | "failed" | null;
+  listError: { code: string; message: string } | null;
+  /** The platform origin the list read (for the curl example); null when the CLI named none. */
+  platform: string | null;
+  /** The team the list read (`team_…`), for the workflow snippet. */
+  team: string | null;
+  tokens: ApiToken[];
+  canManageTeamTokens: boolean;
+  /** The GitHub Actions rules; null when the person cannot manage them or they were not read. */
+  githubRules: GithubTokenRule[] | null;
+  /** The last gesture's refusal, in the platform's or the CLI's words. */
+  error: { action: string; code: string; message: string } | null;
+};
+
+/** A new token's fields (the CLI's `token create` flags). `expiresInDays` null never expires. */
+export type TokenFields = {
+  name: string;
+  scopes: TokenScope[];
+  expiresInDays: number | null;
+  spendCapUsd?: number | null;
+  owner: "me" | "team";
+};
+
+/** A repository rule's fields (`token github allow`). */
+export type GithubRuleFields = {
+  repository: string;
+  ref?: string;
+  environment?: string;
+  scopes: TokenScope[];
+};
+
+/** One Developer gesture; everything but refresh runs only on a click. */
+export type DeveloperTokensRun =
+  | { action: "refresh" }
+  | ({ action: "create" } & TokenFields)
+  | { action: "revoke" | "removeRepository"; id: string }
+  | ({ action: "allowRepository" } & GithubRuleFields);
+
+/** What `create` answers: the new token, once. The host keeps no copy, so the page holds it until Done. */
+export type CreatedToken = { token: string; tokenInfo: Pick<ApiToken, "scopes"> | null };
+
 /** A label for one choice the automation form offers (the CLI's catalog). */
 export type AutocloudChoice = { value: string; label: string };
 
@@ -2392,6 +2488,9 @@ export type IntegrationsRun = { action: "refresh" } | { action: "install" | "rep
 
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
+/** A write of the durable settings history: also the daemon's revision of the change it recorded
+ * (`history_revision`, what settings.restore takes), beside the host's own load revision. */
+export type HistoryMutationResult = MutationResult & { history_revision?: string };
 
 type Mutation<P> = P & { idempotency_key: string; if_revision?: string };
 
@@ -2487,6 +2586,17 @@ export type SettingsOps = {
   "cmux.settings.set": [Mutation<{ key: string; value: unknown }>, MutationResult];
   "cmux.settings.reset": [Mutation<{ key: string }>, MutationResult];
   "cmux.settings.reset_all": [Mutation<object>, MutationResult];
+  /** The daemon's durable settings history (settings-history-v1), newest first, which the host
+   * forwards (durableHistory.ts); absent from older hosts. */
+  "cmux.settings.history": [Record<string, never>, { entries: unknown[] }];
+  /** settings.undo as the person: takes back the newest change of any writer. */
+  "cmux.settings.undo": [Mutation<object>, HistoryMutationResult];
+  /** settings.restore as the person: the file just before the change that produced `revision`. */
+  "cmux.settings.restore": [Mutation<{ revision: string }>, HistoryMutationResult];
+  /** settings.reset_group as the person: a section or `section.group` back to its defaults. */
+  "cmux.settings.reset_group": [Mutation<{ group: string }>, HistoryMutationResult];
+  /** One settings.edit of resets (a card that is not one schema group): one history entry. */
+  "cmux.settings.reset_keys": [Mutation<{ keys: string[] }>, HistoryMutationResult];
   /** Native: spaces, machines and browser profiles from the app's live stores. */
   "cmux.settings.host.lists": [Record<string, never>, HostLists];
   /** Native: every release channel's recent builds, read on demand (Settings > Updates). */
@@ -2651,6 +2761,10 @@ export type SettingsOps = {
   "cmux.settings.hub.state": [Record<string, never>, HubState];
   /** Native: one Integrations gesture (`cmux hub link|remove|rule|pause`, or an approval answered on the click). */
   "cmux.settings.hub.run": [HubRun, unknown];
+  /** Native: Settings > Developer, API tokens as the bundled `cmux token list --json` reads them. */
+  "cmux.settings.tokens.state": [Record<string, never>, DeveloperTokensState];
+  /** Native: one Developer gesture (`cmux token create|revoke|github allow|github remove`); `create` answers the token once. */
+  "cmux.settings.tokens.run": [DeveloperTokensRun, { ok?: boolean; created?: CreatedToken }];
   "cmux.settings.autocloud.state": [Record<string, never>, AutocloudState];
   "cmux.settings.autocloud.run": [AutocloudAction, AutocloudAnswer];
   /** Native: Settings > Integrations > Connections, the hosted MCP catalog as `cmux mcp-servers catalog --json` shapes it. */
@@ -2728,8 +2842,12 @@ export type SettingsOps = {
   "cmux.settings.section.actions": [{ section: string }, Array<{ id: string; title: string; enabled: boolean }>];
   /** Native: show the settings file in Finder. */
   "cmux.settings.file.reveal": [Record<string, never>, unknown];
-  /** Native: show `value` live while a gesture runs; never written. */
-  "cmux.settings.preview": [{ key: string; value: unknown }, unknown];
+  /** Native: show `value` live while a gesture runs; never written. `also` previews more keys
+   * with it as one preview (the whole-app theme preview). */
+  "cmux.settings.preview": [
+    { key: string; value: unknown; also?: readonly { key: string; value: unknown }[] },
+    unknown,
+  ];
   /** Native: drop the live preview of `key`. */
   "cmux.settings.preview.end": [{ key: string }, unknown];
   /** Native: play a notification sound. */

@@ -34,6 +34,8 @@ LANE_PATTERNS = (
     # tests/test_ci_billing_lane.py reads the Swift Linux package list.
     "scripts/ci/swift-linux-packages.txt",
     "tests/test_ci_billing_lane.py",
+    # billing.yml reads the iOS billing packages from it.
+    "scripts/ci/swift-linux-packages.txt",
     "web/scripts/run-db-behavior-tests.sh",
 )
 

@@ -4,7 +4,6 @@
 // in `BookmarksStore`; this file only renders it and turns plain keys, clicks and drops into store
 // intents. Cmd/Ctrl chords never reach page handlers.
 import {
-  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -15,12 +14,14 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
+  memo,
 } from "react";
+import { useStableHandlers } from "../../agent-session/acpmux/stableHandlers";
 import { Breadcrumbs } from "../../ui/Breadcrumbs";
 import { SplitEdge } from "../../ui/SplitEdge";
 import { ConnectionChip } from "../../ui/ConnectionChip";
 import { useConnectionQuiet } from "../../ui/lasting";
-import { Tree, type TreeLine } from "../../ui/Tree";
+import { Tree, useTreeLineCache } from "../../ui/Tree";
 import { VirtualList } from "../../ui/VirtualList";
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
 import type { Strings } from "../shared/i18n";
@@ -576,42 +577,53 @@ interface TreeProps {
 }
 
 /** The left folder tree (ui/Tree): the two roots and their folders, indented, each a drop target.
- * It lists folders only, the few a tree holds, so it draws every open one. */
-function FolderTree({ snap, titles, searching, dropMark, label, ...on }: TreeProps) {
-  const lines: TreeLine[] = treeRows(snap.tree, titles, snap.collapsed).map((row) => {
-    const node = snap.tree.nodes.get(row.id);
-    const expandable = hasSubfolders(snap.tree, row.id);
-    const expanded = expandable && !snap.collapsed.has(row.id);
-    return {
-      kind: "item",
-      key: row.id,
-      depth: row.depth,
-      text: row.title,
-      expandable,
-      expanded,
-      content: (
-        // The drop target and the menu of the row: the tree above owns its focus and keys.
-        // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- pointer-only drop target inside a treeitem.
-        <span
-          className={`bm-tree-cell${dropMark?.id === row.id ? " drop-into" : ""}`}
-          onContextMenu={(event) => {
-            if (node) on.onMenu(node, event);
-          }}
-          onDragOver={(event) => on.onDragOver(row.id, event)}
-          onDragLeave={() => on.onDragLeave(row.id)}
-          onDrop={(event) => on.onDrop(row.id, event)}
-        >
-          <span className={`bm-chevron${expandable ? "" : " is-leaf"}${expanded ? " is-open" : ""}`}>
-            <ChevronGlyph />
-          </span>
-          <span className="bm-icon" aria-hidden="true">
-            {isRoot(row.id) ? <BarGlyph root={row.id} /> : <FolderGlyph />}
-          </span>
-          <span className="bm-tree-title">{row.title}</span>
-        </span>
-      ),
-    };
+ * Its lines change with the folders and which are open; the drop mark reaches only the cells it
+ * leaves and enters (`DropInto`), so a drag over the tree draws two cells, not every line. */
+function FolderTree({ snap, titles, searching, dropMark, label, ...handlers }: TreeProps) {
+  const on = useStableHandlers({
+    ...handlers,
+    // A cell names its folder; the menu reads the folder's node as the tree has it now.
+    onCellMenu: (id: string, event: MouseEvent) => {
+      const node = snap.tree.nodes.get(id);
+      if (node) handlers.onMenu(node, event);
+    },
   });
+  // Each of these is one function for the tree's life, so the cells built with them stay as built.
+  const { onCellMenu, onDragOver, onDragLeave, onDrop } = on;
+  const cellOn = useMemo(
+    () => ({ onCellMenu, onDragOver, onDragLeave, onDrop }),
+    [onCellMenu, onDragOver, onDragLeave, onDrop],
+  );
+  const [drop] = useState(() => new DropInto());
+  const dropId = dropMark?.id;
+  useLayoutEffect(() => drop.set(dropId), [drop, dropId]);
+  const cache = useTreeLineCache();
+  const { tree, collapsed } = snap;
+  const { bar, other } = titles;
+  const lines = useMemo(
+    () =>
+      cache.build((line) =>
+        treeRows(tree, { bar, other }, collapsed).map((row) => {
+          const expandable = hasSubfolders(tree, row.id);
+          const expanded = expandable && !collapsed.has(row.id);
+          return line.item(
+            { key: row.id, depth: row.depth, text: row.title, expandable, expanded },
+            [drop, cellOn],
+            () => (
+              <FolderCell
+                id={row.id}
+                title={row.title}
+                expandable={expandable}
+                expanded={expanded}
+                drop={drop}
+                on={cellOn}
+              />
+            ),
+          );
+        }),
+      ),
+    [cache, tree, collapsed, bar, other, drop, cellOn],
+  );
   return (
     <nav className="bm-tree-pane" aria-label={label}>
       <Tree
@@ -635,6 +647,65 @@ function FolderTree({ snap, titles, searching, dropMark, label, ...on }: TreePro
         max={420}
       />
     </nav>
+  );
+}
+
+/** Which folder of the tree a drag would drop into: each cell reads whether it is that one. */
+class DropInto {
+  id: string | undefined;
+  private listeners = new Set<() => void>();
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  };
+  set(id: string | undefined) {
+    if (id === this.id) return;
+    this.id = id;
+    for (const listener of this.listeners) listener();
+  }
+}
+
+interface CellHandlers {
+  onCellMenu: (id: string, event: MouseEvent) => void;
+  onDragOver: (folder: string, event: DragEvent) => void;
+  onDragLeave: (folder: string) => void;
+  onDrop: (folder: string, event: DragEvent) => void;
+}
+
+function FolderCell({
+  id,
+  title,
+  expandable,
+  expanded,
+  drop,
+  on,
+}: {
+  id: string;
+  title: string;
+  expandable: boolean;
+  expanded: boolean;
+  drop: DropInto;
+  on: CellHandlers;
+}) {
+  const into = useSyncExternalStore(drop.subscribe, () => drop.id === id);
+  return (
+    // The drop target and the menu of the row: the tree above owns its focus and keys.
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- pointer-only drop target inside a treeitem.
+    <span
+      className={`bm-tree-cell${into ? " drop-into" : ""}`}
+      onContextMenu={(event) => on.onCellMenu(id, event)}
+      onDragOver={(event) => on.onDragOver(id, event)}
+      onDragLeave={() => on.onDragLeave(id)}
+      onDrop={(event) => on.onDrop(id, event)}
+    >
+      <span className={`bm-chevron${expandable ? "" : " is-leaf"}${expanded ? " is-open" : ""}`}>
+        <ChevronGlyph />
+      </span>
+      <span className="bm-icon" aria-hidden="true">
+        {isRoot(id) ? <BarGlyph root={id} /> : <FolderGlyph />}
+      </span>
+      <span className="bm-tree-title">{title}</span>
+    </span>
   );
 }
 

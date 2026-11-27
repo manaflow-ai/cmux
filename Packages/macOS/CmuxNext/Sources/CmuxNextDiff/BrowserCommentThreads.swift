@@ -1,7 +1,8 @@
 public import CmuxNextAgentPane
+public import CmuxNextBrowserCore
 public import CmuxNextSettings
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 
 /// A design mode comment on a browser page as the session host keeps it (`diff-comments-threads-v1`,
 /// `surface: "browser"`): the page, the picked element and what the person wrote.
@@ -26,6 +27,12 @@ public nonisolated struct BrowserComment: Sendable, Equatable {
         self.quote = quote
         self.message = message
         self.prompt = prompt
+    }
+
+    /// The comment of design mode pick `card` on page `url` titled `title`.
+    public init(_ card: BrowserDesignModeCard, url: URL?, title: String?) {
+        self.init(url: url?.absoluteString ?? "", title: title, selector: card.selector, quote: card.quote,
+                  message: card.comment, prompt: card.text)
     }
 
     /// The `diff.comments.save` comment: `{surface: "browser", place, url, title?, selector?, quote?,
@@ -78,6 +85,39 @@ public nonisolated struct BrowserCommentPick: Sendable, Equatable {
     }
 }
 
+/// A browser comment the session host keeps for a page, sent and not resolved: what puts its thread
+/// back on its element (the selector anchor) when design mode turns on again.
+public nonisolated struct BrowserKeptThread: Sendable, Equatable {
+    /// The picked element's selector.
+    public var selector: String
+    /// What the person wrote.
+    public var message: String
+    /// "Sent", or "answered" with the agent's reply.
+    public var thread: BrowserCommentThread
+
+    public init(selector: String, message: String, thread: BrowserCommentThread) {
+        self.selector = selector
+        self.message = message
+        self.thread = thread
+    }
+
+    /// The browser comments of a `diff.comments.list` answer's `comments` on page `url` that were
+    /// sent (`sentIn`) and have a selector, oldest first, one per selector (the newest).
+    public static func kept(in comments: JSONValue?, url: String) -> [Self] {
+        var out: [Self] = []
+        for record in comments?.arrayValue ?? [] {
+            guard record["surface"]?.stringValue == "browser", record["url"]?.stringValue == url,
+                  let id = record["id"]?.stringValue, let selector = record["selector"]?.stringValue, !selector.isEmpty,
+                  record["sentIn"]?.stringValue != nil else { continue }
+            let reply = CommentThread.agentReply(of: record)
+            let thread = BrowserCommentThread(commentID: id, state: reply == nil ? .sent : .answered, reply: reply)
+            out.removeAll { $0.selector == selector }
+            out.append(Self(selector: selector, message: record["message"]?.stringValue ?? "", thread: thread))
+        }
+        return out
+    }
+}
+
 /// Why a browser comment was not sent.
 public nonisolated enum BrowserCommentSendFailure: Error, Sendable, Equatable {
     /// Sending needs a real click or key.
@@ -123,9 +163,11 @@ public final class BrowserCommentThreads {
 
     /// Holds thread `key` for pick `pick` as "sending" at once, before its save, so the pick's chip and
     /// release paths see it while the send is under way.
-    public func hold(_ key: String, pick: BrowserCommentPick) {
+    @discardableResult
+    public func hold(_ key: String, pick: BrowserCommentPick) -> BrowserCommentPick {
         picks[key] = pick
         update(key, BrowserCommentThread(commentID: nil, state: .sending))
+        return pick
     }
 
     /// Records that tab `tab` can (or cannot) send; true when that changed and the page must hear it.
@@ -143,10 +185,7 @@ public final class BrowserCommentThreads {
                                                                 git: Git, folder: String?, acpSession: String,
                                                                 opid: String) async throws(BrowserCommentSendFailure) -> BrowserCommentThread {
         hold(key, pick: pick)
-        var root = folder ?? ""
-        if let folder, let repository = try? await DiffPageRuntime.repository(at: URL(fileURLWithPath: folder, isDirectory: true), git: git) {
-            root = repository.root
-        }
+        let root = await Self.root(of: folder, git: git)
         // Resolved while the root was read: nothing was saved, nothing goes.
         guard threads[key] != nil else { return BrowserCommentThread(commentID: nil, state: .failed) }
         guard root.hasPrefix("/") else {
@@ -159,6 +198,56 @@ public final class BrowserCommentThreads {
             if threads[key]?.state == .sending { update(key, BrowserCommentThread(commentID: nil, state: .failed)) }
             throw error
         }
+    }
+
+    /// The worktree root comments of chat folder `folder` are kept under: its repository's root,
+    /// read through `git`; else the folder ("" for none).
+    public static func root(of folder: String?, git: some DiffGitRunning) async -> String {
+        guard let folder else { return "" }
+        let url = URL(fileURLWithPath: folder, isDirectory: true)
+        return (try? await DiffPageRuntime.repository(at: url, git: git))?.root ?? folder
+    }
+
+    /// Puts the threads the host keeps for page `url` of browser tab `tab` back on their elements
+    /// (design mode turned on again, the page reloaded, cmux relaunched): one `diff.comments.list` on
+    /// the worktree root of chat folder `folder`, each thread held under its pick's card id before
+    /// `put(selector, comment, state, reply)` puts it on the page; one whose element is gone (`put`
+    /// false) stays on the host and is let go of here. A thread being sent from this page keeps its own.
+    /// - Returns: The keys of the threads back on the page.
+    @discardableResult
+    public func restore<Git: DiffGitRunning & DiffCommentsStoring>(
+        url: URL, tab: String, git: Git, folder: String?, put: (String, String, String, String?) async -> Bool) async -> [String] {
+        await restore(url: url, tab: tab, store: git, root: await Self.root(of: folder, git: git), put: put)
+    }
+
+    /// ``restore(url:tab:git:folder:put:)`` from `store` under the worktree `root`.
+    @discardableResult
+    public func restore(url: URL, tab: String, store: any DiffCommentsStoring, root: String,
+                        put: (String, String, String, String?) async -> Bool) async -> [String] {
+        guard root.hasPrefix("/"), let listed = try? await store.listComments(root: root) else { return [] }
+        var shown: [String] = []
+        for kept in BrowserKeptThread.kept(in: listed["comments"], url: url.absoluteString) {
+            let id = BrowserDesignModeCard.id(selector: kept.selector, pageURL: url)
+            if let held = threads[id], held.state == .sending || (held.commentID != nil && held.commentID != kept.thread.commentID) { continue }
+            homes[id] = (store, root)
+            picks[id] = BrowserCommentPick(tab: tab, selector: kept.selector)
+            update(id, kept.thread)
+            guard await put(kept.selector, kept.message, kept.thread.state.rawValue, kept.thread.reply) else {
+                // Resolved meanwhile, or held again by a send: not ours to let go of.
+                if threads[id]?.commentID == kept.thread.commentID { forget(id) }
+                continue
+            }
+            shown.append(id)
+        }
+        poll()
+        return shown
+    }
+
+    /// Lets go of thread `key` here without resolving it: its element is not on the page. The host
+    /// keeps the comment, so the thread comes back where its element does.
+    public func forget(_ key: String) {
+        guard threads[key] != nil else { return }
+        drop(key)
     }
 
     /// Whether any thread waits for the agent's reply.

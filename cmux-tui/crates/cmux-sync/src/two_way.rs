@@ -160,7 +160,7 @@ pub fn round(synced: &Tree, local: &Tree, remote: &Tree, content: &mut impl Cont
                         }
                     }
                     Resolution::ConflictFile { keep, aside } => {
-                        conflict_file(&mut out, &keep, &aside)
+                        conflict_file(&mut out, &keep, &aside);
                     }
                     Resolution::KeepEdit(hash) => put(&mut out, local, remote, path, &hash),
                 }

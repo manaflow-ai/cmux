@@ -286,6 +286,9 @@
   white-space: normal;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* A row whose label is itself the help text (Agents on This Mac's manual lines) has no title above it to
+   space from: the label keeps to its control's center. */
+:root[data-settings-look="refined"] .settings .row-label.row-help { margin-top: 0; }
 
 /* Inline status values share the control center line; only subtitles need a top gap. */
 :root[data-settings-look="refined"] .settings .row-control > .row-help { margin-top: 0; }

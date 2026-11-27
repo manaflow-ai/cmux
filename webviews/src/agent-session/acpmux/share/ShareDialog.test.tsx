@@ -156,6 +156,88 @@ test("a person's row is one button for their role, with Remove its own button be
   expect(calls).toEqual(["role @sam talk"]);
 });
 
+test("Can drive is offered to named people and never to General access", async () => {
+  const calls: string[] = [];
+  const container = await render(calls);
+  const person = container.querySelector<HTMLElement>(".share-dialog__people li:nth-child(2)")!;
+  const row = person.querySelector<HTMLButtonElement>(".share-dialog__person-pick")!;
+  await act(async () => row.click());
+  await settle();
+  const drive = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
+    item.textContent?.includes(translate("share.role.drive")),
+  );
+  expect(drive?.textContent).toContain(translate("share.role.driveDetail"));
+  await act(async () => drive!.click());
+  await settle();
+  expect(calls).toEqual(["role @sam drive"]);
+
+  const general = container.querySelector<HTMLButtonElement>(".share-dialog__general")!;
+  await act(async () => general.click());
+  await settle();
+  expect(
+    [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].some((item) =>
+      item.textContent?.includes(translate("share.role.drive")),
+    ),
+  ).toBe(false);
+});
+
+// An invite nobody opened yet says so under the name; one in the chat now says that instead.
+test("a pending invitee's row says they haven't opened it yet", async () => {
+  const container = installDom();
+  const view: ShareView = {
+    ...shared,
+    people: [
+      { account: "@new", role: "view", joined: false, opened: false },
+      { account: "@here", role: "talk", joined: true, opened: true },
+      { account: "@left", role: "view", joined: false, opened: true },
+    ],
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ShareDialogBody
+        chat="Add retries"
+        view={view}
+        onInvite={() => {}}
+        onRole={() => {}}
+        onRemove={() => {}}
+        onGeneral={() => {}}
+        onCopy={() => {}}
+        onDone={() => {}}
+      />,
+    );
+  });
+  const hints = [...container.querySelectorAll(".share-dialog__people li")].map(
+    (row) => row.querySelector(".share-dialog__hint")?.textContent ?? null,
+  );
+  expect(hints).toEqual([null, translate("share.notJoined"), translate("share.inChatNow"), null]);
+});
+
+// A result that is not a refusal (a role change) shows muted on the status line, not as an alert.
+test("a notice shows muted on the status line", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ShareDialogBody
+        chat="Add retries"
+        view={shared}
+        notice="@sam changed to Can send."
+        onInvite={() => {}}
+        onRole={() => {}}
+        onRemove={() => {}}
+        onGeneral={() => {}}
+        onCopy={() => {}}
+        onDone={() => {}}
+      />,
+    );
+  });
+  const line = container.querySelector(".share-dialog__status")!;
+  expect(line.textContent).toBe("@sam changed to Can send.");
+  expect(line.getAttribute("role")).toBeNull();
+  expect(line.hasAttribute("data-hint")).toBe(true);
+});
+
 test("a failed read of the chat's shares is read again on its own, with no Try again", async () => {
   // Leo, 2026-11-22: "vacuous decisions like that should be just done": the open's read asks again
   // on the shared backoff (autoRetry.ts, first ask within 1 s) and says nothing at first.

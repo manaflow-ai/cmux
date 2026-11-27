@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, VecDeque};
 use cmux_rd_core::clock::ClockEstimator;
 use cmux_rd_core::ledger::StageLedger;
 use cmux_rd_core::reassembly::CompleteFrame;
+use cmux_rd_core::session_report::SessionReport;
 use cmux_rd_proto::{
     ClockEstimate, ClockPong, DatagramHeader, DatagramKind, FrameTimes, STREAM_BULK,
     STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame,
@@ -113,6 +114,9 @@ pub struct Session {
     /// datagrams (cap `ledger`), this viewer's from reassembly and the
     /// caller's decode and present notes. Bounded.
     ledger: StageLedger,
+    /// The whole session's first frame and display-to-glass numbers (the
+    /// ledger keeps only its newest frames), for field telemetry.
+    report: SessionReport,
     failed: bool,
 }
 
@@ -131,6 +135,7 @@ impl Session {
             clock: None,
             liveness: Liveness::default(),
             ledger: StageLedger::new(),
+            report: SessionReport::new(),
             failed: false,
         };
         let _ = s.open_stream(0);
@@ -262,9 +267,15 @@ impl Session {
         Some(m)
     }
 
-    /// Records one decode time of `stream`.
-    pub fn note_decode(&mut self, stream: u16, decode_us: u32) -> Result<(), SessionError> {
-        self.receiver(stream)?.note_decode(decode_us);
+    /// Records one decode time of `stream`; `frame` is the popped frame that
+    /// decoded (its LTR token is acknowledged), `None` for the time only.
+    pub fn note_decode(
+        &mut self,
+        stream: u16,
+        frame: Option<u32>,
+        decode_us: u32,
+    ) -> Result<(), SessionError> {
+        self.receiver(stream)?.note_decode(frame, decode_us);
         Ok(())
     }
 
@@ -278,7 +289,7 @@ impl Session {
         decode_us: u32,
         decoded_at_us: u64,
     ) -> Result<(), SessionError> {
-        self.receiver(stream)?.note_decode(decode_us);
+        self.receiver(stream)?.note_decode(Some(frame), decode_us);
         self.ledger.on_decoded(stream, frame, decoded_at_us);
         Ok(())
     }
@@ -292,8 +303,23 @@ impl Session {
         presented_at_us: u64,
     ) -> Result<(), SessionError> {
         self.receiver(stream)?;
-        self.ledger.on_presented(stream, frame, presented_at_us);
+        let row = self.ledger.on_presented(stream, frame, presented_at_us);
+        let offset = self.clock().map(|c| c.offset_us);
+        self.report.on_presented(row.as_ref(), offset, presented_at_us);
         Ok(())
+    }
+
+    /// The viewer began connecting at `at_us` (the session's clock): where
+    /// the report's first frame counts from. The first call counts.
+    pub fn note_connect_started(&mut self, at_us: u64) {
+        self.report.note_connect_started(at_us);
+    }
+
+    /// This session's report so far, as one JSON object
+    /// (`cmux.rd-session-report/1`): connect to first frame on glass, and
+    /// display-to-glass and Present p50/p95 over every presented frame.
+    pub fn session_report_json(&self) -> String {
+        self.report.summary().to_json()
     }
 
     /// The stage ledger of the frames kept so far, as one JSON object
