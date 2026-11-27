@@ -549,6 +549,16 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
         # check:pieces spells the type check out (#24438): each of typecheck's own parts runs with it.
         gated_commands |= {p.strip() for c in gated_commands for p in c.split("&&")}
         gated |= {c.removeprefix("bun run ") for c in gated_commands if c.startswith("bun run ")}
+        # A long warn-only check may run beside the loop so it does not extend the shard's critical path.  It still
+        # belongs to this coverage set only when the workflow records its PID and waits for it before returning; this
+        # catches a background launch that silently outlives the job.
+        background = {
+            check: pid
+            for check, pid in re.findall(r"bun run ([^\s\"]+)[^\n]*&\s*\n\s*(\w+)=\$!", warn_branch)
+        }
+        waited = set(re.findall(r"\bwait\s+\"?\$(\w+)\"?", warn_branch))
+        for check, pid in background.items():
+            self.assertIn(pid, waited, f"{check} is launched in the background but its PID is never waited")
         ci_web = ".github/workflows/ci-web.yml"
         loop_line = line_of(ci_web, "for check in ")
         script_key = "check:pieces" if "check:pieces" in scripts else "check"
@@ -563,7 +573,7 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
                         f"`./node_modules/.bin/{part} || echo ...` in the warn branch below this line")
                 continue
             name = part.removeprefix("bun run ").strip()
-            if not (name in looped or name in gated or f"bun run {name} || status=1" in warn_branch):
+            if not (name in looped or name in gated or name in background or f"bun run {name} || status=1" in warn_branch):
                 missing.append(
                     f"{ci_web}:{loop_line}: `{part}` (webviews/package.json:{script_line} "
                     f"`{script_key}`) does not run when CMUX_NEXT_STYLE_GUARDS=warn; add `{name}` to this "
