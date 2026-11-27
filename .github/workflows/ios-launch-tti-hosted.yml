@@ -79,8 +79,27 @@ jobs:
         run: |
           set -uo pipefail
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          bash scripts/ci/cmux-next-ios-sim.sh test ui=LaunchTTIUITests profile
+          # xctrace aborts on this virtual Mac (run 45993228691), so /usr/bin/sample (task_for_pid,
+          # no kperf) samples each launch's threads for 8 s from the moment the process exists.
+          mkdir -p artifacts/ios-sim/samples
+          (
+            seen=" "
+            while :; do
+              for pid in $(pgrep -f 'CmuxMobileApp[.]app/CmuxMobileApp' || true); do
+                case "$seen" in *" $pid "*) continue ;; esac
+                seen="$seen$pid "
+                echo "$pid $(date +%s.%N)" >> artifacts/ios-sim/samples/pids.txt
+                sample "$pid" 8 1 -mayDie -file "artifacts/ios-sim/samples/sample-$pid.txt" > /dev/null 2>&1 &
+              done
+              sleep 0.02
+            done
+          ) &
+          sampler=$!
+          bash scripts/ci/cmux-next-ios-sim.sh test ui=LaunchTTIUITests
           echo "status=$?" >> "$GITHUB_OUTPUT"
+          kill "$sampler" 2>/dev/null; sleep 9
+          ls -la artifacts/ios-sim/samples | head -40
+          tar -czf artifacts/ios-sim/samples.tgz -C artifacts/ios-sim samples
 
       - name: Export the time-profile table
         if: ${{ !cancelled() }}
@@ -133,5 +152,6 @@ jobs:
             artifacts/ios-sim/ui-profile-summary.md
             artifacts/ios-sim/ui-profile-summary.json
             artifacts/ios-sim/ui-time-profile.xml.gz
+            artifacts/ios-sim/samples.tgz
           retention-days: 3
           if-no-files-found: warn
