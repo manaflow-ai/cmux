@@ -49,6 +49,8 @@ pub mod procs;
 pub mod restore;
 pub mod schedule;
 pub mod store;
+pub mod transcripts;
+pub mod vm_images;
 
 pub use inventory::{Facts, Repo, Worktree};
 pub use policy::{Action, Pressure, Verdict};

@@ -4148,6 +4148,7 @@ dependencies = [
  "cmux-cas",
  "cmux-file-lock",
  "cmux-git",
+ "flate2",
  "libc",
  "serde",
  "serde_json",

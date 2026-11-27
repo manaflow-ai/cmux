@@ -3,9 +3,10 @@
 //! package caches (SwiftPM, npm, Bun, pnpm, yarn, pip, uv, go build, cargo's
 //! registry), the known build caches under `~/.cache`, build folders of
 //! idle checkouts, idle files in the user's own `/tmp`, plain clones a lane
-//! left behind, Docker images and the iOS simulators' leftovers; Tart/Lume
-//! images and agent transcripts are only reported. Agents fill these as
-//! fast as they fill worktrees, and nothing else empties them.
+//! left behind, Docker images, the iOS simulators' leftovers, Tart/Lume
+//! images and VMs ([`crate::vm_images`]) and old agent transcripts
+//! ([`crate::transcripts`]). Agents fill these as fast as they fill
+//! worktrees, and nothing else empties them.
 //!
 //! Each family has a [`Kind`]: regenerable data is deleted (the ledger says
 //! so); unique data is archived first and goes only when that succeeded.
@@ -69,6 +70,10 @@ pub enum Source {
     Docker,
     /// `xcrun simctl delete unavailable`, macOS only.
     Simulators,
+    /// Agent transcripts older than the family's age: see [`crate::transcripts`].
+    Transcripts { open: crate::transcripts::OpenCheck },
+    /// Tart/Lume images and VMs, removed by their program: see [`crate::vm_images`].
+    Vms { vm: crate::vm_images::Vm, shape: crate::vm_images::Shape, program: PathBuf },
 }
 
 /// A kind of data and where it lives.
@@ -213,20 +218,22 @@ pub fn families(layout: &Layout) -> Vec<Family> {
         kind: Kind::Regenerable,
         source: Source::Simulators,
     });
+    use crate::vm_images::{Shape, Vm};
+    let image_days = crate::vm_images::days();
+    for (name, root, vm, shape) in [
+        ("tart-vms", home.join(".tart/vms"), Vm::Tart, Shape::Machines),
+        ("tart-images", home.join(".tart/cache/OCIs"), Vm::Tart, Shape::OciImages),
+        ("lume-vms", home.join(".lume"), Vm::Lume, Shape::Machines),
+    ] {
+        let program = PathBuf::from(if vm == Vm::Tart { "tart" } else { "lume" });
+        list.push(crate::vm_images::family(name, root, vm, shape, program, image_days));
+    }
+    let transcript_days = crate::transcripts::days();
     for (name, root) in [
-        ("tart-vms", home.join(".tart/vms")),
-        ("lume-vms", home.join(".lume")),
         ("claude-transcripts", home.join(".claude/projects")),
         ("codex-transcripts", home.join(".codex/sessions")),
     ] {
-        list.push(Family {
-            name,
-            root,
-            per_child: false,
-            idle_hours: [None; 3],
-            kind: Kind::Unique,
-            source: Source::ReportOnly,
-        });
+        list.push(crate::transcripts::family(name, root, transcript_days));
     }
     list
 }
@@ -262,6 +269,10 @@ pub fn entries(families: &[Family]) -> Vec<Entry> {
                 build_entries(index, search, exclude, &mut found);
             }
             Source::Clones { roots } => clone_entries(index, roots, &mut found),
+            Source::Transcripts { .. } => {
+                crate::transcripts::entries(index, family, crate::inventory::now_ms(), &mut found);
+            }
+            Source::Vms { .. } => crate::vm_images::entries(index, family, &mut found),
             Source::Docker | Source::Simulators => {
                 let present = match family.source {
                     Source::Docker => crate::external::docker_reclaimable().is_some(),
@@ -648,6 +659,9 @@ fn bytes_at(family: &Family, path: &Path) -> Option<u64> {
     match &family.source {
         Source::Docker => crate::external::docker_reclaimable(),
         Source::Simulators => None,
+        Source::Transcripts { .. } if path == family.root => {
+            crate::transcripts::recent_bytes(family, crate::inventory::now_ms())
+        }
         _ => match std::fs::symlink_metadata(path) {
             Ok(meta) if meta.is_file() => Some(meta.len()),
             Ok(_) => bytes_of(path),
@@ -666,6 +680,9 @@ pub fn scan(options: &Options) -> Report {
             continue;
         }
         let mut decided = decide(family, entry.last_activity_ms, options.pressure, options.now_ms);
+        if let Some(report) = crate::transcripts::summary_keep(family, &entry.path) {
+            decided = report;
+        }
         if let Some(glob) = options.never.holds(options.home, &entry.path) {
             decided = verdict(Action::Keep, format!("never-delete: {glob}"));
         }
@@ -736,9 +753,11 @@ pub fn apply(options: &Options, report: &mut Report, index: usize) {
 /// families share a name).
 fn same_root(family: &Family, path: &Path) -> bool {
     match &family.source {
-        Source::Fixed | Source::ReportOnly | Source::TmpEntries => {
-            path == family.root || path.starts_with(&family.root)
-        }
+        Source::Fixed
+        | Source::ReportOnly
+        | Source::TmpEntries
+        | Source::Transcripts { .. }
+        | Source::Vms { .. } => path == family.root || path.starts_with(&family.root),
         Source::BuildDirs { .. } => path.starts_with(&family.root),
         Source::Clones { roots } => roots.iter().any(|r| path.starts_with(r)),
         Source::Docker | Source::Simulators => path == family.root,
@@ -811,7 +830,11 @@ fn still_an_entry(options: &Options, family: &Family, path: &Path) -> Result<(),
                 return Err(gone());
             }
         }
-        Source::Docker | Source::Simulators | Source::ReportOnly => {}
+        Source::Docker
+        | Source::Simulators
+        | Source::ReportOnly
+        | Source::Transcripts { .. }
+        | Source::Vms { .. } => {}
     }
     Ok(())
 }
@@ -824,6 +847,12 @@ fn remove(
     path: &Path,
     bytes: u64,
 ) -> Result<Option<Outcome>, Verdict> {
+    match family.source {
+        // Their own checks: one open-file answer per root, archives of their own.
+        Source::Transcripts { .. } => return crate::transcripts::remove(options, family, path),
+        Source::Vms { .. } => return crate::vm_images::remove(options, family, path, bytes),
+        _ => {}
+    }
     if let Some(glob) = options.never.holds(options.home, path) {
         return Err(verdict(Action::Keep, format!("never-delete: {glob}")));
     }
