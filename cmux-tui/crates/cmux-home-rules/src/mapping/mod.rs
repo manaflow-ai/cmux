@@ -65,6 +65,12 @@ pub const OPS: &[&str] = &[
     "timeKey",
 ];
 
+/// Runs `mapping.NAME` from request bytes to reply bytes where the op has a typed path
+/// ([`core::call_bytes`]); `None` sends the caller to [`call`].
+pub fn call_bytes(name: &str, bytes: &[u8]) -> Option<Result<Vec<u8>, OpError>> {
+    core::call_bytes(name, bytes)
+}
+
 /// Runs `mapping.NAME`.
 pub fn call(name: &str, request: &Value) -> Result<Value, OpError> {
     match name {
