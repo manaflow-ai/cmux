@@ -114,7 +114,12 @@ export function HatHeadDeck({
             }}
           >
             <span className="acpmux-hat-deck__face">
-              {mark.harness !== undefined || mark.tone !== undefined ? (
+              {item.kind === "agent" && mark.harness === undefined ? (
+                // At chat load the chat's harness is unknown until its summary hydrates: the face stays blank
+                // rather than showing the generic sparkle a moment, then the real mark (Leo, ask-ae0163978a:
+                // "a really dumb looking symbol in the top left of the composer hat when i loaded into this chat").
+                <span style={{ display: "inline-block", width: ROW_ICON, height: ROW_ICON }} />
+              ) : mark.harness !== undefined || mark.tone !== undefined ? (
                 <AgentIdentity harness={mark.harness} tone={mark.tone} size={ROW_ICON} fallback={mark.icon} />
               ) : (
                 <Icon name={mark.icon} size={ROW_ICON} row />
