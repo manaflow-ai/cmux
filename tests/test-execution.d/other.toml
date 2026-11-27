@@ -409,13 +409,11 @@ reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow ru
 
 [[test]]
 path = "tests/test_hook_context_dedup_bound.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_hook_context_dedup_bound.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_hook_context_window.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_hook_context_window.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_hook_python.py"

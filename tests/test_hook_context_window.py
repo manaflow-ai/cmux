@@ -8,6 +8,9 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests/git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_fixture_spec)
+_fixture_spec.loader.exec_module(git_fixture_env)
 SCRIPT = ROOT / "scripts/measure/hook-context-window.py"
 spec = importlib.util.spec_from_file_location("window", SCRIPT)
 window = importlib.util.module_from_spec(spec)
@@ -75,7 +78,7 @@ class WindowTests(unittest.TestCase):
             meter = tools / "hook_context_bytes.py"
             meter.write_text('def report(files, after=False, since=None):\n'
                              '    return {"after": after, "since": since, "files": len(files)}\n')
-            subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+            git_fixture_env.init_repo(workspace, "-q")
             subprocess.run(["git", "-C", str(workspace), "add", "."], check=True)
             subprocess.run(["git", "-C", str(workspace), "-c", "core.hooksPath=/dev/null",
                             "-c", "user.name=Test", "-c", "user.email=test@example.invalid",

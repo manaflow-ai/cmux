@@ -1469,6 +1469,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
 
+      - name: Validate fixed-window hook context measurements
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_hook_context_window.py
+          python3 tests/test_hook_context_dedup_bound.py
+
       - name: Validate the web performance gate keeps measurement and validation apart
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_web_perf_validation_boundary.py
