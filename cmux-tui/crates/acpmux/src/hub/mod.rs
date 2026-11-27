@@ -75,12 +75,12 @@ pub(crate) mod clone_boot;
 mod closed_rows;
 #[cfg(unix)]
 mod closed_tmp;
+pub(crate) mod cloud_offload;
 pub mod cmux_tools_answer;
 mod cold_archive;
 mod cold_segments;
 mod live_rows;
 // A wake onto a cold, large chat: one batch on an interval, compacted first.
-pub(crate) mod cloud_offload;
 pub(crate) mod cold_wake;
 mod complete;
 pub mod composers;
@@ -95,6 +95,7 @@ mod digest;
 pub(crate) mod dispatch;
 mod drafts;
 // RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
+mod acp_version;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
@@ -132,7 +133,7 @@ mod git_watch;
 mod cache_alarm;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
 mod cpu_pressure;
-mod github_owner;
+pub(crate) mod github_owner;
 mod goal_tools;
 mod handoff;
 mod harness_key;
@@ -173,6 +174,8 @@ pub mod journal_restore;
 mod journal_restore_tests;
 pub(crate) mod key_route;
 mod key_store;
+// A dead lane on a peer tells its starter here (`lane_death_watch.rs`).
+mod lane_death_watch;
 // The per-lane fan-out cap (`lane_fanout.rs`).
 pub(crate) mod lane_fanout;
 mod lane_report_reads;
@@ -315,6 +318,7 @@ pub(crate) mod queue_origin;
 mod queued_turn;
 pub mod races;
 pub(crate) mod rate_hold;
+mod recent_creates;
 mod rediscover;
 #[cfg(test)]
 mod refused_append_tests;
@@ -560,6 +564,10 @@ pub(crate) fn prompt_attribution_mark(
 ) {
     prompt_attribution::mark(params, sender, provenance);
 }
+/// A failed turn's error as auto-resume reads it, for a client that waits on the chat (`cmux cloud
+/// start-chat`): why it is continued by itself (`capacity`, `transport`), and the wait its own
+/// `retry after` names.
+pub use auto_resume::reset_hint::retry_after_ms;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
 pub use key_store::{CliKeyStore, KeepAsk, KeyStore};
 pub use pool::{
@@ -573,6 +581,7 @@ pub(crate) use seen::{Look, reader_of};
 pub use session::{Session, live_tags};
 pub(crate) use transfer_out::TOOL_IN_FLIGHT;
 pub(crate) use turn_errors::is_limit_error;
+pub use turn_errors::transient_cause;
 
 /// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
 type WithdrawsInFlight =
@@ -763,6 +772,11 @@ pub struct HubEvent {
     /// rest (`server::deliver`). HOT PATH AUDIT area F, row A4: a streamed token is copied and
     /// encoded once, not once per attached connection.
     pub update_line: Arc<std::sync::OnceLock<Option<Arc<str>>>>,
+    /// The record's `_acpmux/event` params (`server::event_value`) for an event stream of a chat
+    /// of this daemon's own, built by the first connection that sends it and shared by the rest
+    /// (`server::deliver`): a streamed token's message is copied and converted once, not once per
+    /// attached connection, and a client that asked for compact chunks reads it in place.
+    pub event_params: Arc<std::sync::OnceLock<serde_json::Value>>,
     /// The session's row as a watcher's `_acpmux/session_changed` carries it, without and with
     /// its tools, built by the first watching connection that sends it and shared by the rest
     /// (`server::deliver`): one build per record, not one per watching connection. The ring
@@ -1624,6 +1638,10 @@ pub struct Hub {
     /// The running mesh relay's loops: the one the daemon started, or one a sign-in enroll
     /// started live (`server/machine_enroll.rs`). Stopped at shutdown.
     pub mesh_relay: tokio::sync::Mutex<Option<crate::server::mesh_relay::MeshRelay>>,
+    /// The running relay's heartbeat on demand, so a chat moved here is in the hub's address
+    /// book before its move answers (`transfer_pull.rs` `list_on_mesh_now`); dangling
+    /// once the relay's loops end.
+    pub(crate) mesh_beat: StdMutex<std::sync::Weak<crate::server::mesh_relay::Beat>>,
     /// Held across every change of this daemon's join (`server/machine_enroll.rs`): the daemon
     /// start's leave and relay start, a sign-in's enroll, a sign-out's leave, and shutdown. Each
     /// reads the join's state on disk once it holds it, so none acts on what another changed.
@@ -1635,6 +1653,8 @@ pub struct Hub {
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// A peer's live asks for sessions it has not listed yet (`held_asks.rs`).
     pub(crate) held_peer_asks: held_asks::HeldAsks,
+    /// Sessions just created on another machine (`recent_creates.rs`).
+    pub(crate) recent_creates: recent_creates::RecentCreates,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
@@ -2027,11 +2047,13 @@ impl Hub {
             ssh_carry_cooldown: Default::default(),
             mesh: Default::default(),
             mesh_relay: Default::default(),
+            mesh_beat: Default::default(),
             join_transition: Default::default(),
             join_start: Default::default(),
             watches: Default::default(),
             peer_accepts: Default::default(),
             held_peer_asks: Default::default(),
+            recent_creates: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
             #[cfg(all(unix, feature = "tailnet"))]
@@ -2170,6 +2192,7 @@ impl Hub {
             record: Arc::new(record),
             remote: None,
             update_line: Default::default(),
+            event_params: Default::default(),
             row: Default::default(),
             list_seq: 0,
             peer_batch: false,
@@ -2319,7 +2342,7 @@ impl Hub {
         let cut_off = fork_start::close_cut_off(&mut meta);
         let session = self.make_session(meta);
         if let Some(meta) = saved_meta {
-            session.meta_writer.note_saved(&meta);
+            session.meta_writer.note_saved(&meta, self.store.digest(&meta));
         }
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -3425,6 +3448,7 @@ impl Hub {
                 record: Arc::new(record.clone()),
                 remote: None,
                 update_line: Default::default(),
+                event_params: Default::default(),
                 row: Default::default(),
                 list_seq: 0,
                 peer_batch: false,
