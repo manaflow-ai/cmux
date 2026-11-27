@@ -20,6 +20,7 @@ import re
 import subprocess
 import sys
 import tarfile
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -202,6 +203,18 @@ def fetch_run(cache: Path, run_id: int, notes: list[str]) -> None:
                         for m in t.getmembers():
                             if m.isfile() and m.name.split("/")[-1] in ("junit.xml", "summary.txt"):
                                 (d / "linux" / m.name.split("/")[-1]).write_bytes(t.extractfile(m).read())
+        if (d / "mac.log").exists() and parse_mac((d / "mac.log").read_text())[0] and not (d / "pool.txt").exists():
+            # The pool side's own verdict line, for the runs where no result artifact exists to read.
+            lines = []
+            for j in jobs:
+                if "fleet pool" in j["name"] and any(s.get("conclusion") not in ("skipped", None, "")
+                                                     and s["name"] in ("Fleet pool run", "Fleet pool result")
+                                                     for s in j["steps"]):
+                    log = gh(["run", "view", str(run_id), "-R", REPO, "--job", str(j["databaseId"]), "--log"])
+                    lines += [_TS.sub("", l.split("\t", 2)[-1]) for l in log.splitlines()
+                              if re.search(r"fleet pool[^:]*: (pass|fail|none)\b|no verdict", l)]
+            (d / "pool.txt").write_text("\n".join(lines)[:2000] + "\n")
+            time.sleep(31)  # the broker refuses 20 distinct runs' reads in 600 s
     except Exception as e:  # recorded, not retried
         notes.append(f"{run_id}: fetch failed: {e}")
         (d / "fetch-error.txt").write_text(str(e))
@@ -218,7 +231,9 @@ def load_run(cache: Path, run: dict) -> dict:
     if not (out["mac"] and out["mac"][0]):
         reasons.append("no Mac verdict" + (f" (run {run.get('conclusion') or 'in progress'}, no xcodebuild step result)" if not out["mac"] else " (no 'iOS simulator test cases:' line)"))
     if not (out["linux"] and out["linux"][0]):
-        reasons.append("no Linux verdict" + ("" if (d / "linux").exists() else " (no kit-sim-linux-result artifact)"))
+        pool = (d / "pool.txt").read_text().strip().splitlines() if (d / "pool.txt").exists() else []
+        reasons.append("no Linux verdict (no usable kit-sim-linux-result artifact"
+                       + (f"; pool said: {pool[0][:170]}" if pool else "") + ")")
     if (d / "fetch-error.txt").exists():
         reasons.append("fetch error: " + (d / "fetch-error.txt").read_text()[:80])
     out["why"] = "; ".join(reasons)
