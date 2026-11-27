@@ -152,10 +152,3 @@ impl From<SessionError> for ConnectionError {
         Self::Session(error)
     }
 }
-
-/// Whether `group`'s selected path is `path` (both known).
-async fn on_path(group: &Arc<dyn LinkGroup>, path: Option<&str>) -> bool {
-    let Some(path) = path else { return false };
-    group.transport_snapshot().await.selected_path.and_then(|selected| selected.remote).as_deref()
-        == Some(path)
-}

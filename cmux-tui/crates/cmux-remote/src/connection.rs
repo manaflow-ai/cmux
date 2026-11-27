@@ -33,6 +33,13 @@ use handshake::{Established, establish_physical_links};
 pub(crate) use handshake::{LinkRejected, send_link_ready, send_link_rejection};
 use heartbeat::run_heartbeat;
 
+/// Whether `group`'s selected path is `path` (both known).
+async fn on_path(group: &Arc<dyn LinkGroup>, path: Option<&str>) -> bool {
+    let Some(path) = path else { return false };
+    group.transport_snapshot().await.selected_path.and_then(|selected| selected.remote).as_deref()
+        == Some(path)
+}
+
 const TERMINAL_CLOSE_SEND_TIMEOUT: Duration = Duration::from_secs(1);
 const TERMINAL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long a probe sent because the network changed may take, write and answer, before the
