@@ -5,7 +5,7 @@
     "\"baseline 2026-11-04\" marks a step that was already there when this file started; replace it with a reason when you touch the step."
   ],
   "steps": {
-    "actions-artifact-prune.yml: Prune": "polls (tests/test_ci_no_github_token_polling.py): hourly: paces artifact deletes 0.4 s apart (at most 150 a minute) and stops at 50 calls left",
+    "storage-maintenance.yml: Prune Actions artifacts": "polls (tests/test_ci_no_github_token_polling.py): hourly: paces artifact deletes 0.4 s apart (at most 150 a minute) and stops at 50 calls left",
     "app-ffi-release.yml: The latest release is not an FFI tag": "baseline 2026-11-04",
     "app-ffi-release.yml: The release exists with this run's archive": "baseline 2026-11-04",
     "app-ffi-release.yml: Pin the new release and open or update the pull request": "re-pin hold (publish-app-ffi-repin.sh): one release-runs list, one jobs read per pending newer run, and the held PR's commit, check runs and status: about 3 to 8 calls per run, on a feat-cmux-next FFI push; a call refused for the rate limit is asked again only after its retry-after or reset (else 60 s doubling), 600 s in all, then the job fails",
@@ -254,11 +254,11 @@
     "pr-checks.yml: Read changed files and body": "baseline 2026-11-04",
     "pr-checks.yml: Update the PR's Swift logic line": "polls (tests/test_ci_no_github_token_polling.py): pr_status.py: one comment read (GraphQL first) and at most one write per push of a pull request that is not a draft; a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds",
     "pr-checks.yml: Update the PR's review line": "polls (tests/test_ci_no_github_token_polling.py): pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds",
-    "pr-media-prune.yml: Prune": "baseline 2026-11-04",
+    "storage-maintenance.yml: Prune PR media": "baseline 2026-11-04",
     "pr-red-checks-comment.yml: Update the red checks line": "baseline 2026-11-04",
     "pr-status.yml: Write the line": "polls (tests/test_ci_no_github_token_polling.py): pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds",
     "published-in.yml: Comment the release on its PRs": "polls (tests/test_ci_no_github_token_polling.py): per stable release: one comment per PR, 7.5 s apart for the secondary limit on content writes; stops at the first rate-limit refusal",
-    "r2-binaries-prune.yml: Trunk commits, pins and windows": "baseline 2026-11-04",
+    "storage-maintenance.yml: Trunk commits, pins and windows": "baseline 2026-11-04",
     "release.yml: Attest SSH daemon release assets": "baseline 2026-11-04",
     "release.yml: Decide whether this release is latest": "baseline 2026-11-04",
     "release.yml: Download the staged appcast for a resumed release": "baseline 2026-11-04",
