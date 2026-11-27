@@ -494,11 +494,12 @@ jobs:
             /plans/cmux-next/
             /cmux.xcodeproj/project.pbxproj
             /tests/workflow_jobs.py
-            # The egress gate (scripts/ci/egress_new_sites.py) imports these three; without them every pull request's
-            # fast gates went red on ModuleNotFoundError (cmux#57582, run 45880398424).
+            # Include the egress gate's transitive test helpers too: test_outbound_hosts imports guard_delta.
+            # Missing helpers crashed fast gates in runs 45880398424 and 46000870675.
             /tests/test_egress_gate.py
             /tests/test_outbound_hosts.py
             /tests/test_classic_cloud_routes.py
+            /tests/guard_delta.py
             /docs/mdm/
             /docs/ci/cmux-next-workflow-notes.md
             /docs/ci/nightly-workflow-notes.md
