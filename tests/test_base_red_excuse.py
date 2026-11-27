@@ -10802,6 +10802,83 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
             self.judge(gh)
         self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.CALL_JOB_READS)
 
+    def test_a_broker_refused_query_is_a_tool_error_that_names_the_fix_never_quota(self):
+        # hq#30852 (2026-11-27): a query the broker refuses for its shape was read as "a read that never happened"
+        # (exit 3), and land-judge waited for a quota reset that could never help. A refused shape other than the
+        # `nodes` SuiteChecks falls back from is exit 4, "not judged, tool error", naming the fix, never retried.
+        fixture = TreeReuseGitHub(nodes=True)
+        for run in fixture.base_runs:
+            run["conclusion"] = "cancelled"
+        fixture.jobs = {job_id: fixture.jobs[job_id] for job_id in (1, 2)}
+        fixture.run = excuse.GitHub().run
+        said = ("gh: lane-gh call graphql manaflow-ai/cmux: refused: graphql: field checkSuite is refused "
+                "(see GRAPHQL_ROOT_FIELDS, GRAPHQL_FIELDS)\n")
+        calls = []
+
+        def gh(argv, *, stdout, stderr, env=None):
+            calls.append(argv)
+            stderr.write(said.encode())
+            return unittest.mock.Mock(returncode=1)
+
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with unittest.mock.patch.dict(os.environ, {"TAP_TESTS_STATE": "off"}), \
+                unittest.mock.patch.object(excuse, "GitHub", return_value=fixture), \
+                unittest.mock.patch.object(subprocess, "Popen", gh), \
+                unittest.mock.patch.object(time, "sleep", side_effect=AssertionError("a refusal is never waited on")), \
+                contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"])
+        self.assertEqual(code, 4, stderr.getvalue())
+        self.assertEqual(len(calls), 1, calls)  # one call: a refusal is the same on every retry
+        self.assertIn("not judged, tool error", stderr.getvalue())
+        self.assertIn("refused: graphql: field checkSuite is refused", stderr.getvalue())
+        self.assertIn("fix the query, not the broker", stderr.getvalue())
+        self.assertNotIn("rate", stderr.getvalue().replace("rateLimit", ""))
+
+    def test_only_a_graphql_shape_refusal_is_a_broker_refusal(self):
+        # Any other failed gh call stays a read that never happened (Unread: exit 3, a retry).
+        evidence = excuse._evidence
+        for said, refused in (
+                ("gh: lane-gh call graphql manaflow-ai/cmux: refused: graphql: root field nodes is refused\n", True),
+                ("gh: lane-gh call api manaflow-ai/cmux: refused: rate limited, retry after 02:28Z\n", False),
+                ("gh: HTTP 502: Bad Gateway (https://api.github.com/graphql)\n", False)):
+            with self.subTest(said=said):
+                def gh(argv, *, stdout, stderr, env=None):
+                    stderr.write(said.encode())
+                    return unittest.mock.Mock(returncode=1)
+
+                with unittest.mock.patch.object(subprocess, "Popen", gh), \
+                        self.assertRaises(evidence.Unread if not refused else evidence.BrokerRefused) as caught:
+                    evidence.GitHub().run(["api", "graphql", "-f", "query={ rateLimit { remaining } }"])
+                self.assertEqual(isinstance(caught.exception, evidence.BrokerRefused), refused)
+
+    def test_a_broker_refused_nodes_read_falls_back_and_any_other_refused_shape_propagates(self):
+        # The broker's `nodes` refusal as a BrokerRefused names NODES_REFUSED: SuiteChecks reads by commit, never
+        # exit 4. Any other refused shape is this tool's bug and leaves SuiteChecks for main()'s exit 4.
+        gh = TreeReuseGitHub(nodes=True)
+        answer, sent = gh.run, []
+
+        def refuse_nodes(args, **kwargs):
+            query = next(arg for arg in args if arg.startswith("query="))
+            sent.append(query)
+            if "nodes(ids:" in query:
+                raise excuse.BrokerRefusedRead("lane-gh call graphql manaflow-ai/cmux: refused: graphql: "
+                                               f"{excuse.NODES_REFUSED}")
+            return answer(args, **kwargs)
+
+        gh.run = refuse_nodes
+        suites = excuse.SuiteChecks(gh, REPO)
+        suites.read({"CS_20": BASE_SHA}, TreeReuseGitHub.MAC)
+        self.assertTrue(suites.rooted)
+        self.assertEqual(suites.known[("CS_20", TreeReuseGitHub.MAC)], frozenset({"failure"}))
+        self.assertEqual([("nodes(ids:" in query, "repository(owner:" in query) for query in sent],
+                         [(True, False), (False, True)])
+        gh.run = unittest.mock.Mock(side_effect=excuse.BrokerRefusedRead(
+            "lane-gh call graphql manaflow-ai/cmux: refused: graphql: field checkSuite is refused"))
+        other = excuse.SuiteChecks(gh, REPO)
+        with self.assertRaises(excuse.BrokerRefusedRead):
+            other.read({"CS_1": "0" * 40}, "x")
+        self.assertFalse(other.rooted)
+
 
 def lane_gh_broker_code():
     """The lane-gh broker's code (cmuxterm-hq tools/lane-gh-broker/lane-gh-broker) as a module, from
