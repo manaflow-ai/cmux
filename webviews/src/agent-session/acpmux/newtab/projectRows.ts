@@ -1,6 +1,11 @@
-import { parseProjectRepos, type ProjectRepo } from "../projectRepos";
+import { parseProjectRepos, type DisplayGroup, type ProjectRepo } from "../projectRepos";
 
-export type NativeProjectRow = { cwd: string; label: string; repo?: ProjectRepo };
+export type NativeProjectRow = {
+  cwd: string;
+  label: string;
+  repo?: ProjectRepo;
+  displayGroup?: DisplayGroup;
+};
 
 /// Decode the host's Rust-owned snapshot without sorting or regrouping it.
 export function parseProjectRows(value: unknown): NativeProjectRow[] | undefined {
@@ -15,6 +20,26 @@ export function parseProjectRows(value: unknown): NativeProjectRow[] | undefined
   return rows.flatMap((row): NativeProjectRow[] => {
     if (!row || typeof row.cwd !== "string" || typeof row.label !== "string") return [];
     const repo = parseProjectRepos({ [row.cwd]: row.repo })[row.cwd];
-    return [{ cwd: row.cwd, label: row.label, ...(repo ? { repo } : {}) }];
+    const display = row.displayGroup;
+    const displayGroup =
+      display &&
+      typeof display.key === "string" &&
+      typeof display.name === "string" &&
+      typeof display.lead === "string" &&
+      typeof display.mainLead === "string" &&
+      typeof display.hidden === "boolean"
+        ? ({
+            ...display,
+            github: typeof display.github === "string" ? display.github : undefined,
+          } as DisplayGroup)
+        : undefined;
+    return [
+      {
+        cwd: row.cwd,
+        label: row.label,
+        ...(repo ? { repo } : {}),
+        ...(displayGroup ? { displayGroup } : {}),
+      },
+    ];
   });
 }

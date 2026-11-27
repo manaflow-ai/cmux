@@ -77,7 +77,15 @@ export function guessProjectRepo(cwd: string): ProjectRepo | undefined {
 const GUESSED = "\u0000repo:";
 
 /// A folder the pickers offer: its path (`id`), name and, when known, its repository.
-export type RepoFolder = { id: string; label: string; repo?: ProjectRepo };
+export type DisplayGroup = {
+  key: string;
+  name: string;
+  lead: string;
+  mainLead: string;
+  github?: string;
+  hidden: boolean;
+};
+export type RepoFolder = { id: string; label: string; repo?: ProjectRepo; displayGroup?: DisplayGroup };
 
 /// One repository's folders, in the order given (newest first). `lead` is what its row picks.
 export type RepoGroup<T extends RepoFolder> = {
@@ -126,6 +134,36 @@ export function groupByRepo<T extends RepoFolder>(
   current?: string,
   leadPreference: "current" | "main" = "current",
 ): RepoGroup<T>[] {
+  // Native New Tab rows already carry Rust's opening-scoped membership and leads.
+  // This is only a projection of that snapshot; legacy callers still resolve below.
+  if (folders.some((folder) => folder.displayGroup)) {
+    const native = new Map<string, RepoGroup<T>>();
+    for (const folder of folders) {
+      const display = folder.displayGroup;
+      if (!display || display.hidden) continue;
+      let group = native.get(display.key);
+      if (!group) {
+        group = {
+          key: display.key,
+          name: display.name,
+          github: display.github,
+          lead: folder,
+          members: [],
+        };
+        native.set(display.key, group);
+      }
+      group.members.push(folder);
+      if (folder.id === (leadPreference === "main" ? display.mainLead : display.lead)) group.lead = folder;
+    }
+    return [
+      ...native.values(),
+      ...groupByRepo(
+        folders.filter((folder) => !folder.displayGroup),
+        current,
+        leadPreference,
+      ),
+    ];
+  }
   const known = folders.flatMap((folder) => (folder.repo ? [folder.repo] : []));
   // Each name's repository, or null when two repositories share it: a guess can't tell which.
   const byName = new Map<string, ProjectRepo | null>();
@@ -211,7 +249,7 @@ export function groupByRepo<T extends RepoFolder>(
 
 /// One project per repository for a picker that lists no worktrees (the New Tab hero and
 /// environment card): each group's lead, so lane checkouts and scratch folders never fill it.
-export function projectRows<T extends { cwd: string; label: string; repo?: ProjectRepo }>(
+export function projectRows<T extends { cwd: string; label: string; repo?: ProjectRepo; displayGroup?: DisplayGroup }>(
   projects: readonly T[],
   current?: string,
 ): T[] {
@@ -219,6 +257,7 @@ export function projectRows<T extends { cwd: string; label: string; repo?: Proje
     id: project.cwd,
     label: project.label,
     ...(project.repo ? { repo: project.repo } : {}),
+    displayGroup: project.displayGroup,
     project,
   }));
   return groupByRepo(folders, current).map((group) => group.lead.project);
@@ -251,7 +290,14 @@ export function chooserRows<T extends ChooserProject>(projects: readonly T[], qu
   return rows;
 }
 
-type ChooserProject = { cwd: string; label: string; repo?: ProjectRepo; peer?: string; host?: string };
+type ChooserProject = {
+  cwd: string;
+  label: string;
+  repo?: ProjectRepo;
+  displayGroup?: DisplayGroup;
+  peer?: string;
+  host?: string;
+};
 type ChooserFolder<T> = { id: string; label: string; repo?: ProjectRepo; project: T };
 type ChooserBase<T> = { local: T[]; remote: T[]; groups: RepoGroup<ChooserFolder<T>>[]; ungrouped: Set<T> };
 const NO_KEYS: ReadonlySet<string> = new Set();
@@ -270,6 +316,7 @@ function chooserBase<T extends ChooserProject>(projects: readonly T[], current: 
     id: project.cwd,
     label: project.label,
     ...(project.repo ? { repo: project.repo } : {}),
+    displayGroup: project.displayGroup,
     project,
   }));
   const groups = groupByRepo(folders, current);

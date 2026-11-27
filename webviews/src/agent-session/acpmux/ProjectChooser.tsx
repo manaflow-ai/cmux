@@ -8,7 +8,7 @@ import { Popover } from "../../ui/Popover";
 import { Combobox } from "../../ui/Combobox";
 import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import { chooserRows, type ProjectRepo } from "./projectRepos";
+import { chooserRows, type DisplayGroup, type ProjectRepo } from "./projectRepos";
 import { machineColor } from "./machineColor";
 import { emptyFolderLabel } from "./composerContextModel";
 
@@ -22,6 +22,7 @@ export type Project = {
   peer?: string;
   host?: string;
   repo?: ProjectRepo;
+  displayGroup?: DisplayGroup;
 };
 
 /// One row of the chooser: a folder, or No folder (`project` undefined).
