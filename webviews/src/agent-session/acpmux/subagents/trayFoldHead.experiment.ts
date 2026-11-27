@@ -16,7 +16,7 @@ export const trayFoldHeadLook = defineExperiment({
     line: {
       label: "One line: what runs, in plain words",
       description:
-        "One muted line, as Claude Code's: 10 subagents working, 2 background commands running. A part at 0 is left out; waiting and failed follow; with nothing running, what just finished. No marks, no time, no chevron. A click or Return opens the list of what runs (name, state, time, Stop); a click again or Esc tucks it.",
+        "One muted line on the hat's card, at the composer's row height and the chat's text size: 10 subagents working, 2 background commands running. A part at 0 is left out; waiting and failed follow; with nothing running, what just finished. No marks, no time, no chevron. A click or Return opens the list of what runs (name, state, time, Stop); a click again or Esc tucks it.",
     },
     groups: {
       label: "Groups: subagents and background, in words that shrink",
@@ -82,11 +82,7 @@ export const trayFoldHeadLook = defineExperiment({
   // unnecessary space to the point where it's just... not great" / "like claude code just has this and
   // they tuck it at the very bottom of the transcript after the latest message"). trayHeadKinds.ts
   // `trayHeadLine` writes it.
-  // Then back to the rounded two-group hat with its full header height (Leo, 2026-11-27: "as for the
-  // hat, let's just restore it and add those strict improvements. im not sure if the text is better
-  // than just the rounded hat" / on the line's open header: "this is just too thin. idk why the top
-  // was reduced in this way"). The line stays an arm for comparison.
-  defaultArm: "groups",
+  defaultArm: "line",
 });
 
 /// One of the folded header's arms.

@@ -227,7 +227,7 @@ export default agentPaneEntry({
       experiments: { "subagent-tray-fold-head": "groups" },
     },
     crowd: {
-      note: "Leo's 2026-11-27 hat, folded: the rounded two-group hat at its full height, 5 subagents · 3 tasks in background.",
+      note: "The `groups` arm with Leo's 2026-11-27 strict fixes, folded: the rounded two-group hat at its full height, 5 subagents · 3 tasks in background.",
       play: show,
       snapshot: crowd,
       experiments: { "subagent-tray-fold-head": "groups" },
@@ -248,10 +248,22 @@ export default agentPaneEntry({
       snapshot: crowd,
       experiments: { "subagent-tray-fold-head": "groups" },
     },
-    "crowd-line-before": {
-      note: "Before (cmux#56287): the one plain line with no card, its open header thinner.",
+    "crowd-line": {
+      note: "The default arm (cmux#61105): the same crowd as the one line on its card, at the composer's row height.",
       play: async (ctx) => {
         await ctx.waitFor(() => head(ctx));
+      },
+      snapshot: crowd,
+      experiments: { "subagent-tray-fold-head": "line" },
+    },
+    "crowd-line-open": {
+      note: "The default line, open: the same fixes as the groups arm (agents then commands under their counts, one ×2 line, Checks and Merge waits, Stop on the pointed-at line).",
+      play: async (ctx) => {
+        await ctx.waitFor(() => head(ctx));
+        await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__group"));
+        if (!ctx.document.querySelector('.acpmux-agent-line__count[data-count="2"]')) throw new Error("no ×2 line");
+        await ctx.hover({ selector: ".acpmux-running-tray__list .acpmux-agent-line" });
       },
       snapshot: crowd,
       experiments: { "subagent-tray-fold-head": "line" },

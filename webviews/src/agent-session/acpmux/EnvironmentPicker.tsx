@@ -28,7 +28,7 @@ import {
   savedEnvironmentLabel,
   environmentPickable,
 } from "./environments";
-import { isCloudMachineRow, refreshCloudMachines } from "./cloudMachines";
+import { isCloudMachineRow, retryCloudMachines } from "./cloudMachines";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
 import type { PickerCard } from "./machineCardModel";
@@ -231,6 +231,8 @@ export function EnvironmentPicker({
 }) {
   const lang = usePaneLanguage();
   const lastSeenStyle = lastSeenLook ?? experimentArm(cloudLastSeenLook);
+  // Retry's fresh read is out (the banner's notice reads Checking cmux Cloud…).
+  const [retrying, setRetrying] = useState(false);
   // A picked saved environment is the current row: every machine row is then a change. One that is
   // only a folder on this computer leaves This Mac the current row.
   const listedSaved = useMemo(
@@ -1468,12 +1470,19 @@ export function EnvironmentPicker({
         {lastSeenStyle === "banner" && firstKeptRow !== undefined && lastSeenWhen !== undefined && (
           <output className="acpmux-env-heading acpmux-env-last-seen-banner">
             <span className="acpmux-env-last-seen-text">
-              {t("composer.envCloudUnreachable", { when: lastSeenWhen })}
+              {retrying ? t("composer.envCloudChecking") : t("composer.envCloudUnreachable", { when: lastSeenWhen })}
             </span>
             <button
               type="button"
               className="acpmux-env-last-seen-retry ui-ghost ui-ghost-sm"
-              onClick={() => void refreshCloudMachines()}
+              disabled={retrying}
+              aria-busy={retrying || undefined}
+              onClick={() => {
+                // One fresh read (the app waits for the server, never answers the kept list again); the
+                // notice reads Checking cmux Cloud… until it lands, then goes or stays as the list says.
+                setRetrying(true);
+                void retryCloudMachines().finally(() => setRetrying(false));
+              }}
             >
               {t("composer.envCloudRetry")}
             </button>
