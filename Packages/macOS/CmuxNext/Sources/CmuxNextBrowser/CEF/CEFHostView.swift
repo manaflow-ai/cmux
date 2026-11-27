@@ -409,6 +409,11 @@ final class CEFHostView: NSView {
 /// window.
 final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFollowing {
     weak var tab: CEFTab?
+    /// AppKit can invoke `resizeSubviews(withOldSize:)` and then `layout()` for the same pane size.
+    /// The resize callback already lays out every child, so the immediately following layout pass
+    /// would repeat the Chromium geometry and occlusion work.
+    private var layoutAfterResizePending = false
+    private(set) var layoutContentInvocationCount = 0
     /// The page's size through a person's resize drag (`paneResizeGestureDidChange`) or a key resize's hold
     /// (``holdPage(for:)``); nil otherwise.
     private(set) var heldPageSize: CGSize?
@@ -511,17 +516,23 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
 
     override func layout() {
         super.layout()
+        if layoutAfterResizePending {
+            layoutAfterResizePending = false
+            return
+        }
         layoutContent()
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {
         super.resizeSubviews(withOldSize: oldSize)
         layoutContent()
+        layoutAfterResizePending = true
     }
 
     /// The page (the pane's shared `CEFHostView` and the snapshot) takes
     /// the page frame; a docked DevTools and its divider take the rest.
     func layoutContent() {
+        layoutContentInvocationCount += 1
         // DevTools can open, close or change dock while the drag is already active.
         refreshSyncedDrag()
         // DevTools docked, a side panel or a device fit came up mid-drag: they lay out as before.
