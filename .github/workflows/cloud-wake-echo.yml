@@ -3,6 +3,7 @@ name: Cloud wake-to-first-echo (staging)
 # hq#21300: one 2 vCPU / 4 GiB staging machine paused and woken by the platform 50 times; each wake timed to the first
 # echo of a typed character (scripts/cmux-next/cloud-wake-echo.ts, run as cloud-journey.ts --wake-echo 50).
 # Runs on a feat-cmux-next pull request whose body carries `wake-echo: run` alone on its line. Same-repo PRs only.
+# NOW reads the newest run's artifact as cloud.resume_to_echo_p95_s, with run id, age, n and phases_p95_s beside it.
 # Secrets: the staging agent test account in cmux-next-vm-image-dev, as cloud-resume-matrix.yml.
 
 on:
