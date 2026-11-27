@@ -1341,10 +1341,16 @@ jobs:
   # the feat-cmux-next push's coalesced run (coalesce is skipped on a pull request; `!cancelled()` runs this anyway).
   # A draft's run already recorded its pass at the head, so `ready_for_review` does not run it again. Pure Python
   # on Linux, seconds of work.
+  # Runs where its verdict can change: a pull request whose diff reaches cmux-next-ios/, the check, its test or this
+  # workflow (workflow-start-lint's `ios_placeholder`, read off the depth-2 checkout it already takes). It ran on every
+  # pull request event, 27 s each, about 6,000 runs a day (ci_minutes 2026-11-27); a skipped check run is a pass for
+  # land-judge (REQUIRED_PASSING) and for GitHub's required checks, so its name still reports on every head. A push,
+  # an unread diff (the lint failed before its route step) and vars.IOS_PLACEHOLDER_BOUNDS_EVERY_HEAD == '1' run it
+  # as before. tests/test_cmux_next_guards_route.py.
   ios-placeholder-bounds:
-    needs: coalesce
+    needs: [coalesce, workflow-start-lint]
     name: ios-placeholder-bounds
-    if: ${{ github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && (needs.workflow-start-lint.outputs.ios_placeholder != 'false' || vars.IOS_PLACEHOLDER_BOUNDS_EVERY_HEAD == '1') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -1422,9 +1428,15 @@ jobs:
   # (scripts/ci/workflow_start_lint.py). It never waits on fast-check-route: a feat pull request without full-ci skips
   # that router, and a lint steered by its outputs would skip exactly the pull requests it guards (cmux#56527's first
   # head). A change that touches no workflow and not the lint ends after the checkout, at its own first step.
+  #
+  # A label other than full-ci or ready-to-land changes no file: that event's run judged a head the opened or
+  # synchronize run already judged, so it skips, as the jobs judging the head do (the label guard).
+  # Its route step also says whether the diff reaches ios-placeholder-bounds' inputs (outputs.ios_placeholder).
   workflow-start-lint:
     name: workflow start lint (a change that stops a workflow starting)
-    if: ${{ github.event.action != 'ready_for_review' }}
+    if: ${{ github.event.action != 'ready_for_review' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    outputs:
+      ios_placeholder: ${{ steps.touched.outputs.ios_placeholder }}
     # A fork pull request runs on a hosted runner. The local workflow lint is
     # a control-plane check, so own-branch runs use the 2-vCPU pool rather than
     # occupying a larger cmux-linux host.
@@ -1474,7 +1486,19 @@ jobs:
       - name: Does this change touch a workflow or the lint
         id: touched
         timeout-minutes: 1
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          # ios-placeholder-bounds' inputs (scripts/ci/job-inputs-always.json): a pull request whose diff misses them
+          # skips that job; a push, or a diff git cannot read, runs it.
+          if [[ "$EVENT_NAME" != pull_request ]] || ! changed=$(git diff --name-only HEAD^1 HEAD); then
+            echo "ios_placeholder=true" >> "$GITHUB_OUTPUT"
+          elif grep -qE '^(cmux-next-ios/|scripts/ci/ios_placeholder_bounds\.py$|tests/test_ios_placeholder_bounds\.py$|\.github/workflows/cmux-next-guards\.yml$)' <<<"$changed"; then
+            echo "ios_placeholder=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no iOS app, placeholder check or guards workflow file changed: ios-placeholder-bounds skips"
+            echo "ios_placeholder=false" >> "$GITHUB_OUTPUT"
+          fi
           if git diff --name-only HEAD^1 HEAD | grep -qE '^(\.github/|scripts/ci/install-actionlint\.sh$|scripts/ci/workflow_start_lint\.py$)'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
