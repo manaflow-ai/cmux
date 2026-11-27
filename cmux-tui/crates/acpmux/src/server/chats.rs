@@ -123,6 +123,9 @@ pub(super) async fn route(
     let params = super::pairing::gate(conn, m, params)?;
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
     let params = super::carrier::gate(hub, conn, m, params)?;
+    if m == crate::rpc::method::MUX_SHUTDOWN {
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: routed");
+    }
     // The app's and webviews' own spans of one user action, into this daemon's Perfetto trace
     // (`perf_trace.rs`): no store, no peer.
     if m == crate::perf_trace::METHOD_SPANS {
@@ -134,6 +137,9 @@ pub(super) async fn route(
         );
     }
     hub.prepare_store_request(m, &params).await;
+    if m == crate::rpc::method::MUX_SHUTDOWN {
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store gate passed");
+    }
     // The owner's phone a peer daemon vouches for on this request, before any rule reads it.
     super::remote_guard::note_vouched_phone(hub, conn, &params);
     if m == crate::rpc::method::MUX_OWNER_PHONE_CHANGED {

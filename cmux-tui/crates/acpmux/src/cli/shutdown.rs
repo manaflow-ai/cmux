@@ -32,7 +32,28 @@ pub(crate) async fn run(
     // `--keep-agents` is a compatibility no-op; only the explicit restart
     // command or --restart updater flag requests service-restart signaling.
     let _ = keep_agents;
-    run_on(&*TokioClock::new(), end_agents, json_out, false, restart).await
+    let Some(was) = run_on(&*TokioClock::new(), end_agents, json_out, false, restart).await? else {
+        return Ok(());
+    };
+    // With `acpmux.v2` `start` a restart never exits: the installed build runs in its place.
+    let Some(status) = back_from_handoff(was).await? else {
+        // A stop signal during the restart, or an exec that failed: it exited after all.
+        if json_out {
+            print_json(&json!({"stopped": true, "restarted": false, "handoff": false}));
+        } else {
+            println!("stopped; the restart in place gave way to an exit");
+        }
+        return Ok(());
+    };
+    let pid = status.get("pid").and_then(Value::as_u64).unwrap_or(0);
+    if json_out {
+        print_json(&json!({"stopped": false, "restarted": true, "handoff": true, "pid": pid}));
+    } else if end_agents {
+        println!("restarted in place; daemon pid {pid}");
+    } else {
+        println!("restarted in place; daemon pid {pid}, its agent hosts untouched");
+    }
+    Ok(())
 }
 
 /// Stop and start the daemon while keeping hosted agents for handoff.
@@ -49,9 +70,19 @@ pub(crate) async fn restart(json_out: bool) -> Result<()> {
     let choice = crate::daemon::start_exe::current(&crate::config::home())?;
     let mut status = Value::Null;
     for attempt in 1..=RESTART_ATTEMPTS {
-        run_on(&*TokioClock::new(), false, json_out, true, true).await?;
-        let client = crate::daemon::connect(true).await?;
-        status = client.request(method::MUX_STATUS, json!({})).await?;
+        let handed_off = run_on(&*TokioClock::new(), false, json_out, true, true).await?;
+        let back = match handed_off {
+            Some(was) => back_from_handoff(was).await.ok().flatten(),
+            None => None,
+        };
+        status = match back {
+            Some(status) => status,
+            // The daemon exited (also where its exec in place failed): start the next one.
+            None => {
+                let client = crate::daemon::connect(true).await?;
+                client.request(method::MUX_STATUS, json!({})).await?
+            }
+        };
         let Some(stale) = stale_winner(&choice, &status) else { break };
         // Another client of an older build started its own binary between the old daemon's
         // exit and this start (air-blue, 2026-11-22). Restart again; say so either way.
@@ -86,6 +117,39 @@ pub(crate) async fn restart(json_out: bool) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// The daemon's status once its exec in place serves again (`daemon/handoff.rs`): the same pid,
+/// whose `handoffs` grew past `was` (the count its shutdown answer named). The old image may
+/// still accept for a moment and then end the connection, so it dials again until the new one
+/// answers, within the budget a stop has to exit ([`crate::daemon::EXIT_BUDGET`]). None when the
+/// daemon exited instead (a stop signal during the restart, or an exec that failed): only an exit
+/// removes the socket, which a restart in place keeps throughout.
+async fn back_from_handoff(was: u64) -> Result<Option<Value>> {
+    // timeout: the same bound as the wait for an old daemon's exit; past it the restart failed.
+    let deadline = tokio::time::Instant::now() + crate::daemon::EXIT_BUDGET;
+    loop {
+        // A dial that waits in the kept socket's backlog is answered once the new image serves.
+        let dial = async {
+            let client = connect(false).await.ok()?;
+            client.request(method::MUX_STATUS, json!({})).await.ok()
+        };
+        if let Ok(Some(status)) = tokio::time::timeout_at(deadline, dial).await
+            && status.get("handoffs").and_then(Value::as_u64).is_some_and(|n| n > was)
+        {
+            return Ok(Some(status));
+        }
+        if !crate::config::socket_path().exists() {
+            return Ok(None);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(anyhow!(
+                "the daemon did not serve again within {:?} of its restart; inspect `daemon status`",
+                crate::daemon::EXIT_BUDGET
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 /// How many times `restart` stops and starts the daemon when an older build keeps winning.
@@ -167,13 +231,16 @@ fn cli_reason(restart: bool, end_agents: bool) -> String {
     }
 }
 
+/// Stop the daemon and wait for its exit. Some when it answered with `handoff` instead: a
+/// restart that execs in place, which never exits (`daemon/handoff.rs`); nothing is waited for
+/// or swept then. The value is the daemon's `handoffs` before this one.
 async fn run_on(
     clock: &dyn Clock,
     end_agents: bool,
     json_out: bool,
     quiet: bool,
     restart: bool,
-) -> Result<()> {
+) -> Result<Option<u64>> {
     let keep_agents = !end_agents;
     let hosts = agent_host::hosts_dir();
     let before = sweep::running_hosts(&hosts).len();
@@ -192,6 +259,21 @@ async fn run_on(
         && e.to_string().contains("refused to stop the daemon")
     {
         return Err(anyhow!("{e}"));
+    }
+    // A restart whose installed build failed its check: the daemon serves on, unchanged.
+    if let Err(e) = &answer
+        && e.downcast_ref::<crate::client::DaemonError>().is_some_and(|e| {
+            e.0.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
+                == Some("restart.handoff_check_failed")
+        })
+    {
+        return Err(anyhow!("{e}; the daemon is still running"));
+    }
+    // An exec in place: the same pid serves again, its agents and hosts untouched.
+    if let Ok(a) = &answer
+        && a.get("handoff").and_then(Value::as_bool) == Some(true)
+    {
+        return Ok(Some(a.get("handoffs").and_then(Value::as_u64).unwrap_or(0)));
     }
     drop(client);
     // The daemon holds its lock until it exits, so a `daemon start` right
@@ -220,7 +302,7 @@ async fn run_on(
     }
     let ended = before.saturating_sub(kept.len()).max(after_exit);
     if quiet {
-        return Ok(());
+        return Ok(None);
     }
     if json_out {
         print_json(&json!({
@@ -244,5 +326,5 @@ async fn run_on(
         }
         println!("{line}");
     }
-    Ok(())
+    Ok(None)
 }

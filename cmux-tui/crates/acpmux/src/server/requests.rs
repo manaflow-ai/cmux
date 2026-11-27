@@ -4409,6 +4409,7 @@ async fn dispatch_request_with_identity(
         // A chat's older turns, read from its Claude Code transcript (`hub/native_history.rs`).
         method::MUX_NATIVE_HISTORY => crate::hub::native_history::handle(hub, &params).await,
         method::MUX_SHUTDOWN => {
+            tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: handler");
             // Stopping the daemon ends what runs at the VM boundary too: the owner's call only
             // (`hub/vm_boundary.rs`).
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
@@ -4460,6 +4461,28 @@ async fn dispatch_request_with_identity(
                 reason = %shutdown_reason(&params),
                 "a client asked this daemon to stop"
             );
+            // With `acpmux.v2` `start`, a restart execs the installed build in place
+            // (`daemon/handoff.rs`). Its check runs before anything changes: a failed one is the
+            // answer, and the daemon serves on.
+            let restart = params.get("restart").and_then(Value::as_bool) == Some(true);
+            let handoff = if restart {
+                tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: prepare");
+                // Boxed: the dispatch future stays its size for every other request.
+                Box::pin(crate::daemon::prepare_handoff(&shutdown_reason(&params))).await
+            } else {
+                None
+            };
+            if let Some(Err(why)) = &handoff {
+                tracing::warn!("restart refused, the daemon serves on: {why}");
+                return Err(RpcError::new(
+                    -32000,
+                    format!(
+                        "the restart did not start: the installed build failed its check: {why}"
+                    ),
+                )
+                .with_data(json!({"reason": "restart.handoff_check_failed"})));
+            }
+            let checked = handoff.is_some();
             // A take-over start's ask for this daemon's listeners (`daemon/listener_handover.rs`):
             // from the unix socket only, to a side socket in this home that the asking process
             // listens on. Sent before the stop begins; a failure only means it binds as before.
@@ -4505,7 +4528,7 @@ async fn dispatch_request_with_identity(
             let handed: Vec<&'static str> = Vec::new();
             crate::daemon::supervision::stopping(crate::daemon::supervision::shutdown_cause(
                 &shutdown_reason(&params),
-                params.get("restart").and_then(Value::as_bool) == Some(true),
+                restart,
             ));
             // `endAgents: true` (the app's Quit Everything) ends agents that
             // run under agent hosts; otherwise they keep running for the next
@@ -4524,10 +4547,14 @@ async fn dispatch_request_with_identity(
             if end_agents {
                 hub.end_agents_at_shutdown(keep.clone())?;
             }
-            if params.get("restart").and_then(Value::as_bool) == Some(true) {
+            if restart {
                 hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
             }
             hub.stop_idle_reaper();
+            // Committed only here, with no await before the stop is woken: a request that failed
+            // above leaves nothing armed for a later stop. Listeners already handed to a
+            // take-over start are that process's to serve: this stop then does not exec in place.
+            let handoff = checked && handed.is_empty() && crate::daemon::commit_handoff();
             hub.shutdown.notify_waiters();
             hub.shutdown.notify_one();
             let kept = if end_agents {
@@ -4535,11 +4562,23 @@ async fn dispatch_request_with_identity(
             } else {
                 0
             };
-            Ok(json!({
-                "endAgents": end_agents,
-                "keptSessions": kept,
-                "listenersHanded": handed,
-            }))
+            // `handoff`: this stop execs in place; the same pid answers again, with a `handoffs`
+            // above this one in its status (`cli/shutdown.rs`).
+            if handoff {
+                Ok(json!({
+                    "endAgents": end_agents,
+                    "keptSessions": kept,
+                    "handoff": true,
+                    "handoffs": crate::daemon::handoffs(),
+                    "listenersHanded": handed,
+                }))
+            } else {
+                Ok(json!({
+                    "endAgents": end_agents,
+                    "keptSessions": kept,
+                    "listenersHanded": handed,
+                }))
+            }
         }
         method::MUX_HANDOFF_PREPARE => {
             heap(|| hub.handoff_prepare(&params, conn.origin.web_class())).await

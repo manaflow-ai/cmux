@@ -320,22 +320,13 @@ fn successor_output(log: &Path) -> (cmux_process::Stdio, cmux_process::Stdio) {
 /// This daemon's arguments (after its executable: `daemon run ...`, or `acp daemon run ...` as
 /// `cmux-tui`) for its successor, with `--take-over` right after `run`. Its fds are not the
 /// successor's, so `--ready-fd` and `--person-key-fd` stay out (the app that holds the person key
-/// gives it again when it checks the daemon it started, `hub/person.rs`).
+/// gives it again when it checks the daemon it started, `hub/person.rs`), and so do the flags of
+/// an earlier restart's exec in place (`--handoff-*`, `daemon/handoff.rs`).
 pub(super) fn handover_args(args: &[String]) -> Vec<String> {
-    let run = args.iter().position(|a| a == "run").map_or(0, |i| i + 1);
+    let (run, rest) = super::handoff::split_run(args);
     let mut out: Vec<String> = args.iter().take(run).cloned().collect();
     out.push("--take-over".into());
-    let mut it = args.iter().skip(run);
-    while let Some(arg) = it.next() {
-        match arg.as_str() {
-            "--ready-fd" | "--person-key-fd" => {
-                it.next();
-            }
-            "--take-over" => {}
-            a if a.starts_with("--ready-fd=") || a.starts_with("--person-key-fd=") => {}
-            _ => out.push(arg.clone()),
-        }
-    }
+    out.extend(rest);
     out
 }
 
