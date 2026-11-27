@@ -65,6 +65,9 @@ def acpmux_evidence(app, tag, out, label):
     r.save_redacted(out, f"acpmux-{label}.txt", "\n".join(parts), 3000)
 
 
+TEST_AGENT = "parity-agent"
+
+
 def bundle_of(app):
     return plistlib.load(open(os.path.join(app, "Contents/Info.plist"), "rb")).get("CFBundleIdentifier", "")
 
@@ -80,6 +83,23 @@ def acpmux_home_of(bundle):
         if os.path.isfile(os.path.join(d, "machine-credential.json")):
             return d
     return None
+
+
+def add_test_agent(app):
+    """B's chat needs an agent. A person's Mac has theirs (discovery finds claude or codex on PATH); this
+    runner has none, so B's daemon answered every start with "no harnesses configured" (run 45924430036,
+    3 of 3). Gives B's acpmux home acpmux's own test agent (tests/fake_agent.py, as readiness-soak.py and
+    update-e2e.py use) as its default harness, merged into any config.json there, before B starts."""
+    bundle = bundle_of(app)
+    home = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".acpmux", "builds", bundle)
+    os.makedirs(home, mode=0o700, exist_ok=True)
+    path = os.path.join(home, "config.json")
+    config = json.load(open(path)) if os.path.isfile(path) else {}
+    agent = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cmux-tui/crates/acpmux/tests/fake_agent.py"))
+    config.setdefault("harnesses", {})[TEST_AGENT] = {"argv": [sys.executable, agent]}
+    config.setdefault("defaultHarness", TEST_AGENT)
+    json.dump(config, open(path, "w"))
+    return path
 
 
 def launch(app, label, work, out, account):
@@ -134,6 +154,7 @@ def main():
         t0 = time.monotonic()
         sa, sock_a, env_a, tag_a = launch(a.app_a, "a", a.work, a.out, account)
         streams.append(sa)
+        print("B test agent:", add_test_agent(a.app_b), flush=True)
         sb, sock_b, env_b, tag_b = launch(a.app_b, "b", a.work, a.out, account)
         streams.append(sb)
         cli = os.path.join(a.app_a, "Contents/Resources/bin/cmux")
