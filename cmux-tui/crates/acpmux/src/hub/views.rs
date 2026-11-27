@@ -389,6 +389,7 @@ pub fn decide(summary: &mut Value) {
     summary.set("indicator", indicator);
     let lane = lane(summary);
     summary.set("lane", lane);
+    super::session_state::set(summary, crate::store::now_ms());
 }
 
 /// Set the summary's `composerStatus` from its own fields (`protocol/composer_status.rs`): a
