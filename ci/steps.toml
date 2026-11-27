@@ -162,6 +162,9 @@ export GITHUB_PATH="$CI_TOOLS/zig-path" GITHUB_ENV="$CI_TOOLS/zig-env"
 : > "$GITHUB_PATH"
 : > "$GITHUB_ENV"
 # Job-local, never sudo: a root-owned install in $CI_TOOLS failed the job at cleanup after every step passed.
+# A machine that keeps RUNNER_TOOL_CACHE between jobs (a persistent runner, a build fleet pool VM whose image holds
+# it) keeps the verified tarball there, so its next job checks the sha256 and unpacks, with no download.
+export ZIG_TARBALL_CACHE_DIR="${ZIG_TARBALL_CACHE_DIR:-${RUNNER_TOOL_CACHE:+$RUNNER_TOOL_CACHE/zig}}"
 GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 RUNNER_TEMP="$CI_TOOLS" ./scripts/install-zig-ci.sh
 mkdir -p "$CI_TOOLS/bin"
 zig_bin="$(sed -n 's/^CMUX_ZIG=//p' "$CI_TOOLS/zig-env" | tail -n 1)"
@@ -1333,7 +1336,7 @@ exit "$status"
 job = "linux"
 timeout = 300
 title = "Tooling tests 2 (fast gates, ratchets and test registries)"
-about = "cmux-next-guards.yml tooling-tests' steps tt-fast-gates to tt-swift-test-coverage-tests, those the change reaches"
+about = "cmux-next-guards.yml tooling-tests' steps tt-fast-gates to tt-swift-cloud-http-tests, those the change reaches"
 inputs = ["**"]
 run = '''
 # Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
@@ -1368,6 +1371,7 @@ if want tt-pr-lane-coverage; then python3 tests/test_pr_lane_coverage.py || stat
 if want tt-test-registry; then python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" || status=1; fi
 if want tt-swift-test-coverage; then python3 -I scripts/ci/swift_test_coverage.py --base "$(git rev-parse HEAD^1)" || status=1; fi
 if want tt-swift-test-coverage-tests; then python3 -I tests/test_swift_test_coverage.py || status=1; fi
+if want tt-swift-cloud-http-tests; then python3 -I tests/test_swift_cloud_http.py || status=1; fi
 exit "$status"
 '''
 
@@ -1449,7 +1453,7 @@ exit "$status"
 job = "linux"
 timeout = 300
 title = "Tooling tests 5 (measure, checkup, packaging and web routing scripts)"
-about = "cmux-next-guards.yml tooling-tests' steps tt-macho-candidates to tt-tip-test-compile, those the change reaches"
+about = "cmux-next-guards.yml tooling-tests' steps tt-macho-candidates to tt-ci-step-table, those the change reaches"
 inputs = ["**"]
 run = '''
 # Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
@@ -1488,6 +1492,7 @@ if want tt-install-zig; then python3 tests/test_install_zig_ci_reviewed_version.
 if want tt-normalize-pbxproj; then python3 tests/test_normalize_pbxproj.py || status=1; fi
 if want tt-web-validation; then python3 tests/test_web_validation.py || status=1; fi
 if want tt-tip-test-compile; then python3 tests/test_ci_tip_test_compile.py || status=1; fi
+if want tt-ci-step-table; then python3 tests/test_ci_step_table.py || status=1; fi
 exit "$status"
 '''
 
@@ -2150,6 +2155,9 @@ inputs = [
   "release-notes/next/highlights/*.md",
   "web/data/**",
   "Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
+  # The relay's params rule (web_subareas.py REACT_EXACT, cmux#46563): the contract test checks the page against it.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
   "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**",
   "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/**",
   "scripts/build-webviews-app.sh",
@@ -2229,6 +2237,10 @@ title = "Chat flow layout-shift budget"
 about = "the chat's send, thinking, compaction, steer-during-compaction, background-task and reload flows held to a layout-shift budget (test/chat-flow-shift-budget-browser.test.ts)"
 needs = ["bun", "node"]
 inputs = [
+  # web_subareas.py counts the react-apps-check fleet scripts and the pane's policy in chat_flow too (REACT_EXACT).
+  "scripts/ci/react-apps-check-fleet.sh",
+  "scripts/ci/react_apps_fleet.py",
+  "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
   "webviews/**",
   "Resources/markdown-viewer/**",
   "config/vite-plus/**",
@@ -2236,6 +2248,9 @@ inputs = [
   "release-notes/next/highlights/*.md",
   "web/data/**",
   "Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
+  # The relay's params rule (web_subareas.py REACT_EXACT, cmux#46563): the contract test checks the page against it.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
   "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**",
   "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/**",
   "scripts/build-webviews-app.sh",
