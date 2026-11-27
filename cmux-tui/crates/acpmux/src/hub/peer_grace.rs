@@ -86,33 +86,21 @@ impl Hub {
         // belongs to the main daemon, including before its waiter registers.
         let mut stop = self.peer_notices_stop.subscribe();
         let grace = Arc::new(Grace::default());
-        let mut order = Order::default();
         let mut shards = Vec::with_capacity(NOTICE_SHARDS);
         let mut workers = Vec::with_capacity(NOTICE_SHARDS);
         for _ in 0..NOTICE_SHARDS {
             let (tx, shard_rx) = mpsc::channel(SHARD_QUEUE);
             shards.push(tx);
-            let shard = Self::peer_notice_shard(
-                Arc::downgrade(&self),
-                shard_rx,
-                grace.clone(),
-                self.peer_notices_stop.subscribe(),
-            );
-            // Each shard on its own blocking-pool thread, driven with the runtime's handle (what
-            // it spawns still runs on the workers): a shard waits on the rows writer lock, a std
-            // mutex every peer's shard takes, and on a worker that wait parked the worker. Ten
-            // hosts' shards in a 2000-session fan-out round held up to ten of the daemon's
-            // workers there while the client's 2000 prompts waited to be read
-            // (sessions-2000-attached: fan-out p95 418 ms at 2000, 76 ms at 50).
-            let runtime = tokio::runtime::Handle::current();
-            workers.push(crate::supervise::once("peer notice shard", &self.fatal, async move {
-                let run = tokio::task::spawn_blocking(move || runtime.block_on(shard));
-                if let Err(e) = run.await
-                    && e.is_panic()
-                {
-                    std::panic::resume_unwind(e.into_panic());
-                }
-            }));
+            workers.push(crate::supervise::once(
+                "peer notice shard",
+                &self.fatal,
+                Self::peer_notice_shard(
+                    Arc::downgrade(&self),
+                    shard_rx,
+                    grace.clone(),
+                    self.peer_notices_stop.subscribe(),
+                ),
+            ));
         }
         // When the put-off cache saves are due: armed by a save put off (`peer_cache_kick`),
         // cleared once nothing is dirty. No timer while no cache waits for a save: an idle daemon
@@ -159,16 +147,10 @@ impl Hub {
                         keys
                     };
                     for (peer, generation) in expired {
-                        // A deadline is about the whole peer: after every notice of it handed
-                        // out, before any after it (`Order`).
-                        let (index, taken) = tokio::select! {
-                            admitted = order.admit(&peer, None) => admitted,
-                            _ = stop.changed() => break,
-                        };
-                        // The index is below NOTICE_SHARDS, the shards' count: always Some.
-                        let Some(shard) = shards.get(index) else { continue };
+                        // notice_shard is below NOTICE_SHARDS, the shards' count: always Some.
+                        let Some(shard) = shards.get(notice_shard(&peer)) else { continue };
                         tokio::select! {
-                            sent = shard.send((Work::Expire(peer, generation), taken)) => if sent.is_err() { break },
+                            sent = shard.send(Work::Expire(peer, generation)) => if sent.is_err() { break },
                             _ = stop.changed() => break,
                         }
                     }
@@ -201,19 +183,11 @@ impl Hub {
                     continue;
                 }
             };
-            let Work::Notice(peer, _, notice) = &work else { continue };
-            // One chat's notices go to its own shard, so one host's fan-out burst runs on every
-            // shard, not on one: at 2000 sessions on ten hosts a round brought each host's
-            // shard about 9000 notices, 70 us each, and its full queue held the link reader
-            // (sessions-2000-attached). A notice about the whole peer waits for the rest.
-            let (index, taken) = tokio::select! {
-                admitted = order.admit(peer, notice_session(notice)) => admitted,
-                _ = stop.changed() => break,
-            };
-            let Some(shard) = shards.get(index) else { continue };
+            let Work::Notice(peer, ..) = &work else { continue };
+            let Some(shard) = shards.get(notice_shard(peer)) else { continue };
             // A full shard holds only the notices behind it here; the other shards keep going.
             tokio::select! {
-                sent = shard.send((work, taken)) => if sent.is_err() { break },
+                sent = shard.send(work) => if sent.is_err() { break },
                 _ = stop.changed() => break,
             }
         }
@@ -258,7 +232,7 @@ impl Hub {
     /// One shard's worker: its peers' notices and row deadlines, in order.
     async fn peer_notice_shard(
         hub: std::sync::Weak<Self>,
-        mut rx: mpsc::Receiver<(Work, Taken)>,
+        mut rx: mpsc::Receiver<Work>,
         grace: Arc<Grace>,
         mut stop: tokio::sync::watch::Receiver<bool>,
     ) {
@@ -270,9 +244,7 @@ impl Hub {
                 work = rx.recv() => work,
                 _ = stop.changed() => break,
             };
-            // `_taken` goes at the end of this item, applied or skipped: then a notice about the
-            // whole peer, waiting in the loop for this one, goes.
-            let Some((work, _taken)) = work else { break };
+            let Some(work) = work else { break };
             // A strong hub only while one item is applied: between items a shard holds none, as
             // the one loop held only its own (the retention test counts the hub's holders).
             let Some(this) = hub.upgrade() else { break };
@@ -397,97 +369,6 @@ fn notice_shard(peer: &str) -> usize {
     usize::try_from(hash % NOTICE_SHARDS as u64).unwrap_or(0)
 }
 
-/// A chat's shard: its peer's and its id's hash, fixed as `notice_shard`'s.
-fn session_shard(peer: &str, session: &str) -> usize {
-    use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
-    let hash = BuildHasherDefault::<DefaultHasher>::default().hash_one((peer, session));
-    usize::try_from(hash % NOTICE_SHARDS as u64).unwrap_or(0)
-}
-
-/// The peer's own id of the one chat a notice is about, when it is about one chat only: its
-/// changed row, or a record, ask or accept of it. A channel's bytes keep their peer's order (a
-/// channel is not a chat), and so does every notice about the whole peer (a link's state, a
-/// list, a patch, a lag).
-fn notice_session(notice: &PeerNotice) -> Option<&str> {
-    match notice {
-        PeerNotice::SessionChanged { session, .. } => session.get("sessionId")?.as_str(),
-        PeerNotice::Notification { method, params, .. }
-            if !crate::server::channels::from_peer_method(method) =>
-        {
-            params.get("sessionId")?.as_str()
-        }
-        _ => None,
-    }
-}
-
-/// How the loop keeps each peer's notices in order across the shards: one chat's notices in
-/// arrival order on that chat's shard, and a notice about the whole peer (`notice_session` None,
-/// or a row deadline) after every one of the peer's notices handed out before it and before any
-/// after it, on the peer's shard. Such a notice is rare (a link's state, a list); the loop waits
-/// for the shards to apply what came before it.
-#[derive(Default)]
-struct Order {
-    peers: HashMap<String, PeerOrder>,
-}
-
-#[derive(Default)]
-struct PeerOrder {
-    flight: Arc<Flight>,
-    /// The last notice handed out was about the whole peer: the next one waits for it.
-    after_whole: bool,
-}
-
-/// A peer's notices handed to a shard and not yet applied.
-#[derive(Default)]
-struct Flight {
-    open: std::sync::atomic::AtomicUsize,
-    idle: Notify,
-}
-
-/// One handed-out notice's part of its peer's `Flight`, given back when the shard is done.
-struct Taken(Arc<Flight>);
-
-impl Drop for Taken {
-    fn drop(&mut self) {
-        if self.0.open.fetch_sub(1, Ordering::AcqRel) == 1 {
-            self.0.idle.notify_waiters();
-        }
-    }
-}
-
-impl Flight {
-    async fn idle(&self) {
-        loop {
-            let idle = self.idle.notified();
-            tokio::pin!(idle);
-            idle.as_mut().enable();
-            if self.open.load(Ordering::Acquire) == 0 {
-                return;
-            }
-            idle.await;
-        }
-    }
-}
-
-impl Order {
-    /// The shard of `peer`'s next notice (about `session`, or the whole peer when None), once
-    /// its order lets it go. Cancel-safe: nothing changes before its one wait ends.
-    async fn admit(&mut self, peer: &str, session: Option<&str>) -> (usize, Taken) {
-        let entry = self.peers.entry(peer.to_owned()).or_default();
-        let whole = session.is_none();
-        if whole || entry.after_whole {
-            entry.flight.idle().await;
-        }
-        entry.after_whole = whole;
-        entry.flight.open.fetch_add(1, Ordering::AcqRel);
-        let index = match session {
-            Some(session) => session_shard(peer, session),
-            None => notice_shard(peer),
-        };
-        (index, Taken(entry.flight.clone()))
-    }
-}
-
 enum Work {
     Notice(String, u64, PeerNotice),
     /// The timer found this instance's row deadline due (`Grace::firing`).
@@ -514,7 +395,3 @@ impl Grace {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
-
-#[cfg(test)]
-#[path = "peer_grace_order_tests.rs"]
-mod order_tests;
