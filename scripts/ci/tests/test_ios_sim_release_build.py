@@ -136,6 +136,13 @@ class ReleaseBuildTests(unittest.TestCase):
         cache.write_text(CACHE_TOOL)
         (self.script.parent / "lib").mkdir()
         shutil.copyfile(SCRIPT.parent / "lib/ios-sim-reduce-motion.sh", self.script.parent / "lib/ios-sim-reduce-motion.sh")
+        # The pinned XcodeGen fetch (fetch-xcodegen.sh, #58050) as a double: the fixture's xcodegen, no download.
+        (self.script.parent / "fetch-xcodegen.sh").write_text(
+            'mkdir -p "$3/xcodegen/bin"\n'
+            "printf '#!/usr/bin/env bash\\nfixture_tool xcodegen \"$@\"\\n' >\"$3/xcodegen/bin/xcodegen\"\n"
+            'chmod +x "$3/xcodegen/bin/xcodegen"\n'
+            'echo "$3/xcodegen/bin/xcodegen"\n'
+        )
         (self.script.parent / "ios_sim_runtime.py").write_text(
             "import json, sys\njson.load(sys.stdin)\nprint('fixture-runtime fixture-device')\n"
         )
