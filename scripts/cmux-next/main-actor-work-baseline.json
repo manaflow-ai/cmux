@@ -190,9 +190,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/RemoteAcpmuxWire.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/UIPointerNativeElement.swift": {
-  "string scan inside a loop": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentActivity/AgentActivityPageProvider.swift": {
   "JSON / property-list encode": 1
  },
@@ -633,9 +630,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/BackdropImagesPageProvider.swift": {
   "synchronous file write or file-system change": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageInputReadiness.swift": {
-  "JSON / property-list decode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+Chromium.swift": {
   "JSON / property-list encode": 1
  },
@@ -716,6 +710,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalPasteboard+Image.swift": {
   "synchronous file write or file-system change": 3
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSession+CommentAnchor.swift": {
+  "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Launch/AppCopyGuide.swift": {
   "process launch": 1
