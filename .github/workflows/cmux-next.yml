@@ -1586,6 +1586,8 @@ jobs:
           JOB_TIMEOUT_MINUTES: 20
           # Why: 2026-11-24-checks-2.md
           AFFECTED_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+          # Why: check-exemption-ratchet.py reads an `exemption-raise:` line from it
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: bash -e scripts/ci/cmux-next-steps/start-slow-checks.sh
 
       # Why: 2026-11-24-checks-31.md, note-134
