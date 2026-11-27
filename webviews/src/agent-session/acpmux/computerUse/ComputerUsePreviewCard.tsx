@@ -25,7 +25,7 @@
 // same window shows as a second telepointer (PersonPointerArt): a neutral arrow labelled "You",
 // hidden while it is outside the window and dimmed once it stays still. Both are metadata from the
 // host, drawn over the frame; neither is in the frame's pixels.
-import { useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { useState, type CSSProperties, useRef, type PointerEvent } from "react";
 import { useT } from "../i18n";
 import { Check, Close, Expand } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
@@ -36,16 +36,16 @@ import { cursorStyle, personPointerStyle } from "./cursorArtModel";
 import { usePaneView } from "../paneViewStore";
 import {
   closeComputerUsePreview,
+  computerUsePreviewTitle,
+  type ComputerUsePreview,
   COMPUTER_USE_PREVIEW_DRAG_SLOP,
   computerUsePreviewDocked,
   computerUsePreviewPlace,
-  computerUsePreviewTitle,
   dragFraction,
   moveComputerUsePreview,
   showComputerUsePreview,
   useComputerUsePreviewControls,
   useComputerUsePreviewMoves,
-  type ComputerUsePreview,
   type ComputerUsePreviewMove,
 } from "./computerUsePreview";
 import "./computerUsePreview.css";

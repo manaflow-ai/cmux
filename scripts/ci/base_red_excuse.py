@@ -4190,6 +4190,27 @@ SAME_TREE_SUFFIX = " (same-tree)"
 # dispatched run's head_sha is the feat-cmux-next tip, not the PR head, so its red is never compared by the run: it is
 # the PR's own at that base (a merger reruns one at a stale base), never a base red (cmux#38640, 2026-11-09).
 FAST_GATES_STATUS = "cmux-next/fast-gates"
+# The cmux-next-fast-gates.yml jobs behind that status: `fast gates` runs the checks on the merge with the base and
+# compares every red with the base itself (fast_gate_webviews_checks.py: a red the base has too passes), and `post`
+# posts FAST_GATES_STATUS. When `post` could not post (a rate limit), no status exists, so the status rule above never
+# ran and the bare `fast gates` red was compared with the base's by job name and excused: cmux#46930 (2026-11-26
+# 20:36Z) landed a SetupCard import its own fast gates named ("3 error(s) the base has too", plus its own TS2307), and
+# broke the web bundle and two nightlies (retro rf214bf6c). A red of either job is the PR's own, as the status is.
+FAST_GATES_JOBS = frozenset({"fast gates", "post " + FAST_GATES_STATUS})
+
+
+def fast_gates_job_red(name: str, job: dict) -> str | None:
+    """The refusal for a failed cmux-next-fast-gates.yml `fast gates` or `post` job (FAST_GATES_JOBS), named bare or
+    as a called workflow's `caller / job`; None for any other job."""
+    if job.get("conclusion") != "failure" or name.rsplit(" / ", 1)[-1] not in FAST_GATES_JOBS:
+        return None
+    where = f" (run {job['run_id']})" if job.get("run_id") else ""
+    if name.rsplit(" / ", 1)[-1] != "fast gates":
+        return (f"'{name}'{where} failed, so '{FAST_GATES_STATUS}' may be missing or stale on this head: re-run the "
+                "failed job to post it; the fast gates' verdict is never a base red")
+    return (f"'{name}'{where} is the pull request's own: the fast gates ran on it merged with the base and already "
+            "passed every red the base has too, never a base red; fix what its log says this change adds, or "
+            "dispatch them again on the tip if that base is stale")
 # The controller's required-checks pool posts its verdicts as commit statuses (manaflow-checks[bot]); a failed one says
 # "failed on the cmux pool (exit 1); rerun: POST /v1/required-checks/rerun?head=<sha>". cmux#49885 at 8b11f0c2
 # (2026-11-22): 'clippy (changed cmux-tui packages)' failed there while its Actions twin of the same name was skipped by
@@ -6063,6 +6084,8 @@ GUARD_WORKFLOWS = {
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
+        "ios-placeholder-bounds": "reads the iOS app's Swift sources and placeholders.json: a red is the change's "
+                                  "own unbound placeholder, never a guard's",
         "pr-red-checks": _PUBLISH,
         "fast-check-route": "decides from the changed paths which guard jobs run; it checks nothing itself",
         "security-holes": "judges the workflow holes and secrets the change's own diff adds against the base's "
@@ -10081,6 +10104,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             raise Refused(f"'{name}' is {job.get('conclusion')}: it has no verdict to compare with the base; re-run it")
         if refused_at_setup(job):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+        if (own := fast_gates_job_red(name, job)) is not None:
+            raise Refused(own)
         got = read_head(repo, base, sha, name, job, github, run_reads, evidence)
         if got.audit is not None:
             audit.append(got.audit)

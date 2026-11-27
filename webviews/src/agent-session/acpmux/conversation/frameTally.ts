@@ -37,8 +37,11 @@ export class FrameTally {
   private failures = 0;
 
   // By default on the page's shared timer with a whole period of slack (a sample can go late): the
-  // flush rides a heartbeat instead of waking a chat at rest by itself (slackTimers.ts).
-  constructor(private readonly later: Later = (callback, ms) => slackTimersFor().later(callback, ms, ms)) {}
+  // flush rides a heartbeat, or the beat that rests the page, instead of waking a chat at rest by itself
+  // (slackTimers.ts).
+  constructor(
+    private readonly later: Later = (callback, ms) => slackTimersFor().later(callback, ms, ms, { atRest: true }),
+  ) {}
 
   /** Sends through `send` from now on (the page's client once it connects; a new one replaces it). */
   attach(send: TallySend): void {
