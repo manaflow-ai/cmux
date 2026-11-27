@@ -564,6 +564,7 @@ async fn a_hub_only_sandbox_refusal_reaches_the_starters_chat() {
             active: true,
             cursors: [(key, Default::default())].into_iter().collect(),
             offline: Default::default(),
+            ..Default::default()
         })
         .unwrap();
     let remote = b.resolve(&child).unwrap();

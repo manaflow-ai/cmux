@@ -117,6 +117,7 @@ pub(super) fn report_remote_created(
         // Read its journal from the start so a fast spawn refusal is not lost.
         cursors: [(key, Default::default())].into_iter().collect(),
         offline: Default::default(),
+        ..Default::default()
     })?;
     Ok(())
 }

@@ -48,6 +48,7 @@ async fn remote_repository_refusal_is_visible_and_reaches_the_starters_watch() {
         active: true,
         cursors: [(session.id.clone(), Default::default())].into_iter().collect(),
         offline: Default::default(),
+        ..Default::default()
     };
     hub.append(
         &session,
