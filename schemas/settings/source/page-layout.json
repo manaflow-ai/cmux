@@ -1,5 +1,5 @@
 {
-  "$comment": "HAND-EDITED source of the Settings page layout (SETTINGS-PAGE-FIRST-PRINCIPLES P2, P4): categories by user task in sidebar order, each a list of group cards, plus the action buttons at the end of each section. scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+PageLayout.generated.swift: SettingsPageLayout and SettingsSchema.actions(in:)); the schema export resolves it into settings-schema.json's `page`, which the web Settings page and the GPUI client draw. A row's key, section and CLI stay as they are; only where the page draws it is decided here. Every row the page shows has exactly one card (SettingsPageLayoutHomeTests). Fields: default_category, the category the page opens on. max_rows_per_card, the most rows one card holds (SettingsPageSectionsTests; user 2026-10-30: \"look a lot better with sections\"). cards, the parts of a category that are not schema rows (id is the export's card id). section_actions, per section id the registry action ids drawn as buttons at the end of that section (titles and availability come from the action registry); every section is listed. sidebar_sections, the sidebar's titled runs of categories (title null for the untitled lead run; collapsed true for the last run, More, which the page draws closed until opened or until one of its categories is shown, so the top level stays short: David Beyer 2026-11-20, Settings felt overwhelming). A category has id, title ({key, text} or {section: id} for that section's title), symbol (SF Symbol), groups, and optional lead and trail (card ids drawn before and after the groups), actions (sections whose section_actions show at its end), aliases (section ids, from `cmux settings open --section` and old links, that open it), legacy_ids (ids of retired categories, such as mobile and server, whose old #/settings/<id> links open it), dev_only (shown only in DEV builds). A group card has group (a schema group key: its title, and every shown row of that group no other card claims, in schema order), keys (rows claimed by key, drawn after the group's rows), lead_keys (rows claimed by key, drawn first) and title ({key, text}; needed when there is no group). A card with no rows is dropped; a card without a group gets the key <category>.<index>. note is a comment.",
+  "$comment": "HAND-EDITED source of the Settings page layout (SETTINGS-PAGE-FIRST-PRINCIPLES P2, P4): categories by user task in sidebar order, each a list of group cards, plus the action buttons at the end of each section. scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+PageLayout.generated.swift: SettingsPageLayout and SettingsSchema.actions(in:)); the schema export resolves it into settings-schema.json's `page`, which the web Settings page and the GPUI client draw. A row's key, section and CLI stay as they are; only where the page draws it is decided here. Every row the page shows has exactly one card (SettingsPageLayoutHomeTests). Fields: default_category, the category the page opens on. max_rows_per_card, the most rows one card holds (SettingsPageSectionsTests; user 2026-10-30: \"look a lot better with sections\"). cards, the parts of a category that are not schema rows (id is the export's card id). section_actions, per section id the registry action ids drawn as buttons at the end of that section (titles and availability come from the action registry); every section is listed. sidebar_sections, the sidebar's six pages (one settings area, findings G6; Leo 2026-11-22: \"ay, fuck it we ball\"): the sidebar draws each section as one link that opens its first category, and the shown section's categories under it, so the top level is six rows (David Beyer 2026-11-20: Settings felt overwhelming). Each has an id and a title ({key, text}, or null for an untitled run); collapsed true draws a run closed until opened or until one of its categories is shown (no run uses it now). A category has id, title ({key, text} or {section: id} for that section's title), symbol (SF Symbol), groups, and optional lead and trail (card ids drawn before and after the groups), actions (sections whose section_actions show at its end), aliases (section ids, from `cmux settings open --section` and old links, that open it), legacy_ids (ids of retired categories, such as mobile and server, whose old #/settings/<id> links open it), dev_only (shown only in DEV builds). A group card has group (a schema group key: its title, and every shown row of that group no other card claims, in schema order), keys (rows claimed by key, drawn after the group's rows), lead_keys (rows claimed by key, drawn first) and title ({key, text}; needed when there is no group). A card with no rows is dropped; a card without a group gets the key <category>.<index>. note is a comment.",
   "default_category": "general",
   "max_rows_per_card": 16,
   "cards": [
@@ -47,6 +47,7 @@
     {"id": "worktreeSetup", "note": "Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay."},
     {"id": "cloudModels", "note": "Settings > Cloud > Models for Cloud: whether Claude, ChatGPT and an API key are set up for Cloud chats (a connection with serves_cloud), each with its Set up way in (Settings > Models' Add a Connection steps) and a plain note when only a This Mac only login exists (cmux-tui/docs/model-connections.md Revision 2); deep links #/settings/cloud?focus=cloud.claude, cloud.chatgpt, cloud.apiKey."},
     {"id": "customizeChecklist", "note": "Settings > Customize: every customization one click away (Leo 2026-11-22: \"it should just be as easy as a click toggle\"): the experiments.* and labs.* switches, the Customization Library's entries (`cmux customize library`), the verified looks (examples/looks, `cmux setup install`), then every other switch the page shows, collapsed; one search over all of them. Rows come from the schema export, so a new toggle row shows with no edit. Deep link: #/settings/customize."},
+    {"id": "developerTokens", "note": "Settings > Developer: cmux API tokens (cmux platform /v1/tokens): personal tokens with New Token and Revoke, and for a person who manages the team, Team Tokens (CI, not tied to a person) and GitHub Actions (allowed repositories sign in with GitHub's identity token, no stored secret) with a copyable workflow. A new token is shown once with Copy and the lines to paste; `cmux.settings.tokens.*`, from the bundled `cmux token ... --json`. Deep link: #/settings/developer."},
     {"id": "integrationsHub", "note": "Settings > Integrations: the integrations hub (cmux platform /v1/hub): linked Stripe and GitHub accounts with Remove, Link Stripe (a pasted restricted key) and Link GitHub, the approvals waiting for the person with Allow, Deny and Don't ask again, the rules with Add and Remove, the pause switch and recent audit rows; `cmux.settings.hub.*`, from the bundled `cmux hub overview --json` (cmux-tui cli/hub.rs shapes every string). An approval is answered only here, never by the CLI. Deep link: #/settings/integrations."},
     {"id": "automationsCloud", "note": "Settings > Automations: cloud automations (cmux platform /v1/automations): the list with each trigger, last run and on/off switch, the form (a GitHub event on a repository, a webhook whose URL and secret show once, or a schedule; condition rows; the agent's repository, branch template, harness and prompt template with a preview against a sample event; limits), the run log and the template gallery; `cmux.settings.autocloud.*`, from the bundled `cmux autocloud overview --json` (cmux-tui cli/autocloud.rs shapes every string and checks every spec). Deep link: #/settings/automations."},
     {"id": "models", "note": "Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`."},
@@ -69,8 +70,8 @@
   },
   "sidebar_sections": [
     {
-      "id": "app",
-      "title": null,
+      "id": "general",
+      "title": {"key": "settings.section.general", "text": "General"},
       "categories": [
         {
           "id": "general",
@@ -103,6 +104,23 @@
           "lead": ["customizeChecklist"]
         },
         {
+          "id": "notifications",
+          "title": {"section": "notifications"},
+          "symbol": "bell",
+          "note": "A core cmux feature: banners, sounds, the attention ring and the feed for agents, terminal programs and `cmux notify`.",
+          "groups": [
+            {"group": "settings.group.banners"},
+            {"group": "settings.group.notificationDelivery"},
+            {"group": "settings.group.sounds", "note": "Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page."},
+            {"group": "settings.group.dismissal"},
+            {"group": "settings.group.attention"},
+            {"group": "settings.group.feedMirror"},
+            {"group": "settings.group.githubInbox"}
+          ],
+          "actions": ["notifications"],
+          "aliases": ["notifications"]
+        },
+        {
           "id": "updates",
           "title": {"key": "settings.category.updates", "text": "Updates"},
           "symbol": "icloud.and.arrow.down",
@@ -115,12 +133,30 @@
           ],
           "lead": ["appUpdate"],
           "trail": ["webUpdates", "channels"]
+        },
+        {
+          "id": "newTab",
+          "title": {"key": "settings.pageGroup.newTabPage", "text": "New Tab Page"},
+          "symbol": "plus.square",
+          "groups": [
+            {"title": {"key": "settings.pageGroup.newTabPage", "text": "New Tab Page"}, "keys": [
+              "tabs.newTabTemplate", "tabs.newTabClock.show", "tabs.newTabClock.font", "tabs.newTabClock.weight", "tabs.newTabClock.color", "tabs.newTabClock.date", "tabs.newTabApp", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"
+            ]}
+          ]
+        },
+        {
+          "id": "menus",
+          "title": {"key": "settings.category.menus", "text": "Menus"},
+          "symbol": "contextualmenu.and.cursorarrow",
+          "note": "Every right-click menu: promote rows out of More, reorder, hide, separators, reset (cmux.json contextMenus). Customize Menu… at the end of each menu opens it on that menu.",
+          "groups": [],
+          "lead": ["contextMenus"]
         }
       ]
     },
     {
-      "id": "look",
-      "title": {"key": "settings.sidebarSection.lookAndFeel", "text": "Look and Feel"},
+      "id": "appearance",
+      "title": {"key": "settings.section.appearance", "text": "Appearance"},
       "categories": [
         {
           "id": "appearance",
@@ -138,13 +174,15 @@
             {"group": "settings.group.colorTransition"},
             {"group": "settings.group.windowBackground"},
             {"group": "settings.group.statusIndicator"},
+            {"group": "settings.group.agentSignature"},
             {"group": "settings.group.surfaces"},
-            {"title": {"key": "settings.pageGroup.windowSurfaces", "text": "Surfaces: Window"}, "keys": [
+            {"title": {"key": "settings.pageGroup.windowSurfaces", "text": "Surfaces: Window"}, "note": "Dim Inactive Windows and Tint with Desktop Wallpaper are claimed here so Window Background stays under max_rows_per_card.", "keys": [
               "appearance.surfaces.sidebar.color", "appearance.surfaces.sidebar.opacity",
               "appearance.surfaces.tabBar.color", "appearance.surfaces.tabBar.opacity",
               "appearance.surfaces.browserChrome.color", "appearance.surfaces.browserChrome.opacity",
               "appearance.surfaces.splitDivider.color", "appearance.surfaces.splitDivider.opacity",
-              "appearance.surfaces.docks.color", "appearance.surfaces.docks.opacity"
+              "appearance.surfaces.docks.color", "appearance.surfaces.docks.opacity",
+              "appearance.inactiveWindowDim", "appearance.wallpaperTint"
             ]},
             {"title": {"key": "settings.pageGroup.viewerSurfaces", "text": "Surfaces: Viewers"}, "keys": [
               "appearance.surfaces.diff.color", "appearance.surfaces.diff.opacity",
@@ -165,15 +203,19 @@
           "symbol": "sidebar.left",
           "groups": [
             {"group": "settings.group.sidebar", "note": "Show Workspace Tabs leads the Sidebar card: it is off by default, and this is where a person turns each workspace's tabs back on (#26384)."},
-            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.", "keys": [
+            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) and Sidebar Side are claimed here so the Sidebar card stays under it too.", "keys": [
               "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient",
-              "sidebar.floatOnHover"
+              "sidebar.floatOnHover", "sidebar.side", "sidebar.folderlessUngrouped"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
               "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished",
-              "sidebar.showAutomaticSessions", "sidebar.showAgentSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
-              "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"
+              "sidebar.showAgentSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
+              "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background"
+            ]},
+            {"title": {"key": "settings.pageGroup.sidebarPriority", "text": "Priority View"}, "note": "The Priority view's keys (the Codex app's activity list) get their own card so Sidebar Workspaces stays under max_rows_per_card.", "keys": [
+              "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
+              "sidebar.priorityView.filters", "sidebar.priorityView.showIdle", "sidebar.priorityView.statusWords"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarSections", "text": "Sidebar Sections"}, "note": "Which sidebar sections show and which come first (customization matrix row sidebar-sections); their own card so the Sidebar card stays under max_rows_per_card.", "keys": [
               "sidebar.sections.hidden", "sidebar.sections.order"
@@ -181,7 +223,7 @@
             {"group": "settings.group.workspaceRows"},
             {"title": {"key": "settings.pageGroup.sidebarExtras", "text": "Sidebar Buttons and Spaces"}, "keys": [
               "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "appearance.metrics.spaceButtonSpacing",
-              "sidebar.showProfileControl",
+              "sidebar.showProfileControl", "sidebar.profileMenu.style",
               "sidebar.showSearchButton", "sidebar.showLiveToggle", "presence.live", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
               "home.channelsEnabled"
             ]},
@@ -221,80 +263,12 @@
               "layout.dockColumnEdge", "layout.dockColumnMode", "layout.frameOrientation"
             ]},
             {"title": {"key": "settings.pageGroup.scrollFocus", "text": "Scrolling and Focus"}, "keys": [
-              "layout.focusFollowsMouse", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"
+              "layout.focusFollowsMouse", "layout.fadeInactivePanes", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"
             ]},
             {"group": "settings.group.panes"},
-            {"group": "settings.group.focusRing"}
+            {"group": "settings.group.focusRing"},
+            {"group": "settings.group.themeFlourishes"}
           ]
-        }
-      ]
-    },
-    {
-      "id": "tools",
-      "title": {"key": "settings.sidebarSection.tools", "text": "Tools"},
-      "categories": [
-        {
-          "id": "terminal",
-          "title": {"section": "terminal"},
-          "symbol": "terminal",
-          "groups": [
-            {"group": "settings.group.terminalFont"},
-            {"group": "settings.group.terminalCompatibility", "note": "The TERM new terminals start with (terminal.term)."},
-            {"title": {"key": "settings.group.links", "text": "Links"}, "note": "The program that opens links from a terminal, and its rules, beside the terminal they come from.", "keys": [
-              "terminal.linkOpener.default", "terminal.linkOpener.rules"
-            ]},
-            {"title": {"key": "settings.pageGroup.terminalBehavior", "text": "Behavior"}, "keys": [
-              "newTerminal.opensWorkspace", "app.warnBeforeClosingTab", "terminal.predictiveLocalEcho"
-            ]}
-          ],
-          "lead": ["terminalInfo"],
-          "trail": ["ghosttyDiagnostics"],
-          "actions": ["terminal"],
-          "aliases": ["terminal"]
-        },
-        {
-          "id": "editor",
-          "title": {"section": "editor"},
-          "symbol": "chevron.left.forwardslash.chevron.right",
-          "note": "The Monaco code editor: VS Code's settings by name. The Markdown Viewer group (its text size too) lives in General beside Diff Viewer; a row has one home.",
-          "groups": [
-            {"group": "settings.group.editorDefaults"},
-            {"group": "settings.group.editorFont"},
-            {"group": "settings.group.editorText"},
-            {"group": "settings.group.editorDisplay"},
-            {"group": "settings.group.editorCursor"},
-            {"group": "settings.group.editorEditing"},
-            {"group": "settings.group.editorSaving"},
-            {"group": "settings.group.diffViewer"},
-            {"group": "settings.group.markdownViewer"},
-            {"group": "settings.group.files"},
-            {"group": "settings.group.screenshots"}
-          ],
-          "actions": ["editor"],
-          "aliases": ["editor"]
-        },
-        {
-          "id": "browser",
-          "title": {"section": "browser"},
-          "symbol": "globe",
-          "groups": [
-            {"group": "settings.group.engine"},
-            {"group": "settings.group.addressBar"},
-            {"group": "settings.group.toolbar"},
-            {"group": "settings.group.media"},
-            {"group": "settings.group.bookmarks"},
-            {"group": "settings.group.agentInput"},
-            {"group": "settings.group.extensions"},
-            {"group": "settings.group.links"},
-            {"group": "settings.group.openingLinks"},
-            {"group": "settings.group.passwords"},
-            {"group": "settings.group.import"},
-            {"group": "settings.group.memory"},
-            {"group": "settings.group.remote"}
-          ],
-          "trail": ["browserProfiles"],
-          "actions": ["browser"],
-          "aliases": ["browser"]
         }
       ]
     },
@@ -308,18 +282,18 @@
           "symbol": "bubble.left",
           "note": "How the agent chat looks and reads. Agents keeps what the agents may do.",
           "groups": [
-            {"title": {"key": "settings.pageGroup.transcript", "text": "Transcript"}, "keys": [
-              "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.sendPop", "agentPane.display.compactShortTurns",
+            {"title": {"key": "settings.pageGroup.transcript", "text": "Transcript"}, "note": "Unread Banner is here, not in Chat Layout, so Chat Layout stays under max_rows_per_card.", "keys": [
+              "agentPane.display.detail", "agentPane.display.sendPop", "agentPane.display.compactShortTurns",
               "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
               "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
               "agentPane.display.thinking.jumpButton", "agentPane.display.thinking.glyphSize",
-              "agentPane.needsYou.enabled", "agentPane.display.finishSound", "agentPane.showMachineLoadWarnings"
+              "agentPane.needsYou.enabled", "agentPane.display.finishSound", "agentPane.showMachineLoadWarnings",
+              "agentPane.display.unreadBanner"
             ]},
             {"title": {"key": "settings.pageGroup.chatLayout", "text": "Chat Layout"}, "keys": [
               "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
               "agentPane.display.vscodeMinimap", "agentPane.display.chatListStatusPills", "agentPane.display.trayTucked",
               "agentPane.display.trayHandle", "agentPane.display.headerBreadcrumb", "agentPane.display.subagentOf",
-              "agentPane.display.unreadBanner",
               "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
               "agentPane.display.rail.side", "agentPane.display.rail.show", "agentPane.display.rail.control",
               "agentPane.display.sessionInfo.placement",
@@ -337,8 +311,8 @@
             {"title": {"key": "settings.pageGroup.messageBox", "text": "Message Box"}, "keys": [
               "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking",
               "agentPane.composerVimKeys",
-              "agentPane.composerLook", "agentPane.emptyChatComposerPosition",
-              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.followUpMode", "agentPane.display.harnessPlacement", "agentPane.display.modelChipIcon", "agentPane.display.queueing",
+              "agentPane.composerLook", "agentPane.emptyChatComposerPosition", "agentPane.composerPlaceholder",
+              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.followUpMode", "agentPane.display.harnessPlacement", "agentPane.display.modelChipIcon", "agentPane.display.modelPickerStyle", "agentPane.display.queueing",
               "agentPane.display.promptCoach"
             ]},
             {"title": {"key": "settings.pageGroup.filesLinks", "text": "Files and Links"}, "keys": [
@@ -400,45 +374,26 @@
           "note": "Cloud automations (Leo 2026-11-24: \"having people be able to set up their own conditions for when autocloud will go off\"): a GitHub event, a webhook or a schedule, conditions over the event, and the agent it starts; the run log and the template gallery.",
           "groups": [],
           "lead": ["automationsCloud"]
-        }
-      ]
-    },
-    {
-      "id": "interaction",
-      "title": {"key": "settings.sidebarSection.interaction", "text": "Interaction"},
-      "categories": [
-        {
-          "id": "notifications",
-          "title": {"section": "notifications"},
-          "symbol": "bell",
-          "note": "A core cmux feature: banners, sounds, the attention ring and the feed for agents, terminal programs and `cmux notify`.",
-          "groups": [
-            {"group": "settings.group.banners"},
-            {"group": "settings.group.notificationDelivery"},
-            {"group": "settings.group.sounds", "note": "Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page."},
-            {"group": "settings.group.dismissal"},
-            {"group": "settings.group.attention"},
-            {"group": "settings.group.feedMirror"},
-            {"group": "settings.group.githubInbox"}
-          ],
-          "actions": ["notifications"],
-          "aliases": ["notifications"]
         },
         {
-          "id": "keyboard",
-          "title": {"section": "keyboard"},
-          "symbol": "keyboard",
+          "id": "computerUse",
+          "title": {"key": "settings.category.computerUse", "text": "Computer Use"},
+          "symbol": "cursorarrow.click.2",
+          "note": "Every Computer Use setting on one page (Aziz 2026-11-05: \"all CU settings in their own Settings tab\"): the Computer Use card draws the status (engine, permissions, worker), the mode, the denied apps, the saved approvals and the switches from the `settings.group.computerUse` rows; the page does not draw that group a second time.",
           "groups": [
-            {"group": "settings.group.keyStyle"},
-            {"group": "settings.shortcuts.hintsGroup"},
-            {"title": {"key": "settings.pageGroup.sidebarKeys", "text": "Sidebar Navigation"}, "keys": [
-              "tabs.commandDigits", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"
-            ]},
-            {"group": "settings.group.palette"},
-            {"group": "settings.group.macScreenKeyboard"}
+            {"group": "settings.group.computerUse"}
           ],
-          "actions": ["keyboard"],
-          "aliases": ["keyboard"]
+          "lead": ["computerUse"]
+        },
+        {
+          "id": "mcpServers",
+          "title": {"key": "settings.category.mcpServers", "text": "MCP Servers"},
+          "symbol": "server.rack",
+          "note": "The services agents use for the person (Linear, Slack, GitHub...), who has each one, and its sign-in (user 2026-11-18 via Chief: an MCP Servers page with list, sign in and remove).",
+          "groups": [
+            {"group": "settings.group.mcpServers", "note": "Whether new agent chats get the saved servers (agents.mcpServers.enabled)."}
+          ],
+          "lead": ["mcpServers"]
         }
       ]
     },
@@ -482,59 +437,6 @@
           "lead": ["devices"],
           "trail": ["server", "tailnet"],
           "legacy_ids": ["server"]
-        }
-      ]
-    },
-    {
-      "id": "more",
-      "title": {"key": "settings.sidebarSection.more", "text": "More"},
-      "collapsed": true,
-      "categories": [
-        {
-          "id": "newTab",
-          "title": {"key": "settings.pageGroup.newTabPage", "text": "New Tab Page"},
-          "symbol": "plus.square",
-          "groups": [
-            {"title": {"key": "settings.pageGroup.newTabPage", "text": "New Tab Page"}, "keys": [
-              "tabs.newTabTemplate", "tabs.newTabClock.show", "tabs.newTabClock.font", "tabs.newTabClock.weight", "tabs.newTabClock.color", "tabs.newTabClock.date", "tabs.newTabApp", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"
-            ]}
-          ]
-        },
-        {
-          "id": "menus",
-          "title": {"key": "settings.category.menus", "text": "Menus"},
-          "symbol": "contextualmenu.and.cursorarrow",
-          "note": "Every right-click menu: promote rows out of More, reorder, hide, separators, reset (cmux.json contextMenus). Customize Menu… at the end of each menu opens it on that menu.",
-          "groups": [],
-          "lead": ["contextMenus"]
-        },
-        {
-          "id": "computerUse",
-          "title": {"key": "settings.category.computerUse", "text": "Computer Use"},
-          "symbol": "cursorarrow.click.2",
-          "note": "Every Computer Use setting on one page (Aziz 2026-11-05: \"all CU settings in their own Settings tab\"): the Computer Use card draws the status (engine, permissions, worker), the mode, the denied apps, the saved approvals and the switches from the `settings.group.computerUse` rows; the page does not draw that group a second time.",
-          "groups": [
-            {"group": "settings.group.computerUse"}
-          ],
-          "lead": ["computerUse"]
-        },
-        {
-          "id": "mcpServers",
-          "title": {"key": "settings.category.mcpServers", "text": "MCP Servers"},
-          "symbol": "server.rack",
-          "note": "The services agents use for the person (Linear, Slack, GitHub...), who has each one, and its sign-in (user 2026-11-18 via Chief: an MCP Servers page with list, sign in and remove).",
-          "groups": [
-            {"group": "settings.group.mcpServers", "note": "Whether new agent chats get the saved servers (agents.mcpServers.enabled)."}
-          ],
-          "lead": ["mcpServers"]
-        },
-        {
-          "id": "extensions",
-          "title": {"key": "settings.group.extensions", "text": "Extensions"},
-          "symbol": "puzzlepiece.extension",
-          "note": "Each installed extension's own settings, drawn from its manifest's `settings` schema (apps.settings.list); a change reaches the running extension at once (settings.changed).",
-          "groups": [],
-          "lead": ["extensions"]
         },
         {
           "id": "cloud",
@@ -563,6 +465,14 @@
           "lead": ["integrationsHub"]
         },
         {
+          "id": "developer",
+          "title": {"key": "settings.category.developer", "text": "Developer"},
+          "symbol": "chevron.left.forwardslash.chevron.right",
+          "note": "API tokens for scripts, CI and GitHub Actions (Leo 2026-11-25: \"Should we be offering tokens/api keys for people to be accessing our stuff with?\" and \"Convienient beats all. Just make good ui for it so people flow.\").",
+          "groups": [],
+          "lead": ["developerTokens"]
+        },
+        {
           "id": "import",
           "title": {"key": "settings.category.import", "text": "Import"},
           "symbol": "square.and.arrow.down",
@@ -589,7 +499,35 @@
           ],
           "actions": ["home"],
           "aliases": ["home"]
-        },
+        }
+      ]
+    },
+    {
+      "id": "keyboard",
+      "title": {"key": "settings.section.keyboard", "text": "Keyboard"},
+      "categories": [
+        {
+          "id": "keyboard",
+          "title": {"section": "keyboard"},
+          "symbol": "keyboard",
+          "groups": [
+            {"group": "settings.group.keyStyle"},
+            {"group": "settings.shortcuts.hintsGroup"},
+            {"title": {"key": "settings.pageGroup.sidebarKeys", "text": "Sidebar Navigation"}, "keys": [
+              "tabs.commandDigits", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"
+            ]},
+            {"group": "settings.group.palette"},
+            {"group": "settings.group.macScreenKeyboard"}
+          ],
+          "actions": ["keyboard"],
+          "aliases": ["keyboard"]
+        }
+      ]
+    },
+    {
+      "id": "advanced",
+      "title": {"key": "settings.section.advanced", "text": "Advanced"},
+      "categories": [
         {
           "id": "advanced",
           "title": {"section": "advanced"},
@@ -601,6 +539,78 @@
           "trail": ["advancedActions"],
           "actions": ["advanced"],
           "aliases": ["advanced"]
+        },
+        {
+          "id": "terminal",
+          "title": {"section": "terminal"},
+          "symbol": "terminal",
+          "groups": [
+            {"group": "settings.group.terminalFont"},
+            {"group": "settings.group.terminalCursor"},
+            {"group": "settings.group.terminalCompatibility", "note": "The TERM new terminals start with (terminal.term)."},
+            {"title": {"key": "settings.group.links", "text": "Links"}, "note": "The program that opens links from a terminal, and its rules, beside the terminal they come from.", "keys": [
+              "terminal.linkOpener.default", "terminal.linkOpener.rules"
+            ]},
+            {"title": {"key": "settings.pageGroup.terminalBehavior", "text": "Behavior"}, "keys": [
+              "newTerminal.opensWorkspace", "app.warnBeforeClosingTab", "terminal.predictiveLocalEcho"
+            ]}
+          ],
+          "lead": ["terminalInfo"],
+          "trail": ["ghosttyDiagnostics"],
+          "actions": ["terminal"],
+          "aliases": ["terminal"]
+        },
+        {
+          "id": "editor",
+          "title": {"section": "editor"},
+          "symbol": "chevron.left.forwardslash.chevron.right",
+          "note": "The Monaco code editor: VS Code's settings by name. The Markdown Viewer group (its text size too) lives in General beside Diff Viewer; a row has one home.",
+          "groups": [
+            {"group": "settings.group.editorDefaults"},
+            {"group": "settings.group.editorFont"},
+            {"group": "settings.group.editorText"},
+            {"group": "settings.group.editorDisplay"},
+            {"group": "settings.group.editorCursor"},
+            {"group": "settings.group.editorEditing"},
+            {"group": "settings.group.editorSaving"},
+            {"group": "settings.group.diffViewer"},
+            {"group": "settings.group.markdownViewer"},
+            {"group": "settings.group.files"},
+            {"group": "settings.group.screenshots"}
+          ],
+          "actions": ["editor"],
+          "aliases": ["editor"]
+        },
+        {
+          "id": "browser",
+          "title": {"section": "browser"},
+          "symbol": "globe",
+          "groups": [
+            {"group": "settings.group.engine"},
+            {"group": "settings.group.addressBar"},
+            {"group": "settings.group.toolbar"},
+            {"group": "settings.group.media"},
+            {"group": "settings.group.bookmarks"},
+            {"group": "settings.group.agentInput"},
+            {"group": "settings.group.extensions"},
+            {"group": "settings.group.links"},
+            {"group": "settings.group.openingLinks"},
+            {"group": "settings.group.passwords"},
+            {"group": "settings.group.import"},
+            {"group": "settings.group.memory"},
+            {"group": "settings.group.remote"}
+          ],
+          "trail": ["browserProfiles"],
+          "actions": ["browser"],
+          "aliases": ["browser"]
+        },
+        {
+          "id": "extensions",
+          "title": {"key": "settings.group.extensions", "text": "Extensions"},
+          "symbol": "puzzlepiece.extension",
+          "note": "Each installed extension's own settings, drawn from its manifest's `settings` schema (apps.settings.list); a change reaches the running extension at once (settings.changed).",
+          "groups": [],
+          "lead": ["extensions"]
         },
         {
           "id": "experimental",
