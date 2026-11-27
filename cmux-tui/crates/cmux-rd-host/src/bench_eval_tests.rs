@@ -80,6 +80,7 @@ fn viewer(outcome: Outcome) -> (Viewer, TcpStream) {
         want_snapshot: false,
         record: None,
         marker_origin: (0, 0),
+        marker_scale: (1, 1),
         #[cfg(target_os = "macos")]
         vt: None,
         alt: Some((Box::new(FakeDecoder(outcome)), I420::new(2, 2))),
@@ -91,6 +92,7 @@ fn deliver_frame(viewer: &mut Viewer) {
     let body = FrameBody {
         t_capture_us: RELEASE_US,
         ref_frame: REF_NONE,
+        ltr_token: None,
         access_unit: ACCESS_UNIT.to_vec(),
     };
     let packets = Packetizer::new(0, 256)

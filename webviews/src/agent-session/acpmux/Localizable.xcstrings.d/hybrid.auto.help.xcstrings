@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "hybrid.auto.help" : {
+      "comment" : "Agent pane, the cloud button's tooltip while it is off",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تنتقل إلى السحابة عند سكون هذا الـ Mac فقط إذا توفرت خانة. شغّل الخيار لتحصل هذه المحادثة على خانة أولًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prelazi u oblak kada ovaj Mac spava samo ako ima slobodnog mjesta. Uključite da ovaj razgovor prvi dobije mjesto."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flytter kun til skyen, når denne Mac sover, hvis der er en ledig plads. Slå til for at give denne chat en plads først."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wechselt nur dann in die Cloud, wenn dieser Mac schläft und ein Platz frei ist. Einschalten, damit dieser Chat zuerst einen Platz bekommt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moves to Cloud when this Mac sleeps only if a slot is free. Turn on to give this chat a slot first."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pasa a la nube cuando este Mac entra en reposo solo si hay un hueco libre. Actívalo para que este chat reciba un hueco primero."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Passe dans le cloud quand ce Mac est en veille seulement si une place est libre. Activez pour que cette discussion obtienne une place en premier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Passa al cloud quando questo Mac è in stop solo se c’è un posto libero. Attiva per dare a questa chat un posto per prima."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このMacのスリープ時、空きスロットがある場合のみクラウドに移ります。オンにすると、このチャットに先にスロットを割り当てます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្លាស់ទៅ Cloud នៅពេល Mac នេះដេក តែនៅពេលមានកន្លែងទំនេរប៉ុណ្ណោះ។ បើកដើម្បីឱ្យការជជែកនេះទទួលបានកន្លែងមុនគេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 Mac이 잠자기 상태일 때 빈 슬롯이 있는 경우에만 클라우드로 옮겨집니다. 켜면 이 채팅이 슬롯을 먼저 받습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flytter til skyen når denne Macen sover bare hvis det er en ledig plass. Slå på for å gi denne chatten en plass først."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przenosi się do chmury, gdy ten Mac śpi, tylko jeśli jest wolne miejsce. Włącz, aby ten czat dostał miejsce jako pierwszy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vai para a nuvem quando este Mac entra em repouso somente se houver uma vaga livre. Ative para dar a este chat uma vaga primeiro."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переходит в облако, когда этот Mac спит, только если есть свободное место. Включите, чтобы этот чат получил место первым."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ย้ายไปยังคลาวด์เมื่อ Mac เครื่องนี้พักเครื่องเฉพาะเมื่อมีช่องว่าง เปิดเพื่อให้แชทนี้ได้ช่องก่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu Mac uyuduğunda yalnızca boş yer varsa buluta taşınır. Bu sohbete önce yer vermek için açın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переходить у хмару, коли цей Mac спить, лише якщо є вільне місце. Увімкніть, щоб цей чат отримав місце першим."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chỉ chuyển lên đám mây khi máy Mac này ngủ nếu còn chỗ trống. Bật để cuộc trò chuyện này được nhận chỗ trước."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "这台 Mac 睡眠时，仅在有空位时转到云端。打开后，此聊天优先获得位置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "這台 Mac 睡眠時，僅在有空位時轉到雲端。打開後，此聊天優先取得位置。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

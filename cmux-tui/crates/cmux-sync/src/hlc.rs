@@ -12,6 +12,13 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+/// Maximum amount by which a remote clock may move this clock ahead of its wall clock.
+///
+/// A stamp remains valid map data when it exceeds this bound, but it cannot make future local
+/// stamps inherit an unbounded clock error. Five minutes covers normal mobile clock skew while
+/// putting a finite bound on a misconfigured or malicious peer.
+pub const MAX_DRIFT_MS: u64 = 5 * 60 * 1_000;
+
 /// A replica's id: one per (device, process) that edits, e.g. `mac:<install id>`, `vm:<machine
 /// id>`, `phone:<install id>`. It must be stable across restarts for the replica's own sequence
 /// numbers to stay meaningful, and unique: two replicas sharing one lose edits to each other.
@@ -75,15 +82,15 @@ impl Clock {
     }
 
     /// Take a remote stamp into account, so the next [`now`](Self::now) orders after it. Returns
-    /// how far ahead of `wall_ms` the remote stamp was (0 when not ahead): a host can log or show
-    /// a replica whose clock is far off, but the stamp is still taken, because refusing it would
-    /// leave replicas disagreeing forever.
+    /// how far ahead of `wall_ms` the remote stamp was (0 when not ahead). A remote stamp farther
+    /// than [`MAX_DRIFT_MS`] is still valid map data, but does not move this clock forward.
     pub fn observe(&mut self, remote: &Stamp, wall_ms: u64) -> u64 {
-        if (remote.ms, remote.n) > (self.ms, self.n) {
+        let ahead_ms = remote.ms.saturating_sub(wall_ms);
+        if ahead_ms <= MAX_DRIFT_MS && (remote.ms, remote.n) > (self.ms, self.n) {
             self.ms = remote.ms;
             self.n = remote.n;
         }
-        remote.ms.saturating_sub(wall_ms)
+        ahead_ms
     }
 }
 
@@ -121,6 +128,14 @@ mod tests {
         let ahead = Stamp { ms: 5_000, n: 0, actor: Actor::new("b") };
         assert_eq!(c.observe(&ahead, 1_000), 4_000);
         assert_eq!(c.observe(&ahead, 9_000), 0);
+    }
+
+    #[test]
+    fn a_far_ahead_remote_does_not_poison_future_local_stamps() {
+        let mut c = clock("a");
+        let far = Stamp { ms: MAX_DRIFT_MS + 10_000, n: 0, actor: Actor::new("b") };
+        assert_eq!(c.observe(&far, 0), MAX_DRIFT_MS + 10_000);
+        assert_eq!(c.now(1).ms, 1);
     }
 
     #[test]

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # acpmux overhead against each harness run raw, on a quiet Mac. Run alone on a worker:
 #   cmux-ci run --class exclusive --script scripts/measure/acpmux-overhead.sh --ref SHA \
-#     [--arg=n=20] [--arg=harness=claude,codex,opencode] [--arg=before=SHA] \
+#     [--arg=n=20] [--arg=harness=claude,codex,opencode[,antigravity]] [--arg=before=SHA] \
 #     [--arg=claude=2.1.303] [--arg=codex=0.163.0] [--arg=opencode=1.19.3] --timeout 5400
 # Builds acpmux at this ref (and at before=SHA, to compare a change), installs Claude Code,
-# Codex and OpenCode at pinned versions under the step (npm), and runs
+# Codex and OpenCode at pinned versions under the step (npm), uses Antigravity (agy) when the
+# worker has it on PATH (skipped with ACPMUX-OVERHEAD-SKIP otherwise), and runs
 # scripts/cmux-next/acpmux-overhead-bench.py: each harness raw and through acpmux, against a
 # local stand-in model that answers at once (no credential, no network model), so a
 # difference is acpmux's own cost. Exit 1 when acpmux at this ref adds more than noise to the
@@ -87,7 +88,7 @@ for arg in "$@"; do
 done
 [[ -n "$n" ]] || { [[ "$bench" == procs ]] && n=4 || n=20; }
 [[ "$n" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "acpmux-overhead.sh: n is 1-999" >&2; exit 2; }
-[[ "$harness" =~ ^(claude|codex|opencode)(,(claude|codex|opencode)){0,2}$ ]] || { echo "acpmux-overhead.sh: harness=claude,codex,opencode" >&2; exit 2; }
+[[ "$harness" =~ ^(claude|codex|opencode|antigravity)(,(claude|codex|opencode|antigravity)){0,3}$ ]] || { echo "acpmux-overhead.sh: harness=claude,codex,opencode,antigravity" >&2; exit 2; }
 [[ -z "$before" || "$before" =~ ^[0-9a-f]{40}$ ]] || { echo "acpmux-overhead.sh: before= is a 40-character SHA" >&2; exit 2; }
 for v in "$claude_version" "$codex_version" "$opencode_version"; do
   [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "acpmux-overhead.sh: versions are X.Y.Z" >&2; exit 2; }
@@ -209,7 +210,22 @@ fi
 npm install --prefix "$work/tools" --no-fund --no-audit \
   "@anthropic-ai/claude-code@$claude_version" "@openai/codex@$codex_version" "opencode-ai@$opencode_version" >/dev/null
 export PATH="$work/tools/node_modules/.bin:$PATH"
-echo "ACPMUX-OVERHEAD-BIN claude $(claude --version) codex $(codex --version) opencode $(opencode --version)"
+# Antigravity (agy) has no npm package: it runs when the worker has agy on PATH (or
+# ACPMUX_BENCH_AGY names it), and otherwise is skipped with ACPMUX-OVERHEAD-SKIP, not failed.
+agy_bin="${ACPMUX_BENCH_AGY:-agy}"
+agy_version=""
+if [[ ",$harness," == *,antigravity,* ]]; then
+  if command -v "$agy_bin" >/dev/null 2>&1; then
+    # acpmux finds agy on PATH, so a named binary's directory goes first.
+    [[ "$agy_bin" == */* ]] && export PATH="$(cd "$(dirname "$agy_bin")" && pwd):$PATH"
+    agy_version=" antigravity $("$agy_bin" --version 2>/dev/null | head -n1)"
+  else
+    echo "ACPMUX-OVERHEAD-SKIP antigravity: $agy_bin is not on PATH; install the Antigravity CLI (agy) on this worker to measure it" >&2
+    harness="$(tr ',' '\n' <<<"$harness" | { grep -vx antigravity || true; } | paste -sd, -)"
+    [[ -n "$harness" ]] || { echo "ACPMUX-OVERHEAD-MISSING-TOOL agy: harness=antigravity needs agy on PATH; run the step on a worker that has it" >&2; exit 2; }
+  fi
+fi
+echo "ACPMUX-OVERHEAD-BIN claude $(claude --version) codex $(codex --version) opencode $(opencode --version)$agy_version"
 
 status=0
 mode=overhead

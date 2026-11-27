@@ -542,6 +542,14 @@ public final class AgentTurnStateStore {
     /// first record: a subagent starting, another machine's chat, a watch page (Leo's NIGHTLY 2026-11-21: 167 of 193
     /// chat tabs had no record, and those rows mapped again from the display frame on each new session anywhere).
     @ObservationIgnored var awaited: [String: AgentTurnRecordSignal] = [:]
+    /// The names of chats on other machines (a Cloud machine's, an SSH machine's), keyed by host and session
+    /// (``AgentTurnStateStore/remoteKey(host:session:)``): what each chat's page read of its summary over its
+    /// remote wire (``noteRemote(_:host:machine:)``). No watch of this Mac reaches those machines' acpmux, so without
+    /// them a Cloud chat's tab and workspace never took its title (cmux#55668).
+    @ObservationIgnored var remoteSessions: [String: Session] = [:]
+    /// The machine (this Mac's id of the remote daemon) each host's names came from: a host is only ever one machine's,
+    /// and a host two machines claim is ``contestedRemoteHost`` and noted from no machine again.
+    @ObservationIgnored var remoteHostMachines: [String: String] = [:]
     /// The most records the store keeps: far above any real list (Leo's daemon lists 10,790
     /// sessions); a bound for a watch that keeps listing new ids.
     @ObservationIgnored public var recordCap = 40_000

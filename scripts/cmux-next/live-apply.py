@@ -92,7 +92,7 @@ def working_tree() -> str:
 
 def overlay_paths() -> tuple[Path, Path]:
     """The overlay folder and web-dev.json, resolved as web-overlay.sh resolves them."""
-    config = Path(os.environ.get("CMUX_NEXT_CONFIG_FILE") or Path.home() / ".config/cmux/cmux-next.json")
+    config = Path(os.environ.get("CMUX_NEXT_CONFIG_FILE") or Path.home() / ".config" / ("cmux-next" if sys.platform == "darwin" else "cmux") / "cmux-next.json")
     overlay = Path(os.environ.get("CMUX_WEB_OVERLAY_DIR")
                    or Path.home() / "Library/Application Support/cmux-next/web-overlay")
     return overlay, config.parent / "web-dev.json"

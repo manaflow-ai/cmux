@@ -205,6 +205,61 @@ test("a scroll step of one row draws the row that comes into view, no other", as
   expectRows(1);
 });
 
+test("a page in the middle draws only the rows it adds; the last page tells every row the total once", async () => {
+  const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const page = (from: number, more: boolean) => ({
+    chats: Array.from({ length: 10 }, (_, index) => ({
+      key: `claude-code:p${from + index}`,
+      harness: "claude-code",
+      title: `Paged ${from + index}`,
+      cwd: "/tmp/cmux",
+      updatedAt: 1_000_000 - (from + index),
+    })),
+    ready: true,
+    ...(more ? { nextCursor: `c${from + 10}` } : {}),
+  });
+  // Each later page waits until the test lets it through; the third is the last.
+  const gates = [0, 1].map(() => {
+    let release: () => void = () => {};
+    const open = new Promise<void>((resolve) => (release = resolve));
+    return { open, release };
+  });
+  const load = async (params?: { cursor?: string }) => {
+    if (!params?.cursor) return page(0, true);
+    const from = Number(params.cursor.slice(1));
+    await gates[from / 10 - 1]!.open;
+    return page(from, from < 20);
+  };
+  root = createRoot(host);
+  await act(async () => root!.render(<AllChatsList load={load} onOpen={() => new Promise(() => {})} />));
+  await settle();
+  const keys = () =>
+    new Set(
+      [...host.querySelectorAll<HTMLElement>(".nt-all-item[role='listitem']")].map((row) => row.textContent ?? ""),
+    );
+  const before = keys();
+  expect(before.size).toBe(10);
+  rowRenders.reset();
+  gates[0]!.release();
+  await settle();
+  await settle();
+  const added = [...keys()].filter((key) => !before.has(key)).length;
+  expect(added).toBe(10);
+  // The ten new rows mount; the ten already shown do not draw again (their size stays "unknown").
+  expectRows(added);
+  expect(host.querySelector(".nt-all-item[role='listitem']")?.getAttribute("aria-setsize")).toBe("-1");
+  // The last page: the total is known, so each mounted row draws once to say it.
+  const shown = keys();
+  rowRenders.reset();
+  gates[1]!.release();
+  await settle();
+  await settle();
+  const mounted = keys().size;
+  expect(rowRenders.count("ChatRow")).toBe(mounted);
+  expect(mounted).toBeGreaterThan(shown.size - 1);
+  expect(host.querySelector(".nt-all-item[role='listitem']")?.getAttribute("aria-setsize")).toBe("30");
+});
+
 test("the page drawing again with the same chats, live chats and leaders draws no row", async () => {
   const live = () => [
     { id: "s1", title: "Working", harness: "claude", state: "running" as const, label: "Working" },

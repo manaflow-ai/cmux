@@ -144,6 +144,7 @@ WIRING: dict[str, re.Pattern] = {
             "cmux-tui-warm-target.sh", "cmux-tui-mac-warm-target.sh", "pool-warm-target.sh",
         )
         + r"|\bCMUX_COMPILE_ADMISSION_DERIVED_DATA\b|\bcmux_next_cas_fresh_tree\b"
+        + r'|-derivedDataPath\s+"?\$\{CMUX_DERIVED_DATA_SLOT\b'
         # A tour or visual-gate build in its claimed warm slot's DerivedData, and the Chief's per-runner target.
         + r"|" + _names("media_tag_lock.py", "prune_media_derived_data.py") + r"|\bCMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR=\"?\$HOME/"
         + r"|\"?\$\{?client\}?\"?\s+(?:run|build)\s"
@@ -460,6 +461,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(wired_sources(ROOT, job('"$client" compile-check --ref "$SHA" --app')), ["linux-pool-warm"])
         self.assertEqual(wired_sources(ROOT, job("cargo build")), [])
         self.assertEqual(wired_sources(ROOT, job("python3 scripts/ci/owned_spm_scratch.py link .")), ["spm-shared"])
+        self.assertEqual(wired_sources(ROOT, job('xcodebuild -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$tmp}/dd"')), ["deriveddata-reuse"])
         # A test of a source's script is not the source.
         self.assertEqual(wired_sources(ROOT, job("python3 tests/test_ci_owned_spm_scratch.py")), [])
         # A tour claims a kept DerivedData slot; the Chief's cargo target counts only when set to a kept path.

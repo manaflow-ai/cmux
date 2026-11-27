@@ -10,7 +10,7 @@
 # next pass (the finished build's tick, or the 5-minute cron) promotes the newest buildable commit and this run
 # leaves. Run 43558081148 of a22a4eb1 waited 23 min behind another build, started at 05:06 with 20 newer commits on
 # feat-cmux-next and failed; its retry 43560964857 built a22a4eb1 again: 60.9 min from landing to the feed.
-# With nothing promoted in YIELD_MINUTES the run builds its own commit, as before. A fresh push run never waits.
+# With nothing promoted at the one read the run builds its own commit at once (no poll loop). A fresh push run never waits.
 # A push run's wait is the time before its first job was queued (from this attempt's start: run_started_at) plus
 # each started job's own queue time (created_at to started_at; a job is created when its needs end): its own decide
 # and resolve steps are not waiting. Counted from creation to this step, run 44893172356 of 89a0aaea (2026-11-21) read 6 min (1.4 min
@@ -152,12 +152,11 @@ if [[ -n "${IN_SLOT:-}" ]]; then
   echo "superseded=false" >> "$GITHUB_OUTPUT"
   exit 0
 fi
-echo "$stale, and feat-cmux-next is at $tip: waiting up to ${YIELD_MINUTES:-6} min for the tick to promote the newest buildable commit"
-deadline=$(( $(date -u +%s) + ${YIELD_MINUTES:-6} * 60 ))
-while (( $(date -u +%s) < deadline )); do
-  current="$(poll_head)"
-  moved "$current" && leave "$current"
-  sleep "${YIELD_POLL_SECONDS:-15}"
-done
-echo "nothing newer was promoted in ${YIELD_MINUTES:-6} min; building $TIP_SHA"
+# One read, no wait (Leo: "no slot handoff waits"): a stale run used to poll here up to 6 min for the tick to promote
+# a newer commit (run 45562645699 sat 6.2 min and built its own commit). Now it leaves only when nightly-next has
+# already moved; otherwise it builds at once. The newer push's own run still builds the head and publishes after it.
+echo "$stale, and feat-cmux-next is at $tip: one read of nightly-next, no wait"
+current="$(poll_head)"
+moved "$current" && leave "$current"
+echo "nightly-next has not moved past $TIP_SHA; building it"
 echo "superseded=false" >> "$GITHUB_OUTPUT"

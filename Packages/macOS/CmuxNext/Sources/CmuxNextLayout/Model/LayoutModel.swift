@@ -20,8 +20,14 @@ public final class LayoutModel {
     public private(set) var activeScreenID: ScreenID?
     /// The focused pane. Client-local; drives the focus ring and column reveal.
     public private(set) var focusedPane: PaneID?
-    /// Dims panes other than the focused one.
-    public var dimsInactivePanes = false
+    /// Pins `layout.fadeInactivePanes` (tests, the demo); nil follows cmux.json.
+    public var dimsInactivePanesOverride: Bool?
+    /// Dims panes other than the focused one (cmux.json `layout.fadeInactivePanes`): the
+    /// override, else the live setting while `followsDesignMetrics` is on, else off. Setting it pins it.
+    public var dimsInactivePanes: Bool {
+        get { dimsInactivePanesOverride ?? (followsDesignMetrics ? DesignSettings.shared.fadeInactivePanes : false) }
+        set { dimsInactivePanesOverride = newValue }
+    }
     /// Pins the column centering mode (tests, the demo); nil follows
     /// cmux.json `layout.centerFocusedColumn` through `DesignSettings`.
     public var centerFocusedColumnOverride: CenterFocusedColumn?

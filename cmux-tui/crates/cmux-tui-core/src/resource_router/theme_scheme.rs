@@ -206,7 +206,11 @@ pub(crate) fn from_image(fields: &Map<String, Value>) -> Result<Value, ResourceE
 /// `{text, name?}` (`theme.slots.resolve`): the slot variants a theme file's
 /// text picks (`slots`), checked against schemas/theme/slots.json by
 /// cmux-config's theme file reader, and what it refused there. The app passes
-/// `slots` to its web views as is; nothing is written.
+/// `slots` to its web views as is; nothing is written. The same read answers the
+/// look's `motion` block (named `{duration, bounce}` spring presets and
+/// design-token spring and fade overrides, clamped to `cmux.motion/1`; all empty
+/// when the file has none), so a theme file edit reaches the chrome's motion on
+/// the path that already re-asks on every change.
 pub(crate) fn resolve_slots(fields: &Map<String, Value>) -> Result<Value, ResourceError> {
     let text = string(fields, "text")
         .ok_or_else(|| ResourceError::validation_invalid(Some("text"), "text is required"))?;
@@ -227,10 +231,12 @@ pub(crate) fn resolve_slots(fields: &Map<String, Value>) -> Result<Value, Resour
             d.kind == ThemeDiagnosticKind::UnreadableFile
                 || d.path == theme_file::slots::KEY
                 || d.path.starts_with(&format!("{}.", theme_file::slots::KEY))
+                || d.path == theme_file::motion::KEY
+                || d.path.starts_with(&format!("{}.", theme_file::motion::KEY))
         })
         .map(|d| json!({ "kind": d.kind, "path": d.path, "message": d.display(), "line": d.line }))
         .collect();
-    Ok(json!({ "slots": file.slots, "diagnostics": diagnostics }))
+    Ok(json!({ "slots": file.slots, "motion": file.motion.to_json(), "diagnostics": diagnostics }))
 }
 
 #[cfg(test)]

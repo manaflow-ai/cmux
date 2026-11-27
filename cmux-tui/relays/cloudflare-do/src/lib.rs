@@ -9,6 +9,7 @@ mod inline;
 mod interleavings;
 mod park;
 mod placement;
+mod retire;
 mod routing;
 mod slot;
 mod wire;

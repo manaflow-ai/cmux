@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Live code patch for the app (Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode/LiveCode.swift).
+"""Live code patch for the app (Packages/Shared/CmuxLiveCode: the macOS app, and the iPhone app in the
+iOS Simulator, scripts/live-code/ios-sim.sh; the frontend command's -target and -sdk pick the platform).
 
 Compiles edited Swift files, of any CmuxNext module, with the frontend command Xcode used for each
 file's module in the running app's build (scripts/live-code/build.sh keeps it in its xcodebuild log),
@@ -282,6 +283,45 @@ def module_of(path):
     return parts[at + 1] if 0 <= at < len(parts) - 2 else None
 
 
+def module_in_log(log, path):
+    """The module whose file list in the build's log holds `path`: an Xcode target's sources are in no
+    Sources/ folder (the iPhone app's cmux-next-ios/App, scripts/live-code/ios-sim.sh)."""
+    real = os.path.realpath(path)
+    seen = set()
+    with open(log, errors="replace") as lines:
+        for raw in lines:
+            text = raw.strip()
+            if not text.startswith("builtin-SwiftDriver ") or "-module-name " not in text:
+                continue
+            try:
+                argv = shlex.split(text)
+            except ValueError:
+                continue
+            at = argv.index("-module-name") if "-module-name" in argv else len(argv)
+            module = argv[at + 1] if at + 1 < len(argv) else None
+            filelist = next((a[1:] for a in argv if a.startswith("@") and a.endswith(".SwiftFileList")), None)
+            if not module or not filelist or (module, filelist) in seen or not os.path.exists(filelist):
+                continue
+            seen.add((module, filelist))
+            if real in (os.path.realpath(f) for f in read_filelist(filelist)):
+                return module
+    return None
+
+
+def is_device_target(target):
+    """An iPhone or iPad, not its Simulator: arm64-apple-ios18.0, never arm64-apple-ios18.0-simulator."""
+    return "-apple-ios" in target and not target.endswith("-simulator")
+
+
+def device_sign_refusal(target, identity):
+    """Why a patch for `target` cannot be signed with `identity`, or None. A device's kernel maps only
+    code its app's team signed, and cmux Dev refuses an ad hoc patch (DevicePatchSignature.swift)."""
+    if is_device_target(target) and identity == "-":
+        return (f"patch.py: {target} is a device: an ad hoc patch never loads there; pass --sign with this Mac's "
+                "Apple Development identity (scripts/live-code/ios-device.sh patch does)")
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--log", required=True, help="reload.sh's xcodebuild log of the running build")
@@ -311,7 +351,7 @@ def main():
     # --all is one module's every file: --module's, else CmuxNextApp's.
     modules = {}
     for path in opts.files:
-        module = opts.module or module_of(path)
+        module = opts.module or module_of(path) or module_in_log(opts.log, path)
         if not module:
             sys.exit(f"patch.py: {path} is in no module's Sources/ folder; pass --module")
         modules.setdefault(module, []).append(path)
@@ -383,6 +423,9 @@ def main():
             sys.exit(f"patch.py: every file of {next(iter(modules))} holds state; nothing to patch")
     target = argv[argv.index("-target") + 1]
     sdk = argv[argv.index("-sdk") + 1] if "-sdk" in argv else None
+    refusal = device_sign_refusal(target, opts.sign)
+    if refusal:
+        sys.exit(refusal)
     name = f"patch-{time.time_ns()}-{os.getpid()}.dylib"  # unique and in order, even for two saves in a second
     dylib = os.path.join(work, name)
     # The swiftc beside the build's frontend: the same toolchain compiles and links.

@@ -41,7 +41,7 @@ fn log_path() -> PathBuf {
 
 fn append(line: &Value) {
     let path = log_path();
-    let wrote = std::fs::OpenOptions::new()
+    let wrote = crate::home_fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)

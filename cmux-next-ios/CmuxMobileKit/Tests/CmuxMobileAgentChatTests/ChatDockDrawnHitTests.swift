@@ -30,7 +30,10 @@ import UIKit
         let (window, dock, field, button) = makeDock()
         defer { window.isHidden = true }
         // The slide up 50 pt, slow and linear: drawn at about its start for the test.
-        UIView.animate(withDuration: 30, delay: 0, options: [.curveLinear]) {
+        // With `.allowUserInteraction`, as the dock's own keyboard pass animates it
+        // (`keyboardWillChangeFrame`): without it UIKit refuses every touch on the
+        // moving subtree, so the hit stopped at the dock and never reached a control.
+        UIView.animate(withDuration: 30, delay: 0, options: [.curveLinear, .allowUserInteraction]) {
             dock.frame.origin.y = 250
         }
         CATransaction.flush()
