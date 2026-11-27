@@ -95,6 +95,7 @@ pub(crate) mod dead_letters;
 pub(crate) mod desktop_bridge;
 mod digest;
 pub(crate) mod dispatch;
+pub(crate) mod draft_attachments;
 mod drafts;
 // RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
 mod acp_version;
@@ -179,6 +180,8 @@ mod key_store;
 pub(crate) mod session_lifecycle;
 // A dead lane on a peer tells its starter here (`lane_death_watch.rs`).
 mod lane_death_watch;
+// A closed session's exit record goes to its parent (`exit_notify.rs`).
+mod exit_notify;
 // The per-lane fan-out cap (`lane_fanout.rs`).
 pub(crate) mod lane_fanout;
 mod lane_report_reads;
