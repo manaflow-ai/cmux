@@ -22,6 +22,10 @@
   --cv-code-radius: 8px;
   --cv-text-muted: color-mix(in srgb, var(--agent-text) 74%, transparent);
   --cv-text-dim: color-mix(in srgb, var(--agent-text) 62%, transparent);
+  /* Tool rows and "Worked for" draw --cv-activity-text (the stock 58% of the text). Plush's own ink is
+     only 5.1:1 to 6.0:1 over its light pages, so the stock mix read 2.3:1 to 2.5:1 there: they take
+     96% of the text in light (4.75:1 at worst, Plush) and 80% in dark (4.92:1 at worst, Plush Dark). */
+  --cv-activity-text: color-mix(in srgb, var(--agent-text) 96%, transparent);
   --cv-link: var(--agent-accent);
   --agent-link: var(--agent-accent);
 
@@ -34,6 +38,7 @@
 :root[data-theme="dark"] :is(.acpmux-shell, .ui-positioner) {
   --plush-hi: color-mix(in srgb, white 7%, var(--acpmux-base));
   --plush-lo: color-mix(in srgb, black 55%, transparent);
+  --cv-activity-text: color-mix(in srgb, var(--agent-text) 80%, transparent);
 }
 
 /* The prompt box: raised out of the page, 20 px corners, no frost, ring or sheen. The repeated

@@ -158,7 +158,7 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
     provider.calls.filter(({ op }) => op === KeybindingOps.set || op === KeybindingOps.remove).length;
   // Before a key comes, the recorder shows the row's own keys and how to delete them.
   expect(recorderKeys()?.textContent).toBe("⌘P");
-  expect(recorder()?.textContent).toContain("⌫");
+  expect(recorder()?.textContent).toContain("Press delete to delete");
   expect(close()?.textContent).toContain("esc");
   expect(recorder()?.querySelector(".keys-recorder-command")?.textContent).toBe("Go to File");
 
@@ -661,5 +661,5 @@ test("keys another action has: the recorder says who has them and offers Overwri
   await settle();
   expect(provider.calls.filter(({ op }) => op === KeybindingOps.remove)).toHaveLength(removesBefore);
   expect(sets().at(-1)?.params).toMatchObject({ command: "find.open", key: "ctrl+tab" });
-  expect(row("Next Tab")?.querySelector(".keys-key-button")?.textContent).toBe("⌃ tab");
+  expect(row("Next Tab")?.querySelector(".keys-key-button")?.textContent).toBe("⌃tab");
 });

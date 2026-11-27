@@ -212,7 +212,7 @@ test("a chat menu draws no bare letter keycaps, and a typed letter still picks i
   );
   await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
   const menu = document.querySelector('[role="menu"]')!;
-  for (const key of menu.querySelectorAll("kbd")) expect(key.textContent ?? "").toMatch(MODIFIER);
+  for (const key of menu.querySelectorAll(".ui-key-hint")) expect(key.textContent ?? "").toMatch(MODIFIER);
   // One divider, before the destructive pair.
   expect(menu.querySelectorAll('[role="separator"]').length).toBe(1);
   await act(async () =>
@@ -227,8 +227,8 @@ test("menuKeycap keeps modifier shortcuts and drops bare letters", () => {
   for (const bare of ["R", "F", "A", "D", "7", "", undefined]) expect(menuKeycap(bare)).toBeUndefined();
 });
 
-// Lint: a dropdown/context menu row in the web UI never puts a bare-letter literal in a <kbd>. Menus
-// render keycaps through menuKeycap(); a literal like <kbd>R</kbd> next to a MenuItem fails here.
+// Lint: a dropdown/context menu row in the web UI never draws a bare-letter literal as a key hint. Menus
+// render keycaps through menuKeycap(); a literal like <KeyHint keys="R" /> next to a MenuItem fails here.
 test("no menu file renders a bare single-character keycap literal", () => {
   const root = join(import.meta.dir, "../../..");
   const files: string[] = [];
@@ -250,6 +250,8 @@ test("no menu file renders a bare single-character keycap literal", () => {
       if (/<kbd[^>]*>\s*[⌘⌥⌃⇧]+\s*<\/kbd>\s*$/.test(before)) continue;
       offenders.push(`${file.slice(root.length + 1)}: <kbd>${match[1]}</kbd>`);
     }
+    for (const match of source.matchAll(/<KeyHint\b[^>]*\bkeys="([A-Za-z0-9])"/g))
+      offenders.push(`${file.slice(root.length + 1)}: <KeyHint keys="${match[1]}" />`);
     for (const match of source.matchAll(/\b(?:shortcutLabel|keycap|shortcut|hint):\s*"([A-Za-z0-9])"/g))
       offenders.push(`${file.slice(root.length + 1)}: ${match[0]}`);
   }

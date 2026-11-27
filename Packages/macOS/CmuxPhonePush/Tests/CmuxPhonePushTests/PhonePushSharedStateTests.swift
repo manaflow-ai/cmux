@@ -1,12 +1,19 @@
 import CmuxAuthRuntime
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+@preconcurrency import Crypto // swift-crypto marks its key types Sendable only on Apple platforms
+#endif
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 import Testing
 @testable import CmuxPhonePush
 
 @Suite("Phone push shared state")
 struct PhonePushSharedStateTests {
+    #if canImport(Security)
     private static let keychainWritable: Bool = keychainWriteCompletes {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -36,6 +43,7 @@ struct PhonePushSharedStateTests {
         guard outcome.done.wait(timeout: .now() + limit) == .success else { return false }
         return outcome.status == errSecSuccess
     }
+    #endif
 
     /// Stands in for the keychain group the host app and its extension share.
     private final class MemoryStorage: PhonePushSharedStateStorage {
@@ -249,6 +257,7 @@ struct PhonePushSharedStateTests {
         #expect(PhonePushKeychainStateStorage.accessGroup(from: nil) == nil)
     }
 
+    #if canImport(Security)
     @Test(
         "shared push state migrates to device-only protection",
         .enabled(if: keychainWritable, "no writable keychain (no GUI login session)")
@@ -318,4 +327,5 @@ struct PhonePushSharedStateTests {
                 == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
         )
     }
+    #endif
 }

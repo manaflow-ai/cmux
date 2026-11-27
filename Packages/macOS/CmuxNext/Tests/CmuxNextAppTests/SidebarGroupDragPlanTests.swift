@@ -26,6 +26,13 @@ import Testing
         ]
     }()
 
+    @Test func aGroupFromAnotherWindowUsesThePointerSlotAcrossWholeBlocks() {
+        let blocks = SidebarGroupDragPlan.blocks(of: Self.base)
+        for (y, index): (CGFloat, Int) in [(26, 0), (46, 1), (74, 1), (98, 2), (124, 2), (170, 4)] {
+            #expect(SidebarGroupDragPlan.externalDrop(at: y, in: blocks) == .newWorkspace(section: .pinned, group: nil, index: index))
+        }
+    }
+
     /// The dragged group stood after `a` (its top at 52 before it lifted), its card cut to 60 pt.
     static func plan(allowed: [Bool]? = nil) -> SidebarGroupDragPlan {
         SidebarGroupDragPlan(blocks: SidebarGroupDragPlan.blocks(of: base), groupTop: 52, card: 60, lead: 6, trail: 6, allowed: allowed)
