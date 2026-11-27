@@ -2,6 +2,12 @@ import Foundation
 import CmuxRemoteSession
 
 extension RemoteTmuxSessionMirror {
+    /// Whether `surfaceId` is one of this session mirror's pane surfaces. Used to route
+    /// a pasted image to this mirror's tmux host for SSH upload.
+    func ownsSurface(_ surfaceId: UUID) -> Bool {
+        paneId(forSurfaceId: surfaceId) != nil
+    }
+
     /// The tab title for a mirrored window: the tmux window name, or a localized
     /// placeholder when tmux hasn't reported one. tmux window names are
     /// content-derived (like every other cmux tab title) so the name itself is

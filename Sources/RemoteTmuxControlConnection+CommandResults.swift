@@ -406,6 +406,9 @@ extension RemoteTmuxControlConnection {
             // remote pane is now on primary, force it back (1049l) so the capture doesn't
             // paint onto a stale alt screen.
             if lines.first?.trimmingCharacters(in: .whitespaces) == "1" {
+                // A full-history load whose pane started a full-screen app after the shape
+                // query paints only the screen.
+                leavePaneSeedHistoryOutForAlternateScreen(paneId: paneId, seedID: seedID)
                 appendPaneSeedPrefix(
                     paneId: paneId, seedID: seedID, data: Self.altScreenEnterSequence
                 )

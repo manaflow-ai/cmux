@@ -52,6 +52,34 @@ import Testing
         #expect(search.state == .alternateScreen)
     }
 
+    @Test func anotherSeedOfThePaneForgetsAFinishedLoad() async {
+        let search = RemoteTmuxFullHistorySearch(
+            reseed: { .loaded(historyRows: 9, truncated: false) },
+            rerunSearch: {}
+        )
+        #expect(await search.load())
+
+        // A reconnect painted the newest rows over the loaded history.
+        search.historyWasReseeded()
+
+        #expect(search.state == .notLoaded)
+    }
+
+    @Test func theLoadsOwnSeedDoesNotForgetIt() async {
+        var search: RemoteTmuxFullHistorySearch? = nil
+        search = RemoteTmuxFullHistorySearch(
+            reseed: {
+                // The connection hands the load's seed to the mirror before the load returns.
+                search?.historyWasReseeded()
+                return .loaded(historyRows: 9, truncated: false)
+            },
+            rerunSearch: {}
+        )
+
+        #expect(await search?.load() == true)
+        #expect(search?.state == .loaded(historyRows: 9, truncated: false))
+    }
+
     @Test(.timeLimit(.minutes(1))) func aSecondRequestWhileLoadingDoesNotFetchTwice() async {
         var fetches = 0
         var release: CheckedContinuation<Void, Never>?

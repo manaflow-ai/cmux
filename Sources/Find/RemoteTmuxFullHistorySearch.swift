@@ -9,6 +9,12 @@ import Observation
 /// the match count and Return/Shift-Return (and copy mode's `n`/`N`) cover it.
 /// The find-bar button and Option-Return in the find field both go through this
 /// one path.
+///
+/// There is one per mirrored pane, owned by its session mirror
+/// (``RemoteTmuxSessionMirror/fullHistorySearch(forPane:)``), so a find bar that is
+/// rebuilt (a new find session, or a portal reparent mid-load) shows the same load.
+/// The mirror calls ``historyWasReseeded()`` when another seed repaints the pane's
+/// scrollback, which replaces the loaded history.
 @MainActor
 @Observable
 final class RemoteTmuxFullHistorySearch {
@@ -23,7 +29,9 @@ final class RemoteTmuxFullHistorySearch {
 
     private(set) var state: State = .notLoaded
     @ObservationIgnored private let reseed: @MainActor () async -> RemoteTmuxFullHistorySeedOutcome
-    @ObservationIgnored private let rerunSearch: @MainActor () -> Void
+    /// Runs the surface's open search again over the new rows. The find bar sets it each
+    /// time it is built, since the search it reruns belongs to that find session.
+    @ObservationIgnored var rerunSearch: @MainActor () -> Void
 
     /// - Parameters:
     ///   - reseed: repaints the pane with its full history.
@@ -55,5 +63,13 @@ final class RemoteTmuxFullHistorySearch {
             state = .failed
             return false
         }
+    }
+
+    /// Forgets how the last load ended, because another seed (a reconnect, or a reattach)
+    /// repainted the pane's scrollback with its newest rows. A running load is left alone:
+    /// its own seed reaches the mirror before the load returns.
+    func historyWasReseeded() {
+        guard state != .loading else { return }
+        state = .notLoaded
     }
 }

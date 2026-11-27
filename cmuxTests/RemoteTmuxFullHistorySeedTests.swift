@@ -26,18 +26,10 @@ import Testing
         defer { fixture.connection.removeObserver(token) }
 
         let reseed = Task { await fixture.connection.reseedPaneWithFullHistory(paneId: 7) }
-        try await waitForPendingCommands(on: fixture.connection) { kinds in
-            kinds.contains { if case .rawQuery = $0 { return true } else { return false } }
-        }
-        let query = String(decoding: fixture.pipe.fileHandleForReading.availableData, as: UTF8.self)
-        #expect(query.contains("display-message -p -t %7"))
-        #expect(query.contains("#{history_size}"))
-        fixture.reply(number: 40, lines: ["1000 200 0"])
-
-        try await waitForPendingCommands(on: fixture.connection) { kinds in
-            kinds.contains { if case .paneState = $0 { return true } else { return false } }
-        }
-        let queue = String(decoding: fixture.pipe.fileHandleForReading.availableData, as: UTF8.self)
+        let sent = try await answerQueriesUntilTheSeedQueue(fixture, shape: "1000 200 0", sampleRow: "sample")
+        #expect(sent.shape.contains("display-message -p -t %7"))
+        #expect(sent.shape.contains("#{history_size}"))
+        let queue = sent.queue
         // One tmux command queue: pane output stays paused across every capture.
         #expect(queue.components(separatedBy: "\n").filter { !$0.isEmpty }.count == 1)
         let pause = try #require(queue.range(of: "refresh-client -A \"%7:pause\""))
@@ -107,11 +99,8 @@ import Testing
         defer { fixture.close() }
 
         let reseed = Task { await fixture.connection.reseedPaneWithFullHistory(paneId: 7) }
-        try await waitForPendingCommands(on: fixture.connection) { !$0.isEmpty }
-        fixture.reply(number: 40, lines: ["120 80 0"])
-        try await waitForPendingCommands(on: fixture.connection) { kinds in
-            kinds.contains { if case .capturePaneHistory = $0 { return true } else { return false } }
-        }
+        let sent = try await answerQueriesUntilTheSeedQueue(fixture, shape: "120 80 0", sampleRow: "sample")
+        #expect(sent.queue.contains("capture-pane -p -e -S - -E -1 -t %7"))
 
         fixture.connection.beginReconnecting()
 
@@ -130,13 +119,11 @@ import Testing
         defer { fixture.connection.removeObserver(token) }
 
         let reseed = Task { await fixture.connection.reseedPaneWithFullHistory(paneId: 7) }
-        try await waitForPendingCommands(on: fixture.connection) { !$0.isEmpty }
-        // 40 rows on a 6,000-column pane read as two chunks of 21 and 19 rows.
-        fixture.reply(number: 40, lines: ["40 6000 0"])
-        try await waitForPendingCommands(on: fixture.connection) { kinds in
-            kinds.contains { if case .paneState = $0 { return true } else { return false } }
-        }
-        replyToSeedQueue(fixture, history: [["row-0001", "row-0002", "row-0003"], ["row-0004", "row-0005", "row-0006"]])
+        // The sampled rows take 3 bytes each, so the load asks for the newest 13 of the 40.
+        _ = try await answerQueriesUntilTheSeedQueue(fixture, shape: "40 6000 0", sampleRow: "s")
+        // Older rows can be denser than the sample. These take 10 bytes each, and the seed
+        // keeps the newest four that fit.
+        replyToSeedQueue(fixture, history: [(1...6).map { String(format: "row-%04d", $0) }])
 
         #expect(await reseed.value == .loaded(historyRows: 4, truncated: true))
         let painted = String(decoding: try #require(seeds.last).snapshot, as: UTF8.self)
@@ -150,11 +137,7 @@ import Testing
         defer { fixture.close() }
 
         let reseed = Task { await fixture.connection.reseedPaneWithFullHistory(paneId: 7) }
-        try await waitForPendingCommands(on: fixture.connection) { !$0.isEmpty }
-        fixture.reply(number: 40, lines: ["20 80 0"])
-        try await waitForPendingCommands(on: fixture.connection) { kinds in
-            kinds.contains { if case .paneState = $0 { return true } else { return false } }
-        }
+        _ = try await answerQueriesUntilTheSeedQueue(fixture, shape: "20 80 0", sampleRow: "sample")
         replyToSeedQueue(fixture, history: [(1...20).map { String(format: "history-row-%04d", $0) }])
 
         // Painting the screen without those rows would leave a hole the find bar
@@ -162,15 +145,172 @@ import Testing
         #expect(await reseed.value == .failed)
     }
 
+    // MARK: - Bytes requested
+
+    @Test(.timeLimit(.minutes(1))) func aWideDenseColorHistoryAsksForNoMoreThanTheSeedKeeps() async throws {
+        // 100,000 rows on a 200-column pane where every cell changes its 24-bit foreground
+        // and background: over 7 KB a row from `capture-pane -e`, about 700 MB in all. The
+        // seed keeps only `maximumFullHistoryBytes` of history, and tmux answers a queue's
+        // captures back to back through the stdout bridge, so a byte asked for past what
+        // the seed keeps is read only to be dropped.
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        let row = Self.denseColorRow(width: 200)
+        let rowBytes = row.utf8.count + 2
+
+        let reseed = Task { await fixture.connection.reseedPaneWithFullHistory(paneId: 7) }
+        let sent = try await answerQueriesUntilTheSeedQueue(fixture, shape: "100000 200 0", sampleRow: row)
+
+        let kept = RemoteTmuxControlConnection.maximumFullHistoryBytes
+        let planned = Self.requestedHistoryRows(in: sent.queue, historySize: 100_000) * rowBytes
+        let sampled = sent.queries.map { Self.requestedHistoryRows(in: $0, historySize: 100_000) }.reduce(0, +)
+            * rowBytes
+        #expect(planned <= kept, "the queue asks for \(planned) bytes; the seed keeps \(kept)")
+        // Rounded down to whole rows, the plan still fills what the seed keeps.
+        #expect(planned > kept - rowBytes, "the queue asks for only \(planned) of \(kept) bytes")
+        #expect(
+            planned + sampled < RemoteTmuxControlConnection.maxPendingStdoutBytes,
+            "the load reads \(planned + sampled) bytes through a \(RemoteTmuxControlConnection.maxPendingStdoutBytes)-byte bridge"
+        )
+
+        fixture.connection.beginReconnecting()
+        #expect(await reseed.value == .failed)
+    }
+
+    // MARK: - A full-screen app starting mid-load
+
+    @Test(.timeLimit(.minutes(1))) func aPaneThatSwitchedToTheAlternateScreenKeepsItsScrollback() async throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        var seeds: [RemoteTmuxPaneSeed] = []
+        let token = fixture.connection.addObserver(onPaneSeed: { paneID, seed in
+            if paneID == 7 { seeds.append(seed) }
+        })
+        defer { fixture.connection.removeObserver(token) }
+
+        let reseed = Task { await fixture.connection.reseedPaneWithFullHistory(paneId: 7) }
+        _ = try await answerQueriesUntilTheSeedQueue(fixture, shape: "40 80 0", sampleRow: "sample")
+        // The pane was on the primary screen when its shape was read, and a full-screen
+        // app had started by the time tmux ran the queue.
+        replyToSeedQueue(fixture, history: [["history-1", "history-2"]], alternateScreen: true)
+
+        #expect(await reseed.value == .alternateScreen)
+        // Output was paused for the queue, so its screen still has to be painted, on the
+        // alternate screen, which has no scrollback to hold the history rows.
+        let painted = String(decoding: try #require(seeds.last).snapshot, as: UTF8.self)
+        #expect(painted.hasPrefix("\u{1b}[?1049h"))
+        #expect(painted.hasSuffix("screen"))
+        #expect(!painted.contains("history-1"))
+        // The scrollback the surface already holds stays: there is nothing to replace it.
+        #expect(!painted.contains("\u{1b}[3J"))
+    }
+
+    // MARK: - The find bar's load state
+
+    @Test(.timeLimit(.minutes(1))) func aPanesLoadOutlivesARebuiltFindBarAndEndsAtTheNextSeed() async throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: manager.selectedWorkspace!
+        )
+        defer { sessionMirror.detachObserver() }
+        // No window holds pane 7 here, so the mirror sends nothing of its own and the
+        // load's commands are the only ones in the queue.
+        #expect(fixture.connection.pendingCommandKindsForTesting.isEmpty)
+
+        let search = sessionMirror.fullHistorySearch(forPane: 7)
+        let load = Task { await search.load() }
+        _ = try await answerQueriesUntilTheSeedQueue(fixture, shape: "40 80 0", sampleRow: "sample")
+        // A find bar rebuilt mid-load (a portal reparent) shows the same load and its spinner.
+        #expect(sessionMirror.fullHistorySearch(forPane: 7) === search)
+        #expect(search.state == .loading)
+        // The load's own seed reaches the mirror before the load finishes, and must not end it.
+        replyToSeedQueue(fixture, history: [["history-1", "history-2"]])
+        #expect(await load.value)
+        #expect(search.state == .loaded(historyRows: 2, truncated: false))
+
+        // A visible-screen repaint leaves the scrollback alone.
+        sessionMirror.routeSeed(paneId: 7, seed: Self.seed(.visibleRepaint))
+        #expect(search.state == .loaded(historyRows: 2, truncated: false))
+        // A reconnect reseed replaces the scrollback with the newest rows again.
+        sessionMirror.routeSeed(paneId: 7, seed: Self.seed(.fullHistory))
+        #expect(search.state == .notLoaded)
+    }
+
+    private static func seed(_ kind: RemoteTmuxPaneSeedKind) -> RemoteTmuxPaneSeed {
+        RemoteTmuxPaneSeed(kind: kind, discardedOutput: [], snapshot: Data("rows".utf8), catchUpOutput: [], state: Data())
+    }
+
+    /// One row as `capture-pane -e` writes it when every cell changes its 24-bit
+    /// foreground and background: an SGR sequence ahead of each character.
+    private static func denseColorRow(width: Int) -> String {
+        (0..<width).map { cell in
+            let red = cell % 256, green = (cell * 7) % 256, blue = (cell * 13) % 256
+            return "\u{1b}[38;2;\(red);\(green);\(blue);48;2;\(blue);\(red);\(green)mx"
+        }.joined()
+    }
+
+    /// The history rows the `capture-pane -S … -E …` commands in `text` ask for.
+    private static func requestedHistoryRows(in text: String, historySize: Int) -> Int {
+        text.matches(of: #/capture-pane -p -e -S (-\d*) -E (-\d+)/#).map { match in
+            let top = match.1 == "-" ? historySize : -(Int(match.1) ?? 0)
+            let bottom = -(Int(match.2) ?? 0)
+            return max(0, top - bottom + 1)
+        }.reduce(0, +)
+    }
+
+    /// Answers a reseed's queries until it sends its seed queue: the pane's shape, then
+    /// `sampleRow` for every row any other query captures. Returns what it wrote: the
+    /// shape query, every other query, and the queue.
+    private func answerQueriesUntilTheSeedQueue(
+        _ fixture: Fixture,
+        shape: String,
+        sampleRow: String
+    ) async throws -> (shape: String, queries: [String], queue: String) {
+        var shapeQuery = ""
+        var queries: [String] = []
+        var number = 40
+        while true {
+            try await waitForPendingCommands(on: fixture.connection) { kinds in
+                kinds.contains { kind in
+                    switch kind {
+                    case .rawQuery, .paneState: return true
+                    default: return false
+                    }
+                }
+            }
+            let text = String(decoding: fixture.pipe.fileHandleForReading.availableData, as: UTF8.self)
+            let queued = fixture.connection.pendingCommandKindsForTesting.contains {
+                if case .paneState = $0 { return true } else { return false }
+            }
+            if queued { return (shapeQuery, queries, text) }
+            if text.contains("#{history_size}") {
+                shapeQuery = text
+                fixture.reply(number: number, lines: [shape])
+            } else {
+                queries.append(text)
+                let rows = Self.requestedHistoryRows(in: text, historySize: 0)
+                fixture.reply(number: number, lines: Array(repeating: sampleRow, count: rows))
+            }
+            number += 1
+        }
+    }
+
     /// Answers every queued seed command, history chunks in order, starting at
     /// command 41.
-    private func replyToSeedQueue(_ fixture: Fixture, history: [[String]]) {
+    private func replyToSeedQueue(_ fixture: Fixture, history: [[String]], alternateScreen: Bool = false) {
         var number = 41
         var chunks = history[...]
         for kind in fixture.connection.pendingCommandKindsForTesting {
             let lines: [String]
             switch kind {
-            case .paneAltScreen: lines = ["0"]
+            case .paneAltScreen: lines = [alternateScreen ? "1" : "0"]
             case .capturePaneHistory: lines = chunks.popFirst() ?? []
             case .capturePane: lines = ["screen"]
             case .paneState: lines = [Self.paneStateLine(cursorX: 0, cursorY: 0)]
