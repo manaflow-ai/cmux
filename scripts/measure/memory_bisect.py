@@ -10,7 +10,9 @@ this walks a range (say the landings between two nightlies, or a PR's commits) a
         prints MEMORY_BISECT first=SHA (or first=none); exit 0 found, 1 none, 2 could not run
 
 Run it in a clean checkout at the head whose harness should measure (`cmux-ci test -- python3
-scripts/measure/memory_bisect.py ...` runs at the pushed PR head). Candidates are the first-parent commits in
+scripts/measure/memory_bisect.py --good FULLSHA --bad FULLSHA` runs at the pushed PR head). A fleet job's source is
+shallow with no credential, so the range comes in by SHA from the public repository (fetch-commit.sh); pass
+full SHAs of pushed commits (a landing range, or a lane branch's commits), not branch names. Candidates are the first-parent commits in
 good..bad that touch cmux-tui/ (others build the same daemons). Each probe puts that commit's cmux-tui/ in place,
 builds it with no LTO and 16 codegen units (the heap a run holds is data, not code; infinite-items-linux.sh's
 alloc_ab note), caches the three binaries, puts HEAD's cmux-tui/ back, and runs this head's infinite-items.py on
@@ -35,6 +37,30 @@ BINS = ("acpmux", "cmux-tui", "cmux-tui-host")
 
 def git(root: str, *args: str) -> str:
     return subprocess.run(["git", "-C", root, *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def ensure_range(root: str, good: str, bad: str, depth: int) -> None:
+    """Make good..bad present in a shallow or remote-less checkout (a fleet step's source, a `cmux-ci test` job).
+
+    Pass full SHAs: a job cannot resolve a branch name it never fetched. Each commit comes through
+    measure_fetch_commit (scripts/measure/fetch-commit.sh: origin when there is one, else the public repository,
+    by SHA, no credential), the bad end with `depth` parents, deepened until the good end is in it."""
+    helper = os.path.join(root, "scripts/measure/fetch-commit.sh")
+    have = lambda sha: subprocess.run(["git", "-C", root, "cat-file", "-e", f"{sha}^{{commit}}"],
+                                      capture_output=True).returncode == 0
+    fetch = lambda sha, n: subprocess.run(["bash", "-c", 'source "$1"; measure_fetch_commit "$2" "$3" "$4"', "_",
+                                           helper, root, sha, str(n)]).returncode == 0
+    if not have(good) and not fetch(good, 1):
+        raise SystemExit(f"memory_bisect: cannot fetch --good {good}")
+    n = depth
+    while True:
+        if not fetch(bad, n):
+            raise SystemExit(f"memory_bisect: cannot fetch --bad {bad} with {n} parents")
+        if subprocess.run(["git", "-C", root, "merge-base", "--is-ancestor", good, bad], capture_output=True).returncode == 0:
+            return
+        if n >= 4096:
+            raise SystemExit(f"memory_bisect: {good} is not an ancestor of {bad} within 4096 commits")
+        n *= 4
 
 
 def candidates(root: str, good: str, bad: str) -> list[str]:
@@ -158,8 +184,10 @@ def main(argv=None) -> int:
     p.add_argument("--direction", choices=("grew", "shrank"), default="grew",
                    help="shrank finds the commit that cut the cost (to credit a fix)")
     p.add_argument("--list", action="store_true", help="print the candidates and stop")
+    p.add_argument("--depth", type=int, default=32, help="first fetch depth below --bad in a shallow checkout")
     args = p.parse_args(argv)
     root = git(os.getcwd(), "rev-parse", "--show-toplevel")
+    ensure_range(root, args.good, args.bad, args.depth)
     shas = candidates(root, args.good, args.bad)
     print(f"MEMORY_BISECT range {args.good[:12]}..{args.bad[:12]} candidates={len(shas)}", flush=True)
     if args.list:
