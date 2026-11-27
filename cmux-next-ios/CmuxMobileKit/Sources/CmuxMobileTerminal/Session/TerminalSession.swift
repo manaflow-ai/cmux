@@ -70,14 +70,15 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
+    /// The Mac's name for status lines, "your Mac" when it has none.
+    private static func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
+
     /// The quiet line by the composer once an outage has lasted
-    /// `QuietStatusGate.threshold` (nil: attached). Plain words, never a
-    /// transport error ("daemon channel closed").
+    /// `QuietStatusGate.threshold`. Connecting and reattaching stay silent;
+    /// offline and failed states use plain words, never transport errors.
     public var quietLine: String? {
-        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch self {
-        case .connecting(let mac): return "Connecting to \(named(mac))…"
-        case .reattaching(let mac): return "Reconnecting to \(named(mac))…"
+        case .connecting, .reattaching: return nil
         case .offline(let mac): return mac.flatMap { $0.isEmpty ? nil : "\($0) is offline" } ?? "Your Mac is offline"
         case .failed: return "Can't reach this terminal"
         case .attached: return nil
@@ -124,10 +125,9 @@ public enum TerminalConnectionState: Sendable, Equatable {
     /// once the terminal is back, or comes back to the composer if it never
     /// comes (``TerminalSessionEvent/inputNotSent(bytes:)``).
     public var composerNotSentNotice: String? {
-        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch self {
         case .attached: return nil
-        case .offline(let mac): return "Not sent: \(named(mac)) is offline. Send again when it's back."
+        case .offline(let mac): return "Not sent: \(Self.named(mac)) is offline. Send again when it's back."
         case .failed(let message): return message
         // A first attach usually lands within a few hundred ms: the send
         // goes to the session, which holds it that long and says so if the

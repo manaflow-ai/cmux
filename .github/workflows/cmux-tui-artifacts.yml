@@ -274,7 +274,7 @@ jobs:
       # true when the push changes no tree-key input against its merge base with feat-cmux-next.
       inputs_unchanged: ${{ steps.inputs.outputs.unchanged }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -334,7 +334,7 @@ jobs:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -418,7 +418,7 @@ jobs:
       # Any file a step here starts reading is added to this list.
       - id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -429,6 +429,8 @@ jobs:
             scripts/ci/api_call_log/
             scripts/ci/cmux_tui_superseded_push.py
             scripts/ci/ci_pool_tokens.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
             scripts/ci/cmux-tui-darwin-builder
             scripts/cmux-next/cmux-tui-build-profiles.json
             scripts/ci/cmux_tui_tree_key.py
@@ -458,7 +460,7 @@ jobs:
 
       - name: Retry checkout after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -469,6 +471,8 @@ jobs:
             scripts/ci/api_call_log/
             scripts/ci/cmux_tui_superseded_push.py
             scripts/ci/ci_pool_tokens.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
             scripts/ci/cmux-tui-darwin-builder
             scripts/cmux-next/cmux-tui-build-profiles.json
             scripts/ci/cmux_tui_tree_key.py
@@ -1118,7 +1122,7 @@ jobs:
 
       # Only the claim script, from this run's commit, for a takeover through
       # the tree-claim authority.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: needs.tree-preflight.outputs.owner_run_id != ''
         # Without the script the takeover falls back to the old rule (exit 127).
         continue-on-error: true
@@ -1809,8 +1813,9 @@ jobs:
       target_set: ${{ steps.plan.outputs.target_set }}
       recovered: ${{ steps.plan.outputs.recovered }}
       builder: ${{ steps.plan.outputs.builder || 'mac' }}
+      stubs_ref: ${{ steps.plan.outputs.stubs_ref }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -1923,7 +1928,7 @@ jobs:
           # with no failed step (a lost runner), or with a shutdown signal in its log. A
           # cancelled leg (a timeout), a failed link or later step, a jobs read that fails, and
           # every attempt after the first still rebuild on a Mac, so a Linux retry happens once.
-          builder=mac
+          builder=mac; stubs_ref=""; compile_error=""
           if [[ -n "$set" && "$BUILD_RESULT" == failure && "$RUN_ATTEMPT" == 1 ]]; then
             darwin_legs="$(gh api --paginate "repos/$REPOSITORY/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs?per_page=100" \
               --jq '.jobs[] | select((.name | test("^build / build .*-apple-darwin$")) and .conclusion != "success") | [.id, (.conclusion // ""), ([.steps[]? | select(.conclusion == "failure")] | length), ([.steps[]? | select(.conclusion == "failure") | .number][0] // -1), ([.steps[]? | select(.name == "Build the macOS binaries on Linux (no Apple SDK)") | .number][0] // -1)] | @tsv' 2>/dev/null || true)"
@@ -1937,14 +1942,40 @@ jobs:
                   # Read whole, not piped to grep -q: under pipefail gh's SIGPIPE would fail the match.
                   job_log="$(gh api "repos/$REPOSITORY/actions/jobs/$job/logs" 2>/dev/null || true)"
                   [[ "$job_log" == *'The runner has received a shutdown signal'* ]] && continue
+                  # LINK_FAILS_ON_OLDER_STUBS: an undefined symbol on a head whose stubs are older than the
+                  # base branch's (2026-11-24: heads from before #53037) links on Linux with the base's stubs
+                  # merged in, not on a Mac. A plain compile error fails identically on a Mac: no fallback.
+                  if [[ "$job_log" == *'undefined symbol'* ]]; then
+                    if [[ -z "$stubs_ref" ]]; then
+                      head_tree="$(git rev-parse HEAD:scripts/ci/macos-stubs 2>/dev/null || true)"
+                      base_sha="$(gh api "repos/$REPOSITORY/commits/feat-cmux-next" --jq .sha 2>/dev/null || true)"
+                      base_tree="$(gh api "repos/$REPOSITORY/contents/scripts/ci?ref=$base_sha" --jq '.[] | select(.name=="macos-stubs") | .sha' 2>/dev/null || true)"
+                      if [[ "$base_sha" =~ ^[0-9a-f]{40}$ && -n "$head_tree" && -n "$base_tree" && "$head_tree" != "$base_tree" ]]; then
+                        stubs_ref="$base_sha"
+                      fi
+                    fi
+                    [[ -n "$stubs_ref" ]] && continue
+                  elif [[ "$job_log" == *'error[E'* && "$job_log" != *'error: linking'* ]]; then
+                    compile_error=1
+                  fi
                 fi
                 builder=mac
                 break
               done <<<"$darwin_legs"
+              [[ "$builder" == linux ]] || stubs_ref=""
+              if [[ -n "$compile_error" ]]; then
+                echo "::error title=no macOS fallback::a macOS leg failed to compile (error[E...] and no link failure); a Mac fails the same way. Fix the Rust error."
+                echo "target_set=" >> "$GITHUB_OUTPUT"
+                echo "builder=linux" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
             fi
           fi
           echo "builder=$builder" >> "$GITHUB_OUTPUT"
-          if [[ -n "$set" && "$builder" == linux ]]; then
+          echo "stubs_ref=$stubs_ref" >> "$GITHUB_OUTPUT"
+          if [[ -n "$set" && "$builder" == linux && -n "$stubs_ref" ]]; then
+            echo "::warning title=macOS targets relinked on Linux::the Linux link failed on a symbol the base branch's stubs hold; rebuilding target_set=$set on Linux with scripts/ci/macos-stubs from ${stubs_ref:0:12} merged in. Rebase to take them for good."
+          elif [[ -n "$set" && "$builder" == linux ]]; then
             echo "::warning title=macOS targets rebuilt on Linux::the Linux cross build of the macOS targets ended $BUILD_RESULT before its link (a checkout, fetch or lost runner); rebuilding target_set=$set on Linux in this run. A failure there falls back to a Mac on the next attempt."
           elif [[ -n "$set" ]]; then
             echo "cross_failed=true" >> "$GITHUB_OUTPUT"
@@ -2007,6 +2038,7 @@ jobs:
       lto: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.lto }}
       # mac, or linux for a leg that never reached its link (FALLBACK_RETRIES_LOST_LEGS_ON_LINUX).
       darwin_builder: ${{ needs.darwin-fallback-plan.outputs.builder }}
+      macos_stubs_ref: ${{ needs.darwin-fallback-plan.outputs.stubs_ref }}
       linux_runner: cmux-linux
 
   # The publish jobs take the build from here: the matrix build, or that
@@ -2100,7 +2132,7 @@ jobs:
       legacy_key: ${{ steps.key.outputs.legacy_key }}
       superseded: ${{ steps.current.outputs.stale }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -2444,7 +2476,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: scripts
 
@@ -2510,7 +2542,7 @@ jobs:
       # build-windows is done; this run's Windows build usually ends later.
       CMUX_TUI_PUBLISH_PASS: unix
     steps: &publish-steps
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -3777,7 +3809,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -3839,7 +3871,7 @@ jobs:
       # run (verify-cdn-publication is red).
       state: ${{ steps.adopt.outputs.state }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -4064,7 +4096,7 @@ jobs:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -4135,7 +4167,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -4244,7 +4276,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -4373,7 +4405,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -4480,7 +4512,7 @@ jobs:
       # anchor) to add the Windows daemon once publish-windows is done.
       CMUX_TUI_PUBLISH_PASS: unix
     steps: &publish-tree-steps
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -4942,6 +4974,36 @@ jobs:
             verify_tree "$LEGACY_KEY"
           fi
 
+      # RFD 0166 step 2: the smaller acpmux update files beside the tree's
+      # binaries, which `acpmux machine self-update` reads before the raw
+      # binary: <name>.zst and <name>.from-<old sha256>.zst, a zstd
+      # --patch-from against the build feat-cmux-next names now (what the
+      # machines run; A1 measured about 11% of the binary). Content-named and
+      # write-once, made only from the bytes tree/<key>/<name> is, and never a
+      # publish failure: the client checks each against the channel's sha256
+      # and falls back to the raw binary, so a missing one costs a request.
+      - name: Publish the acpmux update files (zstd and patch-from)
+        if: env.CMUX_TUI_PUBLISH_PASS == 'unix'
+        continue-on-error: true
+        timeout-minutes: 12
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
+        run: |
+          set -euo pipefail
+          keys=(--key "$KEY")
+          if [[ -n "$LEGACY_KEY" && "$LEGACY_KEY" != "$KEY" ]]; then keys+=(--key "$LEGACY_KEY"); fi
+          python3 scripts/cas/acpmux_update_files.py \
+            --assets-dir assets/tree "${keys[@]}" \
+            --channel feat-cmux-next \
+            --uploader scripts/ci/upload-r2-object.py \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket cmux-binaries
+
       # cmux-next runs that probed this tree before it was published left a
       # cmux-next-tree-wait-<key> marker and skipped their tree jobs (no runner
       # waited). Start them now: cmux-next.yml same-tree mode.
@@ -5061,7 +5123,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -5131,7 +5193,7 @@ jobs:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -5223,7 +5285,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # The keeper walks feat-cmux-next back to the channel's commit.
@@ -5292,7 +5354,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -5349,7 +5411,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 41
@@ -5442,7 +5504,7 @@ jobs:
       # the tree notify sweep reads a waiting pull request's head (is_current)
       pull-requests: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 41
@@ -5509,7 +5571,7 @@ jobs:
       # the tree notify sweep reads a waiting pull request's head (is_current)
       pull-requests: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -5644,7 +5706,7 @@ jobs:
       contents: read
       actions: read  # the Linux release file: this run's own build artifacts (gh run download)
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # cmux-tui-tree-key.sh --same-tree reads history: a single-commit checkout cannot name the tree's key inputs.
@@ -5818,7 +5880,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # live-from walks at most 400 first parents, including a merge's parents.
@@ -5906,7 +5968,7 @@ jobs:
       contents: read
     steps:
       # BASH_ENV (the API call log) lives in the checkout.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -5979,7 +6041,7 @@ jobs:
     steps:
       # Another branch's run asks from feat-cmux-next's own checkout and
       # scripts, at the commit it may promote.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.sha || 'refs/heads/feat-cmux-next' }}
@@ -6065,7 +6127,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -6175,7 +6237,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
