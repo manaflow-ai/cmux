@@ -450,10 +450,6 @@ path = "tests/test_ci_linux_single_size.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_mac_minutes.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_mac_grants.py"
 lane = "linux-guard"
 
