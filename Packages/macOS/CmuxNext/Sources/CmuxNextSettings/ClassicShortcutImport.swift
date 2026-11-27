@@ -18,43 +18,26 @@ enum ClassicShortcutImport {
     static let prefix = "shortcut."
 
     /// The shortcuts recorded in the first source that has any, by classic
-    /// action ID, as next's binding object (`ShortcutBindingFormat`).
+    /// action ID, as next's binding object (`ShortcutBindingFormat`). Rust reads
+    /// them (cmux-config app_ops/keymap.rs `keymap.classic_bindings`).
     static func recorded(in sources: [UserDefaults]) -> [String: JSONValue] {
-        for defaults in sources {
-            var found: [String: JSONValue] = [:]
-            for (key, value) in defaults.dictionaryRepresentation() where key.hasPrefix(prefix) {
-                guard let data = value as? Data, let binding = binding(stored: data) else { continue }
-                found[String(key.dropFirst(prefix.count))] = binding
-            }
-            if !found.isEmpty { return found }
+        let entries = sources.map { defaults in
+            JSONValue.object(defaults.dictionaryRepresentation().reduce(into: [:]) { out, entry in
+                guard entry.key.hasPrefix(prefix), let data = entry.value as? Data,
+                      let text = String(data: data, encoding: .utf8) else { return }
+                out[entry.key] = .string(text)
+            })
         }
-        return [:]
+        return SettingsRust.answer("keymap.classic_bindings", ["sources": .array(entries)])["bindings"]?.objectValue ?? [:]
     }
 
     /// Classic's `StoredShortcut` as `{ "first": {...}, "second": {...} }`,
-    /// or nil for a key next can't bind (classic's media keys).
+    /// or nil for a key next can't bind (classic's media keys)
+    /// (`keymap.classic_binding`).
     static func binding(stored data: Data) -> JSONValue? {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let first = stroke(object, key: "key", prefix: nil) else { return nil }
-        var members: [String: JSONValue] = ["first": first]
-        if let chordKey = object["chordKey"] as? String, !chordKey.isEmpty {
-            guard let second = stroke(object, key: "chordKey", prefix: "chord") else { return nil }
-            members["second"] = second
-        }
-        let binding = JSONValue.object(members)
-        return ShortcutBindingFormat.parse(binding) == nil ? nil : binding
-    }
-
-    /// One stroke; `prefix` names the chord's modifier fields (`chordShift`).
-    private static func stroke(_ object: [String: Any], key: String, prefix: String?) -> JSONValue? {
-        guard let rawKey = object[key] as? String,
-              rawKey.count <= 1 || ShortcutBindingFormat.keyEquivalent(forToken: rawKey) != nil else { return nil }
-        var stroke: [String: JSONValue] = ["key": .string(rawKey)]
-        for modifier in ["command", "shift", "option", "control"] {
-            let name = prefix.map { $0 + modifier.prefix(1).uppercased() + modifier.dropFirst() } ?? modifier
-            stroke[modifier] = .bool(object[name] as? Bool ?? false)
-        }
-        return .object(stroke)
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        let binding = SettingsRust.answer("keymap.classic_binding", ["text": .string(text)])["binding"]
+        return binding == .null ? nil : binding
     }
 
     /// Whether next can use `binding` for `id` without losing a key: it starts
