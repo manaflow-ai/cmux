@@ -223,6 +223,14 @@ run = "python3 tests/test_indexnow_notification.py"
 # granting none, and every cmux-next and cmux-tui artifacts run ended in startup_failure with 0 jobs until #56935
 # at 20:07Z (31 runs on the artifacts workflow alone; the Cloud channel stayed on an 18:56Z commit). Its tree fails
 # this step: "2 reusable-workflow permission mismatch(es) across 69 local call site(s)". Under a second, offline.
+[step.cargo-proc-macros-unstripped]
+job = "linux"
+timeout = 120
+title = "Cargo proc-macros unstripped"
+about = "every Cargo.toml whose release profile strips also sets `[profile.release.build-override] strip = false`, so Xcode 27's strip can't break proc-macro dylibs (rustc E0463)"
+inputs = ["**/Cargo.toml", "tests/test_cargo_proc_macros_unstripped.py"]
+run = "python3 tests/test_cargo_proc_macros_unstripped.py"
+
 [step.reusable-workflow-permissions]
 job = "linux"
 timeout = 120
