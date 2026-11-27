@@ -101,7 +101,10 @@ export interface CloudSendDeps {
   cloudRetryFolder: RefObject<ReturnType<typeof cloudStartFolder> | undefined>;
   /// A page's send ended here with its draft back in the chat composer: the composer's chip takes the
   /// folder it sent (`cloudPageFolderBack`: a folder, or `""` for No folder).
-  restoreCloudPageFolder: (folder: string) => void;
+  restoreCloudPageFolder: (folder: string, mark: number) => void;
+  /// The composer's folder choices so far (App `folderChoice`), taken at the send: a restore after a newer
+  /// choice (a pick, This Mac) changes nothing.
+  cloudFolderMark: () => number;
   /// The start card shown now: a failed one's environment is the retry's target (`forSend`).
   cloudStart: CloudStartProgress | undefined;
   setCloudStart: Dispatch<SetStateAction<CloudStartProgress | undefined>>;
@@ -296,6 +299,7 @@ export function beginCloudSendWith(
     cloudReservation,
     cloudRetryFolder,
     restoreCloudPageFolder,
+    cloudFolderMark,
     harnessSwitch,
     notices,
   } = deps;
@@ -366,6 +370,7 @@ export function beginCloudSendWith(
     cloudTypedDuringStart.current = undefined;
     return beginCloudSend(resumed, true, expected, false, taken);
   };
+  const folderMark = cloudFolderMark();
   lastCloudAttempt.current = { key, request };
   cloudStartPending.current = true;
   cloudTypedDuringStart.current = undefined;
@@ -435,7 +440,7 @@ export function beginCloudSendWith(
         expectedDraft = pageDraft;
         // The folder goes back with the prompt: the chip names what the card named (cmux#63348).
         const folder = cloudPageFolderBack(start);
-        if (folder !== undefined) restoreCloudPageFolder(folder);
+        if (folder !== undefined) restoreCloudPageFolder(folder, folderMark);
       }
     }
     if (!answer.ok && answer.code === "cloud_sign_in_cancelled") {
