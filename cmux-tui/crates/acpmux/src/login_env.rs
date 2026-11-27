@@ -1080,6 +1080,7 @@ fn extra_prefix(key: &str) -> bool {
 
 /// Login keys the daemon itself reads (routing and installation discovery), passed to a child only
 /// when the allow-list passes them.
+// fleet-only-ok: SUBROUTER_URL was already here on the base; this only drops the CodeRouter key.
 const INTERNAL: [&str; 4] =
     ["SUBROUTER_URL", "BUN_INSTALL_GLOBAL_DIR", "BUN_INSTALL_BIN", "XDG_CONFIG_HOME"];
 
