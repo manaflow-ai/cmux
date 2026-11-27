@@ -40,7 +40,7 @@ extension HistoryService {
         let kinds = query.kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appRead) : query.kinds.subtracting(appRead)
         // Closed rows carry their chat's session and harness, and the daemon searches them (#31871).
         var list: DaemonHistoryList?
-        if !kinds.isEmpty, let daemon { list = await DaemonHistoryClient.retrying { try await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit) } }
+        if !kinds.isEmpty, let daemon { list = await DaemonHistoryClient.retrying { try await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit, actor: query.actor) } }
         var all = (list?.entries ?? []).compactMap { daemonRow($0) }.map { reachable($0) }
         if wantsCommands {
             await commands.refresh()
@@ -61,7 +61,7 @@ extension HistoryService {
             return commands.entries().first { $0.id == id }.map { HistoryLookup.found($0) } ?? .gone
         }
         guard let daemon, let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return .gone }
-        guard let list = await DaemonHistoryClient.retrying({ try await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000) }) else { return .gone }
+        guard let list = await DaemonHistoryClient.retrying({ try await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000, actor: .all) }) else { return .gone }
         if let entry = list.entries.first(where: { $0.id == id }).flatMap({ daemonRow($0) }).map({ reachable($0) }) { return .found(entry) }
         return list.isStillLoading(id: id) ? .stillLoading : .gone
     }

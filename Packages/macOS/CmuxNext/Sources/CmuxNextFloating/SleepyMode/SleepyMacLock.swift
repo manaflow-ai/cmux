@@ -13,6 +13,7 @@ public struct SleepyMacLock {
     public init() {}
 
     public func lock() {
+        // main-actor-ok: only builds the Process; ProcessLauncher spawns it off the main thread
         let process = Process()
         if FileManager.default.isExecutableFile(atPath: Self.cgSession) {
             process.executableURL = URL(fileURLWithPath: Self.cgSession)

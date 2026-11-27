@@ -681,6 +681,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hop-relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "cmux-scope",
+ "cmux-transport",
+ "getrandom 0.3.4",
+ "hmac",
+ "serde_json",
+ "sha2",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-local-url"
 version = "0.1.0"
 dependencies = [
@@ -787,6 +802,7 @@ dependencies = [
  "cmux-bundle",
  "cmux-egress",
  "cmux-fault",
+ "cmux-hop-relay",
  "cmux-mobile-host",
  "cmux-mobile-link",
  "cmux-proxy",
@@ -868,6 +884,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "unicode-normalization",
  "uniffi",
  "url",
  "uuid",
