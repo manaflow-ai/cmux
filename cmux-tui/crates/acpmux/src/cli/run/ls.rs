@@ -483,9 +483,12 @@ async fn scoped_output_with_budget(
     {
         status_read = Some(read.await.ok().and_then(Result::ok));
     }
+    // Only the counts and peers (`listCounts`): the full status waits on its host, disk and
+    // agent reads, and this read runs before the list (#58414).
     if walks_all && status_read.is_none() {
-        status_read =
-            Some(request_bounded(client, method::MUX_STATUS, json!({}), budget).await.ok());
+        let mut counts = json!({});
+        counts.set(crate::rpc::LIST_COUNTS, json!(true));
+        status_read = Some(request_bounded(client, method::MUX_STATUS, counts, budget).await.ok());
     }
     let closed_listed = status_read
         .as_ref()
@@ -989,86 +992,5 @@ pub(super) fn is_live(row: &Value) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn rows() -> Vec<Value> {
-        vec![
-            json!({"name": "hb/old", "peer": "hb", "status": "closed"}),
-            json!({"name": "claude-sr2/mac-ci-3", "status": "running"}),
-            json!({"name": "hb/review-1", "peer": "hb", "status": "ready"}),
-            json!({"name": "done", "status": "closed"}),
-            json!({"name": "idle-one", "status": "idle"}),
-        ]
-    }
-
-    fn kept(filter: &RowFilter) -> Vec<String> {
-        rows()
-            .iter()
-            .filter(|r| filter.keeps(r))
-            .map(|r| r["name"].as_str().unwrap().into())
-            .collect()
-    }
-
-    #[test]
-    fn projected_listings_only_refresh_usage_when_they_show_it() {
-        let plain = vec!["sessionId".to_owned(), "name".to_owned(), "status".to_owned()];
-        assert!(!shows_usage(false, true, Some(&plain)));
-        assert!(!shows_usage(true, false, Some(&plain)));
-        assert!(shows_usage(false, false, Some(&["usageStats.cost".to_owned()])));
-        assert!(shows_usage(false, true, None));
-        assert!(shows_usage(true, false, None));
-        assert!(!shows_usage(false, false, None));
-    }
-
-    #[test]
-    fn ls_selection_parses_duration_and_projects_fields() {
-        assert_eq!(parse_duration_ms("1h30m").unwrap(), 5_400_000);
-        assert!(parse_duration_ms("oops").is_err());
-        let fields = parse_fields("name, status").unwrap();
-        assert_eq!(fields, ["name", "status"]);
-        assert_eq!(
-            project_fields(&json!({"name": "one", "status": "idle", "cwd": "/tmp"}), &fields),
-            json!({"name": "one", "status": "idle"})
-        );
-    }
-
-    #[test]
-    fn scope_line_names_the_machines_only_when_a_row_is_remote() {
-        let local = [json!({"name": "a"}), json!({"name": "b", "peer": ""})];
-        assert_eq!(scope_line(&local), None);
-        assert_eq!(scope_line(&[]), None);
-        let mixed = [
-            json!({"name": "a"}),
-            json!({"peer": "hb"}),
-            json!({"peer": "HB"}),
-            json!({"peer": "far"}),
-        ];
-        assert_eq!(
-            scope_line(&mixed).as_deref(),
-            Some("ls: 4 sessions on 3 machines; --machine local lists only this one")
-        );
-        assert_eq!(
-            scope_line(&[json!({"peer": "far"})]).as_deref(),
-            Some(
-                "ls: 1 session on 1 machine, none of them this one; --machine local lists only this one"
-            )
-        );
-    }
-
-    #[test]
-    fn live_and_host_filter_the_rows() {
-        let own = || "this-mac".to_owned();
-        let live = RowFilter::new(true, None, own()).unwrap();
-        assert_eq!(kept(&live), ["claude-sr2/mac-ci-3", "hb/review-1", "idle-one"]);
-        let peer = RowFilter::new(true, Some("HB"), own()).unwrap();
-        assert_eq!(kept(&peer), ["hb/review-1"]);
-        let here = RowFilter::new(false, Some("this-mac"), own()).unwrap();
-        assert_eq!(kept(&here), ["claude-sr2/mac-ci-3", "done", "idle-one"]);
-        let local = RowFilter::new(false, Some("local"), own()).unwrap();
-        assert_eq!(kept(&local), kept(&here));
-        assert!(!RowFilter::new(false, None, own()).unwrap().narrows());
-        assert!(live.narrows() && peer.narrows());
-    }
-}
+#[path = "ls_tests.rs"]
+mod tests;
