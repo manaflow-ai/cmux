@@ -520,7 +520,9 @@ fn a_failed_git_swap_leaves_the_untouched_mount_eligible_for_retry() {
     let target = tempfile::tempdir().unwrap();
     assert_eq!(overlay.swap_to_link("missing", target.path()), Err(libc::ENOENT));
     // An invalid target fails while creating the temporary symlink, after validation.
-    assert_eq!(overlay.swap_to_link(".git", Path::new("\0")), Err(libc::EINVAL));
+    // Rust can reject the NUL before the syscall, without an OS errno. The contract
+    // here is that the failed attempt leaves the next valid swap eligible.
+    assert!(overlay.swap_to_link(".git", Path::new("\0")).is_err());
     assert_eq!(overlay.swap_to_link(".git", target.path()), Ok(git));
     assert_eq!(overlay.swap_to_link(".git", target.path()), Err(libc::EBUSY));
 }
