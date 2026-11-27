@@ -657,7 +657,9 @@
       "published-build": {
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Name the run that published": {"nightly_only": "reads the post-publication dispatch input (tests/test_nightly_next_tail_off_push_group.py)"},
+        "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Check the run that published": {"nightly_only": "reads the run that published through the API (tests/test_nightly_next_tail_off_push_group.py runs check-source on real and forged runs)"},
+        "Download its record": {"nightly_only": "downloads the record artifact of the run that published (gh run download through gh_budget_wait.sh)"},
         "Read the published build": {"nightly_only": "reads a published build's record, which only a publication or its dispatched post-publish run has (tests/test_nightly_next_tail_off_push_group.py round-trips the script)"},
         "Read the published build back from the live feed": {"nightly_only": "reads the live nightly-next feed and fails when the build this run says it published is not on it (tests/test_nightly_next_delta_check.py)"}},
       "build-nightly-deltas": {
