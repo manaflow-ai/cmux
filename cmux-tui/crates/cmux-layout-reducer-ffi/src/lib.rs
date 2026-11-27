@@ -5,7 +5,15 @@
 //! workspace's hover card opens (`workspace_port_links`), the sidebar's
 //! launch order hold (`sidebar_launch_order`), the sidebar list's fold, tree
 //! and row geometry rules (`sidebar_list_rules`), a workspace row's own layout
-//! (`sidebar_row_layout`), the app sidebar
+//! (`sidebar_row_layout`), the session tree's folds, hidden rows and pull
+//! request badge (`sidebar_session_tree`), the sections' window
+//! membership, pins, loose-row edits and workspace order
+//! (`sidebar_sections`), the pending sidebar changes' record writes
+//! (`sidebar_pending_records`), where a sidebar drop or keyboard move lands
+//! and how a remote group's intent reaches the daemon (`sidebar_doc_target`),
+//! what auto-archive reads off the records (`sidebar_archive_marks`), the
+//! session tree's chat history page and heights (`sidebar_chat_history`),
+//! the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
 //! row or dock shows, what a hidden pane leaves, where a moved tab or
@@ -54,13 +62,16 @@
 //! step per event, the saved list, a hand-off's status and times),
 //! the machine bootstrap, machine config and create retry rules
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
-//! `cloud_create_*`, `cloud_power_retries`),
+//! `cloud_create_*`, `cloud_power_retries`), the Cloud start and create flow rules
+//! (`cloud_launch_*`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
 //! the window docks, Dock Column plan and Home Chief panel (`dock_model_*`),
 //! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
+//! `cmux-window-rules`' empty workspace repair (`empty_workspace_step`: one
+//! step of the reducer whose state the app holds; `empty_workspace_cause`),
 //! `cmux-window-rules`' right column rule and subagent pane tracker
 //! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
@@ -90,45 +101,24 @@ use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
-mod auto_namer;
-mod browser_rules;
 pub mod close_focus;
 pub mod close_selection;
 pub mod closing_panes;
-mod cloud_bootstrap;
-mod cloud_config;
-mod cloud_handler;
-mod cloud_handoff;
-mod cloud_hybrid;
-mod cloud_machine;
-mod cloud_move;
-mod cloud_sequence;
-mod cloud_task;
-mod dock_model;
 pub mod drag_handle;
 pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
-mod notification_rings;
-mod onboarding;
-mod pane_focus;
-mod pane_placement;
-mod screen;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
 pub mod sidebar_face;
 pub mod sidebar_mirror;
-mod tab_discard;
 pub mod tab_drag;
-mod tab_groups;
-mod tab_layout;
-mod tab_strip;
 pub mod typed;
-mod vnc;
 pub mod window_close_selection;
-mod window_rules;
+// The op modules' `mod` lines and dispatch (`respond_op_module`), from the files in src/: see build.rs.
+include!(concat!(env!("OUT_DIR"), "/dispatch.rs"));
 use sidebar_mirror::Mirror;
 
 pub const ABI_VERSION: u32 = 1;
@@ -339,6 +329,47 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 ))
                 .map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_archive_marks" => {
+                use cmux_layout_reducer::sidebar_archive_marks;
+                let request: sidebar_archive_marks::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_archive_marks::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_chat_history" => {
+                use cmux_layout_reducer::sidebar_chat_history;
+                let request: sidebar_chat_history::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_chat_history::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_doc_target" => {
+                use cmux_layout_reducer::sidebar_doc_target;
+                let request: sidebar_doc_target::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_doc_target::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_pending_records" => {
+                use cmux_layout_reducer::sidebar_pending_records;
+                let request: sidebar_pending_records::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_pending_records::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_sections" => {
+                use cmux_layout_reducer::sidebar_sections;
+                let request: sidebar_sections::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_sections::respond(request)).map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_session_tree" => {
+                use cmux_layout_reducer::sidebar_session_tree;
+                let request: sidebar_session_tree::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_session_tree::respond(request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"group_hover_summary" => {
                 let request: cmux_layout_reducer::group_hover_summary::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -394,12 +425,14 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&capability::answer(request)).map_err(|_| ERR_INVALID)?
             }
-            // A held create's approval: the next session call to make, or the outcome (cmux-cloud-start-core approval_answer).
+            // A held create's approval: the next session call to make, or the outcome (cmux-cloud-start-core approval_answer;
+            // a team whose backend refused the one call skips it for a while).
             b"cloud_approval_next" => {
                 use cmux_cloud_start_core::approval_answer;
                 let request: approval_answer::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&approval_answer::next(&request)).map_err(|_| ERR_INVALID)?
+                serde_json::to_vec(&approval_answer::next_remembered(&request))
+                    .map_err(|_| ERR_INVALID)?
             }
             b"cloud_capability_drop" => {
                 cmux_cloud_start_core::capability::forget();
@@ -644,56 +677,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_focus_core::wire::agent_cursor_visibility(&request))
                     .map_err(|_| ERR_INVALID)?
             }
-            operation if cloud_config::handles(operation) => {
-                cloud_config::respond(operation, request)?
-            }
-            operation if cloud_handler::handles(operation) => {
-                cloud_handler::respond(operation, request)?
-            }
-            operation if cloud_handoff::handles(operation) => {
-                cloud_handoff::respond(operation, request)?
-            }
-            operation if cloud_hybrid::handles(operation) => {
-                cloud_hybrid::respond(operation, request)?
-            }
-            operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
-            operation if pane_focus::handles(operation) => pane_focus::respond(request)?,
-            operation if cloud_sequence::handles(operation) => {
-                cloud_sequence::respond(operation, request)?
-            }
-            operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
-            // Before `cloud_machine`: its `cloud_machine_config_` and `cloud_machine_step_` are narrower.
-            operation if cloud_bootstrap::handles(operation) => {
-                cloud_bootstrap::respond(operation, request)?
-            }
-            operation if cloud_machine::handles(operation) => {
-                cloud_machine::respond(operation, request)?
-            }
-            operation if auto_namer::handles(operation) => auto_namer::respond(operation, request)?,
-            operation if onboarding::handles(operation) => onboarding::respond(operation, request)?,
-            operation if pane_placement::handles(operation) => {
-                pane_placement::respond(operation, request)?
-            }
-            operation if tab_groups::handles(operation) => tab_groups::respond(operation, request)?,
-            operation if screen::handles(operation) => screen::respond(operation, request)?,
-            operation if vnc::handles(operation) => vnc::respond(operation, request)?,
-            operation if tab_discard::handles(operation) => {
-                tab_discard::respond(operation, request)?
-            }
-            operation if tab_layout::handles(operation) => tab_layout::respond(operation, request)?,
-            operation if notification_rings::handles(operation) => {
-                notification_rings::respond(operation, request)?
-            }
-            operation if browser_rules::handles(operation) => {
-                browser_rules::respond(operation, request)?
-            }
-            operation if window_rules::handles(operation) => {
-                window_rules::respond(operation, request)?
-            }
-            operation if dock_model::handles(operation) => dock_model::respond(operation, request)?,
             b"mobile_host" => cmux_mobile_host_core::respond(request).map_err(|_| ERR_INVALID)?,
-            operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
-            _ => return Err(ERR_INVALID),
+            // Every other op is an op module's (build.rs): adding a module adds no line here.
+            operation => match respond_op_module(operation, request) {
+                Some(answer) => answer?,
+                None => return Err(ERR_INVALID),
+            },
         };
         Ok(response)
     }));
@@ -863,3 +852,68 @@ typed_entry!(
     /// `drag_begin` as fixed-size entries and one string table.
     cmux_sidebar_mirror_drag_begin_typed => drag_begin_typed -> typed::CAcceptanceTable
 );
+
+#[cfg(test)]
+mod op_module_tests {
+    use super::OP_MODULES;
+
+    /// Every string literal in the crate's sources and tests that could name an op.
+    fn names_in(dir: &std::path::Path, names: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).expect("read dir") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                names_in(&path, names);
+            } else if path.extension().is_some_and(|e| e == "rs" || e == "swift" || e == "c") {
+                let text = std::fs::read_to_string(&path).expect("read source");
+                for (index, piece) in text.split('"').enumerate() {
+                    let op_like = !piece.is_empty()
+                        && piece.starts_with(|c: char| c.is_ascii_lowercase())
+                        && piece
+                            .chars()
+                            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+                    if index % 2 == 1 && op_like {
+                        names.push(piece.to_owned());
+                    }
+                }
+            }
+        }
+    }
+
+    /// The dispatch asks the op modules in name order; no op is two modules', so that order
+    /// never decides which one answers. A new module whose ops overlap another's narrows its
+    /// own `handles` (or the other's) until this passes.
+    #[test]
+    fn op_modules_are_disjoint() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut names = Vec::new();
+        names_in(&root.join("src"), &mut names);
+        names_in(&root.join("tests"), &mut names);
+        names.sort();
+        names.dedup();
+        assert!(names.len() > 100, "found {} op-like names", names.len());
+        for name in &names {
+            let owners: Vec<&str> = OP_MODULES
+                .iter()
+                .filter(|(_, handles)| handles(name.as_bytes()))
+                .map(|(module, _)| *module)
+                .collect();
+            assert!(owners.len() <= 1, "`{name}` is handled by {owners:?}");
+        }
+    }
+
+    #[test]
+    fn op_modules_are_listed() {
+        let modules: Vec<&str> = OP_MODULES.iter().map(|(module, _)| *module).collect();
+        for module in
+            ["cloud_bootstrap", "cloud_machine", "pane_focus", "tab_strip", "window_rules"]
+        {
+            assert!(modules.contains(&module), "{module} missing from {modules:?}");
+        }
+        assert!(
+            !modules.contains(&"window_rules_desktop"),
+            "a #[path] submodule is not an op module"
+        );
+        // `mobile_host` is an arm of its own before the op modules; none of them answers it.
+        assert!(OP_MODULES.iter().all(|(_, handles)| !handles(b"mobile_host")));
+    }
+}

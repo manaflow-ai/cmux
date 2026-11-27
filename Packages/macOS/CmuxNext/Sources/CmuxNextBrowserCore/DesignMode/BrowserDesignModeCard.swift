@@ -38,4 +38,16 @@ public nonisolated struct BrowserDesignModeCard: Sendable, Equatable {
         self.selector = selector
         self.quote = quote
     }
+
+    /// The id of the card for the pick at `selector` on `pageURL`, the same on every launch (FNV-1a;
+    /// Swift's `hashValue` is seeded per process): a kept comment thread put back on its element is
+    /// held under it before the page reports the pick, so the pick gets no chip.
+    public static func id(selector: String, pageURL: URL?) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in (selector + "|" + (pageURL?.absoluteString ?? "")).utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        return "design-" + String(hash, radix: 16)
+    }
 }
