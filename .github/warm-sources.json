@@ -82,7 +82,6 @@
     "backend.yml:vitess-development": {"class": "linux-js", "warm": ["actions-cache"]},
     "build-ghosttykit.yml:build-ghosttykit": {"class": "mac-build", "warm": ["actions-cache"]},
     "chief-evals.yml:evals": {"class": "linux-rust", "warm": ["actions-cache"]},
-    "ci-artifact-canary.yml:canary": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "ci-guards.yml:workflow-guard-tests": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "ci-macos.yml:cli-product-tests": {"class": "mac-test", "warm": ["product-reuse"]},
     "ci-macos.yml:macos-compile-admission": {"class": "pr-release-compile", "warm": ["deriveddata-reuse", "spm-shared", "ssd-cas", "actions-cache", "product-reuse"]},

@@ -740,7 +740,6 @@ inputs = [
   "scripts/ci/verify-r2-canary.py",
   "scripts/ci/r2-canary-cloudflare.py",
   "tests/test_ci_r2_canary.py",
-  ".github/workflows/ci-artifact-canary.yml",
   "tests/test_ci_r2_artifact.py",
   ".github/actions/download-test-product/action.yml",
   "scripts/ci/measure-r2-artifact-run.py",
@@ -3089,7 +3088,7 @@ cargo test -p cmux-config --locked --test published_keys cmux_next_
 # the shared wave bound. helm-chart.yml (helm, which no tool supplies, on an ephemeral runner for untrusted chart
 # input) and cloud-vm-guest-install.yml (a Postgres service container) stay in their workflows.
 
-# The risk-tier-tests dispatch wrapper is retired; this step is the single test entry point.
+# risk-tier-tests.yml ran on pull requests into feat-cmux-next only; it now runs on dispatch alone.
 # 6 s on an 8-CPU lane machine; the job's bound was 5 min.
 [step.risk-tier-tests]
 job = "linux"
@@ -3101,6 +3100,7 @@ inputs = [
   "tests/test_risk_tier.py",
   "tests/git_fixture_env.py",
   "tests/fleet_test_host.py",
+  ".github/workflows/risk-tier-tests.yml",
 ]
 run = '''
 python3 tests/test_risk_tier.py -v
