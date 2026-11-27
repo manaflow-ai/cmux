@@ -31,7 +31,8 @@
  *   -> running (status) -> listed
  *   -> first exec -> pass Claude login -> start agent (acpmux on the machine) -> send chat -> reply -> turn 2 (same
  *   session) -> daemon restart keeps the session (the guest's agent daemon killed, then a turn) -> connect_info
- *   -> carrier dial (an identify answered over the machine's relay slot) -> handoff record -> pause -> resume
+ *   -> carrier dial (an identify answered over the machine's relay slot) -> terminal scroll (the scroll-stress probe
+ *   across `carrier serve`, report only, `--skip scroll`; SCROLL_PROBE_STEP) -> handoff record -> pause -> resume
  *   -> carrier dial after resume -> turn after resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
  *   --chaos adds the chaos leg after the carrier dial: a relay cut, 5 s and 60 s network drops, a session host and an
  *   agent daemon restart, each mid-turn and timed from a send at its end to the reply (cloud-chaos.ts).
@@ -2860,6 +2861,116 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
   }
 }
 
+/**
+ * The Cloud surface of goal terminal-scroll-integrity ("A scroll-stress probe on local, SSH and Cloud terminals shows
+ * 0 blank or missing rows and 0 viewport jumps while scrolled up"): `cmux carrier serve` for the machine behind a
+ * private Unix socket, then `cmux-tui __scroll-probe --socket S --surface-label cloud --json` against it, the probe the
+ * perf cron runs on the local and SSH surfaces (scripts/measure/terminal-scroll-stress-linux.sh). So the byte mirror
+ * and the daemon's render viewport are read across the carrier, the route the app's Cloud terminal takes. The report's
+ * counts go into probe.json as `terminal_scroll` (counts only: no id, path or text), which cmuxterm-hq's
+ * cloud_journey_probe.py publishes as the `terminal.scroll.cloud.*` rows NOW's terminal_scroll reads.
+ */
+export const SCROLL_PROBE_STEP = "terminal scroll (carrier serve)";
+export type ScrollCounts = { blank_rows: number; missing_rows: number; jumps: number };
+export type TerminalScroll = { surface: "cloud"; bad: number; views: { mirror: ScrollCounts; daemon: ScrollCounts }; seconds: number | null };
+
+const count = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
+
+/** The probe's one JSON report, reduced to its counts; throws on anything else (a report that is not whole is no 0). */
+export function parseScrollReport(stdout: string): TerminalScroll {
+  const line = stdout.split("\n").map((l) => l.trim()).filter(Boolean).pop() ?? "";
+  let r: any;
+  try {
+    r = JSON.parse(line);
+  } catch {
+    throw new Error(`scroll probe: not a JSON report: ${line.slice(0, 160)}`);
+  }
+  const views = {} as TerminalScroll["views"];
+  for (const name of ["mirror", "daemon"] as const) {
+    const v = r?.views?.[name];
+    if (!count(v?.blank_rows) || !count(v?.missing_rows) || !count(v?.jumps)) throw new Error(`scroll probe: the ${name} view has no whole counts`);
+    views[name] = { blank_rows: v.blank_rows, missing_rows: v.missing_rows, jumps: v.jumps };
+  }
+  const sum = (v: ScrollCounts) => v.blank_rows + v.missing_rows + v.jumps;
+  if (!count(r?.bad) || r.bad !== sum(views.mirror) + sum(views.daemon)) throw new Error("scroll probe: bad is not the sum of both views");
+  const seconds = typeof r.seconds === "number" && Number.isFinite(r.seconds) && r.seconds >= 0 ? Math.round(r.seconds * 10) / 10 : null;
+  return { surface: "cloud", bad: r.bad, views, seconds };
+}
+
+export function scrollDetail(t: TerminalScroll): string {
+  const v = (c: ScrollCounts) => `${c.blank_rows} blank, ${c.missing_rows} missing, ${c.jumps} jumps`;
+  return `bad ${t.bad} (mirror: ${v(t.views.mirror)}; daemon: ${v(t.views.daemon)})${t.seconds === null ? "" : `, ${t.seconds} s`}`;
+}
+
+/** `carrier serve` + `__scroll-probe` (see SCROLL_PROBE_STEP): the report's counts, or a throw naming what stopped it. */
+export async function carrierScrollProbe(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, probeSeconds = 300): Promise<TerminalScroll> {
+  // mkdtemp makes the dir 0700: carrier serve refuses a socket dir another user can write.
+  const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-scroll-"));
+  carrierStateDirs.add(stateDir);
+  const socket = path.join(stateDir, "s.sock");
+  const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+  const env = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, CMUX_TUI_STATE_DIR: stateDir };
+  const serve = spawn(cmux, ["carrier", "serve", "--machine", machine, "--socket", socket, ...(api.team ? ["--team", api.team] : [])], { env, stdio: ["pipe", "ignore", "pipe"] });
+  carrierDials.add(serve);
+  serve.on("exit", () => carrierDials.delete(serve));
+  serve.stdin!.on("error", () => undefined);
+  // serve's stderr: its ready line, then one line per connection (its dial's outcome); kept for a failure's detail.
+  const served: string[] = [];
+  let buffered = "";
+  let ready: (line: string | null) => void = () => undefined;
+  const readyLine = new Promise<string | null>((resolve) => (ready = resolve));
+  serve.stderr!.setEncoding("utf8");
+  serve.stderr!.on("data", (chunk: string) => {
+    buffered += chunk;
+    for (let at = buffered.indexOf("\n"); at >= 0; at = buffered.indexOf("\n")) {
+      const line = buffered.slice(0, at).trim();
+      buffered = buffered.slice(at + 1);
+      if (!line) continue;
+      if (served.length === 0) ready(line);
+      served.push(line);
+    }
+  });
+  serve.on("exit", () => ready(null));
+  serve.on("error", () => ready(null));
+  const lastServed = () => (served.length > 1 ? `; carrier serve: ${served.slice(1).slice(-2).map(short).join(" | ")}` : "");
+  try {
+    const timer = new Promise<"late">((resolve) => setTimeout(() => resolve("late"), 30_000).unref());
+    const first = await Promise.race([readyLine, timer]);
+    if (first === "late") throw new Error("carrier serve: no ready line within 30 s");
+    if (first === null) throw new Error(`carrier serve: exited ${serve.exitCode ?? "?"} before its ready line`);
+    let status: any;
+    try {
+      status = JSON.parse(first);
+    } catch {
+      throw new Error(`carrier serve: not a ready line: ${short(first)}`);
+    }
+    if (status?.ok !== true || status.route !== "carrier") throw new Error(`carrier serve: ${short(status)}`);
+    const probe = spawn(cmux, ["__scroll-probe", "--socket", socket, "--surface-label", "cloud", "--json", "--timeout-seconds", String(probeSeconds)], { env: inherited, stdio: ["ignore", "pipe", "pipe"] });
+    carrierDials.add(probe);
+    let out = "";
+    let err = "";
+    probe.stdout!.setEncoding("utf8").on("data", (c: string) => (out += c));
+    probe.stderr!.setEncoding("utf8").on("data", (c: string) => (err = (err + c).slice(-2000)));
+    const code = await new Promise<number | string>((resolve) => {
+      const kill = setTimeout(() => probe.kill("SIGKILL"), (probeSeconds + 60) * 1000);
+      probe.on("error", (e) => resolve(e.message));
+      probe.on("close", (c, signal) => {
+        clearTimeout(kill);
+        resolve(c ?? `signal ${signal}`);
+      });
+    });
+    carrierDials.delete(probe);
+    if (code !== 0) throw new Error(`scroll probe: exit ${code}: ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 300)}${lastServed()}`);
+    return parseScrollReport(out);
+  } finally {
+    // stdin's end is serve's own way out; a SIGTERM after it covers one that does not go.
+    serve.stdin!.end();
+    setTimeout(() => serve.kill("SIGTERM"), 2_000).unref();
+    rmSync(stateDir, { recursive: true, force: true });
+    carrierStateDirs.delete(stateDir);
+  }
+}
+
 /** A `cmux.rd/1` frame on the dial's stdin and stdout: u8 type (1 control JSON, 2 datagram), u32 little-endian length, payload. */
 export function rdFrame(type: 1 | 2, payload: Uint8Array): Buffer {
   const head = Buffer.alloc(5);
@@ -3082,6 +3193,8 @@ export type ProbeExtra = {
   claimed_behind?: boolean | null;
   /** How the login reached the machine: the spare's copy on spare.ready (a receipt after the claim), or a copy after bind. */
   login_path?: "receipt" | "copy" | "launch";
+  /** The Cloud scroll-stress probe's counts (SCROLL_PROBE_STEP), only when it measured. */
+  terminal_scroll?: TerminalScroll;
   failure_facts?: FailureFacts;
 };
 export type FailureFacts = {
@@ -6570,6 +6683,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const d = await carrierDial(cmux, api, created.id);
         return { value: null, detail: dialDetail(d) };
       });
+      // Report only: a probe that does not run leaves the Cloud surface unmeasured (NOW reads it unknown, never 0)
+      // instead of turning the chat journey red. `--skip scroll` leaves it out.
+      if (only.has("scroll")) J.skip(SCROLL_PROBE_STEP, "--skip scroll");
+      else {
+        const t0 = Date.now();
+        try {
+          const t = await carrierScrollProbe(cmux, api, created.id);
+          probeExtra.terminal_scroll = t;
+          J.record({ step: SCROLL_PROBE_STEP, status: "pass", ms: Date.now() - t0, detail: scrollDetail(t) });
+        } catch (e) {
+          J.record({ step: SCROLL_PROBE_STEP, status: "skip", ms: Date.now() - t0, detail: `not measured: ${(e as Error).message}`.slice(0, 1000) });
+        }
+      }
       if (autocloudTui) {
         await J.step("autocloud TUI chat (cmux-autocloud --machine)", async () => ({ value: null, detail: autocloudTuiChat(autocloudTui, cmux, api, created.id, agent, modelStub ? null : "pong") }));
       }
