@@ -118,8 +118,11 @@ public struct AgentShareActions {
     static func create(_ chat: AgentShareChat, ttl: UInt64?, uses: UInt32?, role: String? = nil, signedInRole: String? = nil, team: String? = nil,
                        host: any AgentShareHost) async throws -> AgentSessionShareCreated {
         try await chat.requireCloudOwner()
+        let createID = UUID().uuidString
+        var request = AgentSessionShareCreateRequest(surface: chat.surface, session: chat.session, createId: createID, ttlSecs: ttl,
+                                                     uses: uses, role: role, signedInRole: signedInRole, teamId: team)
         let consent: AgentShareTeamConsent?
-        if let team { consent = try await confirmTeam(team, role: role ?? "view", chat: chat, host: host) }
+        if let team { consent = try await confirmTeam(team, role: request.role ?? "view", chat: chat, host: host) }
         else { consent = nil }
         // The token comes from the API the daemon's room takes (cmux#31372); a daemon too old to
         // say leaves the build's default.
@@ -136,9 +139,7 @@ public struct AgentShareActions {
             guard token != nil else { throw AgentShareTeamUnavailable() }
         } else { token = await host.shareOwnerToken(api: api) }
         // The session pins the chat: the daemon refuses if the surface shows another one by now.
-        let createID = UUID().uuidString
-        let request = AgentSessionShareCreateRequest(surface: chat.surface, session: chat.session, createId: createID, ttlSecs: ttl,
-                                                     uses: uses, ownerToken: token, role: role, signedInRole: signedInRole, teamId: team)
+        request.ownerToken = token
         // Create waits out the hosted room's provisioning (its request budget is 15 s,
         // agent_session_share_room.rs): its answer is the only copy of the link's secret.
         let connection = try Self.connected(chat.connection)

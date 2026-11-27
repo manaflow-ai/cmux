@@ -41,7 +41,9 @@ public struct AgentSessionShareCreateRequest: DaemonRequest {
         self.ttlSecs = ttlSecs
         self.uses = uses
         self.ownerToken = ownerToken
-        self.role = role
+        // A team grant always sends the same role that its native consent names. Keep the
+        // legacy omission for non-team links and older daemons.
+        self.role = role ?? (teamId == nil ? nil : "view")
         self.signedInRole = signedInRole
         self.teamId = teamId
     }

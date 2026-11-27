@@ -16,12 +16,13 @@ struct AgentShareTeamTests {
         var asks: [AgentShareConsentAsk] = []
         var tokenCalls: [(URL?, String, String)] = []
         var allow = true
+        var chatVisible = true
         var beforeAnswer: (() -> Void)?
 
         init(_ services: AppServices) { self.services = services }
         func shareTab(surface: SurfaceID) -> TabModel? { services.shareTab(surface: surface) }
         func shareTab(id: String) -> TabModel? { services.shareTab(id: id) }
-        func shareTabID(showing session: String) -> String? { services.shareTabID(showing: session) }
+        func shareTabID(showing session: String) -> String? { chatVisible ? services.shareTabID(showing: session) : nil }
         var shareFocusedTabID: String? { nil }
         func shareConnection(holding tab: TabModel) -> DaemonConnection? { nil }
         func shareIsOnThisMac(_ tab: TabModel) -> Bool { true }
@@ -78,6 +79,17 @@ struct AgentShareTeamTests {
         #expect(host.tokenCalls.isEmpty)
     }
 
+    @Test func staleChatAfterConsentFailsClosedBeforeTokenMint() async {
+        let (fixture, chat) = chat()
+        let host = Host(fixture.services)
+        host.beforeAnswer = { host.chatVisible = false }
+
+        await #expect(throws: AgentShareTeamUnavailable.self) {
+            try await AgentShareActions.confirmTeam("team-1", role: "view", chat: chat, host: host)
+        }
+        #expect(host.tokenCalls.isEmpty)
+    }
+
     @Test func unknownTeamIsRefusedBeforeConsent() async {
         let (fixture, chat) = chat()
         let host = Host(fixture.services)
@@ -86,6 +98,18 @@ struct AgentShareTeamTests {
             try await AgentShareActions.confirmTeam("missing", role: "view", chat: chat, host: host)
         }
         #expect(host.asks.isEmpty)
+        #expect(host.tokenCalls.isEmpty)
+    }
+
+    @Test func omittedTeamRoleAsksForViewBeforeMinting() async {
+        let (fixture, chat) = chat()
+        let host = Host(fixture.services)
+        host.allow = false
+
+        await #expect(throws: AgentShareDeclined.self) {
+            try await AgentShareActions.create(chat, ttl: nil, uses: nil, team: "team-1", host: host)
+        }
+        #expect(host.asks.first?.teamRole == "view")
         #expect(host.tokenCalls.isEmpty)
     }
 }
