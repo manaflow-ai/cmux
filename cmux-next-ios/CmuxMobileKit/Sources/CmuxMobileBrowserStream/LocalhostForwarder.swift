@@ -414,7 +414,9 @@ public final class LocalhostForwarder {
         }
         forward.binding = task
         let result = await task.value
-        forward.binding = nil
+        // A stopped/rebound port may have installed a newer bind while this
+        // task was finishing. Do not clear that newer task's ownership.
+        if forward.binding == task { forward.binding = nil }
         if case .failure(.portInUse) = result, forwards[port] === forward { forwards[port] = nil }
         return result
     }
