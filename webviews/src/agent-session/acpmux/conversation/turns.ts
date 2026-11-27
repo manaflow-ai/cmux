@@ -4518,24 +4518,8 @@ const TAKEAWAY_LINES = 3;
 /// the work Lawrence asked to collapse; a short note keeps the fold it had before. Another agent's words
 /// always are. Shared by the finished turn's final answer and the running turn's runs
 /// (``mergeShortNotes``).
-// Each reply's isTakeaway, kept against what it reads: a chat's open asks it of every reply several times per turn
-// (the answer, the replies, the short notes), and each ask ran its sentence regexes again.
-const takeaways = new WeakMap<
-  AcpmuxRow,
-  { text: string | undefined; incoming: AcpmuxRow["incoming"]; phase: AcpmuxRow["assistantPhase"]; takeaway: boolean }
->();
-
 export function isTakeaway(row: AcpmuxRow): boolean {
   if (row.kind !== "assistant") return false;
-  const kept = takeaways.get(row);
-  if (kept && kept.text === row.text && kept.incoming === row.incoming && kept.phase === row.assistantPhase)
-    return kept.takeaway;
-  const takeaway = readsAsTakeaway(row);
-  takeaways.set(row, { text: row.text, incoming: row.incoming, phase: row.assistantPhase, takeaway });
-  return takeaway;
-}
-
-function readsAsTakeaway(row: AcpmuxRow): boolean {
   const text = (row.text ?? "").trim();
   if (!text) return false;
   return (

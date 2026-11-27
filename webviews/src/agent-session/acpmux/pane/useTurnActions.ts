@@ -5,6 +5,7 @@ import type { AnswerBlock } from "../subagents/restart";
 import type { RefObject } from "react";
 import type { AccessOffer } from "../accessOffer";
 import { callNative } from "../callNative";
+import { withExperimentPass } from "../../../experiments/experiment";
 import type { HarnessCatalog } from "../catalog";
 import type { HunkReview } from "../changes/hunkReview";
 import type { Presentation } from "../chatDisplay";
@@ -163,7 +164,12 @@ export interface TurnActionsDeps {
 }
 
 /// The transcript's rows as AcpmuxPane draws them (its `turnRowsShown` memo's body).
+/// Every shaping pass in it (held folds shape again) reads the experiments' debug key once (experiment.ts).
 export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
+  return withExperimentPass(() => turnRowsIn(deps));
+}
+
+function turnRowsIn(deps: TurnRowsShownDeps) {
   const {
     chatPresentation,
     childRows,

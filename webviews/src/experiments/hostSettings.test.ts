@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { experimentArm } from "./experiment";
+import { EXPERIMENTS_STORAGE_KEY, experimentArm, withExperimentPass } from "./experiment";
 import { settingArms, switchFor } from "./hostSettings";
 import { setExperimentSwitches } from "./switches";
 import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
@@ -98,5 +98,26 @@ test("an arm reads its default with no localStorage at all, on the first lookup"
   } finally {
     if (saved) Object.defineProperty(globalThis, "localStorage", saved);
     else delete (globalThis as { localStorage?: unknown }).localStorage;
+  }
+});
+
+test("a pass reads the debug key once, and the next pass sees a changed key", () => {
+  const saved = globalThis.localStorage;
+  let text: string | null = JSON.stringify({ "menu-style-v2": "v2" });
+  let reads = 0;
+  const storage = { getItem: (key: string) => (key === EXPERIMENTS_STORAGE_KEY ? (reads++, text) : null) };
+  Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true, writable: true });
+  try {
+    const arms = withExperimentPass(() =>
+      [1, 2, 3].map(() => withExperimentPass(() => experimentArm(menuStyleV2, { overrides: {} }))),
+    );
+    expect(arms).toEqual(["v2", "v2", "v2"]);
+    expect(reads).toBe(1);
+    text = null;
+    expect(withExperimentPass(() => experimentArm(menuStyleV2, { overrides: {} }))).toBe("off");
+    expect(experimentArm(menuStyleV2, { overrides: {} })).toBe("off");
+    expect(reads).toBe(3);
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", { value: saved, configurable: true, writable: true });
   }
 });
