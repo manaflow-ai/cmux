@@ -97,27 +97,37 @@ fn split_down_grows_only_an_unpinned_chat_dock() {
     assert!(!Dock::default().splits_down(false));
 }
 
-/// A tool dragged into a chat dock is refused, except into Home's pinned dock while it takes tabs.
+/// A tool dragged into a chat dock joins it, except into Home's pinned dock while it is closed to tabs.
 #[test]
-fn homes_dock_takes_any_dragged_tab_other_chat_docks_only_chats() {
+fn chat_docks_take_any_dragged_tab_but_homes_dock_closed_to_tabs() {
     let chat = Dock { role: Some(DockRole::AgentChat), ..Dock::default() };
-    assert!(chat.takes_only_chats());
+    assert!(!chat.takes_only_chats());
     assert!(Dock { pinned: true, ..chat }.takes_only_chats(), "closed to tabs");
     assert!(!Dock { pinned: true, allows_tabs: true, ..chat }.takes_only_chats());
     assert!(!Dock::default().takes_only_chats());
 }
 
-/// The read answers the move refusal: a tool into the dock, not a reorder in it, not a chat.
+/// The read answers the move refusal: the chat dock takes a tool dragged into it (a file opened from
+/// the chat, dragged back from the split beside it); Home's pinned dock closed to tabs refuses it, but
+/// not a reorder in it or a chat.
 #[test]
-fn the_chat_dock_refuses_a_tool_moved_into_it() {
+fn the_chat_dock_takes_a_tool_moved_into_it() {
     let columns = [chat_dock(&["chat"]), col(&["page"])];
-    let refuses = |moving| read("chat", &columns, &[], false, Some(moving)).refuses_move;
-    assert!(refuses(Moving { same_pane: false, chat: false }));
-    assert!(!refuses(Moving { same_pane: true, chat: false }));
-    assert!(!refuses(Moving { same_pane: false, chat: true }));
+    let refuses =
+        |columns: &[Column], moving| read("chat", columns, &[], false, Some(moving)).refuses_move;
+    assert!(!refuses(&columns, Moving { same_pane: false, chat: false }));
     assert!(!read("page", &columns, &[], false, Some(Moving::default())).refuses_move);
-    let read = read("chat", &columns, &[], false, None);
-    assert!(read.chat_dock && read.takes_only_chats && read.splits_down && !read.refuses_move);
+    let open = read("chat", &columns, &[], false, None);
+    assert!(open.chat_dock && !open.takes_only_chats && open.splits_down && !open.refuses_move);
+
+    let closed = Dock { role: Some(DockRole::AgentChat), pinned: true, allows_tabs: false };
+    let home = [
+        Column { panes: vec!["chat".into()], dock: Some(closed), lone_chat: false },
+        col(&["page"]),
+    ];
+    assert!(refuses(&home, Moving { same_pane: false, chat: false }));
+    assert!(!refuses(&home, Moving { same_pane: true, chat: false }));
+    assert!(!refuses(&home, Moving { same_pane: false, chat: true }));
 }
 
 /// A chat alone on its screen docks left; beside the chat dock, opens are tabs on the right.

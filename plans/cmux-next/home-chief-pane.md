@@ -40,8 +40,8 @@ not ask for what the daemon would refuse, and shows no control for it.
   close. Close Other Panes leaves out the panes of a pinned dock. Closing the Home workspace is
   refused by `HomeRules` (`home_not_closable`) as before.
 - H4. Drops. A tab dragged over Home's dock joins it wherever it is dropped (every zone is the
-  center: the pinned dock never splits), whatever its kind (`ChatDockRules.takesOnlyChats`: other
-  chat docks still take only chats). Home's tools (Split Browser, a link, a file) are made in the
+  center: the pinned dock never splits), whatever its kind (`chat::Dock::takes_only_chats`: other
+  chat docks take any dragged tab too, since 2026-11-27). Home's tools (Split Browser, a link, a file) are made in the
   dock and moved to a column on its right (`LinkOpener.moveBeside`). A tab in the dock other than Home's own page and Chief
   tabs drags out again like any tab: to the strip, the sidebar (a new workspace) or a new window
   (`HomeDock.keepsTab`). Over a pinned dock closed to tabs there is no drop target at all. A
