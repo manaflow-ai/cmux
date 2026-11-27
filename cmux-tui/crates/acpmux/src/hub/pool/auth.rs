@@ -137,7 +137,11 @@ impl Reader {
     fn names_account(self) -> bool {
         !matches!(
             self,
-            Reader::Stat | Reader::ClaudeSettings | Reader::CodexConfig | Reader::Choice | Reader::Kind
+            Reader::Stat
+                | Reader::ClaudeSettings
+                | Reader::CodexConfig
+                | Reader::Choice
+                | Reader::Kind
         )
     }
 }
