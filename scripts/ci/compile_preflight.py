@@ -153,7 +153,9 @@ def cmd_merge_live_base(root: Path, base_ref: str, pr: str) -> int:
         return 0
     head_sha = head.stdout.strip()
     old_base = git_run(root, "rev-parse", "HEAD^1").stdout.strip()
-    git_run(root, "fetch", "--no-tags", "--depth=1", "origin", f"+refs/heads/{base_ref}:refs/remotes/origin/{base_ref}")
+    # Only a shallow checkout fetches shallow: a full clone must not turn shallow.
+    shallow = git_run(root, "rev-parse", "--is-shallow-repository", check=False).stdout.strip() == "true"
+    git_run(root, "fetch", "--no-tags", *(["--depth=1"] if shallow else []), "origin", f"+refs/heads/{base_ref}:refs/remotes/origin/{base_ref}")
     tip = git_run(root, "rev-parse", f"refs/remotes/origin/{base_ref}").stdout.strip()
     if tip == old_base:
         print(f"merge-live-base: the merge commit's base {tip[:12]} is the live tip", file=sys.stderr)
@@ -161,7 +163,7 @@ def cmd_merge_live_base(root: Path, base_ref: str, pr: str) -> int:
     git_run(root, "checkout", "-q", "--detach", tip)
     merged = None
     for depth in DEPTHS:
-        git_run(root, "fetch", "--no-tags", f"--depth={depth}", "origin", tip, f"+refs/pull/{pr}/head:refs/remotes/pull/{pr}/head")
+        git_run(root, "fetch", "--no-tags", *([f"--depth={depth}"] if shallow else []), "origin", tip, f"+refs/pull/{pr}/head:refs/remotes/pull/{pr}/head")
         merged = git_run(root, "-c", "user.name=cmux-ci", "-c", "user.email=ci@cmux.invalid", "merge", "--no-ff",
                          "--no-edit", "-m", f"Merge {head_sha} into {tip}", head_sha, check=False)
         if merged.returncode == 0 or "unrelated histories" not in (merged.stderr + merged.stdout):

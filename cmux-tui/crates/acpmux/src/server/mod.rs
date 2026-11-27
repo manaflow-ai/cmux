@@ -47,6 +47,7 @@ mod app_reply;
 mod attach_latency_bench;
 mod auto_gate;
 mod autocloud_enroll;
+pub(crate) mod bg_rearm;
 mod bg_tasks;
 pub(crate) mod browser_workspaces;
 #[cfg(test)]
@@ -1340,6 +1341,8 @@ pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
     serve_unix(hub, listener).await
 }
 
+#[cfg(unix)]
+pub(crate) use unix_bind::bind_daemon_unix;
 #[cfg(unix)]
 pub use unix_bind::bind_unix;
 #[cfg(unix)]

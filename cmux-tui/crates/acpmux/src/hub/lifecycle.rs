@@ -346,6 +346,7 @@ impl Hub {
         meta.subsession = subsession;
         meta.lineage = lineage;
         meta.created_by = created_by;
+        self.stamp_chief_owner(&mut meta);
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
