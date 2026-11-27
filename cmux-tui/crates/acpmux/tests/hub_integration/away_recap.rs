@@ -136,12 +136,12 @@ async fn coming_back_after_five_minutes_shows_the_recap_made_while_away() {
 async fn a_recap_answered_after_five_minutes_is_logged_then_while_still_away() {
     let mut a = chat(3, &[]).await;
     a.show(false).await;
-    // The person left, then a turn ended 4 minutes in: the ask waits 3 minutes from that end.
-    a.advance(Duration::from_secs(4 * 60), 0).await;
+    // The person left, then a turn ended 2.5 minutes in: the ask waits 3 minutes from that end.
+    a.advance(Duration::from_secs(150), 0).await;
     a.prompt("step 3").await;
     a.advance(Duration::from_secs(3 * 60), 1).await;
     assert_eq!(a.asked(), 1);
-    assert_eq!(a.recaps().len(), 1, "logged as it was answered, 7 minutes away");
+    assert_eq!(a.recaps().len(), 1, "logged as it was answered, 5.5 minutes away");
     a.show(true).await;
     assert_eq!(a.recaps().len(), 1, "the return logs no second one");
 }
