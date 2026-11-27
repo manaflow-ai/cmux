@@ -1,6 +1,6 @@
 ---
 name: cmux-browser
-description: "Browser automation in cmux: the Playwright-style browser REPL (waits, screenshots, cookies with undo, storage, history, incognito tabs, downloads) and per-tab CLI commands. Use to open sites, read or drive browser tabs, and extract data without stealing focus."
+description: "Automate cmux browser tabs without stealing focus: open sites, read or drive pages, screenshots, waits, cookies, storage, downloads (REPL and per-tab CLI)."
 ---
 
 # Browser Automation with cmux
