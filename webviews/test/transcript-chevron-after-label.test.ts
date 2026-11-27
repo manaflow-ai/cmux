@@ -20,6 +20,8 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
   setDefaultTimeout(240_000);
   /** The farthest a chevron's glyph may start after its words, in CSS px. */
   const MAX_GAP = 8;
+  /** The nearest a chevron's glyph may start after its words' ink: --grid-chevron-gap (docs/cmux-next/ui-guidelines.md). */
+  const MIN_GAP = 4;
   /** The nearest a chevron may start to the chip (sender, recipient) it follows: design/chevrons.md's 8px floor. */
   const MIN_CHIP_GAP = 8;
   const LOG = process.env.CMUX_CHEVRON_LOG === "1";
@@ -42,6 +44,15 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     // (Leo, 2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?").
     { entry: "agent-pane.message-line-look", variant: "quiet" },
     { entry: "agent-pane.message-line-look", variant: "quiet-received-open" },
+    // A sender on another machine names it after its name ("codex-lane · studio-mac"), closed and
+    // open, default and quiet looks: the chevron follows the machine's name, not the chip (Leo, 2026-11-27, on
+    // "· gcp-agent-lane-19⌄": "these chevrons are too close dont we have any guidelines for these yet?").
+    { entry: "agent-pane.message-line-look", variant: "opened" },
+    { entry: "agent-pane.message-line-look", variant: "quiet-sent-open" },
+    { entry: "agent-pane.remote-sender", variant: "machine" },
+    { entry: "agent-pane.remote-sender", variant: "machine-open" },
+    { entry: "agent-pane.remote-sender", variant: "machine-open-quiet" },
+    { entry: "agent-pane.remote-sender", variant: "machine-open-quiet-open" },
   ];
   const WIDTHS = [760, 420];
 
@@ -225,13 +236,13 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
       test(`${name}: has disclosure chevrons to measure`, async () => {
         expect((await of(scene, width)).length).toBeGreaterThan(0);
       });
-      test(`${name}: every chevron starts within ${MAX_GAP}px after its words`, async () => {
+      test(`${name}: every chevron starts ${MIN_GAP}-${MAX_GAP}px after its words`, async () => {
         // After its label's words, never after a trailing status or duration at the line's end.
         // A live "Working for" line holds its clock twice (the sizer and the ticking one): its gap is
         // measured over both, so it is left to the chevron-column test.
         const far = (await of(scene, width)).filter(
           ({ gap, trail, row }) =>
-            !row.includes("Working for") && (trail || gap === null || gap < -0.5 || gap > MAX_GAP + 0.5),
+            !row.includes("Working for") && (trail || gap === null || gap < MIN_GAP - 0.5 || gap > MAX_GAP + 0.5),
         );
         expect(far).toEqual([]);
       });
