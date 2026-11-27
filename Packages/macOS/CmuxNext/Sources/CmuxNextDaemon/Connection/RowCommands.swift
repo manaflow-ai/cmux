@@ -19,13 +19,13 @@ public struct RowCommands: Sendable {
     public func newRow(below pane: PaneID, height: Int, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
         try await requireRows()
         guard await connection.supportsPlacementEnv else {
-            return try await connection.request(NewRowRequest(pane: pane, height: height, options: await connection.served(options)))
+            return try await connection.request(NewRowRequest(pane: pane, heightPermille: height, options: await connection.served(options)))
         }
         let options = await connection.placed(options)
         // A row's stand-in (`row-client-keys-v1`) waits for its reply or the connection's end, never a client deadline:
         // cmux-tui does not replay a `new-row` sent again (a second ask is refused `pane_id_exists`), so it is sent once
         // (P0 2026-10-30, R5), as `new-tab` is.
-        return DaemonConnection.created(try await connection.requestAwaitingStart(NewRowRequest(pane: pane, height: height, options: options)),
+        return DaemonConnection.created(try await connection.requestAwaitingStart(NewRowRequest(pane: pane, heightPermille: height, options: options)),
                                         options: options)
     }
 

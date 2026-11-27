@@ -19,13 +19,21 @@ struct CreateTerminalWorkspaceWireTests {
     }
 
     @Test func theFirstTerminalAsksForItsWorkspace() throws {
-        let request = NewTerminalWorkspace(key: Self.key, name: "shell").applied(to: Self.first(in: Self.key))
+        let base = Self.first(in: Self.key)
+        let terminalID = base.terminalID
+        let request = NewTerminalWorkspace(key: Self.key, name: "shell").applied(to: base)
         let fields = try Self.fields(request)
         #expect(fields["cmd"] == .string("create-terminal"))
         #expect(fields["key"] == .string(Self.key.rawValue))
         #expect(fields["create_workspace"] == .bool(true))
         #expect(fields["workspace_name"] == .string("shell"))
         #expect(fields["cwd"] == .string("/tmp"), "the program fields stay top-level fields of create-terminal")
+        if let terminalID {
+            #expect(fields["terminal_id"] == .string(terminalID.rawValue))
+        } else {
+            Issue.record("the test request must have a terminal id")
+        }
+        #expect(fields["detached"] == nil)
     }
 
     /// A terminal of another workspace, or one the daemon cannot replay (no terminal id or mutation), stays plain.
