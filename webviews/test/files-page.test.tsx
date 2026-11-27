@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { teardownDom } from "./support/domTeardown";
+import { installVirtualSizes } from "./support/virtualSizes";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -15,8 +16,11 @@ let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  const { window } = new JSDOM("<!doctype html><div id=root></div>");
+  // pretendToBeVisual: the windowed tree (TanStack Virtual) schedules its measures by frame.
+  const { window } = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
   window.HTMLElement.prototype.scrollIntoView = () => {};
+  // The tree is windowed: give it a viewport and its rows a height, as a browser would.
+  installVirtualSizes(window, (element) => (element.classList.contains("ui-tree") ? 600 : 26));
   Object.assign(scope, {
     window,
     document: window.document,
