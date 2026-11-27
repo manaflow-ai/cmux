@@ -792,6 +792,8 @@ impl Hub {
             let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
                 let mut meta: Value = serde_json::from_slice(&raw)?;
                 meta.set("cwd", json!(cwd));
+                // The same branch checked out here: the same namespace (`session_manifest.rs`).
+                crate::session_manifest::rebind(&mut meta, cwd);
                 Ok(crate::home_fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;

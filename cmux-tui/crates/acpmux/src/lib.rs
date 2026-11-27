@@ -380,6 +380,7 @@ mod session_handle;
 pub mod session_icon;
 pub mod session_identity;
 pub mod session_liveness;
+pub mod session_manifest;
 pub mod session_name;
 pub mod session_order;
 mod session_scope;

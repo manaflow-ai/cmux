@@ -833,7 +833,9 @@ impl Hub {
             let cfg = self.config.read().await;
             let profile = cfg.profile(&meta.harness);
             let all = profile.is_some_and(|p| {
-                crate::agent_tools::lists_all_tools(&meta.harness, p, &env, &meta.cwd)
+                crate::session_manifest::all_tools(meta.manifest.as_ref(), &meta.cwd, || {
+                    crate::agent_tools::lists_all_tools(&meta.harness, p, &env, &meta.cwd)
+                })
             });
             (all, profile.map(|p| p.kind))
         };

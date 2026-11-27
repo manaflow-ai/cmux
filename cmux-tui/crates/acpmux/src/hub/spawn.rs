@@ -147,8 +147,10 @@ impl Hub {
         answer: &crate::agent_tools::CodexAnswer,
         init: &Value,
     ) -> Value {
-        let all =
-            crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
+        // Read from the session's manifest when one holds for its folder (`session_manifest.rs`).
+        let all = crate::session_manifest::all_tools(meta.manifest.as_ref(), &meta.cwd, || {
+            crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd)
+        });
         // A fork through this child asks for the same list (`fork.rs`).
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         // Codex's answer for the person's own `cmux` entry, asked once for this start (its tool
