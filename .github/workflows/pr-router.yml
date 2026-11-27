@@ -67,6 +67,9 @@ jobs:
       # The `cmux/ios-fast` commit status the route posted (pr_router.py ios_status); `pending` hands it to
       # ios-fast-status below, which posts the verdict's own result.
       ios_status: ${{ steps.route.outputs.ios_status }}
+      # The `cmux/ui-proof` commit status the route posted (pr_router.py ui_status); `pending` hands it to
+      # ui-proof-status below, which reads the proof record at the head.
+      ui_status: ${{ steps.route.outputs.ui_status }}
       # The machine channel's plan for this head (scripts/ci/cmux-machine-channel-pr-plan.sh), when the route
       # starts it; empty when it does not or the step failed, and cmux-machine-channel.yml's plan job answers then.
       machine_channel_build: ${{ steps.machine-channel.outputs.build }}
@@ -103,6 +106,8 @@ jobs:
             scripts/ci/cmux_tui_tree_key.py
             scripts/ci/timeout.sh
             scripts/ci/ios_fast_verdict.py
+            scripts/ci/ui_proof_verdict.py
+            scripts/ci/proof_record.py
             scripts/cmux-next/cmux-tui-build-profiles.json
             scripts/cmux-next/cmux-tui-tree-inputs.txt
             ci/steps.toml
@@ -155,6 +160,8 @@ jobs:
           CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
           # 0 turns the ios fast verdict off (pr-pipeline.yml ios-fast-runner); cmux/ios-fast then posts success.
           CI_IOS_FAST_VERDICT: ${{ vars.CI_IOS_FAST_VERDICT }}
+          # 0 turns the UI proof gate off (scripts/ci/ui_proof_verdict.py); cmux/ui-proof then posts success.
+          CI_UI_PROOF: ${{ vars.CI_UI_PROOF }}
           CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '0' }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
@@ -179,6 +186,8 @@ jobs:
           # No PR head build while the base took a commit in the last N minutes (its push run coalesces the merge);
           # 0 turns that off.
           MACHINE_CHANNEL_PR_HEAD_QUIET_MIN: ${{ vars.CI_MACHINE_CHANNEL_PR_HEAD_QUIET_MIN || '30' }}
+          # Only the merge train's tip builds unless this is 1 (about 25k runner-min/day for ~27 takes).
+          MACHINE_CHANNEL_PR_HEAD_ALL: ${{ vars.CI_MACHINE_CHANNEL_PR_HEAD_ALL || '0' }}
         run: scripts/ci/cmux-machine-channel-pr-plan.sh
       # The land tier's handoff: `pending` while this head runs the cheap tier (land-judge then adds `ready-to-land`
       # instead of landing it), `success` once it runs the full tier. Not a required check; a fork head gets none.
@@ -300,6 +309,21 @@ jobs:
           STATE: ${{ steps.route.outputs.ios_status }}
           DESCRIPTION: ${{ steps.route.outputs.ios_status_description }}
         run: python3 -I scripts/ci/ios_fast_verdict.py status "$STATE" "$DESCRIPTION"
+      # `cmux/ui-proof` (pr_router.py ui_status): success at once on a head that changes nothing a desktop user sees;
+      # pending on a visual head until ui-proof-status reads a look at that head. Leo, 2026-11-27: "obviously for
+      # visuals we'll need to do better before getting them in but you know".
+      - name: Post the UI proof status
+        if: ${{ steps.route.outputs.ui_status != '' && github.event.pull_request.head.repo.full_name == github.repository }}
+        timeout-minutes: 3
+        continue-on-error: true
+        env:
+          TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATE: ${{ steps.route.outputs.ui_status }}
+          DESCRIPTION: ${{ steps.route.outputs.ui_status_description }}
+        run: python3 -I scripts/ci/ui_proof_verdict.py status "$STATE" "$DESCRIPTION"
 
   land-tier-status:
     # Runs only when the route job's post did not get through (spent budget, a refused description): when every
@@ -385,6 +409,14 @@ jobs:
     permissions:
       contents: read
 
+  transcript-replay-perf-report:
+    name: transcript-replay perf report
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'transcript-replay-perf-report.yml') }}
+    uses: ./.github/workflows/transcript-replay-perf-report.yml
+    permissions:
+      contents: read
+
   screen-share-drop-gate:
     name: screen share drop gate
     # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
@@ -392,6 +424,14 @@ jobs:
     needs: [route, fast-gates]
     if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'screen-share-drop-gate.yml') }}
     uses: ./.github/workflows/screen-share-drop-gate.yml
+    permissions:
+      contents: read
+
+  nightly-pr-build:
+    name: nightly pr build
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'nightly-pr-build.yml') }}
+    uses: ./.github/workflows/nightly-pr-build.yml
     permissions:
       contents: read
 
@@ -491,6 +531,8 @@ jobs:
     permissions:
       contents: read
       statuses: write
+      issues: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -499,7 +541,10 @@ jobs:
           filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
           sparse-checkout: |
             scripts/ci/ios_fast_verdict.py
+            scripts/ci/proof_record.py
             scripts/ci/ci_steps.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
             ci/steps.toml
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -512,6 +557,12 @@ jobs:
           RUN: ${{ needs.pipeline.outputs.ios_fast_run }}
           VERDICT: ${{ needs.pipeline.outputs.ios_fast_verdict }}
           SUMMARY: ${{ needs.pipeline.outputs.ios_fast_summary }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+          # The proof requirement: a passing `cmux ios verify` record at this head (scripts/ci/proof_record.py,
+          # ci/proof-record/README.md). vars.CI_IOS_VERIFY_PROOF=0 turns it off; ios_verify.py reruns this job
+          # when it posts a record, so a head proved after the pipeline still turns green.
+          NEED_PROOF: ${{ format('{0}', vars.CI_IOS_VERIFY_PROOF) != '0' }}
         run: |
           if [ "$RUN" = false ]; then
             state=success; desc="The plan builds nothing on this head"
@@ -522,7 +573,51 @@ jobs:
           else
             state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled); rerun it"
           fi
+          if [ "$state" = success ] && [ "$RUN" != false ] && [ "$NEED_PROOF" = true ]; then
+            IFS=$'\t' read -r pstate pdesc < <(python3 -I scripts/ci/proof_record.py gate --suite ios-flows)
+            if [ "$pstate" != success ]; then state="${pstate:-error}"; desc="Build passed; ${pdesc}"; fi
+          fi
           python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"
+
+  # `cmux/ui-proof` at a visual head (the route posted `pending`): the proof record a look at this head posted
+  # (scripts/cmux-next/hot-verify.py look --record, ci/proof-record/README.md), its screens diffed against NIGHTLY,
+  # and for new visible UI `Visible-UI: complete` and 3+ captures (scripts/ci/ui_proof_verdict.py). The look reruns
+  # this job when it posts the record; so does a body edit's `gh run rerun --job`. Needs only the route: no Mac.
+  ui-proof-status:
+    name: ui proof status
+    needs: route
+    if: ${{ !cancelled() && needs.route.outputs.ui_status == 'pending' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The merge commit and the base tip: the gate reads the paths the head adds (new visible UI); an added
+          # Swift file's text comes with `git show` (the blob filter fetches it alone).
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout: |
+            scripts/ci/ui_proof_verdict.py
+            scripts/ci/proof_record.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Post the verdict
+        env:
+          TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+          CI_UI_PROOF: ${{ vars.CI_UI_PROOF }}
+        run: |
+          IFS=$'\t' read -r state desc < <(python3 -I scripts/ci/ui_proof_verdict.py gate)
+          python3 -I scripts/ci/ui_proof_verdict.py status "${state:-error}" "${desc:-UI proof not read}"
 
   # Head fail-fast: this head failed red of its own, so its other heavy runs are cancelled (scripts/ci/head_fail_fast.py).
   # Why: docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast
