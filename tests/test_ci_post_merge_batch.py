@@ -1313,3 +1313,46 @@ class SameRedTest(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn('--step "$STEP"', text)
         self.assertIn("STEP: ${{ inputs.step }}", text)
+
+
+class RevertHoldTest(unittest.TestCase):
+    """A stuck red whose post-merge revert is open is not bisected again: the bisect would name the same culprit."""
+
+    CULPRIT = "7d02c95c0e47a36a9959689c8094e2c76d61baed"
+
+    def revert(self, job: str, culprit: str, branch: str = "feat-cmux-next", hold: bool = False) -> dict:
+        body = (pmb.TEAMMATE_HOLD.format(login="someone") + "\n\n" if hold else "") + \
+            f"Reverts #57280 (`{culprit}`): the post-merge batch run x found `{job}` red on {branch}; ..."
+        return {"title": pmb.revert_title("a.rows in Rust (#57280)", job, branch), "body": body}
+
+    def test_open_reverts_reads_title_and_body(self):
+        calls = []
+
+        def api(path):
+            calls.append(path)
+            return {"items": [self.revert("cmux-tui-spec / changes (2)", self.CULPRIT, hold=True),
+                              self.revert("web / web-typecheck", "a" * 40, branch="main"),
+                              {"title": "post-merge batch: a red on other steps is another red", "body": ""}]}
+
+        got = pmb.open_reverts("o/r", "feat-cmux-next", api=api)
+        self.assertEqual(got, {"cmux-tui-spec / changes": {self.CULPRIT}})
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0].startswith("search/issues?"))
+
+    def test_held_only_when_culprit_in_range(self):
+        reverts = {"cmux-tui-spec / changes": {self.CULPRIT}}
+        span = lambda good, bad: ["b" * 40, self.CULPRIT, bad]
+        self.assertEqual(pmb.held_by_revert("cmux-tui-spec / changes (1)", "g" * 40, "c" * 40, reverts, span), self.CULPRIT)
+        self.assertEqual(pmb.held_by_revert("cmux-tui-spec / changes", "g" * 40, "c" * 40, reverts, lambda g, b: [b]), "")
+        self.assertEqual(pmb.held_by_revert("web / web-tests", "g" * 40, "c" * 40, reverts, span), "")
+
+    def test_off_switch(self):
+        with mock.patch.dict(os.environ, {"POST_MERGE_REVERT_HOLD": "0"}):
+            self.assertFalse(pmb.revert_hold_on())
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("POST_MERGE_REVERT_HOLD", None)
+            self.assertTrue(pmb.revert_hold_on())
+
+    def test_workflow_passes_the_switch_to_the_judge(self):
+        text = (ROOT / ".github" / "workflows" / "cmux-next-post-merge.yml").read_text()
+        self.assertIn("POST_MERGE_REVERT_HOLD: ${{ vars.POST_MERGE_REVERT_HOLD }}", text)

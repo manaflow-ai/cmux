@@ -45,6 +45,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -890,6 +891,44 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
     return out
 
 
+# A stuck red whose revert pull request is open (or queued) is bisected again only once that revert has merged and
+# the red is still there: until then the bisect lands on the same culprit and its four confirm runs, at the same
+# commits (web agent-pane-real-acpmux's round at 4dbaa78f/e8f78400 ran three times on 11-27, at 15:23Z, 16:21Z and
+# 19:21Z; web had 153 probe runs in 24 h, 143 red). vars.POST_MERGE_REVERT_HOLD=0 bisects them as before.
+REVERT_TITLE_RE = re.compile(r"\(post-merge batch: (?P<job>.+) red on (?P<branch>\S+)\)\s*$")
+REVERT_CULPRIT_RE = re.compile(r"^Reverts \S+ \(`(?P<sha>[0-9a-f]{40})`\)", re.M)
+
+
+def revert_hold_on() -> bool:
+    return os.environ.get("POST_MERGE_REVERT_HOLD", "") != "0"
+
+
+def open_reverts(repo: str, branch: str, api=None) -> dict[str, set[str]]:
+    """The open post-merge revert pull requests on branch: red job's base name -> the culprit shas they revert.
+    Read from cmd_revert's own title and body, so a revert a person opened by hand counts only if it says the same.
+    One search call: the open pulls list is hundreds deep, and revert #62601 (11-27) was past its first page."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
+    query = f'repo:{repo} is:pr is:open in:title "post-merge batch:" "red on {branch}"'
+    got = api("search/issues?per_page=100&q=" + urllib.parse.quote(query)) or {}
+    out: dict[str, set[str]] = {}
+    for pr in got.get("items") or []:
+        title = REVERT_TITLE_RE.search(pr.get("title") or "")
+        culprit = REVERT_CULPRIT_RE.search(pr.get("body") or "")
+        if title and culprit and title.group("branch") == branch:
+            out.setdefault(job_base(title.group("job")), set()).add(culprit.group("sha"))
+    return out
+
+
+def held_by_revert(name: str, good: str, bad: str, reverts: dict[str, set[str]], span) -> str:
+    """The open revert's culprit for this stuck red when it lies in good..bad (its bisect would name it again), else "".
+    span(good, bad) is good..bad's first-parent commits; a culprit outside it is another red's, so this one is bisected."""
+    culprits = reverts.get(job_base(name)) or set()
+    if not culprits:
+        return ""
+    commits = set(span(good, bad))
+    return next((c for c in sorted(culprits) if c in commits), "")
+
+
 def stuck_chain_start(good: str, bad: str) -> str:
     """The sha a stuck red's bisect over good..bad starts at (stuck_probe's): stuck_reds counts finished bisects by it,
     in the batch judge and in each probe's judge alike, so both agree on whether the bisect is capped."""
@@ -1241,6 +1280,20 @@ def cmd_judge(args: argparse.Namespace) -> int:
         runs = list_runs(args.repo, args.branch, before=int(args.run_id or 0), batches=LOOKBACK_BATCHES)
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of, suites)
         stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites, chain_start=stuck_chain_start)
+        if stuck and revert_hold_on():
+            try:
+                reverts = open_reverts(args.repo, args.branch)
+            except RuntimeError as err:
+                print(f"judge: open reverts unreadable, bisecting stuck reds as before: {err}", file=sys.stderr)
+                reverts = {}
+            kept = []
+            for entry in stuck:
+                held = held_by_revert(entry[0], entry[2], entry[3], reverts, first_parent_range) if reverts else ""
+                if held:
+                    summary(args.summary, f"- Stuck red `{entry[0]}`: its revert of `{held[:11]}` is open; no bisect until it merges.")
+                else:
+                    kept.append(entry)
+            stuck = kept
         stuck_names = {name for name, *_ in stuck}
         notes = [n for n in notes if not any(n.startswith(f"`{name}` was already red") for name in stuck_names)]
         for note in notes:
