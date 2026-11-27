@@ -40,6 +40,7 @@ import {
 } from "./diffHost";
 import { AgentReadError, agentRead, slotFolder } from "./agentGitHost";
 import { diffLanguagesDirectory, readDiffLanguagePack } from "./diffLanguages";
+import { fastSaveWatch } from "./fastSaveWatch";
 import {
   ListingRefused,
   allowedPath,
@@ -93,6 +94,7 @@ export const DEV_SERVER_PORT = Number(process.env.CMUX_WEBVIEWS_DEV_PORT) || 420
 /// All dev-server plugins, for vite.config.ts.
 export function cmuxDevServer(): Plugin[] {
   return [
+    fastSaveWatch(),
     devServerToken(),
     appHostServer(),
     devServerShell(),

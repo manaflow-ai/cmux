@@ -321,8 +321,15 @@ async function launchChrome(): Promise<{
   const exe = chrome || shell;
   if (!exe) throw new Error("sim-ladder: no Chrome (set CMUX_CHROME_HEADLESS_SHELL or install google-chrome)");
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "sim-ladder-"));
+  // Chrome dies with this process. An abort (SIGABRT, an OOM kill, `timeout -s KILL`) skips close() below, and Chrome
+  // lived on: a tabs 50/200/500 run aborted at its x200 rung left 348 Chrome processes holding 26 GB and the session's
+  // pids cap, so the next run and every shell in that session failed to fork. setpriv's death signal reaches the
+  // browser process; its renderers exit when the browser's IPC closes. Bun.spawn forks from the main thread, which
+  // lives as long as the process, so the signal fires only when the bench is gone.
+  const setpriv = Bun.which("setpriv");
   const proc = Bun.spawn(
     [
+      ...(setpriv ? [setpriv, "--pdeathsig", "KILL"] : []),
       exe,
       ...(shell ? [] : ["--headless=new"]),
       "--remote-debugging-port=0",
@@ -871,7 +878,9 @@ function rssMB(pid: number): number {
 /// A profile's scene: its pages, sessions and load. `mix` set, runAxis builds this one scene and measures it once.
 /// `visible` of the chats are shown (each in a window of its own) and stream a reply a delta every `streamMs`.
 type Mix = { chats: number; visible: number; tabs: number; hogs: number; streamMs: number | null };
-type Scene = { sample: Sample; agentRssMB: number; churn: boolean };
+// mainBusyPct: the focused chat's renderer main thread, its task time over the window's wall time (CDP TaskDuration), %:
+// the reading replay-under-load.bench.ts publishes as renderer_main_busy_pct (NOW's renderer-main-busy goal).
+type Scene = { sample: Sample; agentRssMB: number; mainBusyPct: number | null; churn: boolean };
 
 async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undefined> {
   const chrome = await launchChrome();
@@ -887,10 +896,13 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     // The default context: with noDefaults it is the one Playwright adds no focus emulation to.
     const context = browser.contexts()[0]!;
     // The fidelity mode lists the sessions as a fleet Mac's rows (long titles, previews, peers, PRs; mockFixture.ts
-    // `fleetListedSession`), as the profiled app's 3,761-row list is; the ladder keeps its light rows.
+    // `fleetListedSession`), as the profiled app's 3,761-row list is; the ladder keeps its light rows. Each page holds
+    // the list's first page (sessionPages.ts SESSION_PAGE) and reads the rest only when asked, as the app's pages do
+    // against acpmux (`cmuxAcpmuxMockPaged`): a mock that answered the whole list held SESSIONS rows in every chat.
     await context.addInitScript(
       ([size, shape]) => {
         (globalThis as any).cmuxAcpmuxMockListSize = size;
+        (globalThis as any).cmuxAcpmuxMockPaged = true;
         if (shape) (globalThis as any).cmuxAcpmuxMockListShape = shape;
       },
       [SESSIONS, PROFILE !== undefined ? "fleet" : null] as const,
@@ -1040,10 +1052,25 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
                 .catch((error: unknown) => ({ error: String(error) })),
             );
       try {
+        const taskSeconds = async () => {
+          const { metrics } = (await items[0]!.cdp.send("Performance.getMetrics")) as {
+            metrics: { name: string; value: number }[];
+          };
+          return metrics.find((m) => m.name === "TaskDuration")?.value ?? null;
+        };
+        const taskBefore = await taskSeconds();
+        const wallBefore = performance.now();
         const sample = await measure(rootPid, items, focused, browserCdp);
+        const taskAfter = await taskSeconds();
+        const wallMs = performance.now() - wallBefore;
+        const mainBusyPct =
+          taskBefore !== null && taskAfter !== null && wallMs > 0
+            ? Math.round(((taskAfter - taskBefore) * 1000 * 1000) / wallMs) / 10
+            : null;
         return {
           sample,
           agentRssMB: Math.round(rssMB(agentPid)),
+          mainBusyPct,
           churn: hasChurn,
         };
       } finally {
@@ -1206,6 +1233,14 @@ async function runProfile() {
     renderer_cpu_ms_per_s: {
       sim: scene.sample.cpu_ms_per_s,
       app: appCpu === null ? null : Math.round(appCpu * 10),
+      extra: true,
+    },
+    // NOW's renderer-main-busy goal reads this off replay-under-load (perf_sensor.vm_replay) and, from the app,
+    // perf_sensor.leo_nightly.renderer_main_busy_pct; a profile without it leaves the pair the sim's alone.
+    renderer_main_busy_pct: {
+      sim: scene.mainBusyPct,
+      app: fromProfile("renderer_main_busy_pct"),
+      why: "UNMEASURED: the app's profile gives no renderer main-thread busy %",
       extra: true,
     },
   };
