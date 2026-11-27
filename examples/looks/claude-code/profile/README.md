@@ -76,6 +76,7 @@ sent to the customization lead. Gap letters are the lines sent.
 | [Copy the conversation](https://code.claude.com/docs/en/desktop) | status | matched | cmd+j x agentChat.copyConversation |
 | [Account switching](https://code.claude.com/docs/en/desktop) | account_switching | gap | gap (m): no setting places an account switcher; switching never captured |
 | [Settings page](https://code.claude.com/docs/en/desktop) | settings | gap | gap (n): a look cannot restyle cmux Settings |
+| [Side panels stacked as cards beside the chat](https://code.claude.com/docs/en/desktop) | panels | partial | agentPane.display.sessionInfo.placement push + agentPane.display.sessionInfo.layout groups (Session Info pushes the chat aside and draws each block as its own card, as the app stacks Preview, Diff, Terminal, Tasks and Plan); gap (j) still open: no setting opens those as separate panes |
 | [Proportions: transcript, preview, terminal and tasks panels split side by side](https://code.claude.com/docs/en/desktop) | proportions | gap | 800 pt transcript at 14 pt, a 284 pt sidebar with 13 pt chrome type (appearance.metrics.chromeFontSize); gap (j): no setting arranges panes, and cmux-next does not read workspace layouts (`commands`), so the profile cannot open the split |
 
 | Motion | Reference | Status | How, or the gap |

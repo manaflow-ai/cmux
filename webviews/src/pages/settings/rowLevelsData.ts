@@ -319,6 +319,7 @@ export const ROW_LEVELS: {
     "agentPane.display.rail.show": "more",
     "agentPane.display.rail.control": "more",
     "agentPane.display.sessionInfo.placement": "more",
+    "agentPane.display.sessionInfo.layout": "more",
     "agentPane.display.sessionInfo.sections.environment": "more",
     "agentPane.display.sessionInfo.sections.context": "more",
     "agentPane.display.sessionInfo.sections.subagents": "more",

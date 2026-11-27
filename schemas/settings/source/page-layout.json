@@ -333,6 +333,7 @@
               "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
               "agentPane.display.rail.side", "agentPane.display.rail.show", "agentPane.display.rail.control",
               "agentPane.display.sessionInfo.placement",
+              "agentPane.display.sessionInfo.layout",
               "agentPane.display.sessionInfo.sections.environment", "agentPane.display.sessionInfo.sections.context", "agentPane.display.sessionInfo.sections.subagents", "agentPane.display.sessionInfo.sections.tasks", "agentPane.display.sessionInfo.sections.sources", "agentPane.display.sessionInfo.sections.outputs", "agentPane.display.sessionInfo.sections.changes", "agentPane.display.sessionInfo.sections.usage", "agentPane.display.sessionInfo.sections.connectors", "agentPane.display.sessionInfo.sections.carried",
               "agentPane.display.environment.placement",
               "agentPane.display.layout.messages",

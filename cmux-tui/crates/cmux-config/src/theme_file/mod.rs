@@ -145,6 +145,7 @@ const LOOK_KEYS: [&str; 48] = [
     "layout.cornerPadding",
     "layout.paneBorderWidth",
     "agentPane.display.sessionInfo.placement",
+    "agentPane.display.sessionInfo.layout",
     "agentPane.display.font.preset",
     "agentPane.display.font.ui",
     "agentPane.display.font.size",
