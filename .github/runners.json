@@ -622,7 +622,6 @@
     "cmux-next.yml#fast-tier-fleet-mac": "apple-swift-tests",
     "cmux-tui-team-signed.yml#build-helper": {"class": "apple-app-build", "picker_followup": "runs-on reads RUNNER_POOLS.macos_26; take it from a picker job's output"},
     "cmux-tui-team-signed.yml#sign-helper": {"class": "apple-signing-release", "picker_followup": "runs-on names a literal Blacksmith macOS label, as the keychain guard's rule 7 asks of a signer holding release-next's identity; take it from a picker job's output once signers may take one"},
-    "fleet-test-compile.yml#mac-fallback": {"class": "apple-swift-tests", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
     "nightly.yml#early-nightly-webviews": {"class": "portable-checks"},
     "nightly.yml#nightly-next-pkg": "apple-signing-release",
     "nightly.yml#build-live-code-variant": {"class": "apple-app-build"},

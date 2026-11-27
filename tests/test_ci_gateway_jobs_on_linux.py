@@ -35,7 +35,6 @@ GATEWAY_MAC = frozenset({
     "cmux-next-stress-bench.yml#measure",
     "cmux-next-tab-switch.yml#frames",
     "fleet-compile-check.yml#compile-check",
-    "fleet-test-compile.yml#mac-fallback",
     "ios-base-bisect.yml#bisect",
     "ios-sim-linux-build.yml#build-fleet",
     "ios-sim-linux-build.yml#shots-fleet",  # #57700 took it by vars.CI_EVAL_STEP_GATEWAY; #54437 froze it to the label
