@@ -383,11 +383,17 @@ fn wait_notice(name: &str, r: &Value) -> String {
 }
 
 /// Exit code a waited-on session contributes: 2 while it waits for a
-/// permission, 1 when its last turn failed, otherwise 0.
+/// permission, 1 when its last turn failed and no newer turn runs, otherwise 0.
+/// A failed `lastTurn` with a live `turn` is the turn before it (one a pause or
+/// a daemon restart cut short, now retried), the same reading `failed_turn` makes,
+/// so the exit code never says failed while the row prints no error.
 fn session_exit_code(s: &Value) -> i32 {
+    let turn_running = s.get("turn").is_some_and(|t| !t.is_null());
     if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
         2
-    } else if s.pointer("/lastTurn/status").and_then(Value::as_str) == Some("failed") {
+    } else if !turn_running
+        && s.pointer("/lastTurn/status").and_then(Value::as_str) == Some("failed")
+    {
         1
     } else {
         0
@@ -872,6 +878,20 @@ pub(crate) async fn tag(
         let list: Vec<String> =
             tags.iter().map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or(""))).collect();
         println!("{}", if list.is_empty() { "no tags".to_owned() } else { list.join(" ") });
+    }
+    Ok(())
+}
+
+/// `acpmux session unsettle NAME`: the chat menu's Unarchive (`_acpmux/archive` false), which
+/// also drops a settled chat's reason (`hub/auto_settle.rs`).
+pub(crate) async fn unsettle(client: Arc<Client>, key: &str, json_out: bool) -> Result<()> {
+    let id = resolve_id(&client, &expand_session_key(key)?).await?;
+    let v =
+        client.request(method::MUX_ARCHIVE, json!({"sessionId": id, "archived": false})).await?;
+    if json_out {
+        print_json(&v);
+    } else {
+        println!("{key}: back on the lists");
     }
     Ok(())
 }

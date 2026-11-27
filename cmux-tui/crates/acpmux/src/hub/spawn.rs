@@ -215,6 +215,7 @@ impl Hub {
     ) -> Result<Spawn, RpcError> {
         // A fork resumes its parent's conversation: it runs in the parent's folder.
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+        self.refresh_card(session).await;
         let meta = session.meta();
         let opencode = super::policy_mode::is_opencode(&meta, profile);
         // The owner's Cloud credential, held for this session only (`agent_credentials.rs`).
@@ -223,6 +224,31 @@ impl Hub {
             .spawn_profile_read(&meta, forking, profile, defaults_env, credential.as_ref())
             .await?;
         Ok(Spawn { profile, preset_digest, account_home, opencode, launch_digest })
+    }
+
+    /// The "where you are" card ([`crate::agent_card`]) with this machine's numbers now: a
+    /// resize or a move to another machine changed them since the chat was made. Before the
+    /// launch reads the rules, so its arguments and the recorded context agree.
+    async fn refresh_card(&self, session: &Session) {
+        let Some((harness, cwd, auto)) = session.read_meta(|m| {
+            let has = m
+                .cmux_context
+                .as_deref()
+                .is_some_and(|parts| parts.iter().any(|p| p.source == crate::agent_card::SOURCE));
+            (has && !m.remote_origin).then(|| {
+                (m.harness.clone(), m.cwd.clone(), m.auto_session.as_ref().is_some_and(|a| a.auto))
+            })
+        }) else {
+            return;
+        };
+        let env = {
+            let cfg = self.config.read().await;
+            cfg.harnesses.get(&harness).map(|p| p.env.clone()).unwrap_or_default()
+        };
+        let Some(mut parts) = session.read_meta(|m| m.cmux_context.clone()) else { return };
+        if crate::agent_card::refresh(&mut parts, &env, std::path::Path::new(&cwd), auto) {
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).cmux_context = Some(parts);
+        }
     }
 
     /// `spawn_profile` for a session's meta, also before the session exists

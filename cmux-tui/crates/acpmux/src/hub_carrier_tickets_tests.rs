@@ -181,3 +181,60 @@ async fn premint_seeds_every_peer_and_stops_with_the_carrier() {
     tokio::time::advance(Duration::from_secs(201)).await;
     tokio::time::timeout(Duration::from_secs(1), loop_).await.unwrap().unwrap();
 }
+
+fn named(peer: &str, name: Option<&str>, host: Option<&str>) -> CarrierAnswer {
+    let mut answer = ticket(peer, 1, 300);
+    answer.peer_name = name.map(str::to_owned);
+    answer.peer_host = host.map(str::to_owned);
+    answer
+}
+
+#[test]
+fn a_pre_minted_machine_is_reached_by_the_name_the_platform_gave_it() {
+    let cache = TicketCache::new(Minting::new(300));
+    assert_eq!(cache.named("cmux16"), None);
+    cache.name_peers(&[
+        named("K16", Some("cmux16"), Some("cmux16.local")),
+        named("KLANE", Some("gcp-agent-lane-10"), Some("gcp-agent-lane-10.us-west1-c.internal")),
+        named("KA", Some("twice"), None),
+        named("KB", Some("Twice"), None),
+        named("KNONE", None, None),
+    ]);
+    assert_eq!(cache.named("cmux16").as_deref(), Some("K16"));
+    assert_eq!(cache.named("CMUX16").as_deref(), Some("K16"));
+    assert_eq!(cache.named("cmux16.local").as_deref(), Some("K16"));
+    assert_eq!(cache.named("gcp-agent-lane-10").as_deref(), Some("KLANE"));
+    // Exact first, then without case: two machines one name apart only by case are told apart
+    // by the exact name, and neither is picked by a third spelling.
+    assert_eq!(cache.named("twice").as_deref(), Some("KA"));
+    assert_eq!(cache.named("TWICE"), None);
+    assert_eq!(cache.named(""), None);
+    // The next pre-mint replaces the names: a machine no longer lent loses its name.
+    cache.name_peers(&[named("KLANE", Some("gcp-agent-lane-10"), None)]);
+    assert_eq!(cache.named("cmux16"), None);
+}
+
+#[tokio::test]
+async fn a_pre_mint_names_its_machines() {
+    let platform = Arc::new(Minting {
+        asks: AtomicU64::new(0),
+        life: 300,
+        refusing: Mutex::new(false),
+        wait: Duration::ZERO,
+        premint: Some(vec!["K16".into()]),
+    });
+    let cache = TicketCache::new(platform.clone());
+    let answers = platform.connects().await.unwrap().unwrap();
+    // A platform that names no machine (before cmux-platform#1917) names nothing here.
+    cache.name_peers(&answers);
+    assert_eq!(cache.named("K16"), None);
+    let answers: Vec<_> = answers
+        .into_iter()
+        .map(|mut a| {
+            a.peer_name = Some("cmux16".into());
+            a
+        })
+        .collect();
+    cache.name_peers(&answers);
+    assert_eq!(cache.named("cmux16").as_deref(), Some("K16"));
+}
