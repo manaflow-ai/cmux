@@ -16,6 +16,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | bench | wraps (script) | what |
 |---|---|---|
+| coordinator-cpu | `chat-open.sh --coordinator-cpu` | Whole-renderer CPU on a 10,000-row chat with twenty ACP children updating at 1 Hz. Saves raw CPU intervals, daemon tick receipts, a JavaScript profile and a macOS sample. |
 | published-idle | `published-idle-power.sh` (pinned prepared PID, then `--import`) | Process CPU energy, wakeups and footprint including descendants; rejects incomplete windows. |
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |
 | launch | `launch-ready.sh` | Dock launch: bounce end, first window, main, first frame, every launch mark. |
@@ -242,6 +243,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 |---|---|---|---|---|
 | `agent-engine.sh` | Agent chat engine spike: open time, memory, flings, typing per engine. | - | 2026-10-27 | active |
 | `chat-typing-ab.sh` | Agent chat typing A/B, base vs head, in one step. | - | 2026-11-14 | active |
+| `agent-conn-chaos.sh` | The agent connection chaos suite (scripts/cmux-next/agent-conn-chaos/): update, daemon kill, app kill, simulated sleep, socket and port loss mid-turn; recovery by itself, no error row, no lost or doubled turn. Fleet Macs only. | gui-agent-connection-dictator | 2026-11-27 | active |
 | `acpmux-overhead.sh` | acpmux against each harness run raw (Claude Code, Codex and others). | #2758 | 2026-10-29 | active |
 | `capacity-resume-outcomes.py` | What acpmux's capacity continuations do once they wake a chat, from this host's Claude transcripts: work (acted or read-only), no tool call, failed again; whether the cut turn had worked yet. | ask-ec4bc6dc7d | 2026-11-26 | active |
 | `agent-loop.sh` | Agent loop on a published NEXT nightly: scripted UI change applied live. | hq#7149 L8 | 2026-11-05 | active |
@@ -381,6 +383,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `closed-kit-census.py` | Per webviews directory: the closed kit's doors left open (raw elements, `style`, `className` in product .tsx) and raw px, hex and rgb(a) literals, fewest doors first: which directory closes next. | RFD 0040 | 2026-11-24 | active |
 | `closed-kit-raw-values.sh` | Hand-set values that type-check in the first closed webviews directory (15 probes, `open` or `closed`), and `tsc -p tsconfig.closed.json` cold and incremental. The follow rate is `bun run gallery:perturb` in webviews. | RFD 0040 | 2026-11-23 | active |
 | `ci140-heads-per-pr` | Runner minutes per merged PR on cmux PR heads, from the timing feed: (a) heads that ran CI per merged PR, (b) minutes by PR state (merged, closed unmerged, draft, open), (c) minutes after a newer head was pushed and not cancelled, (d) minutes on same-tree, empty or wip heads. | goal ci-min-per-pr-140 | 2026-11-27 | active |
+| `ci140-pr-ledger` | One table of the meter's CI minutes (GitHub rows plus fleet jobs) over a window by bucket: (a) landed head, (b) earlier heads of merged PRs (superseded by push, by base merge, rerun after red), (c) open active / abandoned, (d) non-PR (base push, scheduled, dispatch, fleet base/lane); runs attributed by the tested commit in the run name, not dispatch head_sha; plus minutes a cancel-on-supersede would save and what cancel-in-progress cancels today. Measurement only. | goal ci-min-per-pr-140 | 2026-11-27 | active |
 | `ci140-pr-segment` | PR-segment runner minutes per merged PR ranked by workflow and job (shards folded): runs, minutes per run, share that ended failure or cancelled, split at fix times. | goal ci-min-per-pr-140 | 2026-11-27 | active |
 
 No script is marked `duplicate of`: the A/B wrappers (`*-ab.sh`) and the `.py` drivers reuse their base script on purpose, and no other pair clearly measures the same thing the same way.
