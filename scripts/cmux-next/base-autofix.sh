@@ -55,6 +55,10 @@
 #     lock stale through a path dependency: eb4f3eb1d94 (a direct push) changed
 #     cmux-tui/Cargo.toml, and cmux-app-ffi's lock failed --locked on every pull
 #     request until #40883. Only Cargo.lock files are written.
+#   - the acpmux protocol IR and ABI surface: cmux-tui/crates/acpmux/spec/acpmux-protocol.json and
+#     acpmux-abi.surface.json, written by acpmux's own protocol tests with ACPMUX_PROTOCOL_BLESS=1
+#     (with --acpmux-ir). The surface is written only when every ABI break has a rule in
+#     acpmux-abi.compat.json; when the tests still fail both files are put back and the run reports it.
 #   - the iPhone app's uniffi Swift bindings: rewrites
 #     cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift from
 #     cmux-mobile-link-ffi (scripts/ios-ffi-bindings.sh, a host cargo build; with --ios-ffi).
@@ -79,10 +83,10 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--ios-ffi] [--job-inputs] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--acpmux-ir] [--ios-ffi] [--job-inputs] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 ios_ffi=0 job_inputs=0 fmt=1
+generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 acpmux_ir=0 ios_ffi=0 job_inputs=0 fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -99,13 +103,14 @@ while (( $# > 1 )); do
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
     --locks) locks=1; shift ;;
+    --acpmux-ir) acpmux_ir=1; shift ;;
     --ios-ffi) ios_ffi=1; shift ;;
     --job-inputs) job_inputs=1; shift ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--ios-ffi] [--job-inputs] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--acpmux-ir] [--ios-ffi] [--job-inputs] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--ios-ffi] [--job-inputs] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--acpmux-ir] [--ios-ffi] [--job-inputs] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -556,6 +561,38 @@ if (( locks )); then
     python3 -I "$script_dir/cargo-locks.py" fix --repo "$repo" | grep -E '^(fixed|left): ' || true
   else
     echo "left: Cargo locks not checked (no cargo on PATH)"
+  fi
+fi
+
+# 5b. The acpmux protocol IR and its ABI surface, after the locks the test builds with. Both are derived from acpmux's
+# protocol registry, and the PR tier skips the check (scripts/ci/affected-jobs.json pull_request_skip), so a change
+# that registers a method leaves them stale on feat-cmux-next until someone blesses them by hand: #56240 and #57905
+# each added a method on 11-26, and `acpmux protocol IR is current` and `api-compat` stayed red in the post-merge
+# batch for every pull request after them. The test writes the surface only when every ABI break has a rule in
+# acpmux-abi.compat.json (cmux_api_compat::json_schema::check_files), so an uncovered break is never blessed: when
+# the tests still fail, both files are put back and the break is left to a person.
+if (( acpmux_ir )) && [[ -f "$repo/cmux-tui/crates/acpmux/Cargo.toml" ]]; then
+  acpmux_spec=cmux-tui/crates/acpmux/spec
+  acpmux_ir_files=("$acpmux_spec/acpmux-protocol.json" "$acpmux_spec/acpmux-abi.surface.json")
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "left: $acpmux_spec not blessed (no cargo on PATH)"
+  else
+    ir_log="$(mktemp)"
+    if (cd "$repo/cmux-tui" && ACPMUX_PROTOCOL_BLESS=1 cargo test --locked -p acpmux --lib -- protocol:: >"$ir_log" 2>&1); then
+      for rel in "${acpmux_ir_files[@]}"; do
+        git -C "$repo" diff --quiet -- "$rel" 2>/dev/null && continue
+        if frozen "$rel"; then
+          git -C "$repo" checkout --quiet -- "$rel"
+          echo "skipped (frozen): $rel (stale; ACPMUX_PROTOCOL_BLESS=1 cargo test -p acpmux --lib -- protocol:: in cmux-tui)"
+        else
+          echo "fixed: blessed $rel"
+        fi
+      done
+    else
+      git -C "$repo" checkout --quiet -- "${acpmux_ir_files[@]}" 2>/dev/null || true
+      echo "left: acpmux protocol tests fail with ACPMUX_PROTOCOL_BLESS=1 (an ABI break needs a rule in $acpmux_spec/acpmux-abi.compat.json first): $(grep -m1 -E 'panicked at|^error' "$ir_log" || tail -n 1 "$ir_log")"
+    fi
+    rm -f "$ir_log"
   fi
 fi
 
