@@ -69,7 +69,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 unicode-normalization = "0.1"
 uniffi = "=0.31.1"
-# cmux link grammar (src/cmux_link.rs).
 url.workspace = true
 uuid.workspace = true
 zeroize.workspace = true

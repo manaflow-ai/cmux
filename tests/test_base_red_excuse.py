@@ -9306,7 +9306,7 @@ class WsCheckPerTest(unittest.TestCase):
         # The set dropped, a description naming another step still does not match.
         self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()},
                         description=f"1 of 77 steps failed: {self.DEPLOY} [fails 1: Iaih2]")
-        with self.assertRaisesRegex(excuse.Refused, "none of the 30 newest main commits"):
+        with self.assertRaisesRegex(excuse.Refused, f"none of the {excuse.WS_CHECK_COMMITS} newest main commits"):
             self.judge()
 
     def learned_red(self, description):
@@ -18607,6 +18607,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             # acpmux simulator sweep, Chief's evals, the mobile FFI, the cmux-next terminal and the Windows RD host.
             "acpmux-sim-sweep.yml", "chief-evals.yml", "cmux-mobile-ffi.yml", "cmux-next-terminal.yml",
             "cmux-rd-windows.yml",
+            # #58314: the acpmux session move and transfer CLI tests (cmux-tui/crates/acpmux).
+            "session-move-tests.yml",
             # Calls ci.yml, cmux-next-guards.yml and the other docs-only-filtered workflows when their filter can
             # be wrong (scripts/ci/docs_only_paths.py FALLBACK); a called guard job's check name carries the
             # caller's prefix, so no guard job declaration matches it and its red is judged as any job's.
