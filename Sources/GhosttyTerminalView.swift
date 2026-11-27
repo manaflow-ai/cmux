@@ -8085,15 +8085,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
 #endif
-        ghostty_surface_mouse_pos(
-            surface,
-            point.x,
-            bounds.height - point.y,
-            hoverModsFromFlags(
-                event.modifierFlags,
-                suppressCommandPathHover: suppressCommandPathHover
-            )
+        let hoverMods = hoverModsFromFlags(
+            event.modifierFlags,
+            suppressCommandPathHover: suppressCommandPathHover
         )
+        if cmuxIsOtherBrowserLinkClickChord(modifierFlagsRawValue: event.modifierFlags.rawValue),
+           !terminalPointerGesture.hasPendingRelease {
+            // The key event above made Ghostty resolve this cell for Cmd+Shift,
+            // which is no link, and it skips a position that stays in the
+            // same cell. Leaving the viewport drops that answer, so the
+            // position below is resolved again as the plain Cmd it carries.
+            ghostty_surface_mouse_pos(surface, -1, -1, hoverMods)
+        }
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, hoverMods)
         updateWordPathHover(
             at: point,
             cmdHeld: event.modifierFlags.contains(.command),
@@ -9264,7 +9268,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             return nil
         case .none:
-            attemptGitHubReferenceOpen(at: resolvedPoint, runtimeOutcome: runtimeOutcome)
+            attemptGitHubReferenceOpen(
+                at: resolvedPoint,
+                runtimeOutcome: runtimeOutcome,
+                destination: cmuxIsOtherBrowserLinkClickChord(
+                    modifierFlagsRawValue: modifierFlags.rawValue
+                ) ? .otherBrowser : .followsSetting
+            )
 #if DEBUG
             if let resolution = resolvedPath {
                 var payload: [String: Any] = [
@@ -9369,7 +9379,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// entirely.
     private func attemptGitHubReferenceOpen(
         at point: NSPoint?,
-        runtimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome
+        runtimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome,
+        destination: TerminalLinkOpenRequest.Destination
     ) {
         guard runtimeOutcome == .unhandled, let point else { return }
         guard let termSurface = terminalSurface,
@@ -9388,7 +9399,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .ignore:
             return
         case .open(let reference):
-            openGitHubReference(reference)
+            openGitHubReference(reference, destination: destination)
             return
         case .resolveRepository:
             break
@@ -9416,14 +9427,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                       column: column,
                       repositorySlug: slug
                   ) else { return }
-            self.openGitHubReference(reference)
+            self.openGitHubReference(reference, destination: destination)
         }
     }
 
     /// Routes a resolved GitHub reference through the shared terminal-link
     /// policy, so it honors the same embedded-browser and host settings as any
     /// other link in the pane.
-    private func openGitHubReference(_ reference: TerminalGitHubReference) {
+    private func openGitHubReference(
+        _ reference: TerminalGitHubReference,
+        destination: TerminalLinkOpenRequest.Destination
+    ) {
         guard let termSurface = terminalSurface else { return }
 #if DEBUG
         cmuxDebugLog(
@@ -9435,7 +9449,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 rawValue: reference.url.absoluteString,
                 sourceWorkspaceId: tabId,
                 sourcePanelId: termSurface.id,
-                workingDirectory: nil
+                workingDirectory: nil,
+                destination: destination
             )
         )
     }
