@@ -226,14 +226,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       for (let i = 0; i < n; i++) {
         for (let tries = 1; ; tries++) {
           await fresh();
-          const w = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path: `${DIR}/parts/${String(i).padStart(3, "0")}`, dataBase64: Buffer.from(data.subarray(i * PIECE, (i + 1) * PIECE)).toString("base64"), mode: 0o644 }, 120_000);
+          const p0 = Date.now();
+          // A write that never answers throws (AbortSignal.timeout): run 45827353873 lost the whole step to one hung
+          // piece ("The operation timed out." at 524 s). A piece is idempotent (same path, same bytes): send it again.
+          const w = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path: `${DIR}/parts/${String(i).padStart(3, "0")}`, dataBase64: Buffer.from(data.subarray(i * PIECE, (i + 1) * PIECE)).toString("base64"), mode: 0o644 }, 120_000)
+            .catch((e: Error) => ({ status: 0, body: { error: { code: `${e?.name ?? "Error"}: ${e?.message ?? e}` } } }) as { status: number; body: any });
+          say(`fs/write piece ${i + 1}/${n}: HTTP ${w.status} in ${Math.round((Date.now() - p0) / 1000)} s (try ${tries})`);
           if (w.status >= 200 && w.status < 300 && w.body?.ok !== false) break;
-          if (tries >= 4 || (w.status < 500 && w.status !== 409)) throw new Error(`fs/write piece ${i}/${n}: HTTP ${w.status} ${String(w.body?.error?.code ?? "")} (try ${tries})`);
+          if (tries >= 4 || (w.status !== 0 && w.status < 500 && w.status !== 409)) throw new Error(`fs/write piece ${i}/${n}: HTTP ${w.status} ${String(w.body?.error?.code ?? "")} (try ${tries})`);
           retried++;
           await sleep(5000 * tries);
         }
       }
-      say(`copied ${n} piece(s), ${retried} retried`);
+      say(`copied ${n} piece(s), ${retried} retried; swapping cmux-host`);
       const r = await run(
         `set -e; cat ${DIR}/parts/* | gunzip > ${DIR}/cmux; rm -rf ${DIR}/parts; chmod 755 ${DIR}/cmux; ` +
         `before=$(systemctl show -p ExecStart --value cmux-host.service | sed -n 's/.*path=\\([^ ;]*\\).*/\\1/p'); echo "before=$before"; ` +
@@ -242,7 +247,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         `sudo -n systemctl daemon-reload; sudo -n systemctl restart cmux-host.service; sleep 5; ` +
         `echo "active=$(systemctl is-active cmux-host.service)"; pid=$(systemctl show -p MainPID --value cmux-host.service); ` +
         `echo "running=$(sudo -n readlink /proc/$pid/exe)"; ${HOST_BIN} --version 2>&1 | head -1; ` +
-        `echo "glibc=$(ldd --version 2>&1 | head -1)"`, 240_000);
+        `echo "glibc=$(ldd --version 2>&1 | head -1)"`, 240_000).catch((e: Error) => { throw new Error(`swap (after copying ${n} piece(s)): ${e?.message ?? e}`); });
       if (r.code !== 0 || !r.stdout.includes(`running=${HOST_BIN}`) || !r.stdout.includes("active=active")) throw new Error(`swap: exit ${r.code} ${(r.stdout + r.stderr).trim().slice(-600)}`);
       report.host = r.stdout.trim();
       return { value: null, detail: `${data.length} gz bytes in ${n} piece(s); ${r.stdout.trim().replace(/\n/g, "; ").slice(0, 400)}` };
