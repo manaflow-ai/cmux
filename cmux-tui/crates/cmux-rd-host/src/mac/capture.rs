@@ -28,6 +28,8 @@ const MAX_SIZE: (f64, f64) = (3840.0, 2160.0);
 /// Frames ScreenCaptureKit may have in flight. The session holds one (the newest, so a
 /// recovery keyframe can be encoded with no new capture) and encodes another.
 const QUEUE_DEPTH: c_long = 4;
+/// ScreenCaptureKit's accepted queue depths.
+const QUEUE_DEPTH_RANGE: std::ops::RangeInclusive<c_long> = 3..=8;
 /// The frame rate when the display's refresh rate cannot be read.
 pub const FALLBACK_FPS: u32 = 60;
 /// The highest refresh rate taken from a display mode (the viewer's settings allow up to 240).
@@ -622,7 +624,11 @@ unsafe fn new_stream(
             min_frame_interval(fps),
         );
         msg::<unsafe extern "C" fn(Id, Sel, u32)>()(config, sel(c"setPixelFormat:"), PIXEL_420V);
-        msg::<unsafe extern "C" fn(Id, Sel, c_long)>()(config, sel(c"setQueueDepth:"), QUEUE_DEPTH);
+        msg::<unsafe extern "C" fn(Id, Sel, c_long)>()(
+            config,
+            sel(c"setQueueDepth:"),
+            queue_depth(std::env::var("CMUX_RD_SCK_QUEUE_DEPTH").ok().as_deref()),
+        );
         // Without the cursor when the viewer draws it from metadata (cap `cursor`): one
         // cursor on the viewer's screen, not the local one over a baked-in copy.
         msg::<unsafe extern "C" fn(Id, Sel, bool)>()(config, sel(c"setShowsCursor:"), shows_cursor);
@@ -787,9 +793,128 @@ fn hz_to_fps(hz: f64) -> Option<u32> {
 /// it), else [`FALLBACK_FPS`] when it reads 0 or the display list is not available.
 pub fn refresh_fps(which: &str) -> u32 {
     let Ok((content, displays)) = shareable_displays() else { return FALLBACK_FPS };
-    let rate = pick(&displays, which).ok().and_then(|(_, id)| refresh_rate(id));
+    let rate = pick(&displays, which).ok().and_then(|(_, id)| {
+        raise_refresh_if_asked(id);
+        refresh_rate(id)
+    });
     release_all(content, &displays);
     rate.unwrap_or(FALLBACK_FPS)
+}
+
+/// The queue depth from `CMUX_RD_SCK_QUEUE_DEPTH` (measurement: does a deeper surface pool change
+/// the Screen stage's tail?), clamped to what ScreenCaptureKit accepts; [`QUEUE_DEPTH`] without it.
+fn queue_depth(asked: Option<&str>) -> c_long {
+    asked
+        .and_then(|v| v.trim().parse::<c_long>().ok())
+        .map_or(QUEUE_DEPTH, |d| d.clamp(*QUEUE_DEPTH_RANGE.start(), *QUEUE_DEPTH_RANGE.end()))
+}
+
+/// One display mode as the refresh raise compares them: pixel size, point size, Hz.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ModeShape {
+    pixels: (usize, usize),
+    points: (usize, usize),
+    hz: f64,
+}
+
+/// The index of the fastest mode with the current mode's pixel and point size, when it is faster
+/// than the current one by more than rounding (59.94 against 60 is no raise).
+fn faster_mode(current: ModeShape, modes: &[ModeShape]) -> Option<usize> {
+    modes
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.pixels == current.pixels && m.points == current.points)
+        .filter(|(_, m)| m.hz.is_finite() && m.hz > current.hz + 1.0)
+        .max_by(|a, b| a.1.hz.total_cmp(&b.1.hz))
+        .map(|(index, _)| index)
+}
+
+/// `CMUX_RD_MAC_MAX_REFRESH=1` (measurement only, off by default): switch the captured display to
+/// its fastest mode at the current pixel and point size, for this process only. The window server
+/// composites at the display's refresh, so a press waits on average half a refresh for the
+/// compositor and about a refresh more for its frame; at 120 Hz both halve. The switch uses
+/// kCGConfigureForAppOnly, so the window server puts the old mode back when the host exits. Once
+/// per display per process; the rates the display offers at its size are logged either way.
+fn raise_refresh_if_asked(display: u32) {
+    if std::env::var_os("CMUX_RD_MAC_MAX_REFRESH").is_none_or(|v| v != "1") {
+        return;
+    }
+    static DONE: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+    {
+        let mut done = DONE.lock().unwrap_or_else(|p| p.into_inner());
+        if done.contains(&display) {
+            return;
+        }
+        done.push(display);
+    }
+    let tag = "cmux-rd host: CMUX_RD_MAC_MAX_REFRESH:";
+    // SAFETY: a display id; the copied mode and the mode list are released here, and the modes
+    // in the list are borrowed from it while it lives.
+    unsafe {
+        let shape = |mode: sys::CGDisplayModeRef| ModeShape {
+            pixels: (cg::CGDisplayModeGetPixelWidth(mode), cg::CGDisplayModeGetPixelHeight(mode)),
+            points: (cg::CGDisplayModeGetWidth(mode), cg::CGDisplayModeGetHeight(mode)),
+            hz: cg::CGDisplayModeGetRefreshRate(mode),
+        };
+        let current_mode = cg::CGDisplayCopyDisplayMode(display);
+        if current_mode.is_null() {
+            eprintln!("{tag} display {display} has no mode");
+            return;
+        }
+        let current = shape(current_mode);
+        cg::CGDisplayModeRelease(current_mode);
+        let list = cg::CGDisplayCopyAllDisplayModes(display, std::ptr::null());
+        if list.is_null() {
+            eprintln!("{tag} display {display} lists no modes");
+            return;
+        }
+        let mut refs = Vec::new();
+        let mut shapes = Vec::new();
+        for index in 0..cf::CFArrayGetCount(list) {
+            let mode = cf::CFArrayGetValueAtIndex(list, index) as sys::CGDisplayModeRef;
+            if !mode.is_null() && cg::CGDisplayModeIsUsableForDesktopGUI(mode) {
+                refs.push(mode);
+                shapes.push(shape(mode));
+            }
+        }
+        let rates: Vec<f64> = shapes
+            .iter()
+            .filter(|m| m.pixels == current.pixels && m.points == current.points)
+            .map(|m| m.hz)
+            .collect();
+        eprintln!(
+            "{tag} display {display} at {:?} px {:?} pt {} Hz; rates at this size: {rates:?}",
+            current.pixels, current.points, current.hz
+        );
+        match faster_mode(current, &shapes) {
+            Some(index) => {
+                let mut config: sys::CGDisplayConfigRef = null_mut();
+                let mut status = cg::CGBeginDisplayConfiguration(&raw mut config);
+                if status == 0 {
+                    status = cg::CGConfigureDisplayWithDisplayMode(
+                        config,
+                        display,
+                        refs[index],
+                        std::ptr::null(),
+                    );
+                    status = if status == 0 {
+                        cg::CGCompleteDisplayConfiguration(config, sys::CONFIGURE_FOR_APP_ONLY)
+                    } else {
+                        cg::CGCancelDisplayConfiguration(config);
+                        status
+                    };
+                }
+                if status == 0 {
+                    let hz = shapes[index].hz;
+                    eprintln!("{tag} display {display} now {hz} Hz (until this host exits)");
+                } else {
+                    eprintln!("{tag} display {display} mode switch failed (CGError {status})");
+                }
+            }
+            None => eprintln!("{tag} display {display} has no faster mode at this size"),
+        }
+        cf::CFRelease(list);
+    }
 }
 
 type ContentAnswer = Result<Id, String>;
@@ -1177,6 +1302,9 @@ impl Capture {
         crate::permissions::require_screen_recording()?;
         let (content, displays) = shareable_displays()?;
         let picked = pick(&displays, which);
+        if let Ok((_, id)) = picked {
+            raise_refresh_if_asked(id);
+        }
         let result = picked.and_then(|(display, id)| {
             let source = Source::Display(display, id);
             let filter = FilterGen::new(generation, 0);
