@@ -1,8 +1,11 @@
 import type { AcpmuxRow } from "../model";
 import { type EventRecord, startsTurn, mergeEventRecords } from "./records";
 
-/// Records one older page asks for at most (`limit`), with OLDER_PAGE_BYTES.
-export const OLDER_PAGE_RECORDS = 2000;
+/// Records one older page asks for at most (`limit`), with OLDER_PAGE_BYTES. It is also what a chat left open keeps
+/// (`HELD_KEPT`), so it sets what every open chat holds: at 2,000, two chats grown to 100k rows each held 4,000
+/// records and drew 1.61x an empty pair's renderer memory and 2.30x its JS heap; at 500, 1.44x and 1.74x
+/// (bench/chat-100k-flat.bench.ts grown-many; Leo, 2026-11-14: "memory and cpu staying flat on infinite chats").
+export const OLDER_PAGE_RECORDS = 500;
 
 /// The most held records a rebuild folds again (`rebuild`): a pane open on a busy chat holds every
 /// record streamed since it opened, and a lag read or a repaired turn refolded all of them.
