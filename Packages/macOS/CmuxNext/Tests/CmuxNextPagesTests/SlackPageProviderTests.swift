@@ -71,4 +71,32 @@ import Testing
         #expect(routes.count == 2)
         #expect(routes.allSatisfy { $0.hasPrefix("#/settings/accounts?slack=connected&open=") })
     }
+
+    @Test func awakeReadsWithoutAllowanceAndSetsOnlyValidSeconds() async throws {
+        var asked: [Int??] = []
+        let provider = SlackPageProvider(request: { _, _ in Issue.record("awake must not use the Slack relay"); return Data() },
+                                         open: { _ in Issue.record("awake must not open the browser") },
+                                         awake: { allowance in
+            asked.append(allowance)
+            return Data(#"{"allowance_seconds":7200,"default_seconds":7200,"max_seconds":86400,"days":7,"senders":[]}"#.utf8)
+        })
+        let context = PageCallContext(page: PageDescriptor.settings.id)
+        let read = try await provider.call("cmux.settings.slack.awake", params: .object([:]), context: context)
+        #expect(read["allowance_seconds"]?.doubleValue == 7200)
+        _ = try await provider.call("cmux.settings.slack.awake", params: ["allowance_seconds": .number(3600)], context: context)
+        _ = try await provider.call("cmux.settings.slack.awake", params: ["allowance_seconds": .null], context: context)
+        for bad: JSONValue in [.number(-1), .number(86_401), .number(1.5), .string("3600")] {
+            await #expect(throws: PageError.self) {
+                _ = try await provider.call("cmux.settings.slack.awake", params: ["allowance_seconds": bad], context: context)
+            }
+        }
+        #expect(asked == [nil, .some(3600), .some(nil)])
+    }
+
+    @Test func awakeWithoutAChiefIsUnavailable() async throws {
+        let provider = SlackPageProvider(request: { _, _ in Data() }, open: { _ in })
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.settings.slack.awake", params: .object([:]), context: PageCallContext(page: PageDescriptor.settings.id))
+        }
+    }
 }

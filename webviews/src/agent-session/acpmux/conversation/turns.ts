@@ -9,19 +9,20 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
   isLineRow,
+  onlyQuietThoughts,
   pathKey,
   SINCE_DIVIDER,
   TURN_RETRY,
   type AcpmuxActivity,
   type AcpmuxFileDiff,
   type AcpmuxRow,
-  onlyQuietThoughts,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
+import { RowMemo } from "../../shared/rowMemo";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
-import { keptPrefix, PrefixFilter, noteKeptPrefix } from "./prefixFlatMap";
+import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { compactShortTurnsOn } from "./compactShortTurns";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
@@ -56,7 +57,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
+import { turnCopyParts, turnCallParts, turnCopySaid } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
@@ -473,7 +474,13 @@ export type TurnView = {
   /// Each boundary keeps its count and last row before the next prompt extends a fold, and the row
   /// before it (`before`): a joined "Worked for" ends on its last turn's footer, so a join replaces both.
   /// `openRun`: the opened joined "Worked for" (`joinBareWorked`) whose turns go on past this one.
-  ends: { count: number; row: AcpmuxRow | undefined; before?: AcpmuxRow; visible?: number; openRun?: string }[];
+  ends: {
+    count: number;
+    row: AcpmuxRow | undefined;
+    before?: AcpmuxRow;
+    visible?: number;
+    openRun?: string;
+  }[];
   /// Where each next-step card is in `rows`, with the row as its turn shaped it
   /// (`settleNextSteps`).
   nextSteps: NextStepAt[];
@@ -532,11 +539,13 @@ const retainVisibleReplies = (
   const firstAt = changedRows[0]?.at ?? Number.POSITIVE_INFINITY;
   let start = 0;
   let high = previous.length;
+  // ends: binary search: each pass halves high - start
   while (start < high) {
     const middle = (start + high) >> 1;
     if (previous[middle]!.at < firstAt) start = middle + 1;
     else high = middle;
   }
+  // ends: `start` falls by one each pass, to 0 at most
   while (start > 0 && previous[start - 1]!.kind !== "user") start -= 1;
   const relevant = previous.slice(start);
   const previousById = new Map(relevant.map((row) => [row.id, row]));
@@ -699,6 +708,7 @@ export function turnViewFrom(
       const from = keptPrefix(shared, rows);
       // The turns that start before it (`starts` ascends): a long chat holds thousands.
       let high = previous.starts.length;
+      // ends: binary search: each pass halves high - reuse
       while (reuse < high) {
         const middle = (reuse + high) >> 1;
         if (previous.starts[middle]! < from) reuse = middle + 1;
@@ -741,6 +751,7 @@ export function turnViewFrom(
     index = 0;
     // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are,
     // a quiet turn the agent ran on its own folded to its line (backgroundTurns.ts).
+    // ends: `index` rises by one each pass, to rows.length
     while (index < rows.length && rows[index]!.kind !== "user") {
       const row = rows[index++]!;
       if (!isVisiblyEmptyMessage(row)) out.push(row);
@@ -784,9 +795,11 @@ export function turnViewFrom(
   // and neither ends the turn nor folds into it. A steer goes on with the turn it went into
   // (``continuesTurn``). Indexes, not arrays: a long chat's snapshot only copies the rows of a
   // turn that changed (shapedTurn).
+  // ends: each pass takes `index` up by one at least (`start = index++`), to rows.length
   while (index < rows.length) {
     const start = index++;
     let answerAt: number | undefined;
+    // ends: `index` rises by one each pass, to rows.length
     while (
       index < rows.length &&
       (rows[index]!.kind !== "user" || isUnsent(rows[index]!) || continuesTurn(rows[index]!))
@@ -885,7 +898,12 @@ export function turnViewFrom(
     const bareTurn = bareArm === "separate" ? undefined : bareWorked(drawn, arms.steeredArm === "header");
     const bare = bareTurn?.worked;
     if (bare && bareArm === "hidden") {
-      ends.push({ count: out.length, row: out.at(-1), before: out.at(-2), visible });
+      ends.push({
+        count: out.length,
+        row: out.at(-1),
+        before: out.at(-2),
+        visible,
+      });
       continue;
     }
     const run = openRun;
@@ -926,7 +944,12 @@ export function turnViewFrom(
       if (tail?.workedRun && !tail.foldOpen && out.length === (ends.at(-1)?.count ?? -1)) {
         const footer = bareTurn.footer ?? (footed ? out.at(-1) : undefined);
         out.splice(out.length - 1 - footed, 1 + footed, joinedBareWorked(tail, bare), ...(footer ? [footer] : []));
-        ends.push({ count: out.length, row: out.at(-1), before: out.at(-2), visible: at });
+        ends.push({
+          count: out.length,
+          row: out.at(-1),
+          before: out.at(-2),
+          visible: at,
+        });
         visible = at;
         firstVisible ??= at;
         continue;
@@ -953,12 +976,19 @@ export function turnViewFrom(
       else if (row.kind === "turnSummary" && row.status === "completed") lastCompleted = out.length;
       out.push(row);
     }
-    ends.push({ count: out.length, row: out.at(-1), before: out.at(-2), visible, ...(openRun && { openRun }) });
+    ends.push({
+      count: out.length,
+      row: out.at(-1),
+      before: out.at(-2),
+      visible,
+      ...(openRun && { openRun }),
+    });
   }
   // A reused card a later one now supersedes changed: the unchanged prefix ends before it.
   // From the last kept card, back over the cards still waiting on the person or answered out of
   // order: a click on an older pinned card settles it, so the waiting run is settled again.
   let settleFrom = Math.max(0, keptCards - 1);
+  // ends: `settleFrom` falls by one each pass, to 0 at most
   while (settleFrom > 0 && (!nextSteps[settleFrom - 1]!.spoke || nextSteps[settleFrom - 1]!.outOfOrder))
     settleFrom -= 1;
   reusedRows = Math.min(reusedRows, settleNextSteps(out, nextSteps, settleFrom));
@@ -1016,11 +1046,18 @@ function markRecovered(out: AcpmuxRow[], failures: readonly number[], lastComple
     let next: AcpmuxRow | undefined;
     if (!recovered) {
       const { recovered: _, ...failed } = row;
-      next = failedRows.get(row) ?? { ...failed, version: row.version - 2 * VERSION_SPAN };
+      next = failedRows.get(row) ?? {
+        ...failed,
+        version: row.version - 2 * VERSION_SPAN,
+      };
     } else {
       next = recoveredRows.get(row);
       if (!next) {
-        next = { ...row, recovered: true, version: row.version + 2 * VERSION_SPAN };
+        next = {
+          ...row,
+          recovered: true,
+          version: row.version + 2 * VERSION_SPAN,
+        };
         recoveredRows.set(row, next);
         failedRows.set(next, row);
       }
@@ -1039,7 +1076,12 @@ const failedRows = new WeakMap<AcpmuxRow, AcpmuxRow>();
 /// A next-step card in a turn view: its index in the drawn rows, the row as its turn shaped it,
 /// whether the person said anything after it before the next card, and whether the answer clicked
 /// on it came after a later card (`settleNextSteps`).
-type NextStepAt = { at: number; row: AcpmuxRow; spoke?: boolean; outOfOrder?: boolean };
+type NextStepAt = {
+  at: number;
+  row: AcpmuxRow;
+  spoke?: boolean;
+  outOfOrder?: boolean;
+};
 
 /// A card's version spans its shaped version and its settled state (none, answered, superseded,
 /// both), so its memo and height cache redraw when it settles.
@@ -1131,7 +1173,11 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
     const settled: AcpmuxRow = {
       ...row,
       version: row.version + (answer === undefined ? 0 : 1) + (superseded ? 2 : 0),
-      nextStep: { ask, ...(answer !== undefined && { answer }), ...(superseded && { superseded }) },
+      nextStep: {
+        ask,
+        ...(answer !== undefined && { answer }),
+        ...(superseded && { superseded }),
+      },
     };
     settledCards.set(row, { answer, superseded, row: settled });
     put(at, settled);
@@ -1208,7 +1254,7 @@ type ShapedTurn = {
   endedByPerson: boolean;
   rows: AcpmuxRow[];
 };
-const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
+const shapedTurns = new RowMemo<AcpmuxRow, ShapedTurn>();
 
 /// A completed turn has one disclosure, keyed by its original prompt. Live rows do not read it,
 /// so a remembered open state never changes the transcript while the next turn is running. A
@@ -1503,6 +1549,7 @@ function shapedTurn(
     // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
     if (last && !live && held.length === 0 && !turn.some((row) => row.kind === "turnSummary")) {
       let final = shaped.length - 1;
+      // ends: `final` falls by one each pass, to -1 at most
       while (final >= 0 && (shaped[final]!.kind === DATE || shaped[final]!.kind === "user")) final -= 1;
       if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
     }
@@ -1793,6 +1840,7 @@ export function lateSteersLast(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
   // The agent's text just over the first late steer moves with the answer: the reply it was writing
   // when the steer came (acpmux cuts it there into two rows, one each side of the steer).
   let from = late;
+  // ends: from walks back to the first row or the preceding change of author
   while (from > 0 && isOwnText(rows[from - 1]!)) from -= 1;
   const region = rows.slice(from, end);
   const steers = region.filter(isLateSteer);
@@ -1917,7 +1965,10 @@ export function foldSegments(opener: AcpmuxRow, rows: readonly AcpmuxRow[], inOr
     return {
       anchor: piece.anchor,
       rows: final < 0 ? piece.rows : piece.rows.slice(0, final),
-      ...(final >= 0 && { takeaway: answer, after: piece.rows.slice(final + 1) }),
+      ...(final >= 0 && {
+        takeaway: answer,
+        after: piece.rows.slice(final + 1),
+      }),
       ...(next && { until: next.anchor.at }),
     };
   });
@@ -2108,17 +2159,24 @@ export const isAgentPrompt = (row: AcpmuxRow) =>
       !row.incoming.message.fromPerson &&
       row.incoming.message.notice?.severity !== "fire"));
 
-/// How many messages between agents `rows` hold: each send among their calls, and each message
-/// received (an inbox notice counts the messages it brought, as messageRuns.ts does).
-function foldedAgentMessages(rows: readonly AcpmuxRow[]): { sent: number; received: number } {
-  let sent = 0;
+/// How many messages from other agents `rows` hold: each message received (an inbox notice counts
+/// the messages it brought, as messageRuns.ts does).
+function receivedAgentMessages(rows: readonly AcpmuxRow[]): number {
   let received = 0;
-  for (const row of rows) {
+  for (const row of rows)
     if (isReceivedLine(row) && row.kind === "user")
       received += row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
-    else if (row.kind === "activity" && row.items?.length) sent += sentMessages(row.items);
-  }
-  return { sent, received };
+  return received;
+}
+
+/// How many messages to other agents `rows` sent: each send among their calls. It groups every
+/// step's calls (toolGroups.ts), most of a finished turn's shaping at a chat's open, so a fold's label
+/// asks for it only when it reads it (`shapeTurn`): the default `calls` arm counts received messages
+/// alone.
+function sentAgentMessages(rows: readonly AcpmuxRow[]): number {
+  let sent = 0;
+  for (const row of rows) if (row.kind === "activity" && row.items?.length) sent += sentMessages(row.items);
+  return sent;
 }
 
 /// The messages one step's calls sent, by its immutable items array: a running turn's "Worked for"
@@ -2150,7 +2208,15 @@ function sentMessages(items: readonly AcpmuxActivity[]): number {
 function lineWork(row: AcpmuxRow): AcpmuxRow | undefined {
   const items = (row.items ?? []).filter((item) => !isEditTool(item.tool));
   const calls = items.filter((item) => item.tool).length;
-  return calls ? { ...row, id: `${row.id}${FOLDED}`, items, toolCount: calls, partial: true } : undefined;
+  return calls
+    ? {
+        ...row,
+        id: `${row.id}${FOLDED}`,
+        items,
+        toolCount: calls,
+        partial: true,
+      }
+    : undefined;
 }
 
 function shapeTurn(
@@ -2431,7 +2497,13 @@ function shapeTurn(
     // The tasks this fold hides, as one line each beside it (TaskLine.tsx).
     const tasks = !open && taskLook && taskLook !== "card" && work.length && !dialogue ? startedTasks(work) : [];
     const taskLine: AcpmuxRow | undefined = tasks.length
-      ? { id: `${TASK_LINE}-${segment.anchor.id}`, version, at: segment.anchor.at, kind: TASK_LINE, tasks }
+      ? {
+          id: `${TASK_LINE}-${segment.anchor.id}`,
+          version,
+          at: segment.anchor.at,
+          kind: TASK_LINE,
+          tasks,
+        }
       : undefined;
     // Its label counts the fold's messages (`previous`), which can change while the summary's and
     // the answer's versions do not: the count is part of the version, so the memoized row redraws.
@@ -2442,12 +2514,15 @@ function shapeTurn(
       : [...(foldsPrompt && first ? [user] : []), ...work.filter((row) => !keptOut.has(row.id))];
     const previous = style.countsMessages && foldMixesMessages(hidden) ? foldedMessages(hidden) : undefined;
     // The messages between agents it folds count as calls by default (workedForMessages.experiment.ts).
-    const messages = foldedAgentMessages(hidden);
+    // Those it received are counted here; those it sent, only where the label reads them (`sent`).
+    const received = receivedAgentMessages(hidden);
+    let sentCount: number | undefined;
+    const sent = () => (sentCount ??= sentAgentMessages(hidden));
     const messagesArm = experimentArm(workedForMessages);
     // A turn split in order counts each fold's own calls; one fold counts the turn's.
     const calls = segments.length > 1 ? callsIn(work) : summary.toolCount;
-    const toolCount = messagesArm === "calls" && calls !== undefined ? calls + messages.received : calls;
-    const named = messagesArm === "messages" && messages.sent + messages.received > 0;
+    const toolCount = messagesArm === "calls" && calls !== undefined ? calls + received : calls;
+    const named = messagesArm === "messages" && sent() + received > 0;
     // Unknown stays unknown (the label counts calls instead): a turn whose prompt is in an older
     // page starts at a row inside it, and the time since that row is too short.
     const durationMs =
@@ -2470,13 +2545,15 @@ function shapeTurn(
     // (Leo, 2026-11-25: "the worked for for collapsing the compaction and then the next worked for
     // + thinking is weird. layout shifts and awkward looking animations"). A /compact alone ends the
     // same way: its note ("Compacted · 152k → 18k") stays in the place its live "Compacting" line
-    // held, never shut inside a "Worked for 1s" that hides what it did.
-    const compactOnly = said === undefined && onlyCompaction(work);
+    // held, never shut inside a "Worked for 1s" that hides what it did. A turn stopped mid-compaction
+    // keeps its "You stopped after" line: the stop is news, and a stopped turn's fold opens, so the
+    // note stays in sight under it (agent-pane-steer.test.ts, a forced Stop reads as a plain stop).
+    const compactOnly = said === undefined && onlyCompaction(work) && !(final && isStopped(summary));
     const unlabeled =
       compactOnly ||
       (previous === undefined &&
-        messages.sent + messages.received === 0 &&
-        ((durationMs === undefined && !toolCount && callsIn(work) === 0) || (durationMs === undefined && lone)));
+        ((durationMs === undefined && !toolCount && callsIn(work) === 0) || (durationMs === undefined && lone)) &&
+        sent() + received === 0);
     // A turn the person sent that only replied (no calls, no steers) still ends on its "Worked for": its
     // "Working for" stood over the reply from the turn's first frame (shapeLiveTurn), and a header gone at
     // the end would pull the reply up into its place. The closed line holds no rows.
@@ -2520,7 +2597,7 @@ function shapeTurn(
         .flatMap((row) => (row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool) : []));
       const labelVersion = mixVersion(
         (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
-        named ? messages.sent * 1_000 + messages.received + 1 : 0,
+        named ? sent() * 1_000 + received + 1 : 0,
       );
       const runsVersion = workedRuns.length ? mixVersion(labelVersion, workKey(workedRuns)) : labelVersion;
       const worked: AcpmuxRow = {
@@ -2533,7 +2610,7 @@ function shapeTurn(
         foldOpen: open,
         status: final ? summary.status : "completed",
         toolCount,
-        ...(named && { workedMessages: messages }),
+        ...(named && { workedMessages: { sent: sent(), received } }),
         // The turn's one outer count, over the runs that each count their own (Leo, 2026-11-07: "do you
         // think we should distinguish the absolute top level one versus the inner ones").
         ...(style.countsCalls && (calls ?? 0) > 0 ? { workedCalls: calls } : {}),
@@ -2575,7 +2652,10 @@ function shapeTurn(
             // short note stays quiet (Leo, 2026-10-29: replies keep their action row).
             ...(replies.has(row.id) && row !== said && !flat && { foldedReply: true }),
             // A folded run draws otherwise, so its version moves (memos compare versions).
-            ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
+            ...(row.kind === "activity" && {
+              foldRun: true,
+              version: row.version * RUN_STATES + 3,
+            }),
             // A steered turn's run lines open with its Worked for (`runsOpen`): the open fold's state,
             // doubled, so the run redraws without a sixth `RUN_STATES` (`OPEN_RUN_STATES`).
             ...(runsOpen &&
@@ -2621,7 +2701,13 @@ function shapeTurn(
     });
     const strip = (at: number): AcpmuxRow => {
       walkedDrawn = true;
-      return { id: `${WALKTHROUGH}-${user.id}`, version, at, kind: WALKTHROUGH, walkthrough: walked };
+      return {
+        id: `${WALKTHROUGH}-${user.id}`,
+        version,
+        at,
+        kind: WALKTHROUGH,
+        walkthrough: walked,
+      };
     };
     const underAnswer = Boolean(said && nextStep && !cutOff && said === answer);
     const stripUnder = Boolean(walked && said && said === answer && !walkedDrawn);
@@ -2629,7 +2715,12 @@ function shapeTurn(
       // A wrap-up's answer stays whole. A tagged ask's answer drops the ask's lines, which the
       // card draws; a new version, so its memo redraws.
       if (wrapUp) shaped.push(said!);
-      else if (nextStep!.rest) shaped.push({ ...said!, text: nextStep!.rest, version: said!.version * 2 + 1 });
+      else if (nextStep!.rest)
+        shaped.push({
+          ...said!,
+          text: nextStep!.rest,
+          version: said!.version * 2 + 1,
+        });
       if (stripUnder) shaped.push(strip(said!.at));
       shaped.push(card(said!.at));
       cardDrawn = true;
@@ -2652,7 +2743,15 @@ function shapeTurn(
       if (asked < 0) shaped.push(card(summary.at));
       else {
         const reply = shaped[asked]!;
-        const rest = cutOff.ask.rest ? [{ ...reply, text: cutOff.ask.rest, version: reply.version * 2 + 1 }] : [];
+        const rest = cutOff.ask.rest
+          ? [
+              {
+                ...reply,
+                text: cutOff.ask.rest,
+                version: reply.version * 2 + 1,
+              },
+            ]
+          : [];
         shaped.splice(asked, 1, ...rest, card(reply.at));
       }
     }
@@ -2660,7 +2759,13 @@ function shapeTurn(
   }
   // A walkthrough in a turn with no answer to hang under goes after the turn's last row.
   if (walked && !walkedDrawn)
-    shaped.push({ id: `${WALKTHROUGH}-${user.id}`, version, at: summary.at, kind: WALKTHROUGH, walkthrough: walked });
+    shaped.push({
+      id: `${WALKTHROUGH}-${user.id}`,
+      version,
+      at: summary.at,
+      kind: WALKTHROUGH,
+      walkthrough: walked,
+    });
   shaped.push(...editsCard(edits));
   // The footer copies the answer, so it carries the answer's text; the last turn's also retries
   // its prompt, and stops offering to once a later prompt goes (or waits to). A last turn the
@@ -2755,12 +2860,20 @@ function shapeTurn(
     tailSummary?.turnId === undefined || (tailSummary.turnId !== user.turnId && tailSummary.turnId !== summary.turnId);
   if (offers && lastSummary >= 0 && tailIsItsOwnTurn && isStopped(tailSummary)) {
     const stopped = tailSummary;
-    tail[lastSummary] = { ...stopped, resumable: true, version: stopped.version + VERSION_SPAN };
+    tail[lastSummary] = {
+      ...stopped,
+      resumable: true,
+      version: stopped.version + VERSION_SPAN,
+    };
   }
   // A turn the agent started on its own that failed has no prompt of its own to send again: Continue.
   if (offers && lastSummary >= 0 && isFailed(tail[lastSummary]!)) {
     const failed = tail[lastSummary]!;
-    tail[lastSummary] = { ...failed, continuable: true, version: failed.version + VERSION_SPAN };
+    tail[lastSummary] = {
+      ...failed,
+      continuable: true,
+      version: failed.version + VERSION_SPAN,
+    };
   }
   // Its clock runs from the running turn's first row, after the last turn the agent ended on its
   // own, never from the prompt's turn's end: a chat that woke itself all night read "Thinking 11h"
@@ -3344,7 +3457,11 @@ function liveTurn(
   foldsPrompt = false,
   workOpen = false,
 ): AcpmuxRow[] {
-  return withRetry(turn, shapeLiveTurn(user, turn, clockOffset, trayAgents, turnStartedAtMs, foldsPrompt, workOpen));
+  return withRetry(
+    turn,
+    shapeLiveTurn(user, turn, clockOffset, trayAgents, turnStartedAtMs, foldsPrompt, workOpen),
+    clockOffset,
+  );
 }
 
 /// The running turn's retries (the client's `TURN_RETRY` row, direct.ts) on its "Thinking" line:
@@ -3352,8 +3469,9 @@ function liveTurn(
 /// never "Thinking" (Leo, 2026-11-03, on "Thinking 7m 49s" for a chat whose model gateway was down:
 /// "i feel like this mac session just keeps "thinking""). Once the model answers, the time the
 /// retries took leaves the line's "Thinking" clock, which before the first output times the turn
-/// from its prompt. A fresh line object, so the memoized row draws again.
-export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[]): AcpmuxRow[] {
+/// from its prompt. The line keeps when the retries began (`retryAt`), so "Can't reach the model"
+/// waits out the shared bound from then (Thinking.tsx). A fresh line object, so the memoized row draws again.
+export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[], clockOffset = 0): AcpmuxRow[] {
   const retryRow = turn.find((row) => row.id === TURN_RETRY);
   if (!retryRow?.retry && !retryRow?.retriedMs) return shaped;
   const at = shaped.length - 1;
@@ -3362,7 +3480,7 @@ export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[]): Acpm
   const timedFromPrompt = line.doing === undefined && line.liveState === undefined && !line.turnTotal;
   const next: AcpmuxRow = {
     ...line,
-    ...(retryRow.retry && { retry: retryRow.retry }),
+    ...(retryRow.retry && { retry: retryRow.retry, retryAt: retryRow.at + clockOffset }),
     ...(!retryRow.retry && retryRow.retriedMs && timedFromPrompt && { at: line.at + retryRow.retriedMs }),
   };
   return [...shaped.slice(0, at), next];
@@ -3419,7 +3537,18 @@ function shapeLiveTurn(
   // call still owns the question card even when that call belongs to the hidden prefix.
   const wrapUp = liveWrapUp(all);
   const drawn = wrapUp ? withoutLiveWrapUp(kept, wrapUp) : kept;
-  const shaped = shapeLiveRows(user, drawn, clockOffset, trayAgents, turnStartedAtMs, foldsPrompt, worked, workOpen);
+  // The clock reads the whole turn: the calls the open read hid still say the agent was at work.
+  const shaped = shapeLiveRows(
+    user,
+    drawn,
+    clockOffset,
+    trayAgents,
+    turnStartedAtMs,
+    foldsPrompt,
+    worked,
+    workOpen,
+    all,
+  );
   if (!wrapUp) return shaped;
   const card: AcpmuxRow = {
     id: `${NEXT_STEP}-${user.id}`,
@@ -3436,6 +3565,7 @@ function shapeLiveTurn(
   // and steers coming in at various times").
   // ES2022 has no findLastIndex (tsconfig `lib`).
   let reply = shaped.length - 1;
+  // ends: reply walks back to a reply or falls below zero
   while (reply >= 0 && !isReply(shaped[reply]!)) reply -= 1;
   if (reply >= 0 && shaped.slice(reply + 1).some(personCameIn))
     return [...shaped.slice(0, reply + 1), card, ...shaped.slice(reply + 1)];
@@ -3455,6 +3585,7 @@ function liveWrapUp(rows: readonly AcpmuxRow[]): LiveWrapUp | undefined {
     // The newest call: a thought after it is no call.
     const items = row.items ?? [];
     let index = items.length - 1;
+    // ends: `index` falls by one each pass and stops below 0
     while (index >= 0 && !items[index]!.tool) index -= 1;
     if (index < 0) continue;
     const tool = items[index]!.tool;
@@ -3510,6 +3641,7 @@ function shapeLiveRows(
   foldsPrompt: boolean,
   worked = drawn.some((row) => row.kind === "activity" && row.inBackground === undefined),
   workOpen = false,
+  clockRows: readonly AcpmuxRow[] = drawn,
 ): AcpmuxRow[] {
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
   // read before the Codex-style runs fold it: the call it runs is what the live line names.
@@ -3538,7 +3670,7 @@ function shapeLiveRows(
   // A notice that opens the rows drawn here starts its stretch too, when the harness's turn began
   // before it.
   // One start and one formula with the ended turn's "Worked for" (`turnClock`).
-  const clock = turnClock(user, drawn, turnStartedAtMs);
+  const clock = turnClock(user, clockRows, turnStartedAtMs);
   const start = clock.start;
   const at = start + clockOffset;
   const shapeAs = (arm: string): AcpmuxRow[] => {
@@ -3627,6 +3759,10 @@ function livesUnderHeader(
   // (`foldsPrompt`, shapedTurn), so its "Working for" stands from the start, in that place: the line
   // never comes in over the message at the first call, and the turn's end only swaps its words (Leo,
   // 2026-11-17: "the jostles and shifts and spacing are still bad here").
+  // The person's own prompt holds its slot too, from the turn's first row: the heading standing late (at the
+  // first call) or going at the end moves what is under it (Leo, 2026-11-22: "accounting for space for the
+  // worked for/working heading should always be there anyways so it disappearing means there's multiple
+  // problems"). Its end draws the "Worked for" in the same place (shapedTurn `holdsHeader`).
   // Work the open read folded counts too (`worked`, shapeLiveTurn): the line stands over it as over work it watched.
   // The person's own prompt holds its slot too, from the turn's first row: the heading standing late (at the
   // first call) or going at the end moves what is under it (Leo, 2026-11-22: "accounting for space for the
@@ -3673,15 +3809,33 @@ export function turnClock(
 }
 
 /// When the live turn's current stretch began: `start`, or the latest notice (a prompt the person did
-/// not send) that came after the agent had replied since then, which set it going again.
+/// not send) that came after the agent had replied since then, which set it going again. The reply
+/// must be the agent's last step before the notice: a call after it means the agent was still at
+/// work, the reply was commentary, and a notice then (acpmux who-else steers one into the running
+/// turn) set nothing going. A who-else notice 7 s before a 6m 44s turn's answer read "Worked for 7s".
+/// The call must start at or after the reply: a history page can place a call that started before
+/// it later in the rows.
 export function continuationStart(rows: readonly AcpmuxRow[], start: number): number {
   let from = start;
-  let replied = false;
+  let replied: number | undefined;
   for (const row of rows) {
-    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) replied = true;
-    else if (row.kind === "user" && !sentByPerson(row) && replied && hasTimestamp(row.at) && row.at > from) {
+    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) replied = row.at;
+    else if (
+      replied !== undefined &&
+      row.kind === "activity" &&
+      row.at >= replied &&
+      row.items?.some((item) => item.tool)
+    )
+      replied = undefined;
+    else if (
+      row.kind === "user" &&
+      !sentByPerson(row) &&
+      replied !== undefined &&
+      hasTimestamp(row.at) &&
+      row.at > from
+    ) {
       from = row.at;
-      replied = false;
+      replied = undefined;
     }
   }
   return from;
@@ -3913,7 +4067,11 @@ export function afterSends(rows: AcpmuxRow[], clockOffset = 0): AcpmuxRow[] {
       source ??= row;
       for (const id of row.joined ?? [row.id]) if (!members.includes(id)) members.push(id);
       version = mixVersion(version, row.version);
-      const kept = { ...row, items: stays, version: mixVersion(row.version, stays.length) };
+      const kept = {
+        ...row,
+        items: stays,
+        version: mixVersion(row.version, stays.length),
+      };
       if (!stays.some((item) => item.tool || item.kind === "thought")) emptied.add(kept);
       out[before] = kept;
     }
@@ -3924,7 +4082,9 @@ export function afterSends(rows: AcpmuxRow[], clockOffset = 0): AcpmuxRow[] {
       joined: members,
       items: moved,
       version: mixVersion(version, moved.length),
-      ...(source.toolCount !== undefined && { toolCount: moved.filter((item) => item.tool).length }),
+      ...(source.toolCount !== undefined && {
+        toolCount: moved.filter((item) => item.tool).length,
+      }),
     });
   }
   return out ? (emptied.size ? out.filter((row) => !emptied.has(row)) : out) : rows;
@@ -3993,6 +4153,7 @@ export function liveClock(
 /// (runningTray.ts), where the line counts it already.
 export function trayWaitAgents(rows: readonly AcpmuxRow[]): number {
   let from = rows.length;
+  // ends: `from` falls by one each pass, to 0 at most
   while (from > 0 && !(opensTurn(rows[from - 1]!) && !isUnsent(rows[from - 1]!))) from -= 1;
   return from === 0 ? 0 : foregroundAgents(rows.slice(from).filter((row) => !isRunGroup(row)));
 }
@@ -4058,7 +4219,11 @@ function runningCall(
 }
 
 /// `earlier`: the command runs in an earlier run, which leaves it out for the line (`codexRuns`).
-type LineCall = { tool: NonNullable<ReturnType<typeof runningCall>>; at: number; earlier?: true };
+type LineCall = {
+  tool: NonNullable<ReturnType<typeof runningCall>>;
+  at: number;
+  earlier?: true;
+};
 
 /// The call the Codex-style live line names: the newest one running in the turn's latest step, else
 /// the newest command still running anywhere in the turn, so a command never runs under "Thinking"
@@ -4103,7 +4268,11 @@ function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "
   if (tool.kind === "execute" && tool.command) return {};
   const call = subsessionCall(tool);
   const short = (id: string) => (id.length > 12 ? `${id.slice(0, 8)}…` : id);
-  if (call?.tool === "send") return { doingSendTo: short(call.sessionId), doingSendSession: call.sessionId };
+  if (call?.tool === "send")
+    return {
+      doingSendTo: short(call.sessionId),
+      doingSendSession: call.sessionId,
+    };
   // A harness's own message tool (Claude's SendMessage) leaves its run while it runs, so the line
   // names it.
   const to = !call && isRunning(tool) ? agentMessage(tool)?.to : undefined;
@@ -4140,7 +4309,9 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
   const path = editedPaths(tool)[0];
   if (!path || tool.kind === "execute") return label;
   if (isEditTool(tool) && tool.status === "completed" && editedPaths(tool).length === 1)
-    return translatorFor(currentLanguage())("tools.edited.file", { file: path.split("/").pop() || path });
+    return translatorFor(currentLanguage())("tools.edited.file", {
+      file: path.split("/").pop() || path,
+    });
   // A search names its pattern, not the folder it searches in (toolNames.ts).
   const canonical = canonicalCall(tool)?.tool;
   if (canonical === "search" || canonical === "glob" || canonical === "fetch" || canonical === "websearch")
@@ -4196,7 +4367,11 @@ function runningBeforeLastRun(rows: readonly AcpmuxRow[]): Set<string> | undefin
 /// rows made for it are kept while both hold. `named`: the named call, when it is one of the row's.
 /// `fold`: whether its rows fold (`foldRun`), false for a run of the stretch still running under
 /// live-turn-work `open`.
-type EarlierRun = { named: string | undefined; fold: boolean; out: AcpmuxRow[] };
+type EarlierRun = {
+  named: string | undefined;
+  fold: boolean;
+  out: AcpmuxRow[];
+};
 const earlierRuns = new WeakMap<AcpmuxRow, EarlierRun>();
 /// The rows `codexRuns` makes of a run that keeps its own row (a change waiting for its permission,
 /// a call that keeps its row while it runs), by that row.
@@ -4224,7 +4399,13 @@ function earlierRun(row: AcpmuxRow, named: string | undefined, fold = true): Acp
     // differs from every other state of the run (`RUN_STATES`).
     const lined = shown.length !== items.length;
     return [
-      { ...drawn, items: shown, settled: true, foldRun: fold, version: row.version * RUN_STATES + (lined ? 4 : 2) },
+      {
+        ...drawn,
+        items: shown,
+        settled: true,
+        foldRun: fold,
+        version: row.version * RUN_STATES + (lined ? 4 : 2),
+      },
     ];
   });
   earlierRuns.set(row, { named: own, fold, out });
@@ -4240,6 +4421,7 @@ function codexRuns(
 ): AcpmuxRow[] {
   // A started chats' card after the run is not a step: the run before it is still in flight.
   let latest = rows.length - 1;
+  // ends: `latest` falls by one each pass, to 0 at most
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
   let ended = -1;
   if (lineOnly || open)
@@ -4299,7 +4481,15 @@ function codexRuns(
     if (!items.length) return [];
     // Whether it shows its thought is the row's own (its text and its chunks' times, not the
     // clock), so the version it has says it: state 1 either way, never an ended fold's 3.
-    return [{ ...row, items, settled: true, foldRun: fold, version: row.version * RUN_STATES + 1 }];
+    return [
+      {
+        ...row,
+        items,
+        settled: true,
+        foldRun: fold,
+        version: row.version * RUN_STATES + 1,
+      },
+    ];
   };
   const out: AcpmuxRow[] = [];
   for (let index = 0; index < rows.length; index += 1) {
@@ -4442,6 +4632,7 @@ export function mergeShortNotes(
     const row = rows[index]!;
     const previous = out.at(-1);
     let to = index;
+    // ends: `to` rises by one each pass, and drawsNothing is false past the last row
     while (drawsNothing(rows[to])) to += 1;
     const note = joinNotes && to === index && isShortNote(row) && !keep?.has(row.id);
     if (note) to += 1;
@@ -4545,14 +4736,19 @@ function foldSpan(rows: readonly AcpmuxRow[], start: number): { from: number; en
   // A turn the agent ran on its own folds its rows up to the next one (`foldTailTurns`).
   if (anchor?.kind === BACKGROUND_TURN) {
     let next = start + 1;
+    // ends: `next` moves up by one each pass, to `end` at most
     while (next < end && rows[next]!.kind !== BACKGROUND_TURN) next += 1;
     return { from: start + 1, end: next };
   }
   if (!anchor || !foldsInOrder()) return { from: start + 1, end };
   let prompt = start;
+  // ends: `prompt` falls by one each pass, to 0 at most
   while (prompt > 0 && !(opensTurn(rows[prompt]!) && !isUnsent(rows[prompt]!))) prompt -= 1;
   const next = foldStarts(rows, prompt, end).find((index) => index > start);
-  return { from: prompt !== start && !isOwnSteer(anchor) ? start : start + 1, end: next ?? end };
+  return {
+    from: prompt !== start && !isOwnSteer(anchor) ? start : start + 1,
+    end: next ?? end,
+  };
 }
 
 /// The prompt id a turn's fold is keyed by: a delivery Find expanded from an inbox notice
@@ -4646,7 +4842,10 @@ function inWorkedRun(row: AcpmuxRow, ids: string[], head?: string): AcpmuxRow {
   const key = `${head ?? ""}\n${ids.join("\n")}`;
   const kept = workedRunRows.get(row);
   if (kept?.key === key) return kept.row;
-  const shaped: AcpmuxRow = { ...row, workedRun: head === undefined ? { ids } : { ids, head } };
+  const shaped: AcpmuxRow = {
+    ...row,
+    workedRun: head === undefined ? { ids } : { ids, head },
+  };
   workedRunRows.set(row, { key, row: shaped });
   return shaped;
 }
@@ -4725,6 +4924,7 @@ function turnFoldOpensOpen(rows: readonly AcpmuxRow[], id: string): boolean {
   const start = rows.findIndex((row) => `${WORKED}-${row.id}` === id);
   if (start < 0) return false;
   let end = start + 1;
+  // ends: `end` rises by one each pass, to rows.length
   while (end < rows.length && !(opensTurn(rows[end]!) && !isUnsent(rows[end]!))) end += 1;
   const turn = rows.slice(start + 1, end);
   const summary = turn.find(
@@ -4852,7 +5052,12 @@ export function messageRevealTarget(
   // Behind a run of background-task notifications there can be more: the member's line and a
   // message run inside it (`also`).
   const [fold, run, ...also] = hiddenRowFolds(rows, drawn, at);
-  return { rowId: rows[at]!.id, fold, ...(run && { run }), ...(also.length > 0 && { also }) };
+  return {
+    rowId: rows[at]!.id,
+    fold,
+    ...(run && { run }),
+    ...(also.length > 0 && { also }),
+  };
 }
 
 /// The footer of the drawn turn that `rows[from]` is in (the turn's summary row), looking forward

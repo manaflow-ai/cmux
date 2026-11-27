@@ -43,6 +43,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         case working(label: String, since: Date?)
         case editedFiles(DiffChangeSet)
         case stopped
+        /// A message this phone sent that could not reach the Mac in time (``AgentTurn/LocalSend``):
+        /// one quiet line under its bubble; a tap sends it again.
+        case notSent
         case failed(prompt: String, errorText: String?)
         case actions(AgentTurn, isLast: Bool)
         /// The tagged ask a finished turn's answer ended on (the Mac's next-step card):
@@ -239,6 +242,9 @@ final class ChatTranscriptBuilder {
         // Answer rows taken as they were from the last build (`blockRows`).
         var reused = 0
         let turnID = turn.id
+        // The turn's own rows keep the key they were first drawn under (a prompt shown as it was
+        // sent keeps its bubble when the Mac's id for the turn comes back).
+        let rowKey = turn.rowKey
         var nextGap = 16.0
         func add(_ id: String, _ kind: ChatRow.Kind, gap: Double? = nil) {
             rows.append(ChatRow(id: id, turnID: turnID, kind: kind, gap: gap ?? nextGap))
@@ -248,12 +254,12 @@ final class ChatTranscriptBuilder {
             rows.append(ChatRow(id: "session-start", turnID: turnID, kind: .sessionStart(turn.promptAt, earlier: context.earlierHistory), gap: 0))
         }
         // An inbox notice with nothing to show (AgentIncoming with no messages) draws no prompt row.
-        if turn.incoming?.messages.isEmpty != true {
+        if turn.incoming?.messages.isEmpty != true, turn.localSend != .sending {
             var gap: Double = context.isFirst ? 0 : (context.followsActions ? 18 : 24)
             var prompt = turn.prompt
             // A Chief subagent's first prompt: the Chief's view collapses to one line over the task.
             if turn.incoming == nil, let envelope = ChiefEnvelope(turn.prompt) {
-                rows.append(ChatRow(id: "cx-\(turnID)", turnID: turnID, kind: .chiefContext(envelope.context, lines: envelope.lines), gap: gap))
+                rows.append(ChatRow(id: "cx-\(rowKey)", turnID: turnID, kind: .chiefContext(envelope.context, lines: envelope.lines), gap: gap))
                 prompt = envelope.task
                 gap = 6
             }
@@ -265,11 +271,18 @@ final class ChatTranscriptBuilder {
                prompt.allSatisfy({ $0.isWhitespace || $0.isNewline }) {
                 nextGap = gap
             } else {
-                rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
+                rows.append(ChatRow(id: "u-\(rowKey)", turnID: turnID,
                                     kind: turn.incoming.map { .incoming(Self.toned($0, context.senderTones), attachments: turn.attachments, at: turn.promptAt) }
                                         ?? .prompt(text: prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
                                     gap: gap))
             }
+        }
+        // A message still on its way to the Mac is its bubble alone: no Working line, no
+        // actions; one that could not go says so under it.
+        if let local = turn.localSend {
+            if local == .notSent { add("ns-\(turnID)", .notSent, gap: 6) }
+            rowsMade += rows.count
+            return (rows, false)
         }
         let running = turn.status == .running
         // Ended, a steer the agent was finishing when it came draws over its final reply (Leo,
@@ -397,16 +410,16 @@ final class ChatTranscriptBuilder {
         }
         if let wrapUp {
             let answer = wrapUp.question.isEmpty ? nil : context.nextPrompt.map { wrapUp.chosenAnswer($0) }
-            add("n-\(turnID)", .nextStep(wrapUp, answer: answer, canAnswer: answer == nil && context.isLast))
+            add("n-\(rowKey)", .nextStep(wrapUp, answer: answer, canAnswer: answer == nil && context.isLast))
         }
         if running, turnRows.needsWorkingIndicator, !context.askOpen {
-            add("w-\(turnID)", .working(label: turn.retry?.label ?? "Working", since: turn.startedAt))
+            add("w-\(rowKey)", .working(label: turn.retry?.label ?? "Working", since: turn.startedAt))
         }
         if !running {
             switch diffs.changeSet(for: turn) {
             case .some(.some(let changes)):
                 // The card's 4 pt top padding.
-                add("f-\(turnID)", .editedFiles(changes), gap: nextGap + 4)
+                add("f-\(rowKey)", .editedFiles(changes), gap: nextGap + 4)
             case .some(.none):
                 break
             case .none:
@@ -415,12 +428,12 @@ final class ChatTranscriptBuilder {
         }
         switch turn.status {
         case .cancelled:
-            add("x-\(turnID)", .stopped)
+            add("x-\(rowKey)", .stopped)
         case .failed:
-            add("x-\(turnID)", .failed(prompt: turn.prompt, errorText: turn.errorText))
+            add("x-\(rowKey)", .failed(prompt: turn.prompt, errorText: turn.errorText))
         case .completed:
             // The row's 44 pt targets reach 6 pt into the gap above, less its 2 pt top padding.
-            add("a-\(turnID)", .actions(turn, isLast: context.isLast), gap: nextGap - 4)
+            add("a-\(rowKey)", .actions(turn, isLast: context.isLast), gap: nextGap - 4)
         case .running:
             break
         }
