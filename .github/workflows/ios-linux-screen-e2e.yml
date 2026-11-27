@@ -19,6 +19,13 @@
 # Linux host serves, and the Linux host serves until the Mac job ends (each bounded, reading this run's jobs).
 name: iOS to Linux screen sharing e2e
 on:
+  # A change to this workflow or the iPhone target runs it once on feat-cmux-next (which also registers it for
+  # dispatch: GitHub dispatches only a workflow it has seen run, and this one is not on main).
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/ios-linux-screen-e2e.yml
+      - scripts/measure/screen-stream-eval/targets/iphone-sim.sh
   workflow_dispatch:
     inputs:
       samples:
