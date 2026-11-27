@@ -225,6 +225,10 @@ env:
   # -- a consumer recomputing a different profile's identity simply declines
   # the artifact, which would silently cost a compile instead of reusing one.
   CMUX_PRODUCT_PROFILE: ${{ inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true' || inputs.compile_admitted != 'true') && 'app-host' || 'cli' }}
+  # Production app-cache enablement is a bounded canary. Keep the historical
+  # safe default off; set the repository variable to 1 only while collecting
+  # a real Mac hit/miss and compile-time receipt for the RFD0165 decision.
+  CMUX_CI_ENABLE_APP_COMPILATION_CACHE: ${{ vars.CMUX_CI_ENABLE_APP_COMPILATION_CACHE || '0' }}
 
 jobs:
   admission-placement:
