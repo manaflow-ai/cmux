@@ -1300,6 +1300,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_interface_fingerprint.py
 
+      # pr-router's land tier post waits once for a near reset, never counting tokens refused for permissions.
+      - name: Validate the land tier status post waits out a spent budget once
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_land_tier_status_post.py
+
       - name: Validate late placement onto idle root runners
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_late_placement.py

@@ -1196,7 +1196,7 @@ jobs:
     # Run alongside tester assignment and even if later Mac metadata/Sentry
     # steps fail. Notes timeouts must not turn an accepted upload into a failure.
     if: ${{ !cancelled() && needs.upload.outputs.uploaded == 'success' && needs.upload.outputs.notes_artifact_id != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: holds a signing secret; rule 7 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py needs an ephemeral literal
     timeout-minutes: 20
     continue-on-error: true
     permissions:
@@ -1235,7 +1235,7 @@ jobs:
     # `needs` otherwise skips this job before the condition is read; a
     # cancelled run still cancels assignment.
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.upload.outputs.uploaded == 'success' && needs.upload.outputs.assign_internal_group == '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: holds a signing secret; rule 7 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py needs an ephemeral literal
     timeout-minutes: 40
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}

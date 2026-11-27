@@ -82,7 +82,7 @@ jobs:
     name: Record on a fleet simulator
     needs: plan
     if: ${{ needs.plan.outputs.count != '' && needs.plan.outputs.count != '0' && vars.CI_EVAL_STEP_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
     timeout-minutes: 240
     permissions:
       contents: read
@@ -137,6 +137,7 @@ jobs:
             local args=(--arg clips --arg "id=$id" --arg "roles=$roles")
             [ "$before" = - ] || args+=(--arg "base=$before")
             "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD" \
+              --deadline "${QUEUE_S}s" \
               --queue-timeout "$QUEUE_S" --timeout "$RUN_S" ${rank[@]+"${rank[@]}"} \
               --artifact artifacts/ios-sim/whats-new-clips.zip "${args[@]}" > "$log" 2>&1
             rc=$?

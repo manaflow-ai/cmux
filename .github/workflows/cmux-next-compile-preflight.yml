@@ -21,6 +21,14 @@
 # The verdict is never "skipped" for a change that reaches a web bundle: the lander (leo-workspace
 # tools/next_autoland.py COMPILES, "Web") holds a web change whose `compile preflight / web bundle build` did not
 # pass at its head, the same as a skipped one, and a head that changes no web source passes in seconds.
+#
+# A head whose every changed path no web bundle reads (pr-router.yml's route, pr_router.py preflight_web: Rust,
+# Cargo, Swift, Python, docs and plans prose, other workflows, never a path under a web input tree) calls this with
+# `web: false`, and the job skips before taking a runner. It used to take one to learn that: 756 of 1,237 no-op runs,
+# ~487 runner-min, in the 6 h to 2026-11-27 10Z (scripts/measure/ci140-head-minutes; Leo, 2026-11-21: "whatever we
+# need to cut, we cut. whatever we can reuse, we reuse."). On every head that reaches a web bundle the job checks that
+# no routed input is a path the router ignores (compile_preflight.py never-web-check), so a new import of such a file
+# fails here, at the head that adds it, instead of turning later heads' builds off.
 name: cmux-next compile preflight
 
 on:
@@ -29,6 +37,13 @@ on:
     branches: [feat-cmux-next]
     paths: [.github/workflows/cmux-next-compile-preflight.yml]
   workflow_call:
+    inputs:
+      web:
+        # `false`: the router found no changed path a web bundle can read (pr_router.py preflight_web).
+        description: "'false' skips the job (no changed path reaches a web bundle)"
+        type: string
+        required: false
+        default: 'true'
   workflow_dispatch:
 
 permissions:
@@ -37,6 +52,8 @@ permissions:
 jobs:
   web:
     name: web bundle build
+    # The router's answer (pr_router.py preflight_web); a push or a dispatch has no input and builds.
+    if: ${{ inputs.web != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Budget: a cache hit or an unchanged web source is under 30 s; a cold build on a warm runner about 2 min
     # (bun install from the runner's own package cache, then the four bundles).
@@ -79,6 +96,14 @@ jobs:
             # A dispatch (or a head with no merge commit) builds: there is no base to compare with.
             echo "web=true" >> "$GITHUB_OUTPUT"
           fi
+
+      # The router skips this job on a change whose every path is in pr_router.json's compile preflight `paths-ignore`.
+      # A web bundle input among those paths (a webviews source that starts importing a .md, .py or .swift file) would
+      # turn this build off for a change to it, so a head that reaches a web bundle checks the list against
+      # web-bundle-key.py --routed here, in seconds, where such an import first appears.
+      - name: No web bundle input is a path the router skips
+        if: steps.touched.outputs.web == 'true'
+        run: python3 -I scripts/ci/compile_preflight.py never-web-check .
 
       # Only a head that builds needs the reset: a head that reaches no web bundle (about 60% of heads, a 43 s median
       # job) passes after the diff alone (scripts/measure/ci140-pr-segment).

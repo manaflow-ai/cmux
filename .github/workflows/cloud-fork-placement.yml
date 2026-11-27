@@ -54,7 +54,7 @@ jobs:
   measure:
     needs: self-edit
     if: ${{ !cancelled() && needs.self-edit.outputs.run != 'false' && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # frozen-label: RUNNER_POOLS.linux_8 (#54437)
     environment:
       name: cmux-next-vm-image-dev
       deployment: false

@@ -2031,17 +2031,15 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         runs_on = one_runs_on(cargo)
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
-        # Its size is the one .github/runners.json linux_sizes names: linux_16, GCP-led with Blacksmith after and no
-        # Freestyle member, so no failover pool (#59548: on linux_8's Freestyle lead 243 of 653 runs timed out).
+        # Its size is the one .github/runners.json linux_sizes names: linux_16, GCP-led with no Freestyle member, so
+        # no failover pool (#59548: on linux_8's Freestyle lead 243 of 653 runs timed out). That pool read is frozen
+        # to the label it resolved to (scripts/ci/one_linux_label.py), and no variable picks the route.
         sizes = json.loads((ROOT / ".github/runners.json").read_text(encoding="utf-8"))
         cargo_size = sizes["linux_sizes"]["jobs"]["cmux-next.yml#fast-tier-cargo"]
         self.assertEqual(cargo_size.get("size"), 16)
         self.assertNotIn("failover", cargo_size)
-        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_16 }}"), runs_on)
-        route_without_pools = re.sub(
-            r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", OVERFLOW_FAILOVER.sub("", runs_on)
-        )
-        self.assertNotIn("vars.", route_without_pools, "an ephemeral Linux VM, never a reused mini")
+        self.assertIn("|| 'cmux-fleet-linux-x64' }}", runs_on)
+        self.assertNotIn("vars.", runs_on, "no variable picks the cargo job's runner")
         # The same gate, except that the Mac half follows the Mac route (MacFastTierFollowsTheRoute) and a pull
         # request runs the cargo half only when its change reaches a cargo or script entry (FastTierCargoRoute).
         # The cargo route goes before the label guard, which stays last
