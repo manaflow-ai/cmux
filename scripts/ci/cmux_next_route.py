@@ -237,6 +237,7 @@ GENERATED_INPUTS = (
 ACTION_EXPORT_INPUTS = "scripts/cmux-next/action_export_inputs.py"
 SETTINGS_EXPORT_INPUTS = (
     PACKAGE + "Sources/CmuxNextSettings/",
+    PACKAGE + "Sources/CmuxNextSettingsExport/",
     PACKAGE + "Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
     PACKAGE + "Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
 )
@@ -322,8 +323,12 @@ BUNDLE_INPUTS = (
     "schemas/layout-motion/contract.json",
     # The transcript look the transcript imports (src/agent-session/acpmux/conversation/transcriptLook.ts).
     "schemas/transcript-look/transcript-look.json",
+    # The composer status peek pin the agent pane imports (src/agent-session/acpmux/peekPin.ts).
+    "schemas/composer-status/peek-pin.json",
     # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
     "examples/gallery/gallery.json", "examples/looks/*",
+    # The setups the Make cmux Yours setups shelf imports (src/pages/onboarding/setupShelf.ts).
+    "examples/setups/*/cmux-setup.json",
     # The key styles the key presentation imports (src/ui/keyStyle.ts).
     "schemas/keymap/key-styles.json",
     # The overlay surface roles the shared surface imports (src/ui/surface/Surface.tsx).
@@ -1082,7 +1087,7 @@ WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
     "daemon-test": ("daemon", "generated"),
     "generated-files": ("generated",),
     "release-compile": ("native", "mac_release"),
-    "app-compile-fleet": ("native",),
+    "app-compile-fleet": ("native", "mac_release"),
     "cmux-scheme-compile": ("native", "scheme"),
     "cmux-scheme-compile-fleet": ("native", "scheme"),
 }

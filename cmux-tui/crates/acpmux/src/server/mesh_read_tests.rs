@@ -786,6 +786,80 @@ async fn hold_release_and_tag_reach_a_session_only_the_hub_reaches() {
     assert_eq!(tag_on_b("taken"), None);
 }
 
+/// `acpmux session hold|release HOST/ID` for a chat only the hub reaches holds and releases it
+/// there, with its `held` (a release that dropped it would hold the chat instead). Leo,
+/// 2026-11-26: "we can gradually lift the pause, efficiently"; the lift left 47 of 145 held lanes
+/// asleep because the hub did not carry `_acpmux/session_hold`. A sender granted `read` alone
+/// holds nothing.
+#[tokio::test]
+async fn a_hold_and_its_release_reach_a_session_only_the_hub_reaches() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "held-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let mesh: Arc<dyn MeshHub> = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let _ = a.mesh.set(mesh);
+    let hosts = std::collections::BTreeMap::from([("machine-b".to_owned(), 1)]);
+    let row = crate::mesh::BookSession {
+        name: "held-e2e".into(),
+        session_id: session.clone(),
+        host: "machine-b".into(),
+        daemon_id: "inst_b".into(),
+        harness: "fake".into(),
+        state: "idle".into(),
+        last_seen_at: 1,
+        ..Default::default()
+    };
+    a.set_mesh_book(hosts, vec![row]);
+    let held_on_b = || b.session_held(&b.resolve(&session).unwrap());
+    let by_id = format!("machine-b/{session}");
+
+    let held = call(&a, method::MUX_SESSION_HOLD, json!({"sessionId": by_id, "held": true})).await;
+    assert_eq!((held["held"].as_bool(), held["via"].as_str()), (Some(true), Some("hub")), "{held}");
+    assert!(held_on_b());
+    // The release fleet_pause sends, by id; twice (the hub may lease it again) is once.
+    for _ in 0..2 {
+        let released =
+            call(&a, method::MUX_SESSION_HOLD, json!({"sessionId": by_id, "held": false})).await;
+        assert_eq!(released["held"], false, "{released}");
+        assert!(!held_on_b(), "released on B: {released}");
+    }
+    // By name too, as `acpmux session release machine-b/held-e2e` sends it before resolving.
+    call(&a, method::MUX_SESSION_HOLD, json!({"sessionId": "machine-b/held-e2e", "held": true}))
+        .await;
+    assert!(held_on_b());
+    call(&a, method::MUX_SESSION_HOLD, json!({"sessionId": "machine-b/held-e2e", "held": false}))
+        .await;
+    assert!(!held_on_b());
+
+    // A sender B trusts only to read holds nothing.
+    let read_only = Loopback {
+        hook: super::super::MeshControlHook::new(
+            vec![MeshControlFrom {
+                same_user: true,
+                ops: vec!["read".into()],
+                ..Default::default()
+            }],
+            Some(dir.path().join("mesh-controls-read.json")),
+        )
+        .with_own_user(Arc::new(|| Some("person-1".to_owned()))),
+        ..Loopback::new(&b, dir.path(), "person-1")
+    };
+    let refused =
+        read(&read_only, "machine-b", &session, method::MUX_SESSION_HOLD, &json!({"held": true}))
+            .await
+            .unwrap_err();
+    assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
+    assert!(!held_on_b());
+}
+
 /// [`call`]'s error, for a request that must fail.
 async fn call_error(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
     let (tx, in_rx) = mpsc::channel(16);
@@ -1700,4 +1774,85 @@ async fn a_read_whose_receiver_goes_silent_ends_at_the_silence_bound() {
     assert_eq!(e.data.unwrap()["reason"], json!("mesh.read_unanswered"));
     // The lease it took (at the first long-poll's end) was the last progress.
     assert!(took <= ANSWER_WAIT + READ_WAIT + Duration::from_secs(1), "{took:?}");
+}
+
+fn rss_kib() -> u64 {
+    let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    s.lines()
+        .find_map(|l| l.strip_prefix("VmRSS:"))
+        .and_then(|v| v.split_whitespace().next()?.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Where a hub-only daemon's memory goes per mesh read (acpmux-memory-growth): RSS after N of
+/// each step of a health read.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "diagnostic"]
+async fn diagnose_per_read_memory() {
+    const N: usize = 1500;
+    let b = machine_b();
+    let mut report = vec![];
+    let base = rss_kib();
+    for _ in 0..N {
+        let _ = health_answer(&b).await;
+    }
+    report.push(("health_answer", rss_kib() - base));
+    let base = rss_kib();
+    for _ in 0..N {
+        let _ = crate::server::peer_status::host_health_with(&b, Origin::Peer, None).await;
+    }
+    report.push(("host_health_with", rss_kib() - base));
+    let base = rss_kib();
+    for _ in 0..N {
+        let (tx, mut rx) = super::super::relay_connection(&b);
+        let init = json!({"protocolVersion": 1, "clientCapabilities": {}});
+        super::super::rpc_call(&tx, &mut rx, 1, method::INITIALIZE, init).await.ok();
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    report.push(("relay_conn_initialize", rss_kib() - base));
+    report.push(("live_after_init", super::super::queue_gauge::live().len() as u64));
+    let base = rss_kib();
+    for _ in 0..N {
+        let (tx, mut rx) = super::super::relay_connection(&b);
+        let init = json!({"protocolVersion": 1, "clientCapabilities": {}});
+        super::super::rpc_call(&tx, &mut rx, 1, method::INITIALIZE, init).await.ok();
+        let _ = super::super::rpc_call(&tx, &mut rx, 2, "_acpmux/status", json!({})).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    report.push(("relay_conn_status", rss_kib() - base));
+    report.push(("live_after_status", super::super::queue_gauge::live().len() as u64));
+    let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    call(
+        &b,
+        method::SESSION_PROMPT,
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "pong"}]}),
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+    let attach =
+        json!({"sessionId": format!("machine-b/{session}"), "limit": 200, "maxBytes": 1 << 20});
+    let page =
+        json!({"limit": 5000, "kinds": ["transcript"], "maxBytes": 4 << 20, "beforeSeq": u64::MAX});
+    for (label, m, params) in [
+        ("sess_info", method::MUX_INFO, json!({})),
+        ("sess_attach", method::MUX_ATTACH, attach),
+        ("sess_events", method::MUX_EVENTS, page),
+    ] {
+        let base = rss_kib();
+        for _ in 0..300 {
+            read(&hub, "machine-b", &session, m, &params).await.unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        report.push((label, rss_kib() - base));
+        report.push(("live", super::super::queue_gauge::live().len() as u64));
+    }
+    eprintln!("RSS_GROWTH_KIB over {N}: {report:?}");
 }

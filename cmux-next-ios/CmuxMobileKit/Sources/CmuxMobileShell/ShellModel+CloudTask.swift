@@ -13,6 +13,12 @@ extension ShellModel {
     /// New Task offers the Cloud machines the focused Mac lists beside the Macs; Start opens the
     /// machine's new Claude chat (Cloud chats) with the task as its first message.
     func wireCloudTasks() {
+        creator.cloudTaskTargetsSource = { [weak self] in
+            guard let live = self?.live else { return nil }
+            let link = String(UInt(bitPattern: ObjectIdentifier(live).hashValue))
+            guard let macID = live.focusedMacID else { return link }
+            return [link, macID, live.canLink(macID: macID) ? "linked" : "unlinked"].joined(separator: "/")
+        }
         creator.loadCloudTaskTargets = { [weak self] in
             guard let self, let live = self.live, let macID = live.focusedMacID, live.canLink(macID: macID) else { return nil }
             guard let machines = try? await live.cloudMachines(on: macID) else { return nil }
