@@ -15,6 +15,13 @@
 //! `_acpmux/process/background` is Ctrl-B: Claude Code moves the chat's
 //! foreground work to the background, which then arrives here as above.
 //!
+//! The daemon's own background tasks (`bg_tasks.rs`: what acpmux's Bash hook rewrites a
+//! background shell into, and an agent's `bg_start`) are rows here too, marked `daemonTask`
+//! (`bg_registry.rs`): their folder is the truth, and each start and end is logged as a
+//! `process_update`, so every client lists them as it lists a harness's shells. They outlive the
+//! harness and never keep a chat awake, so they stay out of `running`: a harness exit loses none
+//! of them, and the idle checks never count them.
+//!
 //! Claude Code writes each shell's output to a file it names
 //! (`output_file`), which `_acpmux/process/tail` reads. The agent host runs
 //! on this machine, so the daemon reads the file itself. A running one's
@@ -105,6 +112,10 @@ pub(super) struct Process {
     /// only while it runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preview: Option<ProcessPreview>,
+    /// A task the daemon runs (`bg_tasks.rs`), not the harness: `task_id` is its `bg` id, and
+    /// its folder, not the harness, says how it ends (`bg_registry.rs`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    daemon_task: bool,
     /// Its latest state is in a logged `process_update`.
     #[serde(skip)]
     logged: bool,
@@ -132,12 +143,66 @@ pub(super) struct ProcessTable {
     /// First process with a tool-call ID (the historical Vec::position behavior).
     by_tool: std::collections::HashMap<String, usize>,
     /// Only live process slots, ascending by append order. Completed history can grow
-    /// without making idle checks or lost-process propagation scan every old task.
+    /// without making idle checks or lost-process propagation scan every old task. The
+    /// harness's own: a daemon task is in `daemon_running`.
     running: std::collections::BTreeSet<usize>,
+    /// The live daemon-task slots (`Process::daemon_task`): a listing checks each against its
+    /// folder (`Hub::bg_reconcile`), so an end no watch saw never stays `running`.
+    daemon_running: std::collections::BTreeSet<usize>,
     /// Processes a person asked to stop: their end is the person's.
     stopping: std::collections::HashSet<String>,
     /// Processes whose output a preview watch reads (`process_preview.rs`): one each.
     watching: std::collections::HashSet<String>,
+    /// The ended rows this table no longer holds ([`ProcessTable::shrink`]); none in a whole one.
+    dropped: Dropped,
+    /// A query read the whole history back ([`Hub::whole_process_table`]): it is held whole, not
+    /// shrunk again while this daemon runs.
+    held_whole: bool,
+}
+
+/// The fewest ended processes a shrunk table holds: more than a chat's page asks for
+/// (`PROCESS_LIST_RECENT`, 500, in webviews' `session-info/processes.ts`).
+const HELD_ENDED: usize = 1024;
+
+/// A table shrinks once it holds this many ended processes.
+const SHRINK_AT: usize = 2 * HELD_ENDED;
+
+/// The ended processes a table dropped ([`ProcessTable::shrink`]): what tells a lookup, a fold or
+/// a list that the answer may be in them, so it reads the whole history back from the log. Leo,
+/// 2026-11-19: "we need to be able to have infinite chats, infinitely long chats". A 4 GB chat's
+/// table held every process it ever ran, 32 of its adoption checkpoint's 36 MB, which each
+/// restart parsed, folded and saved again (cmux#51494).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Dropped {
+    count: usize,
+    /// Each ended before it.
+    before: u64,
+    /// The [`key`]s of their ids and of their tool-call ids, sorted. A key two strings share
+    /// only reads the history back when it did not need to.
+    ids: Vec<u64>,
+    tools: Vec<u64>,
+}
+
+impl Dropped {
+    fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    fn has_id(&self, id: &str) -> bool {
+        self.ids.binary_search(&key(id)).is_ok()
+    }
+
+    fn has_tool(&self, tool: &str) -> bool {
+        self.tools.binary_search(&key(tool)).is_ok()
+    }
+}
+
+/// A string's FNV-1a hash: the same in every build, as a saved checkpoint needs.
+fn key(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 #[cfg(test)]
@@ -153,6 +218,10 @@ mod process_active_tests;
 mod process_page_tests;
 
 #[cfg(test)]
+#[path = "processes_shrink_tests.rs"]
+mod process_shrink_tests;
+
+#[cfg(test)]
 #[path = "processes_workflow_tests.rs"]
 mod process_workflow_tests;
 
@@ -163,21 +232,265 @@ mod preview;
 #[path = "processes_preview_tests.rs"]
 mod process_preview_tests;
 
+/// A session's process table through one record of its log, as an adoption checkpoint keeps it
+/// (`hosts/checkpoint.rs`): a restart folds only the records after it into the table, never the
+/// copies of every segment of the log. Leo, 2026-11-19: "we need to be able to have infinite
+/// chats, infinitely long chats"; a 4 GB chat's restart spent 712 of its 900 ms adopting its
+/// host here (cmux#51494).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SavedProcesses {
+    /// The last record folded.
+    pub(super) through: u64,
+    /// The processes in the order they started, each with whether its state is logged.
+    rows: Vec<(Process, bool)>,
+    /// The ended ones it no longer holds.
+    #[serde(default)]
+    dropped: Dropped,
+}
+
 impl ProcessTable {
+    /// The table `saved` holds, as a read of its log through `saved.through` gives it.
+    fn restored(saved: SavedProcesses) -> Self {
+        let mut table = ProcessTable { loaded: true, through: saved.through, ..Self::default() };
+        table.processes = saved
+            .rows
+            .into_iter()
+            .map(|(mut process, logged)| {
+                process.logged = logged;
+                process
+            })
+            .collect();
+        table.dropped = saved.dropped;
+        table.reindex();
+        table
+    }
+
+    /// The indexes again, from the rows. A tool-call ID a dropped row has is left out of
+    /// `by_tool`: its first row may be the dropped one, so a lookup of it reads the history.
+    fn reindex(&mut self) {
+        self.by_id.clear();
+        self.by_tool.clear();
+        self.running.clear();
+        self.daemon_running.clear();
+        for (at, process) in self.processes.iter().enumerate() {
+            self.by_id.insert(process.id.clone(), at);
+            if !self.dropped.has_tool(&process.tool_call_id) {
+                self.by_tool.entry(process.tool_call_id.clone()).or_insert(at);
+            }
+            if process.state == ProcessState::Running {
+                let set =
+                    if process.daemon_task { &mut self.daemon_running } else { &mut self.running };
+                set.insert(at);
+            }
+        }
+    }
+
+    /// Drops the ended rows past the newest [`HELD_ENDED`] to end, once [`SHRINK_AT`] have ended
+    /// (`at_once`: once more than `HELD_ENDED` have), whole ends at a time: every ended row held
+    /// ended at or after every dropped one, so a chat's page reads only rows it holds
+    /// ([`Self::answers_recent`]). Running rows stay, however old.
+    fn shrink(&mut self, at_once: bool) {
+        let live = self.running.len() + self.daemon_running.len();
+        let ended = self.processes.len().saturating_sub(live);
+        if self.held_whole || ended <= if at_once { HELD_ENDED } else { SHRINK_AT } {
+            return;
+        }
+        let mut ends: Vec<u64> = self
+            .processes
+            .iter()
+            .filter(|p| p.state != ProcessState::Running)
+            .map(process_end)
+            .collect();
+        let at = ends.len() - HELD_ENDED;
+        let cut = *ends.select_nth_unstable(at).1;
+        let drop = |p: &Process| p.state != ProcessState::Running && process_end(p) < cut;
+        if !self.processes.iter().any(drop) {
+            return;
+        }
+        let (gone, kept): (Vec<Process>, Vec<Process>) =
+            std::mem::take(&mut self.processes).into_iter().partition(drop);
+        for process in &gone {
+            self.dropped.ids.push(key(&process.id));
+            self.dropped.tools.push(key(&process.tool_call_id));
+        }
+        self.dropped.count += gone.len();
+        self.dropped.before = self.dropped.before.max(cut);
+        for keys in [&mut self.dropped.ids, &mut self.dropped.tools] {
+            keys.sort_unstable();
+            keys.dedup();
+        }
+        self.processes = kept;
+        self.reindex();
+    }
+
+    /// Whether folding the `background_task_update` PARAMS here may differ from folding it into
+    /// the whole history: its tool call or the id it would get may be a dropped row's.
+    fn fold_needs_history(&self, session: &Session, params: &Value) -> bool {
+        if self.dropped.is_empty() {
+            return false;
+        }
+        let text = |k: &str| {
+            params
+                .pointer(&format!("/update/{k}"))
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty())
+        };
+        let Some(tool) = text("toolCallId") else { return false };
+        if self.find_tool(tool).is_some() {
+            return false;
+        }
+        let id = format!("{}/{}", session.id, text("taskId").unwrap_or(tool));
+        self.dropped.has_tool(tool) || self.dropped.has_id(&id) || self.by_id.contains_key(&id)
+    }
+
+    /// Whether upserting the logged PROCESS here may differ from upserting it into the whole
+    /// history.
+    fn upsert_needs_history(&self, process: &Process) -> bool {
+        if self.dropped.is_empty() {
+            return false;
+        }
+        let tool = &process.tool_call_id;
+        match self.by_id.get(&process.id).and_then(|&at| self.processes.get(at)) {
+            Some(slot) => {
+                slot.tool_call_id != *tool
+                    && (self.dropped.has_tool(&slot.tool_call_id) || self.dropped.has_tool(tool))
+            }
+            None => self.dropped.has_id(&process.id) || self.dropped.has_tool(tool),
+        }
+    }
+
+    /// Whether `id` may be a dropped row's.
+    fn id_needs_history(&self, id: &str) -> bool {
+        !self.by_id.contains_key(id) && self.dropped.has_id(id)
+    }
+
+    /// Whether [`Self::recent_snapshot`] here gives what it gives from the whole history: the
+    /// rows it keeps all ended at or after every dropped one.
+    fn answers_recent(&self, recent: usize, ended_since: Option<u64>) -> bool {
+        if self.dropped.is_empty() {
+            return true;
+        }
+        let mut ends: Vec<u64> = self
+            .processes
+            .iter()
+            .filter(|p| p.state != ProcessState::Running)
+            .map(process_end)
+            .collect();
+        if ends.len() < recent {
+            return false;
+        }
+        let newest = if ends.len() == recent {
+            ends.iter().copied().min().unwrap_or(0)
+        } else if recent == 0 {
+            u64::MAX
+        } else {
+            let at = ends.len() - recent;
+            *ends.select_nth_unstable(at).1
+        };
+        ended_since.map_or(newest, |since| newest.min(since)) >= self.dropped.before
+    }
+
+    /// Whether [`Self::call_snapshot`] of CALLS here gives what it gives from the whole history.
+    fn answers_calls(&self, calls: &[String]) -> bool {
+        calls.iter().all(|call| !self.dropped.has_tool(call))
+    }
+
+    /// The table as a checkpoint keeps it, moved out: a long chat's is its every process, which
+    /// a copy held twice at a restart's peak (cmux#51494).
+    fn into_saved(self) -> SavedProcesses {
+        let rows = self.processes.into_iter().map(|p| {
+            let logged = p.logged;
+            (p, logged)
+        });
+        SavedProcesses { through: self.through, rows: rows.collect(), dropped: self.dropped }
+    }
+
     /// All appends go here, including records replayed from a logged process update.
     fn insert(&mut self, process: Process) -> usize {
         let at = self.processes.len();
         self.by_id.insert(process.id.clone(), at);
-        self.by_tool.entry(process.tool_call_id.clone()).or_insert(at);
+        if !self.dropped.has_tool(&process.tool_call_id) {
+            self.by_tool.entry(process.tool_call_id.clone()).or_insert(at);
+        }
         if process.state == ProcessState::Running {
-            self.running.insert(at);
+            self.live_set(process.daemon_task).insert(at);
         }
         self.processes.push(process);
         at
     }
 
+    /// The set a live row of this kind is in: the harness's `running`, or `daemon_running`.
+    fn live_set(&mut self, daemon_task: bool) -> &mut std::collections::BTreeSet<usize> {
+        if daemon_task { &mut self.daemon_running } else { &mut self.running }
+    }
+
+    /// Daemon task `process` as its folder says now (`bg_registry.rs`): in place of its row, or
+    /// added. Returns it, marked logged, when it changed, for its `process_update`; `None` when
+    /// the row already says the same, or already ended: a process ends once, so a runner that
+    /// died (no end written, `lost` at the time it is read) is logged once, not at every look.
+    /// The one exception: an end the runner wrote replaces a `lost`.
+    pub(super) fn daemon_upsert(&mut self, mut process: Process) -> Option<Process> {
+        process.daemon_task = true;
+        // A row the table dropped had ended (`shrink` keeps every running one): it stays ended.
+        if self.id_needs_history(&process.id) {
+            return None;
+        }
+        if let Some(known) = self.find_id(&process.id) {
+            process.logged = known.logged;
+            // A written end replaces a `lost` read before it (the runner writes its end, then
+            // lets go of its lock); no other end ever changes.
+            let corrects = known.state == ProcessState::Lost
+                && process.state != ProcessState::Lost
+                && process.state != ProcessState::Running;
+            if *known == process || (known.state != ProcessState::Running && !corrects) {
+                return None;
+            }
+        }
+        process.logged = true;
+        self.upsert(process.clone());
+        Some(process)
+    }
+
+    /// Daemon task row `id`, still `running` though its folder no longer holds the task (a
+    /// purge, another generation): `lost` at `at`, for its `process_update`.
+    pub(super) fn daemon_lost(&mut self, id: &str, at: u64) -> Option<Process> {
+        let mut process = self.find_id(id).filter(|p| p.daemon_task)?.clone();
+        if process.state != ProcessState::Running {
+            return None;
+        }
+        process.state = ProcessState::Lost;
+        process.ended_at = Some(at);
+        self.daemon_upsert(process)
+    }
+
+    /// The live daemon-task rows, as `(row id, task id)`.
+    pub(super) fn daemon_live(&self) -> Vec<(String, String)> {
+        self.daemon_running
+            .iter()
+            .filter_map(|&at| self.processes.get(at))
+            .map(|p| (p.id.clone(), p.task_id.clone()))
+            .collect()
+    }
+
+    /// The daemon task of row `id`, as its `bg` id; `None` for a harness's row or none.
+    pub(super) fn daemon_task_of(&self, id: &str) -> Option<String> {
+        self.find_id(id).filter(|p| p.daemon_task).map(|p| p.task_id.clone())
+    }
+
     fn find_tool(&self, tool: &str) -> Option<usize> {
         self.by_tool.get(tool).copied()
+    }
+
+    /// The harness's own row of tool call `tool`: a daemon task listed under the same call is not
+    /// the harness's shell (a rare case, so its scan is too).
+    fn find_harness_tool(&self, tool: &str) -> Option<usize> {
+        match self.find_tool(tool) {
+            Some(i) if self.processes[i].daemon_task => {
+                self.processes.iter().position(|p| p.tool_call_id == tool && !p.daemon_task)
+            }
+            found => found,
+        }
     }
 
     fn find_id(&self, id: &str) -> Option<&Process> {
@@ -188,7 +501,7 @@ impl ProcessTable {
     /// output file the update named (`take_output_file`); returns the
     /// process when it changed. A process ends once: a later end or
     /// `running` is ignored.
-    fn fold(
+    pub(super) fn fold(
         &mut self,
         session: &Session,
         params: &Value,
@@ -208,7 +521,7 @@ impl ProcessTable {
             _ if with_harness => ProcessState::Lost,
             _ => ProcessState::Killed,
         };
-        let found = self.find_tool(tool);
+        let found = self.find_harness_tool(tool);
         let i = match found {
             Some(i) => i,
             None => {
@@ -238,6 +551,7 @@ impl ProcessTable {
                     output_bytes: None,
                     output_file: None,
                     preview: None,
+                    daemon_task: false,
                     logged: false,
                 };
                 self.insert(process)
@@ -341,6 +655,7 @@ impl ProcessTable {
         {
             let new_tool = process.tool_call_id.clone();
             let live = process.state == ProcessState::Running;
+            let daemon_task = process.daemon_task;
             // A preview found here outlives a record that names none, while it runs.
             if !live {
                 process.preview = None;
@@ -349,9 +664,9 @@ impl ProcessTable {
             }
             let old_tool = std::mem::replace(slot, process).tool_call_id;
             if live {
-                self.running.insert(at);
+                self.live_set(daemon_task).insert(at);
             } else {
-                self.running.remove(&at);
+                self.live_set(daemon_task).remove(&at);
             }
             if old_tool == new_tool {
                 return;
@@ -386,7 +701,7 @@ impl ProcessTable {
 
     /// Snapshot the rows while the process table is locked. Output-file metadata may hit
     /// a slow filesystem, so it is read only after the caller releases that lock.
-    fn snapshot(&self) -> Vec<Process> {
+    pub(super) fn snapshot(&self) -> Vec<Process> {
         self.processes.clone()
     }
 
@@ -408,14 +723,20 @@ impl ProcessTable {
             .filter(|p| p.state != ProcessState::Running)
             .map(process_end)
             .collect();
-        let newest = if ends.len() <= recent {
+        // A shrunk table's dropped rows ended before every one it holds (`answers_recent`).
+        let newest = if ends.len() + self.dropped.count <= recent {
             0
+        } else if ends.len() <= recent {
+            ends.iter().copied().min().unwrap_or(0)
+        } else if recent == 0 {
+            // No ended row is asked for; past every end keeps only the running ones.
+            u64::MAX
         } else {
             let at = ends.len() - recent;
             *ends.select_nth_unstable(at).1
         };
         let cutoff = ended_since.map_or(newest, |since| newest.min(since));
-        let mut older = 0_usize;
+        let mut older = self.dropped.count;
         let kept = self
             .processes
             .iter()
@@ -487,6 +808,55 @@ impl ProcessTable {
         }
         lost
     }
+}
+
+/// The origin of a daemon task's row (`Process::origin`).
+pub(super) const DAEMON_ORIGIN: &str = "daemon";
+
+/// The registry row of a daemon task of chat `session`, from its list view (`bg_tasks::bg_view`):
+/// `None` for a view with no id. Running, it carries nothing that changes while it runs, so the
+/// same task reads the same row until it ends ([`ProcessTable::daemon_upsert`]).
+pub(super) fn daemon_process(session: &Session, view: &Value) -> Option<Process> {
+    let text = |k: &str| view.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
+    let task = text("id")?;
+    let exit_code = view.get("exitCode").and_then(Value::as_i64);
+    let state = match text("state").unwrap_or("lost") {
+        "running" => ProcessState::Running,
+        "exited" if exit_code.is_some_and(|c| c != 0) => ProcessState::Failed,
+        "exited" => ProcessState::Exited,
+        "stopped" | "killed" => ProcessState::Killed,
+        _ => ProcessState::Lost,
+    };
+    let ended = state != ProcessState::Running;
+    let now = now_ms();
+    let started_at = view.get("startedAt").and_then(Value::as_u64).unwrap_or(now);
+    Some(Process {
+        id: format!("{}/{task}", session.id),
+        session_id: session.id.clone(),
+        subagent_session_id: None,
+        workflow_agent_id: None,
+        tool_call_id: text("toolCallId").unwrap_or("").to_owned(),
+        task_id: task.to_owned(),
+        harness: crate::web_modes::family_of(&session.meta()),
+        command: text("command").unwrap_or("").to_owned(),
+        description: text("description").map(str::to_owned),
+        cwd: text("cwd")
+            .map_or_else(|| session.meta().cwd.to_string_lossy().into_owned(), str::to_owned),
+        started_at,
+        // A runner that died without a word wrote no end: it is lost by the time this is read.
+        ended_at: ended.then(|| view.get("endedAt").and_then(Value::as_u64).unwrap_or(now)),
+        state,
+        exit_code: exit_code.filter(|_| ended),
+        signal: view.get("signal").and_then(Value::as_i64).filter(|_| ended).map(|s| s.to_string()),
+        reason: None,
+        detail: text("summary").filter(|_| ended).map(str::to_owned),
+        origin: DAEMON_ORIGIN.to_owned(),
+        output_bytes: None,
+        output_file: None,
+        preview: None,
+        daemon_task: true,
+        logged: false,
+    })
 }
 
 /// Serialize a process-list snapshot after releasing the session's process-table mutex.
@@ -851,13 +1221,74 @@ fn task_params(params: Option<&mut Value>) -> Value {
 }
 
 impl Hub {
-    /// The session's table, read from its log's copies the first time.
-    fn process_table<'a>(&self, session: &'a Session) -> std::sync::MutexGuard<'a, ProcessTable> {
+    /// The session's table, read from its log's copies the first time, then shrunk: it holds its
+    /// running processes and the last to end ([`ProcessTable::shrink`]).
+    ///
+    /// The log is read with the table's lock let go: `running_processes_read` and
+    /// `running_heavy_read` take that lock for every chat on each `daemon status` and row list
+    /// (`host_load.rs`, `idle.rs`) and promise never to wait on a log scan. On the coordinator Mac,
+    /// 2026-11-27 02:43Z to 03:20Z: a first read here waited in the store's fork view behind a cold
+    /// archive commit, which waited behind a whole-log pack at background priority; it held this
+    /// lock all the while, 15 of 32 tokio workers parked on it, and every acpmux delivery on the
+    /// host timed out (`tools/acpmux_delivery_probe.py`, 10 missed probes). Two first reads may
+    /// race: the first table put in wins and the other is dropped, and a record logged after a
+    /// read is folded by its `note_process` (its seq is past the table's `through`).
+    pub(super) fn process_table<'a>(
+        &self,
+        session: &'a Session,
+    ) -> std::sync::MutexGuard<'a, ProcessTable> {
+        let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        if table.loaded {
+            return table;
+        }
+        drop(table);
+        let mut read = self.read_processes(session);
         let mut table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
         if !table.loaded {
-            *table = self.read_processes(session);
+            // The preview watches started meanwhile stay the only ones (`rebuild_processes`).
+            read.watching = std::mem::take(&mut table.watching);
+            *table = read;
+            table.shrink(true);
         }
         table
+    }
+
+    /// The session's table holding its whole history: a shrunk one is read back from the log
+    /// whole (once: it is held whole after), for a query that reaches past what it holds.
+    fn whole_process_table<'a>(
+        &self,
+        session: &'a Session,
+    ) -> std::sync::MutexGuard<'a, ProcessTable> {
+        let mut table = self.process_table(session);
+        if !table.dropped.is_empty() {
+            self.read_whole(session, &mut table);
+            table.held_whole = true;
+        }
+        table
+    }
+
+    /// The session's table holding the process `id`, read whole when it may be a dropped one.
+    fn process_table_for<'a>(
+        &self,
+        session: &'a Session,
+        id: &str,
+    ) -> std::sync::MutexGuard<'a, ProcessTable> {
+        let table = self.process_table(session);
+        if !table.id_needs_history(id) {
+            return table;
+        }
+        drop(table);
+        self.whole_process_table(session)
+    }
+
+    /// Replaces `table` with the session's whole history from its log, keeping what only this
+    /// daemon knows: the stops a person asked for and the preview watches running.
+    fn read_whole(&self, session: &Session, table: &mut ProcessTable) {
+        let mut whole = self.read_processes(session);
+        whole.watching = std::mem::take(&mut table.watching);
+        whole.stopping = std::mem::take(&mut table.stopping);
+        whole.held_whole = table.held_whole;
+        *table = whole;
     }
 
     /// The session's processes as its log says: each shell's updates, then
@@ -865,28 +1296,62 @@ impl Hub {
     /// exited, or a new one, outlived none of the processes before it (a
     /// power loss logs no end).
     fn read_processes(&self, session: &Session) -> ProcessTable {
-        let mut table = ProcessTable { loaded: true, ..ProcessTable::default() };
+        self.read_processes_from(session, None)
+    }
+
+    /// `read_processes`, from the table `saved` holds (its log's records through
+    /// `saved.through`) when there is one: only the records after it are read.
+    fn read_processes_from(
+        &self,
+        session: &Session,
+        saved: Option<SavedProcesses>,
+    ) -> ProcessTable {
+        let mut table = match saved {
+            Some(saved) => ProcessTable::restored(saved),
+            None => ProcessTable { loaded: true, ..ProcessTable::default() },
+        };
+        let after = table.through;
         // The log's last whole record, read from its end: a head alone could be a line a crash
         // cut short, which a whole-record read skips. Read first, so a record logged meanwhile
         // that the scan below does not fold is never counted as folded.
+        let mut last = 0;
         let _ = self.store.scan_back(&session.id, 0, u64::MAX, &|_, _| false, &mut |e| {
-            table.through = e.seq;
+            last = e.seq;
             false
         });
-        // The kinds folded here only, from the log's copies of them (`store/kind_index.rs`): the
-        // idle sweep and a chat's first process read come here, and a long chat's log is a
-        // million records. Read back, newest first, then folded in order: a segment with no
-        // copy yet gets one made by its lines' heads, never parsed whole (`scan_kinds` makes one
-        // by parsing every line, which an adoption of many hosted chats paid for each:
-        // `hosts_tests.rs` `adoption_reads_parse_only_the_records_they_fold`).
-        // Each record is cut to what the fold reads as it is read: a record kept whole holds
-        // its command and every other field, so a long chat's restart held every process record
-        // it ever logged, parsed (63 MB of a 1 GB chat's, `god_daemon` `chat_size_sweep`).
+        table.through = table.through.max(last);
+        if !self.fold_processes(session, &mut table, after, u64::MAX) {
+            // A record reached past what the saved table holds: the whole log, as with none.
+            table = ProcessTable { loaded: true, through: last, ..ProcessTable::default() };
+            self.fold_processes(session, &mut table, 0, u64::MAX);
+        }
+        table
+    }
+
+    /// Folds `session`'s records after `after` and before `before` into `table`. The kinds folded
+    /// here only, from the log's copies of them (`store/kind_index.rs`): the idle sweep and a
+    /// chat's first process read come here, and a long chat's log is a million records. Read
+    /// back, newest first, to `after`, then folded in order: a segment with no copy yet gets one
+    /// made by its lines' heads, never parsed whole (`scan_kinds` makes one by parsing every
+    /// line, which an adoption of many hosted chats paid for each: `hosts_tests.rs`
+    /// `adoption_reads_parse_only_the_records_they_fold`). Each record is cut to what the fold
+    /// reads as it is read: a record kept whole holds its command and every other field, so a
+    /// long chat's restart held every process record it ever logged, parsed (63 MB of a 1 GB
+    /// chat's, `god_daemon` `chat_size_sweep`).
+    /// False when a record may change a row `table` dropped ([`ProcessTable::shrink`]): it is
+    /// left part folded, for the caller to fold the whole log instead (never from a whole one).
+    fn fold_processes(
+        &self,
+        session: &Session,
+        table: &mut ProcessTable,
+        after: u64,
+        before: u64,
+    ) -> bool {
         let mut folded = Vec::new();
         let _ = self.store.scan_back_indexed(
             &session.id,
-            0,
-            u64::MAX,
+            after,
+            before,
             &|dir, kind| !folds_process(dir, kind),
             &mut |e| {
                 if let Some(f) = Folded::of(e) {
@@ -899,10 +1364,16 @@ impl Hub {
             table.through = table.through.max(seq);
             match f {
                 Folded::Task { at, params } => {
+                    if table.fold_needs_history(session, &params) {
+                        return false;
+                    }
                     table.fold(session, &params, at, None);
                 }
                 Folded::Update(process) => {
                     if let Some(process) = process {
+                        if table.upsert_needs_history(&process) {
+                            return false;
+                        }
                         table.upsert(*process);
                     }
                 }
@@ -911,13 +1382,37 @@ impl Hub {
                 }
             }
         }
-        table
+        true
     }
 
-    /// Reads the session's processes from its log again: a daemon that
-    /// adopted a running host lists them again (`hosts.rs`).
-    pub(super) fn rebuild_processes(&self, session: &Session) {
-        let mut table = self.read_processes(session);
+    /// `session`'s processes through record `through` (whole: no append is under way before
+    /// it), from `saved` when it holds an earlier record: what an adoption checkpoint keeps.
+    pub(super) fn processes_through(
+        &self,
+        session: &Session,
+        saved: Option<SavedProcesses>,
+        through: u64,
+    ) -> SavedProcesses {
+        let mut table = match saved.filter(|s| s.through <= through) {
+            Some(saved) => ProcessTable::restored(saved),
+            None => ProcessTable { loaded: true, ..ProcessTable::default() },
+        };
+        let after = table.through;
+        if !self.fold_processes(session, &mut table, after, through.saturating_add(1)) {
+            table = ProcessTable { loaded: true, ..ProcessTable::default() };
+            self.fold_processes(session, &mut table, 0, through.saturating_add(1));
+        }
+        table.through = through;
+        table.shrink(true);
+        table.into_saved()
+    }
+
+    /// Reads the session's processes from its log again: a daemon that adopted a running host
+    /// lists them again (`hosts.rs`). From the table `saved` holds (an adoption checkpoint's),
+    /// only the records after it are read.
+    pub(super) fn rebuild_processes_from(&self, session: &Session, saved: Option<SavedProcesses>) {
+        let mut table = self.read_processes_from(session, saved);
+        table.shrink(true);
         let mut slot = session.processes.lock().unwrap_or_else(|e| e.into_inner());
         // The preview watches still run: they stay the only ones.
         table.watching = std::mem::take(&mut slot.watching);
@@ -932,14 +1427,25 @@ impl Hub {
         let changed = {
             let mut table = self.process_table(session);
             let i = if rec.seq > table.through {
-                table.through = rec.seq;
-                table.fold(session, params, rec.at, output)
+                if table.fold_needs_history(session, params) {
+                    self.read_whole(session, &mut table);
+                }
+                table.through = table.through.max(rec.seq);
+                let i = table.fold(session, params, rec.at, output);
+                // A row it ended may take the table past what it holds; its update is logged
+                // first (`log` below reads the row by its slot).
+                let changed = i.map(|i| table.log(i));
+                table.shrink(false);
+                changed
             } else {
                 // The first read of the log folded this record already: its
                 // change is logged here, once. The log has no output file,
                 // so it is kept here.
                 let tool = params.pointer("/update/toolCallId").and_then(Value::as_str);
-                let i = tool.and_then(|tool| table.find_tool(tool));
+                if tool.is_some_and(|t| table.find_tool(t).is_none() && table.dropped.has_tool(t)) {
+                    self.read_whole(session, &mut table);
+                }
+                let i = tool.and_then(|tool| table.find_harness_tool(tool));
                 let p = i.and_then(|i| table.processes.get_mut(i));
                 if let (Some(p), Some(file)) = (p, output.filter(|f| !f.is_empty()))
                     && p.output_file.is_none()
@@ -947,9 +1453,10 @@ impl Hub {
                     p.output_file = Some(file.to_owned());
                     p.logged = false;
                 }
-                i.filter(|&i| !table.processes[i].logged)
+                i.filter(|&i| table.processes.get(i).is_some_and(|p| !p.logged))
+                    .map(|i| table.log(i))
             };
-            i.map(|i| table.log(i))
+            i
         };
         if let Some(process) = changed {
             self.append(session, "mux", "process_update", json!({"process": process}));
@@ -1000,11 +1507,14 @@ impl Hub {
     /// every chat whose processes this daemon has read (any chat that ran one
     /// since it started, or that it adopted).
     pub fn list_processes(&self, session: Option<&Session>) -> Value {
+        if let Some(session) = session {
+            self.bg_reconcile(session);
+        }
         // Taking the snapshot is the only operation that needs the process-table lock.
         // File metadata reads and JSON conversion must not hold it: process updates
         // from a running harness need to acquire the same mutex.
         let processes: Vec<Process> = match session {
-            Some(session) => self.process_table(session).snapshot(),
+            Some(session) => self.whole_process_table(session).snapshot(),
             None => self
                 .sessions()
                 .iter()
@@ -1023,8 +1533,20 @@ impl Hub {
     /// (no `session`) the newest are by start. Only the rows it keeps have their output file's
     /// size read and are serialized: its cost is the reply's, however long the history.
     pub(crate) fn list_processes_reply(&self, session: Option<&Session>) -> Value {
+        match session {
+            Some(session) => self.bg_reconcile(session),
+            // Every chat whose table this daemon read: a chat with no live daemon row reads nothing.
+            None => {
+                for s in self.sessions() {
+                    let loaded = s.processes.lock().unwrap_or_else(|e| e.into_inner()).loaded;
+                    if loaded {
+                        self.bg_reconcile(&s);
+                    }
+                }
+            }
+        }
         let mut processes: Vec<Process> = match session {
-            Some(session) => self.process_table(session).snapshot(),
+            Some(session) => self.whole_process_table(session).snapshot(),
             None => self
                 .sessions()
                 .iter()
@@ -1054,8 +1576,17 @@ impl Hub {
         recent: usize,
         ended_within: Option<u64>,
     ) -> Result<Value, RpcError> {
+        self.bg_reconcile(session);
         let since = ended_within.map(|within| now_ms().saturating_sub(within));
-        let (processes, older, cutoff) = self.process_table(session).recent_snapshot(recent, since);
+        let (processes, older, cutoff) = {
+            let table = self.process_table(session);
+            if table.answers_recent(recent, since) {
+                table.recent_snapshot(recent, since)
+            } else {
+                drop(table);
+                self.whole_process_table(session).recent_snapshot(recent, since)
+            }
+        };
         recent_values(processes, older, cutoff, recent, PROCESS_PAGE_BUDGET, output_len)
     }
 
@@ -1064,7 +1595,16 @@ impl Hub {
     /// calls its transcript shows, so a shell the transcript names is the registry's record there
     /// and its counts stay the whole history's.
     pub(crate) fn list_call_processes(&self, session: &Session, calls: &[String]) -> Value {
-        let found = self.process_table(session).call_snapshot(calls);
+        self.bg_reconcile(session);
+        let found = {
+            let table = self.process_table(session);
+            if table.answers_calls(calls) {
+                table.call_snapshot(calls)
+            } else {
+                drop(table);
+                self.whole_process_table(session).call_snapshot(calls)
+            }
+        };
         call_values(found, PROCESS_PAGE_BUDGET, output_len)
     }
 
@@ -1076,7 +1616,8 @@ impl Hub {
         limit: usize,
         after: Option<&str>,
     ) -> Result<Value, RpcError> {
-        let (window, has_more) = self.process_table(session).page_snapshot(limit, after)?;
+        self.bg_reconcile(session);
+        let (window, has_more) = self.whole_process_table(session).page_snapshot(limit, after)?;
         process_page_values(window, has_more, PROCESS_PAGE_BUDGET)
     }
 
@@ -1102,8 +1643,12 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         use base64::Engine;
         let session = self.process_session(id)?;
+        let daemon_task = self.process_table_for(&session, id).daemon_task_of(id);
+        if let Some(task) = daemon_task {
+            return self.bg_tail(&session, &task, from, max);
+        }
         let (file, running) = {
-            let table = self.process_table(&session);
+            let table = self.process_table_for(&session, id);
             let p = table.find_id(id).ok_or_else(|| unknown_process(id))?;
             if p.harness == "codex" {
                 return Err(RpcError::invalid_params("tail is Claude Code only for now"));
@@ -1131,6 +1676,11 @@ impl Hub {
     pub async fn kill_process(&self, id: &str) -> Result<Value, RpcError> {
         let unknown = || unknown_process(id);
         let session = self.process_session(id)?;
+        // A daemon task stops through its runner, whatever the harness (`bg_registry.rs`).
+        let daemon_task = self.process_table_for(&session, id).daemon_task_of(id);
+        if let Some(task) = daemon_task {
+            return self.bg_kill(&session, &task).await;
+        }
         let harness = session.meta().harness;
         let (claude, codex) = match self.config.read().await.profile(&harness) {
             Some(p) => (
@@ -1146,7 +1696,7 @@ impl Hub {
             ));
         }
         let (task, running, subagent) = {
-            let table = self.process_table(&session);
+            let table = self.process_table_for(&session, id);
             let p = table.find_id(id).ok_or_else(unknown)?;
             (p.task_id.clone(), p.state == ProcessState::Running, p.subagent_session_id.clone())
         };
@@ -1276,36 +1826,5 @@ fn unknown_process(id: &str) -> RpcError {
 }
 
 #[cfg(test)]
-mod process_list_snapshot_tests {
-    use super::*;
-
-    #[test]
-    fn a_process_list_reads_output_metadata_after_releasing_its_table() {
-        let process: Process = serde_json::from_value(json!({
-            "id": "chat/task", "sessionId": "chat", "toolCallId": "call",
-            "taskId": "task", "harness": "claude", "command": "cargo test",
-            "cwd": "/tmp", "startedAt": 100, "endedAt": 200,
-            "state": "exited", "origin": "background", "outputFile": "/tmp/task-output"
-        }))
-        .unwrap();
-        let table = std::sync::Mutex::new(ProcessTable {
-            loaded: true,
-            processes: vec![process],
-            ..ProcessTable::default()
-        });
-        // Every caller first takes its snapshot, then drops the guard before
-        // collecting live file sizes and serializing the reply.
-        let snapshot = table.lock().unwrap().snapshot();
-        let rows = process_values(snapshot, |path| {
-            assert_eq!(path, "/tmp/task-output");
-            assert!(table.try_lock().is_ok(), "filesystem metadata read under process-table lock");
-            42
-        });
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0]["id"], "chat/task");
-        assert_eq!(rows[0]["state"], "exited");
-        assert_eq!(rows[0]["outputBytes"], 42);
-        // The saved table remains unchanged: a later list re-reads the file size.
-        assert_eq!(table.lock().unwrap().processes[0].output_bytes, None);
-    }
-}
+#[path = "processes_process_list_snapshot_tests.rs"]
+mod process_list_snapshot_tests;

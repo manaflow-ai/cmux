@@ -445,6 +445,10 @@ fn build_activity(checkout: &Path, build: &Path) -> Option<u64> {
 
 fn clone_entries(index: usize, roots: &[PathBuf], found: &mut Vec<Entry>) {
     for root in roots {
+        // A root that is a symlink could lead out of the home folder.
+        if !real_dir(root) {
+            continue;
+        }
         let Ok(level1) = std::fs::read_dir(root) else { continue };
         let mut clones = Vec::new();
         for child in level1.flatten() {
@@ -463,6 +467,20 @@ fn clone_entries(index: usize, roots: &[PathBuf], found: &mut Vec<Entry>) {
             let last_activity_ms = clone_activity(&path);
             found.push(Entry { family: index, guard: path.clone(), path, last_activity_ms });
         }
+    }
+}
+
+/// Whether `path` resolves to the same place under the resolved home: no
+/// folder between the home and it (a clone root included) is a symlink that
+/// leads elsewhere. The home itself may be a symlink (`/tmp` on macOS).
+fn really_under_home(home: &Path, path: &Path) -> bool {
+    let (Ok(real_home), Ok(real)) = (std::fs::canonicalize(home), std::fs::canonicalize(path))
+    else {
+        return false;
+    };
+    match (path.strip_prefix(home), real.strip_prefix(&real_home)) {
+        (Ok(asked), Ok(found)) => !asked.as_os_str().is_empty() && asked == found,
+        _ => false,
     }
 }
 
@@ -621,7 +639,7 @@ pub struct Options<'a> {
 }
 
 fn bytes_of(path: &Path) -> Option<u64> {
-    let sizes = crate::disk::sizes(path, &[], Instant::now() + MEASURE);
+    let sizes = crate::disk::sizes_memo(path, &[], Instant::now() + MEASURE);
     Some(sizes.total)
 }
 
@@ -740,6 +758,11 @@ fn guard_of(family: &Family, path: &Path) -> PathBuf {
 /// The checks that the path is still what the family listed.
 fn still_an_entry(options: &Options, family: &Family, path: &Path) -> Result<(), Verdict> {
     let gone = || verdict(Action::Keep, "no longer a real entry of its family");
+    // A command family's one entry is its name (`docker:images`), not a
+    // folder: there is nothing on disk to check.
+    if matches!(family.source, Source::Docker | Source::Simulators) {
+        return if path == family.root { Ok(()) } else { Err(gone()) };
+    }
     let Ok(meta) = std::fs::symlink_metadata(path) else { return Err(gone()) };
     if meta.file_type().is_symlink() {
         return Err(gone());
@@ -783,6 +806,7 @@ fn still_an_entry(options: &Options, family: &Family, path: &Path) -> Result<(),
             if !roots.iter().any(|r| path.starts_with(r))
                 || !is_plain_clone(path)
                 || !path.starts_with(options.home)
+                || !really_under_home(options.home, path)
             {
                 return Err(gone());
             }
@@ -864,10 +888,8 @@ fn remove(
             Err(error) => return Err(verdict(Action::Keep, format!("not archived: {error}"))),
         }
     }
-    if !command {
-        if let Some(why) = options.never.holds_tree(options.home, path) {
-            return Err(verdict(Action::Keep, format!("never-delete: {why}")));
-        }
+    if !command && let Some(why) = options.never.holds_tree(options.home, path) {
+        return Err(verdict(Action::Keep, format!("never-delete: {why}")));
     }
     if let Some(before) = clone_refs {
         crate::clones::work(path)

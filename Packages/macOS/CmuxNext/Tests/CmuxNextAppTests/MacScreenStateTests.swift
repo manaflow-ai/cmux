@@ -64,9 +64,10 @@ struct MacScreenFrameTimingsTests {
     }
 
     /// A static screen sends one keyframe. Decode has its value at decode time, before any
-    /// presented handler runs; a presented time of 0 (macOS recorded none) takes the handler's
-    /// own time, a real one is used as is, so Present and Decode + Present get a value either way.
-    @Test func oneKeyframeGivesEveryStageWithOrWithoutAPresentedTime() throws {
+    /// presented handler runs. A real presented time gives Present and Decode + Present; a
+    /// presented time of 0 (macOS recorded none: the window hidden or off screen) is not the
+    /// glass, so it counts as unpresented and gives neither.
+    @Test func oneKeyframeGivesGlassStagesOnlyWithAPresentedTime() throws {
         let ms: UInt64 = 1_000_000
         for presentedAtMicros: UInt64 in [0, 30_000] {
             let counter = MacScreenFrameCounter()
@@ -76,11 +77,13 @@ struct MacScreenFrameTimingsTests {
             let times = RemoteViewerFrameTimes.shown(frame: 1, releasedAtNanos: 20 * ms, decodedAtNanos: 24 * ms,
                                                      presentedAtMicros: presentedAtMicros, nowNanos: 29 * ms)
             #expect(times.presentedAtNanos == (presentedAtMicros > 0 ? 30 * ms : 29 * ms))
+            #expect(times.onGlass == (presentedAtMicros > 0))
             counter.shown(times)
             let timings = counter.timings
             #expect(timings.decode.count == 1)
-            #expect(timings.glass.summary?.p50 == (presentedAtMicros > 0 ? 6 : 5))
-            #expect(timings.decodePresent.summary?.p50 == (presentedAtMicros > 0 ? 10 : 9))
+            #expect(timings.glass.summary?.p50 == (presentedAtMicros > 0 ? 6 : nil))
+            #expect(timings.decodePresent.summary?.p50 == (presentedAtMicros > 0 ? 10 : nil))
+            #expect(timings.unpresented == (presentedAtMicros > 0 ? 0 : 1))
         }
     }
 
@@ -206,6 +209,8 @@ struct MacScreenStateControlTests {
         _ = counter.tick(frame: 1)
         _ = counter.tick(frame: 4, releasedAtNanos: 10 * ms, decodedAtNanos: 13 * ms)
         counter.shown(RemoteViewerFrameTimes(frame: 4, releasedAtNanos: 10 * ms, decodedAtNanos: 13 * ms, presentedAtNanos: 21 * ms))
+        // A frame of a hidden window: its handler ran, macOS gave no presented time.
+        counter.shown(.shown(frame: 5, releasedAtNanos: 30 * ms, decodedAtNanos: 31 * ms, presentedAtMicros: 0, nowNanos: 32 * ms))
         session.framesCounted(counter)
         // An old transport's late batch is not this session's.
         session.framesCounted(MacScreenFrameCounter())
@@ -235,6 +240,8 @@ struct MacScreenStateControlTests {
         #expect(live["decode_ms"]?.objectValue?["p50"]?.doubleValue == 3)
         #expect(live["glass_ms"]?.objectValue?["p50"]?.doubleValue == 8)
         #expect(live["decode_present_ms"]?.objectValue?["p50"]?.doubleValue == 11)
+        #expect(live["decode_present_ms"]?.objectValue?["count"]?.doubleValue == 1)
+        #expect(live["unpresented_frames"]?.doubleValue == 1)
         #expect(try rows(pages, tab: "other").isEmpty)
         pages.tabClosed("a")
         pages.tabClosed("home")

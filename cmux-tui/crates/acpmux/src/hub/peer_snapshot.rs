@@ -643,6 +643,10 @@ struct Kept {
     head: Head,
     /// Its records once read (`Store::load`); None while they are only on disk.
     records: Option<BTreeMap<u64, Value>>,
+    /// Its records' lines as its last write encoded them (`disk::encode_with`): only records
+    /// that came or changed since are serialized again. Never more than `records` holds, and
+    /// dropped with them, so not charged apart.
+    lines: disk::Lines,
     /// Bytes of `records`, and of its file on disk (0: none).
     memory: u64,
     disk: u64,
@@ -681,6 +685,7 @@ impl Kept {
         Self {
             head,
             records: None,
+            lines: disk::Lines::new(),
             memory,
             disk,
             own,
@@ -1320,8 +1325,12 @@ impl Store {
             let Some(seq) = seq_of(&r) else { continue };
             // One the copy holds as it is already came before (a page again): a write told it,
             // or will.
-            if crate::hub::open_delivery::of_a_prompt(&r) && held.get(&seq) != Some(&r) {
+            let same = held.get(&seq) == Some(&r);
+            if crate::hub::open_delivery::of_a_prompt(&r) && !same {
                 c.fresh.insert(seq);
+            }
+            if !same {
+                c.lines.remove(&seq);
             }
             let bytes = record_bytes(&r);
             if let Some(old) = held.insert(seq, r) {
@@ -1366,6 +1375,7 @@ impl Store {
         let mut opener_changed = false;
         while held.len() > events || c.memory > SESSION_BYTES {
             let Some((seq, old)) = held.pop_first() else { break };
+            c.lines.remove(&seq);
             let old_bytes = record_bytes(&old);
             c.memory -= old_bytes;
             *memory -= old_bytes;
@@ -1406,6 +1416,7 @@ impl Store {
                 if let Some(c) = self.copies.get_mut(&key) {
                     crate::gauges::peer_notices().snapshot_unloads.fetch_add(1, Ordering::Relaxed);
                     c.records = None;
+                    c.lines = disk::Lines::new();
                     self.memory -= std::mem::take(&mut c.memory);
                 }
                 continue;
@@ -1508,6 +1519,7 @@ impl Store {
                 if let Some(c) = self.copies.get_mut(key) {
                     c.head = head;
                     c.records = Some(records);
+                    c.lines = disk::Lines::new();
                     c.memory = bytes;
                 }
                 self.memory += bytes;
@@ -1616,10 +1628,11 @@ impl Store {
         let covered = self.copies.get(key).and_then(|c| c.head.generation);
         self.remove(key);
         let Some(covered) = covered else { return };
-        if self.evicted.len() >= EVICTED_KEYS && !self.evicted.contains_key(key) {
-            if let Some(old) = self.evicted.keys().next().cloned() {
-                self.evicted.remove(&old);
-            }
+        if self.evicted.len() >= EVICTED_KEYS
+            && !self.evicted.contains_key(key)
+            && let Some(old) = self.evicted.keys().next().cloned()
+        {
+            self.evicted.remove(&old);
         }
         self.evicted.insert(key.clone(), covered);
     }
@@ -1771,9 +1784,9 @@ impl Store {
         if stops_before_write(key) {
             anyhow::bail!("tests only: the daemon stopped before the copy's file was written");
         }
-        let Some(c) = self.copies.get(key) else { return Ok(()) };
+        let Some(c) = self.copies.get_mut(key) else { return Ok(()) };
         let Some(records) = &c.records else { return Ok(()) };
-        let bytes = disk::encode(&c.head, records);
+        let bytes = disk::encode_with(&c.head, records, &mut c.lines);
         let (hash, last) = (disk::content_hash(&c.head, &bytes), (c.written, c.disk));
         // Its head line as `encode` wrote it, not serialized again; an empty one did not serialize.
         let head = match bytes.iter().position(|b| *b == b'\n') {

@@ -483,3 +483,31 @@ fn a_request_needs_absolute_paths() {
         assert_eq!(error.code, "validation.invalid");
     }
 }
+
+#[test]
+fn an_offline_download_is_tried_again_before_it_is_reported() {
+    let tries = std::cell::Cell::new(0);
+    let outcome = retry_offline(
+        || {
+            tries.set(tries.get() + 1);
+            if tries.get() < 3 { Err(Code::Offline) } else { Ok(()) }
+        },
+        Duration::from_secs(10),
+    );
+    assert_eq!(outcome, Ok(()));
+    assert_eq!(tries.get(), 3);
+}
+
+#[test]
+fn a_bad_download_is_not_tried_again() {
+    let tries = std::cell::Cell::new(0);
+    let outcome = retry_offline(
+        || {
+            tries.set(tries.get() + 1);
+            Err(Code::Verify)
+        },
+        Duration::from_secs(10),
+    );
+    assert_eq!(outcome, Err(Code::Verify));
+    assert_eq!(tries.get(), 1);
+}

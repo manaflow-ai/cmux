@@ -184,6 +184,7 @@ Mac) and never from argv. Without them it is skipped and the table says so.
 """
 import argparse
 import contextlib
+import errno
 import ipaddress
 import json
 import os
@@ -202,6 +203,10 @@ import time
 
 MAC_HOLDS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..",
                          "scripts", "measure", "screen-stream-eval", "mac-holds.sh")
+# The in-repo headless RFB client (Apple account login, raw/zlib/ZRLE): the Apple leg's client when no
+# --cua-vnc is given, so a cmux-ci step (which has no cua-vnc checkout) still measures Apple's total.
+RFB_VIEWER = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..",
+                                           "scripts", "measure", "screen-stream-eval", "rfb-viewer.py"))
 MAC_HOLDS_PROFILES = ("stall", "wifi-away", "wifi-short", "wifi-long", "wifi-loss")
 MONO = time.CLOCK_MONOTONIC  # the clock cmux-rd's now_ns() reads (clock.rs)
 KEYSYM_A = 0x61
@@ -217,6 +222,57 @@ def marker_click_at(line):
         x, y = words[3].split(",")
         return [int(x), int(y)]
     return None
+
+
+def child_exit(code):
+    """A Popen returncode in words: `exit N`, or the signal for a negative one (an -O Swift trap
+    such as a nil force-unwrap dies by SIGTRAP and prints nothing)."""
+    if code is None:
+        return "still running"
+    if code < 0:
+        try:
+            return f"killed by {signal.Signals(-code).name}"
+        except ValueError:
+            return f"killed by signal {-code}"
+    return f"exit {code}"
+
+
+def wait_marker(proc, log, seconds=10.0, step=0.05):
+    """The rig's `marker` reply from the marker app PROC writing LOG: its origin, click point and
+    geometry once it prints `marker-origin` and `stream width`, or why not. It stops as soon as the
+    marker exits (no waiting out SECONDS on a dead child) and says how it ended, so an empty log
+    reads as a crash, a refusal or a hang, never as nothing."""
+    deadline = time.time() + seconds
+    text = ""
+    while True:
+        with open(log, errors="replace") as lf:
+            text = lf.read()
+        if "marker-origin" in text and "stream width" in text:
+            break
+        if proc.poll() is not None:
+            with open(log, errors="replace") as lf:
+                text = lf.read()  # the last lines it wrote before it ended
+            break
+        if time.time() >= deadline:
+            break
+        time.sleep(step)  # bounded by SECONDS
+    reply = {"ok": True}
+    for line in text.splitlines():
+        if line.startswith("marker-origin "):
+            x, y = line.split()[1].split(",")
+            reply["origin"] = [int(x), int(y)]
+            at = marker_click_at(line)
+            if at:
+                reply["at"] = at
+        if "stream width" in line:
+            reply["geometry"] = line
+    if "origin" not in reply:
+        how = child_exit(proc.poll())
+        if how == "still running":
+            how = f"still running after {seconds:g} s"
+        reply = {"ok": False, "error": f"marker printed no origin ({how}; log {len(text)} bytes)",
+                 "exit": proc.poll(), "log": text[-400:]}
+    return reply
 
 
 def bench_input(kind, samples, at):
@@ -324,8 +380,12 @@ LEDGER_SCHEMA = "cmux.rd-stage-ledger/1"
 BUDGET_ROWS = (
     ("Input", 3, "viewer key down -> host inject", ("up", "inject")),
     ("Screen", 12, "inject -> ScreenCaptureKit display time", ("draw",)),
+    # Below zero when the encoder starts before the host's own glass shows the frame: Screen ends
+    # at the vsync ScreenCaptureKit composited the frame for, usually still ahead when it arrives.
     ("Capture", 8, "display time -> encode start", ("sck", "gate")),
-    # Capture's two parts, rows of their own (budget None: inside Capture's).
+    # Capture's parts, rows of their own (budget None: inside Capture's). Capture is
+    # Gate wait + Readback - Frame lead.
+    (" Frame lead", None, "frame handed over -> display time (Capture is this much less)", ("lead",)),
     (" Gate wait", None, "frame ready -> capture start (encode start without it)", ("gate_wait",)),
     (" Readback", None, "capture start -> encode start", ("readback",)),
     ("Encode", 8, "encode start -> bitstream", ("encode",)),
@@ -354,6 +414,8 @@ WHY_CMUX = {
     " Readback": "the host timing log has no capture_start_us (a Linux host with ss-capture's field "
                  "has it; a Mac host captures before the gate, so Capture holds no readback)",
     " Gate wait": "the host timing log has no frame-ready time (arrived_us or damage_us)",
+    " Frame lead": "the host timing log has no display time and arrival (shown_us, arrived_us): "
+                   "a capture backend without ScreenCaptureKit's display time",
     "Reassembly": "not split today: the bench stamps a frame complete and releases it in one step, "
                   "so Network holds it; " + WHY_LEDGER,
     "Present": "the bench viewer has no window on macOS (it ends at decode); pass --app-viewer (the "
@@ -491,7 +553,7 @@ def cmux_cells(rows, ledgers, presented, synthetic=False, summaries=None, presen
             why = (WHY_SYNTHETIC_PRESENT if synthetic and row == "Present"
                    else WHY_CMUX.get(row, WHY_LEDGER))
             cells[row] = null(why)
-    for row in (" Gate wait", " Readback"):
+    for row in (" Frame lead", " Gate wait", " Readback"):
         if "null" in cells[row] and cells[row]["null"].startswith("no samples"):
             cells[row] = null(WHY_CMUX[row])
     return cells
@@ -1034,6 +1096,50 @@ def cmd_clock_serve(args):
         s.sendto(data[:8] + struct.pack("!Q", mono_ns()), peer)
 
 
+LOCALNET_FIX = (
+    "macOS Local Network privacy refuses this process sends to the LAN (Errno 65, EHOSTUNREACH): a launchd "
+    "job's own processes get no prompt and so no grant. The pair job runs both LAN halves inside "
+    "CmuxScreenEvalLauncher.app; allow that app once at this Mac's console (the prompt it raises on its first "
+    "LAN send, or System Settings > Privacy & Security > Local Network).")
+
+
+def default_gateway():
+    """This Mac's default gateway (a LAN address every Mac on the office LAN has), or None."""
+    try:
+        out = subprocess.run(["route", "-n", "get", "default"], capture_output=True, text=True,
+                             timeout=5).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    m = re.search(r"gateway:\s*(\S+)", out)
+    return m.group(1) if m else None
+
+
+def localnet_probe(to=None, sock_factory=None):
+    """Whether this process may send UDP to the LAN address TO (default: the gateway). macOS Local
+    Network privacy answers a refused send at once with EHOSTUNREACH, so three datagrams to the
+    discard port tell `denied` from `ok` without the other side answering. The cmux media path is
+    UDP; the TCP the peer and clock calls ride is accepted on the other Mac, so it never showed this."""
+    to = to or default_gateway()
+    if not to:
+        return {"localnet": "unknown", "error": "no LAN address to send to"}
+    s = (sock_factory or socket.socket)(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        for _ in range(3):
+            s.sendto(b"cmux-localnet-probe", (to, 9))
+            time.sleep(0.02)
+    except OSError as e:
+        if e.errno == errno.EHOSTUNREACH:
+            return {"localnet": "denied", "to": to, "error": f"[Errno {e.errno}] {e.strerror}", "fix": LOCALNET_FIX}
+        return {"localnet": "unknown", "to": to, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        s.close()
+    return {"localnet": "ok", "to": to}
+
+
+def cmd_localnet_probe(args):
+    print(json.dumps(localnet_probe(args.to)), flush=True)
+
+
 def clock_serve_tcp(args):
     """clock-serve --tcp: the same 8-byte question and 16-byte answer over one TCP connection at a
     time. A fleet pair job runs it on the viewer, so the host dials in over the path its peer-serve
@@ -1266,6 +1372,8 @@ def cmd_rig(args):
         try:
             if cmd == "ping":
                 reply["pid"] = os.getpid()
+            elif cmd == "localnet":
+                reply["localnet"] = localnet_probe(req.get("to") if isinstance(req.get("to"), str) else None)
             elif cmd == "marker":
                 stop("marker")
                 flags = [x for x in req.get("flags", []) if x in MARKER_FLAGS]
@@ -1273,24 +1381,8 @@ def cmd_rig(args):
                 out = open(log, "w")
                 procs["marker"] = subprocess.Popen([os.path.join(bindir, "cmux-rd-marker"), *flags],
                                                    stdout=out, stderr=out)
-                deadline = time.time() + 10
-                while time.time() < deadline:
-                    with open(log) as lf:
-                        text = lf.read()
-                    if "marker-origin" in text and "stream width" in text:
-                        break
-                    time.sleep(0.05)
-                for line in text.splitlines():
-                    if line.startswith("marker-origin "):
-                        x, y = line.split()[1].split(",")
-                        reply["origin"] = [int(x), int(y)]
-                        at = marker_click_at(line)
-                        if at:
-                            reply["at"] = at
-                    if "stream width" in line:
-                        reply["geometry"] = line
-                if "origin" not in reply:
-                    reply = {"ok": False, "error": "marker printed no origin", "log": text[-400:]}
+                out.close()  # the child holds its own copy
+                reply = wait_marker(procs["marker"], log)
             elif cmd == "serve":
                 stop("serve")
                 argv = [os.path.join(bindir, "cmux-rd"), "serve"]
@@ -1741,6 +1833,68 @@ def load_cua_vnc(path):
     return mod
 
 
+def load_rfb_viewer(path):
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("rfb_viewer", path)
+    spec = importlib.util.spec_from_loader("rfb_viewer", loader)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["rfb_viewer"] = mod
+    loader.exec_module(mod)
+    return mod
+
+
+class _RfbViewerTransport:
+    def __init__(self, sock):
+        self.sock = sock
+
+    def set_timeout(self, s):
+        self.sock.settimeout(s)
+
+
+class RfbViewerClient:
+    """rfb-viewer.py's Client behind the face rfb-bench uses from cua-vnc's RfbClient: .t.sock and
+    .t.set_timeout, connect, send, read_message (0 for a framebuffer update), desktop.rgb/width/height
+    (RGB, 3 bytes a pixel), pointer(x, y, mask), key(sym, down), security_type, close."""
+
+    def __init__(self, mod, host, port, user, password, timeout=10.0):
+        self.c = mod.Client(host, port, (user, password), ["raw"], timeout)
+        self.c.decode_all = True  # rfb-bench asks only for the marker strip: draw all it gets
+        self.t = _RfbViewerTransport(self.c.sock)
+
+    def connect(self):
+        self.c.handshake()
+        self.c.login = None
+
+    @property
+    def security_type(self):
+        return self.c.security_type
+
+    @property
+    def desktop(self):
+        c = self.c
+        return argparse.Namespace(rgb=c.fb, width=c.width, height=c.height)
+
+    def pending(self):
+        """Bytes already read off the socket: select() would not see them."""
+        return self.c.has_data()
+
+    def send(self, data):
+        self.c.send(data)
+
+    def read_message(self):
+        return 0 if self.c.read_message(None) is not None else 1
+
+    def pointer(self, x, y, mask):
+        self.c.send(struct.pack("!BBHH", 5, mask, x, y))
+
+    def key(self, sym, down):
+        self.c.send(struct.pack("!BBxxI", 4, 1 if down else 0, sym))
+
+    def close(self):
+        self.c.close()
+
+
 RFB_WAIT_S = 1.0  # no update this long after an input: the input is lost
 RFB_MESSAGE_S = 10.0  # one message, once its first byte is here
 
@@ -1754,9 +1908,11 @@ def rfb_next(client, wait_s):
     in select() before the first byte, never inside a read: a socket timeout in the middle of a
     message would leave the rest of it in the stream and every later read out of step."""
     sock = client.t.sock
-    r, _, _ = select.select([sock], [], [], max(wait_s, 0))
-    if not r:
-        return None
+    pending = getattr(client, "pending", None)
+    if not (pending and pending()):
+        r, _, _ = select.select([sock], [], [], max(wait_s, 0))
+        if not r:
+            return None
     client.t.set_timeout(RFB_MESSAGE_S)
     try:
         return client.read_message()
@@ -1770,7 +1926,15 @@ def rfb_click(client, x, y):
 
 
 def cmd_rfb_bench(args):
-    vnc = load_cua_vnc(os.path.expanduser(args.cua_vnc))
+    cua = os.path.expanduser(args.cua_vnc) if args.cua_vnc else ""
+    if cua and os.path.isfile(cua):
+        vnc, viewer = load_cua_vnc(cua), None
+    else:
+        rv = os.path.expanduser(args.rfb_viewer or RFB_VIEWER)
+        if not os.path.isfile(rv):
+            print(json.dumps({"error": f"no RFB client: no cua-vnc at {cua or '(none given)'} and no rfb-viewer.py at {rv}"}))
+            sys.exit(3)
+        vnc, viewer = None, load_rfb_viewer(rv)
     user = os.environ.get("VNC_USERNAME")
     pw_file = os.environ.get("VNC_PASSWORD_FILE")
     if not user or not pw_file:
@@ -1784,8 +1948,11 @@ def cmd_rfb_bench(args):
     # The marker's gray pad (mac-marker's click-at): clicks there count and never touch a read cell.
     pad = (ox + cell * (CELLS + 2), oy + cell // 2)
     t_start = mono_ns()
-    client = vnc.RfbClient(vnc.TcpTransport(args.host, args.port, 10.0), password, user,
-                           "apple", ["raw"])
+    if viewer is not None:
+        client = RfbViewerClient(viewer, args.host, args.port, user, password, 10.0)
+    else:
+        client = vnc.RfbClient(vnc.TcpTransport(args.host, args.port, 10.0), password, user,
+                               "apple", ["raw"])
     password = None
     client.connect()
     t_auth = mono_ns()
@@ -2243,6 +2410,7 @@ def cmd_peer_serve(args):
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     print(f"peer-serve: listening on {args.bind}:{args.port} for {args.hold_s} s", flush=True)
+    print("peer-serve: localnet " + json.dumps(localnet_probe()), flush=True)
     deadline = time.time() + args.hold_s
     while not stop.wait(1):
         if time.time() > deadline:
@@ -2398,6 +2566,9 @@ class Orchestrator:
             self.viewer.put(self.locate_bin, f"{self.root}/bin/screen-eval-marker-locate")
         if self.a.cua_vnc:
             self.viewer.put(self.a.cua_vnc, f"{self.root}/bin/cua-vnc")
+        rfb_viewer = getattr(self.a, "rfb_viewer", None) or RFB_VIEWER
+        if not self.a.cua_vnc and os.path.isfile(rfb_viewer):
+            self.viewer.put(rfb_viewer, f"{self.root}/bin/rfb-viewer.py", "0644")
         self.viewer.run(f"mkdir -p {shlex.quote(self.root)}/state && chmod 700 {shlex.quote(self.root)}/state")
         if self.synthetic:
             # No rig and no marker app: `cmux-rd serve --source synthetic-*` needs no grant.
@@ -2489,6 +2660,36 @@ class Orchestrator:
         r["path"] = "tcp host->viewer"
         return r
 
+    def localnet_check(self):
+        """A fleet pair job: whether each Mac's stream process may send UDP to the other's LAN
+        address, before any leg. The viewer's bench runs under peer-serve and the host's serve under
+        the rig (source=screen) or this step (synthetic); macOS Local Network privacy refuses a
+        process with no grant at once (EHOSTUNREACH), and every leg then failed the same way, as "link
+        failed: no network path ... sends refused: No route to host (os error 65)" (2026-11-27)."""
+        from urllib.parse import urlsplit
+        viewer_ip = urlsplit(self.viewer.url).hostname
+        rec = {}
+        try:
+            out = self.viewer.run(f"{self.py} {self.me} localnet-probe --to {shlex.quote(self.a.host_ip)}", timeout=30)
+            rec["viewer"] = json.loads(out.strip().splitlines()[-1])
+        except Exception as e:  # noqa: BLE001 - an older peer or a broken probe: unknown, not denied
+            rec["viewer"] = {"localnet": "unknown", "error": repr(e)[-200:]}
+        try:
+            if self.synthetic:
+                out = self.host.run(f"{self.py} {self.me} localnet-probe --to {shlex.quote(viewer_ip)}", timeout=30)
+                rec["host"] = json.loads(out.strip().splitlines()[-1])
+            else:
+                rec["host"] = self.rig({"cmd": "localnet", "to": viewer_ip}).get("localnet") or {}
+        except Exception as e:  # noqa: BLE001
+            rec["host"] = {"localnet": "unknown", "error": repr(e)[-200:]}
+        self.log({"localnet": rec})
+        denied = [side for side in ("viewer", "host") if rec[side].get("localnet") == "denied"]
+        if denied:
+            names = {"viewer": self.a.viewer, "host": self.a.host}
+            raise SystemExit("localnet: " + "; ".join(
+                f"the {side} Mac ({names[side]}) may not send to {rec[side].get('to')}" for side in denied)
+                + ". " + LOCALNET_FIX)
+
     # cmux ------------------------------------------------------------------------------
 
     def cmux_attempt(self, origin, mode, snapshot=None):
@@ -2541,6 +2742,10 @@ class Orchestrator:
                 elif msg.get("candidates_done"):
                     break
             rec["host_candidates"] = cands
+            if not host_key:
+                # Without the host's key the viewer reads a null peer_key and says only "answer
+                # line: invalid type: null"; the reason is in the host's stderr (11-27 try 9).
+                raise RuntimeError(f"host printed no key in 20 s: {self.host_failure(host)}")
             cands = [c for c in cands if self.a.host_ip in c] or cands
             t0 = time.time()
             viewer.stdin.write(json.dumps({"session": session, "peer_key": host_key, "stun": [],
@@ -2618,6 +2823,20 @@ class Orchestrator:
                         p.wait()
         return rec
 
+    def host_failure(self, host):
+        """Why the host side said nothing: its exit status and stderr tail (serve.err for a
+        synthetic serve, which sends stderr there; the pipe otherwise)."""
+        code = host.poll()
+        state = "running" if code is None else f"exit {code}"
+        try:
+            if self.synthetic:
+                tail = self.host.run(f"tail -c 600 {shlex.quote(self.root + '/state/serve.err')}", timeout=30)
+            else:
+                tail = host.stderr.read()[-600:] if code is not None else ""
+        except Exception as e:  # noqa: BLE001 - the reason is best effort
+            tail = f"(stderr unread: {e!r})"
+        return f"{state}; stderr: {tail.strip() or '(empty)'}"
+
     def first_frame_breakdown(self, rec, timing, offset_ns):
         """connect -> first decoded frame, split with the host's log (ms, viewer clock)."""
         t = rec.get("first_frame_times")
@@ -2685,10 +2904,14 @@ class Orchestrator:
                 "inject": ms(inj["inject_us"] - inj["recv_us"]),
                 "draw": ms(shown - inj["inject_us"]) if shown else None,
                 "sck": ms(arrived - shown) if shown and arrived else None,
+                "lead": ms(shown - arrived) if shown and arrived else None,
                 "gate": ms(f.get("encode_start_us", f["release_us"]) - arrived) if arrived else None,
                 "gate_wait": ms((start if start is not None else f["release_us"]) - ready)
                 if ready is not None else None,
-                "readback": ms(f["release_us"] - start) if start is not None else None,
+                # capture start -> encode start, as the row says (a Mac host releases the gate
+                # before it takes the frame, so release_us - start was below zero there).
+                "readback": ms(f.get("encode_start_us", f["release_us"]) - start)
+                if start is not None else None,
                 "encode": ms(f["encoded_us"] - f.get("encode_start_us", f["release_us"])),
                 "send": ms(f["sent_us"] - f["encoded_us"]),
                 "first_packet": ms(s["first_rx_ns"] / 1000.0 - v(f["sent_us"])),
@@ -3198,7 +3421,9 @@ class Orchestrator:
                 origin = self.rig({"cmd": "marker", "flags": flags})["origin"]
                 time.sleep(0.5)
                 cmd = (env + f"{self.py} {self.me} rfb-bench --host {self.a.host_ip} "
-                       f"--cua-vnc {self.root}/bin/cua-vnc --origin {origin[0]} {origin[1]} "
+                       + (f"--cua-vnc {self.root}/bin/cua-vnc " if self.a.cua_vnc
+                          else f"--rfb-viewer {self.root}/bin/rfb-viewer.py ")
+                       + f"--origin {origin[0]} {origin[1]} "
                        f"--cell 32 --mode {mode} --input {self.a.apple_input} --samples {self.a.samples} "
                        f"--duration-s {self.a.fps_seconds}")
                 rec = {"stack": "apple", "mode": mode, "trial": n}
@@ -3290,6 +3515,8 @@ class Orchestrator:
         clock0 = self.clock()
         self.log({"clock": clock0, "host": self.a.host, "viewer": self.a.viewer,
                   "host_ip": self.a.host_ip, "link": self.a.link})
+        if self.clock_over_peer():
+            self.localnet_check()
         results = {}
         stacks = self.a.stacks.split(",")
         rows = []
@@ -3470,6 +3697,8 @@ def build_parser():
                    "script that execs a shipped app's `cmux rd`, so its serve is what is measured)")
     r.add_argument("--marker-src", help="local mac-marker/main.swift to build on the shared Mac")
     r.add_argument("--cua-vnc", help="local cua-vnc/bin/cua-vnc to install on the viewing Mac")
+    r.add_argument("--rfb-viewer", help="the Apple leg's RFB client without --cua-vnc "
+                                        "(default: this repo's scripts/measure/screen-stream-eval/rfb-viewer.py)")
     r.add_argument("--rig-launch", choices=["cmux-next"], help="start the rig in cmux NEXT")
     r.add_argument("--stacks", default="cmux,apple")
     r.add_argument("--source", choices=["screen", "synthetic"], default="screen",
@@ -3602,6 +3831,9 @@ def build_parser():
     ps.add_argument("--token-file", required=True)
     ps.add_argument("--hold-s", type=int, default=7200)
     ps.set_defaults(fn=cmd_peer_serve)
+    ln = sub.add_parser("localnet-probe", help="whether this process may send UDP to a LAN address (JSON)")
+    ln.add_argument("--to", help="the LAN address (default: the gateway)")
+    ln.set_defaults(fn=cmd_localnet_probe)
     m = sub.add_parser("compare", help="two result files side by side")
     m.add_argument("before")
     m.add_argument("after")
@@ -3639,7 +3871,8 @@ def build_parser():
     b = sub.add_parser("rfb-bench")
     b.add_argument("--host", required=True)
     b.add_argument("--port", type=int, default=5900)
-    b.add_argument("--cua-vnc", required=True)
+    b.add_argument("--cua-vnc", help="cua-vnc's client module; without it (or missing), rfb-viewer.py")
+    b.add_argument("--rfb-viewer", help="rfb-viewer.py (default: this repo's)")
     b.add_argument("--origin", type=int, nargs=2, required=True)
     b.add_argument("--cell", type=int, default=32)
     b.add_argument("--mode", choices=["key", "fps"], default="key")
