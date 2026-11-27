@@ -89,6 +89,7 @@ jobs:
       checks: read
       contents: read
       pull-requests: write
+      statuses: read
 
   cmux-next-pr-autofix:
     name: cmux-next-pr-autofix (fallback)
@@ -116,6 +117,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      statuses: read
 
   web-validation:
     name: web-validation (fallback)

@@ -1,4 +1,5 @@
 public import CmuxChiefList
+import CmuxNextHomeEngine
 public import Foundation
 
 /// One of the user's cloud chiefs (`chief.list`, `HomeChief`), the fields the
@@ -39,16 +40,35 @@ public nonisolated struct CloudChief: Sendable, Equatable {
         self.brainPlace = brainPlace
     }
 
-    /// One `HomeChief` value; nil when a required field is missing.
+    /// One `HomeChief` value; nil when a required field is missing (Rust `chief_home.cloud_parse`).
     public static func parse(_ value: Any?) -> CloudChief? {
-        guard let value = value as? [String: Any], let id = value["id"] as? String,
-              let rev = (value["rev"] as? NSNumber)?.intValue else { return nil }
-        var place: BrainPlace?
-        if let raw = value["brain_place"] as? [String: Any], let host = raw["host"] as? String, let install = raw["install"] as? String {
-            place = BrainPlace(host: host, install: install)
+        struct Reply: Decodable { let chief: Wire? }
+        return ((try? ChiefHomeRules().call("cloud_parse", value: value)) as Reply?)?.chief?.chief
+    }
+
+    /// The rules' form of a cloud chief (Rust `CloudChief`, camelCase).
+    struct Wire: Codable {
+        struct Place: Codable { let host: String; let install: String }
+        let id: String
+        let displayName: String
+        let isDefault: Bool
+        let mainConversation: String?
+        let rev: Int
+        let brainPlace: Place?
+
+        init(_ chief: CloudChief) {
+            id = chief.id
+            displayName = chief.displayName
+            isDefault = chief.isDefault
+            mainConversation = chief.mainConversation
+            rev = chief.rev
+            brainPlace = chief.brainPlace.map { Place(host: $0.host, install: $0.install) }
         }
-        return CloudChief(id: id, displayName: value["display_name"] as? String ?? "", isDefault: value["is_default"] as? Bool ?? false,
-                          mainConversation: value["main_conversation"] as? String, rev: rev, brainPlace: place)
+
+        var chief: CloudChief {
+            CloudChief(id: id, displayName: displayName, isDefault: isDefault, mainConversation: mainConversation, rev: rev,
+                       brainPlace: brainPlace.map { BrainPlace(host: $0.host, install: $0.install) })
+        }
     }
 }
 
@@ -65,11 +85,29 @@ public nonisolated struct HomeCloudChiefs: Sendable, Equatable {
         self.placed = placed
     }
 
+    /// What the rules say of these two (Rust `chief_home.cloud_chiefs`); nil when they cannot run.
+    private struct Rules: Decodable {
+        let shown: CloudChief.Wire?
+        let chiefFor: CloudChief.Wire?
+        let canSwitch: Bool
+        let otherHost: String?
+    }
+
+    private func rules(choice: HomeChiefChoice = .hosted, conversation: String? = nil) -> Rules? {
+        struct Request: Encodable {
+            let hosted: CloudChief.Wire?
+            let placed: CloudChief.Wire?
+            let choice: String
+            let conversation: String?
+        }
+        let request = Request(hosted: hosted.map(CloudChief.Wire.init), placed: placed.map(CloudChief.Wire.init),
+                              choice: choice.rawValue, conversation: conversation)
+        return try? ChiefHomeRules().call("cloud_chiefs", request)
+    }
+
     /// Which of the two the Chief tab shows: the placed one only when the
     /// user picked it and it exists; else the hosted one, else the placed one.
-    public func shown(choice: HomeChiefChoice) -> CloudChief? {
-        ChiefRules.shown(self, choice: choice).chief
-    }
+    public func shown(choice: HomeChiefChoice) -> CloudChief? { rules(choice: choice)?.shown?.chief }
 
     /// The Chief Slack talks to (RFD 0123: cmux-api routes Slack to the default Chief): the default one, else the hosted one.
     public var slackChief: CloudChief? {
@@ -77,42 +115,27 @@ public nonisolated struct HomeCloudChiefs: Sendable, Equatable {
     }
 
     /// The cloud Chief whose main conversation is `conversation`.
-    public func chief(for conversation: String) -> CloudChief? {
-        ChiefRules.other(self, of: conversation).chief
-    }
+    public func chief(for conversation: String) -> CloudChief? { rules(conversation: conversation)?.chiefFor?.chief }
 
     /// Both exist: the Chief tab offers the switch.
-    public var canSwitch: Bool { ChiefRules.shown(self, choice: .hosted).canSwitch }
+    public var canSwitch: Bool { rules()?.canSwitch ?? false }
 
     /// The other host the Chief's card offers on `conversation`: the placed
     /// Chief on the Hosted Chief's card and back; nil unless both exist and
     /// `conversation` is one of them.
     public func otherHost(of conversation: String) -> HomeChiefChoice? {
-        ChiefRules.other(self, of: conversation).other
+        rules(conversation: conversation)?.otherHost.flatMap(HomeChiefChoice.init(rawValue:))
     }
 
-    /// The active chief with no machine placed: the default one, else the first
-    /// (`ChiefList.hosted`, the iPhone's rule too).
+    /// The active chief with no machine placed: the default one, else the first.
     public static func hosted(in chiefs: [CloudChief]) -> CloudChief? {
-        list(chiefs).hosted
-    }
-
-    /// The chief whose brain runs on a server: the default one when it is
-    /// placed, else the first placed one; nil when no chief is placed
-    /// (`ChiefList.placed`, the iPhone's rule too).
-    public static func placed(in chiefs: [CloudChief]) -> CloudChief? {
-        list(chiefs).placed
-    }
-
-    /// The Hosted Chief and the placed one of `chiefs` (`chiefs_list`).
-    static func list(_ chiefs: [CloudChief]) -> HomeCloudChiefs {
-        ChiefRules.rule("chiefs_list", ChiefRules.Chiefs(chiefs: chiefs), else: HomeCloudChiefs())
+        ChiefList.hosted(in: chiefs)  // the one rule, the iPhone's too
     }
 
 }
 
 /// The Chief the user picked for the Chief tab, kept on this Mac (client view state).
-public nonisolated enum HomeChiefChoice: String, Sendable, Codable {
+public nonisolated enum HomeChiefChoice: String, Sendable {
     case hosted
     case placed
 
@@ -157,6 +180,7 @@ extension HomeCloudChiefs {
 nonisolated extension CloudChief.BrainPlace: Codable {}
 nonisolated extension CloudChief: Codable {}
 nonisolated extension HomeCloudChiefs: Codable {}
+nonisolated extension HomeChiefChoice: Codable {}
 
 /// A cloud Chief as the shared Chief list rule reads it (CmuxChiefList).
 nonisolated extension CloudChief: ChiefListCloudChief {

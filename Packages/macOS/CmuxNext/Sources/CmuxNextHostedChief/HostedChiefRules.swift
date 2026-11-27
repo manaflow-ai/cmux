@@ -27,34 +27,6 @@ nonisolated enum ChiefRules {
         var chiefs: [CloudChief]
     }
 
-    struct ShownRequest: Encodable {
-        var chiefs: HomeCloudChiefs
-        var choice: HomeChiefChoice
-    }
-
-    struct Shown: Decodable {
-        var chief: CloudChief?
-        var canSwitch = false
-    }
-
-    struct OtherRequest: Encodable {
-        var chiefs: HomeCloudChiefs
-        var conversation: String
-    }
-
-    struct Other: Decodable {
-        var other: HomeChiefChoice?
-        var chief: CloudChief?
-    }
-
-    static func shown(_ chiefs: HomeCloudChiefs, choice: HomeChiefChoice) -> Shown {
-        rule("chiefs_shown", ShownRequest(chiefs: chiefs, choice: choice), else: Shown())
-    }
-
-    static func other(_ chiefs: HomeCloudChiefs, of conversation: String) -> Other {
-        rule("chiefs_other_host", OtherRequest(chiefs: chiefs, conversation: conversation), else: Other())
-    }
-
     struct Tab: Encodable {
         var chiefs: HomeCloudChiefs
         var local: String?
