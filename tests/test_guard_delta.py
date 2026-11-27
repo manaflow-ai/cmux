@@ -214,6 +214,10 @@ class NetworkAllowlist(Case):
                    {A: swift("api.cmux.dev", "new.cmux.dev")}, 1)
         self.check({ALLOW: allow(), ICE_FILE: ice()}, {ICE_FILE: ice("stun.cmux.dev")}, 1)
 
+    def test_a_new_name_covered_by_a_wildcard_code_entry_is_allowed(self):
+        self.check({ALLOW: allow(("*.cmux.dev", "code")), A: swift(), B: swift("*.cmux.dev")},
+                   {A: swift("api.cmux.dev")}, 0)
+
     def test_a_new_name_already_present_in_an_untouched_file_is_allowed(self):
         self.check({ALLOW: allow(("api.cmux.dev", "code")), A: swift(), B: swift("api.cmux.dev")},
                    {A: swift("api.cmux.dev")}, 0)
