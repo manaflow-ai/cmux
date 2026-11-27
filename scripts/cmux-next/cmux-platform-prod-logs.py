@@ -550,6 +550,46 @@ def probe_facts(out):
     return facts
 
 
+# "cloud provider call failed" (cmux-platform src/server/cloud/CloudCore.ts) carries the DriverError's message, which
+# the platform builds from its own literals (vmapi/CloudProvider.ts unavailable("...")) or "HTTP <status>" plus
+# cmux-vm's error. Only the class leaves the line: an exact platform phrase (whole, or before ": " or " ("), the
+# leading HTTP status, or "other"; never the text after it. A create that failed final at attempt 1 (live-fork copy,
+# production 2026-11-27 00:09Z) otherwise read only `"error": true`, which said nothing of which check refused it.
+PROVIDER_ERROR_PHRASES = frozenset({
+    "VM discovery page limit", "ambiguous VM name", "ambiguous snapshot name",
+    "an egress allowlist needs publicEgress false", "create VM: HTTP 409 and no VM under the name",
+    "create VM: wrong VM answer", "find VM: invalid answer", "find VM: wrong VM answer", "invalid VM cursor",
+    "invalid VM id", "invalid VM list", "invalid VM name", "invalid VM resources", "invalid restore snapshot",
+    "invalid snapshot cursor", "invalid snapshot list", "invalid snapshot name", "list VMs: invalid answer",
+    "network routing is not configured", "no readable answer", "read VM: unreadable resources",
+    "read VM: wrong VM answer", "read snapshot: wrong answer", "restore snapshot is missing",
+    "snapshot discovery page limit", "snapshot source is missing", "snapshot: no boot disk on the VM",
+    "the VM this machine's first create made is not there yet",
+    "the VM this machine's first create made was deleted; its key cannot make another",
+    "the creation receipt names another VM", "this machine's first create cannot be resolved",
+    "this machine's first create is not confirmed yet",
+    "this machine's first create made another VM than it asks for", "this machine's first create was cancelled",
+    "unconfirmed VM ownership", "unconfirmed VM selector", "unconfirmed create", "unconfirmed growth",
+    "unconfirmed restore", "unconfirmed snapshot selector", "unconfirmed snapshot source",
+    "unreadable HTTPS proxies", "unreadable public egress", "unsupported HTTPS proxy", "wrong Cloud team",
+    "wrong VM answer", "HTTP 404 (the team's mesh is not found)",
+})
+PROVIDER_HTTP = re.compile(r"^HTTP ([1-5][0-9]{2})(?![0-9])")
+
+
+def provider_error_class(message):
+    """A fixed class for a provider call's error message: a PROVIDER_ERROR_PHRASES phrase, "HTTP <status>" or other."""
+    if not isinstance(message, str):
+        return "other"
+    if message in PROVIDER_ERROR_PHRASES:
+        return message
+    heads = [p for p in PROVIDER_ERROR_PHRASES if message.startswith(p + ": ") or message.startswith(p + " (")]
+    if heads:
+        return max(heads, key=len)
+    m = PROVIDER_HTTP.match(message)
+    return f"HTTP {m.group(1)}" if m else "other"
+
+
 def bind_probe(p):
     """bind_probe's typed projection: outcome, ms, exit, truncated, the provider error code and probe_facts."""
     if not isinstance(p, dict):
@@ -726,6 +766,8 @@ def public_log(j):
             out["why"] = j["why"]
     if "error" in j:
         out["error"] = True
+        if msg == "cloud provider call failed":
+            out["error_class"] = provider_error_class(j["error"])
     return out, None
 
 
