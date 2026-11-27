@@ -1,0 +1,55 @@
+name: Auto mode journey (staging, Mac -> Cloud -> Mac)
+
+# One real Auto mode journey (plans/cmux-next/auto-mode/DESIGN.md, "Move now") against staging: an ephemeral
+# macOS VM builds cmux-tui from feat-cmux-next (or the `ref` commit on it), runs its acpmux daemon as the
+# laptop with `cloud.autoCloud` on in this run's own settings file, and scripts/cmux-next/auto-journey.ts
+# moves one chat Mac -> Cloud -> Mac through staging's /v1/auto-sessions routes, as the app's banner does.
+# The steps are the FakeAutoCloud journey's (cmux-tui/crates/acpmux/tests/auto_journey) on real pieces:
+#
+#   Mac chat with Auto on, held as device:<id> -> move {to: cloud} -> holder vm:<machine>, the machine's folder
+#   has the Mac's commit and uncommitted work, a message is answered on the machine -> move {to: local} ->
+#   holder device:<id>, the Mac's folder has the machine's change, its transcript has every prompt once, the
+#   next prompt runs on the Mac.
+#
+# Auto is on only for the agent test account (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in cmux-next-vm-image-dev,
+# the pair cloud-rd-link-readback.yml reads) on this throwaway runner; nobody else's setting changes. The run's
+# machine and its `cli` install are removed by the journey and again in an always() step. Nothing gates on it.
+#
+# This copy on main only lets workflow_dispatch find the workflow: a dispatch at ref feat-cmux-next runs
+# feat-cmux-next's copy, which holds the journey. Its job never ran on main (it was gated to
+# refs/heads/feat-cmux-next), so main keeps no runner, secret or build here, and main's workflow guards see nothing
+# to route. Edit the journey in feat-cmux-next's copy.
+#
+# Lane VMs dispatch it through the lane broker's `auto_journey` action (cmuxterm-hq lane-gh-broker); the broker
+# checks only the input's shape, this job holds the rest: feat-cmux-next only, a `ref` that is on it, staging only.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: A commit on feat-cmux-next to build the Mac daemon from (7-40 hex), or empty for its tip
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-journey-${{ github.run_id }}
+  cancel-in-progress: false
+
+env:
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  journey:
+    name: journey (dispatch at feat-cmux-next)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 2
+    steps:
+      - name: Refuse a dispatch at any ref but feat-cmux-next
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          echo "::error::auto-journey runs from feat-cmux-next's copy: dispatch it with --ref feat-cmux-next (got $REF)"
+          exit 1

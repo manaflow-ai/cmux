@@ -220,4 +220,16 @@ extension AgentJournalEventDraft {
     var sessionStartOwnsSurface: Bool {
         source == "claude"
     }
+
+    /// ``detail`` of a SessionStart that Claude Code sends after compacting a
+    /// live conversation (hook `source: "compact"`).
+    public static let compactSessionStartDetail = "compact-session-start"
+
+    /// Whether this SessionStart continues the same live conversation after
+    /// compaction, rather than marking a restart, `/clear` or resume boundary.
+    /// Like a statechart history state, the session returns to the phase it
+    /// was in.
+    var isCompactSessionStart: Bool {
+        kind == .sessionStarted && detail == Self.compactSessionStartDetail
+    }
 }

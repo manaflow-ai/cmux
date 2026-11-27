@@ -1288,10 +1288,16 @@ impl Selector {
         if is_registered_public_id(value) {
             return Ok(Self::Id(value.to_string()));
         }
+        if let Some(reason) = mistyped_id_reason(value) {
+            return Err(ResourceError::validation_invalid(None, reason));
+        }
         if value.contains('_') || is_reserved_selector_token(value) {
             return Err(ResourceError::validation_invalid(
                 None,
-                "reserved or ambiguous names must use the name: prefix",
+                format!(
+                    "{value} is not an id, and a name with _ or a command word needs the \
+                     name: prefix: pass name:{value}"
+                ),
             ));
         }
         Ok(Self::Name(value.to_string()))
@@ -1387,31 +1393,56 @@ pub fn is_reserved_selector_token(value: &str) -> bool {
     )
 }
 
+/// Every public id prefix, with the CLI scope that lists such ids (if any).
+const PUBLIC_ID_PREFIXES: &[(&str, Option<&str>)] = &[
+    ("machine", Some("machine")),
+    ("session", Some("session")),
+    ("ws", Some("workspace")),
+    ("screen", Some("screen")),
+    ("pane", Some("pane")),
+    ("tab", Some("tab")),
+    ("term", Some("terminal")),
+    ("browser", Some("browser")),
+    ("client", None),
+    ("split", None),
+    ("stream", None),
+    ("notification", Some("notification")),
+    ("agent", Some("agent")),
+    ("projection", None),
+    ("pairing", None),
+    ("sidebar_view", None),
+    ("sidebar_plugin", None),
+];
+
 fn is_registered_public_id(value: &str) -> bool {
     let Some((prefix, payload)) = value.rsplit_once('_') else {
         return false;
     };
-    matches!(
-        prefix,
-        "machine"
-            | "session"
-            | "ws"
-            | "screen"
-            | "pane"
-            | "tab"
-            | "term"
-            | "browser"
-            | "client"
-            | "split"
-            | "stream"
-            | "notification"
-            | "agent"
-            | "projection"
-            | "pairing"
-            | "sidebar_view"
-            | "sidebar_plugin"
-    ) && payload.len() == 32
+    PUBLIC_ID_PREFIXES.iter().any(|(known, _)| *known == prefix)
+        && payload.len() == 32
         && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// Why `value`, which starts with a public id prefix (`term_`, `ws_`, ...),
+/// is not an id (wrong length, uppercase or other characters), with where
+/// real ids come from; `None` for a value without such a prefix. An agent
+/// that copies an id wrong gets this instead of the name rules.
+fn mistyped_id_reason(value: &str) -> Option<String> {
+    let (prefix, payload) = value.rsplit_once('_')?;
+    let (_, scope) = PUBLIC_ID_PREFIXES.iter().find(|(known, _)| *known == prefix)?;
+    let hex = payload.bytes().all(|byte| byte.is_ascii_hexdigit());
+    let shape = if !hex || payload.is_empty() {
+        format!("an id is {prefix}_ and 32 hex digits (0-9 and a-f, lowercase)")
+    } else if payload.len() == 32 {
+        format!("ids are lowercase: {prefix}_ and 32 hex digits in lowercase")
+    } else {
+        format!("an id is {prefix}_ and 32 hex digits, and this one has {}", payload.len())
+    };
+    let source = match scope {
+        Some(scope) => format!("copy one from `cmux {scope} list --json`, or "),
+        None => String::new(),
+    };
+    Some(format!("{value} is not an id: {shape}; {source}pass name:{value} for a name"))
 }
 
 pub fn resolve_name<T: Clone>(
@@ -1732,6 +1763,45 @@ mod tests {
             format!("projection_{payload}")
         );
         assert!(PairingRequestPublicId::parse(format!("pairing_{payload}")).is_ok());
+    }
+
+    #[test]
+    fn w4j_a_mistyped_id_says_it_is_not_an_id_and_where_ids_come_from() {
+        // A Codex interop proof run dropped the last digit of a terminal id and
+        // got "reserved or ambiguous names must use the name: prefix", then
+        // guessed `terminal_id:`, `id:` and bare hex forms for minutes.
+        let short = format!("term_{}", "6".repeat(31));
+        let error = Selector::parse(&short).unwrap_err();
+        assert_eq!(error.code, "validation.invalid");
+        assert!(error.message.contains(&short), "{}", error.message);
+        assert!(error.message.contains("32 hex"), "{}", error.message);
+        assert!(error.message.contains("cmux terminal list"), "{}", error.message);
+        let upper = format!("ws_{}", "A".repeat(32));
+        let error = Selector::parse(&upper).unwrap_err();
+        assert!(error.message.contains("lowercase"), "{}", error.message);
+        assert!(error.message.contains("cmux workspace list"), "{}", error.message);
+        // A name with an underscore still names the escape.
+        let error = Selector::parse("hello_world").unwrap_err();
+        assert!(error.message.contains("name:"), "{}", error.message);
+    }
+
+    /// `cmux terminal term_zzz show` (bench rounds 1 and 3) said "reserved or
+    /// ambiguous names must use the name: prefix". A word with an id prefix is
+    /// a mistyped id: say so, and where ids come from.
+    #[test]
+    fn w4j_an_id_prefix_with_a_bad_payload_is_a_mistyped_id() {
+        for value in ["term_zzz", "pane_", "ws_Q1", "tab_0123456789abcdef0123456789abcdeg"] {
+            let error = Selector::parse(value).unwrap_err();
+            assert_eq!(error.code, "validation.invalid");
+            assert!(error.message.contains(&format!("{value} is not an id")), "{}", error.message);
+            assert!(error.message.contains("32 hex"), "{}", error.message);
+            assert!(error.message.contains(&format!("name:{value}")), "{}", error.message);
+        }
+        let error = Selector::parse("term_zzz").unwrap_err();
+        assert!(error.message.contains("cmux terminal list"), "{}", error.message);
+        // A name with an underscore and no id prefix still names the escape.
+        let error = Selector::parse("my_tab").unwrap_err();
+        assert!(error.message.contains("name:my_tab"), "{}", error.message);
     }
 
     #[test]

@@ -36,6 +36,7 @@ export async function POST(
         teamIds: user.teamIds,
         providerVmId: id,
         maxActiveVms: account.entitlements.maxActiveVms,
+        entitlementOverride: account.entitlements.entitlementOverride,
         callerPlanId: account.entitlements.planId,
         modelPlane: vmModelPlaneRevoker(),
       }), { request, deadline: { operation: "resume" } });

@@ -14,6 +14,11 @@ public abstract class GeneratedCmuxClient {
         CommandMetadata metadata, Map<String, Object> params
     ) throws CmuxException;
 
+    public final Object ackTabNotifications(AckTabNotificationsRequest request) throws CmuxException {
+        Object result = execute(Commands.ACK_TAB_NOTIFICATIONS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final ApplyLayoutResult applyLayout(ApplyLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.APPLY_LAYOUT, request.toWire());
         return ApplyLayoutResult.fromWire(result);

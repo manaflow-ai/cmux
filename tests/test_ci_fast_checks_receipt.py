@@ -7,6 +7,11 @@ fast-checks receipt as another commit's and lanes re-dispatched or hand-rolled
 validation. The client now passes tested_sha (the snapshot's parent, when the
 snapshot's tree is that commit's), the run-name names it as
 `<owner>/<repo>@<full sha>`, and a step proves the claim before anything runs.
+
+Two cmux-ci jobs at one head made runs with one run-name, so the lane-gh broker could
+not tell whose a new run was and refused the second job. The broker now passes its job
+id as ci_job, and the run-name ends ` job <id>` after the tested commit, the exact name
+the broker matches a run to its job by.
 """
 
 from __future__ import annotations
@@ -17,7 +22,8 @@ from pathlib import Path
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "fast-checks.yml"
 RUN_NAME = ("run-name: Fast checks ${{ inputs.source_sha }}${{ inputs.tested_sha && "
-            "format(' tests {0}@{1}', github.repository, inputs.tested_sha) || '' }}")
+            "format(' tests {0}@{1}', github.repository, inputs.tested_sha) || '' }}"
+            "${{ inputs.ci_job && format(' job {0}', inputs.ci_job) || '' }}")
 
 
 def text() -> str:
@@ -69,6 +75,29 @@ class FastChecksReceiptTests(unittest.TestCase):
         name = "Fast checks " + "a" * 40 + " tests manaflow-ai/cmux@" + "b" * 40
         token = re.compile(r"(?<![\w./-])([\w.-]+/[\w.-]+)@([0-9a-f]{40})(?![0-9a-fA-F])")
         self.assertEqual(token.findall(name), [("manaflow-ai/cmux", "b" * 40)])
+
+
+    def test_ci_job_is_an_optional_input(self) -> None:
+        inputs = re.search(r"^      ci_job:\n((?:        .*\n)+)", text(), re.M)
+        self.assertIsNotNone(inputs)
+        self.assertIn("default: ''", inputs.group(1))
+        self.assertNotIn("required: true", inputs.group(1))
+
+    def test_ci_job_must_be_a_broker_job_id(self) -> None:
+        body = step("Validate request")
+        self.assertIn("CI_JOB: ${{ inputs.ci_job }}", body)
+        self.assertIn('[[ -z "$CI_JOB" || "$CI_JOB" =~ ^[0-9a-f]{32}$ ]]', body)
+
+    def test_the_job_suffix_is_what_the_broker_matches(self) -> None:
+        # the broker's expected name: `Fast checks <source>`, then ` tests <repo>@<tested>`, then ` job <id>`
+        name = "Fast checks " + "a" * 40 + " tests manaflow-ai/cmux@" + "b" * 40 + " job " + "c" * 32
+        self.assertRegex(name, r"^Fast checks [0-9a-f]{40}(?: .*)?$")
+        self.assertEqual(name.split()[2], "a" * 40)
+        token = re.compile(r"(?<![\w./-])([\w.-]+/[\w.-]+)@([0-9a-f]{40})(?![0-9a-fA-F])")
+        self.assertEqual(token.findall(name), [("manaflow-ai/cmux", "b" * 40)])
+        (line,) = [line for line in text().splitlines() if line.startswith("run-name:")]
+        self.assertLess(line.index("inputs.tested_sha"), line.index("inputs.ci_job"))
+        self.assertTrue(line.endswith("${{ inputs.ci_job && format(' job {0}', inputs.ci_job) || '' }}"))
 
 
 if __name__ == "__main__":

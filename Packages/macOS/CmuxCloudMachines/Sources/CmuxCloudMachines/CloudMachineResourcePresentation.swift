@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
 
 private func validCPU(_ percent: Double) -> Double? {
     guard percent.isFinite, (0...100).contains(percent) else { return nil }

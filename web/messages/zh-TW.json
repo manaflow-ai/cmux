@@ -80,6 +80,11 @@
       "message": "這台機器正在啟動、暫停或未執行，因此現在無法執行此操作。",
       "action": "請稍候再試。用 cmux vm ls 查看機器狀態；如果已暫停，請先繼續執行它。"
     },
+    "hostRecovery": {
+      "title": "正在復原機器所在的主機",
+      "message": "這台機器的磁碟位於一台正在復原的 Cloud 主機上，因此暫時無法啟動。它的檔案會被保留。",
+      "action": "請過幾分鐘再試。不要刪除或重新建立這台機器：它的磁碟會被保留，並隨機器一起恢復。如果一小時後仍無法啟動，請附上追蹤 ID 聯絡支援團隊。"
+    },
     "networkRuleCapacity": {
       "title": "網路規則已達上限",
       "message": "網路政策已儲存，但未套用：cmux Cloud 的網路規則已達上限。",
@@ -199,7 +204,10 @@
     "signupPendingBody": "如果你已有帳戶，請使用之前的方法登入。如果你剛建立帳戶，請在登入前驗證電子郵件。",
     "genericTitle": "無法完成登入",
     "genericBody": "請重試。如果問題仍然存在，請聯絡支援。",
-    "backToSignIn": "返回登入"
+    "backToSignIn": "返回登入",
+    "chatgptLinkTitle": "登入一次以連結 ChatGPT",
+    "chatgptLinkBody": "此電子郵件已有 cmux 帳戶。請使用先前的方式登入，ChatGPT 將連結到該帳戶。",
+    "chatgptEmailUnverifiedBody": "你的 ChatGPT 帳戶電子郵件尚未驗證。請在 OpenAI 完成驗證，或改用其他方式登入。"
   },
   "cloudPublicationAccess": {
     "title": "你沒有存取權限",
@@ -372,6 +380,7 @@
     "typingCodingAgents": "程式 agent",
     "typingMultitasking": "多工處理",
     "subtitle": "基於 Ghostty 構建的免費開源原生 macOS 終端。支援垂直分頁、代理需要注意時的通知環、分割窗格，以及用於可程式化的 <cliLink>CLI</cliLink>。",
+    "nextCallout": "新功能：試用 <link>cmux NEXT</link>，下一代 cmux 的預覽版。",
     "features": "功能",
     "faq": "常見問題",
     "communitySection": "社群",
@@ -509,7 +518,18 @@
         "grantedBody": "cmux 團隊已授予 {team} Team 存取權限，沒有需要管理的訂閱。",
         "seatsUsed": "已使用 {members}/{seats}",
         "overSeat": "{team} 有 {members} 位成員和 {seats} 個付費席次。席次數會跟隨成員數，訂閱會自動更新。",
-        "addSeats": "新增席次"
+        "addSeats": "新增席次",
+        "enterprise": {
+          "current": "目前方案",
+          "body": "{team} 正在使用與 cmux 團隊議定的客製方案。如需變更，請聯絡 cmux 團隊。",
+          "price": "價格",
+          "perMonth": "{amount}/月",
+          "machines": "雲端機器",
+          "pool": "共用 vCPU / 記憶體",
+          "largest": "最大機器",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "無限制"
+        }
       },
       "teamList": {
         "heading": "帳單範圍",
@@ -965,7 +985,12 @@
         "deleteConfirmBody": "此操作無法復原，將刪除與你帳號相關的所有資料。",
         "deleteAcknowledge": "我了解我的帳號及其資料將被永久刪除。",
         "deleteConfirm": "刪除帳號",
-        "deleteError": "無法刪除帳號，請再試一次。"
+        "deleteError": "無法刪除帳號，請再試一次。",
+        "deleteErrorPending": "你的帳號正在刪除中。請稍後再試。",
+        "deleteErrorRetryable": "無法完成帳號刪除。請檢查網路連線後再試一次。",
+        "deleteAppStoreTitle": "你的 App Store 訂閱將繼續續訂",
+        "deleteAppStoreBody": "刪除 cmux 帳號不會取消你的 App Store 訂閱。在你於 App Store 中取消之前，Apple 會繼續向你收費。",
+        "deleteAppStoreManage": "在 App Store 中管理訂閱"
       }
     },
     "teams": {
@@ -1243,7 +1268,10 @@
           "failed": "失敗",
           "paused": "已暫停",
           "destroyed": "已刪除"
-        }
+        },
+        "wake": "喚醒",
+        "waking": "正在喚醒…",
+        "wakeError": "無法喚醒這台機器。請再試一次。"
       },
       "network": {
         "open": "網路",
@@ -3519,11 +3547,98 @@
   "next": {
     "title": "cmux NEXT NIGHTLY",
     "subtitle": "下一代 cmux 應用程式的預覽版本",
-    "metaTitle": "cmux NEXT NIGHTLY — 預覽版本",
-    "metaDescription": "下載 cmux NEXT NIGHTLY，下一代 cmux 應用程式的預覽版，從最新提交自動建置。與 cmux 並行執行，擁有獨立的自動更新。",
+    "metaTitle": "cmux NEXT — Chief 與你的程式設計代理，集於一個 Mac App",
+    "metaDescription": "cmux NEXT 是下一代 cmux for Mac。告訴 Chief 你想做什麼：它會在各自的工作區中啟動程式設計代理，並向你回報。",
     "description": "cmux NEXT NIGHTLY 是下一版 cmux 的預覽版，從最新提交自動建置。它以 cmux NIGHTLY（Bundle ID com.cmuxterm.app.nightly）的身分安裝，因此會取代 cmux NIGHTLY，並可與 cmux 並行執行。需要搭載 Apple 晶片的 Mac。",
     "download": "下載 Mac 版 NEXT NIGHTLY",
-    "warning": "NEXT NIGHTLY 版本可能包含錯誤或未完成的功能。如果遇到問題，請在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 回報，並切換回穩定版。"
+    "warning": "NEXT NIGHTLY 版本可能包含錯誤或未完成的功能。如果遇到問題，請在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 回報，並切換回穩定版。",
+    "landing": {
+      "tagline": "告訴 Chief 你想做什麼，代理由它來執行。",
+      "subtitle": "cmux NEXT 是下一代 cmux：一款以 Ghostty 為基礎的原生 Mac App。內建助理 Chief 會在各自的工作區中啟動程式設計代理，盯著它們，並在有代理需要你時通知你。每個代理旁邊都有終端機、真正的瀏覽器和差異檢視。",
+      "requirements": "Apple silicon · macOS 14 或更新版本 · 可與 cmux 並行執行",
+      "featuresTitle": "功能",
+      "features": {
+        "chief": {
+          "title": "Chief",
+          "body": "告訴它你想做什麼。它會啟動代理，把大型工作交給子代理，並向你回報。"
+        },
+        "home": {
+          "title": "Home",
+          "body": "Chief 和所有代理共用一個對話清單，有代理需要你時會顯示未讀圓點。"
+        },
+        "agents": {
+          "title": "任何程式設計代理",
+          "body": "Claude Code、Codex、Gemini CLI、OpenCode、Pi 等以真實對話的形式執行，編輯內容和差異都看得見。"
+        },
+        "floating": {
+          "title": "懸浮的 Chief",
+          "body": "⌘I 讓 Chief 出現在你目前的工作區上方。⌥⇧Space 可在任何 App 中叫出它。"
+        },
+        "search": {
+          "title": "搜尋一切",
+          "body": "⌘⇧A 可尋找工作區、分頁、代理對話、瀏覽器記錄和過往指令。"
+        },
+        "spaces": {
+          "title": "空間",
+          "body": "為不同的工作保留不同的視窗組合。用 ⌃⌥⌘← 和 → 切換。"
+        },
+        "browser": {
+          "title": "真正的瀏覽器",
+          "body": "分頁中的 Chromium，支援擴充功能、DevTools 和設定檔，就在代理旁邊。"
+        },
+        "machines": {
+          "title": "你的機器",
+          "body": "透過 SSH 執行工作區，或在閒置時會暫停的 cmux Cloud 機器上執行（cmux Pro）。"
+        },
+        "history": {
+          "title": "帶著你的歷史記錄",
+          "body": "將 Claude Code 和 Codex 歷史記錄匯入為可搜尋的對話，從上次中斷的地方繼續。"
+        },
+        "terminal": {
+          "title": "Ghostty 終端機",
+          "body": "GPU 繪製，並讀取你的 Ghostty 設定。"
+        },
+        "sidebar": {
+          "title": "你自己的側邊欄",
+          "body": "以清單或格狀的形式新增側邊欄區段，用小型 JavaScript App 建構。"
+        },
+        "phone": {
+          "title": "iPhone，測試版",
+          "body": "在手機上回應代理的權限請求。"
+        }
+      },
+      "heroAlt": "cmux NEXT：左側是 Home 中的 Chief，右側是 Claude Code 代理及其編輯的檔案",
+      "demosTitle": "看看效果",
+      "demos": {
+        "docked": {
+          "caption": "停靠在工作區旁邊的 Chief。",
+          "alt": "停靠在終端機工作區右側的 Chief"
+        },
+        "floating": {
+          "caption": "⌘I 讓 Chief 懸浮在你正在做的事情之上。",
+          "alt": "懸浮在終端機工作區上方的 Chief"
+        },
+        "agents": {
+          "caption": "代理的對話，就在 Chief 的對話旁邊。",
+          "alt": "代理對話與 Chief 對話並排顯示"
+        },
+        "palette": {
+          "caption": "⌘⇧P 依名稱執行任何動作。",
+          "alt": "在對話上方開啟的命令面板"
+        },
+        "history": {
+          "caption": "匯入 Claude Code 和 Codex 歷史記錄。",
+          "alt": "列出 Claude Code、Codex 等來源的匯入畫面"
+        },
+        "machines": {
+          "caption": "選擇工作區群組執行在哪台機器上。",
+          "alt": "選擇工作區群組執行的機器"
+        }
+      },
+      "nightlyTitle": "關於 NEXT NIGHTLY",
+      "nightlyBody": "每晚都會根據最新提交發布新的建置，App 會自動更新。",
+      "iconAlt": "cmux NEXT NIGHTLY 圖示"
+    }
   },
   "languageSwitcher": {
     "label": "語言"
@@ -5660,5 +5775,13 @@
     "unavailableTitle": "無法確認你的登入",
     "unavailableBody": "我們的登入服務忙碌中。請稍候幾秒鐘後再次開啟邀請。你不需要重新登入。",
     "retry": "重試"
+  },
+  "analyticsConsent": {
+    "label": "分析",
+    "message": "我們可以使用分析來了解網站的使用情況嗎？除非你允許，否則不會收集任何資訊，也不會設定分析 Cookie。",
+    "privacy": "隱私權政策",
+    "accept": "允許",
+    "decline": "不用了",
+    "settings": "分析設定"
   }
 }

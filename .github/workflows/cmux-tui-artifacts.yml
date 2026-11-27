@@ -60,6 +60,10 @@ concurrency:
 
 permissions: {}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   build:
     permissions:
@@ -100,33 +104,33 @@ jobs:
     # main-push or manual dispatch.
     if: github.event_name != 'pull_request'
     needs: build
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 15
     permissions:
       contents: read
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
       - name: Download cmux-tui binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-tui-*
           path: assets/cmux-tui
           merge-multiple: true
 
       - name: Download cmux-relay binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-relay-*
           path: assets/cmux-relay
           merge-multiple: true
 
       - name: Download chatmux-relay binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: chatmux-relay-*
           path: assets/chatmux-relay
@@ -375,6 +379,7 @@ jobs:
             --artifact-directory assets/chatmux-relay
 
       - name: Attest raw binary subjects
+        id: attest_subjects
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
@@ -388,6 +393,34 @@ jobs:
           # These are file subjects, not OCI images. No artifact-metadata
           # storage records are created for this R2 publication.
           push-to-registry: false
+
+      # The installer (scripts/install-cmux-tui-client.sh) verifies the manifest offline from this bundle before it
+      # asks GitHub's attestations API, so a spent installation quota cannot hold a nightly leg (classic nightly
+      # runs 45539773839-45569593374, 2026-11-25: 15 minutes asleep on the quota per leg, then red). The bundle is
+      # checked against the Sigstore trust root, so publishing it admits nothing the API lookup would refuse.
+      - name: Publish the manifest's Sigstore bundle
+        if: hashFiles('assets/cmux-tui/manifest.json') != ''
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          BUNDLE: ${{ steps.attest_subjects.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          [[ -s "$BUNDLE" ]] || { echo "::warning title=no attestation bundle::the attest step gave no bundle; installers use the attestations API"; exit 0; }
+          digest="$(sha256sum assets/cmux-tui/manifest.json | awk '{print $1}')"
+          # A rerun re-signs, so its bundle's bytes differ from the published one; any valid
+          # bundle for these manifest bytes verifies. --keep-existing leaves the published
+          # bytes at this immutable key and never writes over them (a rerun reuses them).
+          python3 scripts/ci/upload-r2-object.py --write-once --keep-existing \
+            --file "$BUNDLE" --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+            --key "cmux-tui-attestations/sha256-$digest.sigstore.json" \
+            --content-type application/json \
+            --cache-control "public, max-age=31536000, immutable" \
+            || { echo "::warning title=bundle not published::upload failed; installers use the attestations API"; exit 0; }
+          echo "Published: https://files.cmux.com/cmux-tui-attestations/sha256-$digest.sigstore.json"
 
       - name: Upload to R2
         env:

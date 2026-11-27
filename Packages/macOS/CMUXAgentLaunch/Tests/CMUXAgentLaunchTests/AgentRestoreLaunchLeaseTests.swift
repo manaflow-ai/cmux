@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 import Testing
 @testable import CMUXAgentLaunch
@@ -63,8 +67,13 @@ struct AgentRestoreLaunchLeaseTests {
             for value in argv { free(value) }
             for value in environment { free(value) }
         }
+        #if canImport(Darwin)
         var actions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
+        #else
+        var actions = posix_spawn_file_actions_t()
+        var attributes = posix_spawnattr_t()
+        #endif
         posix_spawn_file_actions_init(&actions)
         posix_spawnattr_init(&attributes)
         defer {
@@ -72,14 +81,24 @@ struct AgentRestoreLaunchLeaseTests {
             posix_spawnattr_destroy(&attributes)
         }
         // Tests run in parallel: never leak another test's pipe into this child.
+        #if canImport(Darwin)
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
         if let stdin { posix_spawn_file_actions_adddup2(&actions, stdin, 0) }
         posix_spawn_file_actions_addinherit_np(&actions, 1)
         posix_spawn_file_actions_addinherit_np(&actions, 2)
+        #else
+        // glibc has no CLOEXEC_DEFAULT: close everything above stderr instead.
+        if let stdin { posix_spawn_file_actions_adddup2(&actions, stdin, 0) }
+        posix_spawn_file_actions_addclosefrom_np(&actions, 3)
+        #endif
         var pid: pid_t = 0
         let result = argv.withUnsafeMutableBufferPointer { argv in
             environment.withUnsafeMutableBufferPointer { environment in
+                #if canImport(Darwin)
                 posix_spawn(&pid, arguments[0], &actions, &attributes, argv.baseAddress, environment.baseAddress)
+                #else
+                posix_spawn(&pid, arguments[0], &actions, &attributes, argv.baseAddress!, environment.baseAddress)
+                #endif
             }
         }
         guard result == 0 else { throw POSIXError(POSIXErrorCode(rawValue: result) ?? .EIO) }

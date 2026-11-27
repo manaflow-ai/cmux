@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import datetime as dt
+import io
 import json
 import os
 import re
@@ -39,6 +41,34 @@ POOLS = {
 }
 
 
+def blacksmith_failover_pools(path=runner_pools.RUNNERS, env=None):
+    """The declared pools without their owned GCP lead and Freestyle rung (runner_pools.owned_prefix()): the
+    Blacksmith-to-Blacksmith failover the tests below exercise, as it runs once the owned members are full."""
+    pools = REAL_LOAD_POOLS(path, env)
+    for spec in pools.values():
+        if spec.get("members"):
+            spec["members"] = spec["members"][len(runner_pools.owned_prefix(spec["members"])):]
+    return pools
+
+
+REAL_LOAD_POOLS = runner_pools.load_pools
+
+
+class BlacksmithFailover:
+    """Mixin: runner_pools.main() and load_pools() read blacksmith_failover_pools()."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        runner_pools.load_pools = blacksmith_failover_pools
+        self.addCleanup(setattr, runner_pools, "load_pools", REAL_LOAD_POOLS)
+
+
+def fresh_snapshot(now):
+    """A complete janitor snapshot from a minute before NOW that saw no Linux start: beside it a probe's stall
+    counts (label_evidence())."""
+    return dict(copy.deepcopy(RECORDED), generated_at=runner_pools.iso(now - dt.timedelta(minutes=1)), label_started={})
+
+
 def health(labels, checked=NOW):
     # Exactly what the overflow switch writes to CI_CLOUD_LABEL_HEALTH (cloud_overflow_switch.label_health()).
     import cloud_overflow_switch as switch
@@ -54,8 +84,12 @@ class Declared(unittest.TestCase):
     def test_the_linux_pool_is_the_runner_set(self) -> None:
         # Leo, 2026-10-28: "just pin the set of the shit that isn't hilariously slow".
         # Smallest first: Blacksmith caps vCPUs at once, so the live member is the small size (2026-11-01).
+        # Leo, 2026-11-21: "i just am like fundamentally opposed to paying for ci when i exist": the owned GCP
+        # pool leads. Leo, 2026-11-19: "We still keep Blacksmith sometimes, but stop fucking relying on it. [...] We
+        # could use Freestyle": a full GCP pool overflows to Freestyle, and Blacksmith only after it.
         self.assertEqual(runner_pools.load_pools()["linux"]["members"],
-                         ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
+                         ["cmux-fleet-linux-x64", "cmux-freestyle-linux-x64", "blacksmith-4vcpu-ubuntu-2404",
+                          "blacksmith-16vcpu-ubuntu-2404"])
 
     def test_every_blacksmith_linux_size_has_its_own_pool(self) -> None:
         # Leo, 2026-10-28: "Where the f***ing are the generalized solution to all these problems that these
@@ -64,6 +98,13 @@ class Declared(unittest.TestCase):
         for size, name in ((2, "linux_2"), (4, "linux_4"), (8, "linux_8"), (16, "linux_16"), (32, "linux_32")):
             with self.subTest(pool=name):
                 listed = runner_pools.members(pools[name])
+                if pools[name].get("ephemeral_only"):
+                    self.assertFalse(runner_pools.owned_gcp(listed[0]))
+                else:
+                    self.assertEqual(listed[0], "cmux-fleet-linux-x64")
+                    # Freestyle VMs have 8 vCPU: only the pools whose jobs fit there list the rung.
+                    self.assertEqual(listed[1] == "cmux-freestyle-linux-x64", size <= 8, name)
+                    listed = listed[len(runner_pools.owned_prefix(listed)):]
                 self.assertEqual(listed[0], f"blacksmith-{size}vcpu-ubuntu-2404")
                 self.assertGreater(len(listed), 1, f"{name} needs a member to fail over to")
 
@@ -72,22 +113,80 @@ class Declared(unittest.TestCase):
         # sends its readers back to the stalled size when the pool steps onto it.
         selector = re.compile(r"contains\(fromJSON\('(\[[^']*\])'\), (?:vars\.LINUX_RUNNER|fromJSON\(vars\.RUNNER_POOLS[^)]*\)\.linux)\)"
                               r" && (?:vars\.LINUX_RUNNER|fromJSON\(vars\.RUNNER_POOLS[^)]*\)\.linux) \|\| '(blacksmith-4vcpu-ubuntu-2404)'")
-        members = runner_pools.load_pools()["linux"]["members"]
+        members = [m for m in runner_pools.load_pools()["linux"]["members"] if not runner_pools.owned_lead(m)]
         found = 0
         for workflow in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
             for match in selector.finditer(workflow.read_text(encoding="utf-8")):
                 found += 1
                 with self.subTest(workflow=workflow.name):
                     self.assertLessEqual(set(members), set(json.loads(match.group(1))))
-        self.assertGreater(found, 0)
+        # found may be 0: main's bounded selectors were written out as the label they resolved to (2026-11-24).
 
     def test_no_pool_names_a_reused_machine(self) -> None:
         # A job reading a pool, a fork's pull request included, never lands on an owned Mac:
-        # those come only through a picker.
+        # those come only through a picker. The one owned exception is ephemeral too: a named owned Linux VM
+        # label (one job per fresh VM clone) as a pool's first member.
         for name, spec in runner_pools.load_pools().items():
-            for label in runner_pools.members(spec):
+            for index, label in enumerate(runner_pools.members(spec)):
                 with self.subTest(pool=name, label=label):
+                    if index == 0 and runner_pools.owned_ephemeral(label):
+                        continue
+                    # The persistent GCP pool (cmux-fleet-linux-x64) leads only pools no fork or write-token
+                    # job needs fresh: those are ephemeral_only (spec_problems()).
+                    if index == 0 and runner_pools.owned_gcp(label) and not spec.get("ephemeral_only"):
+                        continue
+                    # So does the Freestyle rung right after it (one VM per job; never a fork's run).
+                    if index == 1 and runner_pools.owned_freestyle(label) and not spec.get("ephemeral_only"):
+                        continue
                     self.assertRegex(label, runner_pools.HOSTED if spec.get("hosted") else runner_pools.EPHEMERAL)
+
+    def test_the_owned_linux_vm_pool_leads_with_the_fleet_and_overflows_to_blacksmith(self) -> None:
+        # Leo, 2026-11-19: "dont we have linux vms set up on everybody yet? we shuold" ... "on the fleet".
+        pools = runner_pools.load_pools()
+        self.assertEqual(runner_pools.members(pools["linux_owned_small"]),
+                         ["glaeda-linux-arm64", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"])
+        # Never in the pool LINUX_RUNNER mirrors: about 140 workflows read it, x64-only jobs among them.
+        for name in runner_pools.MIRRORS.values():
+            self.assertFalse(any(runner_pools.owned_ephemeral(label) for label in runner_pools.members(pools[name])))
+
+    def test_linux_runner_may_name_the_persistent_pool_but_nothing_else_outside_its_pool(self) -> None:
+        # The persistent pool serves every x64 Linux label (Leo, 2026-11-21 00:38Z: "just... accept all labels"),
+        # so nothing waits on it; it stays out of pools.linux, so the writer never routes the pool's readers there.
+        pools = runner_pools.load_pools()
+        for label in sorted(runner_pools.PERSISTENT_LINUX_POOL_LABELS):
+            with self.subTest(label=label):
+                self.assertEqual(runner_pools.mirror_problems({"LINUX_RUNNER": label}, pools, record=None), [])
+                # The owned GCP label (OWNED_GCP_LINUX) leads pools.linux by design and overflows when full
+                # (#49556); every other persistent label stays out.
+                if not runner_pools.owned_gcp(label):
+                    self.assertNotIn(label, runner_pools.members(pools["linux"]))
+        self.assertTrue(runner_pools.mirror_problems({"LINUX_RUNNER": "glaeda-linux-arm64"}, pools, record=None))
+
+    def test_an_owned_linux_vm_label_may_only_lead_a_pool_with_blacksmith_after_it(self) -> None:
+        good = {"a": {"why": "x", "members": ["glaeda-linux-arm64", "blacksmith-2vcpu-ubuntu-2404"]}}
+        self.assertEqual(runner_pools.spec_problems(good), [])
+        bad = {
+            # Alone: nothing to overflow to when the few VMs are taken.
+            "alone": {"why": "x", "members": ["glaeda-linux-arm64"]},
+            # After a Blacksmith member: a failover onto a handful of VMs.
+            "second": {"why": "x", "members": ["blacksmith-2vcpu-ubuntu-2404", "glaeda-linux-arm64"]},
+            # Followed only by another owned label.
+            "owned_only": {"why": "x", "members": ["glaeda-linux-arm64", "glaeda-std-xcode-26.6"]},
+            # A label that only looks like one: owned labels are named, never matched by pattern.
+            "lookalike": {"why": "x", "members": ["glaeda-linux-x64", "blacksmith-2vcpu-ubuntu-2404"]},
+        }
+        found = "\n".join(runner_pools.spec_problems(bad))
+        for name in bad:
+            self.assertIn(f"pools.{name}:", found)
+
+    def test_the_outage_override_never_takes_an_owned_linux_vm_as_x64(self) -> None:
+        pools = runner_pools.load_pools(env={runner_pools.HOSTED_OVERRIDE: "ubuntu-24.04"})
+        spec = pools["linux_owned_small"]
+        # The hosted outage override stands in for Blacksmith x64 pools only; this pool keeps its members.
+        self.assertFalse(spec.get("hosted"))
+        self.assertEqual(runner_pools.members(spec)[0], "glaeda-linux-arm64")
+        # A pool never names a label outside its declared members, owned Linux VM included.
+        self.assertEqual(runner_pools.allowed(spec, pools), runner_pools.members(spec))
 
     def test_spec_problems_refuse_owned_hosted_and_unknown_labels(self) -> None:
         bad = {
@@ -106,7 +205,7 @@ class Declared(unittest.TestCase):
         # No new credential: the token the overflow switch already mints writes RUNNER_POOLS.
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
         steps = workflow["jobs"]["watch"]["steps"]
-        [step] = [s for s in steps if "runner_pools.py" in str(s.get("run", ""))]
+        [step] = [s for s in steps if s.get("id") == "pools"]
         self.assertEqual(step["env"]["SWITCH_TOKEN"], "${{ steps.switch-token.outputs.token }}")
         self.assertEqual(step["env"]["RUNNER_POOLS"], "${{ vars.RUNNER_POOLS }}")
         self.assertIn("always()", str(step.get("if")))
@@ -118,7 +217,7 @@ class Declared(unittest.TestCase):
         # earlier in the same job, keeps those reads off the repository GITHUB_TOKEN pool every workflow shares.
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
         steps = workflow["jobs"]["watch"]["steps"]
-        [step] = [s for s in steps if "runner_pools.py" in str(s.get("run", ""))]
+        [step] = [s for s in steps if s.get("id") == "pools"]
         [mint] = [s for s in steps if s.get("id") == "cmux-bot-token"]
         self.assertEqual(mint["with"]["permission-actions"], "read")
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
@@ -132,14 +231,30 @@ class Declared(unittest.TestCase):
         steps = workflow["jobs"]["watch"]["steps"]
         [checkout] = [s for s in steps if s.get("id") == "spill-tooling"]
         self.assertRegex(checkout["with"]["ref"], r"^[0-9a-f]{40}$")
+        # 2026-11-18: the pin sat at c736d2e (2026-11-01) for 17 days, so the hosted-first valve (cmux#45861) never
+        # ran: RUNNER_POOLS.hosted_saturated stayed unset while GitHub-hosted held ~2,500 queued runs (median wait
+        # 3 h), and nightly 44243166776's publish-nightly-next-github queued behind them. The pin's comment names the
+        # spill changes it carries; it must carry the valve.
+        self.assertNotEqual(checkout["with"]["ref"], "c736d2e6c1db29305963040992f89f9466630f79")
+        pin_line = next(line for line in (ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text().splitlines()
+                        if checkout["with"]["ref"] in line)
+        self.assertIn("#45861", pin_line, "the spill pin must carry the hosted-first valve")
         self.assertEqual(checkout["with"]["persist-credentials"], False)
+        # cmuxterm-hq#16113 step 3: the spill imports expected_wait.py (and its deadline_http.py client) for the
+        # wait-based admission verdict; without them it publishes none.
+        self.assertIn("#48949", pin_line, "the spill pin must carry wait-based admission")
         self.assertEqual(set(checkout["with"]["sparse-checkout"].split()),
-                         {"scripts/ci/linux_pool_spill.py", "scripts/ci/runner_pool_reconcile.py"})
+                         {"scripts/ci/linux_pool_spill.py", "scripts/ci/runner_pool_reconcile.py",
+                          "scripts/ci/expected_wait.py", "scripts/ci/deadline_http.py"})
         self.assertTrue(checkout.get("continue-on-error"))
-        [step] = [s for s in steps if "runner_pools.py" in str(s.get("run", ""))]
+        [step] = [s for s in steps if s.get("id") == "pools"]
         self.assertIn('--policy-root "$GITHUB_WORKSPACE"', step["run"])
         # Without the checkout, or when the spill fails, main's policy still runs alone.
         self.assertEqual(step["run"].count("python3 scripts/ci/runner_pools.py"), 2)
+        # The admission verdict's inputs reach the spill, read-only: the controller that serves its feeds and the
+        # owned families' slots.
+        self.assertEqual(step["env"]["RUNNER_ADMISSION_CONTROLLER"], "${{ vars.RUNNER_ADMISSION_CONTROLLER }}")
+        self.assertEqual(step["env"]["CI_OWNED_POOL_SLOTS"], "${{ vars.CI_OWNED_POOL_SLOTS }}")
         names = [s.get("name") for s in steps]
         self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
 
@@ -159,9 +274,11 @@ class Declared(unittest.TestCase):
         self.assertNotIn("secrets.", path.read_text())
         self.assertNotIn("CI_LIGHT_LANE_RUNNER", rescue["runs-on"])
         self.assertNotIn("CI_SIDE_LANE_RUNNER", rescue["runs-on"])
-        self.assertIn("vars.CI_TRUSTED_RUNNER", rescue["runs-on"])
+        # The reserved queue one-job JIT label its switches resolved to, written out (2026-11-24).
+        self.assertEqual(rescue["runs-on"],
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-queue-jit-x64' }}")
         self.assertIn("ephemeral-required", path.read_text())
-        self.assertEqual(rescue["steps"][0]["with"]["ref"], "main")
+        self.assertEqual(rescue["steps"][0]["with"]["ref"], "refs/heads/main")
         self.assertTrue((ROOT / "scripts/ci/hosted_light_rescue.py").is_file())
         old = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
         self.assertNotIn("hosted_light_rescue.py", str(old["jobs"]))
@@ -203,22 +320,354 @@ class Evidence(unittest.TestCase):
         import cloud_overflow_switch as switch
         self.assertEqual(runner_pools.HEALTH_VARIABLE, switch.HEALTH_VARIABLE)
         # The switch probes every member of the linux pool, so each one has health of its own.
-        self.assertEqual(set(switch.PROBE_LABELS), set(runner_pools.load_pools()["linux"]["members"]))
+        self.assertEqual(set(switch.PROBE_LABELS),
+                         {m for m in runner_pools.load_pools()["linux"]["members"] if not runner_pools.owned_lead(m)})
+
+    def test_every_x64_linux_label_a_pool_can_name_is_probed(self) -> None:
+        # 2026-11-18: linux_16 and linux_32 sat on blacksmith-32vcpu-ubuntu-2404 while it started nothing
+        # from about 23:12Z (488 jobs queued, none running, at 01:01Z). The probe asked only for 4 and 16
+        # vCPU, and the janitor's snapshot was truncated (2,500 queued runs), so nothing ever said 32 vCPU
+        # was dead. Every x64 Linux label a pool can point at, release valve included, has probe health.
+        import cloud_overflow_switch as switch
+        pools = runner_pools.load_pools()
+        reachable = {label for spec in pools.values() for label in runner_pools.allowed(spec, pools)
+                     if runner_pools.X64_UBUNTU.match(label)}
+        self.assertEqual(set(switch.HEALTH_LABELS), reachable)
+        self.assertEqual(switch.HEALTH_LABELS[:len(switch.PROBE_LABELS)], switch.PROBE_LABELS)
 
     def test_the_recorded_snapshot_marks_nothing(self) -> None:
         dead, started, _ = runner_pools.label_evidence(None, RECORDED, now=NOW)
         self.assertEqual((dead, started), (set(), set()))
 
-    def test_a_stalled_blacksmith_mac_in_the_snapshot_is_dead(self) -> None:
-        # simple_pool_picker.blacksmith_stalled(): a queued job waited 10 minutes, so nothing started.
+    def owned_linux_snapshot(self, *, queued, running, oldest, started_ago):
         snapshot = copy.deepcopy(RECORDED)
-        snapshot["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, oldest_queued_minutes=9)
+        snapshot["pools"]["glaeda-linux-arm64"] = {"queued": queued, "running": running, "reserved_queued": 0,
+                                                   "oldest_queued_minutes": oldest}
+        snapshot["label_started"] = {"glaeda-linux-arm64": runner_pools.iso(SNAPSHOT_AT - started_ago)}
+        return snapshot
+
+    def test_a_full_owned_linux_vm_label_is_dead_even_while_it_starts_jobs(self) -> None:
+        # One VM clone per mini: a job that waited the cutoff there means every VM is taken. The pool overflows to
+        # Blacksmith although the VMs keep starting jobs (a Blacksmith label doing that is load, not death).
+        snapshot = self.owned_linux_snapshot(queued=6, running=2, oldest=12, started_ago=dt.timedelta(minutes=1))
+        dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertIn("glaeda-linux-arm64", dead)
+        self.assertNotIn("glaeda-linux-arm64", started)
+        pools = runner_pools.load_pools()
+        value, lines = runner_pools.reconcile({}, pools, dead_now=dead, served_now=started, now=NOW,
+                                              covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
+        self.assertEqual(value["linux_owned_small"], "blacksmith-2vcpu-ubuntu-2404")
+        self.assertIn("glaeda-linux-arm64", value[runner_pools.DEAD_KEY])
+        # Once its queue no longer waits, its recent start clears the mark and the pool comes back to the fleet.
+        later = NOW + dt.timedelta(minutes=10)
+        drained = self.owned_linux_snapshot(queued=1, running=2, oldest=2, started_ago=dt.timedelta(minutes=1))
+        drained["generated_at"] = runner_pools.iso(later - dt.timedelta(minutes=2))
+        drained["label_started"] = {"glaeda-linux-arm64": runner_pools.iso(later - dt.timedelta(minutes=3))}
+        dead, started, _ = runner_pools.label_evidence(None, drained, now=later)
+        self.assertNotIn("glaeda-linux-arm64", dead)
+        self.assertIn("glaeda-linux-arm64", started)
+        again, _ = runner_pools.reconcile(value, pools, dead_now=dead, served_now=started, now=later,
+                                          covered=runner_pools.evidence_covers(None, drained, pools, now=later))
+        self.assertEqual(again["linux_owned_small"], "glaeda-linux-arm64")
+        self.assertNotIn("glaeda-linux-arm64", again[runner_pools.DEAD_KEY])
+
+    def test_an_owned_linux_vm_label_no_runner_ever_served_is_passed_over(self) -> None:
+        # Coordinator FIRE, 2026-11-22 07:42Z: "RUNNER_POOLS key `linux_owned_small` was set to
+        # `glaeda-linux-arm64` at about 07:26Z ... No runner registered for manaflow-ai/cmux carries that label, so
+        # every job routed through it sits queued." Nothing queued there, so no stall ever marked it dead.
+        pools = runner_pools.load_pools()
+        label = "glaeda-linux-arm64"
+        self.assertTrue(runner_pools.unproven(label, {}))
+        for snapshot in (None, copy.deepcopy(RECORDED)):
+            current = {"linux_owned_small": label, runner_pools.DEAD_KEY: {}}
+            value, lines = runner_pools.reconcile(
+                current, pools, dead_now=set(), served_now=set(), now=NOW,
+                covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
+            self.assertEqual(value["linux_owned_small"], "blacksmith-2vcpu-ubuntu-2404")
+            self.assertNotIn(runner_pools.SERVED_KEY, value)
+            self.assertIn(f"pools.linux_owned_small: no runner has ever taken a job on {label}; passed over", lines)
+        # The owned GCP label stands registered and is judged by the stall rule, not by this.
+        self.assertFalse(runner_pools.unproven("cmux-fleet-linux-x64", {}))
+        self.assertFalse(runner_pools.unproven("cmux-freestyle-linux-x64", {}))
+        self.assertEqual(value["linux_2"], "cmux-fleet-linux-x64")
+        self.assertEqual(value["linux_16"], "cmux-fleet-linux-x64")
+        # A start proves it: the pool leads with it again, and the proof survives a pass that sees no start.
+        started = self.owned_linux_snapshot(queued=0, running=1, oldest=0, started_ago=dt.timedelta(minutes=1))
+        dead, served, _ = runner_pools.label_evidence(None, started, now=NOW)
+        proven, lines = runner_pools.reconcile(value, pools, dead_now=dead, served_now=served, now=NOW,
+                                               covered=runner_pools.evidence_covers(None, started, pools, now=NOW))
+        self.assertEqual(proven["linux_owned_small"], label)
+        self.assertEqual(proven[runner_pools.SERVED_KEY], {label: runner_pools.iso(NOW)})
+        later = NOW + dt.timedelta(hours=2)
+        kept, _ = runner_pools.reconcile(runner_pools.parse_value(runner_pools.render(proven), pools)[0], pools,
+                                         dead_now=set(), served_now=set(), now=later)
+        self.assertEqual(kept["linux_owned_small"], label)
+        # A malformed record is dropped, never crashed on.
+        clean, dropped = runner_pools.parse_value(
+            '{"_served": {"glaeda-linux-arm64": "soon", "blacksmith-2vcpu-ubuntu-2404": "2026-11-22T07:00:00Z"}}', pools)
+        self.assertNotIn(runner_pools.SERVED_KEY, clean)
+        self.assertTrue(any(runner_pools.SERVED_KEY in line for line in dropped))
+
+    def test_a_full_owned_gcp_pool_overflows_to_blacksmith_and_comes_back(self) -> None:
+        # Leo, 2026-11-21: "i just am like fundamentally opposed to paying for ci when i exist". The x64 pools lead
+        # with the persistent GCP pool; Blacksmith takes their jobs only while its oldest queued job has waited
+        # the cutoff.
+        label = "cmux-fleet-linux-x64"
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["pools"][label] = {"queued": 40, "running": 600, "reserved_queued": 0, "oldest_queued_minutes": 12}
+        snapshot["label_started"] = {label: runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=1))}
+        pools = runner_pools.load_pools()
+        fresh, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=NOW)
+        for name in ("linux", "linux_2", "linux_8", "linux_16", "linux_32"):
+            self.assertEqual(fresh[name], label, name)
+        for name in ("linux_4", "promotion"):
+            self.assertRegex(fresh[name], runner_pools.EPHEMERAL, name)
+        dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertIn(label, dead)
+        value, _ = runner_pools.reconcile(fresh, pools, dead_now=dead, served_now=started, now=NOW,
+                                          covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
+        # Leo, 2026-11-19: "stop fucking relying on [Blacksmith]. [...] We could use Freestyle": the 8 vCPU pools
+        # take the Freestyle rung next; the 16 and 32 vCPU pools, whose jobs do not fit a Freestyle VM, Blacksmith.
+        for name in ("linux", "linux_2", "linux_8"):
+            self.assertEqual(value[name], "cmux-freestyle-linux-x64", name)
+        self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+        # A full Freestyle rung too: Blacksmith takes the overflow.
+        rung = "cmux-freestyle-linux-x64"
+        snapshot["pools"][rung] = {"queued": 30, "running": 200, "reserved_queued": 0, "oldest_queued_minutes": 12}
+        snapshot["label_started"][rung] = runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=1))
+        dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertLessEqual({label, rung}, dead)
+        value, _ = runner_pools.reconcile(value, pools, dead_now=dead, served_now=started, now=NOW,
+                                          covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
+        self.assertEqual(value["linux"], "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(value["linux_8"], "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(runner_pools.mirror_target({"linux": rung}, pools, "linux"), "blacksmith-4vcpu-ubuntu-2404")
+        later = NOW + dt.timedelta(minutes=10)
+        drained = copy.deepcopy(RECORDED)
+        drained["generated_at"] = runner_pools.iso(later - dt.timedelta(minutes=2))
+        drained["pools"][label] = {"queued": 0, "running": 500, "reserved_queued": 0, "oldest_queued_minutes": 0}
+        drained["label_started"] = {label: runner_pools.iso(later - dt.timedelta(minutes=3))}
+        dead, started, _ = runner_pools.label_evidence(None, drained, now=later)
+        again, _ = runner_pools.reconcile(value, pools, dead_now=dead, served_now=started, now=later,
+                                          covered=runner_pools.evidence_covers(None, drained, pools, now=later))
+        self.assertEqual(again["linux"], label)
+        self.assertNotIn(label, again[runner_pools.DEAD_KEY])
+
+    def gcp_stall_snapshot(self, **idle):
+        label = "cmux-fleet-linux-x64"
+        snapshot = copy.deepcopy(RECORDED)
+        # 2026-11-21 23:46Z: 19 queued on the GCP label beside 428 available and 309 busy runners.
+        snapshot["pools"][label] = {"queued": 19, "running": 309, "reserved_queued": 0, "oldest_queued_minutes": 12,
+                                    **idle}
+        snapshot["label_started"] = {label: runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=1))}
+        return label, snapshot
+
+    def test_an_owned_label_with_idle_runners_is_not_full_while_jobs_wait(self) -> None:
+        # Detector: a few jobs the pool never takes must not move every x64 pool to Blacksmith while hundreds of
+        # its runners are idle. Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
+        label, snapshot = self.gcp_stall_snapshot(online=709, busy=309, idle=400)
+        dead, started, notes = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertNotIn(label, dead)
+        self.assertIn(label, started)
+        self.assertTrue(any("400 runners idle" in note for note in notes))
+        pools = runner_pools.load_pools()
+        # A full mark an earlier pass wrote clears now.
+        marked = {runner_pools.DEAD_KEY: {label: runner_pools.iso(NOW - dt.timedelta(minutes=5))}}
+        value, _ = runner_pools.reconcile(marked, pools, dead_now=dead, served_now=started, now=NOW,
+                                          covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
+        for name in ("linux", "linux_2", "linux_8", "linux_16"):
+            self.assertEqual(value[name], label, name)
+
+    def test_an_owned_label_with_no_idle_runner_spills_once_a_job_waited(self) -> None:
+        for idle in (0, runner_pools.OWNED_IDLE_HEADROOM):
+            with self.subTest(idle=idle):
+                label, snapshot = self.gcp_stall_snapshot(online=309 + idle, busy=309, idle=idle)
+                dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+                self.assertIn(label, dead)
+                self.assertNotIn(label, started)
+                pools = runner_pools.load_pools()
+                value, _ = runner_pools.reconcile({}, pools, dead_now=dead, served_now=started, now=NOW,
+                                                  covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
+                # A full GCP pool overflows to the Freestyle rung first (OWNED_FREESTYLE_LINUX); a pool too big for
+                # its 8 vCPU VMs goes straight to Blacksmith. Leo, 2026-11-19: "stop ... relying on it".
+                self.assertEqual(value["linux"], "cmux-freestyle-linux-x64")
+                self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+
+    def test_a_freestyle_rung_that_waited_two_minutes_moves_its_pools_to_gcp(self) -> None:
+        # Detector: 2026-11-26 19:40-20:30Z, Freestyle jobs started at p95 13.7 min, 20 still waited at 20:35Z (oldest
+        # 28 min), while the Blacksmith cutoff (10 min) kept every Freestyle-led pool on the rung. Every Linux job
+        # should start within 2 min (cmuxterm-hq goals/ci-linux-on-pool.md); the GCP pool after it starts one in
+        # seconds. Leo, 2026-11-19: "We still keep Blacksmith sometimes, but stop fucking relying on it."
+        rung, gcp = "cmux-freestyle-linux-x64", "cmux-fleet-linux-x64"
+        pools = runner_pools.load_pools()
+        fresh, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=NOW)
+        # Read the leaders from runner-pools.json, not a copied list: cmux#59644 put GCP back in front of the 8 vCPU
+        # pools after this test named its own FREESTYLE_LED and GCP_LED, which left both names undefined on main.
+        FREESTYLE_LED = [name for name, pool in pools.items() if pool["members"][0] == rung]
+        GCP_LED = [name for name, pool in pools.items() if pool["members"][0] == gcp]
+        self.assertTrue(GCP_LED)
+        for oldest, moves in ((runner_pools.OWNED_FREESTYLE_STALL_MINUTES - 0.5, False),
+                              (runner_pools.OWNED_FREESTYLE_STALL_MINUTES, True), (3, True)):
+            with self.subTest(oldest=oldest):
+                snapshot = copy.deepcopy(RECORDED)
+                snapshot["pools"][rung] = {"queued": 7, "running": 40, "reserved_queued": 0,
+                                           "oldest_queued_minutes": oldest}
+                # The GCP label's own queue at the same wait is not full: its cutoff is still the Blacksmith one.
+                snapshot["pools"][gcp] = {"queued": 3, "running": 600, "reserved_queued": 0,
+                                          "oldest_queued_minutes": oldest}
+                snapshot["label_started"] = {rung: runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=1)),
+                                             gcp: runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=1))}
+                dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+                self.assertEqual(rung in dead, moves)
+                self.assertNotIn(gcp, dead)
+                value, _ = runner_pools.reconcile(fresh, pools, dead_now=dead, served_now=started, now=NOW,
+                                                  covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
+                # GCP leads every pool (cmux#59644) and is live here, so nothing leaves it.
+                for name, spec in pools.items():
+                    if spec.get("members") and spec["members"][0] == gcp:
+                        self.assertEqual(value[name], gcp, name)
+                # Once GCP is full too, a pool with the rung behind it overflows to the rung, or past it once
+                # the rung waited 2 min.
+                value, _ = runner_pools.reconcile(fresh, pools, dead_now=set(dead) | {gcp}, served_now=started,
+                                                  now=NOW, covered=runner_pools.evidence_covers(None, snapshot, pools,
+                                                                                                 now=NOW))
+                rung_pools = [name for name, spec in pools.items() if rung in (spec.get("members") or [])]
+                self.assertTrue(rung_pools)
+                for name in rung_pools:
+                    members = pools[name]["members"]
+                    self.assertEqual(value[name], members[members.index(rung) + 1] if moves else rung, name)
+        self.assertFalse(runner_pools.owned_stalled(rung, 0, 30))
+        self.assertFalse(runner_pools.owned_stalled(gcp, 3, runner_pools.simple_pool_picker.BLACKSMITH_STALL_MINUTES - 1))
+        self.assertTrue(runner_pools.owned_stalled(gcp, 3, runner_pools.simple_pool_picker.BLACKSMITH_STALL_MINUTES))
+
+    def test_idle_runners_do_not_count_before_the_stall_cutoff_and_a_bad_reading_keeps_the_queue_rule(self) -> None:
+        label, quiet = self.gcp_stall_snapshot(idle=0)
+        quiet["pools"][label]["oldest_queued_minutes"] = 2
+        self.assertNotIn(label, runner_pools.label_evidence(None, quiet, now=NOW)[0])
+        for reading in ({}, {"idle": None}, {"idle": "400"}, {"idle": True}, {"idle": -1}):
+            with self.subTest(reading=reading):
+                label, snapshot = self.gcp_stall_snapshot(**reading)
+                self.assertIn(label, runner_pools.label_evidence(None, snapshot, now=NOW)[0])
+
+    def test_an_old_snapshot_does_not_make_the_gcp_pool_full(self) -> None:
+        # 2026-11-22 09:37Z: the 09:02Z snapshot (35 min old) read cmux-fleet-linux-x64 1 queued, oldest 0 min, 884
+        # running, a start at 09:03Z. 0 + 35 min of snapshot age crossed the cutoff, and every x64 pool went to
+        # Blacksmith. Only the wait the snapshot measured makes our pool full.
+        label = "cmux-fleet-linux-x64"
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["pools"][label] = {"queued": 1, "running": 884, "reserved_queued": 0, "oldest_queued_minutes": 0}
+        snapshot["label_started"] = {label: runner_pools.iso(SNAPSHOT_AT + dt.timedelta(minutes=1))}
+        later = SNAPSHOT_AT + dt.timedelta(minutes=35)
+        dead, started, _ = runner_pools.label_evidence(None, snapshot, now=later)
+        self.assertNotIn(label, dead)
+        pools = runner_pools.load_pools()
+        fresh, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=later)
+        value, _ = runner_pools.reconcile(fresh, pools, dead_now=dead, served_now=started, now=later,
+                                          covered=runner_pools.evidence_covers(None, snapshot, pools, now=later))
+        for name in ("linux", "linux_2", "linux_8", "linux_16", "linux_32"):
+            self.assertEqual(value[name], label, name)
+        # A wait the snapshot did measure still overflows, however fresh the snapshot is.
+        snapshot["pools"][label]["oldest_queued_minutes"] = 11
+        dead, _, _ = runner_pools.label_evidence(None, snapshot, now=SNAPSHOT_AT)
+        self.assertIn(label, dead)
+
+    def test_linux_runner_stays_on_blacksmith_while_the_gcp_pool_is_live(self) -> None:
+        # About 250 workflows read vars.LINUX_RUNNER with no fresh-machine check (release jobs among them), so
+        # the mirror never names the persistent pool; feat-cmux-next readers fall through to the pool instead.
+        pools = runner_pools.load_pools()
+        value, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=NOW)
+        self.assertEqual(value["linux"], "cmux-fleet-linux-x64")
+        self.assertEqual(runner_pools.mirror_target(value, pools, "linux"), "blacksmith-4vcpu-ubuntu-2404")
+        marked = dict(value, **{runner_pools.DEAD_KEY: {"blacksmith-4vcpu-ubuntu-2404": runner_pools.iso(NOW)}})
+        self.assertEqual(runner_pools.mirror_target(marked, pools, "linux"), "blacksmith-16vcpu-ubuntu-2404")
+        self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"},
+                                                    record=None, pools=pools), [])
+
+    def test_the_gcp_label_leads_only_a_pool_that_needs_no_fresh_machine(self) -> None:
+        good = {"a": {"why": "x", "members": ["cmux-fleet-linux-x64", "blacksmith-4vcpu-ubuntu-2404"]}}
+        self.assertEqual(runner_pools.spec_problems(good), [])
+        for bad in ({"why": "x", "members": ["cmux-fleet-linux-x64"]},
+                    {"why": "x", "members": ["blacksmith-4vcpu-ubuntu-2404", "cmux-fleet-linux-x64"]},
+                    {"why": "x", "members": ["cmux-fleet-linux-x64", "blacksmith-4vcpu-ubuntu-2404"],
+                     "ephemeral_only": True},
+                    {"why": "x", "members": ["blacksmith-4vcpu-ubuntu-2404"], "ephemeral_only": "yes"}):
+            with self.subTest(spec=bad):
+                self.assertTrue(runner_pools.spec_problems({"a": bad}))
+
+    def test_freestyle_and_gcp_lead_in_either_order_a_pool_that_needs_no_fresh_machine(self) -> None:
+        for good in (["cmux-fleet-linux-x64", "cmux-freestyle-linux-x64", "blacksmith-4vcpu-ubuntu-2404"],
+                     ["cmux-freestyle-linux-x64", "cmux-fleet-linux-x64", "blacksmith-4vcpu-ubuntu-2404"],
+                     ["cmux-freestyle-linux-x64", "blacksmith-4vcpu-ubuntu-2404"]):
+            with self.subTest(members=good):
+                self.assertEqual(runner_pools.spec_problems({"a": {"why": "x", "members": good}}), [])
+        for bad in ({"why": "x", "members": ["cmux-fleet-linux-x64", "cmux-freestyle-linux-x64"]},
+                    {"why": "x", "members": ["blacksmith-4vcpu-ubuntu-2404", "cmux-freestyle-linux-x64",
+                                             "blacksmith-16vcpu-ubuntu-2404"]},
+                    {"why": "x", "members": ["cmux-freestyle-linux-x64", "cmux-fleet-linux-x64"]},
+                    {"why": "x", "members": ["cmux-freestyle-linux-x64", "blacksmith-4vcpu-ubuntu-2404",
+                                             "cmux-fleet-linux-x64", "blacksmith-16vcpu-ubuntu-2404"]},
+                    {"why": "x", "members": ["cmux-freestyle-linux-x64", "cmux-fleet-linux-x64",
+                                             "blacksmith-4vcpu-ubuntu-2404"], "ephemeral_only": True},
+                    {"why": "x", "members": ["cmux-freestyle-linux-x64", "blacksmith-4vcpu-ubuntu-2404"],
+                     "ephemeral_only": True}):
+            with self.subTest(spec=bad):
+                self.assertTrue(runner_pools.spec_problems({"a": bad}))
+
+    def test_an_owned_linux_vm_label_with_no_vm_online_is_dead(self) -> None:
+        snapshot = self.owned_linux_snapshot(queued=3, running=0, oldest=15, started_ago=dt.timedelta(hours=3))
+        dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertIn("glaeda-linux-arm64", dead)
+
+    def test_an_owned_linux_vm_label_keeping_up_is_serving(self) -> None:
+        snapshot = self.owned_linux_snapshot(queued=2, running=2, oldest=4, started_ago=dt.timedelta(minutes=2))
+        dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertNotIn("glaeda-linux-arm64", dead)
+        self.assertIn("glaeda-linux-arm64", started)
+
+    def test_a_stalled_blacksmith_mac_in_the_snapshot_is_dead(self) -> None:
+        # simple_pool_picker.blacksmith_stalled(): a queued job waited 10 minutes, nothing runs there, and the
+        # janitor's label_started shows no start since that job began to wait.
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, running=0, oldest_queued_minutes=9)
+        snapshot["label_started"] = {"blacksmith-6vcpu-macos-26": runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=40))}
         dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
         # Owned labels in the snapshot are never pool members and are not read.
         snapshot["pools"]["glaeda-std-xcode-26.6"].update(queued=9, oldest_queued_minutes=60)
         snapshot["starved"] = [{"label": "glaeda-gui-std-xcode-26.6+glaeda-std-xcode-26.6", "queued": 1}]
         dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
+
+    def test_a_busy_blacksmith_mac_that_starts_jobs_is_not_dead(self) -> None:
+        # 2026-11-08: blacksmith-6vcpu-macos-15 started four jobs of run 42503576472 at 17:28-17:31Z, one
+        # still running, yet RUNNER_POOLS marked it dead at 17:34:13Z: other jobs had queued there over 10
+        # minutes. A long queue on a label that starts jobs is load, not death; only a label that runs
+        # nothing and started nothing while its oldest job waited is dead.
+        stalled = copy.deepcopy(RECORDED)
+        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=6, running=0, oldest_queued_minutes=25)
+        stalled["label_started"] = {}
+        # A start it shows is evidence it serves: that clears a mark the old rule wrote, at once.
+        # No label_started map is no evidence either way.
+        label = {"blacksmith-6vcpu-macos-26"}
+        for name, change, served in [
+            ("a job runs there", {"running": 1}, label),
+            ("a job started after the oldest began to wait",
+             {"label_started": runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=3))}, label),
+            ("no start evidence in the snapshot", {"no_label_started": True}, set()),
+        ]:
+            with self.subTest(name):
+                snapshot = copy.deepcopy(stalled)
+                if "running" in change:
+                    snapshot["pools"]["blacksmith-6vcpu-macos-26"]["running"] = change["running"]
+                if "label_started" in change:
+                    snapshot["label_started"] = {"blacksmith-6vcpu-macos-26": change["label_started"]}
+                if change.get("no_label_started"):
+                    del snapshot["label_started"]
+                dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+                self.assertEqual(dead, set())
+                self.assertEqual(started, served)
+        # The control: nothing runs, and the last start is older than the oldest wait.
+        dead, _, _ = runner_pools.label_evidence(None, stalled, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
 
     def test_dead_label_entries_split_on_comma_and_plus(self) -> None:
@@ -232,14 +681,41 @@ class Evidence(unittest.TestCase):
         self.assertEqual(runner_pools._labels("a,b+c"), {"a", "b", "c"})
 
     def test_probe_health_per_label(self) -> None:
+        fresh = dict(copy.deepcopy(RECORDED), label_started={})
         dead, started, _ = runner_pools.label_evidence(health({
-            "blacksmith-32vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "started"}), None, now=NOW)
+            "blacksmith-32vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "started"}), fresh, now=NOW)
         self.assertEqual(dead, {"blacksmith-32vcpu-ubuntu-2404"})
         self.assertEqual(started, {"blacksmith-16vcpu-ubuntu-2404"})
 
+    def test_a_probe_stall_without_a_fresh_snapshot_marks_nothing_dead(self) -> None:
+        # Run 44296348389, 11:37Z on 2026-11-18: the cmux-bot App's budget was spent, the snapshot read
+        # returned 403 ("judging on the probe alone"), and the 4, 8, 16 and 32 vCPU probes, queued behind the
+        # org's vCPU cap while 2,618 jobs waited, read "stalled"; all four were marked dead and every Linux pool
+        # was squeezed onto 2 vCPU. A stall cannot tell a dead size from a full cap without the janitor's starts.
+        probe = health({"blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-8vcpu-ubuntu-2404": "stalled",
+                        "blacksmith-2vcpu-ubuntu-2404": "started"})
+        stale = dict(copy.deepcopy(RECORDED), label_started={},
+                     generated_at=runner_pools.iso(NOW - runner_pools.SNAPSHOT_MAX_AGE - dt.timedelta(minutes=1)))
+        for snapshot in (None, stale, dict(copy.deepcopy(RECORDED), truncated=True)):
+            with self.subTest(snapshot=bool(snapshot)):
+                dead, started, notes = runner_pools.label_evidence(probe, snapshot, now=NOW)
+                self.assertEqual(dead, set())
+                self.assertEqual(started, {"blacksmith-2vcpu-ubuntu-2404"})
+                self.assertTrue(any("no fresh janitor snapshot" in note for note in notes), notes)
+        # The marks already there keep their state: no fresh evidence, so none expires or is renewed, and a
+        # probe start still clears its label.
+        pools = runner_pools.load_pools()
+        since = runner_pools.iso(NOW - dt.timedelta(minutes=5))
+        current = {"_dead": {"blacksmith-4vcpu-ubuntu-2404": since, "blacksmith-2vcpu-ubuntu-2404": since}}
+        dead, started, _ = runner_pools.label_evidence(probe, None, now=NOW)
+        value, _ = runner_pools.reconcile(current, pools, dead_now=dead, served_now=started, now=NOW,
+                                          covered=runner_pools.evidence_covers(probe, None, pools, now=NOW))
+        self.assertEqual(value["_dead"], {"blacksmith-4vcpu-ubuntu-2404": since})
+
     def test_no_evidence_retires_nothing(self) -> None:
         # Fail closed: with CI_CLOUD_LABEL_HEALTH absent (cmux#27121 not deployed) and no snapshot,
-        # nothing is marked dead, and the pools stay on their first members.
+        # nothing is marked dead, and the pools stay on their first members (passing over an owned Linux VM label
+        # no runner has served yet, runner_pools.unproven()).
         dead, started, _ = runner_pools.label_evidence(None, None, now=NOW)
         self.assertEqual((dead, started), (set(), set()))
         switch = Main.Switch()
@@ -247,11 +723,12 @@ class Evidence(unittest.TestCase):
         value = json.loads(switch.writes[0][1])
         self.assertEqual(value["_dead"], {})
         for name, spec in runner_pools.load_pools().items():
-            self.assertEqual(value[name], spec["members"][0])
+            self.assertEqual(value[name], next(m for m in spec["members"] if not runner_pools.unproven(m, {})))
 
     def test_an_undated_stale_or_future_snapshot_decides_nothing(self) -> None:
         stalled = copy.deepcopy(RECORDED)
-        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, oldest_queued_minutes=30)
+        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, running=0, oldest_queued_minutes=30)
+        stalled["label_started"] = {}
         stalled["dead_labels"] = [{"label": "blacksmith-16vcpu-ubuntu-2404", "live": []}]
         dead, _, _ = runner_pools.label_evidence(None, stalled, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26", "blacksmith-16vcpu-ubuntu-2404"})
@@ -301,8 +778,76 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(probed["linux"], "blacksmith-32vcpu-ubuntu-2404")
 
     def test_every_member_dead_keeps_the_first(self) -> None:
+        # No smaller x64 size is declared in POOLS, so the release valve has nowhere to go.
         value, _ = self.run_once({}, dead={"blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"})
         self.assertEqual(value["linux"], "blacksmith-32vcpu-ubuntu-2404")
+
+    def test_every_member_dead_never_leaves_the_declared_members(self) -> None:
+        # 2026-11-18 from 13:18Z: a release valve sent linux_16 and linux_8 to blacksmith-2vcpu-ubuntu-2404, a member
+        # of neither. cmux-tui's thin legs took 25-44 min instead of 2-8, and 7 aarch64 legs failed with rustc OOM
+        # (job 134837837144). A too-small size makes a memory-heavy job fail, not only wait.
+        pools = runner_pools.load_pools()
+        linux_sizes = {f"blacksmith-{n}vcpu-ubuntu-2404" for n in (2, 4, 8, 16, 32)}
+        for dead in ({"blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
+                      "blacksmith-32vcpu-ubuntu-2404"}, linux_sizes):
+            value, lines = runner_pools.reconcile({}, pools, dead_now=dead, served_now=(), now=NOW)
+            outside = {name: value[name] for name in pools if value[name] not in runner_pools.members(pools[name])}
+            self.assertEqual(outside, {})
+            # A pool with every member dead keeps its first declared one; linux_16 and linux_8 lead with the live owned
+            # GCP label since #48881, so only all-Blacksmith pools such as linux_4 reach that.
+            self.assertEqual(value["linux_16"], runner_pools.members(pools["linux_16"])[0])
+            self.assertEqual(value["linux_8"], runner_pools.members(pools["linux_8"])[0])
+            all_dead = [name for name in pools if set(runner_pools.members(pools[name])) <= dead]
+            self.assertIn("linux_4", all_dead)
+            for name in all_dead:
+                self.assertEqual(value[name], runner_pools.members(pools[name])[0])
+                self.assertTrue(any("every member is dead" in line and f"pools.{name}:" in line for line in lines), lines)
+        # The writer resets a value outside a pool's members, and --check refuses it.
+        current, dropped = runner_pools.parse_value(json.dumps({**value, "linux_16": "blacksmith-2vcpu-ubuntu-2404"}),
+                                                    pools)
+        self.assertNotIn("linux_16", current)
+        self.assertTrue(any("linux_16" in line for line in dropped), dropped)
+        again, _ = runner_pools.reconcile(current, pools, dead_now=(), served_now=(), now=NOW)
+        self.assertEqual(again["linux_16"], runner_pools.members(pools["linux_16"])[0])
+        self.assertTrue(runner_pools.value_problems({**value, "linux_16": "blacksmith-2vcpu-ubuntu-2404"}, pools))
+        for spec in pools.values():
+            self.assertEqual(runner_pools.allowed(spec, pools), runner_pools.members(spec))
+
+    def test_a_pool_never_goes_below_min_vcpu(self) -> None:
+        # 2026-11-18 11:47Z-13:18Z: with 16, 8 and 32 vCPU marked dead the valve put linux_16 on 4 and then 2 vCPU,
+        # and every fat-LTO cmux-tui tree build there was SIGKILLed out of memory (run 44289517882, acpmux rustc on
+        # blacksmith-4vcpu-ubuntu-2404, then 12 runs on 2 vCPU), so no tree published and the NEXT nightlies failed.
+        pools = {
+            "linux_2": {"why": "x", "members": ["blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"]},
+            "linux_4": {"why": "x", "members": ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
+            "linux_8": {"why": "x", "members": ["blacksmith-8vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"]},
+            "linux_16": {"why": "x", "min_vcpu": 8,
+                         "members": ["blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+                                     "blacksmith-32vcpu-ubuntu-2404"]},
+        }
+        self.assertEqual(runner_pools.spec_problems(pools), [])
+        dead = {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404",
+                "blacksmith-4vcpu-ubuntu-2404"}
+        value, _ = runner_pools.reconcile({}, pools, dead_now=dead, served_now=(), now=NOW)
+        # It waits on its own first member rather than taking a size its jobs are killed on.
+        self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+        self.assertEqual(value["linux_8"], "blacksmith-8vcpu-ubuntu-2404")  # no valve: it keeps its first member
+        # A value below the floor is not allowed, so a hand edit is reset too.
+        self.assertTrue(runner_pools.value_problems({**value, "linux_16": "blacksmith-4vcpu-ubuntu-2404"}, pools))
+
+    def test_a_large_pool_declares_its_memory_floor(self) -> None:
+        pools = {"linux_16": {"why": "x", "members": ["blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"]}}
+        self.assertTrue(any("min_vcpu" in problem for problem in runner_pools.spec_problems(pools)))
+        below = {"linux_16": {"why": "x", "min_vcpu": 16,
+                              "members": ["blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"]}}
+        self.assertTrue(any("below its min_vcpu" in problem for problem in runner_pools.spec_problems(below)))
+        bad = {"linux_16": {"why": "x", "min_vcpu": "8", "members": ["blacksmith-16vcpu-ubuntu-2404"]}}
+        self.assertTrue(any("positive whole number" in problem for problem in runner_pools.spec_problems(bad)))
+        # The declared fat-LTO pools keep 8 vCPU (32 GB) as their floor.
+        declared = runner_pools.load_pools()
+        for name in ("linux_16", "linux_32"):
+            with self.subTest(pool=name):
+                self.assertEqual(runner_pools.memory_floor(declared[name]), 8)
 
     def test_no_change_keeps_the_value_byte_for_byte(self) -> None:
         value, _ = self.run_once({})
@@ -320,7 +865,9 @@ class NeverHosted(unittest.TestCase):
         value, _ = runner_pools.reconcile({}, pools, dead_now=every, served_now=(), now=NOW)
         for name, spec in pools.items():
             if not spec.get("hosted"):
-                self.assertRegex(value[name], runner_pools.EPHEMERAL)
+                self.assertTrue(runner_pools.EPHEMERAL.match(value[name]) or runner_pools.owned_lead(value[name]),
+                                value[name])
+                self.assertNotRegex(value[name], runner_pools.HOSTED)
         current, dropped = runner_pools.parse_value(json.dumps({"linux": "ubuntu-24.04"}), pools)
         self.assertNotIn("linux", current)
         self.assertTrue(dropped)
@@ -335,6 +882,62 @@ class NeverHosted(unittest.TestCase):
             for name, value in values.items():
                 with self.subTest(overrides=overrides, variable=name):
                     self.assertNotRegex(str(value), r"^(?:ubuntu|macos|windows)-")
+
+
+class HostedOverrideRetired(unittest.TestCase):
+    # Leo, 2026-11-19: "Like, why the f*** do you keep having the f***ing GitHub hosted runners? F*** GitHub." The
+    # 2026-11-17 outage override (cmux#45710) stayed set and sent cmux jobs to GitHub-hosted Ubuntu all day; the
+    # variable now routes nothing, every pass takes a hosted label back to Blacksmith, and --check fails while it is set.
+    ON = {"CI_LINUX_HOSTED_RUNNER": "ubuntu-24.04"}
+    X64 = ("linux", "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "promotion")
+
+    def test_the_variable_adds_no_member(self) -> None:
+        declared = runner_pools.load_pools(env={})
+        for raw in ("ubuntu-24.04", "ubuntu-22.04", "ubuntu-latest", "", "blacksmith-4vcpu-ubuntu-2404"):
+            with self.subTest(raw=raw):
+                self.assertEqual(runner_pools.load_pools(env={"CI_LINUX_HOSTED_RUNNER": raw}), declared)
+        for name, spec in declared.items():
+            for member in spec.get("members", []):
+                if runner_pools.HOSTED.match(member):
+                    self.assertTrue(spec.get("hosted"), f"{name}: {member}")
+
+    def test_a_pass_takes_a_hosted_pool_and_its_mirror_back_to_blacksmith(self) -> None:
+        before = runner_pools.reconcile({}, runner_pools.load_pools(env={}), dead_now=(), served_now=(), now=NOW)[0]
+        hosted = dict(before, **dict.fromkeys(self.X64, "ubuntu-24.04"))
+        switch = Main.Switch({"LINUX_RUNNER": "ubuntu-24.04"})
+        env = {"RUNNER_POOLS": runner_pools.render(hosted), **self.ON}
+        self.assertEqual(runner_pools.main([], env, api=Main.Api(None), switch=switch, now=NOW), 0)
+        [(name, raw), mirrored] = switch.writes
+        self.assertEqual(name, "RUNNER_POOLS")
+        self.assertEqual({k: json.loads(raw)[k] for k in self.X64}, {k: before[k] for k in self.X64})
+        # LINUX_RUNNER (read with no fresh-machine check) takes the pool's first live Blacksmith member (mirror_target()).
+        self.assertEqual(mirrored, ("LINUX_RUNNER", runner_pools.mirror_target(before, runner_pools.load_pools(env={}),
+                                                                              "linux")))
+
+    def test_check_fails_while_the_variable_is_set(self) -> None:
+        good = runner_pools.render(runner_pools.reconcile({}, runner_pools.load_pools(env={}), dead_now=(),
+                                                          served_now=(), now=NOW)[0])
+        env = {"RUNNER_POOLS": good, "LINUX_RUNNER": json.loads(good)["linux"]}
+        self.assertEqual(runner_pools.main(["--check"], env), 0)
+        self.assertEqual(runner_pools.main(["--check"], dict(env, **self.ON)), 1)
+        self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="ubuntu-24.04")), 1)
+
+    def test_the_mirror_moves_a_hosted_label_and_keeps_an_owned_one(self) -> None:
+        value = {"linux": "blacksmith-4vcpu-ubuntu-2404"}
+        self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "ubuntu-24.04"}, record=None),
+                         [("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404")])
+        self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "cmux-gcp-lane-x64"}, record=None), [])
+
+    def test_the_watch_and_the_check_pass_the_variable(self) -> None:
+        # Passed so a stale value is reported, never to route on it.
+        for path, find in ((".github/workflows/ci-cloud-overflow-probe.yml", "runner_pools.py"),
+                           (".github/workflows/ci-repo-variables.yml", "runner_pools.py --check")):
+            workflow = yaml.safe_load((ROOT / path).read_text())
+            steps = [s for job in workflow["jobs"].values() for s in job.get("steps", [])
+                     if find in str(s.get("run", ""))]
+            self.assertTrue(steps, path)
+            for step in steps:
+                self.assertEqual(step["env"]["CI_LINUX_HOSTED_RUNNER"], "${{ vars.CI_LINUX_HOSTED_RUNNER }}", path)
 
 
 class Schema(unittest.TestCase):
@@ -365,7 +968,7 @@ class Schema(unittest.TestCase):
         self.assertTrue(runner_pools.value_problems(missing, POOLS))
 
 
-class Main(unittest.TestCase):
+class Main(BlacksmithFailover, unittest.TestCase):
     class Api:
         def __init__(self, snapshot):
             self._snapshot = snapshot
@@ -384,6 +987,39 @@ class Main(unittest.TestCase):
         def set_variable(self, name, value):
             self.writes.append((name, value))
             self.variables[name] = value
+
+    def test_the_2026_11_18_pass_moves_linux_16_to_a_live_member(self) -> None:
+        # The live RUNNER_POOLS at 01:18:46Z and a probe pass over every x64 size, with the declared pools.
+        live = json.dumps({"_dead": {"blacksmith-16vcpu-ubuntu-2404": "2026-11-18T01:18:46Z",
+                                     "blacksmith-4vcpu-ubuntu-2404": "2026-11-18T01:18:46Z"},
+                           "_updated": "2026-11-18T01:18:46Z",
+                           "linux": "blacksmith-4vcpu-ubuntu-2404", "linux_16": "blacksmith-32vcpu-ubuntu-2404",
+                           "linux_2": "blacksmith-2vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404",
+                           "linux_4": "blacksmith-4vcpu-ubuntu-2404", "linux_8": "blacksmith-8vcpu-ubuntu-2404"})
+        now = dt.datetime(2026, 11, 18, 1, 28, 46, tzinfo=dt.timezone.utc)
+        switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
+            "blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "stalled",
+            "blacksmith-2vcpu-ubuntu-2404": "started", "blacksmith-8vcpu-ubuntu-2404": "started",
+            "blacksmith-32vcpu-ubuntu-2404": "stalled"}, checked=now))})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": live}, api=self.Api(fresh_snapshot(now)), switch=switch,
+                                           now=now), 0)
+        value = json.loads(switch.writes[0][1])
+        self.assertEqual(value["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
+        # linux_32 is [32, 16] vCPU, both stalled: it keeps 32 vCPU rather than leave its members.
+        self.assertEqual(value["linux_32"], "blacksmith-32vcpu-ubuntu-2404")
+        self.assertIn("blacksmith-32vcpu-ubuntu-2404", value["_dead"])
+        # linux is [4, 16] vCPU, both stalled: it keeps its first member, never 2 vCPU outside its members.
+        self.assertEqual(value["linux"], "blacksmith-4vcpu-ubuntu-2404")
+        # The next pass keeps it. It rewrites the variable only to refresh the dead marks' times.
+        again = self.Switch(switch.variables)
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": switch.writes[0][1]},
+                                           api=self.Api(fresh_snapshot(now + dt.timedelta(minutes=1))),
+                                           switch=again, now=now + dt.timedelta(minutes=1)), 0)
+        kept = json.loads(dict(again.writes).get("RUNNER_POOLS", switch.writes[0][1]))
+        self.assertEqual((kept["linux_16"], kept["linux_32"]),
+                         ("blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"))
+        self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": switch.writes[0][1],
+                                                         "LINUX_RUNNER": value["linux"]}), 0)
 
     def test_a_stalled_size_flips_linux_once(self) -> None:
         switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
@@ -429,7 +1065,8 @@ class Main(unittest.TestCase):
         pools = runner_pools.load_pools()
         first, second = runner_pools.members(pools["linux"])[:2]
         # Every pool on its first member that is not the dead one (linux_4 lists the same 4 vCPU size first).
-        held = {name: next(m for m in runner_pools.members(spec) if m != first) for name, spec in pools.items()}
+        held = {name: next(m for m in runner_pools.members(spec) if m != first and not runner_pools.unproven(m, {}))
+                for name, spec in pools.items()}
         held["linux"] = second
         held["_dead"] = {first: marked}
         held["_updated"] = marked
@@ -596,17 +1233,623 @@ exit 0
         self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": '{"_dead":[]}'}), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class RawLabelVars(unittest.TestCase):
+    """RAW_LABEL_VARS leave a dead label with the pools and go back when it recovers (2026-11-18: LINUX_BUILD_RUNNER
+    and LINUX_RUNNER_DARWIN_CROSS stayed on a dead blacksmith-32vcpu-ubuntu-2404, about 1,706 jobs queued there)."""
+
+    NOW = dt.datetime(2026, 11, 18, 4, 30, tzinfo=dt.timezone.utc)
+    DEAD32 = "blacksmith-32vcpu-ubuntu-2404"
+    LIVE16 = "blacksmith-16vcpu-ubuntu-2404"
+    SIZES = ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+             "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")
+
+    def switch(self, variables, stalled, now):
+        states = {label: ("stalled" if label in stalled else "started") for label in self.SIZES}
+        return Main.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health(states, checked=now)), **variables})
+
+    def run_pass(self, switch, pools_value, now):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        out = StringIO()
+        switch.variables[runner_pools.HEALTH_VARIABLE] = json.dumps(health(
+            json.loads(switch.variables[runner_pools.HEALTH_VARIABLE])["labels"], checked=now))
+        switch.writes.clear()
+        with redirect_stdout(out):
+            code = runner_pools.main([], {"RUNNER_POOLS": pools_value}, api=Main.Api(fresh_snapshot(now)), switch=switch,
+                                     now=now)
+        self.assertEqual(code, 0)
+        written = dict(switch.writes)
+        return written, json.loads(written.get("RUNNER_POOLS", pools_value)), out.getvalue()
+
+    def outage(self):
+        return self.switch({
+            "LINUX_RUNNER": self.LIVE16,
+            "LINUX_BUILD_RUNNER": self.DEAD32,
+            "LINUX_RUNNER_DARWIN_CROSS": self.DEAD32,
+            "CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404",
+            "CI_COMPILE_CHECK_GATEWAY": "glaeda-gateway-xcode-26.6",
+            "LINUX_ARM64_RUNNER": "ubuntu-24.04-arm",
+        }, {self.DEAD32}, self.NOW)
+
+    def test_a_dead_label_moves_the_variable_and_records_its_home(self) -> None:
+        switch = self.outage()
+        written, value, out = self.run_pass(switch, "", self.NOW)
+        self.assertEqual(written["LINUX_BUILD_RUNNER"], self.LIVE16)
+        self.assertEqual(written["LINUX_RUNNER_DARWIN_CROSS"], self.LIVE16)
+        self.assertEqual(value[runner_pools.RAW_HOME_KEY], {
+            "LINUX_BUILD_RUNNER": {"home": self.DEAD32, "to": self.LIVE16},
+            "LINUX_RUNNER_DARWIN_CROSS": {"home": self.DEAD32, "to": self.LIVE16}})
+        self.assertIn(f"::warning title=Runner pools::LINUX_BUILD_RUNNER: {self.DEAD32} -> {self.LIVE16}", out)
+        self.assertIn(f"::warning title=Runner pools::LINUX_RUNNER_DARWIN_CROSS: {self.DEAD32} -> {self.LIVE16}", out)
+        # The next pass, still dead, moves nothing and keeps the homes.
+        again, kept, _ = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=10))
+        self.assertEqual(set(again) - {"RUNNER_POOLS"}, set())
+        self.assertEqual(kept[runner_pools.RAW_HOME_KEY], value[runner_pools.RAW_HOME_KEY])
+
+    def test_recovery_moves_it_back_and_then_forgets_the_home(self) -> None:
+        switch = self.outage()
+        _, value, _ = self.run_pass(switch, "", self.NOW)
+        later = self.NOW + dt.timedelta(minutes=10)
+        switch.variables[runner_pools.HEALTH_VARIABLE] = json.dumps(health({label: "started" for label in self.SIZES}))
+        written, value, out = self.run_pass(switch, runner_pools.render(value), later)
+        self.assertNotIn(self.DEAD32, value["_dead"])
+        self.assertEqual(written["LINUX_BUILD_RUNNER"], self.DEAD32)
+        self.assertEqual(written["LINUX_RUNNER_DARWIN_CROSS"], self.DEAD32)
+        self.assertIn(f"LINUX_BUILD_RUNNER: {self.LIVE16} -> {self.DEAD32} ({self.DEAD32} takes jobs again", out)
+        written, value, _ = self.run_pass(switch, runner_pools.render(value), later + dt.timedelta(minutes=10))
+        self.assertNotIn(runner_pools.RAW_HOME_KEY, value)
+        self.assertEqual(set(written) - {"RUNNER_POOLS"}, set())
+
+    def test_a_variable_on_a_live_label_is_never_touched(self) -> None:
+        switch = self.outage()
+        written, value, _ = self.run_pass(switch, "", self.NOW)
+        for name in ("CI_TRUSTED_RUNNER", "CI_COMPILE_CHECK_GATEWAY", "LINUX_ARM64_RUNNER", "CI_CONTROL_RUNNER"):
+            self.assertNotIn(name, written)
+            self.assertNotIn(name, value[runner_pools.RAW_HOME_KEY])
+
+    def test_a_variable_set_by_hand_to_a_non_pool_value_is_left_alone(self) -> None:
+        switch = self.outage()
+        _, value, _ = self.run_pass(switch, "", self.NOW)
+        switch.variables["LINUX_BUILD_RUNNER"] = "ubuntu-24.04"
+        written, value, out = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=10))
+        self.assertNotIn("LINUX_BUILD_RUNNER", written)
+        self.assertNotIn("LINUX_BUILD_RUNNER", value[runner_pools.RAW_HOME_KEY])
+        self.assertIn("LINUX_BUILD_RUNNER=ubuntu-24.04 was set by hand", out)
+        # Nor is one a person set to another live pool size, even once its old home recovers.
+        switch.variables["LINUX_RUNNER_DARWIN_CROSS"] = "blacksmith-8vcpu-ubuntu-2404"
+        switch.variables[runner_pools.HEALTH_VARIABLE] = json.dumps(health({label: "started" for label in self.SIZES}))
+        written, value, _ = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=20))
+        self.assertEqual(set(written) - {"RUNNER_POOLS"}, set())
+        self.assertNotIn(runner_pools.RAW_HOME_KEY, value)
+
+    def test_a_variable_the_overflow_switch_changed_is_left_to_it(self) -> None:
+        switch = self.outage()
+        switch.variables[runner_pools.OVERFLOW_RECORD] = json.dumps(
+            {"changed": {"LINUX_BUILD_RUNNER": {"before": self.DEAD32, "after": self.LIVE16}}})
+        written, value, _ = self.run_pass(switch, "", self.NOW)
+        self.assertNotIn("LINUX_BUILD_RUNNER", written)
+        self.assertEqual(written["LINUX_RUNNER_DARWIN_CROSS"], self.LIVE16)
+
+    def test_an_unreadable_variable_is_not_moved(self) -> None:
+        switch = self.outage()
+        real = switch.get_variable
+
+        def get_variable(name):
+            if name == "LINUX_BUILD_RUNNER":
+                raise RuntimeError("GitHub API GET (502)")
+            return real(name)
+
+        switch.get_variable = get_variable
+        written, _, _ = self.run_pass(switch, "", self.NOW)
+        self.assertNotIn("LINUX_BUILD_RUNNER", written)
+        self.assertEqual(written["LINUX_RUNNER_DARWIN_CROSS"], self.LIVE16)
+
+    def test_the_substitute_is_the_same_image_largest_live_size_at_most_the_dead_one(self) -> None:
+        pools = runner_pools.load_pools()
+        self.assertEqual(runner_pools.raw_substitute(self.DEAD32, {self.DEAD32}, pools), self.LIVE16)
+        self.assertEqual(runner_pools.raw_substitute(self.DEAD32, {self.DEAD32, self.LIVE16}, pools),
+                         "blacksmith-8vcpu-ubuntu-2404")
+        # Nothing smaller is live: the next size up.
+        self.assertEqual(runner_pools.raw_substitute("blacksmith-2vcpu-ubuntu-2404", {"blacksmith-2vcpu-ubuntu-2404"},
+                                                     pools), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, set(self.SIZES), pools))
+        self.assertIsNone(runner_pools.raw_substitute("blacksmith-6vcpu-macos-26", set(), pools))
+
+    def test_the_tree_build_variables_never_move_below_eight_vcpu(self) -> None:
+        # 2026-11-18 13:31Z: LINUX_BUILD_RUNNER and LINUX_RUNNER_DARWIN_CROSS had moved to 2 vCPU, where the fat-LTO
+        # tree build legs were SIGKILLed out of memory.
+        pools = runner_pools.load_pools()
+        small = {"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"}
+        dead = set(self.SIZES) - small
+        self.assertEqual(runner_pools.raw_substitute(self.DEAD32, dead, pools), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, dead, pools, 8))
+        live = {"LINUX_BUILD_RUNNER": "blacksmith-2vcpu-ubuntu-2404", "CI_CONTROL_RUNNER": "blacksmith-2vcpu-ubuntu-2404"}
+        previous = {"LINUX_BUILD_RUNNER": {"home": "blacksmith-16vcpu-ubuntu-2404", "to": "blacksmith-2vcpu-ubuntu-2404"}}
+        homes, lines = runner_pools.raw_homes(previous, live, dead, pools, owned=frozenset())
+        # No size at or above 8 vCPU is live: it goes back home to wait there.
+        self.assertEqual(homes["LINUX_BUILD_RUNNER"], {"home": "blacksmith-16vcpu-ubuntu-2404",
+                                                       "to": "blacksmith-16vcpu-ubuntu-2404"})
+        self.assertTrue(any("below its 8 vCPU floor" in line for line in lines), lines)
+        value = {runner_pools.DEAD_KEY: {label: "2026-11-18T13:31:07Z" for label in dead},
+                 runner_pools.RAW_HOME_KEY: homes}
+        self.assertEqual(runner_pools.raw_writes(value, live, owned=frozenset()),
+                         [("LINUX_BUILD_RUNNER", "blacksmith-16vcpu-ubuntu-2404", "blacksmith-2vcpu-ubuntu-2404",
+                           "blacksmith-16vcpu-ubuntu-2404 is dead")])
+        # 8 vCPU live again: it takes that, not 2.
+        homes, _ = runner_pools.raw_homes(previous, live, dead - {"blacksmith-8vcpu-ubuntu-2404"}, pools,
+                                          owned=frozenset())
+        self.assertEqual(homes["LINUX_BUILD_RUNNER"]["to"], "blacksmith-8vcpu-ubuntu-2404")
+
+    def test_the_pinned_spill_path_makes_the_same_moves(self) -> None:
+        # Production runs main() through linux_pool_spill.py: a switch that records writes, then the spill re-parses
+        # the recorded RUNNER_POOLS (parse_value()) and writes mirror_writes() over _live() itself.
+        switch = self.outage()
+        self.run_pass(switch, "", self.NOW)
+        recorded = dict(switch.writes)
+        value, dropped = runner_pools.parse_value(recorded["RUNNER_POOLS"], runner_pools.load_pools())
+        self.assertEqual(dropped, [])
+        self.assertIn(runner_pools.RAW_HOME_KEY, value)
+        for name in ("LINUX_BUILD_RUNNER", "LINUX_RUNNER_DARWIN_CROSS"):
+            switch.variables[name] = self.DEAD32  # the recorder never wrote them
+        live, record, readable = runner_pools._live(switch, {})
+        self.assertTrue(readable)
+        writes = dict(runner_pools.mirror_writes(value, live, record=record))
+        self.assertEqual((writes["LINUX_BUILD_RUNNER"], writes["LINUX_RUNNER_DARWIN_CROSS"]),
+                         (self.LIVE16, self.LIVE16))
+
+    def test_malformed_homes_are_dropped(self) -> None:
+        pools = runner_pools.load_pools()
+        for bad in ([], {"LINUX_BUILD_RUNNER": "x"}, {"NOT_A_RAW_VAR": {"home": self.DEAD32, "to": self.LIVE16}},
+                    {"LINUX_BUILD_RUNNER": {"home": "blacksmith-6vcpu-macos-26", "to": self.LIVE16}}):
+            value, dropped = runner_pools.parse_value(json.dumps({runner_pools.RAW_HOME_KEY: bad}), pools)
+            self.assertNotIn(runner_pools.RAW_HOME_KEY, value)
+            self.assertTrue(dropped)
+
+    def test_every_variable_a_main_workflow_reads_ahead_of_a_linux_label_is_covered(self) -> None:
+        # The detector for this class: `vars.X || ...` in an expression that falls back to a Blacksmith Linux label
+        # or a Linux pool. A new such variable must join RAW_LABEL_VARS (or be the mirror or a routing record).
+        # CI_OVERFLOW_LINUX is the overflow switch (tests/test_ci_overflow_switch_routes.py): the watchdog sets it to
+        # an overflow label or deletes it, and runner_pools never moves it.
+        pattern = re.compile(r"vars\.([A-Z0-9_]+) \|\|")
+        linux = re.compile(r"blacksmith-\d+vcpu-ubuntu|RUNNER_POOLS\)\.(?:linux|promotion)")
+        exempt = {*runner_pools.MIRRORS, runner_pools.VARIABLE, runner_pools.OVERFLOW_RECORD, "CI_OVERFLOW_LINUX"}
+        found = set()
+        for path in sorted((ROOT / ".github").rglob("*.y*ml")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if linux.search(line):
+                    found |= {name for name in pattern.findall(line) if not name.startswith("MACOS_")}
+        self.assertTrue(found)
+        self.assertEqual(sorted(found - exempt - set(runner_pools.RAW_LABEL_VARS)), [])
+        self.assertFalse([name for name in runner_pools.RAW_LABEL_VARS if "MACOS" in name])
 
 
-class TruncatedSnapshot(unittest.TestCase):
+
+class TruncatedSnapshot(BlacksmithFailover, unittest.TestCase):
     def test_a_truncated_snapshot_is_no_snapshot_evidence(self) -> None:
         # A janitor sweep that listed part of the queue (queue_janitor.listing_state()) undercounts every pool.
         stalled = copy.deepcopy(RECORDED)
-        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, oldest_queued_minutes=30)
+        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, running=0, oldest_queued_minutes=30)
+        stalled["label_started"] = {}
         dead, _, _ = runner_pools.label_evidence(None, stalled, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
         dead, started, notes = runner_pools.label_evidence(None, dict(stalled, truncated=True), now=NOW)
         self.assertEqual((dead, started), (set(), set()))
         self.assertTrue(any("truncated" in note for note in notes))
+
+    def test_a_truncated_snapshot_still_supplies_its_recent_starts(self) -> None:
+        # 2026-11-18 14:14Z: the snapshot was truncated (the queue outgrew one sweep), the writer dropped all of it,
+        # and with the probes alone (every x64 size but 2 vCPU stalled under the vCPU cap) every Linux pool went
+        # to the 2 vCPU release valve, while its label_started showed 4 and 8 vCPU starting jobs minutes before.
+        four, eight = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"
+        sixteen, thirty_two = "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"
+        two = "blacksmith-2vcpu-ubuntu-2404"
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["generated_at"] = runner_pools.iso(NOW - dt.timedelta(minutes=1))
+        snapshot["truncated"] = True
+        # Its counts are partial: a queue they show must not mark anything dead.
+        snapshot["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, running=0, oldest_queued_minutes=30)
+        snapshot["label_started"] = {four: runner_pools.iso(NOW - dt.timedelta(minutes=2)),
+                                     eight: runner_pools.iso(NOW - dt.timedelta(minutes=1))}
+        probes = health({two: "started", four: "stalled", eight: "stalled", sixteen: "stalled",
+                         thirty_two: "stalled"})
+        dead, started, _ = runner_pools.label_evidence(probes, snapshot, now=NOW)
+        # Its starts count; the probe's stalls do not (#46302): a partial snapshot cannot tell a dead size from
+        # one the vCPU cap keeps full, so they mark nothing dead.
+        self.assertEqual(dead, set())
+        self.assertTrue({four, eight} <= started)
+        self.assertNotIn("blacksmith-6vcpu-macos-26", dead)
+        pools = runner_pools.load_pools()
+        covered = runner_pools.evidence_covers(probes, snapshot, pools, now=NOW)
+        current = {"_dead": {four: runner_pools.iso(NOW - dt.timedelta(minutes=10)),
+                             eight: runner_pools.iso(NOW - dt.timedelta(minutes=10))}}
+        value, _ = runner_pools.reconcile(current, pools, dead_now=dead, served_now=started, now=NOW, covered=covered)
+        self.assertEqual((value["linux"], value["linux_8"], value["linux_16"]), (four, eight, sixteen))
+        self.assertNotEqual(value["linux_32"], two)
+
+
+class CapBound(BlacksmithFailover, unittest.TestCase):
+    """Blacksmith caps the org on vCPUs at once. A size that keeps starting jobs is serving however long a probe
+    waits there, and a size the cap starves moves its jobs down in size, never up (2026-11-17)."""
+
+    FOUR, EIGHT = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"
+    SIXTEEN, THIRTY_TWO = "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"
+
+    def snapshot(self, starts):
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["generated_at"] = runner_pools.iso(NOW - dt.timedelta(minutes=1))
+        snapshot["label_started"] = {label: runner_pools.iso(NOW - age) for label, age in starts.items()}
+        return snapshot
+
+    def test_a_probe_stall_on_a_size_that_keeps_starting_jobs_marks_it_serving(self) -> None:
+        # 02:00:26Z on 2026-11-18: both probes waited out their 5 minutes under the cap, and RUNNER_POOLS marked
+        # 4 vCPU dead while it had completed 11 jobs and ran 6 since 01:05Z.
+        both_stalled = health({self.FOUR: "stalled", self.SIXTEEN: "stalled"})
+        snapshot = self.snapshot({self.FOUR: dt.timedelta(minutes=2)})
+        dead, started, _ = runner_pools.label_evidence(both_stalled, snapshot, now=NOW)
+        self.assertNotIn(self.FOUR, dead)
+        self.assertIn(self.FOUR, started)
+        self.assertIn(self.SIXTEEN, dead)
+        # A start older than RECENT_START is no longer evidence: the probe's stall stands.
+        old = self.snapshot({self.FOUR: runner_pools.RECENT_START + dt.timedelta(minutes=5)})
+        dead, _, _ = runner_pools.label_evidence(both_stalled, old, now=NOW)
+        self.assertIn(self.FOUR, dead)
+        # And a mark already on the serving size clears on the next pass.
+        pools = runner_pools.load_pools()
+        current = {"_dead": {self.FOUR: runner_pools.iso(NOW - dt.timedelta(minutes=5)),
+                             self.SIXTEEN: runner_pools.iso(NOW - dt.timedelta(minutes=5))}}
+        dead, started, _ = runner_pools.label_evidence(both_stalled, snapshot, now=NOW)
+        value, _ = runner_pools.reconcile(current, pools, dead_now=dead, served_now=started, now=NOW,
+                                          covered=runner_pools.evidence_covers(both_stalled, snapshot, pools, now=NOW))
+        self.assertEqual(set(value["_dead"]), {self.SIXTEEN})
+        self.assertEqual(value["linux"], self.FOUR)
+
+    def test_linux_16_moves_down_to_8_vcpu_not_up_to_32(self) -> None:
+        # 00:00-00:48Z on 2026-11-17: 32 vCPU started 1 of 282 jobs while linux_16 named it.
+        pools = runner_pools.load_pools()
+        value, _ = runner_pools.reconcile({}, pools, dead_now={self.SIXTEEN}, served_now={self.FOUR}, now=NOW)
+        self.assertEqual(value["linux_16"], self.EIGHT)
+        self.assertEqual(value["linux_32"], self.THIRTY_TWO)
+        value, _ = runner_pools.reconcile({}, pools, dead_now={self.EIGHT}, served_now={self.FOUR}, now=NOW)
+        self.assertEqual(value["linux_8"], self.FOUR)
+
+    def test_every_linux_pool_fails_over_down_in_size_first(self) -> None:
+        # The detector: a declared pool that lists a larger failover before a smaller one is a spec problem.
+        for name, spec in runner_pools.load_pools().items():
+            with self.subTest(pool=name):
+                self.assertIsNone(runner_pools.grows_before_shrinking(runner_pools.members(spec)))
+        grows = {"x": {"why": "x", "members": [self.SIXTEEN, self.THIRTY_TWO, self.EIGHT]}}
+        self.assertIn("lists blacksmith-8vcpu-ubuntu-2404 after a larger failover",
+                      "\n".join(runner_pools.spec_problems(grows)))
+        self.assertIsNone(runner_pools.grows_before_shrinking([self.SIXTEEN, self.EIGHT, self.FOUR, self.THIRTY_TWO]))
+        self.assertEqual(runner_pools.grows_before_shrinking([self.SIXTEEN, self.FOUR, self.EIGHT]), self.EIGHT)
+        # Only Blacksmith Linux pools of one family: macOS and mixed lists keep their declared order.
+        self.assertIsNone(runner_pools.grows_before_shrinking(["blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"]))
+
+
+
+class RefusedRead(BlacksmithFailover, unittest.TestCase):
+    """A refused snapshot read is asked once more with the workflow token (2026-11-18 11:18Z: the cmux-bot read
+    token got 403, the writer judged on the probe alone, and every Linux pool went to the 2 vCPU release valve)."""
+
+    FOUR, EIGHT = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"
+    SIXTEEN, THIRTY_TWO = "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"
+    TWO = "blacksmith-2vcpu-ubuntu-2404"
+
+    class Refused:
+        def snapshot(self, *, now):
+            raise RuntimeError("HTTP Error 403: Forbidden")
+
+    def pass_with(self, fallback):
+        # The 11:18Z probe: 2 vCPU started, every other size waited out its minutes behind the vCPU cap.
+        switch = Main.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
+            self.TWO: "started", self.FOUR: "stalled", self.EIGHT: "stalled", self.SIXTEEN: "stalled",
+            self.THIRTY_TWO: "stalled"}))})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": ""}, api=self.Refused(), switch=switch, now=NOW,
+                                           **({"fallback": fallback} if fallback is not None else {})), 0)
+        return json.loads(switch.writes[0][1])
+
+    def test_the_fallback_snapshot_keeps_serving_sizes_live(self) -> None:
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["generated_at"] = runner_pools.iso(NOW - dt.timedelta(minutes=1))
+        snapshot["label_started"] = {label: runner_pools.iso(NOW - dt.timedelta(minutes=2))
+                                     for label in (self.FOUR, self.EIGHT, self.SIXTEEN, self.THIRTY_TWO)}
+        value = self.pass_with(Main.Api(snapshot))
+        self.assertEqual(value["_dead"], {})
+        self.assertEqual((value["linux"], value["linux_8"], value["linux_16"], value["linux_32"]),
+                         (self.FOUR, self.EIGHT, self.SIXTEEN, self.THIRTY_TWO))
+
+    class Counting:
+        """A fallback reader that records each read and answers with a fixed result (or raises it)."""
+
+        def __init__(self, result):
+            self.result = result
+            self.calls = 0
+
+        def snapshot(self, *, now):
+            self.calls += 1
+            if isinstance(self.result, Exception):
+                raise self.result
+            return self.result
+
+    def main_output(self, fallback):
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            value = self.pass_with(fallback)
+        return value, out.getvalue()
+
+    def test_a_refused_fallback_still_judges_on_the_probe(self) -> None:
+        fallback = self.Counting(RuntimeError("HTTP Error 403: Forbidden"))
+        value, out = self.main_output(fallback)
+        self.assertEqual(fallback.calls, 1)
+        # Every x64 size but 2 vCPU stalled with no snapshot: a probe stall marks a size dead only beside a fresh
+        # janitor snapshot (#46302), so nothing is marked dead, which is what squeezed every Linux pool
+        # to 2 vCPU at 11:18Z. linux_16 keeps its 16 vCPU member either way (#46366).
+        self.assertEqual(value["_dead"], {})
+        self.assertEqual(value["linux"], self.FOUR)
+        self.assertEqual(value["linux_16"], self.SIXTEEN)
+        self.assertIn("judging on the probe alone", out)
+
+    def test_a_fallback_with_no_snapshot_warns_it_judges_on_the_probe(self) -> None:
+        # GitHub.snapshot() returns None (no trusted snapshot artifact) without raising: that is not a read.
+        fallback = self.Counting(None)
+        value, out = self.main_output(fallback)
+        self.assertEqual(fallback.calls, 1)
+        self.assertEqual(value["_dead"], {})
+        self.assertEqual(value["linux"], self.FOUR)
+        self.assertEqual(value["linux_16"], self.SIXTEEN)
+        self.assertIn("judging on the probe alone", out)
+        self.assertNotIn("janitor snapshot read with the fallback token", out)
+
+    def test_the_fallback_reader_is_built_from_the_workflow_token(self) -> None:
+        # The workflow passes GH_TOKEN (the cmux-bot read token) and GH_FALLBACK_TOKEN (github.token).
+        built = []
+        real = runner_pools.pr_runner_pool.GitHub
+
+        class Recording:
+            def __init__(self, token, repo):
+                built.append((token, repo))
+
+            def snapshot(self, *, now):
+                return None
+
+        switch = Main.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({self.TWO: "started"}))})
+        env = {"RUNNER_POOLS": "", "GH_TOKEN": "bot-token", "GH_FALLBACK_TOKEN": "workflow-token",
+               "GH_REPO": "manaflow-ai/cmux"}
+        runner_pools.pr_runner_pool.GitHub = Recording
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                runner_pools.main([], env, api=self.Refused(), switch=switch, now=NOW)
+            self.assertEqual(built, [("workflow-token", "manaflow-ai/cmux")])
+            # The same token twice is no fallback: nothing more is built.
+            built.clear()
+            with contextlib.redirect_stdout(io.StringIO()):
+                runner_pools.main([], {**env, "GH_FALLBACK_TOKEN": "bot-token"}, api=self.Refused(), switch=switch,
+                                  now=NOW)
+            self.assertEqual(built, [])
+        finally:
+            runner_pools.pr_runner_pool.GitHub = real
+
+
+RUNG = "cmux-freestyle-linux-x64"
+
+
+def gates(as_of, queues):
+    # What cmuxterm-hq's ci_dash writes to CI_FLEET_GATES (fleet_gates_body(), cmuxterm-hq#30170).
+    return {"version": 2, "as_of": runner_pools.iso(as_of), "labels": {},
+            "queues": {label: {"queued": queued, "oldest_queued_s": seconds} for label, (queued, seconds) in queues.items()}}
+
+
+class FleetGates(unittest.TestCase):
+    """A full Freestyle rung is seen from CI_FLEET_GATES (60-120 s fresh), not only the 10-20 min old snapshot."""
+
+    def test_only_a_fresh_reading_of_an_owned_lead_counts(self) -> None:
+        reading = gates(NOW - dt.timedelta(minutes=1), {RUNG: (5, 150), "blacksmith-2vcpu-ubuntu-2404": (9, 900)})
+        as_of, queues = runner_pools.gates_queues(reading, now=NOW)
+        self.assertEqual(as_of, NOW - dt.timedelta(minutes=1))
+        self.assertEqual(queues, {RUNG: (5, 2.5)})
+        for when in (NOW - runner_pools.FLEET_GATES_MAX_AGE - dt.timedelta(seconds=1), NOW + dt.timedelta(minutes=2)):
+            with self.subTest(when=when):
+                self.assertEqual(runner_pools.gates_queues(gates(when, {RUNG: (5, 150)}), now=NOW), (None, {}))
+        for bad in (None, {}, {"as_of": "x", "queues": {}}, {"as_of": runner_pools.iso(NOW), "queues": []},
+                    gates(NOW, {RUNG: ("many", 150)})):
+            with self.subTest(bad=bad):
+                self.assertEqual(runner_pools.gates_queues(bad, now=NOW)[1], {})
+
+    def snapshot(self, oldest_minutes, *, generated=NOW - dt.timedelta(minutes=1)):
+        snapshot = dict(copy.deepcopy(RECORDED), generated_at=runner_pools.iso(generated), label_started={})
+        snapshot["pools"][RUNG] = {"queued": 5, "running": 40, "reserved_queued": 0,
+                                   "oldest_queued_minutes": oldest_minutes}
+        return snapshot
+
+    def test_a_newer_reading_past_two_minutes_marks_the_rung_full(self) -> None:
+        cutoff = runner_pools.OWNED_FREESTYLE_STALL_MINUTES * 60
+        for seconds, full in ((cutoff - 30, False), (cutoff, True), (600, True)):
+            with self.subTest(seconds=seconds):
+                dead, started, notes = runner_pools.label_evidence(
+                    None, self.snapshot(0), now=NOW, gates=gates(NOW - dt.timedelta(seconds=30), {RUNG: (5, seconds)}))
+                self.assertEqual(RUNG in dead, full)
+                self.assertNotIn(RUNG, started)
+                self.assertEqual(any("CI_FLEET_GATES" in note for note in notes), full)
+        # No snapshot (a refused read, an old one): the reading alone still marks it.
+        for snapshot in (None, self.snapshot(0, generated=NOW - dt.timedelta(hours=2))):
+            with self.subTest(snapshot=bool(snapshot)):
+                dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW, gates=gates(NOW, {RUNG: (5, 200)}))
+                self.assertIn(RUNG, dead)
+
+    def test_a_newer_short_wait_replaces_the_snapshots_full_and_an_older_reading_decides_nothing(self) -> None:
+        full_snapshot = self.snapshot(5)
+        self.assertIn(RUNG, runner_pools.label_evidence(None, full_snapshot, now=NOW)[0])
+        dead, _, notes = runner_pools.label_evidence(None, full_snapshot, now=NOW, gates=gates(NOW, {RUNG: (1, 20)}))
+        self.assertNotIn(RUNG, dead)
+        self.assertTrue(any("not full" in note for note in notes))
+        older = gates(NOW - dt.timedelta(minutes=2), {RUNG: (1, 20)})
+        self.assertIn(RUNG, runner_pools.label_evidence(None, full_snapshot, now=NOW, gates=older)[0])
+        older_full = gates(NOW - dt.timedelta(minutes=2), {RUNG: (5, 600)})
+        self.assertNotIn(RUNG, runner_pools.label_evidence(None, self.snapshot(0), now=NOW, gates=older_full)[0])
+
+    def test_a_fresh_reading_covers_the_rung(self) -> None:
+        pools = runner_pools.load_pools()
+        self.assertNotIn(RUNG, runner_pools.evidence_covers(None, None, pools, now=NOW))
+        self.assertIn(RUNG, runner_pools.evidence_covers(None, None, pools, now=NOW, gates=gates(NOW, {RUNG: (0, 0)})))
+
+    def test_main_reads_the_live_variable_and_moves_the_pools_past_a_full_rung(self) -> None:
+        # GCP leads and is full too (its own snapshot wait), so the pools ride the rung until the gates show it full.
+        gcp = "cmux-fleet-linux-x64"
+        snapshot = self.snapshot(0)
+        snapshot["pools"][gcp] = {"queued": 40, "running": 600, "reserved_queued": 0, "oldest_queued_minutes": 30,
+                                  "idle": 0}
+        before = Main.Switch()
+        self.assertEqual(runner_pools.main([], {}, api=Main.Api(snapshot), switch=before, now=NOW), 0)
+        before_value = json.loads(dict(before.writes)["RUNNER_POOLS"])
+        self.assertEqual(before_value["linux"], RUNG)
+        after = Main.Switch({runner_pools.FLEET_GATES_VARIABLE: json.dumps(gates(NOW, {RUNG: (12, 240)}))})
+        self.assertEqual(runner_pools.main([], {}, api=Main.Api(snapshot), switch=after, now=NOW), 0)
+        value = json.loads(dict(after.writes)["RUNNER_POOLS"])
+        self.assertIn(RUNG, value["_dead"])
+        members = runner_pools.load_pools()["linux"]["members"]
+        self.assertEqual(value["linux"], members[members.index(RUNG) + 1])
+
+
+def cut_gates(as_of, finished, cancelled, *, queued=(0, 0)):
+    reading = gates(as_of, {RUNG: queued})
+    reading["queues"][RUNG].update(finished=finished, cancelled_after_start=cancelled, window_s=3 * 3600)
+    return reading
+
+
+class CutShare(unittest.TestCase):
+    """The rung is marked dead when the jobs it starts keep ending cancelled at their timeout, not only on a queue wait
+    (2026-11-26/27: 720 of 2,943 fsr-* jobs, 24%, against 2.1% on the GCP pool)."""
+
+    def test_threshold_and_sample_size(self) -> None:
+        cases = (
+            (2943, 720, True),    # 11-26 06Z..11-27 06Z on fsr-*
+            (486, 51, False),     # fsr-* the 4 h after the 08:31Z mark: 10.5%
+            (27379, 564, False),  # the GCP pool, same 4 h: 2.1%
+            (100, 15, True),      # at the mark
+            (100, 14, False),
+            (runner_pools.CUT_MIN_FINISHED - 1, runner_pools.CUT_MIN_FINISHED - 1, False),  # too few to judge
+            (runner_pools.CUT_MIN_FINISHED, runner_pools.CUT_MIN_FINISHED, True),
+        )
+        for finished, cancelled, dead in cases:
+            with self.subTest(finished=finished, cancelled=cancelled):
+                found = runner_pools.cut_share_dead(cut_gates(NOW, finished, cancelled), now=NOW)
+                self.assertEqual(RUNG in found, dead)
+
+    def test_only_a_fresh_well_formed_row_of_an_owned_lead_counts(self) -> None:
+        stale = NOW - runner_pools.FLEET_GATES_MAX_AGE - dt.timedelta(seconds=1)
+        self.assertEqual(runner_pools.cut_share_dead(cut_gates(stale, 400, 200), now=NOW), {})
+        self.assertEqual(runner_pools.cut_share_dead(gates(NOW, {RUNG: (5, 30)}), now=NOW), {})  # an older publisher
+        for bad in (None, {}, cut_gates(NOW, "many", 200), cut_gates(NOW, 100, 101)):
+            with self.subTest(bad=bad):
+                self.assertEqual(runner_pools.cut_share_dead(bad, now=NOW), {})
+        blacksmith = cut_gates(NOW, 400, 200)
+        blacksmith["queues"] = {"blacksmith-4vcpu-ubuntu-2404": blacksmith["queues"][RUNG]}
+        self.assertEqual(runner_pools.cut_share_dead(blacksmith, now=NOW), {})
+
+    def test_label_evidence_marks_the_rung_full_and_a_start_does_not_clear_it(self) -> None:
+        snapshot = FleetGates.snapshot(FleetGates(), 0)
+        snapshot["label_started"] = {RUNG: runner_pools.iso(NOW - dt.timedelta(minutes=1))}
+        dead, started, notes = runner_pools.label_evidence(None, snapshot, now=NOW, gates=cut_gates(NOW, 400, 120))
+        self.assertIn(RUNG, dead)
+        self.assertNotIn(RUNG, started)
+        self.assertTrue(any("ended cancelled" in note for note in notes))
+        dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW, gates=cut_gates(NOW, 400, 20))
+        self.assertNotIn(RUNG, dead)
+
+    def test_main_writes_the_dead_mark_and_moves_the_pools_off_the_rung(self) -> None:
+        gcp = "cmux-fleet-linux-x64"
+        snapshot = FleetGates.snapshot(FleetGates(), 0)
+        # GCP full (its own snapshot wait), so the pools would ride the rung but for its cut share.
+        snapshot["pools"][gcp] = {"queued": 40, "running": 600, "reserved_queued": 0, "oldest_queued_minutes": 30,
+                                  "idle": 0}
+        healthy = Main.Switch({runner_pools.FLEET_GATES_VARIABLE: json.dumps(cut_gates(NOW, 400, 20))})
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(runner_pools.main([], {}, api=Main.Api(snapshot), switch=healthy, now=NOW), 0)
+        self.assertEqual(json.loads(dict(healthy.writes)["RUNNER_POOLS"])["linux"], RUNG)
+        cut = Main.Switch({runner_pools.FLEET_GATES_VARIABLE: json.dumps(cut_gates(NOW, 2943, 720))})
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(runner_pools.main([], {}, api=Main.Api(snapshot), switch=cut, now=NOW), 0)
+        value = json.loads(dict(cut.writes)["RUNNER_POOLS"])
+        self.assertEqual(value["_dead"].get(RUNG), runner_pools.iso(NOW))
+        members = runner_pools.load_pools()["linux"]["members"]
+        self.assertEqual(value["linux"], members[members.index(RUNG) + 1])
+
+
+class FastWatch(unittest.TestCase):
+    """Between the 10 min passes the watch re-judges the rung from CI_FLEET_GATES every 30 s."""
+
+    def test_due_skips_a_rung_already_marked(self) -> None:
+        reading = gates(NOW, {RUNG: (5, 200)})
+        self.assertEqual(runner_pools.gates_due(reading, None, now=NOW), [RUNG])
+        self.assertEqual(runner_pools.gates_due(reading, json.dumps({"_dead": {RUNG: runner_pools.iso(NOW)}}), now=NOW), [])
+        self.assertEqual(runner_pools.gates_due(gates(NOW, {RUNG: (5, 60)}), None, now=NOW), [])
+        self.assertEqual(runner_pools.gates_due(gates(NOW - dt.timedelta(minutes=9), {RUNG: (5, 900)}), None, now=NOW), [])
+
+    def test_the_watch_ends_before_the_next_scheduled_run(self) -> None:
+        start = dt.datetime(2026, 11, 27, 1, 3, 10, tzinfo=dt.timezone.utc)
+        self.assertEqual(runner_pools.fast_watch_deadline(start), dt.datetime(2026, 11, 27, 1, 9, 40, tzinfo=dt.timezone.utc))
+        early = dt.datetime(2026, 11, 27, 1, 0, 5, tzinfo=dt.timezone.utc)
+        self.assertEqual(runner_pools.fast_watch_deadline(early), early + runner_pools.FAST_WATCH_MAX)
+
+    def watch(self, readings, pools_raw="{}", *, minutes=5):
+        """Run fast_watch() on a fake clock: readings[i] is CI_FLEET_GATES at tick i (the last one repeats)."""
+        clock = [NOW]
+        ticks = []
+        passes = []
+
+        class Switch:
+            def get_variable(self, name):
+                if name == runner_pools.FLEET_GATES_VARIABLE:
+                    reading = readings[min(len(ticks) - 1, len(readings) - 1)]
+                    return None if reading is None else json.dumps(reading(clock[0]))
+                return pools_raw
+
+        def sleep(seconds):
+            clock[0] += dt.timedelta(seconds=seconds)
+            ticks.append(clock[0])
+
+        def run_pass(env, raw):
+            passes.append(clock[0])
+            return 0
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = runner_pools.fast_watch({}, Switch(), clock=lambda: clock[0], sleep=sleep, run_pass=run_pass,
+                                           deadline=NOW + dt.timedelta(minutes=minutes))
+        self.assertEqual(code, 0)
+        return ticks, passes
+
+    def test_a_full_rung_gets_one_pass_within_a_tick(self) -> None:
+        quiet = lambda now: gates(now, {RUNG: (1, 30)})  # noqa: E731
+        full = lambda now: gates(now, {RUNG: (6, 130)})  # noqa: E731
+        ticks, passes = self.watch([quiet, quiet, full])
+        self.assertEqual(len(ticks), 10)
+        self.assertEqual(passes, [NOW + dt.timedelta(seconds=90)])
+        # Nothing due: no pass, and an unreadable reading is only skipped.
+        self.assertEqual(self.watch([quiet, None])[1], [])
+        # Marked already (the 10 min pass did it): no pass.
+        self.assertEqual(self.watch([full], json.dumps({"_dead": {RUNG: runner_pools.iso(NOW)}}))[1], [])
+
+    def test_no_switch_token_is_no_watch(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(runner_pools.fast_watch({}, None, sleep=self.fail), 0)
+
+    def test_the_watch_step_runs_on_schedule_after_the_pass_and_before_the_run_ends(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
+        job = workflow["jobs"]["watch"]
+        steps = job["steps"]
+        [watch] = [s for s in steps if "--fast-watch" in str(s.get("run", ""))]
+        [pools] = [s for s in steps if s.get("id") == "pools"]
+        self.assertIn("github.event_name == 'schedule'", watch["if"])
+        self.assertIn("steps.pools.outcome == 'success'", watch["if"])
+        self.assertTrue(watch["continue-on-error"])
+        self.assertLessEqual(watch["timeout-minutes"], 10)
+        for name in ("SWITCH_TOKEN", "CI_FLEET_GATES", "SPILL_TOOLING", "GH_REPO"):
+            self.assertEqual(watch["env"][name], pools["env"][name], name)
+        self.assertEqual(pools["env"]["CI_FLEET_GATES"], "${{ vars.CI_FLEET_GATES }}")
+        names = [s.get("name") for s in steps]
+        self.assertLess(names.index(pools["name"]), names.index(watch["name"]))
+        self.assertLess(names.index(watch["name"]), names.index("End this run's stuck probe"))
+        # The watch's 9 min still fits the job's limit beside its probe and pass.
+        self.assertGreaterEqual(job["timeout-minutes"], 30)
+
+if __name__ == "__main__":
+    unittest.main()

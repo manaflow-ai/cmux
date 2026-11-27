@@ -13,6 +13,8 @@ import {
   useDocsSearchShortcut,
 } from "@/app/[locale]/components/docs-search-dialog";
 import {
+  docsContentLang,
+  docsContentLangAttributes,
   isSection,
   navItemsForLocale,
   type NavEntry,
@@ -63,6 +65,10 @@ export function DocsNav({
   const navPath = docsNavPath(pathname, locale).replace(/^\/docs\/changelog\/.+$/, "/docs/changelog");
   const page = currentPage(navItemsForLocale(locale, channel), navPath);
   const eyebrow = page?.sectionKey ? t(page.sectionKey) : null;
+  // An English-only page served under another locale says so, language and direction (English
+  // under Arabic must not inherit the root's rtl), on this element itself so its blocks stay the
+  // direct children globals.css's `.docs-content > …` rules style.
+  const contentLang = docsContentLang(navPath, locale);
 
   return (
     <DocsChannelProvider value={channel}>
@@ -132,6 +138,7 @@ export function DocsNav({
             <div
               ref={contentRef}
               className="docs-content text-[15px]"
+              {...docsContentLangAttributes(contentLang, locale)}
               data-docs-page-body
               data-pagefind-body
               data-pagefind-meta="section:Docs"

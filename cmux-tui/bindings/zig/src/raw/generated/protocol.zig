@@ -7,12 +7,14 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298";
+pub const ir_sha256 = "93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
     source: AgentSource,
     state: AgentState,
+    /// What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`.
+    status: wire.Field(AgentState) = .absent,
     surface: Id,
     updated_at_ms: u64,
 };
@@ -2090,6 +2092,25 @@ pub const ZoomPaneResult = struct {
     zoomed: bool,
     zoomed_pane: wire.Nullable(Id),
 };
+
+pub const AckTabNotificationsRequest = struct {
+    surface: Id,
+};
+
+pub const AckTabNotificationsResult = JsonValue;
+
+pub fn ackTabNotifications(client: anytype, request: AckTabNotificationsRequest) !wire.Decoded(AckTabNotificationsResult) {
+    return client.callTyped(
+        AckTabNotificationsResult,
+        .{
+            .name = "ack-tab-notifications",
+            .authority = "control",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
 
 pub const ApplyLayoutRequest = struct {
     cols: wire.Field(u16) = .absent,
@@ -5699,8 +5720,9 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 118;
+pub const command_count: usize = 119;
 pub const commands = [_]CommandDescriptor{
+    .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = null, .stream = null },
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
     .{ .name = "browser-activate", .authority = "frontend", .since = 6, .capability = null, .stream = null },

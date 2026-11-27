@@ -10,13 +10,27 @@ on:
       source_run_id:
         description: "The cmux-next.yml dev daily run whose Release app to publish"
         required: true
+      # Candidate mode (Leo, 2026-11-17: "the whole point is a fresh launch
+      # somebody installing and launching from scratch"): sign, notarize and
+      # staple a DMG of an open same-repository pull request's head so its
+      # fresh install can be measured from a quarantined download. The source
+      # run is a same-tree DEV daily build of that head (the sign job's
+      # "Resolve the source run"). The DMG is only this run's artifact
+      # cmux-next-candidate-pr<N>-<sha>: supersede, publish and tip are
+      # skipped, so no release, feed or appcast ever carries a candidate.
+      pr_head_sha:
+        description: "Candidate mode: the head SHA (40 hex) of an open manaflow-ai/cmux pull request; signs and notarizes its DMG as an artifact only, never published"
+        required: false
+        default: ""
 
 run-name: >-
-  ${{ github.event_name == 'workflow_dispatch' && format('cmux NEXT DEV daily · publish {0}', inputs.source_run_id) || 'cmux NEXT DEV daily' }}
+  ${{ github.event_name == 'workflow_dispatch' && inputs.pr_head_sha != '' && format('cmux NEXT DEV candidate · {0} · source {1}', inputs.pr_head_sha, inputs.source_run_id) || github.event_name == 'workflow_dispatch' && format('cmux NEXT DEV daily · publish {0}', inputs.source_run_id) || 'cmux NEXT DEV daily' }}
 
 permissions: {}
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # Keep the source workflow pinned in the receipt and resolver checks.
   SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml
 
@@ -40,7 +54,7 @@ jobs:
     # temporary directory). The Mac jobs check its output: verify runs codesign
     # on the archive publish ships, and tip runs it before building the DMG.
     # 4 vCPU: packing the app with deflate is CPU-bound.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 30
     permissions:
       actions: read
@@ -49,8 +63,11 @@ jobs:
       signed: ${{ steps.package.outputs.signed }}
       source_sha: ${{ steps.package.outputs.source_sha }}
       build: ${{ steps.stamp.outputs.build }}
+      # Candidate mode only: the open pull request whose head this run signs.
+      pr: ${{ steps.resolve.outputs.pr }}
     env:
       SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
       RELEASE_TAG: cmux-next-dev
       APP_NAME: cmux NEXT DEV
       BUNDLE_ID: com.cmuxterm.app.debug.next
@@ -76,20 +93,34 @@ jobs:
       # 40298877772 failed in "Resolve the source run" with "API rate limit
       # exceeded for installation"). No App (a fork) or a failed mint leaves it
       # empty, and GITHUB_TOKEN reads as before.
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+
       - name: Mint the source-run read token
         id: read-token
         if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-actions: read
           permission-contents: read
 
       - name: Checkout the gh token wrapper from main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -124,13 +155,41 @@ jobs:
       # end, and the next step requires that app-producing job's success. Only
       # completed runs resolved before, so every in-run handoff from 17:52Z to
       # 20:23Z on 2026-10-30 failed here (run 41122647270).
+      #
+      # Candidate mode (pr_head_sha) takes instead a same-tree DEV daily run:
+      # cmux-next.yml dispatched on feat-cmux-next with dev_daily_sha and
+      # same_tree_sha both the head, so its name carries the head while its
+      # head_sha is the feat-cmux-next tip (so the dispatcher and the plain
+      # path below never take it). The head must be the current head of an
+      # open pull request from a branch of this repository, never a fork.
       - name: Resolve the source run
+        id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "error: source run id '$SOURCE_RUN_ID' is not a number" >&2; exit 1; }
+          if [[ -n "${PR_HEAD_SHA:-}" ]]; then
+            [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "error: pr_head_sha '$PR_HEAD_SHA' is not a 40-hex commit" >&2; exit 1; }
+            built="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" --jq '
+              select(.event == "workflow_dispatch" and .head_branch == "feat-cmux-next"
+                     and .path == ".github/workflows/cmux-next.yml"
+                     and (.status == "completed" or .status == "in_progress")
+                     and .head_repository.full_name == env.GH_REPO
+                     and (.name == "cmux NEXT DEV daily · " + env.PR_HEAD_SHA or .display_title == "cmux NEXT DEV daily · " + env.PR_HEAD_SHA))
+              | .id')"
+            [[ "$built" == "$SOURCE_RUN_ID" ]] || { echo "error: run $SOURCE_RUN_ID is not a cmux NEXT DEV daily run of cmux-next.yml on feat-cmux-next that built $PR_HEAD_SHA" >&2; exit 1; }
+            pr="$(gh api "repos/$GH_REPO/commits/$PR_HEAD_SHA/pulls" --jq '
+              [.[] | select(.state == "open" and .head.sha == env.PR_HEAD_SHA
+                            and .head.repo.full_name == env.GH_REPO and .base.repo.full_name == env.GH_REPO)
+               | .number] | first // empty')"
+            [[ "$pr" =~ ^[0-9]+$ ]] || { echo "error: $PR_HEAD_SHA is not the head of an open pull request from a $GH_REPO branch" >&2; exit 1; }
+            echo "SOURCE_SHA=$PR_HEAD_SHA" >> "$GITHUB_ENV"
+            echo "pr=$pr" >> "$GITHUB_OUTPUT"
+            echo "Candidate: source run $SOURCE_RUN_ID built #$pr head $PR_HEAD_SHA"
+            exit 0
+          fi
           sha="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" --jq '
             select(.event == "workflow_dispatch" and .head_branch == "feat-cmux-next"
                    and .path == ".github/workflows/cmux-next.yml"
@@ -195,7 +254,7 @@ jobs:
 
       - name: Checkout trusted signing and updater scripts
         if: steps.source-artifact.outputs.archive != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -308,6 +367,63 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      # "Checkout trusted signing and updater scripts" checks out into the job's root and
+      # deletes .app-token-spread, and the read-token mint's post step (which revokes both
+      # App tokens) runs from that directory. Put it back so the revoke runs.
+      - name: Restore the App token spread action for its token revoke
+        if: always() && steps.read-token.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+
+  # Cancels older publish runs this one supersedes before their Mac jobs
+  # start (scripts/ci/cmux_next_dev_publish_supersede.py has the rule). On
+  # 2026-11-09 13:30Z seven publish runs were open, each with its Linux jobs
+  # done and its Mac jobs queued on glaeda-std-xcode-26.6 (1 of 57 runners
+  # online); the runner owner cancelled four by hand. Publish and tip refuse to
+  # roll back (not_newer), so such an older run can never publish once a newer
+  # source is in flight, yet it holds a Mac queue slot. The oldest waiting run
+  # is kept, being nearest a runner, so the channel still moves when the Mac
+  # wait is longer than the handoff interval: cancelling every older run would
+  # starve it the way a concurrency group did (the sign job's comment). A run
+  # with any job running, or with a newer source, is never cancelled.
+  # It runs once this run has a signed app: a run that publishes nothing
+  # (no app, an ineligible source) supersedes nothing. Nothing needs it, so it
+  # adds no time to verify or publish; and continue-on-error, so a failure here
+  # (the shared API budget) never fails the run, which would make the
+  # dispatcher hand this source over again. No secrets, no app code.
+  supersede:
+    name: Cancel older DEV publish runs this one supersedes
+    needs: sign
+    # A candidate (pr_head_sha) publishes nothing, so it supersedes nothing.
+    if: needs.sign.outputs.signed == 'true' && inputs.pr_head_sha == ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Checkout the supersede script from main
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci/cmux_next_dev_publish_supersede.py
+          sparse-checkout-cone-mode: false
+
+      - name: Cancel superseded publish runs whose Mac jobs have not started
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: python3 -I scripts/ci/cmux_next_dev_publish_supersede.py --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --source-run-id "$SOURCE_RUN_ID"
+
   # Offers verify to the owned Macs (Leo, 2026-10-24: owned Macs before
   # Blacksmith). It runs e2e_runner_pool.py, test-e2e.yml's picker, as
   # iroh-release-gate.yml does: an owned pool on the lane's Xcode pin while
@@ -328,7 +444,7 @@ jobs:
     needs: sign
     if: needs.sign.outputs.signed == 'true'
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 7
     # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
     # and the owned runners through the routing App's own budget.
@@ -356,7 +472,7 @@ jobs:
       # is offered an owned Mac, and only on its first attempt.
       - name: Checkout pool helper
         if: github.repository_owner == 'manaflow-ai'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           sparse-checkout: |
@@ -364,6 +480,7 @@ jobs:
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/simple_pool_picker.py
+            .github/actions/app-token-spread/
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -374,10 +491,12 @@ jobs:
         if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -386,10 +505,12 @@ jobs:
         if: steps.route-token.outcome == 'failure'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
 
       # The Blacksmith macOS 26 label with a moving queue (the queue janitor's snapshot and the one
@@ -461,7 +582,7 @@ jobs:
           if [ "${CLOUD_DEAD:-}" = "true" ] && [ -n "$owned" ]; then
             case "$label" in
               glaeda-*) ;;
-              *) echo "Every Blacksmith macOS 26 label shows dead (picker said '${label:-nothing}'); verify and tip-dmg-build wait on $owned."; label="$owned" ;;
+              *) echo "Every Blacksmith macOS 26 label is taking a breather (picker said '${label:-nothing}'); verify and tip-dmg-build wait on $owned."; label="$owned" ;;
             esac
           fi
           case "$label" in
@@ -563,7 +684,7 @@ jobs:
           fi
 
       - name: Checkout trusted verification scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -634,7 +755,8 @@ jobs:
     # or cancelled verify blocks it (its outputs are empty then, and its result
     # is not success).
     needs: [sign, verify]
-    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.verify.result == 'success' && needs.verify.outputs.verified == 'true' }}
+    # Never a candidate (pr_head_sha): it is not a feat-cmux-next commit.
+    if: ${{ !cancelled() && inputs.pr_head_sha == '' && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.verify.result == 'success' && needs.verify.outputs.verified == 'true' }}
     # No concurrency group (a group replaces a pending run, which the dev-build
     # rule forbids): runs publish side by side, and the newest source commit
     # wins. The check and the write happen inside a lease on R2 (conditional
@@ -642,7 +764,7 @@ jobs:
     # lease outlives the publish step's own timeout on R2's clock, so it is
     # never taken from a run that is still writing.
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     # Room for one wait of up to an hour for the API budget's reset (below).
     timeout-minutes: 75
     permissions:
@@ -659,7 +781,7 @@ jobs:
           path: signed-handoff
 
       - name: Checkout the gh token wrapper from main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -702,7 +824,7 @@ jobs:
           (cd signed-handoff && shasum -a 256 "$APP_ARCHIVE_NAME") > "$RUNNER_TEMP/$APP_ARCHIVE_NAME.sha256"
 
       - name: Checkout trusted R2 scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -965,6 +1087,7 @@ jobs:
       TIP_APPCAST: appcast-arm64.xml
       # Builds the feed keeps; tip-deltas gives the newest deltas from the others.
       TIP_KEEP: "3"
+      PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
       # An owned Mac carries only the lane's Xcode pin, which its label names.
       CMUX_CI_XCODE_APP: ${{ (github.run_attempt == 1 && needs.runner.outputs.dmg_label != '' || github.run_attempt > 1 && needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned != '') && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
@@ -980,7 +1103,7 @@ jobs:
           fi
 
       - name: Checkout trusted feed scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -1014,6 +1137,11 @@ jobs:
           cd "$TIP_WORK_DIR"
           (cd signed-handoff && shasum -a 256 -c "$APP_ARCHIVE_NAME.sha256")
           [[ "$TIP_BUILD" =~ ^[0-9]+$ ]] || { echo "tip build '$TIP_BUILD' is not a number" >&2; exit 1; }
+          if [[ -n "${PR_HEAD_SHA:-}" ]]; then
+            echo "Candidate $PR_HEAD_SHA: a DMG for this run's artifact only; the feed is not read"
+            echo "fresh=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           status="$(curl --silent --show-error --location --retry 3 --output tip-live.xml --write-out '%{http_code}' \
             -H 'Cache-Control: no-cache' "$TIP_BASE_URL/$TIP_APPCAST?build=$TIP_BUILD")"
           if [[ "$status" == 404 ]]; then
@@ -1078,7 +1206,7 @@ jobs:
     # after checking its sha256 against this job's output.
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     name: Build the signer
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1089,7 +1217,7 @@ jobs:
       artifact: rcodesign-${{ github.run_attempt }}
     steps:
       - name: Checkout trusted build scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -1147,7 +1275,7 @@ jobs:
     # one Ed25519 signature (scripts/ci/tip_appcast_linux.py), so the notary
     # wait never holds a Mac and no signing secret reaches one. tip-deltas
     # checks the published DMG with Apple's stapler and spctl.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -1174,7 +1302,7 @@ jobs:
       SIGNER_SHA256: ${{ needs.rcodesign.outputs.sha256 }}
     steps:
       - name: Checkout trusted signing and feed scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -1238,8 +1366,37 @@ jobs:
       # adds them once tip has published this item). The script refuses an
       # app whose build is not TIP_BUILD or whose SUPublicEDKey is not the
       # feed key's public half, and checks the signature with openssl.
+      # Candidate mode: the stapled DMG is this run's artifact and nothing
+      # else. No appcast is made, so tip (which needs ready) publishes nothing.
+      - name: Keep the candidate DMG as this run's artifact
+        id: candidate
+        if: inputs.pr_head_sha != ''
+        env:
+          PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
+          PR_NUMBER: ${{ needs.sign.outputs.pr }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "the sign job named no pull request" >&2; exit 1; }
+          name="cmux-next-candidate-pr$PR_NUMBER-$PR_HEAD_SHA"
+          mkdir -p candidate-out
+          cp "tip-unsigned/$TIP_DMG_NAME" "candidate-out/cmux-NEXT-DEV-candidate-pr$PR_NUMBER-${PR_HEAD_SHA:0:12}.dmg"
+          cp "signed-handoff/$APP_ARCHIVE_NAME.sha256" candidate-out/built-from.sha256
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "Candidate DMG for #$PR_NUMBER at $PR_HEAD_SHA: artifact $name" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the candidate DMG
+        if: steps.candidate.outputs.name != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.candidate.outputs.name }}
+          path: candidate-out/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Generate the full-DMG tip appcast
         id: appcast
+        if: inputs.pr_head_sha == ''
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
           DOWNLOAD_URL_PREFIX: https://files.cmux.com/nightly-next/tip/
@@ -1289,14 +1446,14 @@ jobs:
     needs: [sign, verify, tip-dmg]
     # Like publish, it ships only what verify passed. tip-dmg's outputs are
     # empty unless it finished (continue-on-error never makes them 'true').
-    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != '' && needs.verify.result == 'success' && needs.verify.outputs.verified == 'true' && needs.tip-dmg.outputs.ready == 'true' }}
+    if: ${{ !cancelled() && inputs.pr_head_sha == '' && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != '' && needs.verify.result == 'success' && needs.verify.outputs.verified == 'true' && needs.tip-dmg.outputs.ready == 'true' }}
     # No concurrency group (a group replaces a pending run, which the dev-build
     # rule forbids): tip runs side by side, and the newest build wins. The
     # feed write is a compare-and-swap on R2 (If-Match on the feed it read),
     # so an older build can never overwrite a newer one.
     environment: release
     # Linux: only R2 writes are left here.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1320,7 +1477,7 @@ jobs:
       TIP_KEEP: "3"
     steps:
       - name: Checkout trusted feed scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -1499,7 +1656,7 @@ jobs:
       TIP_KEEP: "3"
     steps:
       - name: Checkout trusted feed scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -1648,3 +1805,45 @@ jobs:
             (( attempt < 5 )) || { echo "the tip feed kept changing under build $TIP_BUILD" >&2; exit 1; }
           done
           echo "### cmux NEXT DEV tip $TIP_BUILD: $(find tip-out -name '*.delta' | wc -l | tr -d ' ') deltas added" >> "$GITHUB_STEP_SUMMARY"
+
+  # Deletes this run's signed app handoff (cmux-next-dev-daily-signed, about 208 MB) once every job that reads it
+  # is done. Only this run's verify, publish, tip-dmg-build and tip-dmg download it, and what outlives the run is
+  # on the release and in R2, yet the upload's 3 days held about 515 copies (about 107 GB) on 2026-11-14: GitHub
+  # keeps an artifact at least a day, so retention alone does not bound a busy handoff. It needs every other job,
+  # so it starts only after the last reader ends. A run with a failed or cancelled job keeps the artifact for its
+  # re-run (and the 3 days still expire it). continue-on-error, like supersede: a failed delete never fails the
+  # run, which would make the dispatcher hand the source over again. Three API calls; no secrets, no checkout.
+  drop-signed-handoff:
+    name: Delete the signed app handoff once its readers are done
+    needs: [sign, supersede, runner, verify, publish, tip-dmg-build, rcodesign, tip-dmg, tip, tip-deltas]
+    if: ${{ always() && needs.sign.outputs.signed == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: write
+    steps:
+      - name: Delete cmux-next-dev-daily-signed from this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # needs.*.result reads a failed continue-on-error job (tip-dmg-build, supersede) as success, and the owned
+          # pool rescue (scripts/ci/owned_pool_rescue.py) or a person re-runs such a job, which downloads the
+          # artifact again. The jobs API has each job's real conclusion: keep it unless every other job of this
+          # attempt succeeded or was skipped.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
+            --jq '.jobs[] | select(.name != "Delete the signed app handoff once its readers are done")
+              | select(.conclusion != "success" and .conclusion != "skipped") | "\(.name): \(.conclusion // .status)"' \
+            > unclean.txt
+          if [[ -s unclean.txt ]]; then
+            echo "keeping cmux-next-dev-daily-signed for a re-run; jobs not clean:"; cat unclean.txt
+            exit 0
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=cmux-next-dev-daily-signed&per_page=10" \
+            --jq '.artifacts[] | "\(.id) \(.size_in_bytes)"' > artifacts.txt
+          [[ -s artifacts.txt ]] || { echo "no cmux-next-dev-daily-signed artifact in this run"; exit 0; }
+          while read -r id size; do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+            echo "deleted cmux-next-dev-daily-signed ($id, $(( size / 1000000 )) MB)" | tee -a "$GITHUB_STEP_SUMMARY"
+          done < artifacts.txt

@@ -47,7 +47,13 @@ BLACKSMITH = "blacksmith-6vcpu-macos-26"
 KEPT = SIGNING | {"verify-signed-nightly", "promote-nightly-next-acked", "await-release-surface-ack",
                   "refresh-compilation-cache", "refresh-test-compilation-cache", "pick-nightly-app-runner",
                   "pick-classic-prepare-runner", "republish-nightly-deltas",
-                  "build-nightly-app", "build-nightly-ghostty-cli-helper"}
+                  "build-nightly-app", "build-nightly-ghostty-cli-helper",
+                  # 2026-11-25: main's keyless decide runs on Linux JIT so a busy or stalled mini
+                  # never holds the hourly cutover (Leo: space NIGHTLY evenly, not 3 at once).
+                  "decide",
+                  # 2026-11-26: keyless and Mac-free, these run on the Linux lane VM in mini mode (Leo: "How about
+                  # freeing up the Mac's from doing things that don't need Mac's asap?").
+                  "resolve-nightly-cmux-tui-client", "pick-classic-sign-runner", "report-nightly-failure"}
 
 
 def want(name: str) -> str:

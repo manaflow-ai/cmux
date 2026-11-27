@@ -1,0 +1,196 @@
+name: cmux-next PR autofix push
+run-name: "PR autofix push for run ${{ github.event.workflow_run.id }} (${{ github.event.workflow_run.head_branch }})"
+
+# The trusted half of cmux-next-pr-autofix.yml (on feat-cmux-next): that workflow's `repair` job makes the
+# pull request's mechanical repairs (generated files, formatting, cargo clippy --fix, pins) with a read-only
+# token and uploads them as the artifact pr-autofix-patch. Its own `push the repairs` job can never run on a
+# pull_request event (a protected environment's secrets are not handed to pull request code; 1aa405bc167d,
+# tests/test_supplychain_security.py), so from 2026-10-20 to this workflow every repair stayed an artifact and
+# each lane pushed again by hand: 657 PR heads red only on a mechanical check in the week of 11-13..19, 534
+# of them pushed again, p50 60 min from the red to that push (cmuxterm-hq
+# docs/ci/bottleneck-and-skip-candidates-2026-11-21.md, section 3).
+#
+# Leo: "WHY IS LINT EVEN STOPPING SHIT INSTEAD OF JUST BEING OOPS"
+#
+# This is the workflow_run broker the push job's comment asked for. A workflow_run workflow always runs the
+# default branch's copy, never the pull request's, so the App key only meets code from main and from the
+# feat-cmux-next base tip:
+#   - the patch is data: the base tip's scripts/cmux-next/pr-autofix-apply.sh decides which paths of it may
+#     land (repair outputs only; never a workflow, manifest or lockfile; with --changed only what the pull
+#     request owns), exactly as the old push job did;
+#   - same-repository pull requests into feat-cmux-next only, whose head is still the head the repair ran on
+#     (a newer push has its own repair run); never main or feat-cmux-next itself;
+#   - no loop: the pushed commit carries an Autofix-Run trailer, and the repair job skips such a head, so its
+#     run uploads no patch and this workflow ends at the lookup.
+# The push uses the PR autofix App's token (contents: write, no workflows permission), so the pull request's
+# checks start on the repaired head (a GITHUB_TOKEN push starts none). vars.CMUX_PR_AUTOFIX_PUSH=0 turns it off.
+# Revert: git revert the commit that added this file; the repairs go back to being an artifact.
+on:
+  workflow_run:
+    workflows: ["cmux-next PR autofix"]
+    types: [completed]
+
+permissions: {}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+  # `workflows:` spells a display name; this is the file behind it (tests/test_ci_workflow_run_sources.py).
+  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next-pr-autofix.yml
+
+# One push at a time per branch; a running push is never cut short (a newer repair run queues behind it and
+# finds the head moved).
+concurrency:
+  group: cmux-next-pr-autofix-push-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  push:
+    name: push the PR autofix repairs
+    if: >-
+      github.repository == 'manaflow-ai/cmux'
+      && (vars.CMUX_PR_AUTOFIX_PUSH || '1') != '0'
+      && github.event.workflow_run.path == '.github/workflows/cmux-next-pr-autofix.yml'
+      && github.event.workflow_run.event == 'pull_request'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.head_branch != 'main'
+      && github.event.workflow_run.head_branch != 'feat-cmux-next'
+    # The environment that holds CMUX_PR_AUTOFIX_APP_ID/KEY. This job runs from main (workflow_run), so its
+    # deployment, if GitHub logs one, is on main's commit, never on the pull request.
+    environment: cmux-pr-autofix
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      # The pull request this run repaired, read now: still open, into feat-cmux-next, from this repository,
+      # and its head still the commit the repair ran on. Anything else ends here (a newer push has its own run).
+      - name: The pull request and its patch
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
+            --jq '[.artifacts[] | select(.name == "pr-autofix-patch" and (.expired | not))] | length')"
+          if [[ "$artifacts" == 0 ]]; then
+            echo "Run $RUN_ID made no repairs; nothing to push." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "push=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          owner="${GITHUB_REPOSITORY%%/*}"
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=$owner:$HEAD_BRANCH&per_page=1" \
+            --jq '.[0] | select(.base.ref == "feat-cmux-next" and .head.repo.full_name == env.GITHUB_REPOSITORY)
+                  | "\(.number) \(.head.sha) \(.head.ref)"')"
+          if [[ -z "$pr" ]]; then
+            echo "No open feat-cmux-next pull request from this repository's $HEAD_BRANCH; nothing to push." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "push=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          read -r number head ref <<< "$pr"
+          if [[ "$head" != "$HEAD_SHA" ]]; then
+            echo "$ref moved to ${head:0:12} after the repair of ${HEAD_SHA:0:12}; the newer push's run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "push=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          { echo "push=true"; echo "number=$number"; echo "ref=$ref"; } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        if: steps.pr.outputs.push == 'true'
+        with:
+          name: pr-autofix-patch
+          path: ${{ runner.temp }}/pr-autofix
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      # The apply script comes from the base branch's tip, as the repair's scripts do: the patch was made by
+      # the pull request's code, and the script decides what of it may be pushed.
+      - name: Check out the base's apply script
+        if: steps.pr.outputs.push == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: refs/heads/feat-cmux-next
+          path: base
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next
+          sparse-checkout-cone-mode: true
+
+      - name: Check out the pull request head
+        if: steps.pr.outputs.push == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          path: head
+          persist-credentials: false
+
+      - name: Apply and commit
+        id: commit
+        if: steps.pr.outputs.push == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR: ${{ steps.pr.outputs.number }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          test "$(git -C head rev-parse HEAD)" = "$HEAD_SHA"
+          if git -C head log -1 --format=%B | grep -q '^Autofix-Run: '; then
+            echo "The head is already an autofix commit; nothing to push." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          apply=base/scripts/cmux-next/pr-autofix-apply.sh
+          # Only what the pull request owns (#21946): its own files, and outputs whose inputs it changed.
+          # The list comes from the files API, not the artifact.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
+          "$apply" "$RUNNER_TEMP/pr-autofix/pr-autofix.patch" head --changed "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_STEP_SUMMARY"
+          if ! git -C head status --porcelain | grep -q .; then
+            echo "Every repair belongs to the base autofix; nothing to push." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          cd head
+          git config user.name "cmux-autofix[bot]"
+          git config user.email "cmux-autofix[bot]@users.noreply.github.com"
+          git add -A
+          git commit --quiet -m "chore(next): PR autofix at ${HEAD_SHA:0:12}" \
+            -m "$(git diff --cached --name-only | sed 's/^/- /')" \
+            -m "Autofix-Run: $RUN_URL"
+          test "$(git rev-parse HEAD^)" = "$HEAD_SHA"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Mint the PR autofix App token
+        id: app-token
+        if: steps.commit.outputs.pushed == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Push to the pull request branch
+        if: steps.commit.outputs.pushed == 'true'
+        working-directory: head
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_REF: ${{ steps.pr.outputs.ref }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          # A plain push, never a force: a newer push to the branch wins, and its run repairs it.
+          if ! git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push --quiet \
+              "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$HEAD_REF"; then
+            echo "::notice::$HEAD_REF moved during the repair; the newer push's run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Pushed $(git rev-parse --short HEAD) to $HEAD_REF (autofixed)." | tee -a "$GITHUB_STEP_SUMMARY"

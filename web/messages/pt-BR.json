@@ -80,6 +80,11 @@
       "message": "Esta máquina está iniciando, pausando ou não está em execução, então não pode fazer isso agora.",
       "action": "Aguarde um momento e tente novamente. Verifique o status da máquina com cmux vm ls e retome-a primeiro se estiver pausada."
     },
+    "hostRecovery": {
+      "title": "O host da máquina está sendo recuperado",
+      "message": "O disco desta máquina está em um host do Cloud que está sendo recuperado, então ela ainda não pode iniciar. Os arquivos dela são mantidos.",
+      "action": "Tente novamente em alguns minutos. Não exclua nem recrie a máquina: o disco dela é mantido e volta com ela. Se ela ainda não iniciar depois de uma hora, entre em contato com o suporte informando o ID de rastreamento."
+    },
     "networkRuleCapacity": {
       "title": "Regras de rede no limite",
       "message": "Sua política de rede foi salva, mas não foi aplicada: o cmux Cloud atingiu a capacidade de regras de rede.",
@@ -199,7 +204,10 @@
     "signupPendingBody": "Se você já tem uma conta, entre usando o método que usou antes. Se acabou de criar uma conta, verifique seu e-mail antes de entrar.",
     "genericTitle": "Não foi possível concluir o login",
     "genericBody": "Tente novamente. Se o problema continuar, entre em contato com o suporte.",
-    "backToSignIn": "Voltar para o login"
+    "backToSignIn": "Voltar para o login",
+    "chatgptLinkTitle": "Entre uma vez para conectar o ChatGPT",
+    "chatgptLinkBody": "Este e-mail já tem uma conta cmux. Entre com o método que você usou antes e o ChatGPT será conectado a essa conta.",
+    "chatgptEmailUnverifiedBody": "O e-mail da sua conta do ChatGPT não está verificado. Verifique-o na OpenAI ou entre de outra forma."
   },
   "cloudPublicationAccess": {
     "title": "Você não tem acesso",
@@ -372,6 +380,7 @@
     "typingCodingAgents": "agentes de código",
     "typingMultitasking": "multitarefa",
     "subtitle": "Terminal nativo macOS gratuito e de código aberto construído sobre o Ghostty. Abas verticais, anéis de notificação quando agentes precisam de atenção, painéis divididos e uma <cliLink>CLI</cliLink> para programabilidade.",
+    "nextCallout": "Novidade: experimente o <link>cmux NEXT</link>, uma prévia do próximo cmux.",
     "features": "Recursos",
     "faq": "Perguntas Frequentes",
     "communitySection": "Comunidade",
@@ -509,7 +518,18 @@
         "grantedBody": "O acesso ao Team foi concedido a {team} pela equipe do cmux. Não há assinatura para gerenciar.",
         "seatsUsed": "{members} de {seats} em uso",
         "overSeat": "{team} tem {members} membros e {seats} assentos pagos. Os assentos seguem o número de membros, então a assinatura é atualizada sozinha.",
-        "addSeats": "Adicionar assentos"
+        "addSeats": "Adicionar assentos",
+        "enterprise": {
+          "current": "Plano atual",
+          "body": "{team} está em um plano personalizado combinado com a equipe do cmux. Fale com a equipe do cmux para alterá-lo.",
+          "price": "Preço",
+          "perMonth": "{amount}/mês",
+          "machines": "Máquinas na nuvem",
+          "pool": "vCPUs / memória compartilhadas",
+          "largest": "Maior máquina",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Sem limite"
+        }
       },
       "teamList": {
         "heading": "Escopos de cobrança",
@@ -965,7 +985,12 @@
         "deleteConfirmBody": "Esta ação é irreversível e exclui todos os dados associados à sua conta.",
         "deleteAcknowledge": "Entendo que minha conta e seus dados serão excluídos permanentemente.",
         "deleteConfirm": "Excluir conta",
-        "deleteError": "Não foi possível excluir a conta. Tente novamente."
+        "deleteError": "Não foi possível excluir a conta. Tente novamente.",
+        "deleteErrorPending": "Sua conta já está sendo excluída. Tente novamente em instantes.",
+        "deleteErrorRetryable": "Não foi possível concluir a exclusão da conta. Verifique sua conexão e tente novamente.",
+        "deleteAppStoreTitle": "Sua assinatura da App Store continuará sendo renovada",
+        "deleteAppStoreBody": "Excluir sua conta do cmux não cancela sua assinatura da App Store. A Apple continuará cobrando até você cancelá-la na App Store.",
+        "deleteAppStoreManage": "Gerenciar assinatura na App Store"
       }
     },
     "teams": {
@@ -1243,7 +1268,10 @@
           "failed": "com falha",
           "paused": "pausada",
           "destroyed": "excluída"
-        }
+        },
+        "wake": "Retomar",
+        "waking": "Retomando…",
+        "wakeError": "Não foi possível retomar esta máquina. Tente novamente."
       },
       "network": {
         "open": "Rede",
@@ -3520,11 +3548,98 @@
   "next": {
     "title": "cmux NEXT NIGHTLY",
     "subtitle": "Builds de prévia do próximo app cmux",
-    "metaTitle": "cmux NEXT NIGHTLY — Builds de prévia",
-    "metaDescription": "Baixe o cmux NEXT NIGHTLY, uma prévia do próximo app cmux compilada automaticamente a partir do último commit. Roda ao lado do cmux com atualizações automáticas próprias.",
+    "metaTitle": "cmux NEXT — Chief e seus agentes de código, em um só app para Mac",
+    "metaDescription": "O cmux NEXT é o próximo cmux para Mac. Diga ao Chief o que você quer fazer: ele inicia agentes de código em espaços de trabalho próprios e avisa você.",
     "description": "O cmux NEXT NIGHTLY é uma prévia da próxima versão do cmux, compilada automaticamente a partir do último commit. Ele é instalado como cmux NIGHTLY (bundle ID com.cmuxterm.app.nightly), então substitui o cmux NIGHTLY e roda ao lado do cmux. Requer um Mac com Apple silicon.",
     "download": "Baixar NEXT NIGHTLY para Mac",
-    "warning": "Builds NEXT NIGHTLY podem conter bugs ou recursos incompletos. Se algo quebrar, relate no <githubLink>GitHub</githubLink> ou em <discordLink>#nightly-bugs no Discord</discordLink> e volte para a versão estável."
+    "warning": "Builds NEXT NIGHTLY podem conter bugs ou recursos incompletos. Se algo quebrar, relate no <githubLink>GitHub</githubLink> ou em <discordLink>#nightly-bugs no Discord</discordLink> e volte para a versão estável.",
+    "landing": {
+      "tagline": "Diga ao Chief o que você quer fazer. Ele cuida dos agentes.",
+      "subtitle": "O cmux NEXT é a próxima versão do cmux: um app nativo para Mac criado sobre o Ghostty. O Chief, seu assistente integrado, inicia agentes de código em espaços de trabalho próprios, acompanha cada um e avisa quando algum precisa de você. Um terminal, um navegador de verdade e diffs ficam ao lado de cada agente.",
+      "requirements": "Apple silicon · macOS 14 ou posterior · Roda junto com o cmux",
+      "featuresTitle": "Recursos",
+      "features": {
+        "chief": {
+          "title": "Chief",
+          "body": "Diga o que você quer fazer. Ele inicia agentes, passa tarefas grandes para subagentes e avisa o resultado."
+        },
+        "home": {
+          "title": "Home",
+          "body": "Uma só lista de chats para o Chief e todos os agentes, com indicadores de não lido quando algum precisa de você."
+        },
+        "agents": {
+          "title": "Qualquer agente de código",
+          "body": "Claude Code, Codex, Gemini CLI, OpenCode, Pi e outros, como chats de verdade, com edições e diffs à vista."
+        },
+        "floating": {
+          "title": "Chief flutuante",
+          "body": "⌘I traz o Chief sobre o espaço de trabalho em que você está. ⌥⇧Space o chama de qualquer app."
+        },
+        "search": {
+          "title": "Busque em tudo",
+          "body": "⌘⇧A encontra espaços de trabalho, abas, chats de agentes, histórico do navegador e comandos anteriores."
+        },
+        "spaces": {
+          "title": "Espaços (Spaces)",
+          "body": "Conjuntos de janelas separados para trabalhos separados. Alterne com ⌃⌥⌘← e →."
+        },
+        "browser": {
+          "title": "Um navegador de verdade",
+          "body": "Chromium em uma aba, com extensões, DevTools e perfis, ao lado dos seus agentes."
+        },
+        "machines": {
+          "title": "Suas máquinas",
+          "body": "Rode espaços de trabalho por SSH ou em máquinas do cmux Cloud que pausam quando ociosas (cmux Pro)."
+        },
+        "history": {
+          "title": "Leve seu histórico",
+          "body": "Importe o histórico do Claude Code e do Codex como chats pesquisáveis e continue de onde parou."
+        },
+        "terminal": {
+          "title": "Terminal Ghostty",
+          "body": "Renderizado por GPU, e lê sua configuração do Ghostty."
+        },
+        "sidebar": {
+          "title": "Sua própria barra lateral",
+          "body": "Adicione seções à barra lateral como listas ou grades, feitas como pequenos apps JavaScript."
+        },
+        "phone": {
+          "title": "iPhone, em beta",
+          "body": "Responda ao pedido de permissão de um agente pelo celular."
+        }
+      },
+      "heroAlt": "cmux NEXT: Home com o Chief à esquerda e um agente Claude Code com seus arquivos editados à direita",
+      "demosTitle": "Veja em ação",
+      "demos": {
+        "docked": {
+          "caption": "Chief acoplado ao lado de um espaço de trabalho.",
+          "alt": "Chief acoplado à direita de um espaço de trabalho de terminal"
+        },
+        "floating": {
+          "caption": "⌘I faz o Chief flutuar sobre o que você estiver fazendo.",
+          "alt": "Chief flutuando sobre um espaço de trabalho de terminal"
+        },
+        "agents": {
+          "caption": "O chat de um agente ao lado do chat do Chief.",
+          "alt": "Uma conversa com um agente ao lado de um chat com o Chief"
+        },
+        "palette": {
+          "caption": "⌘⇧P executa qualquer ação pelo nome.",
+          "alt": "A paleta de comandos aberta sobre uma conversa"
+        },
+        "history": {
+          "caption": "Traga o histórico do Claude Code e do Codex.",
+          "alt": "A tela de importação listando Claude Code, Codex e outras fontes"
+        },
+        "machines": {
+          "caption": "Escolha a máquina em que um grupo de espaços de trabalho roda.",
+          "alt": "Escolhendo a máquina em que um grupo de espaços de trabalho roda"
+        }
+      },
+      "nightlyTitle": "Sobre o NEXT NIGHTLY",
+      "nightlyBody": "Uma nova versão sai toda noite a partir do último commit, e o app se atualiza sozinho.",
+      "iconAlt": "Ícone do cmux NEXT NIGHTLY"
+    }
   },
   "languageSwitcher": {
     "label": "Idioma"
@@ -5661,5 +5776,13 @@
     "unavailableTitle": "Não foi possível confirmar seu login",
     "unavailableBody": "Nosso provedor de login está ocupado. Aguarde alguns segundos e abra o convite novamente. Você não precisa entrar novamente.",
     "retry": "Tentar novamente"
+  },
+  "analyticsConsent": {
+    "label": "Análises",
+    "message": "Podemos usar análises para ver como o site é usado? Nada é coletado e nenhum cookie de análise é definido, a menos que você permita.",
+    "privacy": "Política de privacidade",
+    "accept": "Permitir",
+    "decline": "Não, obrigado",
+    "settings": "Configurações de análises"
   }
 }
