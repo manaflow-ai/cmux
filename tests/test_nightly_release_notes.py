@@ -381,5 +381,38 @@ class AppcastTests(unittest.TestCase):
             self.assertEqual(before, {name: (directory / name).read_bytes() for name in APPCASTS})
 
 
+    def test_arm64_only_track_updates_its_one_feed(self):
+        # #57110: the nightly publishes appcast-arm64.xml alone; four were required and every publish failed.
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.write_feeds(directory)
+            for name in APPCASTS[1:]:
+                (directory / name).unlink()
+            NOTES.update_appcasts(directory, "102", "Fresh notes", ("appcast-arm64.xml",))
+            self.assertEqual(ET.parse(directory / "appcast-arm64.xml").getroot().findtext("channel/item/description"), "Fresh notes")
+
+    def test_arm64_only_track_still_fails_on_a_missing_or_extra_feed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.write_feeds(directory)
+            before = {name: (directory / name).read_bytes() for name in APPCASTS}
+            with self.assertRaises(RuntimeError):
+                NOTES.update_appcasts(directory, "102", "Fresh notes", ("appcast-arm64.xml",))
+            self.assertEqual(before, {name: (directory / name).read_bytes() for name in APPCASTS})
+            (directory / "appcast-arm64.xml").unlink()
+            for name in APPCASTS[1:]:
+                (directory / name).unlink()
+            with self.assertRaises(RuntimeError):
+                NOTES.update_appcasts(directory, "102", "Fresh notes", ("appcast-arm64.xml",))
+
+    def test_every_nightly_publish_names_the_feeds_it_ships(self):
+        root = Path(__file__).resolve().parents[1]
+        for workflow in (".github/workflows/nightly.yml", ".github/workflows/auto-resume-nightly-notarization.yml"):
+            with self.subTest(workflow=workflow):
+                text = (root / workflow).read_text()
+                call = text[text.index("scripts/ci/nightly_release_notes.py \\"):]
+                call = call[:call.index("\n\n")]
+                self.assertIn("--feeds appcast-arm64.xml", call)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
