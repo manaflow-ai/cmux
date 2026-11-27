@@ -980,6 +980,14 @@ path = "tests/test_nightly_next_feed_watch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_precheck_scan.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_tick_request_bound.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_rolling.py"
 lane = "linux-guard"
 

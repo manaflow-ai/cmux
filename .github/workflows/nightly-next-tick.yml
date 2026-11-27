@@ -300,6 +300,7 @@ jobs:
           GH_BUDGET_WAIT_MAX_SECONDS: "300"
           TICK_COMMIT_SECONDS: "330"
           TICK_WALK_BUDGET_SECONDS: "900"
+          TICK_SCAN_SECONDS: "180"
         run: |
           set -euo pipefail
           # The tip's cmux-tui tree is often still publishing, so walk back
@@ -356,16 +357,48 @@ jobs:
           SH
           chmod +x "$GH_TICK_CACHE/bin/gh"
           export PATH="$GH_TICK_CACHE/bin:$PATH"
-          dedupe=""
-          if line="$(timeout -k 5 60 git ls-remote origin refs/heads/nightly-next 2>/dev/null)" \
-             && git cat-file -e "${line%%[[:space:]]*}^{commit}" 2>/dev/null; then
-            dedupe=1
+          dedupe="" promoted="" published=""
+          if refs="$(timeout -k 5 60 git ls-remote origin refs/heads/nightly-next refs/tags/nightly-next 'refs/tags/nightly-next^{}' 2>/dev/null)"; then
+            promoted="$(awk '$2 == "refs/heads/nightly-next" {print $1}' <<<"$refs")"
+            published="$(awk '$2 == "refs/tags/nightly-next^{}" {print $1}' <<<"$refs")"
+            [[ -n "$published" ]] || published="$(awk '$2 == "refs/tags/nightly-next" {print $1}' <<<"$refs")"
+            git cat-file -e "${promoted:-0}^{commit}" 2>/dev/null && dedupe=1 || promoted=""
           fi
+          # 4. The precheck first, for the whole walk (scripts/ci/nightly_next_precheck_scan.py): each
+          #    commit's script searched for its cmux-tui tree, and for an older one when its own was
+          #    missing (older-tree-for-tip.sh, a CDN walk of about 80 commits), before it read the
+          #    build fleet's Release compile verdict. Tick 45821041380 (2026-11-26 12:38Z) refused 15
+          #    commits at 82-101 s each, "not prechecked yet" on every one, spent its 900 s and
+          #    promoted nothing while an older commit was promotable. The scan reads the same
+          #    verdicts once (about 150 reads of about 60 ms, in parallel), and the walk passes over
+          #    a commit its script would refuse on the precheck without running it, so it reaches
+          #    the newest prechecked commit (on a compile break, the newest green one) at once. An
+          #    asked commit's script still runs every check. A scan that fails or does not answer
+          #    in TICK_SCAN_SECONDS asks every commit, as before.
+          plan="$RUNNER_TEMP/precheck-plan.txt"
+          : > "$plan"
+          scan_started=$SECONDS
+          if ! timeout -k 5 "${TICK_SCAN_SECONDS:-180}" python3 .tick-tooling/scripts/ci/nightly_next_precheck_scan.py \
+              --repo "$GITHUB_REPOSITORY" --commits 120 --promoted "$promoted" --published "$published" > "$plan.tmp"; then
+            echo "::warning title=nightly-next tick::the precheck scan failed; every commit is asked"
+            : > "$plan.tmp"
+          fi
+          mv "$plan.tmp" "$plan"
+          echo "precheck scan: $(grep -c ' ask ' "$plan" || true) to ask, $(grep -c ' skip ' "$plan" || true) passed over, in $((SECONDS - scan_started))s"
           asked_keys=" "
           walk_started=$SECONDS
           for sha in $(git rev-list --first-parent -n 120 HEAD); do
             if (( SECONDS - walk_started >= ${TICK_WALK_BUDGET_SECONDS:-900} )); then
               echo "::notice title=nightly-next tick::walk budget of ${TICK_WALK_BUDGET_SECONDS:-900}s spent before ${sha:0:12}; the next tick walks again"
+              break
+            fi
+            verdict="$(awk -v s="$sha" '$1 == s {print $2; exit}' "$plan")"
+            if [[ "$verdict" == skip ]]; then
+              echo "not promoting ${sha:0:12}: $(awk -v s="$sha" '$1 == s {$1 = ""; $2 = ""; sub(/^  /, ""); print; exit}' "$plan") (read before the walk; its request was not run)" | tee -a "$refusals"
+              continue
+            fi
+            if [[ "$verdict" == stop ]]; then
+              echo "not requesting ${sha:0:12}: it is already on nightly-next (${promoted:0:12}); the walk ends"
               break
             fi
             git checkout -q --detach "$sha"
