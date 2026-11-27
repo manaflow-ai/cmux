@@ -211,9 +211,11 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+    # statuses: its full-carry job (scripts/ci/head_tier.py) asks for it.
     permissions:
       actions: read
       contents: read
+      statuses: read
 
   web:
     needs: plan

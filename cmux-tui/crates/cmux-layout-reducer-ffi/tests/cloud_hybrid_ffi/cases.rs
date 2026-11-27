@@ -218,6 +218,25 @@ fn a_computer_status_needs_its_session_and_reads_a_live_hybrid_show() {
 }
 
 #[test]
+fn the_live_status_reads_the_headers_facts_and_the_drivers_show() {
+    let moving = json!({
+        "session": "s1",
+        "at": "local",
+        "move": {"direction": "toCloud", "trigger": "person", "state": "moving", "startedMs": 8,
+                 "canCancel": true}
+    });
+    let (code, status) = call(c"cloud_computer_status_live", &moving);
+    assert_eq!(code, OK);
+    assert_eq!((&status["phase"], &status["home"]), (&json!("moving"), &json!("this_mac")));
+    assert_eq!(status["why"], json!({"at_ms": 8, "reason": "person_moved"}));
+    // No `start` sent and a sessions folder with no driver log: no hybrid start, running.
+    let dir = std::env::temp_dir().join(format!("cmux-status-live-{}", std::process::id()));
+    let ask = json!({"session": "s1", "stateDir": dir});
+    assert_eq!(call(c"cloud_computer_status_live", &ask).1["phase"], "running");
+    assert_eq!(call(c"cloud_computer_status_live", &json!({"at": "cloud"})).0, ERR_INVALID);
+}
+
+#[test]
 fn the_balance_simulates_each_place_and_picks_one() {
     let kept = json!({"folderBytes": 500_000_000u64, "headBytes": 5_000_000u64,
                       "uploadBytesPerSec": 5_000_000u64, "wakeMs": 8_000, "keepRunning": true});
