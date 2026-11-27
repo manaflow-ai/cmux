@@ -107,17 +107,35 @@ pub fn needs_click(click_only: bool, ruled: bool, needs_gesture: bool) -> bool {
 /// normalized question) is an object is a question; its items' ids and
 /// prompts are the keys its `answers` may use ([`Self::question_keys`]). A
 /// permission seen once without a question is no question.
-#[derive(Default)]
-pub struct PermissionOptions {
-    denies: Mutex<HashMap<String, HashMap<String, bool>>>,
+#[derive(Clone, Default)]
+struct State {
+    denies: HashMap<String, HashMap<String, bool>>,
     /// permissionId -> the item ids and prompts of its question; None once a
     /// request without a question was seen for it.
-    questions: Mutex<HashMap<String, Option<BTreeSet<String>>>>,
+    questions: HashMap<String, Option<BTreeSet<String>>>,
+}
+
+#[derive(Default)]
+pub struct PermissionOptions {
+    /// Questions and deny/allow observations share one generation. Keeping
+    /// them behind one lock prevents a checker from combining a question from
+    /// one daemon frame with options from another.
+    state: Mutex<State>,
 }
 
 impl PermissionOptions {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// An independent view of the observations at one point in time. Future
+    /// daemon frames update only the source, never this snapshot.
+    pub fn snapshot(&self) -> Self {
+        Self {
+            state: Mutex::new(
+                self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone(),
+            ),
+        }
     }
 
     /// Records the options in a parsed daemon frame; `reply_to` is the
@@ -188,21 +206,20 @@ impl PermissionOptions {
             }
             Some(_) => return,
         }
-        if !asked.is_empty() {
-            let mut questions =
-                self.questions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            for (permission, keys) in asked {
-                let before = questions.get(&permission).cloned().unwrap_or(Some(BTreeSet::new()));
-                let merged = before.and_then(|old| keys.map(|new| &old | &new));
-                questions.insert(permission, merged);
-            }
-        }
-        if found.is_empty() {
+        if asked.is_empty() && found.is_empty() {
             return;
         }
-        let mut denies = self.denies.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !asked.is_empty() {
+            for (permission, keys) in asked {
+                let before =
+                    state.questions.get(&permission).cloned().unwrap_or(Some(BTreeSet::new()));
+                let merged = before.and_then(|old| keys.map(|new| &old | &new));
+                state.questions.insert(permission, merged);
+            }
+        }
         for (permission, option, deny) in found {
-            let options = denies.entry(permission).or_default();
+            let options = state.denies.entry(permission).or_default();
             let before = options.get(&option).copied().unwrap_or(true);
             options.insert(option, before && deny);
         }
@@ -212,8 +229,8 @@ impl PermissionOptions {
     /// and prompts; None when the pane never saw it as a question (a tool
     /// permission, or an unknown one).
     pub fn question_keys(&self, permission: &str) -> Option<BTreeSet<String>> {
-        let questions = self.questions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        questions.get(permission).cloned().flatten()
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.questions.get(permission).cloned().flatten()
     }
 
     /// True only when the pane saw `permission` offer `option` and not every
@@ -221,14 +238,14 @@ impl PermissionOptions {
     /// permission answer's ticket only for such an option. An option the pane
     /// never saw is no known allow (and no known deny).
     pub fn is_known_allow(&self, permission: &str, option: &str) -> bool {
-        let denies = self.denies.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        denies.get(permission).and_then(|o| o.get(option)).copied() == Some(false)
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.denies.get(permission).and_then(|o| o.get(option)).copied() == Some(false)
     }
 
     /// True only when `option` is a known deny of `permission`.
     pub fn is_deny(&self, permission: &str, option: &str) -> bool {
-        let denies = self.denies.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        denies.get(permission).and_then(|o| o.get(option)).copied() == Some(true)
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.denies.get(permission).and_then(|o| o.get(option)).copied() == Some(true)
     }
 }
 
