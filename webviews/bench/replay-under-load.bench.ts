@@ -298,8 +298,11 @@ async function run(): Promise<Reading> {
       // layout-motion audit (devMotionAudit.ts), which sampled every box each frame and was ~8% of this reading.
       `&scheme=cmux`;
     const consoleTail: string[] = [];
-    page.on("console", (m) => consoleTail.push(`${m.type()}: ${m.text()}`.slice(0, 300)));
+    page.on("console", (m) => consoleTail.push(`${m.type()}: ${m.text()} @${m.location().url}`.slice(0, 300)));
     page.on("pageerror", (e) => consoleTail.push(`pageerror: ${e.message}`.slice(0, 300)));
+    page.on("response", (r) => {
+      if (r.status() >= 400) consoleTail.push(`http ${r.status()}: ${r.url()}`.slice(0, 300));
+    });
     await page.goto(url);
     try {
       await page.locator(PAINTER === "dom-floor" ? "#painter" : ".acpmux-scroll").waitFor({ timeout: 120_000 });
@@ -311,7 +314,8 @@ async function run(): Promise<Reading> {
     }
     const want = PAINTER === "worker" ? 2 : 1;
     for (let tries = 0; sockets.size < want && tries < 600; tries++) await page.waitForTimeout(50);
-    if (sockets.size < want) throw new Error(`${log.name}: the pane never attached`);
+    if (sockets.size < want)
+      throw new Error(`${log.name}: the pane never attached; console: ${consoleTail.slice(-30).join(" | ")}`);
 
     // ---------- the replay: RATE records a second on the stand-in's clock, never waiting on a frame ----------
     let sent = 0;

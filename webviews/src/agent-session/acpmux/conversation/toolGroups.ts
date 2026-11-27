@@ -114,10 +114,26 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
 /// `forumLook` is the `forum-call-card` arm (forumCall.experiment.ts): off, the default, keeps an
 /// `agent-forum` shell call a shell row. ToolRows passes the arm it follows live, so a Settings switch
 /// regroups at once.
+/// A row's groups per items array (each record copies the array): toolGroups below.
+const groupsByItems = new WeakMap<readonly AcpmuxActivity[], { look: ForumCallLook; groups: ToolGroup[] }>();
+
 export function toolGroups(
   items: readonly AcpmuxActivity[],
   forumLook: ForumCallLook = experimentArm(forumCallLook),
 ): ToolGroup[] {
+  // The groups are a function of the items (an immutable array per row version) and the arm alone,
+  // so a row's groups are worked out once per version. Uncached, every placement pass grouped each
+  // activity row again (model.ts `fallbackRowHeight` < `layoutConversation`, and turns.ts and
+  // runParts.ts in the same render): 22 ms per 30 s of TranscriptView's render on an 8 vCPU runner
+  // under 4x-cores load (goal visible-frame-p95-under-load, run 46009794254). Callers only read them.
+  const kept = groupsByItems.get(items);
+  if (kept && kept.look === forumLook) return kept.groups;
+  const groups = groupItems(items, forumLook);
+  groupsByItems.set(items, { look: forumLook, groups });
+  return groups;
+}
+
+function groupItems(items: readonly AcpmuxActivity[], forumLook: ForumCallLook): ToolGroup[] {
   const groups: ToolGroup[] = [];
   // One turn's bounded, transcript-recorded message files. A later Bash `acpmux send - <file>`
   // may use a body written by an earlier Bash call; no host filesystem read is allowed here.
