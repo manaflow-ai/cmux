@@ -84,6 +84,18 @@ class JobOwnHome(unittest.TestCase):
                 missing.append(name)
         self.assertEqual(missing, [], "jobs that set up Bun before scripts/ci/job-own-home.sh")
 
+    def test_the_step_skips_when_its_job_never_checked_out(self) -> None:
+        # A gated-off job (CMUX_VM_DEPLOY_ENABLED != 1) has no checkout, so an unguarded step exits 127.
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        unguarded = [
+            name
+            for name, job in jobs.items()
+            for s in job.get("steps") or []
+            if "scripts/ci/job-own-home.sh" in str(s.get("run", ""))
+            and str(s.get("if", "")).replace('"', "'") != "hashFiles('scripts/ci/job-own-home.sh') != ''"
+        ]
+        self.assertEqual(unguarded, [], "jobs whose own-home step runs without the script checked out")
+
 
 if __name__ == "__main__":
     unittest.main()

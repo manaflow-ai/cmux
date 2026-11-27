@@ -273,6 +273,8 @@ jobs:
           full "no earlier passed check on the same code"
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -499,6 +501,8 @@ jobs:
           persist-credentials: false
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -568,6 +572,8 @@ jobs:
           persist-credentials: false
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -748,6 +754,8 @@ jobs:
           persist-credentials: false
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -832,6 +840,8 @@ jobs:
           persist-credentials: false
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -1000,6 +1010,8 @@ jobs:
             tests/fixtures/model-stub
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -1118,6 +1130,8 @@ jobs:
           persist-credentials: false
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -1230,6 +1244,8 @@ jobs:
           fetch-depth: 50
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -1514,6 +1530,8 @@ jobs:
           persist-credentials: false
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -1571,6 +1589,8 @@ jobs:
           persist-credentials: false
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -1615,6 +1635,8 @@ jobs:
           persist-credentials: false
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -1676,6 +1698,8 @@ jobs:
           persist-credentials: false
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -1754,6 +1778,8 @@ jobs:
             !/cmux-next-ios/verify/
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -1834,6 +1860,8 @@ jobs:
           persist-credentials: false
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -1894,6 +1922,8 @@ jobs:
           persist-credentials: false
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
@@ -1951,6 +1981,8 @@ jobs:
           persist-credentials: false
       # A pool runner whose own-home bind is missing writes runner 1's HOME and fails EACCES (scripts/ci/job-own-home.sh).
       - name: Give this job a HOME and Bun temp dir it can write
+        # A gated-off job never checks out, so the script is absent; skip like its checkout did.
+        if: hashFiles('scripts/ci/job-own-home.sh') != ''
         shell: bash
         working-directory: .
         run: bash "$GITHUB_WORKSPACE/scripts/ci/job-own-home.sh"
