@@ -11,6 +11,11 @@ The next full `scripts/update-spec.sh` refresh supersedes these entries.
   fields and redeem endpoint already match that contract. Browser enrollment
   sends `platform: "web"` and `capabilities: []`; it does not request vault
   access, replacement privileges, or a daemon identity.
+- `POST /v1/machines/{id}/fork` request body `size`: the optional ladder
+  enum (`sm`, `md`, `lg`, `xl`, `2xl`) from `manaflow-ai/cmux-platform`
+  `openapi.json` at PR #2323 (RFD 0144 piece 8). The copy starts at that size,
+  never smaller than the source. An older hub refuses the field with 400; the
+  run VM then runs here, as any refused fork does.
 
 `tests/web_redeem.rs` exercises the generated client's actual HTTP request,
 success response, old-hub refusals and redirects. A merged platform schema is
