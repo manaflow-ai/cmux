@@ -55,8 +55,8 @@ class NextLineTests(unittest.TestCase):
     def tearDown(self):
         self.directory.cleanup()
 
-    def line(self, event, base_ref, base_sha):
-        result = subprocess.run([str(SCRIPT), event, base_ref, base_sha], cwd=self.clone,
+    def line(self, event, base_ref, base_sha, ref_name=""):
+        result = subprocess.run([str(SCRIPT), event, base_ref, base_sha, ref_name], cwd=self.clone,
                                 capture_output=True, text=True, check=True)
         return result.stdout.strip()
 
@@ -74,6 +74,14 @@ class NextLineTests(unittest.TestCase):
     def test_other_events_are_not(self):
         self.assertEqual(self.line("merge_group", "", self.next_sha), "false")
         self.assertEqual(self.line("workflow_dispatch", "", ""), "false")
+        self.assertEqual(self.line("workflow_dispatch", "", "", "main"), "false")
+
+    def test_a_dispatch_on_feat_cmux_next_is_on_the_line(self):
+        # The hourly full tier dispatches ci.yml on feat-cmux-next (.github/hourly-full-tier.json);
+        # it routes like a feat-cmux-next pull request, not through the legacy lanes.
+        self.assertEqual(self.line("workflow_dispatch", "", "", "feat-cmux-next"), "true")
+        # A pull request's ref is its merge ref; only its base decides.
+        self.assertEqual(self.line("pull_request", "main", self.main_sha, "feat-cmux-next"), "false")
 
     def test_an_unreadable_base_runs_the_legacy_lanes(self):
         self.assertEqual(self.line("pull_request", "leo/x", "not-a-sha"), "false")
