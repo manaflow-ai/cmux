@@ -2590,7 +2590,9 @@ class FeedReplyFullText(unittest.TestCase):
 class SmallMacChecks(unittest.TestCase):
     """Host-only checks use the shared Mac pool on same-repository runs and an ephemeral Mac on forks."""
 
-    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"), ("pr-pipeline.yml", "ios-macos"))
+    # RFD 0165: the pipeline's host-only Mac leg ignores the Blacksmith overflow switch.
+    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch", FALLBACK),
+            ("pr-pipeline.yml", "ios-macos", CMUX_MAC))
 
     def context(self, event: str = "pull_request", attempt: str = "1", owned: str = "1",
                 head: str = "manaflow-ai/cmux", owner: str = "manaflow-ai", overflow: str = "") -> dict:
@@ -2600,14 +2602,14 @@ class SmallMacChecks(unittest.TestCase):
         return context
 
     def test_own_branch_runs_take_cmux_mac_and_a_fork_blacksmith(self):
-        for name, job in self.JOBS:
+        for name, job, overflow_route in self.JOBS:
             runs_on = runs_on_route(yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"][job], job)
             with self.subTest(workflow=name):
                 for event in ("pull_request", "push", "workflow_dispatch"):
                     self.assertEqual(evaluate(runs_on, self.context(event=event)), CMUX_MAC, event)
                 self.assertEqual(evaluate(runs_on, self.context(attempt="2")), CMUX_MAC)
                 self.assertEqual(evaluate(runs_on, self.context(owned="0")), CMUX_MAC)
-                self.assertEqual(evaluate(runs_on, self.context(overflow=FALLBACK)), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context(overflow=FALLBACK)), overflow_route)
                 self.assertEqual(evaluate(runs_on, self.context(head="someone/cmux")), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context(owner="someone")), "macos-26")
 
