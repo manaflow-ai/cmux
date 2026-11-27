@@ -1320,11 +1320,15 @@ class WorkflowTests(unittest.TestCase):
     def test_never_reads_a_lane_switch(self) -> None:
         # The switch never reads or changes a lane switch. One exception, read-only and outside the switch: the
         # pools step hands CI_OWNED_POOL_SLOTS to expected_wait.py, which judges an owned family's expected wait
-        # by its slots (cmuxterm-hq#16113 step 3) and never writes it.
-        [pools] = [step for step in yaml.safe_load(self.text)["jobs"]["watch"]["steps"] if step.get("id") == "pools"]
+        # by its slots (cmuxterm-hq#16113 step 3) and never writes it. The fast watch after it reruns that same pass
+        # (runner_pools.fast_watch()), so it hands the same value on.
+        steps = yaml.safe_load(self.text)["jobs"]["watch"]["steps"]
+        [pools] = [step for step in steps if step.get("id") == "pools"]
+        [watch] = [step for step in steps if "--fast-watch" in str(step.get("run", ""))]
         self.assertEqual(pools["env"].get("CI_OWNED_POOL_SLOTS"), "${{ vars.CI_OWNED_POOL_SLOTS }}")
+        self.assertEqual(watch["env"].get("CI_OWNED_POOL_SLOTS"), "${{ vars.CI_OWNED_POOL_SLOTS }}")
         slots_line = "          CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}"
-        self.assertEqual(self.text.splitlines().count(slots_line), 1)
+        self.assertEqual(self.text.splitlines().count(slots_line), 2)
         code = "\n".join(line for line in self.text.splitlines()
                          if not line.lstrip().startswith("#") and line != slots_line)
         for name in LANE_SWITCHES:
@@ -1481,8 +1485,11 @@ class ReadTokenTests(unittest.TestCase):
         [pools] = [s for s in steps if s.get("id") == "pools"]
         self.assertEqual(pools["env"]["RUNNER_ADMISSION_RUNNERS_TOKEN"], "${{ steps.runners-token.outputs.token }}")
         self.assertLess(steps.index(mint), steps.index(pools))
+        # The fast watch reruns the pools step's pass (runner_pools.fast_watch()) with the same read.
+        [watch] = [s for s in steps if "--fast-watch" in str(s.get("run", ""))]
+        self.assertEqual(watch["env"]["RUNNER_ADMISSION_RUNNERS_TOKEN"], pools["env"]["RUNNER_ADMISSION_RUNNERS_TOKEN"])
         for other in steps:
-            if other is not pools:
+            if other is not pools and other is not watch:
                 self.assertNotIn("runners-token", json.dumps(other.get("env", {})), other.get("name"))
         [spill] = [s for s in steps if s.get("id") == "spill-tooling"]
         self.assertIn("f95bc766b1fc840ab8817e4d9bb61348a2084b07", spill["with"]["ref"])
