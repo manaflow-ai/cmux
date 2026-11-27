@@ -586,9 +586,12 @@ final class TabCell {
         if let closeRect {
             let appearing = !hasCloseLayers
             let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
-            closeBackgroundLayer.frame = closeRect
-            // Helium's own corner on its x square (not nested in the pill), and its stroke, at every density.
-            closeBackgroundLayer.cornerRadius = m.closeCornerRadius
+            // The plate is centered on the x's slot and nests in the pill: as far from the pill's top, bottom and end
+            // as its corner is smaller than the pill's (``TabStripMetrics/closePlateSide``), on a squeezed pill no taller.
+            let plateSide = min(m.closePlateSide, bounds.height)
+            closeBackgroundLayer.frame = CGRect(x: pixel(closeRect.midX - plateSide / 2), y: pixel(midY - plateSide / 2),
+                                                width: plateSide, height: plateSide)
+            closeBackgroundLayer.cornerRadius = min(m.closeCornerRadius, plateSide / 2)
             closeGlyphLayer.lineWidth = m.closeGlyphLineWidth
             let inset = (closeRect.width - m.closeGlyphInk) / 2 + m.closeGlyphPathInset
             let glyph = closeRect.insetBy(dx: inset, dy: inset)

@@ -73,9 +73,13 @@ public nonisolated struct BrowserChromeTuning {
         switch metric {
         case .rowHeight, .rowGap: return metric.token.flatMap { tokens.tokens[$0] }.map { CGFloat($0) } ?? 0
         case .closeSize: return half(share(14, of: sizeRow) * factor)
-        case .closeCorner: return half(half(share(14, of: sizeRow) * 4 / 14) * factor)
+        case .closeCorner:
+            let radius = tokens.tokens["tabCornerRadius"].map { CGFloat($0) } ?? (row * 8 / 28).rounded()
+            return closePlate(pillHeight: row, pillRadius: radius, minimumSide: half(share(14, of: sizeRow) * factor)).corner
         case .closeInk: return half(share(8, of: sizeRow) * factor)
-        case .closeTrailing: return half(share(6, of: sizeRow) * factor)
+        // The x's slot centered a half row in from the pill's end, so its plate (``closePlate``) sits as far from the
+        // pill's end as from its top and bottom.
+        case .closeTrailing: return max(0, (row - half(share(14, of: sizeRow) * factor)) / 2)
         case .closeHoverOpacity: return 16 // tab_close_button.cc's highlight opacity, at every density
         // The omnibar's own tokens where the density sets them (its bar can differ from the tab row: 28 on 29 at Default).
         case .chipLeading:
@@ -107,6 +111,20 @@ public nonisolated struct BrowserChromeTuning {
         guard chromeColumn else { return half(bar * 31 / 28) }
         let chip = chipLeading(bar: bar, chromeColumn: true)
         return chip + (bar - 4) + max(5, (bar * 42 / 30 - chip - (bar - 4)).rounded()) + 3
+    }
+
+    /// The tab x's hover plate in a pill `height` tall with corner `radius` (Lawrence msg 48706: "match helium in terms of
+    /// shape + hover ... and be concentric with the tab roundness itself"). Helium's 14 pt square with a 4 pt corner at its
+    /// Default density cannot nest in its 8 pt tab corner; its Spacious one can and does (tab_close_button.cc on a 32 pt
+    /// tab: `Insets(1)` gives a 24 pt plate 4 pt inside the pill, rounded 4 = 8 - 4). That plate at every density: set
+    /// half the pill's corner in from its top, bottom and end (2 pt at least), rounded with what is left of the corner
+    /// (``ConcentricCorners``), never smaller than `minimumSide`. A capsule tab gets a circle.
+    public static func closePlate(pillHeight height: CGFloat, pillRadius radius: CGFloat, minimumSide: CGFloat) -> (side: CGFloat, corner: CGFloat) {
+        let outer = max(0, min(radius, height / 2))
+        let side = max(minimumSide, height - 2 * max(2, outer / 2))
+        let corners = ConcentricCorners(outer: outer, padding: 0)
+        let corner = corners.radius(fitting: CGSize(width: side, height: side), radius: corners.nested(in: outer, inset: (height - side) / 2))
+        return (side, corner)
     }
 
     /// `points` of Helium's 28 pt row as the same share of `row`, in half points.
