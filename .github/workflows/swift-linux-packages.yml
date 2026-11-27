@@ -30,6 +30,13 @@ on:
       - Packages/**
       - vendor/stack-auth-swift-sdk-prerelease/**
       - cmux-next-ios/CmuxMobileKit/**
+      # Files outside the kit its listed test targets read (scripts/ci/swift_linux_reach.py EXTRA_INPUTS).
+      - cmux-next-ios/rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json
+      - cmux-next-ios/rust/crates/cmux-mobile-host/tests/fixtures/seal-vectors.json
+      - cmux-next-ios/verify/agent-cli-hybrid/**
+      - schemas/deeplinks/agent-link.json
+      - schemas/notice-timing/notice-timing.json
+      - design/icons/source/**
       - scripts/ci/swift-linux-packages.txt
       - scripts/ci/swift-linux-targets.txt
       - scripts/ci/swift_linux_targets.py
