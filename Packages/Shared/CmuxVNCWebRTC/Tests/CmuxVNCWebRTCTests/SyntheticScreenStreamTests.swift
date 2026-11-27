@@ -79,7 +79,7 @@ struct SyntheticScreenStreamTests {
     private func waitForPixel(_ shade: UInt8, renderer: AVSampleBufferVideoRenderer, timeout: Duration) async throws {
         let deadline = ContinuousClock.now.advanced(by: timeout)
         while ContinuousClock.now < deadline {
-            if let pixel = renderer.displayedPixelBuffer(), Self.centerLuma(pixel).map({ abs($0 - Int(shade)) <= 8 }) == true { return }
+            if let pixel = renderer.displayedPixelBuffer(), Self.centerLuma(pixel).map({ abs($0 - Int(shade)) <= 6 }) == true { return }
             try await Task.sleep(for: .milliseconds(5))
         }
         throw PixelTimeout(shade: shade)
@@ -166,7 +166,7 @@ struct HeadlessSyntheticScreenStreamTests {
         func waitFor(_ shade: UInt8, timeout: Duration) async throws {
             let deadline = ContinuousClock.now.advanced(by: timeout)
             while ContinuousClock.now < deadline {
-                if abs(snapshot.shade - Int(shade)) <= 8 { return }
+                if abs(snapshot.shade - Int(shade)) <= 6 { return }
                 try await Task.sleep(for: .milliseconds(5))
             }
             throw MarkerTimeout(shade: shade)

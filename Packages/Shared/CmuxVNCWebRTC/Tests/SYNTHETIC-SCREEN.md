@@ -12,7 +12,9 @@ This uses the production host, encoder, ICE connection, viewer and decoder. Only
 and signaling are replaced. LoopbackSignaling supplies no ICE servers, so media stays on
 the runner. The Apple codec requires a managed Mac but no window server, simulator or phone.
 
-A 320×240 NV12 source emits twelve distinct gray markers. Each must decode within two
+A 320×240 NV12 source emits twelve distinct gray markers, spaced by 15 luma units.
+The acceptance tolerance is ±6, keeping adjacent bands disjoint so a stale compressed
+frame that satisfied the previous marker cannot satisfy the next. Each must decode within two
 seconds; source-change-to-decode p95 must stay below 250 ms. Received/decoded counts and
 pixel dimensions must match too. Initial connection has a separate ten-second deadline.
 `SCREEN_WEBRTC_HEADLESS` reports marker/decoded/received counts, p95, process CPU seconds
