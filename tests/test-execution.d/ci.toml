@@ -761,6 +761,10 @@ path = "tests/test_ci_pr_receipt.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pr_router_handoff_queue.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_router_reactive_calls.py"
 lane = "linux-guard"
 
