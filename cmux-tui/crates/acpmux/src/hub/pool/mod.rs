@@ -39,6 +39,7 @@
 
 use super::*;
 use crate::agent::Attached;
+use crate::agent_credentials::Family as CredentialFamily;
 use crate::agent_host::{self, HostRecord, Liveness};
 use cmux_json::JsonSet as _;
 use std::hash::{Hash, Hasher};
@@ -257,8 +258,8 @@ pub struct PrewarmRequest {
 
 /// The parts of a coming `session/new` a hint names beyond its harness and folder: the model it
 /// pins (`_meta.acpmux.model`), its workspace (`_meta.acpmux.workspaceId`) and the owner's Cloud
-/// credential (`_meta.acpmux.credentials`, this machine's own socket only). An entry warmed with a
-/// credential is hinted only: never a spare or a last-used entry, which outlive the hint.
+/// credential (`_meta.acpmux.credentials`, this machine's own socket only). Hints carrying
+/// API keys or Claude setup tokens are declined. Other credentialed entries only live as long as the hint.
 #[derive(Debug, Clone, Default)]
 pub struct PrewarmShape {
     pub model: Option<String>,
@@ -359,6 +360,9 @@ mod key_tests;
 #[cfg(test)]
 #[path = "model_tests.rs"]
 mod model_tests;
+
+#[cfg(all(test, unix))]
+mod prewarm_tests;
 
 /// The pool's one-reaper claim (`PoolState::reaper`), held by the running reaper task. Dropping
 /// it while held (the task unwinding from a panic) clears the flag, so `start_pool_reaper` starts
@@ -640,6 +644,14 @@ impl Hub {
         }
         if req.release {
             return Ok(self.pool_release(req).await);
+        }
+        // Cloud opt-out and Disconnect reach bound sessions. Keep these hints out of the pool.
+        if req.shape.credential.as_ref().is_some_and(|credential| {
+            matches!(credential.family(), CredentialFamily::Gemini | CredentialFamily::Grok)
+                || credential.key_provider().is_some()
+                || credential.uses_claude_subscription_token()
+        }) {
+            return Ok(json!({"accepted": false}));
         }
         if crate::launch_policy::agent_launch_disabled() {
             return Ok(
@@ -1494,5 +1506,31 @@ async fn end_pooled_host(record: &HostRecord) {
 }
 
 #[cfg(test)]
-#[path = "reaper_claim_tests.rs"]
-mod reaper_claim_tests;
+mod reaper_claim_tests {
+    use super::*;
+
+    /// Before: a reaper that panicked left the flag set, so no reaper ever ran again and idle
+    /// pooled harnesses were never ended. After: the claim clears it as the task unwinds.
+    #[tokio::test]
+    async fn a_reaper_that_panics_gives_its_claim_back() {
+        let flag: &'static AtomicBool = Box::leak(Box::new(AtomicBool::new(true)));
+        let died = tokio::spawn(async move {
+            let _claim = ReaperClaim { flag, held: true };
+            panic!("reaper died");
+        })
+        .await;
+        assert!(died.is_err());
+        assert!(!flag.load(Ordering::SeqCst), "a dead reaper still holds the pool's claim");
+    }
+
+    /// A reaper that released its claim on the normal exit never clears a successor's.
+    #[test]
+    fn a_released_claim_leaves_a_successors_claim_alone() {
+        let flag = AtomicBool::new(true);
+        let mut claim = ReaperClaim { flag: &flag, held: true };
+        claim.release();
+        flag.store(true, Ordering::SeqCst);
+        drop(claim);
+        assert!(flag.load(Ordering::SeqCst));
+    }
+}

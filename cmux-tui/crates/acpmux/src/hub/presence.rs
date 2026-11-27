@@ -13,11 +13,10 @@
 //! `presence`. The hub never sets `self`: the client knows which id is its own. None of it is a
 //! log record, so it is never in `_acpmux/events`, an export or a restart.
 //!
-//! Only this daemon's own chats have presence. A peer daemon's link is one connection that
-//! carries all of that daemon's clients, so it can stand for none of them: it makes no entry
-//! (its attach and view still count for `unread`), its `_acpmux/typing` and authored
-//! `_acpmux/view` are refused `presence.peer_unsupported`, it hears no `_acpmux/presence`, and a
-//! chat that lives on a peer answers its attach with no participants (`server/peer_forward.rs`).
+//! A peer daemon's link carries authored entries for the teammates it represents. The link's
+//! owner entry is still absent (its attach and view count for `unread`), while authored
+//! `_acpmux/view` and `_acpmux/typing` are relayed and their presence notes are forwarded back to
+//! the daemon that opened the shared chat.
 //!
 //! Bounds: [`MAX_PEOPLE`] people besides the owner in one chat (a new one past it is refused
 //! `presence.full`); `_acpmux/typing` at most [`TYPING_PER_SECOND`] calls a second per connection
@@ -49,7 +48,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use cmux_presence::{Delta, Doing, Kind, Presence as Record, PresenceId};
@@ -92,6 +91,14 @@ pub const FOLLOW_NOT_LIVE: &str = "presence.follow_not_live";
 /// `data.reason` of an `_acpmux/follow` that names the caller.
 pub const FOLLOW_SELF: &str = "presence.follow_self";
 
+/// Internal marker on a presence note relayed from a peer. It is removed before a local client
+/// receives the note and prevents the note from being sent back over the peer link.
+pub const REMOTE_MARKER: &str = "_acpmuxPeer";
+/// Internal marker for a snapshot read as a peer attach baseline.
+pub const BASELINE_MARKER: &str = "_acpmuxPresenceBaseline";
+/// Peers preserve individual originating clients when relaying authored presence.
+pub const PEER_FEATURE: &str = "shared-peer-presence-v1";
+
 /// A room a client shows (RFD 0141 "Transport"): a chat, or a workspace row.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Room {
@@ -118,12 +125,12 @@ pub type Sink = Arc<dyn Fn(Value) + Send + Sync>;
 pub fn peer_unsupported() -> RpcError {
     RpcError::new(
         -32000,
-        "presence is kept for this daemon's own clients; a peer daemon's link carries none",
+        "this presence operation is unavailable for the peer link or current Live setting",
     )
     .with_data(json!({"reason": PEER_UNSUPPORTED}))
 }
 
-/// No participants: a chat on a peer daemon, whose presence this daemon does not carry.
+/// No participants: sharing is off or the peer link has ended.
 pub fn none(chat: &str) -> Value {
     json!({"sessionId": chat, "participants": []})
 }
@@ -263,8 +270,11 @@ impl State {
 
 struct Inner {
     state: Mutex<State>,
-    /// The owner's Live opt-in (`_acpmux/live`); off until set, and never kept past a restart.
+    remote: Mutex<HashMap<(String, String), Weak<RemoteSnapshot>>>,
     live: AtomicBool,
+    live_changes: tokio::sync::watch::Sender<bool>,
+    off_changes: tokio::sync::watch::Sender<u64>,
+    peer_connections: tokio::sync::watch::Sender<u64>,
     changes: broadcast::Sender<Arc<Value>>,
 }
 
@@ -278,9 +288,62 @@ impl Default for Presence {
         Presence {
             inner: Arc::new(Inner {
                 state: Mutex::new(State::default()),
+                remote: Mutex::new(HashMap::new()),
                 live: AtomicBool::new(false),
+                live_changes: tokio::sync::watch::Sender::new(false),
+                off_changes: tokio::sync::watch::Sender::new(0),
+                peer_connections: tokio::sync::watch::Sender::new(0),
                 changes: broadcast::channel(CHANGES_BUFFER).0,
             }),
+        }
+    }
+}
+
+/// Latest remote state is retained only while at least one client holds its subscription.
+#[derive(Debug)]
+pub struct RemoteSnapshot {
+    owner: Weak<Inner>,
+    key: (String, String),
+    // Monotonic revision, latest snapshot, and whether a new link awaits its baseline.
+    latest: Mutex<(u64, Option<Value>, bool)>,
+}
+
+impl RemoteSnapshot {
+    pub fn snapshot(&self) -> Option<Value> {
+        self.latest.lock_or_recover().1.clone()
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.latest.lock_or_recover().0
+    }
+
+    /// The attach response supplies a baseline only if no live note arrived during its request.
+    pub fn seed(&self, note: &Value, since: u64) {
+        let mut latest = self.latest.lock_or_recover();
+        // A reconnect baseline is delivered on the reader's ordered notice stream. The
+        // attach task may finish first; its response must not replace that pending baseline.
+        if latest.2 {
+            return;
+        }
+        if latest.0 == since {
+            let mut note = note.clone();
+            if let Some(object) = note.as_object_mut() {
+                object.insert(REMOTE_MARKER.into(), Value::String(self.key.0.clone()));
+                latest.0 += 1;
+                latest.1 = Some(note);
+                latest.2 = false;
+            }
+        }
+    }
+}
+
+impl Drop for RemoteSnapshot {
+    fn drop(&mut self) {
+        if let Some(owner) = self.owner.upgrade() {
+            let mut remote = owner.remote.lock_or_recover();
+            if remote.get(&self.key).is_some_and(|entry| std::ptr::eq(entry.as_ptr(), self)) {
+                remote.remove(&self.key);
+            }
         }
     }
 }
@@ -291,10 +354,156 @@ impl Presence {
         self.inner.changes.subscribe()
     }
 
+    /// Each successful handshake, including a path switch whose visible state is unchanged.
+    /// Coalescing is safe: consumers restore all their entries on the current link epochs.
+    pub(crate) fn peer_connected(&self) {
+        self.inner.peer_connections.send_modify(|epoch| *epoch = epoch.wrapping_add(1));
+    }
+
+    pub(crate) fn subscribe_peer_connections(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.inner.peer_connections.subscribe()
+    }
+
     /// The chat's presence now, as `_acpmux/presence` params.
     pub fn snapshot(&self, chat: &str) -> Value {
         let state = self.inner.state.lock_or_recover();
         note(chat, &state.participants(chat))
+    }
+
+    pub fn watch_remote(&self, peer: &str, chat: &str) -> Arc<RemoteSnapshot> {
+        let key = (peer.to_owned(), chat.to_owned());
+        let mut remote = self.inner.remote.lock_or_recover();
+        if let Some(snapshot) = remote.get(&key).and_then(Weak::upgrade) {
+            return snapshot;
+        }
+        let snapshot = Arc::new(RemoteSnapshot {
+            owner: Arc::downgrade(&self.inner),
+            key: key.clone(),
+            latest: Mutex::new((0, None, false)),
+        });
+        remote.insert(key, Arc::downgrade(&snapshot));
+        snapshot
+    }
+
+    /// A lost/replaced peer link cannot leave its participants visible indefinitely.
+    pub fn clear_remote(&self, peer: &str) {
+        let held: Vec<_> = self
+            .inner
+            .remote
+            .lock_or_recover()
+            .iter()
+            .filter(|((source, _), _)| source == peer)
+            .filter_map(|(_, snapshot)| snapshot.upgrade())
+            .collect();
+        for snapshot in held {
+            self.publish_remote(&none(&snapshot.key.1), peer);
+        }
+    }
+
+    /// Reset a peer's cache for a new link, retaining an empty notification while allowing the
+    /// first attach baseline on that link to repopulate it.
+    pub fn reset_remote(&self, peer: &str) {
+        self.clear_remote(peer);
+        let held: Vec<_> = self
+            .inner
+            .remote
+            .lock_or_recover()
+            .iter()
+            .filter(|((source, _), _)| source == peer)
+            .filter_map(|(_, snapshot)| snapshot.upgrade())
+            .collect();
+        for snapshot in held {
+            snapshot.latest.lock_or_recover().2 = true;
+        }
+    }
+
+    /// Apply a baseline only to a cache reset for this link. A live note read first wins.
+    pub fn publish_remote_baseline(&self, note: &Value, peer: &str) {
+        let Some(chat) = note.get("sessionId").and_then(Value::as_str) else { return };
+        let snapshot = self
+            .inner
+            .remote
+            .lock_or_recover()
+            .get(&(peer.to_owned(), chat.to_owned()))
+            .and_then(Weak::upgrade);
+        let Some(snapshot) = snapshot else { return };
+        let mut latest = snapshot.latest.lock_or_recover();
+        if !latest.2 {
+            return;
+        }
+        let mut note = note.clone();
+        if let Some(object) = note.as_object_mut() {
+            object.insert(REMOTE_MARKER.into(), Value::String(peer.to_owned()));
+            object.remove(BASELINE_MARKER);
+        }
+        latest.0 += 1;
+        latest.1 = Some(note.clone());
+        latest.2 = false;
+        let _ = self.inner.changes.send(Arc::new(note));
+    }
+
+    /// Broadcast a complete presence snapshot received from `peer` without adding it to this
+    /// daemon's local state. The marker keeps the snapshot from looping back over the link.
+    pub fn publish_remote(&self, note: &Value, peer: &str) {
+        let mut note = note.clone();
+        if let Some(object) = note.as_object_mut() {
+            object.insert(REMOTE_MARKER.into(), Value::String(peer.to_owned()));
+            if let Some(chat) = note.get("sessionId").and_then(Value::as_str) {
+                let snapshot = self
+                    .inner
+                    .remote
+                    .lock_or_recover()
+                    .get(&(peer.to_owned(), chat.to_owned()))
+                    .and_then(Weak::upgrade);
+                if let Some(snapshot) = snapshot {
+                    let mut latest = snapshot.latest.lock_or_recover();
+                    latest.0 += 1;
+                    latest.1 = Some(note.clone());
+                    latest.2 = false;
+                }
+            }
+            let _ = self.inner.changes.send(Arc::new(note));
+        }
+    }
+
+    /// The Phase 1 Live opt-in; local presence stays available while sharing is off.
+    pub fn is_live(&self) -> bool {
+        self.inner.live.load(Ordering::Acquire)
+    }
+
+    /// Watch the opt-in so a sharing client withdraws its remote entries when it turns off.
+    pub fn subscribe_live(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.inner.live_changes.subscribe()
+    }
+
+    /// A monotonic off epoch preserves an off/on transition even if a watcher coalesces it.
+    pub fn off_epoch(&self) -> u64 {
+        *self.inner.off_changes.borrow()
+    }
+
+    pub fn subscribe_off(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.inner.off_changes.subscribe()
+    }
+
+    /// Change Live and publish fresh snapshots, including an empty shared snapshot on off.
+    pub fn set_live(&self, live: bool) -> bool {
+        let state = self.inner.state.lock_or_recover();
+        let previous = self.inner.live.swap(live, Ordering::AcqRel);
+        if previous != live {
+            self.inner.live_changes.send_replace(live);
+            if !live {
+                self.inner.off_changes.send_modify(|epoch| *epoch += 1);
+            }
+            for chat in state.chats.keys() {
+                let _ = self.inner.changes.send(Arc::new(note(chat, &state.participants(chat))));
+            }
+        }
+        previous
+    }
+
+    /// A peer never sees local entries until Live is enabled.
+    pub fn shared_snapshot(&self, chat: &str) -> Value {
+        if self.is_live() { self.snapshot(chat) } else { none(chat) }
     }
 
     /// Local projection for a subscriber to this chat. The owner id is daemon-local.
@@ -375,16 +584,6 @@ impl Presence {
     pub fn watches(&self, conn: &str, room: &Room) -> bool {
         let state = self.inner.state.lock_or_recover();
         state.watching.get(conn).is_some_and(|rooms| rooms.contains(room))
-    }
-
-    /// Whether the owner is Live (`_acpmux/live`).
-    pub fn is_live(&self) -> bool {
-        self.inner.live.load(Ordering::Acquire)
-    }
-
-    /// Turns the owner's Live on or off; the previous value.
-    pub fn set_live(&self, live: bool) -> bool {
-        self.inner.live.swap(live, Ordering::AcqRel)
     }
 
     /// `_acpmux/live_list`: one shared record per person across this daemon's chats, ordered by
@@ -753,5 +952,412 @@ fn note(chat: &str, participants: &[Participant]) -> Value {
 }
 
 #[cfg(test)]
-#[path = "presence_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn ana() -> Who {
+        Who { id: "tailnet:ana".to_owned(), name: "Ana".to_owned() }
+    }
+
+    #[test]
+    fn remote_presence_recovers_after_a_burst_and_releases_its_cache() {
+        let presence = Presence::default();
+        let held = presence.watch_remote("peer", "chat");
+        let second = presence.watch_remote("peer", "chat");
+        let other = presence.watch_remote("other", "chat");
+        assert!(Arc::ptr_eq(&held, &second));
+        let mut changes = presence.subscribe();
+        let active = json!({"sessionId": "chat", "participants": [{"id": "ana", "typing": true}]});
+        held.seed(&active, 0);
+        presence.publish_remote(&none("chat"), "peer");
+        for _ in 0..CHANGES_BUFFER * 2 {
+            presence.publish_remote(&active, "other");
+        }
+        assert!(matches!(changes.try_recv(), Err(broadcast::error::TryRecvError::Lagged(_))));
+        // An attach response that arrived late must not undo the newer withdrawal.
+        held.seed(&active, 0);
+        assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
+        assert_eq!(other.snapshot().unwrap()["participants"][0]["id"], "ana");
+        presence.clear_remote("other");
+        assert_eq!(other.snapshot().unwrap()["participants"], json!([]));
+        drop(held);
+        assert_eq!(presence.inner.remote.lock_or_recover().len(), 2);
+        drop(second);
+        drop(other);
+        assert!(presence.inner.remote.lock_or_recover().is_empty());
+    }
+
+    #[test]
+    fn remote_presence_reconnect_baseline_preserves_newer_updates() {
+        let presence = Presence::default();
+        let held = presence.watch_remote("peer", "chat");
+        let active = json!({"sessionId": "chat", "participants": [{"id": "ana"}],
+            BASELINE_MARKER: true});
+        let before_reset = held.revision();
+        presence.reset_remote("peer");
+        assert!(held.revision() > before_reset);
+        held.seed(&active, before_reset);
+        assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
+        presence.publish_remote_baseline(&active, "peer");
+        let restored = held.snapshot().unwrap();
+        assert_eq!(restored["participants"][0]["id"], "ana");
+        assert!(restored.get(BASELINE_MARKER).is_none());
+
+        presence.reset_remote("peer");
+        presence.publish_remote(&none("chat"), "peer");
+        presence.publish_remote_baseline(&active, "peer");
+        assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
+
+        presence.reset_remote("peer");
+        held.seed(&none("chat"), held.revision());
+        assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
+        presence.publish_remote_baseline(&active, "peer");
+        assert_eq!(held.snapshot().unwrap()["participants"][0]["id"], "ana");
+    }
+
+    #[test]
+    fn live_opt_in_only_changes_shared_snapshots() {
+        let presence = Presence::default();
+        presence.view("chat", "client", &Who::of(None), true).unwrap();
+        let local = presence.snapshot("chat");
+        assert!(!presence.is_live());
+        assert_eq!(presence.shared_snapshot("chat"), none("chat"));
+        let mut changes = presence.subscribe_live();
+        assert!(!presence.set_live(true));
+        assert!(changes.has_changed().unwrap());
+        assert!(*changes.borrow_and_update());
+        assert_eq!(presence.shared_snapshot("chat"), local);
+        assert!(presence.set_live(false));
+        assert!(changes.has_changed().unwrap());
+        assert_eq!(presence.shared_snapshot("chat"), none("chat"));
+        assert_eq!(presence.snapshot("chat"), local);
+    }
+
+    #[test]
+    fn live_off_epoch_survives_coalesced_off_on() {
+        let presence = Presence::default();
+        let mut off = presence.subscribe_off();
+        presence.set_live(true);
+        presence.set_live(false);
+        presence.set_live(true);
+        assert!(presence.is_live());
+        assert!(off.has_changed().unwrap());
+        assert_eq!(*off.borrow_and_update(), 1);
+        assert_eq!(presence.off_epoch(), 1);
+    }
+
+    fn typing(presence: &Presence) -> Option<bool> {
+        let note = presence.snapshot("c");
+        note["participants"].as_array()?.first().map(|p| p["typing"] == true)
+    }
+
+    /// A newer `on` restarts the 8 s and the older timer ends without effect; an `off` and a close
+    /// end it at once. (The 8 s expiry itself: `tests/hub_integration/presence.rs`.)
+    #[tokio::test(start_paused = true)]
+    async fn a_newer_on_restarts_the_expiry_and_off_or_close_ends_it() {
+        let presence = Presence::default();
+        presence.typing("c", "conn", &ana(), true).unwrap();
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        presence.typing("c", "conn", &ana(), true).unwrap();
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert_eq!(typing(&presence), Some(true), "the first timer ended the newer on");
+        tokio::time::sleep(Duration::from_millis(3001)).await;
+        assert_eq!(typing(&presence), None);
+
+        presence.typing("c", "conn", &ana(), true).unwrap();
+        presence.typing("c", "conn", &ana(), false).unwrap();
+        assert_eq!(typing(&presence), None);
+        presence.typing("c", "other", &ana(), true).unwrap();
+        presence.close("other");
+        assert_eq!(presence.snapshot("c")["participants"], json!([]));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn records_follow_the_aggregated_chat_and_its_owner_revision() {
+        let hub = Presence::default();
+        let who = ana();
+        hub.view("chat", "a", &who, true).unwrap();
+        let first = hub.records("chat").pop().unwrap();
+        assert_eq!(first.id.0.as_ref(), who.id);
+        assert_eq!(first.location.chat.as_deref(), Some("chat"));
+        hub.typing("chat", "b", &who, true).unwrap();
+        let typing = hub.records("chat");
+        assert_eq!(typing.len(), 1);
+        assert!(typing[0].epoch > first.epoch);
+        assert_eq!(typing[0].doing, Doing::Typing);
+        assert_eq!(typing[0].lease_ms, cmux_presence::TYPING_LEASE_MS);
+        assert_eq!(
+            hub.snapshot("chat")["participants"],
+            json!([
+                {"id":who.id, "name":who.name, "devices":2, "viewing":true, "typing":true}
+            ])
+        );
+        hub.close("b");
+        let idle = hub.records("chat").pop().unwrap();
+        assert_eq!(idle.doing, Doing::Idle);
+        assert!(idle.epoch > typing[0].epoch);
+        hub.close("a");
+        assert!(hub.records("chat").is_empty());
+        hub.view("chat", "a", &who, true).unwrap();
+        assert!(hub.records("chat")[0].epoch > idle.epoch);
+    }
+
+    #[test]
+    fn a_cutover_is_transient_per_reader_and_connection() {
+        let presence = Presence::default();
+        let alice = ana();
+        let bob = Who { id: "tailnet:bob".into(), name: "Bob".into() };
+        presence.view_with_cutover("c", "conn-a", &alice, true, true, Some(2)).unwrap();
+        presence.view_with_cutover("c", "conn-b", &bob, true, true, Some(3)).unwrap();
+        assert_eq!(presence.active_cutover("c", "tailnet:ana"), Some(2));
+        assert_eq!(presence.active_cutover("c", "tailnet:bob"), Some(3));
+        presence.view_with_cutover("c", "conn-a", &alice, true, false, Some(4)).unwrap();
+        assert_eq!(presence.active_cutover("c", "tailnet:ana"), None);
+        assert_eq!(presence.active_cutover("c", "tailnet:bob"), Some(3));
+        presence.leave("c", "conn-b");
+        assert_eq!(presence.active_cutover("c", "tailnet:bob"), None);
+    }
+
+    #[tokio::test]
+    async fn live_list_is_empty_until_live_and_merges_a_person_across_chats() {
+        let presence = Presence::default();
+        presence.view("a", "c1", &ana(), true).unwrap();
+        presence.view("b", "c1", &ana(), true).unwrap();
+        presence
+            .view("b", "c2", &Who { id: "tailnet:bo".to_owned(), name: "Bo".to_owned() }, true)
+            .unwrap();
+        assert!(presence.live_list().is_empty(), "off by default");
+        assert!(!presence.set_live(true));
+        assert!(presence.is_live());
+        let list = presence.live_list();
+        let ids: Vec<&str> = list.iter().map(|r| &*r.id.0).collect();
+        assert_eq!(ids, ["tailnet:ana", "tailnet:bo"]);
+        presence.typing("a", "c1", &ana(), true).unwrap();
+        let list = presence.live_list();
+        assert_eq!(list[0].location.chat.as_deref(), Some("a"), "the chat where they type");
+        assert_eq!(list[0].doing, Doing::Typing);
+        assert!(presence.set_live(false));
+        assert!(presence.live_list().is_empty(), "off again clears the list");
+    }
+
+    #[tokio::test]
+    async fn live_list_drops_people_who_left() {
+        let presence = Presence::default();
+        presence.set_live(true);
+        presence.view("a", "c1", &ana(), true).unwrap();
+        assert_eq!(presence.live_list().len(), 1);
+        presence.close("c1");
+        assert!(presence.live_list().is_empty());
+    }
+
+    /// A sink that keeps what it heard.
+    fn heard() -> (Sink, Arc<Mutex<Vec<Value>>>) {
+        let notes = Arc::new(Mutex::new(Vec::new()));
+        let keep = notes.clone();
+        (Arc::new(move |note| keep.lock_or_recover().push(note)), notes)
+    }
+
+    fn chat(id: &str) -> Room {
+        Room::Chat(id.to_owned())
+    }
+
+    /// A change reaches the room's subscribers only, as one delta from the snapshot's epoch; a
+    /// subscriber to another room, or to none, hears nothing of it.
+    #[test]
+    fn a_change_fans_out_to_that_rooms_subscribers_only() {
+        let presence = Presence::default();
+        let bob = Who { id: "tailnet:bob".into(), name: "Bob".into() };
+        presence.view("c", "conn-a", &ana(), true).unwrap();
+        let (watcher, watched) = heard();
+        let (other, elsewhere) = heard();
+        assert_eq!(presence.rooms("w", watcher, vec![chat("c")]).unwrap(), 1);
+        assert_eq!(
+            presence.rooms("o", other, vec![chat("d"), Room::Workspace("ws".into())]).unwrap(),
+            2
+        );
+
+        let snapshot = watched.lock_or_recover()[0].clone();
+        assert_eq!(snapshot["room"], json!({"chat": "c"}));
+        assert_eq!(snapshot["snapshot"], true);
+        let base = snapshot["presence"][0]["epoch"].as_u64().unwrap();
+        assert_eq!(snapshot["presence"][0]["id"], "tailnet:ana");
+
+        presence.view("c", "conn-b", &bob, true).unwrap();
+        presence.view("c", "conn-a", &ana(), false).unwrap();
+        let notes = watched.lock_or_recover().clone();
+        assert_eq!(notes.len(), 3, "one note a change: {notes:?}");
+        assert_eq!(notes[1]["presence"][0]["id"], "tailnet:bob", "bob joined: {}", notes[1]);
+        assert_eq!(notes[1]["deltas"][0]["id"], "tailnet:ana");
+        assert_eq!(notes[1]["deltas"][0]["base"], base, "the delta builds on the snapshot");
+        assert_eq!(notes[2]["left"], json!(["tailnet:ana"]));
+        assert_eq!(notes[2]["deltas"][0]["base"], notes[1]["deltas"][0]["epoch"]);
+
+        let others = elsewhere.lock_or_recover().clone();
+        assert_eq!(others.len(), 2, "only its own rooms' snapshots: {others:?}");
+        assert!(others.iter().all(|n| n["snapshot"] == true));
+    }
+
+    #[test]
+    fn a_remote_snapshot_is_broadcast_with_a_loop_guard_without_local_state() {
+        let presence = Presence::default();
+        let mut changes = presence.subscribe();
+        let note = json!({"sessionId": "remote-chat", "participants": [{"id": "tailnet:bob"}]});
+        presence.publish_remote(&note, "peer-box");
+        let relayed = changes.try_recv().expect("remote presence note");
+        assert_eq!(relayed["sessionId"], "remote-chat");
+        assert_eq!(relayed[REMOTE_MARKER], "peer-box");
+        assert_eq!(
+            presence.snapshot("remote-chat"),
+            json!({"sessionId": "remote-chat", "participants": []})
+        );
+    }
+
+    /// An empty set unsubscribes, a smaller one drops only the rooms it left out, a detach drops
+    /// that chat's room, and a close drops the rest.
+    #[test]
+    fn unsubscribe_stops_the_deltas() {
+        let presence = Presence::default();
+        let (sink, notes) = heard();
+        presence.rooms("w", sink.clone(), vec![chat("c"), chat("d")]).unwrap();
+        assert_eq!(notes.lock_or_recover().len(), 2);
+        presence.rooms("w", sink.clone(), vec![chat("d")]).unwrap();
+        assert_eq!(notes.lock_or_recover().len(), 2, "a room it already watched snapshots once");
+        assert!(!presence.watches("w", &chat("c")));
+        presence.view("c", "conn", &ana(), true).unwrap();
+        assert_eq!(notes.lock_or_recover().len(), 2, "c is no longer watched");
+        presence.view("d", "conn", &ana(), true).unwrap();
+        assert_eq!(notes.lock_or_recover().len(), 3);
+
+        assert_eq!(presence.rooms("w", sink.clone(), Vec::new()).unwrap(), 0);
+        presence.view("d", "conn", &ana(), false).unwrap();
+        assert_eq!(notes.lock_or_recover().len(), 3, "an empty set unsubscribes");
+        assert!(presence.inner.state.lock_or_recover().rooms.is_empty(), "no empty room is kept");
+
+        presence.rooms("w", sink.clone(), vec![chat("c"), chat("d")]).unwrap();
+        presence.leave("c", "w");
+        assert!(!presence.watches("w", &chat("c")), "a detach drops its chat room");
+        assert!(presence.watches("w", &chat("d")));
+        presence.close("w");
+        assert!(!presence.watches("w", &chat("d")));
+        let state = presence.inner.state.lock_or_recover();
+        assert!(state.rooms.is_empty() && state.watching.is_empty());
+    }
+
+    #[test]
+    fn a_set_past_the_bound_is_refused_and_keeps_the_old_one() {
+        let presence = Presence::default();
+        let (sink, _) = heard();
+        presence.rooms("w", sink.clone(), vec![chat("c")]).unwrap();
+        let many = (0..=MAX_ROOMS).map(|i| Room::Workspace(format!("ws{i}"))).collect();
+        let refused = presence.rooms("w", sink, many).unwrap_err();
+        assert_eq!(refused.data.as_ref().unwrap()["reason"], ROOMS_FULL);
+        assert!(presence.watches("w", &chat("c")));
+    }
+
+    /// A follow reaches the follower's rooms as one `Following` delta, `_acpmux/presence` does
+    /// not change, and `null` clears it the same way.
+    #[test]
+    fn a_follow_rides_the_room_deltas_and_null_clears_it() {
+        let presence = Presence::default();
+        let bob = Who { id: "tailnet:bob".into(), name: "Bob".into() };
+        presence.view("c", "conn-a", &ana(), true).unwrap();
+        presence.view("d", "conn-b", &bob, true).unwrap();
+        let (sink, notes) = heard();
+        presence.rooms("w", sink, vec![chat("c")]).unwrap();
+        let mut changes = presence.subscribe();
+        let before = presence.snapshot("c");
+
+        presence.follow("conn-a", "tailnet:ana", Some("tailnet:bob")).unwrap();
+        assert_eq!(presence.following("conn-a", "tailnet:ana").as_deref(), Some("tailnet:bob"));
+        let follow = notes.lock_or_recover()[1].clone();
+        assert_eq!(follow["deltas"][0]["id"], "tailnet:ana", "{follow}");
+        assert_eq!(
+            follow["deltas"][0]["changes"],
+            json!([{"following": "tailnet:bob"}]),
+            "{follow}"
+        );
+        assert_eq!(
+            presence.records("c")[0].following.as_ref().map(|id| id.0.as_ref()),
+            Some("tailnet:bob")
+        );
+        assert_eq!(presence.snapshot("c"), before, "_acpmux/presence is unchanged");
+        assert!(changes.try_recv().is_err(), "a follow alone broadcasts no _acpmux/presence");
+
+        // A chat the follower moves to carries it on its record.
+        presence.view("e", "conn-a", &ana(), true).unwrap();
+        assert!(presence.records("e")[0].following.is_some());
+
+        presence.follow("conn-a", "tailnet:ana", None).unwrap();
+        let cleared = notes.lock_or_recover()[2].clone();
+        assert_eq!(cleared["deltas"][0]["changes"], json!([{"following": null}]), "{cleared}");
+        assert!(presence.records("c")[0].following.is_none());
+        assert_eq!(notes.lock_or_recover().len(), 3, "one note a follow change");
+    }
+
+    /// Following yourself and following someone who shows no chat here are refused, and
+    /// change nothing.
+    #[test]
+    fn a_follow_of_yourself_or_of_nobody_live_is_refused() {
+        let presence = Presence::default();
+        presence.view("c", "conn-a", &ana(), true).unwrap();
+        let own = presence.follow("conn-a", "tailnet:ana", Some("tailnet:ana")).unwrap_err();
+        assert_eq!(own.data.as_ref().unwrap()["reason"], FOLLOW_SELF);
+        let gone = presence.follow("conn-a", "tailnet:ana", Some("tailnet:zed")).unwrap_err();
+        assert_eq!(gone.data.as_ref().unwrap()["reason"], FOLLOW_NOT_LIVE);
+        assert_eq!(presence.following("conn-a", "tailnet:ana"), None);
+        assert!(presence.records("c")[0].following.is_none());
+    }
+
+    /// Closing the follower's connection ends its follow as a delta, so the same person on
+    /// another connection no longer shows it.
+    #[test]
+    fn closing_the_followers_connection_ends_the_follow() {
+        let presence = Presence::default();
+        let bob = Who { id: "tailnet:bob".into(), name: "Bob".into() };
+        presence.view("c", "conn-a", &ana(), true).unwrap();
+        presence.view("c", "conn-a2", &ana(), true).unwrap();
+        presence.view("d", "conn-b", &bob, true).unwrap();
+        presence.follow("conn-a", "tailnet:ana", Some("tailnet:bob")).unwrap();
+        let (sink, notes) = heard();
+        presence.rooms("w", sink, vec![chat("c")]).unwrap();
+        presence.close("conn-a");
+        assert_eq!(presence.following("conn-a", "tailnet:ana"), None);
+        assert!(presence.records("c")[0].following.is_none());
+        let heard = notes.lock_or_recover().clone();
+        assert!(
+            heard.iter().any(|n| n["deltas"][0]["changes"] == json!([{"following": null}])),
+            "{heard:?}"
+        );
+        assert!(presence.inner.state.lock_or_recover().follows.is_empty());
+    }
+
+    /// The cost of one update is the room's subscribers, never the number of other rooms: the
+    /// same change visits one subscriber beside 10 unrelated rooms and beside 10,000.
+    #[test]
+    fn cost_per_update_does_not_grow_with_unrelated_rooms() {
+        let mut visited = Vec::new();
+        for unrelated in [10, 10_000] {
+            let presence = Presence::default();
+            for i in 0..unrelated {
+                let (sink, _) = heard();
+                let conn = format!("u{i}");
+                presence.view(&format!("other{i}"), &conn, &ana(), true).unwrap();
+                presence
+                    .rooms(
+                        &conn,
+                        sink,
+                        vec![chat(&format!("other{i}")), Room::Workspace(format!("ws{i}"))],
+                    )
+                    .unwrap();
+            }
+            let (sink, notes) = heard();
+            presence.rooms("w", sink, vec![chat("c")]).unwrap();
+            let before = presence.inner.state.lock_or_recover().fanned;
+            presence.view("c", "conn", &ana(), true).unwrap();
+            presence.view("c", "conn", &ana(), false).unwrap();
+            visited.push(presence.inner.state.lock_or_recover().fanned - before);
+            assert_eq!(notes.lock_or_recover().len(), 3, "snapshot and two changes");
+        }
+        assert_eq!(visited, vec![2, 2], "subscribers visited for two changes");
+    }
+}

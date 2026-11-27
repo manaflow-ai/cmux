@@ -129,3 +129,51 @@ fn a_family_filtered_pass_reads_no_worktree_from_sessions() {
     assert!(linked.exists());
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// Every family but DerivedData off: a whole pass that reads only the scratch home.
+fn whole(home: &Path) -> Config {
+    let mut config = config(home, false);
+    config.only_families = Vec::new();
+    config.off = caches::families(&caches::Layout { home, worktree_roots: &[], clone_roots: &[] })
+        .iter()
+        .map(|f| f.name.to_string())
+        .filter(|name| name != "xcode-derived-data")
+        .collect();
+    config
+}
+
+#[test]
+fn a_whole_pass_is_what_status_reads_back_without_walking() {
+    let home = scratch("care-status");
+    project(&home, "Old-abc", 30);
+    let config = whole(&home);
+    assert!(status(&home, &config.store, &Default::default()).unwrap().last.is_none());
+    let report = run(&config, None).unwrap();
+    assert!(report.reclaimable >= 8192);
+    assert_eq!(report.cost.sizes_walked, 1);
+
+    let _ = crate::walk_memo::take_cost();
+    let shown = status(&home, &config.store, &Default::default()).unwrap();
+    let last = shown.last.expect("the pass was recorded");
+    assert_eq!(last.reclaimable(), report.reclaimable);
+    assert!(
+        last.families().iter().any(|f| f.name == "xcode-derived-data" && f.reclaimable >= 8192)
+    );
+    assert_eq!(crate::walk_memo::take_cost(), crate::walk_memo::Cost::default());
+
+    // The next pass measures nothing again: the memo answers.
+    let again = run(&config, None).unwrap();
+    assert_eq!(again.reclaimable, report.reclaimable);
+    assert_eq!((again.cost.sizes_walked, again.cost.sizes_reused, again.cost.stats), (0, 1, 0));
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn a_filtered_pass_is_not_recorded_for_status() {
+    let home = scratch("care-status-filtered");
+    project(&home, "Old-abc", 30);
+    let config = config(&home, false);
+    run(&config, None).unwrap();
+    assert!(last_pass(&config.store).is_none());
+    let _ = std::fs::remove_dir_all(&home);
+}

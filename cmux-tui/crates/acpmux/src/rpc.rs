@@ -921,7 +921,11 @@ pub mod method {
     /// unix socket, the local app and the owner's own peer daemon.
     pub const MUX_AGENT_LOGIN_START: &str = "_acpmux/agent_login/start";
     pub const MUX_AGENT_LOGIN_FINISH: &str = "_acpmux/agent_login/finish";
+    pub const MUX_AGENT_LOGIN_RECOVER_START: &str = "_acpmux/agent_login/recover_start";
+    pub const MUX_AGENT_LOGIN_RECOVER_FINISH: &str = "_acpmux/agent_login/recover_finish";
     pub const MUX_AGENT_LOGIN_CANCEL: &str = "_acpmux/agent_login/cancel";
+    pub const MUX_AGENT_LOGIN_STATUS: &str = "_acpmux/agent_login/status";
+    pub const MUX_AGENT_LOGIN_LOGOUT: &str = "_acpmux/agent_login/logout";
     pub const MUX_AGENT_LOGIN_API_KEY: &str = "_acpmux/agent_login/api_key";
     /// Local socket only: bounded, cached inventory snapshots; no health control.
     pub const MUX_HARNESS_INVENTORY_WATCH: &str = "_acpmux/harness/inventory/watch";
@@ -984,9 +988,24 @@ pub mod method {
     pub const MUX_CONNECTIONS_KEY_ADD: &str = "_acpmux/connections/key.add";
     /// Asks a provider whether a pasted API key (by its reference) is good, before `key.add`.
     pub const MUX_CONNECTIONS_KEY_CHECK: &str = "_acpmux/connections/key.check";
+    /// `{account, label, secret}`: the daemon writes a pasted key or token into the login Keychain
+    /// (`cmux-model-key`/ACCOUNT) itself, so the item trusts acpmux and not `/usr/bin/security`;
+    /// answers `{secret: "keychain:cmux-model-key/ACCOUNT"}`. The unix socket only.
+    pub const MUX_CONNECTIONS_SECRET_STORE: &str = "_acpmux/connections/secret.store";
+    /// `{account}`: removes a `cmux-model-key` item `secret.store` wrote (a refused add's rollback).
+    pub const MUX_CONNECTIONS_SECRET_DELETE: &str = "_acpmux/connections/secret.delete";
     pub const MUX_CONNECTIONS_CHATGPT_BEGIN: &str = "_acpmux/connections/chatgpt.begin";
     pub const MUX_CONNECTIONS_CHATGPT_WAIT: &str = "_acpmux/connections/chatgpt.wait";
     pub const MUX_CONNECTIONS_CHATGPT_CANCEL: &str = "_acpmux/connections/chatgpt.cancel";
+    pub const MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN: &str =
+        "_acpmux/connections/chatgpt.device.begin";
+    pub const MUX_CONNECTIONS_CHATGPT_DEVICE_WAIT: &str = "_acpmux/connections/chatgpt.device.wait";
+    pub const MUX_CONNECTIONS_CHATGPT_DEVICE_CANCEL: &str =
+        "_acpmux/connections/chatgpt.device.cancel";
+    pub const MUX_CONNECTIONS_SUBSCRIPTION_BEGIN: &str = "_acpmux/connections/subscription.begin";
+    pub const MUX_CONNECTIONS_SUBSCRIPTION_WAIT: &str = "_acpmux/connections/subscription.wait";
+    pub const MUX_CONNECTIONS_SUBSCRIPTION_CANCEL: &str = "_acpmux/connections/subscription.cancel";
+    pub const MUX_CONNECTIONS_GROK_HOOK: &str = "_acpmux/connections/grok.hook";
     pub const MUX_CONNECTIONS_CHATGPT_TOKEN: &str = "_acpmux/connections/chatgpt.token";
     /// CI only: a Codex auth.json as a `chatgpt-plan` connection, local socket and an env switch.
     pub const MUX_CONNECTIONS_CHATGPT_IMPORT: &str = "_acpmux/connections/chatgpt.import";
@@ -1084,6 +1103,11 @@ pub mod method {
     pub const MUX_BG_LIST: &str = "_acpmux/bg/list";
     pub const MUX_BG_OUTPUT: &str = "_acpmux/bg/output";
     pub const MUX_BG_STOP: &str = "_acpmux/bg/stop";
+    /// A session move's wait handoff (`server/bg_rearm.rs`, `rearm.rs`), versioned:
+    /// `{version: 1, sessionId, waits: [Wait]}` starts each wait again here with its remaining
+    /// deadline, `{version: 1, sessionId, release: [id]}` stops those of the chat's tasks that are
+    /// re-armable waits. The person and a peer reach it; it is forwarded to the chat's host.
+    pub const MUX_BG_REARM: &str = "_acpmux/bg/rearm";
     /// "Run on a bigger machine" (`server/run_elsewhere.rs`): what a chat's command would send
     /// to a connected machine, and its start there as a background task of the chat.
     pub const MUX_RUN_ELSEWHERE_PLAN: &str = "_acpmux/run_elsewhere/plan";
@@ -1315,9 +1339,67 @@ pub mod method {
 }
 
 #[cfg(test)]
-#[path = "rpc_bounded_tests.rs"]
-mod bounded_tests;
+mod bounded_tests {
+    use super::*;
+
+    /// A reply too large for one frame goes as the error reply for its id; a request or a
+    /// notification that large is its sender's to fail. Neither goes out whole.
+    #[test]
+    fn a_message_too_large_for_one_frame_never_goes_out_whole() {
+        let big = json!({"text": "x".repeat(MAX_MESSAGE_BYTES)});
+        let reply = Message::ok(json!(7), big.clone()).bounded_line().unwrap();
+        assert!(reply.len() < 1024, "{} bytes", reply.len());
+        let Message::Response { id, error: Some(e), .. } = Message::parse(&reply).unwrap() else {
+            panic!("not an error reply: {reply}");
+        };
+        assert_eq!(id, json!(7));
+        assert_eq!(e.data.unwrap()["reason"], "message.too_large");
+        assert!(Message::request(8, "session/prompt", big.clone()).bounded_line().is_err());
+        assert!(Message::notification("_acpmux/event", big).bounded_line().is_err());
+        let small = Message::ok(json!(9), json!({"ok": true}));
+        assert_eq!(small.bounded_line().unwrap(), small.to_line());
+    }
+
+    /// `line_within` is `to_line` up to its cap, byte for byte, and nothing past it: a line one
+    /// byte over is refused, and one of a frame and more is refused without being written whole.
+    #[test]
+    fn a_line_is_written_only_up_to_its_cap() {
+        let reply = Message::ok(json!(1), json!({"text": "x".repeat(1000), "n": [1, 2, 3]}));
+        let line = reply.to_line();
+        assert_eq!(reply.line_within(line.len()).as_deref(), Some(line.as_str()));
+        assert_eq!(reply.line_within(line.len() - 1), None);
+        let big = Message::ok(json!(2), json!({"text": "x".repeat(2 * MAX_MESSAGE_BYTES)}));
+        assert_eq!(big.line_within(MAX_MESSAGE_BYTES), None);
+        let refused = big.bounded_line().unwrap();
+        assert!(refused.contains("message.too_large"), "{refused}");
+        assert!(refused.len() < 1024, "{} bytes", refused.len());
+    }
+}
 
 #[cfg(test)]
-#[path = "rpc_line_tests.rs"]
-mod line_tests;
+mod line_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// `to_line` writes from borrowed fields the bytes `to_value` wrote, keys in
+    /// the same order, so readers that compare lines byte for byte
+    /// (`server/list_reply.rs`) see no change.
+    #[test]
+    fn a_line_is_the_bytes_of_the_value() {
+        let error =
+            RpcError { code: -32000, message: "no".into(), data: Some(json!({"b": 1, "a": 2})) };
+        for message in [
+            Message::request(1, "session/prompt", json!({"z": 1, "a": [1, 2]})),
+            Message::notification("_acpmux/event", json!({"kind": "x"})),
+            Message::Request { id: json!(5), method: "session/cancel".into(), params: None },
+            Message::Notification { method: "_acpmux/ping".into(), params: None },
+            Message::Response { id: json!(6), result: None, error: None },
+            Message::ok(json!("id"), json!({"ok": true})),
+            Message::ok(json!(2), Value::Null),
+            Message::err(json!(3), error),
+            Message::err(json!(4), RpcError::new(-1, "bare")),
+        ] {
+            assert_eq!(message.to_line(), format!("{}\n", message.to_value()), "{message:?}");
+        }
+    }
+}

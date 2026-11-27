@@ -89,11 +89,68 @@ pub(super) fn bundle_files(root: &Path) -> std::io::Result<Vec<(String, u64)>> {
     Ok(files)
 }
 
-/// Removes moves left behind: a receive never finished, a bundle no chat here is in.
+/// A scratch folder in `transfers/` for one pack of a chat's lines (`kind`: `outline`,
+/// `history-read`, `prepack`), named for this process: `work-<pid>-<kind>-<uuid>`. Its owner
+/// removes it when done; one a daemon left as it died is removed by the next sweep at once
+/// ([`sweep_transfers`]), not a day later. A compaction's outline of an 8.6 GB chat once left
+/// 8 GB there for a day after the daemon that wrote it died.
+pub(super) fn scratch_dir(kind: &str) -> PathBuf {
+    transfers_dir().join(format!("{SCRATCH}{}-{kind}-{}", std::process::id(), uuid::Uuid::now_v7()))
+}
+
+const SCRATCH: &str = "work-";
+/// Scratch folders named before [`scratch_dir`], without their owner's pid.
+const UNOWNED_SCRATCH: [&str; 2] = ["outline-", "history-read-"];
+
+/// When this daemon began: an unowned scratch folder last changed before it is a dead daemon's.
+static STARTED: std::sync::OnceLock<std::time::SystemTime> = std::sync::OnceLock::new();
+
+/// Notes when this daemon began, for [`sweep_transfers`]; the hub calls it as it starts.
+pub(super) fn note_started() {
+    STARTED.get_or_init(std::time::SystemTime::now);
+}
+
+/// Whether the transfers entry `name`, last changed at `changed`, is scratch no running daemon
+/// owns: a [`scratch_dir`] of a process that no longer runs, or one named before them that
+/// predates this daemon.
+fn dead_scratch(name: &str, changed: Option<std::time::SystemTime>) -> bool {
+    if let Some(rest) = name.strip_prefix(SCRATCH) {
+        let pid = rest.split('-').next().and_then(|p| p.parse::<u32>().ok());
+        return pid.is_some_and(|pid| pid != std::process::id() && !process_runs(pid));
+    }
+    UNOWNED_SCRATCH.iter().any(|p| name.starts_with(p))
+        && STARTED.get().zip(changed).is_some_and(|(started, changed)| changed < *started)
+}
+
+#[cfg(unix)]
+fn process_runs(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else { return false };
+    // SAFETY: signal 0 only checks that the pid exists.
+    let signalled = unsafe { libc::kill(pid, 0) == 0 };
+    signalled || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+fn process_runs(_pid: u32) -> bool {
+    true
+}
+
+/// Removes moves left behind: a receive never finished, a bundle no chat here is in, and at once
+/// the scratch of a daemon that died packing ([`scratch_dir`]).
 pub(super) fn sweep_transfers(moving: &[String]) {
-    let Ok(entries) = std::fs::read_dir(transfers_dir()) else { return };
+    sweep_transfers_in(&transfers_dir(), moving);
+}
+
+/// [`sweep_transfers`] of the folder `dir`.
+pub(super) fn sweep_transfers_in(dir: &Path, moving: &[String]) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
+        if dead_scratch(&name, entry.metadata().and_then(|m| m.modified()).ok()) {
+            tracing::info!("removing {name} in transfers: scratch of a daemon that is gone");
+            let _ = crate::home_fs::remove_dir_all(entry.path());
+            continue;
+        }
         // A receive's last page touched its `alive` file (`transfer_in.rs`).
         let alive = entry.path().join("alive");
         let stamp = std::fs::metadata(&alive).or_else(|_| entry.metadata());
@@ -490,6 +547,56 @@ impl Hub {
         None
     }
 
+    /// A saved local ChatGPT plan has no portable account binding in a move bundle.
+    async fn transfer_has_local_chatgpt_plan(&self, session: &Session) -> bool {
+        let meta = session.meta();
+        let config = self.config.read().await;
+        let profile =
+            super::resolve::session_profile(&config, &meta.harness, &meta.cwd, meta.remote_origin)
+                .ok();
+        let family = profile
+            .as_ref()
+            .map(|profile| crate::config::derive_family(&meta.harness, profile))
+            .or_else(|| meta.family.clone())
+            .unwrap_or_else(|| meta.harness.clone());
+        if crate::agent_credentials::Family::of_harness(&family)
+            != Some(crate::agent_credentials::Family::Codex)
+        {
+            return false;
+        }
+        let (dir, state) = crate::routes::places(&config);
+        drop(config);
+        let bindings = crate::routes::bindings(&state);
+        let env = profile.map(|profile| profile.env).unwrap_or_default();
+        let selected = crate::routes::spawn_route(
+            dir.as_deref(),
+            &bindings,
+            &session.id,
+            meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str),
+            &family,
+            &env,
+        );
+        if selected.is_some_and(|(id, _)| crate::chatgpt::is_chatgpt_route(dir.as_deref(), &id)) {
+            return true;
+        }
+        let uses_local_plan = session
+            .launch_env
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|env| env.contains_key(crate::chatgpt::LOCAL_EXPIRY_ENV));
+        if let Some(uses_local_plan) = uses_local_plan {
+            return uses_local_plan;
+        }
+        session
+            .child
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|child| child.host_record())
+            .is_some_and(|record| record.local_chatgpt_expiry.is_some())
+    }
+
     /// Freezes the chat for its move and makes its bundle. With `after_turn` (how long to wait), a
     /// running turn is neither refused nor stopped: the move first waits (that long) for the
     /// turn lock, unfrozen, so the turn ends on its own and every prompt sent meanwhile queues
@@ -621,6 +728,12 @@ impl Hub {
             }
             e
         };
+        if self.transfer_has_local_chatgpt_plan(session).await {
+            return Err(unfreeze(
+                transfer_error("account", super::credentials::credential_needed().message),
+                None,
+            ));
+        }
         // No turn may run while the bundle is made: one that runs stops only if asked.
         if let Some(running) = session.turn().map(|t| t.turn_id) {
             match cut {
@@ -1113,9 +1226,95 @@ impl Hub {
 }
 
 #[cfg(test)]
-#[path = "transfer_out_fencing_tests.rs"]
-mod fencing_tests;
+mod fencing_tests {
+    use super::*;
+
+    #[test]
+    fn a_tool_call_runs_unless_it_only_waits_on_a_permission() {
+        let mut doing = super::super::activity::TurnActivity::default();
+        assert!(!tool_runs(&doing, &[]), "no tool call: a move may stop the turn");
+        doing.open_tools.insert("t-1".into());
+        assert!(tool_runs(&doing, &[]), "a call in flight runs");
+        let asked = json!({"toolCall": {"toolCallId": "t-1"}});
+        assert!(!tool_runs(&doing, &[("r".into(), asked.clone())]), "it waits on the person");
+        doing.open_tools.insert("t-2".into());
+        assert!(tool_runs(&doing, &[("r".into(), asked)]), "another call runs beside it");
+        let past = super::super::activity::TurnActivity { open_past_cap: 1, ..Default::default() };
+        assert!(tool_runs(&past, &[]), "a call past the id cap runs");
+    }
+
+    #[test]
+    fn a_delayed_owner_is_rejected_for_every_transfer_write_path() {
+        // The four protocol operations all use the same fencing predicate. Keep this table
+        // explicit so a new endpoint cannot silently accept an old host's epoch.
+        for operation in ["read", "write", "commit", "abort"] {
+            let error = require_epoch(9, Some(8)).expect_err(operation);
+            assert!(error.message.contains("transfer.stale_epoch"));
+        }
+    }
+
+    #[test]
+    fn transfer_epoch_marker_survives_resume_and_only_moves_forward() {
+        let dir = std::env::temp_dir().join(format!("acpmux-epoch-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("epoch"), "4").unwrap();
+        assert_eq!(transfer_epoch(&dir).unwrap(), 4);
+        // A resumed owner can never accept the old epoch after a retry increments it.
+        assert!(require_epoch(5, Some(4)).is_err());
+        assert!(require_epoch(5, Some(5)).is_ok());
+        assert!(reject_stale_epoch(4, 5).is_ok());
+        assert!(reject_stale_epoch(5, 4).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn malformed_epoch_marker_fails_closed() {
+        let dir = std::env::temp_dir().join(format!("acpmux-epoch-bad-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("epoch"), "not-an-epoch").unwrap();
+        assert!(transfer_epoch_marker(&dir).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn epoch_parser_distinguishes_legacy_missing_from_malformed() {
+        assert_eq!(parse_epoch(None).unwrap(), None);
+        assert_eq!(parse_epoch(Some(&json!(7))).unwrap(), Some(7));
+        assert!(parse_epoch(Some(&json!("7"))).is_err());
+        assert!(parse_epoch(Some(&json!(null))).is_err());
+    }
+
+    #[test]
+    fn concurrent_transfer_claims_have_one_winner() {
+        use std::sync::{Arc, Mutex};
+        let moving = Arc::new(Mutex::new(None));
+        let mut threads = Vec::new();
+        for id in ["first", "second"] {
+            let moving = moving.clone();
+            threads.push(std::thread::spawn(move || {
+                let mut moving = moving.lock().unwrap();
+                claim_transfer(&mut moving, id)
+            }));
+        }
+        let winners = threads.into_iter().filter_map(|t| t.join().ok()).filter(|won| *won).count();
+        assert_eq!(winners, 1);
+    }
+}
 
 #[cfg(test)]
-#[path = "transfer_out_after_turn_wait_tests.rs"]
-mod after_turn_wait_tests;
+mod after_turn_wait_tests {
+    use super::{AFTER_TURN_WAIT, after_turn_wait};
+    use serde_json::json;
+    use std::time::Duration;
+
+    /// Item C: the mover's `--timeout` bounds the daemon's wait for the turn, never past 15 min.
+    #[test]
+    fn the_movers_timeout_bounds_the_wait_for_the_turn() {
+        assert_eq!(after_turn_wait(&json!({})), AFTER_TURN_WAIT);
+        assert_eq!(
+            after_turn_wait(&json!({"afterTurnTimeoutMs": 30_000})),
+            Duration::from_secs(30)
+        );
+        assert_eq!(after_turn_wait(&json!({"afterTurnTimeoutMs": u64::MAX})), AFTER_TURN_WAIT);
+    }
+}

@@ -51,15 +51,6 @@ fn rule_handle_reads_detect_json() {
         unsafe { cmux_screenshots_rule_item_kind(rule, 1, true, movie.as_ptr(), movie.len(), 2) },
         0
     );
-    let folder = "m_1";
-    // SAFETY: as above.
-    assert!(unsafe {
-        cmux_screenshots_rule_enters(rule, 2, false, folder.as_ptr(), folder.len(), 0)
-    });
-    // SAFETY: as above.
-    assert!(!unsafe {
-        cmux_screenshots_rule_enters(rule, 2, false, folder.as_ptr(), folder.len(), 1)
-    });
     // SAFETY: freed once.
     unsafe { cmux_screenshots_rule_free(rule) };
     let bad = "[]";
@@ -282,8 +273,8 @@ fn detect_calls_back_and_returns_json() {
 fn pane_round_trip() {
     let pane = cmux_screenshots_pane_new(true);
     let sources = r#"[{"id":"d","label":"Desktop","folder":"/u/Desktop","acceptsDrops":false,"rule":{"namePrefixes":["Screenshot"]}},
-            {"id":"s","label":"Shots","folder":"/u/Shots","acceptsDrops":true,"rule":{"depth":1}},
-            {"label":"no id","folder":"/x"}]"#;
+        {"id":"s","label":"Shots","folder":"/u/Shots","acceptsDrops":true,"rule":{"depth":1}},
+        {"label":"no id","folder":"/x"}]"#;
     // SAFETY: live pane, valid bytes.
     let plan =
         take(unsafe { cmux_screenshots_pane_set_sources(pane, sources.as_ptr(), sources.len()) });

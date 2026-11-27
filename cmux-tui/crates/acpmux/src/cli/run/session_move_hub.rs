@@ -322,6 +322,10 @@ fn elapsed_ms(start: std::time::Instant) -> u64 {
 struct Timing {
     started: std::time::Instant,
     begin_ms: u64,
+    /// The source's begin answered: the chat frozen and its manifest (the log's tail) made.
+    begun_ms: u64,
+    /// The move's body made (the folder planned, a worktree's branch pushed) and sent.
+    sent_ms: u64,
     answer_ms: u64,
     /// The begin cut a running turn whose continuation moved with the chat (`continues`).
     carried: bool,
@@ -332,13 +336,15 @@ impl Timing {
     fn value(&self, commit_ms: u64) -> Value {
         let mut value = json!({
             "beginMs": self.begin_ms,
+            "begunMs": self.begun_ms,
+            "sentMs": self.sent_ms,
             "answerMs": self.answer_ms,
             "commitMs": commit_ms,
             "freezeMs": commit_ms.saturating_sub(self.begin_ms),
             "carriedRunningTurn": self.carried,
         });
         if let (Some(out), Some(target)) = (value.as_object_mut(), self.target.as_object()) {
-            for key in ["dialMs", "pages", "pageBytes", "pagesMs", "finishMs", "via"] {
+            for key in ["dialMs", "pages", "pageBytes", "pagesMs", "finishMs", "listedMs", "via"] {
                 if let Some(value) = target.get(key) {
                     out.insert(key.to_owned(), value.clone());
                 }
@@ -393,6 +399,7 @@ impl Moving<'_> {
             t::begin_move_live(src_end, &id, Some(to), t::TOOL_WAIT, staged).await?
         };
         let carried = begun.begin.get("continues").is_some_and(|c| !c.is_null());
+        let begun_ms = elapsed_ms(started);
         let made = async {
             // Read again now that the chat is frozen: it may have changed before the freeze.
             let checkout = checkout_unless_named(cwd, args, &Source::Here).await?;
@@ -434,6 +441,7 @@ impl Moving<'_> {
                 return Err(e);
             }
         };
+        let sent_ms = elapsed_ms(started);
         match src.request("_acpmux/transfer_hub", sent.clone()).await {
             Ok(answer) => {
                 let answer_ms = elapsed_ms(started);
@@ -452,7 +460,15 @@ impl Moving<'_> {
                 Ok((
                     sent,
                     answer,
-                    Timing { started, begin_ms, answer_ms, carried, target: target_timings },
+                    Timing {
+                        started,
+                        begin_ms,
+                        begun_ms,
+                        sent_ms,
+                        answer_ms,
+                        carried,
+                        target: target_timings,
+                    },
                 ))
             }
             Err(e) => {
@@ -483,5 +499,78 @@ fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
 }
 
 #[cfg(test)]
-#[path = "session_move_hub_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn args(interrupt: bool, after_turn: bool, dry_run: bool) -> MoveArgs {
+        MoveArgs {
+            sessions: vec![],
+            host: "vm-b".into(),
+            all_idle: false,
+            interrupt,
+            after_turn,
+            turn_timeout: std::time::Duration::from_secs(60),
+            leave_dirty: false,
+            carry_changes: false,
+            cwd: None,
+            dry_run,
+            resume_there: false,
+            from: None,
+            slow_ok: false,
+            from_snapshot: false,
+            as_harness: None,
+        }
+    }
+
+    /// Leo: "any chat moves Mac↔Cloud and back in one action, keeping its live state". A hub move
+    /// of a chat mid-turn takes the turn along, as an ssh move does, instead of refusing it.
+    #[test]
+    fn a_hub_move_takes_a_running_turn_along() {
+        let running = json!({"status": "running", "turn": {"id": "t1"}});
+        assert_eq!(plan::refusal(&running, hub_running_ok(&args(false, false, false))), None);
+        assert_eq!(plan::refusal(&running, hub_running_ok(&args(true, false, false))), None);
+        assert_eq!(plan::refusal(&running, hub_running_ok(&args(false, true, false))), None);
+        // A dry run only reports the running turn, as over ssh.
+        assert!(plan::refusal(&running, hub_running_ok(&args(false, false, true))).is_some());
+    }
+
+    #[test]
+    fn a_hub_move_says_whether_it_carried_the_running_turn() {
+        let timing = |carried| Timing {
+            started: std::time::Instant::now(),
+            begin_ms: 10,
+            begun_ms: 20,
+            sent_ms: 30,
+            answer_ms: 50,
+            carried,
+            target: json!({"via": "circuit"}),
+        };
+        let carried = timing(true).value(80);
+        assert_eq!(carried["carriedRunningTurn"], true);
+        assert_eq!(carried["freezeMs"], 70);
+        assert_eq!(carried["via"], "circuit");
+        assert_eq!(timing(false).value(80)["carriedRunningTurn"], false);
+    }
+
+    #[test]
+    fn a_hub_move_names_its_folder_as_the_target_can_make_it() {
+        let home = Path::new("/home/me");
+        let plain = Folder::Plain { cwd: "/home/me/notes/a".into() };
+        assert_eq!(folder_value(&plain, home, false).unwrap(), json!({"home": "notes/a"}));
+        assert_eq!(folder_value(&plain, home, true).unwrap(), json!({"cwd": "/home/me/notes/a"}));
+        let outside = Folder::Plain { cwd: "/srv/x".into() };
+        assert!(folder_value(&outside, home, false).is_err());
+        let tree = Folder::Worktree {
+            repo: "o/n".into(),
+            url: "https://github.com/o/n.git".into(),
+            branch: "lane/x".into(),
+            subdir: "sub".into(),
+            dirty: false,
+            snapshot: false,
+        };
+        assert_eq!(
+            folder_value(&tree, home, false).unwrap(),
+            json!({"repo": "o/n", "url": "https://github.com/o/n.git", "branch": "lane/x", "subdir": "sub"})
+        );
+    }
+}
