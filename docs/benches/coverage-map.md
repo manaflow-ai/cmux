@@ -60,6 +60,8 @@ scale. Ranks match the RFD: 1 is the highest risk.
 | 5 | Chat index and transcripts (Rust) | `cmux-tui/crates/cmux-chat-index` | `chat-size`, `transcript-shifts` | 1 MB-4 GB; 50k rows | no | Manual or cron only. |
 | 6 | Agent chat transcript (web) | `webviews/src/agent-session` | `webviews/bench/transcript-*.bench.ts`, `webviews/bench/chat-*.bench.ts`, `webviews/bench/million-event-chat.bench.ts`, `snappy`, `typing`, `pane-resize-drag` | 100k rows and 1M events exist | report only: chat-open-perf-report (no fail) | About 150 web benches never fail a pull request. |
 | 6 | Sidebar chat list (web) | `webviews/src/sidebar` | `webviews/bench/sidebar-chats-*.bench.ts`, `webviews/bench/all-chats-list.bench.ts`, `webviews/bench/session-*.bench.ts` | session-scale fixtures | no | Not run on a pull request. |
+| 6 | Diff view | `webviews/src/diff-viewer`, `webviews/src/find`, `webviews/src/diff-stream.ts` | `diff-stream`, `diff-find-scale` | 100k-line file, 10k-file stream | no | Find and stream op counts and budgets in `webviews/test/diff-find-scale.test.ts`; the stream bench is the area's `run`. |
+| 6 | Model picker search | `webviews/src/agent-session/acpmux/modelSearch.ts`, `webviews/src/agent-session/acpmux/modelQuery.ts`, `webviews/src/agent-session/acpmux/ModelPicker.tsx`, `webviews/src/agent-session/acpmux/QuickModelMenu.tsx`, `webviews/src/agent-session/acpmux/modelPicker*.ts` | `model-picker-search` | 5,000 router models | no | Per keystroke ≤ 2 ms at 5,000 models; the bench fails open on a loaded host. |
 | 7 | Main-actor work in the app target | `Packages/macOS/CmuxNext/Sources/CmuxNextApp` | `MainTaskRecordBench`, `ActionBudgetMonitorBench`, `stress`, `typing-native` | stress has a scale preset | no (env-gated, manual) | Lint only: `scripts/cmux-next/check-main-actor-work.py`. |
 | 8 | Terminal | `Packages/macOS/CmuxNext/Sources/CmuxNextTerminal` | `TerminalLaunchFrameKeeperBenchTests`, `terminal-throughput-quick` | not at scale | no | Manual only. |
 | 8 | Tabs, panes, spaces | `Packages/macOS/CmuxNext/Sources/CmuxNextPages` | `TabSwitchPathBench`, `TabSwitchCycleBench`, `TabSwitchViewSwapBench`, `TabStripSelectionBench`, `TabStripFollowsPaneTickBench`, `SpaceSwitchBench`, `PaneMotionBench`, `PaneContentPolicyBench`, `LayoutDragBench`, `PageHostPoolClaimReadyBenchmark`, `KeyRouterBench` | 30 tabs | partly: ungated suites run when their target runs, without a budget, except `PaneMotionBench` (env-gated) | No fail threshold on a pull request. |
@@ -242,6 +244,9 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | `webviews/bench/cloud-page-first-row.bench.tsx` | cloud page | no |
 | `webviews/bench/daemon-gate-relink.bench.tsx` | daemon relink | no |
 | `webviews/bench/diff-*.bench.ts*` | diff viewer | no (perf cron) |
+| `webviews/bench/diff-stream.bench.ts` (`diff-stream`) | diff stream, the Diff view area's `run` | via `for-paths --run` |
+| `webviews/test/diff-find-scale.test.ts` (`diff-find-scale`) | diff find op counts, oracle, budgets | webviews tests |
+| `webviews/bench/model-picker-search.bench.ts` (`model-picker-search`) | model picker keystroke at 5,000 models | via `for-paths --run` |
 | `webviews/bench/new-tab-*.bench.ts*` | new tab | no |
 | `webviews/bench/*-visible-only.bench.ts` | page virtualization | no |
 | `webviews/bench/apps-catalog-*.bench.ts` | apps catalog | no |
