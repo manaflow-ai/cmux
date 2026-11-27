@@ -77,7 +77,7 @@ use crate::panic_free::JsonFields;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
@@ -86,9 +86,12 @@ use serde_json::{Map, Value, json};
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
 use super::agent_session_attach::agent_session_start::{self, vm_word};
 use super::agent_session_attach::{
-    TRANSFER_FIELD, detach_transferred_chat_shares, export_transferred_chat_shares,
-    finish_transferred_chat_shares, stage_transferred_chat_shares,
+    TRANSFER_FIELD, abort_transferred_chat_shares, detach_transferred_chat_shares,
+    finish_transferred_chat_shares, freeze_transferred_chat_shares,
+    reconcile_transferred_chat_shares, stage_transferred_chat_shares,
 };
+#[cfg(test)]
+use super::agent_session_attach::{close_chat_shares, export_transferred_chat_shares};
 use super::remote_relay::gate::COMMAND_PARAMS;
 use super::responses::send_response_with_details;
 use super::{MessageWriter, Response, SurfaceId};
@@ -202,6 +205,9 @@ pub(crate) struct AgentTransfers {
     /// Receives a finish ended: only a receive-abort still names them.
     settled: Mutex<HashMap<String, Settled>>,
     moves: Mutex<HashMap<String, Move>>,
+    /// Serialize source RPCs and share settlement for a chat. In particular, an abort must
+    /// release its snapshot before a following begin can reserve a new one.
+    source_operations: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     /// Chats a finish here landed (`landed.rs`).
     landed: landed::Landed,
     /// Receives a receive-abort may still name after a restart (`askable.rs`).
@@ -379,6 +385,17 @@ impl AgentTransfers {
     fn full<T>(map: &mut HashMap<String, T>, cap: usize, touched: impl Fn(&T) -> Instant) -> bool {
         map.retain(|_, value| touched(value).elapsed() < STALE);
         map.len() >= cap
+    }
+
+    pub(crate) fn source_operation(&self, session: &str) -> Arc<Mutex<()>> {
+        let mut operations = lock(&self.source_operations);
+        operations.retain(|_, operation| operation.strong_count() > 0);
+        if let Some(operation) = operations.get(session).and_then(Weak::upgrade) {
+            return operation;
+        }
+        let operation = Arc::new(Mutex::new(()));
+        operations.insert(session.to_owned(), Arc::downgrade(&operation));
+        operation
     }
 
     pub(crate) fn moving_session(&self, session: &str) -> bool {
@@ -566,6 +583,7 @@ enum Refusal {
     UnknownTransfer,
     Unguarded,
     SharesUnsupported,
+    Busy,
     Limit,
     Timeout,
     Refused,
@@ -589,6 +607,7 @@ impl Refusal {
             Self::UnknownTransfer => "agent_transfer.unknown_transfer",
             Self::Unguarded => "agent_transfer.unguarded",
             Self::SharesUnsupported => "agent_transfer.shares_unsupported",
+            Self::Busy => "agent_transfer.busy",
             Self::Limit => "agent_transfer.limit",
             Self::Timeout => "agent_transfer.timeout",
             Self::Refused => "agent_transfer.refused",
@@ -609,6 +628,9 @@ impl Refusal {
             Self::UnknownTransfer => "no such move on this daemon",
             Self::Unguarded => "acpmux did not apply the receive guard",
             Self::SharesUnsupported => "update the move client to move a shared chat",
+            Self::Busy => {
+                "another move operation for this chat is still running; retry when it answers"
+            }
             Self::Limit => "too many chat moves at once",
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
@@ -1096,6 +1118,16 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
         value.as_u64().ok_or(Refusal::BadRequest.into())
     };
     let transfers = &mux.agent_transfers;
+    let source_operation = match &prepared {
+        Prepared::Begin { session, .. }
+        | Prepared::Commit { session, .. }
+        | Prepared::Abort { session, .. } => Some(transfers.source_operation(session)),
+        _ => None,
+    };
+    let _source_guard = source_operation
+        .as_ref()
+        .map(|operation| operation.try_lock().map_err(|_| Refusal::Busy))
+        .transpose()?;
     match prepared {
         Prepared::Receive { mut manifest, guard, cwd, moved, stage_id } => {
             let shares = manifest.remove(TRANSFER_FIELD);
@@ -1172,13 +1204,18 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
             begin_token,
             prefix,
         } => {
-            let shares = export_transferred_chat_shares(mux, &session);
-            if shares.is_some() && !checks_shares {
-                return Err(Refusal::SharesUnsupported.into());
-            }
             if ask_first {
                 ask_first::narrow(&call, &session)?;
             }
+            reconcile_transferred_chat_shares(mux, &session).map_err(|_| Refusal::Unavailable)?;
+            let frozen =
+                freeze_transferred_chat_shares(mux, &session, checks_shares).map_err(|code| {
+                    if code == "share.unsupported" {
+                        Refusal::SharesUnsupported
+                    } else {
+                        Refusal::Unavailable
+                    }
+                })?;
             let source_session = session.clone();
             let mut params = json!({"sessionId": session, "interrupt": interrupt});
             if let Some(token) = begin_token {
@@ -1188,7 +1225,18 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
                 params.insert("prepareId", json!(prepare_id));
                 params.insert("afterSeq", json!(prefix.after_seq));
             }
-            let mut manifest = call("_acpmux/transfer_begin", params, BEGIN_TIMEOUT)?;
+            let mut manifest = match call("_acpmux/transfer_begin", params, BEGIN_TIMEOUT) {
+                Ok(manifest) => manifest,
+                Err(failure) => {
+                    // A fresh reservation can unwind an RPC refusal. A previous reservation,
+                    // transport failure or transfer.moving may already have a receiver; keep it.
+                    if frozen.fresh && matches!(&failure, Failure::Acpmux(_)) {
+                        abort_transferred_chat_shares(mux, &source_session)
+                            .map_err(|_| Refusal::Unavailable)?;
+                    }
+                    return Err(failure);
+                }
+            };
             let transfer_id = manifest
                 .field("transferId")
                 .as_str()
@@ -1202,11 +1250,14 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
                     // The chat must not stay frozen for a move nobody can read.
                     let params =
                         with_epoch(json!({"sessionId": session, "transferId": transfer_id}), epoch);
-                    let _ = call("_acpmux/transfer_abort", params, CALL_TIMEOUT);
+                    if call("_acpmux/transfer_abort", params, CALL_TIMEOUT).is_ok() {
+                        abort_transferred_chat_shares(mux, &session)
+                            .map_err(|_| Refusal::Unavailable)?;
+                    }
                     return Err(failure);
                 }
             };
-            if let Some(shares) = shares {
+            if let Some(shares) = frozen.payload {
                 manifest.insert(TRANSFER_FIELD, shares);
             }
             let entry = Move {
@@ -1275,7 +1326,7 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
                 epoch,
             );
             call("_acpmux/transfer_commit", params, CALL_TIMEOUT)?;
-            detach_transferred_chat_shares(mux, &session);
+            detach_transferred_chat_shares(mux, &session).map_err(|_| Refusal::Unavailable)?;
             lock(&transfers.moves).remove(&transfer_id);
             mux.forget_landed_agent_session(&session);
             mux.control_clients.agent_sessions.known_children.forget(&session);
@@ -1290,6 +1341,7 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
             // or was never this chat's, and no read of it should go on.
             lock(&transfers.moves).remove(&transfer_id);
             aborted?;
+            abort_transferred_chat_shares(mux, &session).map_err(|_| Refusal::Unavailable)?;
             Ok(json!({"aborted": true}))
         }
         Prepared::Later(prepared) => history_later::run(mux, &call, prepared),

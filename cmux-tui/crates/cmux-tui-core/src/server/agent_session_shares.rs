@@ -57,7 +57,10 @@ use crate::server::agent_transfer::state_file::{read_trusted, save};
 mod link;
 #[path = "agent_session_share_transfer.rs"]
 mod transfer;
-pub(crate) use transfer::{finish_transferred_chat_shares, stage_transferred_chat_shares};
+pub(crate) use transfer::{
+    abort_transferred_chat_shares, finish_transferred_chat_shares, freeze_transferred_chat_shares,
+    reconcile_transferred_chat_shares, stage_transferred_chat_shares,
+};
 #[path = "agent_session_share_open.rs"]
 mod open;
 #[path = "agent_session_share_room.rs"]
@@ -471,6 +474,7 @@ impl LinkShare {
 pub(in crate::server) struct LinkShares {
     shares: Mutex<Option<Vec<LinkShare>>>,
     pending_transfers: transfer::Pending,
+    outgoing_transfers: transfer::Pending,
     timers: Timers,
     /// The one timer armed, and the expiry it ends. Changed only under the shares lock (taken
     /// first), so the timer always matches the shares it was computed from.
@@ -773,7 +777,22 @@ impl LinkShares {
             }
         }
         let before = shares.clone();
-        let answer = match change(shares, now) {
+        let changed = change(shares, now).and_then(|answer| {
+            self.outgoing_transfers.change(directory, transfer::OUTGOING_FILE, |outgoing| {
+                for session in outgoing.keys() {
+                    if !before
+                        .iter()
+                        .filter(|s| &s.session == session)
+                        .eq(shares.iter().filter(|s| &s.session == session))
+                    {
+                        return Err("share.moving");
+                    }
+                }
+                Ok(((), false))
+            })?;
+            Ok(answer)
+        });
+        let answer = match changed {
             Ok((value, true)) => match self.save(directory, shares) {
                 Some(Err(error)) => {
                     *shares = before;
@@ -881,6 +900,7 @@ impl LinkShares {
 
     /// A move carries the complete live share record, including its room credentials and guest
     /// roles. The room keeps the link and guest sockets alive while the target daemon takes over.
+    #[cfg(test)]
     pub(crate) fn export_for_transfer(
         &self,
         directory: Option<&Path>,
@@ -901,12 +921,27 @@ impl LinkShares {
 
     /// Removes source records after the target has taken ownership. The room remains intact and
     /// the target host replaces this daemon's socket using the same host token.
-    pub(crate) fn detach_for_transfer(&self, directory: Option<&Path>, session: &str) {
-        let _ = self.with(directory, |shares, _| {
-            let before = shares.len();
-            shares.retain(|share| share.session != session);
-            Ok(((), shares.len() != before))
-        });
+    pub(crate) fn detach_for_transfer(
+        &self,
+        directory: Option<&Path>,
+        session: &str,
+    ) -> Result<(), &'static str> {
+        let mut slot = self.shares.lock().unwrap_or_else(|e| e.into_inner());
+        let all = slot.get_or_insert_with(|| self.load(directory));
+        let mut kept = all.clone();
+        kept.retain(|share| share.session != session);
+        if let Some(result) = self.save(directory, &kept) {
+            result.map_err(|_| "share.unsaved")?;
+        }
+        self.note_ended(all, &kept);
+        *all = kept;
+        // A crash before this removal leaves a frozen, empty source; replay safely clears it.
+        self.outgoing_transfers.change(directory, transfer::OUTGOING_FILE, |outgoing| {
+            Ok(((), outgoing.remove(session).is_some()))
+        })?;
+        drop(slot);
+        self.publish(BTreeSet::from([session.to_owned()]));
+        Ok(())
     }
 
     pub(super) fn release_room_delete(&self, share_id: &str) {
@@ -1388,12 +1423,24 @@ impl LinkShares {
 
     /// Closes every open share whose chat `gone` names, as [`Self::close_chat`] does.
     fn close_where(&self, directory: Option<&Path>, gone: impl Fn(&LinkShare) -> bool) {
-        self.end_where(directory, gone, |share| {
-            share.state = ShareState::Closed;
-            if share.room.is_some() && !share.delete_queued() {
-                share.pending_room_ops.push(json!({"op": "delete"}));
-            }
-        });
+        self.end_where(
+            directory,
+            |share| {
+                gone(share)
+                    && self
+                        .outgoing_transfers
+                        .change(directory, transfer::OUTGOING_FILE, |outgoing| {
+                            Ok((!outgoing.contains_key(&share.session), false))
+                        })
+                        .unwrap_or(false)
+            },
+            |share| {
+                share.state = ShareState::Closed;
+                if share.room.is_some() && !share.delete_queued() {
+                    share.pending_room_ops.push(json!({"op": "delete"}));
+                }
+            },
+        );
     }
 
     /// The room ended `share_id` (it closed the host socket with 4001, or refused its upgrade as
@@ -1586,10 +1633,12 @@ pub(crate) fn close_chat_shares(mux: &Mux, session: &str) {
 
 /// Link shares are protected while their chat is in an outgoing transfer. The acpmux list closes
 /// its source copy as part of a successful move, which must not close the room share first.
-pub(crate) fn detach_transferred_chat_shares(mux: &Mux, session: &str) {
+pub(crate) fn detach_transferred_chat_shares(mux: &Mux, session: &str) -> Result<(), &'static str> {
     let shares = &mux.control_clients.agent_sessions.link_shares;
     let directory = mux.session_state_directory();
-    shares.detach_for_transfer(directory.as_deref(), session);
+    shares.detach_for_transfer(directory.as_deref(), session)?;
+    shares.settle(mux);
+    Ok(())
 }
 
 /// A page of acpmux's list named `session` closed: its link shares in `before`
@@ -1688,6 +1737,9 @@ pub(super) fn handle(
     let directory = mux.session_state_directory();
     let directory = directory.as_deref();
     let params = Value::Object(object);
+    if let Err(code) = transfer::reconcile_request(mux, &params) {
+        return fail(writer, id, code);
+    }
     let answer = match cmd {
         "agent-session-share-create" => {
             parse(params).and_then(|p: Create| open::create(mux, shares, directory, p))
@@ -1774,6 +1826,9 @@ fn fail(writer: &MessageWriter, id: Option<Value>, code: &str) -> bool {
         "share.not_a_chat" => "not an agent chat with a session",
         "share.chat_moved" => "the surface shows another chat now; name the chat again",
         "share.not_trusted" => "only the owner's own local connection manages shares",
+        "share.moving" => {
+            "the chat is moving; retry sharing changes after the move finishes or is cancelled"
+        }
         "share.unsaved" => "the share could not be saved",
         "share.needs_sign_in" => "sharing a link needs the owner's cmux sign-in (owner_token)",
         "share.room_unreachable" => "the share room did not answer; the share was not opened",
