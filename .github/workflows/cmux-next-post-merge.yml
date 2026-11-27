@@ -4,8 +4,8 @@ name: cmux-next post-merge batch
 # Leo 2026-11-21: "everything else runs once post-merge, batched"). main's
 # cmux-next-post-merge-dispatch.yml ticks every 30 min, and each batch run's judge ticks once more as
 # it ends; a tick starts a batch run on the newest feat-cmux-next tip when it is untested and either
-# 10 or more merges past the last batch run (vars.NEXT_POST_MERGE_EVERY_MERGES, default 10; 0 turns the
-# count off) or a window (vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 120) has passed since it. A batch run calls every suite in
+# 100 or more merges past the last batch run (vars.NEXT_POST_MERGE_EVERY_MERGES, default 100; 0 turns the
+# count off) or a window (vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 240) has passed since it. A batch run calls every suite in
 # .github/post-merge-batch.json whose paths the commits since the last batch run touched. A job red
 # here and green on the last batch run where it ran starts a bisect: probe runs of that job alone,
 # each dispatched by the one before, end on the first red commit, and the last probe opens its
