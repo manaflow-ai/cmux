@@ -12,6 +12,8 @@ import {
   stubRestart,
   stubStop,
   aggregate,
+  startingSpans,
+  startingTable,
   gapLine,
   gapSchedule,
   guestLine,
@@ -419,5 +421,21 @@ describe("sign-in refresh", () => {
     expect(api.bearer).toBe("tok-2");
     await api.fresh();
     expect(api.bearer).toBe("tok-2");
+  });
+});
+
+describe("startingSpans (aggressive's 25.1 s starting p50 vs hq#21300's 8.4 s p95)", () => {
+  const at = (sec: number, status: string) => ({ at: sec * 1000, status });
+  test("each start's upper bound runs from the sample before it to the first one after it, with its origin", () => {
+    const samples = [at(0, "running"), at(5, "pausing"), at(10, "starting"), at(15, "running"), at(20, "paused"), at(60, "paused"),
+      at(65, "starting"), at(70, "starting"), at(100, "starting"), at(105, "running")];
+    expect(startingSpans(samples)).toEqual([{ from: "pausing", s: 10 }, { from: "paused", s: 45 }]);
+  });
+  test("the table splits a fast mode from a slow one per origin", () => {
+    const m = (arm: string, samples: { at: number; status: string }[]) => ({ arm, skipped: undefined, samples }) as never;
+    const fast = [at(0, "paused"), at(5, "starting"), at(10, "running")];
+    const slow = [at(0, "paused"), at(5, "starting"), at(45, "running")];
+    const t = startingTable([m("aggressive", fast), m("aggressive", slow), m("aggressive", fast)], ["aggressive"]);
+    expect(t.split("\n")[2]).toBe("| aggressive | paused | 3 | 10 | 10 | 1 | 45 |");
   });
 });
