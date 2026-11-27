@@ -348,6 +348,10 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
         # (build-nightly-app: trusted tuple || hosted 'macos-26').
         if re.search(r"\|\|\s*'[^']+'\s*\}\}\s*(#.*)?$", line):
             continue
+        # A last top-level `|| fromJSON('["label", ...]')` is a literal label set, the same fallback
+        # (ios-internal-nightly's archive: cmux-mac AND xcode-27.0 when no picker output applies).
+        if re.search(r"\|\|\s*fromJSON\('\[\s*\"[^\"']+\"(?:\s*,\s*\"[^\"']+\")*\s*\]'\)\s*\}\}\s*(#.*)?$", line):
+            continue
         errors.append(
             f"{path.name}:{number}: runs-on reads "
             f"{', '.join(read.group(0) for read in reads)} with no literal runner "
