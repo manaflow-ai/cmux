@@ -7541,7 +7541,7 @@ export class AcpmuxDirectClient {
       this.summary = {
         ...this.summary,
         ...session,
-        composerStatus: session.composerStatus,
+        composerStatus: readComposerStatus(session.composerStatus),
         loopEpisode: session.loopEpisode ?? null,
       };
       // Built when sent, after the record it follows: it settles the turn the records folded.
