@@ -163,24 +163,20 @@ cmux.json:
   and title are dimmed in the strip. Selecting it restores the page; a
   navigation from the placeholder restores first.
 - Snapshots (PR 23083): each hibernated page's last frame is kept
-  JPEG-compressed at full size in its own 64 MB LRU (`HibernationSnapshots`),
-  and the placeholder decodes it off the main thread while a pane shows it, so
-  every hibernated tab wakes to its picture. They used to share the decoded
+  JPEG-compressed at full size in its own 64 MB LRU (`HibernationSnapshots`)
+  for the hover preview, the phones' tab overview and screenshots of a sleeping
+  tab. They used to share the decoded
   32 MB preview cache at up to a quarter of it each, so only the last four kept
   one. Debug Settings > Tab Hibernation turns the old behavior back on.
-- A woken page keeps the tab's last frame over it until the page's own first
-  contentful paint (`BrowserWakeStandIn`; WebKit: `WebKitFirstPaintHandler`,
-  Paint Timing in its own content world), or until its load ends with nothing
-  painted, fails, is stopped, its process ends or the tab closes, and at most
-  500 ms (a page that paints later shows itself loading; `uncovered_wakes_total`
-  in `debug.surfaces` counts wakes whose page could show no picture). The web view
-  stays visible to the engine under the picture, so it paints. Chromium tabs
-  get the same with layer hosting (the picture over the page's CALayerHost,
-  PL-cef-layer); until then a woken Chromium page shows the theme color until
-  it paints. Known gap: WebKit restores the scroll position after the load,
-  so a page that paints before that shows its top for a moment.
+- A sleeping, woken or relaunch-restored tab shows the page itself, its
+  background until it paints, as Chrome shows a discarded tab it reloads: never
+  a snapshot over the pane (cmux#57419). A snapshot taken at another pane size,
+  display or pixel budget (a hidden Chromium page's was the 640 px hover
+  thumbnail) drew the loading page blurry and at the wrong size until it painted.
+  Known gap: WebKit restores the scroll position after the load, so a page that
+  paints before that shows its top for a moment.
 - Wakes are timed from the restore effect to the page being back and to its
-  load ending, with whether a snapshot covered the pane and whether the tab
+  load ending, with whether a snapshot was kept and whether the tab
   was shown (`debug.surfaces` `wakes`, the latest 32).
 - Bench: `scripts/cmux-next/bench_hibernation.py` (Chromium and WebKit tabs
   on local pages with a form and a stand-in heap): footprint and CPU awake,

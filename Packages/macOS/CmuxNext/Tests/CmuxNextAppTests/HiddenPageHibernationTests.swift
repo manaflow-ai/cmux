@@ -469,39 +469,9 @@ import CmuxNextTestSupport
         try await rig.until("the woken page loaded") { rig.hibernation.wakeLog.records.last?.loadedMs != nil }
         let wake = try #require(rig.hibernation.wakeLog.records.last)
         #expect(wake.tab == key && wake.engine == .webkit && wake.visible, "the wake was not the shown page's: \(wake)")
-        #expect(wake.snapshot, "the pane had no snapshot while the page came back")
+        #expect(wake.snapshot, "the page kept no snapshot for its previews")
         #expect((wake.mountedMs ?? .max) <= (wake.loadedMs ?? 0), "the page loaded before it was back: \(wake)")
         #expect(rig.hibernation.snapshots.count == 0, "the woken page's snapshot stayed in the store")
-    }
-
-    /// "Shows its last frame in under 100 ms" had no number: the log timed the page being back and
-    /// loaded, never the picture. A wake now carries when the pane got its last frame (`picture_ms`).
-    @Test func aWakeCarriesWhenItsLastFrameShowed() throws {
-        var log = HibernationWakes()
-        let start = ContinuousClock.now
-        log.start("a", engine: .cef, snapshot: true, at: start)
-        log.pictureShown("a", at: start.advanced(by: .milliseconds(18)))
-        log.mounted("a", visible: true, at: start.advanced(by: .milliseconds(60)))
-        #expect(log.records.last?.pictureMs == 18 && log.records.last?.mountedMs == 60)
-        // A picture already on screen when the wake starts counts as 0; a wake with none says none.
-        log.pictureShown("b", at: start)
-        log.start("b", engine: .cef, snapshot: true, at: start.advanced(by: .milliseconds(5)))
-        log.mounted("b", visible: true, at: start.advanced(by: .milliseconds(40)))
-        #expect(log.records.last?.pictureMs == 0)
-        log.start("c", engine: .webkit, snapshot: false, at: start)
-        log.mounted("c", visible: true, at: start.advanced(by: .milliseconds(9)))
-        #expect(log.records.last?.tab == "c" && log.records.last?.pictureMs == nil)
-        // A page closed asleep leaves no picture time for a later page of the same key.
-        log.pictureShown("d", at: start)
-        log.forget("d")
-        log.start("d", engine: .cef, snapshot: false, at: start)
-        log.mounted("d", visible: true, at: start.advanced(by: .milliseconds(3)))
-        #expect(log.records.last?.pictureMs == nil)
-        guard case .array(let rows) = log.json, case .object(let first)? = rows.first else {
-            Issue.record("the wake log's JSON is not a list of objects")
-            return
-        }
-        #expect(first["picture_ms"] == .number(18))
     }
 
     /// Leo (PR 23083): a hibernated page comes back where it was, with what its fields held.

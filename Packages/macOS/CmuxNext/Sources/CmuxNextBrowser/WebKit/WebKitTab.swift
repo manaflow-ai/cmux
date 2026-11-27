@@ -30,10 +30,6 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     /// attached Web Inspector beside the web view inside it.
     public var contentView: NSView { container }
     @ObservationIgnored let container: WebKitPageContainer
-    /// A woken tab's last frame over the page until it paints (`WebKitTab+WakeStandIn`).
-    @ObservationIgnored var standIn: NSView?
-    /// The stand-in's cap (`showStandIn`).
-    @ObservationIgnored var standInCap: DemandTimer?
     /// Web Inspector's visibility, for the toolbar's DevTools button.
     @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
     /// Files an agent offered this page's next file chooser (`runOpenPanelWith` takes them first).
@@ -137,7 +133,6 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         WebKitDesignModeHandler.install(on: self, into: controller)
         WebKitPasskeyInstaller.install(self, into: controller)
         WebKitNotificationBridge.install(on: self, into: controller)
-        WebKitFirstPaintHandler.install(on: self, into: controller)
         WebKitScrollReportHandler.install(on: self, into: controller)
         WebKitPageKeyHandler.install(on: self, into: controller)
         observeWebView()
@@ -181,7 +176,6 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         // Whatever committed keeps the page area from now on, so WebKit draws
         // its background again even if no `didFail` follows the stop.
         pageDidFinish()
-        removeStandIn()
         apply(.stopped)
     }
 
@@ -329,7 +323,6 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         guard !isClosed else { return }
         isClosed = true
         agentFiles.withdraw()
-        removeStandIn()
         faviconTask?.cancel()
         titleTimer.cancel()
         hangRecheck.cancel()

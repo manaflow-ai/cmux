@@ -3,14 +3,14 @@ public import Foundation
 public import Observation
 
 /// Stands in for a page that hibernated (its engine page was closed to
-/// free memory): keeps the URL, title and favicon, and shows the last
-/// snapshot until the App restores the real page. Navigating or reloading
-/// asks the host (`onWake`) to restore it first.
+/// free memory): keeps the URL, title and favicon until the App restores the
+/// real page. Navigating or reloading asks the host (`onWake`) to restore it first.
 ///
-/// The snapshot is read from the host's bounded image cache when it is
-/// needed and held only while the pane shows this page: a placeholder that
-/// kept its own full-size picture cost about 7 MB of app memory per
-/// hibernated tab, with no bound.
+/// Its pane shows the page background, as Chrome shows a discarded tab while it
+/// reloads, never the last snapshot (cmux#57419): a picture taken at another pane
+/// size, display or pixel budget drew the page blurry and at the wrong size until
+/// it painted. The snapshot is for previews and screenshots only, read from the
+/// host's bounded image cache when asked for.
 @Observable
 public final class HibernatedBrowserTab: BrowserTab {
     public let id: BrowserTabID
@@ -24,21 +24,9 @@ public final class HibernatedBrowserTab: BrowserTab {
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
     /// The saved history the real page is recreated with.
     public let restoreState: BrowserRestoreState
-    /// The last page pixels, for the pane until the page is back; nil once
-    /// the host's cache let them go.
+    /// The last page pixels (previews, `snapshot()`); nil once the host's cache let them go.
     public var snapshotImage: CGImage? { snapshotSource() }
     private let snapshotSource: @MainActor () -> CGImage?
-    /// The decoded pixels the pane shows now; nil while the placeholder is not in a window or its
-    /// picture still decodes. A wake hands them to the new page's stand-in
-    /// (`BrowserWakeStandIn`), which then needs no decode of its own.
-    public var shownPicture: CGImage? { pictureView.decodedPicture }
-    @ObservationIgnored private let pictureView: BrowserPictureView
-    /// Called when the pane, showing this placeholder, got the last frame's decoded pixels: the
-    /// host times a wake's last frame to it.
-    public var onPictureShown: (@MainActor () -> Void)? {
-        get { pictureView.onShown }
-        set { pictureView.onShown = newValue }
-    }
     /// What woke the page, for the host to apply once it is restored.
     public enum Wake: Sendable, Hashable {
         case load(URL)
@@ -70,8 +58,7 @@ public final class HibernatedBrowserTab: BrowserTab {
         self.favicon = favicon
         self.restoreState = restoreState
         self.snapshotSource = snapshot
-        pictureView = BrowserPictureView(picture: snapshot)
-        contentView = pictureView
+        contentView = NSView()
     }
 
     public func load(_ url: URL) { onWake?(.load(url)) }

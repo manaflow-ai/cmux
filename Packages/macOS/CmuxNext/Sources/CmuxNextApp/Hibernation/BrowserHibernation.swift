@@ -122,11 +122,6 @@ final class BrowserHibernation {
     static let hoverGrace: Double = 30
     /// Pages woken early (neighbors and hovers): `debug.surfaces` and the bench read it.
     private(set) var prewarmedCount = 0
-    /// The longest a woken page's last frame stands in for it before it paints (Chrome has no
-    /// picture; a page that paints later than this shows itself loading rather than look frozen).
-    static let standInCap: Duration = .milliseconds(500)
-    /// The clock of the stand-in cap (a seam for tests).
-    var standInClock: any Clock<Duration> = ContinuousClock()
     /// The clock hidden, grace and backoff times are read from (tests set it, as for
     /// `AgentPageHibernation.now`). The probe's own deadlines stay on the wall clock.
     var now: () -> ContinuousClock.Instant = { .now }
@@ -134,8 +129,6 @@ final class BrowserHibernation {
     /// (a seam: tests that do not check a silent page set it longer, so a starved test machine is not
     /// a page that did not answer).
     var pageDeadline: Duration = .seconds(2)
-    /// Wakes with a picture whose page could show no stand-in (`debug.surfaces`).
-    var uncoveredWakes = 0
     private let lowPower: LowPowerMode
     private var lowPowerObservation: LowPowerModeObservation?
     /// The page's freeze control (a seam for tests; Chromium and WebKit pages in the app).
@@ -803,8 +796,7 @@ final class BrowserHibernation {
             favicon: page.favicon, restoreState: saved.state, snapshot: { [weak self] in self?.snapshots.image(for: key) }
         )
         placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
-        placeholder.onPictureShown = { [weak self] in self?.wakeLog.pictureShown(key) }
-        if let snapshot = saved.snapshot { snapshots.insert(snapshot, for: key); cache.phonePictures?.offerThumbnail(snapshot.image, tab: key); cache.keepFrameOnDisk(snapshot.image, for: key) } // also the phones' picture (a page never shown sent none), and on disk for the next run's card and first frame
+        if let snapshot = saved.snapshot { snapshots.insert(snapshot, for: key); cache.phonePictures?.offerThumbnail(snapshot.image, tab: key); cache.keepFrameOnDisk(snapshot.image, for: key) } // also the phones' picture (a page never shown sent none), and on disk for the next run's card
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         hiddenAt[key] = nil

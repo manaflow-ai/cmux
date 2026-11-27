@@ -299,11 +299,11 @@ final class TabContentCache {
             if crashedPages.contains(key), !startedDeferred.contains(key) { return deferred(tab, url: url) }
             onRestoredPageStart?(key)
         }
-        guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return coverRestored(tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url, loadsAfterFrame: ProvisionalTab.isProvisional(surface: tab.surface)), tab), tab) }
+        guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url, loadsAfterFrame: ProvisionalTab.isProvisional(surface: tab.surface)), tab) }
         if let reason = browserTabs.cefUnavailable() { return chromiumUnavailable(tab, url: url, reason: reason) }
         if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url) { return tracked(install(page, for: key), tab) }
         guard pendingBrowsers.insert(key).inserted, cef.notePoint("page_task") else { return nil }
-        let standIn = restoringStandIn(tab, url: url) // a restored tab's last picture and address while its page is made
+        let standIn = restoringStandIn(tab, url: url) // a restored tab's address while its page is made
         Task {
             defer { pendingBrowsers.remove(key) }
             let page: any BrowserTab
@@ -320,7 +320,7 @@ final class TabContentCache {
             (page as? CEFTab)?.refusesDownloadsUntilGesture = !browserTabs.wasOpenedHere(tab) // a restored page's own load downloads nothing
             if let standIn, browsers[key]?.tab === standIn {
                 swapPage(key, with: page, asleep: standIn.state) // tracks the page by id and tells the pane
-                standIn.handOver(to: page, cap: Self.relaunchStandInCap)
+                standIn.handOver(to: page)
                 if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) { browsers[key]?.state.showNotice(notice) }
                 return
             }

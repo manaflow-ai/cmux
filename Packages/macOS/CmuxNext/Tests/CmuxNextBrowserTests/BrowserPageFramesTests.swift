@@ -41,7 +41,7 @@ import Testing
         #expect(LaunchFrameFiles.isFileSafe("tab_0f9e-1"))
     }
 
-    @Test func aWriteReplacesTheTabsPictureAndAReadHandsItOutOnce() async throws {
+    @Test func aWriteReplacesTheTabsPictureAndTheLaunchReadKeepsIt() async throws {
         let folder = Self.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let data = try #require(BrowserPageFrames.encoded(try Self.picture()))
@@ -52,10 +52,10 @@ import Testing
         let frames = BrowserPageFrames(directory: folder)
         await frames.prefetch(on: BackgroundWork()).value
         #expect(frames.hasPicture("tab_a"))
-        let image = try #require(frames.take("tab_a"))
+        let image = try #require(await frames.lastPicture("tab_a"))
         #expect(image.width == 200)
-        #expect(frames.take("tab_a") == nil, "handed out once: the live page draws from then on")
-        #expect(frames.take("tab_none") == nil)
+        #expect(frames.hasPicture("tab_a"), "a read keeps it")
+        #expect(await frames.lastPicture("tab_none") == nil)
     }
 
     @Test func theFolderKeepsItsBudgetLeastRecentlyWrittenOutFirst() throws {
@@ -115,7 +115,7 @@ import Testing
         let frames = BrowserPageFrames(directory: nil)
         await frames.prefetch(on: BackgroundWork()).value
         frames.save(try Self.picture(), for: "tab_a")
-        #expect(frames.take("tab_a") == nil)
+        #expect(await frames.lastPicture("tab_a") == nil)
     }
 
     private func until(_ condition: () -> Bool) async throws {

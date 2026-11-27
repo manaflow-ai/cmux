@@ -8,8 +8,8 @@ public import Observation
 /// a page that was loading when cmux quit unexpectedly twice in a row (so it
 /// cannot take the app down on every launch), for a Chromium tab while
 /// Chromium cannot start, and for a restored Chromium tab while its page is
-/// made (its last picture from the run before, `picture`, until the page
-/// takes over).
+/// made. It shows the page background, as Chrome does while it loads a tab
+/// restored after a relaunch, never a picture of the run before (cmux#57419).
 @Observable
 public final class DeferredBrowserTab: BrowserTab {
     public let id: BrowserTabID
@@ -23,20 +23,16 @@ public final class DeferredBrowserTab: BrowserTab {
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
     /// Called once, with the URL to open, when the user asks for the page.
     @ObservationIgnored public var onStart: ((URL?) -> Void)?
-    @ObservationIgnored public let contentView: NSView
-    /// The picture the tab shows (nil: none), drawn from the first frame.
-    public let picture: CGImage?
-    /// It stands in for a restored tab's page while the page is made (`handOver(to:cap:)`): not a page to drive yet.
+    @ObservationIgnored public let contentView = NSView()
+    /// It stands in for a restored tab's page while the page is made (`handOver(to:)`): not a page to drive yet.
     public let restoresPage: Bool
     /// The address the user asked for before the page took over (`.some(nil)`: a reload); nil when none.
     @ObservationIgnored public private(set) var startRequest: URL??
     @ObservationIgnored private var started = false
 
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID = .default, url: URL?, title: String?,
-                picture: CGImage? = nil, restoresPage: Bool = false) {
-        self.picture = picture
+                restoresPage: Bool = false) {
         self.restoresPage = restoresPage
-        contentView = picture.map { BrowserPictureView(decoded: $0) } ?? NSView()
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -50,10 +46,9 @@ public final class DeferredBrowserTab: BrowserTab {
         onStart?(url)
     }
 
-    /// The restored tab's page is here: the tab's picture covers it until it paints (`BrowserWakeStandIn`, at most
-    /// `cap`), and a load or reload the user asked for meanwhile runs on it. Call after the page replaced this one.
-    public func handOver(to page: any BrowserTab, cap: Duration, clock: any Clock<Duration> = ContinuousClock()) {
-        if let picture { (page as? any BrowserWakeStandIn)?.showStandIn(picture, decoded: true, cap: cap, clock: clock) }
+    /// The restored tab's page is here: a load or reload the user asked for meanwhile runs on it. Call after the page
+    /// replaced this one.
+    public func handOver(to page: any BrowserTab) {
         switch startRequest {
         case .some(.some(let url)): page.load(url)
         case .some(.none): page.reload()

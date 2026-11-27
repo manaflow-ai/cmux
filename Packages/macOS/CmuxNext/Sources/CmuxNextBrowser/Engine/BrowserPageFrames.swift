@@ -6,21 +6,17 @@ package import Foundation
 import ImageIO
 import os
 
-/// Browser tabs' last pictures on disk, so a tab first shown after a relaunch shows its last page in the frame of
-/// the switch, then its new page under that picture until the page paints, as a woken tab does
-/// (`BrowserWakeStandIn`). Leo 2026-11-22: "this is so fucked. constant rerenders on every fucking page still." A
-/// Chromium page is made on a tab's first show, so every tab not shown since the relaunch showed the bare pane and
-/// then a cold load for seconds; the pictures that could cover it (`pageThumbnails`, hibernation's) lived in
-/// memory only.
+/// Browser tabs' last pictures on disk, so the phones' tab overview has a picture of a tab whose page is not made
+/// since the relaunch (``lastPicture(_:)``). A restored tab's pane never shows one over its page: it shows the page
+/// background until the page paints, as Chrome does (cmux#57419; a picture of another pane size or display drew the
+/// loading page blurry and at the wrong size).
 ///
 /// A picture is written when the app pictures a page anyway (its leave picture) and at quit for the pages on screen, as terminals keep their frames (`TerminalLaunchFrames`, the same file names:
 /// `LaunchFrameFiles`). The folder holds at most ``capacity`` bytes, least recently written out first; a closed tab's
 /// file goes with it, and an incognito page's is never written (the cache asks before it saves).
 ///
 /// The launch reads the files' bytes (compressed, the folder's budget at most) off the main thread
-/// (``prefetch(on:)``); a tab shown after that gets its picture with no disk read, decoded when first drawn. A tab
-/// shown before the read ended gets none, as with no picture. Each picture is handed out once (``take(_:)``): the
-/// tab's live page draws from then on, and its next leave picture replaces the file.
+/// (``prefetch(on:)``), so a tab's picture needs no disk read until the tab's page saves a newer one.
 package final class BrowserPageFrames {
     /// The folder of the pictures in the app's state directory (beside the terminals' frames).
     package static let directoryName = "browser-page-frames"
@@ -84,15 +80,7 @@ package final class BrowserPageFrames {
     /// Whether `key` has a picture from the last run that was not handed out yet.
     package func hasPicture(_ key: String) -> Bool { saved?[key]?.isEmpty == false }
 
-    /// `key`'s picture from the last run (decoded when first drawn), handed out once; nil when it has none or the
-    /// launch read has not ended.
-    package func take(_ key: String) -> CGImage? {
-        guard let data = saved?[key], !data.isEmpty else { return nil }
-        saved?[key] = nil
-        return Self.image(data)
-    }
-
-    /// `key`'s last picture without handing it out: the last run's while it was not handed out, else its file, read
+    /// `key`'s last picture: the last run's while this run saved none, else its file, read
     /// off the main thread; nil when it has none. For the phones' tab overview, which needs a picture of a tab whose
     /// page has none to give (not made since the relaunch, or its pictures in memory went).
     package func lastPicture(_ key: String) async -> CGImage? {
