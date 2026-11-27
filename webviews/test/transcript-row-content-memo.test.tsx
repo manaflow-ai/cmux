@@ -23,6 +23,7 @@ import { agentMessage } from "../src/agent-session/acpmux/conversation/agentMess
 import { RowFrame } from "../src/agent-session/acpmux/transcript/RowFrame";
 import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/workingForModel";
+import { acpmuxPerf } from "../src/agent-session/acpmux/perf";
 import { pageClocks, usePageNow } from "../src/ui/pageClock";
 
 const scope = globalThis as Record<string, unknown>;
@@ -297,6 +298,13 @@ test("retained message cards ignore structural agent contexts and reveal the lat
   const root = createRoot(document.getElementById("root")!);
   const opened: string[] = [];
   let messageReads = 0;
+  let ownerRenders = 0;
+  const previousEnabled = acpmuxPerf.enabled;
+  const previousRender = acpmuxPerf.render;
+  acpmuxPerf.enabled = true;
+  acpmuxPerf.render = (name) => {
+    if (name.startsWith("content-owner:")) ownerRenders++;
+  };
   const tool = {
     id: "idle-message",
     title: "SendMessage",
@@ -348,15 +356,19 @@ test("retained message cards ignore structural agent contexts and reveal the lat
     await act(async () => render(true, "Original"));
     await act(async () => render(false, "Hidden"));
     const before = messageReads;
+    const ownersBefore = ownerRenders;
     expect(before).toBeGreaterThan(0);
     for (let tick = 0; tick < 20; tick++) await act(async () => render(false, `Update ${tick}`));
     expect(messageReads).toBe(before);
+    expect(ownerRenders).toBe(ownersBefore);
     expect(document.querySelector(".cv-agentmsg__name")?.textContent).toBe("Original");
     await act(async () => render(true, "Current"));
     expect(document.querySelector(".cv-agentmsg__name")?.textContent).toBe("Current");
     await act(async () => document.querySelector<HTMLButtonElement>("button.cv-agentmsg__name")!.click());
     expect(opened).toEqual(["Current"]);
   } finally {
+    acpmuxPerf.enabled = previousEnabled;
+    acpmuxPerf.render = previousRender;
     await act(async () => root.unmount());
   }
 });

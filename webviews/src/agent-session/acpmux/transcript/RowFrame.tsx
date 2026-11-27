@@ -58,24 +58,35 @@ type RowContentProps = {
 export const RowContent = React.memo(
   function RowContent({ Component, liveTools = false, ...props }: RowContentProps) {
     const active = useLiveUpdates();
-    const names = useContext(AgentNamesContext);
-    const open = useContext(AgentOpenContext);
-    const tones = useContext(AgentTonesContext);
-    const counts = useContext(WorkingCountsContext);
-    const [retainedCounts, setRetainedCounts] = useState({ counts });
-    if (active && retainedCounts.counts !== counts) setRetainedCounts({ counts });
-    // A distinct row context keeps retained consumers off the pane's changing contexts.
-    // Re-providing those same contexts does not stop React's lazy propagation through a memo.
-    const [retained, setRetained] = useState({ names, open, tones });
-    if (active && (retained.names !== names || retained.open !== open || retained.tones !== tones))
+    type Retained = {
+      names: React.ContextType<typeof AgentNamesContext>;
+      open: React.ContextType<typeof AgentOpenContext>;
+      tones: React.ContextType<typeof AgentTonesContext>;
+    };
+    const [retained, setRetained] = useState<Retained | null>(null);
+    const [retainedCounts, setRetainedCounts] = useState<{
+      counts: React.ContextType<typeof WorkingCountsContext>;
+    } | null>(null);
+    // React.use can drop context dependencies while hidden. Retaining only the body's props
+    // still wakes this wrapper on every pane update, even when its memoized body stays asleep.
+    const names = active || !retained ? React.use(AgentNamesContext) : retained.names;
+    const open = active || !retained ? React.use(AgentOpenContext) : retained.open;
+    const tones = active || !retained ? React.use(AgentTonesContext) : retained.tones;
+    const counts = active || !retainedCounts ? React.use(WorkingCountsContext) : retainedCounts.counts;
+    if (!retainedCounts || (active && retainedCounts.counts !== counts)) setRetainedCounts({ counts });
+    // Distinct row contexts also stop React's lazy propagation through the retained body.
+    if (!retained || (active && (retained.names !== names || retained.open !== open || retained.tones !== tones)))
       setRetained({ names, open, tones });
+    useLayoutEffect(() => {
+      if (acpmuxPerf.enabled) acpmuxPerf.render(`content-owner:${props.row.id}`);
+    });
     const live = active && liveTools;
     // What moved on without the pane (a running command's output, a thought, the live line's call):
     // this row alone draws it.
     const row = useLiveLineRow(useLiveThoughtRow(useLiveToolRow(props.row, live), live), live);
     return (
-      <RowAgentContext.Provider value={retained}>
-        <RowWorkingCountsContext.Provider value={retainedCounts}>
+      <RowAgentContext.Provider value={retained ?? undefined}>
+        <RowWorkingCountsContext.Provider value={retainedCounts ?? undefined}>
           <RowBody {...props} Component={Component} active={active} row={row} />
         </RowWorkingCountsContext.Provider>
       </RowAgentContext.Provider>
