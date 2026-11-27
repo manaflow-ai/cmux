@@ -25,6 +25,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 mod fake_rb_host;
 #[path = "support/fake_surface_source.rs"]
 mod fake_surface_source;
+#[path = "support/pairing_paths.rs"]
+mod pairing_paths;
 
 struct Fixture {
     services: Arc<ServiceConfig>,
@@ -54,6 +56,23 @@ fn options() -> DialOptions {
     DialOptions { include_loopback: true, timeout: Duration::from_secs(20), ..DialOptions::default() }
 }
 
+// Teardown can close the client after a request but before its reply. Only those
+// expected socket-close errors end the fixture; every other I/O error still fails.
+async fn daemon_reply(write: &mut tokio::net::unix::OwnedWriteHalf, value: &serde_json::Value) -> bool {
+    match write.write_all(format!("{value}\n").as_bytes()).await {
+        Ok(()) => true,
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+            ) =>
+        {
+            false
+        }
+        Err(error) => panic!("fake daemon reply: {error}"),
+    }
+}
+
 /// A stand-in cmux-tui session socket: answers each request line with
 /// `{"id":..,"ok":true,"data":{"cmd":..}}`.
 /// Every request line it read goes to the returned list, in order.
@@ -80,16 +99,22 @@ fn fake_daemon(dir: &std::path::Path, browser_url: String) -> Arc<std::sync::Mut
                         && let Some(count) = request["scripted"].as_u64()
                     {
                         let answer = serde_json::json!({"id": request["id"], "ok": true, "data": {}});
-                        write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+                        if !daemon_reply(&mut write, &answer).await {
+                            return;
+                        }
                         let surface = request["surface"].clone();
                         let state = serde_json::json!({"event": "vt-state", "surface": surface, "cols": 40,
                             "rows": 8, "data": b64(SCRIPTED_PROMPT)});
-                        write.write_all(format!("{state}\n").as_bytes()).await.unwrap();
+                        if !daemon_reply(&mut write, &state).await {
+                            return;
+                        }
                         for i in 0..count {
                             let data = b64(scripted_line(i).as_bytes());
                             let event =
                                 serde_json::json!({"event": "output", "surface": surface, "data": data});
-                            write.write_all(format!("{event}\n").as_bytes()).await.unwrap();
+                            if !daemon_reply(&mut write, &event).await {
+                                return;
+                            }
                             tokio::time::sleep(Duration::from_millis(5)).await;
                         }
                         continue;
@@ -97,7 +122,9 @@ fn fake_daemon(dir: &std::path::Path, browser_url: String) -> Arc<std::sync::Mut
                     // A busy terminal: an attach streams output until the socket closes.
                     if request["cmd"] == "attach-surface" && request["busy"] == true {
                         let answer = serde_json::json!({"id": request["id"], "ok": true, "data": {}});
-                        write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+                        if !daemon_reply(&mut write, &answer).await {
+                            return;
+                        }
                         let (mut out, mut lines_left) = (write, lines);
                         let surface = request["surface"].clone();
                         tokio::spawn(async move {
@@ -127,7 +154,9 @@ fn fake_daemon(dir: &std::path::Path, browser_url: String) -> Arc<std::sync::Mut
                             {"surface": 13, "kind": "conversation", "conversation": {"page": "settings"}}]}]}]}]);
                     }
                     let answer = serde_json::json!({"id": request["id"], "ok": true, "data": data});
-                    write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+                    if !daemon_reply(&mut write, &answer).await {
+                        return;
+                    }
                 }
             });
         }
