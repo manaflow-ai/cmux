@@ -763,6 +763,9 @@ pub mod method {
     /// per settled pull request, steering rate, time to the first useful result, by feature;
     /// the local unix socket only, like `MUX_STATS`.
     pub const MUX_SCORECARD: &str = "_acpmux/scorecard";
+    /// Replays recorded session logs against RFD 0161's cache-prefix invariants with no model
+    /// call (`scorecard_replay.rs`); local only, like `MUX_SCORECARD`.
+    pub const MUX_SCORECARD_REPLAY: &str = "_acpmux/scorecard_replay";
     /// What turns cost, per session, workspace, repository, pull request, day, person, vendor,
     /// model and account (`hub/ledger`); the local unix socket and the local app only.
     pub const MUX_LEDGER: &str = "_acpmux/ledger";
