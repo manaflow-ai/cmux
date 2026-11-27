@@ -76,9 +76,17 @@ impl Hub {
         // Read before the inbox's lock, as `inbox_review` reads them.
         let meta_now = session.meta();
         let waited = crate::prompt_provenance::waited(provenance);
+        let start_work = crate::prompt_provenance::start_work_allowed(provenance);
         let surge_on = self.surge_inbox_on();
         let wakes_before_rule = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
-            || wakes_as(&meta_now, class, is_report(provenance), waited, sender_session.as_deref());
+            || wakes_as(
+                &meta_now,
+                class,
+                is_report(provenance),
+                waited,
+                start_work,
+                sender_session.as_deref(),
+            );
         // A chat on the coordinator list wakes only for a page (`inbox_page_rule.rs`).
         // Read the catalog snapshot. Reload publishes page-rule names while holding the config
         // writer, so inbox admission never guesses during a write and never waits on it.
@@ -201,6 +209,7 @@ impl Hub {
                             class,
                             report: is_report(provenance),
                             waited,
+                            start_work,
                             at: now,
                             within: crate::prompt_provenance::within(provenance),
                             text: text.clone(),
@@ -341,6 +350,9 @@ impl Hub {
                     class: PromptClass::Result,
                     report: true,
                     waited: false,
+                    start_work: crate::prompt_provenance::start_work_allowed(
+                        opts.provenance.as_ref(),
+                    ),
                     at,
                     within: None,
                     text: text.to_owned(),

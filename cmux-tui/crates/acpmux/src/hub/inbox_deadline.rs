@@ -189,6 +189,7 @@ impl Hub {
                 class,
                 report: false,
                 waited: false,
+                start_work: false,
                 at: now_ms(),
                 within: None,
                 text: text.clone(),

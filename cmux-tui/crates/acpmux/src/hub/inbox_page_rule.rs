@@ -160,6 +160,7 @@ impl Hub {
                     class: PromptClass::Result,
                     report: false,
                     waited: false,
+                    start_work: false,
                     at: now_ms(),
                     within: None,
                     text: text.to_owned(),

@@ -874,6 +874,15 @@ pub const SSH_CARRY_RELAY: &str = "acpmux-ssh";
 /// daemon's outbox sent it again, `_meta.acpmux.resend`, after an attempt that did not take it).
 pub const WAITED: &str = "waited";
 
+/// On a peer-delivered prompt, the mesh hub's explicit permission for the prompt to start work
+/// on an idle recipient. This is stamped by the receiving daemon only after peer authentication.
+pub const START_WORK: &str = "startWork";
+
+/// Whether the authenticated mesh hub allowed this prompt to start work on an idle recipient.
+pub fn start_work_allowed(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get(START_WORK)).and_then(Value::as_bool) == Some(true)
+}
+
 /// `provenance` marked [`WAITED`].
 pub fn mark_waited(mut provenance: Value) -> Value {
     if let Some(fields) = provenance.as_object_mut() {

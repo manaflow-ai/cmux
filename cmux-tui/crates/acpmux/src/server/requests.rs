@@ -2360,6 +2360,20 @@ async fn dispatch_request_with_identity(
                 }
                 _ => p,
             });
+            // A mesh hub's explicit start-work decision is authoritative only on an authenticated
+            // peer delivery. Keep it in the prompt provenance so inbox admission can wake a warm
+            // recipient and restore the same decision after a daemon restart. Local clients never
+            // get to forge this field.
+            let start_work = conn.origin == super::Origin::Peer
+                && conn.auth.peer_daemon()
+                && mux_meta(&params).and_then(|m| m.get("startWork")).and_then(Value::as_str)
+                    == Some("allowed");
+            let provenance = provenance.map(|mut p| {
+                if start_work {
+                    p.insert(crate::prompt_provenance::START_WORK.to_owned(), json!(true));
+                }
+                p
+            });
             // The sender's own delivery deadline (`acpmux send --within`, `hub/inbox.rs`
             // "Deadlines"), kept on the provenance so the inbox record keeps it.
             let within = crate::prompt_class::within(&params);
