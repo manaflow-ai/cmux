@@ -111,8 +111,8 @@ class TickTest(unittest.TestCase):
         self.assertEqual(pmb.tick_decision("a" * 40, own, NOW, 120, unjudged, 10, lambda base: 12)[0], "skip")
 
     def test_every_merges_value(self) -> None:
-        self.assertEqual(pmb.every_merges(None), 10)
-        self.assertEqual(pmb.every_merges("bad"), 10)
+        self.assertEqual(pmb.every_merges(None), 100)
+        self.assertEqual(pmb.every_merges("bad"), 100)
         self.assertEqual(pmb.every_merges("0"), 0)
         self.assertEqual(pmb.every_merges("25"), 25)
 
@@ -142,8 +142,8 @@ class TickTest(unittest.TestCase):
         self.assertIn("inputs.mode != 'probe'", last["if"])
 
     def test_window_value(self) -> None:
-        self.assertEqual(pmb.window_minutes(""), 120)
-        self.assertEqual(pmb.window_minutes("bad"), 120)
+        self.assertEqual(pmb.window_minutes(""), 240)
+        self.assertEqual(pmb.window_minutes("bad"), 240)
         self.assertEqual(pmb.window_minutes("45"), 45)
 
 
