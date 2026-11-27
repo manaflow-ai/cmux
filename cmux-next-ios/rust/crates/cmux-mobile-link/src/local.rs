@@ -328,6 +328,8 @@ mod tests {
         assert_eq!(endpoint.port(), Some(50000));
         let policy = hub_race_policy(3);
         assert_eq!((policy.stagger, policy.max_attempts, policy.max_in_flight), (ATTEMPT_DELAY, 3, 3));
+        assert_eq!(policy.attempt_timeout, HUB_CONNECT_WAIT);
+        assert_eq!(policy.last_attempt_timeout, HUB_CONNECT_WAIT);
     }
 
     #[test]
