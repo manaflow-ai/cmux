@@ -9,11 +9,11 @@ import XCTest
 ///   a. the terminal tab's page menu opens and the window stays landscape (#54462);
 ///   b. a swipe of the top bar to the next tab and back keeps it landscape;
 ///   c. editing the browser tab's address bar keeps it landscape;
-///   d. wide terminal output pans sideways under a left swipe;
+///   d. wide terminal output pans sideways under a left swipe once Wide is on
+///      (a plain swipe over the phone's fitted grid is recorded, not asserted);
 ///   e. a wide Markdown table in an agent chat scrolls sideways under a left swipe.
-/// "Landscape" is the app's own window: wider than tall. A step whose
-/// behaviour is by design is marked with `XCTExpectFailure` saying why;
-/// every other step is a plain assertion.
+/// "Landscape" is the app's own window: wider than tall. Every step is a
+/// plain assertion except d2, which only records what a plain swipe does.
 /// Run it with `cmux-next-ios-sim.sh test ui=LandscapeUITests video`.
 final class LandscapeUITests: XCTestCase {
     override func setUp() {
@@ -34,14 +34,17 @@ final class LandscapeUITests: XCTestCase {
         attach(app, "a1-landscape-before-menu")
 
         let menu = app.buttons["Page Menu"].firstMatch
-        let copyDirectory = app.buttons["Copy Directory"].firstMatch
+        let copyDirectory = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Copy Directory'")).firstMatch
         XCTAssertFalse(copyDirectory.exists, "the page menu starts closed")
         let title = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'zsh'")).firstMatch
-        if menu.waitForExistence(timeout: 5), menu.isHittable {
-            menu.tap()
-        } else {
-            XCTAssertTrue(title.waitForExistence(timeout: 5), "the top bar's title\n\(app.debugDescription)")
-            title.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "the top bar's title\n\(app.debugDescription)")
+        // The title pill opens the page menu; a tap while the page still zooms in
+        // (step ec551b50: the workspace at 926x426 in an 874x402 window), or on a
+        // collapsed pill, is taken without opening it: up to three taps, as
+        // PaneDragMoveUITests does.
+        for attempt in 0..<3 where !copyDirectory.exists {
+            if attempt == 1, menu.exists, menu.isHittable { menu.tap() } else { title.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+            _ = copyDirectory.waitForExistence(timeout: 4)
         }
         XCTAssertTrue(copyDirectory.waitForExistence(timeout: 5), "the terminal page menu's Copy Directory action appears\n\(app.debugDescription)")
         attach(app, "a2-menu-open")
@@ -60,15 +63,15 @@ final class LandscapeUITests: XCTestCase {
         XCTAssertTrue(turnSideways(app), "the terminal page turns landscape: \(size(app))")
         attach(app, "b1-terminal-landscape")
 
-        // ws-cmux's tabs: Claude, zsh, Swift docs. Left goes to Swift docs (a browser), right comes back.
-        swipeTopBar(app, toLeft: true)
+        // ws-cmux's tabs: Claude, zsh, Swift docs: a swipe toward Swift docs (a browser), the other way back.
+        let towardBrowser = swipeToBrowserTab(app)
         let browserAddress = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Address' OR label BEGINSWITH 'Show toolbar'")).firstMatch
         XCTAssertTrue(browserAddress.waitForExistence(timeout: 5), "the swipe reaches the browser tab\n\(app.debugDescription)")
         attach(app, "b2-swiped-to-browser-tab")
         let onBrowser = isLandscape(app)
         XCTAssertTrue(onBrowser, "landed on the browser tab, the window stays landscape: \(size(app))")
 
-        swipeTopBar(app, toLeft: false)
+        swipeTopBar(app, toLeft: !(towardBrowser ?? false))
         _ = waitFor(5) { self.isLandscape(app) }
         attach(app, "b3-swiped-back-to-terminal")
         XCTAssertTrue(isLandscape(app), "swiped back to the terminal tab, the window is landscape: \(size(app))")
@@ -81,8 +84,8 @@ final class LandscapeUITests: XCTestCase {
         let app = launchTerminalTab()
         XCTAssertTrue(turnSideways(app), "the terminal page turns landscape: \(size(app))")
         // A terminal tab has no editable address (its title opens the page menu): the address bar
-        // is the browser tab's, one swipe to the left.
-        swipeTopBar(app, toLeft: true)
+        // is the browser tab's, one swipe away.
+        _ = swipeToBrowserTab(app)
         settle(1.5)
         let address = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Address' OR label BEGINSWITH 'Show toolbar'")).firstMatch
         XCTAssertTrue(address.waitForExistence(timeout: 10), "the browser tab's address bar\n\(app.debugDescription)")
@@ -143,10 +146,8 @@ final class LandscapeUITests: XCTestCase {
         // grid wider than the page (the Mac's under Prefer this Mac, or a
         // full-screen app at the Mac's width) pans under a plain swipe with
         // Wide off (TerminalHostGridLayout.maxPanX follows hostColumns).
-        XCTExpectFailure("by design: wide output pans only once Wide is on (the key row's Wide key or the page menu's " +
-                         "Wide View); a plain swipe over a fitted grid has nothing to pan", strict: false) {
-            XCTAssertTrue(plainMoved, "a plain left swipe moves the output sideways: before \(before), after \(demo)")
-        }
+        // Recorded, not asserted: whether it moves depends on the grid's width, not on this code.
+        print("LANDSCAPE d plain moved=\(plainMoved)")
 
         // d3: Wide on (the key row's Wide key), then the same swipe. The key
         // row shows only over the soft keyboard (#53325): with the keyboard
@@ -270,7 +271,7 @@ final class LandscapeUITests: XCTestCase {
     @MainActor
     private func swipeTopBar(_ app: XCUIApplication, toLeft: Bool) {
         let pill = app.buttons.matching(NSPredicate(
-            format: "label BEGINSWITH 'zsh' OR label BEGINSWITH 'Address' OR label BEGINSWITH 'Show toolbar' OR label BEGINSWITH 'Swift docs'"
+            format: "label BEGINSWITH 'zsh' OR label BEGINSWITH 'Address' OR label BEGINSWITH 'Show toolbar' OR label BEGINSWITH 'Swift docs' OR label BEGINSWITH 'New session'"
         )).firstMatch
         guard pill.waitForExistence(timeout: 5) else {
             XCTFail("the top bar's capsule\n\(app.debugDescription)")
@@ -279,6 +280,22 @@ final class LandscapeUITests: XCTestCase {
         let from = pill.coordinate(withNormalizedOffset: CGVector(dx: toLeft ? 0.85 : 0.15, dy: 0.5))
         let to = pill.coordinate(withNormalizedOffset: CGVector(dx: toLeft ? -0.6 : 1.6, dy: 0.5))
         from.press(forDuration: 0.02, thenDragTo: to, withVelocity: .fast, thenHoldForDuration: 0)
+    }
+
+    /// Swipes the top bar from the zsh tab to its browser neighbour (Swift docs) and
+    /// returns the direction that got there (`toLeft`), or nil. Step ec551b50: a drag
+    /// to the left went to the Claude tab, the one before zsh, so the drag to the
+    /// right is tried first; from Claude, two drags to the left pass zsh to the docs.
+    @MainActor
+    private func swipeToBrowserTab(_ app: XCUIApplication) -> Bool? {
+        let address = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Address' OR label BEGINSWITH 'Show toolbar'")).firstMatch
+        swipeTopBar(app, toLeft: false)
+        if address.waitForExistence(timeout: 4) { return false }
+        for _ in 0..<2 where !address.exists {
+            swipeTopBar(app, toLeft: true)
+            _ = address.waitForExistence(timeout: 4)
+        }
+        return address.exists ? true : nil
     }
 
     @MainActor
