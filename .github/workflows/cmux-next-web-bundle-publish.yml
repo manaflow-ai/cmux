@@ -311,7 +311,7 @@ jobs:
           fi
           pr="${BASH_REMATCH[1]}"
           head="$GITHUB_SHA"
-          git fetch -q --depth 2 --filter=blob:none origin "$head"
+          git fetch -q --depth 2 --filter=blob:none origin "$head" || { echo "::warning::fetching $head failed: no merged PR layer for #$pr"; exit 0; }
           parent="$(git rev-parse "$head^")"
           classify="$(python3 scripts/cmux-next/live_apply.py --json "$parent" "$head")" || { echo "::warning::live_apply failed: no merged PR layer for #$pr"; exit 0; }
           mkdir -p "$RUNNER_TEMP/pr-layer"

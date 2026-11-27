@@ -15,7 +15,7 @@ import {
   settledAwaiting,
   type SnapshotRow,
 } from "../scripts/devbox-rebake";
-import { readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
+import { isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
@@ -177,5 +177,22 @@ describe("retryFreestyleOverload", () => {
     let calls = 0;
     await expect(retryFreestyleOverload("t", async () => { calls += 1; throw overloaded; }, 30, 10)).rejects.toBe(overloaded);
     expect(calls).toBeGreaterThan(1);
+  });
+
+  test("with isFreestyleTransient asks again after a 500, as a resize needs, and still rethrows a 4xx", async () => {
+    // Rebake run 45889121287: POST /v5/vms/ID/resize answered 500 INTERNAL_ERROR once.
+    const internal = Object.assign(new Error("Internal server error"), { status: 500, code: "INTERNAL_ERROR" });
+    let calls = 0;
+    const ok = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 2) throw internal;
+      return "resized";
+    }, 1_000, 1, isFreestyleTransient);
+    expect(ok).toBe("resized");
+    expect(calls).toBe(2);
+    const bad = Object.assign(new Error("bad size"), { status: 400 });
+    expect(isFreestyleTransient(bad)).toBe(false);
+    expect(isFreestyleTransient(overloaded)).toBe(true);
+    await expect(retryFreestyleOverload("t", async () => { throw internal; }, 1_000, 1)).rejects.toBe(internal);
   });
 });
