@@ -186,7 +186,7 @@ nonisolated extension CloudHomeState {
         struct Head: Encodable { let participants: [Participant] }
         struct Request: Encodable {
             let id: String
-            let identity: HomeMappingRules.Identity
+            let identity: HomeCoreMapping.Identity
             let heads: [Head]
             let directory: [Participant]
         }
@@ -194,7 +194,7 @@ nonisolated extension CloudHomeState {
         let request = Request(id: id.rawValue, identity: .init(identity), heads: heads.values.map { Head(participants: $0.participants) },
                               directory: Array(directory.values))
         let wireID = identity.toCloud(id)
-        return HomeMappingRules.mappingRule("cloudParticipantRecord", request, fallback: Reply?.none)?.participant
+        return HomeCoreMapping.mappingRule("cloudParticipantRecord", request, fallback: Reply?.none)?.participant
             ?? ConversationParticipant(id: wireID, kind: .human, displayName: wireID)
     }
 

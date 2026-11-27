@@ -22,7 +22,7 @@ public nonisolated enum HomeCoreMapping {
     public static func participant(_ participant: ConversationParticipant) -> Participant {
         struct Request: Encodable { let participant: ConversationParticipant; let chiefName: String }
         struct Reply: Decodable { let participant: Participant }
-        return HomeMappingRules.mappingRule("participant", Request(participant: participant, chiefName: HomeStrings.chiefName),
+        return HomeCoreMapping.mappingRule("participant", Request(participant: participant, chiefName: HomeStrings.chiefName),
                                             fallback: Reply(participant: Participant(id: ParticipantID(participant.id), kind: .human,
                                                                                      displayName: participant.displayName))).participant
     }
@@ -42,31 +42,31 @@ public nonisolated enum HomeCoreMapping {
     static func ref(_ ref: AttachmentRef, storedAs stored: StoredConversationAttachment) -> AttachmentRef {
         struct Request: Encodable {
             let ref: AttachmentRef
-            let stored: HomeMappingRules.WireStored
+            let stored: HomeCoreMapping.WireStored
         }
         struct Reply: Decodable { let ref: AttachmentRef }
-        return HomeMappingRules.mappingRule("refStoredAs", Request(ref: ref, stored: .init(stored)), fallback: Reply(ref: ref)).ref
+        return HomeCoreMapping.mappingRule("refStoredAs", Request(ref: ref, stored: .init(stored)), fallback: Reply(ref: ref)).ref
     }
 
     /// `mapping.message` (`identity`: a cloud owner's row, its account's id as Home's).
     static func message(_ message: ConversationMessage, identity: CloudIdentity? = nil) -> Message {
         struct Request: Encodable {
             let message: ConversationMessage
-            let identity: HomeMappingRules.Identity?
+            let identity: HomeCoreMapping.Identity?
         }
-        struct Reply: Decodable { let message: HomeMappingRules.MessageRow }
-        return HomeMappingRules.mappingRule("message", Request(message: message, identity: identity.map(HomeMappingRules.Identity.init)),
+        struct Reply: Decodable { let message: HomeCoreMapping.MessageRow }
+        return HomeCoreMapping.mappingRule("message", Request(message: message, identity: identity.map(HomeCoreMapping.Identity.init)),
                                             fallback: Reply?.none)?.message.message
-            ?? HomeMappingRules.plainMessage(message, identity: identity)
+            ?? HomeCoreMapping.plainMessage(message, identity: identity)
     }
 
     /// A local head (`mapping.summary`).
     static func summary(_ summary: CmuxNextDaemon.ConversationSummary) -> CmuxHomeCore.ConversationSummary {
         struct Request: Encodable { let summary: CmuxNextDaemon.ConversationSummary; let chiefName: String }
-        struct Reply: Decodable { let summary: HomeMappingRules.SummaryRow }
-        return HomeMappingRules.mappingRule("summary", Request(summary: summary, chiefName: HomeStrings.chiefName),
+        struct Reply: Decodable { let summary: HomeCoreMapping.SummaryRow }
+        return HomeCoreMapping.mappingRule("summary", Request(summary: summary, chiefName: HomeStrings.chiefName),
                                             fallback: Reply?.none)?.summary.summary
-            ?? HomeMappingRules.plainSummary(summary, owner: summary.owner == "cloud" ? .cloud : .local)
+            ?? HomeCoreMapping.plainSummary(summary, owner: summary.owner == "cloud" ? .cloud : .local)
     }
 
     /// The parts an op sends (`mapping.parts`). The local owner stores text, work, attachment
@@ -74,7 +74,7 @@ public nonisolated enum HomeCoreMapping {
     static func parts(_ parts: [MessagePart]) -> [ConversationPart] {
         struct Request: Encodable { let parts: [MessagePart]; let plainTexts: [String?] }
         struct Reply: Decodable { let parts: [ConversationPart] }
-        return HomeMappingRules.mappingRule("parts", Request(parts: parts, plainTexts: plainTexts(parts)),
+        return HomeCoreMapping.mappingRule("parts", Request(parts: parts, plainTexts: plainTexts(parts)),
                                             fallback: Reply(parts: parts.map { .text($0.plainText, runs: []) })).parts
     }
 

@@ -7,7 +7,7 @@ import Foundation
 /// The `mapping.*` ops of the shared Home rules (cmux-home-rules `mapping`): the owners' wire rows as
 /// Home rows. Requests go as JSON with dates as seconds since 1970, the shape the Rust side reads
 /// and answers (`mapping/mod.rs`).
-nonisolated enum HomeMappingRules {
+nonisolated extension HomeCoreMapping {
     /// Runs `mapping.<op>` on `input`; on an error (a build without the op, a shape mismatch) asserts
     /// in debug and answers `fallback`, the most conservative row.
     static func mappingRule<In: Encodable, Out: Decodable>(_ op: String, _ input: In, fallback: @autoclosure () -> Out) -> Out {

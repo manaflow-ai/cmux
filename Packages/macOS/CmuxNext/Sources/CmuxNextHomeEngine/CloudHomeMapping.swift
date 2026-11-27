@@ -64,10 +64,10 @@ nonisolated enum CloudHomeMapping {
     static func participant(_ participant: ConversationParticipant, identity: CloudIdentity) -> Participant {
         struct Request: Encodable {
             let participant: ConversationParticipant
-            let identity: HomeMappingRules.Identity
+            let identity: HomeCoreMapping.Identity
         }
         struct Reply: Decodable { let participant: Participant }
-        return HomeMappingRules.mappingRule("cloudParticipant", Request(participant: participant, identity: .init(identity)), fallback: Reply?.none)?
+        return HomeCoreMapping.mappingRule("cloudParticipant", Request(participant: participant, identity: .init(identity)), fallback: Reply?.none)?
             .participant ?? Participant(id: identity.toHome(participant.id), kind: .human, displayName: participant.displayName)
     }
 
@@ -79,11 +79,11 @@ nonisolated enum CloudHomeMapping {
     static func summary(_ summary: CmuxNextDaemon.ConversationSummary, identity: CloudIdentity) -> CmuxHomeCore.ConversationSummary {
         struct Request: Encodable {
             let summary: CmuxNextDaemon.ConversationSummary
-            let identity: HomeMappingRules.Identity
+            let identity: HomeCoreMapping.Identity
         }
-        struct Reply: Decodable { let summary: HomeMappingRules.SummaryRow }
-        return HomeMappingRules.mappingRule("cloudSummary", Request(summary: summary, identity: .init(identity)), fallback: Reply?.none)?
-            .summary.summary ?? HomeMappingRules.plainSummary(summary, owner: .cloud)
+        struct Reply: Decodable { let summary: HomeCoreMapping.SummaryRow }
+        return HomeCoreMapping.mappingRule("cloudSummary", Request(summary: summary, identity: .init(identity)), fallback: Reply?.none)?
+            .summary.summary ?? HomeCoreMapping.plainSummary(summary, owner: .cloud)
     }
 
     /// The owner's conversation kind (`group`, `dm`, `chief`); nil for one it does not name.
@@ -133,11 +133,11 @@ nonisolated enum CloudHomeMapping {
         struct Request: Encodable {
             let parts: [MessagePart]
             let plainTexts: [String?]
-            let identity: HomeMappingRules.Identity
+            let identity: HomeCoreMapping.Identity
         }
         struct Reply: Decodable { let parts: [ConversationPart] }
         let request = Request(parts: parts, plainTexts: HomeCoreMapping.plainTexts(parts), identity: .init(identity))
-        return HomeMappingRules.mappingRule("cloudParts", request, fallback: Reply?.none)?.parts
+        return HomeCoreMapping.mappingRule("cloudParts", request, fallback: Reply?.none)?.parts
             ?? parts.map { .text($0.plainText, runs: []) }
     }
 
