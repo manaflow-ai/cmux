@@ -116,6 +116,9 @@ class CasReplayArtifactVerifier(unittest.TestCase):
             ("toolchain", lambda: self.toolchain.write_text("changed\n", encoding="utf-8")),
             ("os", lambda: self.manifest.__setitem__("runner_os", "Windows")),
             ("arch", lambda: self.manifest.__setitem__("runner_arch", "ARM64")),
+            ("profile", lambda: self.manifest.__setitem__("build_profile", "debug")),
+            ("package", lambda: self.manifest.__setitem__("cargo_package", "other")),
+            ("binary target", lambda: self.manifest.__setitem__("cargo_bin", "other")),
         )
         for label, mutate in mutations:
             with self.subTest(provenance=label):
