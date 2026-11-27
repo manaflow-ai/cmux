@@ -88,7 +88,7 @@ extension TabContentCache {
     /// `byPerson`: the person's Hibernate Workspace (its pages never wake on a hover).
     func hibernateTabs(_ keys: [String], byPerson: Bool = false) {
         for key in keys {
-            evictHiddenTerminal(key)
+            evictHiddenTerminal(key); lastFrames.sleep(key) // its last frame goes to disk (TerminalDormantFrames)
             if browsers[key] != nil { hibernation?.hibernateForWorkspace(key, byPerson: byPerson) }
             hibernation?.agentPages?.pages.releaseForWorkspace(key)
         }

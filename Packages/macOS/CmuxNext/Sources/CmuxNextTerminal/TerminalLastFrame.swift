@@ -1,3 +1,4 @@
+import AppKit
 public import CoreGraphics
 import IOSurface
 
@@ -18,12 +19,18 @@ public final class TerminalLastFrame {
     /// Whether the terminal had output when it was evicted (``TerminalSession/showsOutput``): a hover
     /// card pictures only a frame with output, never a new shell's empty prompt (Leo 2026-10-13).
     public let showsOutput: Bool
+    /// The pane's size in points and light or dark look (`NSAppearance.Name`) as it was evicted: a hibernated
+    /// workspace's frame keeps them in its `DormantRecord` (``TerminalLastFrames/sleep(_:)``).
+    let pointSize: CGSize
+    let appearance: String?
 
     /// The frame `session` presents now; nil before its first draw.
     public init?(of session: TerminalSession, showsOutput: Bool = true) {
         guard let surface = session.surfaceView.presentedFrame else { return nil }
         self.surface = surface
         self.showsOutput = showsOutput
+        pointSize = session.surfaceView.bounds.size
+        appearance = session.view.effectiveAppearance.name.rawValue
         surface.makeVolatile()
     }
 
