@@ -76,7 +76,7 @@ test("an ended time with no end time stops where it ended", async () => {
 });
 
 test("the environment pick is the same object until the chat or the pick changes", async () => {
-  const { useChatCloudEnvironment } = await import("../src/agent-session/acpmux/CloudEnvironmentChip");
+  const { useChatCloudEnvironment } = await import("../src/agent-session/acpmux/chatCloudEnvironment");
   const picks: unknown[] = [];
   let rerender: () => void = () => {};
   function Probe({ chat }: { chat: string }) {

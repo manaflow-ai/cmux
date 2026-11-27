@@ -13,15 +13,14 @@ export const SESSION_INFO_SECTION_KEY_PREFIX = "agentPane.display.sessionInfo.se
 export const PICKABLE_SESSION_INFO_SECTIONS = [
   "environment",
   "context",
-  "progress",
   "subagents",
   "tasks",
   "sources",
   "outputs",
-  "alsoHere",
   "changes",
   "usage",
   "connectors",
+  "carried",
 ] as const satisfies readonly BuiltInSessionInfoSectionId[];
 
 export type PickableSessionInfoSection = (typeof PICKABLE_SESSION_INFO_SECTIONS)[number];

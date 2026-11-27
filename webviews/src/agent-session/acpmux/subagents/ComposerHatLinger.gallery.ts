@@ -4,8 +4,8 @@
 // disappears, which is, like, bad ... the things coming, they shouldn't just, like, pop in, burst in,
 // like, appear instantly, and, like, disappear instantly." A finished command stays as done with its
 // time; while the hat is open nothing expires; folded, it goes after its grace (2 s here, 2 min in the
-// app, trayLinger.ts). Three arms for how a line joins and leaves (hatParts.experiment.ts
-// `hatRowMotionLook`; view Compare arms): height and fade (shipped), the same with a rise, fade only.
+// app, trayLinger.ts). A line joins and leaves by its height and opacity together, so the lines
+// around it move with it (SubagentTray.tsx `TrayRow`).
 //
 // The `ttl-*` variants compare how long a finished line stays, after Leo, 2026-11-08: "i also feel
 // like the hat auto removing/auto hiding stuff that's super done is maybe a bit jarring? we can maybe
@@ -18,7 +18,6 @@
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import type { ComposerHatLingerState } from "../../../gallery/fixtures/ComposerHatLingerStage";
-import { hatRowMotionLook } from "./hatParts.experiment";
 
 type Props = {
   start?: ComposerHatLingerState;
@@ -176,6 +175,5 @@ export default componentEntry<Props>({
     import("../../../gallery/fixtures/ComposerHatLingerStage").then((module) => module.ComposerHatLingerStage),
   pane: true,
   height: 300,
-  experiment: { definition: hatRowMotionLook, script: composerHatLingerScript },
   variants,
 });

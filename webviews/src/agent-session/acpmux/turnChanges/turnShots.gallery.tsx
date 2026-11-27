@@ -9,6 +9,7 @@ import { activity, tool } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
 import type { CompareMode } from "../../../ui/MediaCompare";
 import { EditedFilesCard } from "../conversation/EditedFilesCard";
+import { setCardOpen } from "./openStore";
 import { PAGE_AFTER, PAGE_BEFORE } from "./turnShotFixtures";
 import { TurnShotsContext, type TurnShotPair, type TurnShotsReader } from "./turnShots";
 
@@ -68,7 +69,12 @@ export default componentEntry<Props>({
   area: "Agent pane",
   height: 520,
   covers: ["agent-session/acpmux/turnChanges/TurnShotsPair.tsx#TurnShots", "ui/MediaCompare.tsx#MediaCompare"],
-  load: async () => TurnShotsGallery,
+  // The pictures show with the card's stacked diffs: the card is one row until it is opened
+  // (Leo, 2026-11-25), so every variant opens it.
+  load: async () => {
+    setCardOpen(ROW.id, true);
+    return TurnShotsGallery;
+  },
   styles: () => Promise.all([import("../styles.css"), import("./turnChanges.css")]),
   variants: {
     slider: {

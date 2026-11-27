@@ -26,7 +26,8 @@
 #     takes feat-cmux-next with the try mode) and the report says so. A cold build waits in the
 #     simulator queue (13+ min behind 30 steps on 2026-11-21); --urgent puts it first (cmux-ci run
 #     --urgent, logged with a reason): only for the person waiting on their phone.
-#  3. On every connected iPhone (scripts/lib/iphone-review-targets.sh; --device-id for one): signs a
+#  3. On every connected iPhone of this Mac's person (scripts/lib/iphone-review-targets.sh: an
+#     unknown Wi-Fi-only phone is skipped; --device-id for one): signs a
 #     copy with this Mac's Apple Development identity (sign_device_app.py: the team wildcard
 #     profile covers dev.cmux.mobile.dev), installs it through the sanctioned install and launches
 #     it. --sign-in launches it signed in with the `personal` profile (the first install needs it
@@ -87,6 +88,11 @@ try_resolve() {
 # The fleet step for SHA: try (cmux Dev, device only), else handoff tag=dev for an older script.
 try_fleet() {
   local mode="$1" args
+  # The fallback's phone sits in dev:dev. That is no tagged build's space only while every tag entry point
+  # (scripts/lib/mobile-attach.sh cmux_attach_validate_dev_tag: reload.sh, review.sh, the simulator handoff)
+  # refuses the tag dev; were it a usable tag, a Mac tagged dev would take this phone for its own.
+  [[ "$mode" != handoff ]] || cmux_attach_tag_reserved dev ||
+    try_die "the handoff fallback builds cmux Dev in build space dev:dev, which only stays apart while tag dev is reserved (CMUX_ATTACH_RESERVED_TAGS in scripts/lib/mobile-attach.sh)"
   args=(run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA" --artifact artifacts/ios-sim/evidence.zip
     --no-supersede --key "cnx-ios-try-$mode-${SHA:0:12}$(try_attempt_suffix "$mode")")
   # Through the controller's shots form until it lists the modes (cmux-next-ios-sim.sh header).

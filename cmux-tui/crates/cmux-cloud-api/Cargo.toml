@@ -8,8 +8,11 @@ publish.workspace = true
 description = "NEXT Cloud's API calls (the daemon's sandboxed Runs, the API Worker's person routes, previews, machine files and exec, team machine chat grants): one library the cmux daemon's cloud.* ops and the cmux CLI share"
 
 [dependencies]
+cmux-egress.workspace = true
 base64.workspace = true
 bytes.workspace = true
+# Auto mode's store as a trait and its wire types; `auto_sessions.rs` is the owner's transport.
+cmux-auto-session.workspace = true
 cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
 cmux-cloud-machine.workspace = true
@@ -28,6 +31,8 @@ zeroize.workspace = true
 [dev-dependencies]
 # Paused time: the preview deadline tests run in no wall time.
 tokio = { workspace = true, features = ["test-util"] }
+# Seeded-secret tests: gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
 
 [lints]
 workspace = true

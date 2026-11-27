@@ -89,10 +89,11 @@ test("one Settings row per section: a toggle, on by default, on the Chat Layout 
   expect(picked.map((row) => row.key)).toEqual(PICKABLE_SESSION_INFO_SECTIONS.map(sessionInfoSectionKey));
   for (const row of picked) expect([row.kind, row.default]).toEqual(["toggle", true]);
   const layout = readFileSync(join(SOURCE, "page-layout.json"), "utf8");
-  const policy = readFileSync(join(SOURCE, "agent-policy.json"), "utf8");
   for (const row of picked) {
     expect(layout).toContain(`"${row.key}"`);
-    expect(policy).toContain(`"${row.key}"`);
+    // One policy file per key (schemas/settings/source/agent-policy/_refusals.json).
+    const policy = JSON.parse(readFileSync(join(SOURCE, "agent-policy", `${row.key}.json`), "utf8"));
+    expect(policy.agent).toBe("settable");
   }
   // Every built-in section the panel draws has a row (the Show more line is no section).
   const pickable: string[] = [...PICKABLE_SESSION_INFO_SECTIONS].sort();

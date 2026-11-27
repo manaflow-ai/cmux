@@ -1,4 +1,37 @@
 {
+  "mobile.billing.plan.next_plus": {
+    "class": "brand",
+    "source": "Plus"
+  },
+  "settings.choice.keyStyleVim": {
+    "class": "brand",
+    "source": "Vim"
+  },
+  "settings.choice.keyStyleEmacs": {
+    "class": "brand",
+    "source": "Emacs"
+  },
+  "settings.choice.keyStyleStandard": {
+    "source": "Standard",
+    "identityLocales": {
+      "de": {
+        "reason": "Standard is the standard German word for the default choice.",
+        "values": [
+          "Standard"
+        ]
+      },
+      "fr": {
+        "reason": "Standard is the standard French word for the default choice.",
+        "values": [
+          "Standard"
+        ]
+      }
+    }
+  },
+  "settingsPage.chiefContact.slack": {
+    "class": "brand",
+    "source": "Slack"
+  },
   "argument.value.dev": {
     "class": "brand",
     "source": "DEV"
@@ -336,16 +369,6 @@
   "notification.remoteRelay.title": {
     "class": "format",
     "source": "%1$@: %2$@"
-  },
-  "appHealth.line": {
-    "class": "format",
-    "source": "%1$@: %2$@"
-  },
-  "sidebar.restoring.details": {
-    "source": "Details",
-    "identityLocales": {
-      "de": "Details is the standard German word for details; a translated entry is still required."
-    }
   },
   "agent.kimi.displayName": {
     "source": "Kimi Code",
@@ -7664,6 +7687,32 @@
     "class": "brand",
     "source": "Superwhisper"
   },
+  "argument.home.chief.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "bs": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "nb": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "pl": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.home.chief.effort": {
+    "source": "Effort",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.home.chief.model": {
+    "source": "Model",
+    "identityLocales": {
+      "bs": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "pl": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "tr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
   "argument.value.dividerInsertKind.terminal": {
     "source": "Terminal",
     "identityLocales": {
@@ -7685,6 +7734,210 @@
   "liveWeb.failed": {
     "class": "brand",
     "source": "cmux Live: %@"
+  },
+  "server.list.separator": {
+    "class": "syntax",
+    "source": ", "
+  },
+  "updater.changelog.versionDate": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
+  },
+  "updates.popover.span": {
+    "class": "format",
+    "source": "%1$@ → %2$@"
+  },
+  "updates.card.phraseJoiner": {
+    "class": "syntax",
+    "source": "; "
+  },
+  "updates.card.areaLabel": {
+    "class": "syntax",
+    "source": "%@:"
+  },
+  "updater.channel.nightly": {
+    "source": "nightly",
+    "identityLocales": {
+      "es": {
+        "reason": "nightly is the release channel's name, kept in English as in the Spanish Channels card.",
+        "values": [
+          "nightly"
+        ]
+      },
+      "fr": {
+        "reason": "nightly is the release channel's name, kept in English as in the French Channels card.",
+        "values": [
+          "nightly"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "nightly is the release channel's name, kept in English as in the Traditional Chinese Channels card.",
+        "values": [
+          "nightly"
+        ]
+      }
+    }
+  },
+  "updater.channel.stable": {
+    "source": "stable",
+    "identityLocales": {
+      "fr": {
+        "reason": "stable is the standard French adjective for a stable release.",
+        "values": [
+          "stable"
+        ]
+      }
+    }
+  },
+  "updates.card.nightly": {
+    "source": "Nightly",
+    "identityLocales": {
+      "de": {
+        "reason": "Nightly is the release channel's name, as the German Channels card writes it.",
+        "values": [
+          "Nightly"
+        ]
+      },
+      "es": {
+        "reason": "Nightly is the release channel's name, kept in English as in the Spanish Channels card.",
+        "values": [
+          "Nightly"
+        ]
+      },
+      "fr": {
+        "reason": "Nightly is the release channel's name, kept in English as in the French Channels card.",
+        "values": [
+          "Nightly"
+        ]
+      }
+    }
+  },
+  "updater.notice.foundVersion": {
+    "source": "Version %@",
+    "identityLocales": {
+      "de": {
+        "reason": "Version is the standard German noun.",
+        "values": [
+          "Version %@"
+        ]
+      },
+      "fr": {
+        "reason": "Version is the standard French noun.",
+        "values": [
+          "Version %@"
+        ]
+      }
+    }
+  },
+  "changelog.build.versions": {
+    "source": "Versions",
+    "identityLocales": {
+      "fr": {
+        "reason": "Versions is the standard French plural noun.",
+        "values": [
+          "Versions"
+        ]
+      }
+    }
+  },
+  "updates.area.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": {
+        "reason": "Browser is the standard German noun.",
+        "values": [
+          "Browser"
+        ]
+      }
+    }
+  },
+  "updates.area.cloud": {
+    "class": "brand",
+    "source": "Cloud"
+  },
+  "updates.area.tabs": {
+    "source": "Tabs",
+    "identityLocales": {
+      "de": {
+        "reason": "Tabs is the standard German noun for browser and terminal tabs.",
+        "values": [
+          "Tabs"
+        ]
+      }
+    }
+  },
+  "updates.area.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": {
+        "reason": "Terminal is the standard German noun.",
+        "values": [
+          "Terminal"
+        ]
+      },
+      "es": {
+        "reason": "Terminal is the standard Spanish noun.",
+        "values": [
+          "Terminal"
+        ]
+      },
+      "fr": {
+        "reason": "Terminal is the standard French noun.",
+        "values": [
+          "Terminal"
+        ]
+      }
+    }
+  },
+  "updates.area.updates": {
+    "source": "Updates",
+    "identityLocales": {
+      "de": {
+        "reason": "Updates is the standard German noun for software updates.",
+        "values": [
+          "Updates"
+        ]
+      }
+    }
+  },
+  "updates.card.build": {
+    "source": "Build %@",
+    "identityLocales": {
+      "de": {
+        "reason": "Build is the standard German developer term for a software build.",
+        "values": [
+          "Build %@"
+        ]
+      },
+      "fr": {
+        "reason": "Build is the standard French developer term for a software build.",
+        "values": [
+          "Build %@"
+        ]
+      }
+    }
+  },
+  "share.messageLabel": {
+    "source": "Message",
+    "identityLocales": {
+      "fr": {
+        "reason": "Message is the standard French noun.",
+        "values": [
+          "Message"
+        ]
+      }
+    }
+  },
+  "changelog.page.versions": {
+    "source": "Versions",
+    "identityLocales": {
+      "fr": {
+        "reason": "Versions is the standard French plural noun.",
+        "values": [
+          "Versions"
+        ]
+      }
+    }
   },
   "argument.cloud.computerControl.action": {
     "source": "Control",
@@ -8136,6 +8389,101 @@
         "reason": "Koi is a name (a loanword) kept in Latin letters.",
         "values": [
           "Koi"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.form.teamNamePlaceholder": {
+    "class": "technical",
+    "source": "CI"
+  },
+  "settingsWindow.tokens.row.fromGithub": {
+    "class": "brand",
+    "source": "GitHub Actions · %@"
+  },
+  "settingsWindow.tokens.github.title": {
+    "class": "brand",
+    "source": "GitHub Actions"
+  },
+  "settingsWindow.tokens.github.repositoryPlaceholder": {
+    "class": "syntax",
+    "source": "owner/name"
+  },
+  "settingsWindow.tokens.scope.machines": {
+    "source": "Machines",
+    "identityLocales": {
+      "fr": {
+        "reason": "Machines is the standard French plural for machines.",
+        "values": [
+          "Machines"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.scope.chats": {
+    "source": "Chats",
+    "identityLocales": {
+      "de": {
+        "reason": "Chats is the standard word for chat conversations in this language, as Apple's Messages uses it.",
+        "values": [
+          "Chats"
+        ]
+      },
+      "es": {
+        "reason": "Chats is the standard word for chat conversations in this language, as Apple's Messages uses it.",
+        "values": [
+          "Chats"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.form.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": {
+        "reason": "Name is the standard German word for a name field.",
+        "values": [
+          "Name"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.github.repository": {
+    "source": "Repository",
+    "identityLocales": {
+      "da": {
+        "reason": "Repository is the term GitHub and developer tools use in this language.",
+        "values": [
+          "Repository"
+        ]
+      },
+      "de": {
+        "reason": "Repository is the term GitHub and developer tools use in this language.",
+        "values": [
+          "Repository"
+        ]
+      },
+      "it": {
+        "reason": "Repository is the term GitHub and developer tools use in this language.",
+        "values": [
+          "Repository"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.github.workflow": {
+    "source": "Workflow",
+    "identityLocales": {
+      "da": {
+        "reason": "Workflow is the term GitHub Actions uses in this language.",
+        "values": [
+          "Workflow"
+        ]
+      },
+      "de": {
+        "reason": "Workflow is the term GitHub Actions uses in this language.",
+        "values": [
+          "Workflow"
         ]
       }
     }

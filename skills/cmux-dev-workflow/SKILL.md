@@ -55,6 +55,7 @@ python3 scripts/cmux_worktree.py add --cargo cmux-tui -b my-branch PATH origin/f
 
 ## Tagged local development
 
+A web or daemon change needs no build: `cmux app try .` (a copy of the NIGHTLY, your code swapped in) first.
 When local native execution is authorized:
 
 ```sh

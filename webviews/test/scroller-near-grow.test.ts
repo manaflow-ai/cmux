@@ -1,8 +1,9 @@
 // Lawrence 2026-10-23 (msg 11494): "the scrollbar stuff needs to be fixed so it auto-fades away, and
 // grows bigger on near-hover so it's easier to grab". Every scroller the shared rules draw
-// (scrollers.ts: macOS "Always", the chat's transcript and composer, cards) shows and widens its thumb
-// while the pointer is near its trailing edge, and the chat's fading thumbs never flash for a scroll
-// the user did not make (the transcript following new rows).
+// (scrollers.ts: macOS "Always", the chat's transcript and composer, cards) widens a shown thumb
+// while the pointer is near its trailing edge, and holds it there after the scroll stops; a hidden
+// thumb stays hidden under the pointer (Leo 2026-11-22: "hovering only doesnt show"). The chat's
+// fading thumbs never flash for a scroll the user did not make (the transcript following new rows).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -87,30 +88,47 @@ await requireBrowserLane("scroller-near-grow.test.ts", async () => {
   }
 
   for (const kind of ["legacy", "shown"] as const) {
-    test(`${kind}: nothing at rest, a thumb near the edge, wider than while scrolling, gone when the pointer leaves`, async () => {
+    test(`${kind}: nothing at rest or hovered, a thumb while it scrolls, wider near the edge, held there, gone when the pointer leaves`, async () => {
       const page = await open(kind);
+      const list = () => page.evaluate(() => document.getElementById("list")!.hasAttribute("data-cmux-scroller-near"));
       await page.mouse.move(40, 100);
       const rest = await inkColumns(page);
+      // Hover alone: onto the bar's lane with no scroll shows nothing and marks nothing.
+      await page.mouse.move(196, 100, { steps: 4 });
+      const hovered = await inkColumns(page);
+      const hoverNear = await list();
+      await page.mouse.move(40, 100);
       await page.mouse.wheel(0, 200);
       await page.waitForFunction(() => document.getElementById("list")!.hasAttribute("data-cmux-scrolling"));
       const scrolling = await inkColumns(page);
-      // The scrolling mark clears; the page has no fade durations, so the thumb goes at once.
-      await page.waitForFunction(() => !document.getElementById("list")!.hasAttribute("data-cmux-scrolling"));
-      const rested = await inkColumns(page);
-      // Approach the edge from the content, as a hand does, onto the bar's lane (where a press grabs it).
+      // Approach the edge from the content while the thumb shows, onto the bar's lane (where a press grabs it).
       await page.mouse.move(196, 100, { steps: 4 });
       await page.waitForFunction(() => document.getElementById("list")!.hasAttribute("data-cmux-scroller-near"));
       const near = await inkColumns(page);
+      // The scroll mark clears; the pointer still on the lane holds the thumb.
+      await page.waitForFunction(() => !document.getElementById("list")!.hasAttribute("data-cmux-scrolling"));
+      const held = await inkColumns(page);
       await page.mouse.move(40, 100);
       await page.waitForFunction(() => !document.getElementById("list")!.hasAttribute("data-cmux-scroller-near"));
+      // The page has no fade durations, so the thumb goes at once.
       const left = await inkColumns(page);
       await page.close();
-      expect({ rest, rested, left, scrolls: scrolling > 0, wider: near > scrolling }).toEqual({
+      expect({
+        rest,
+        hovered,
+        hoverNear,
+        left,
+        scrolls: scrolling > 0,
+        wider: near > scrolling,
+        held: held > 0,
+      }).toEqual({
         rest: 0,
-        rested: 0,
+        hovered: 0,
+        hoverNear: false,
         left: 0,
         scrolls: true,
         wider: true,
+        held: true,
       });
     });
   }

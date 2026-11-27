@@ -1,3 +1,4 @@
+import { registerViewBridge } from "./viewBridges";
 import { startDevMotionAudit } from "../devMotionAudit";
 import { openFork, openInOwnTab } from "../conversation/openFork";
 import React from "react";
@@ -51,6 +52,7 @@ import type { CloudTypingPrewarm } from "../cloudTypingPrewarm";
 import { harnessProfiles } from "../harnessProfiles";
 import { setStartModeSource } from "../startMode";
 import { setStartRecoveryPreview } from "../startRecoveryPreview";
+import { setComputerUsePreviewControls } from "../computerUse/computerUsePreview";
 import { setPromptSurfaces } from "../surfaces/promptSurface";
 import { preparedMockTransport } from "../mockTransport";
 import { BridgeSocket } from "../bridgeSocket";
@@ -59,11 +61,15 @@ import { type AutomationCompose, pageAction } from "../automation";
 import { acpWire } from "../wire";
 import { chatPerfCapture } from "../chatPerfCapture";
 import { acpmuxPerf } from "../perf";
+import { actionTrace } from "../actionTrace";
 import { perfReporter } from "../perfReporter";
 import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
 import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
+import { liveThought, thoughtOnly } from "../liveThought";
+import { liveSummary, usageOnly } from "../liveSummary";
+import { pageLanes } from "../schedule/lanes";
 import type { ComposerHandle, ComposerWake } from "../Composer";
 import { composerReadback, takeExternalInto } from "../composer/externalAttach";
 import type { FolderContinuation } from "../folderContinuation";
@@ -76,6 +82,12 @@ import { type PastTurn, readPastTurns } from "../pastChatModel";
 import { uploadForSend } from "../sendUploads";
 import { isStartSuperseded, startFailureNotice } from "../startFailure";
 import { translate } from "../i18n";
+import {
+  computerUseGate,
+  computerUseHoldText,
+  computerUseState,
+  type ComputerUsePlace,
+} from "../computerUse/computerUseState";
 import { cloudMachineAsleep } from "../cloudMachines";
 import type { TrustHeldPrompt, useTrustHeldPrompts } from "../trustHeld";
 import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwner } from "../trustRefusalRoute";
@@ -139,21 +151,28 @@ import {
   lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
+  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostRetryStep,
+  HOST_WAKE_EVENTS,
+  hostWakeAsks,
+  lostRetryStep,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
-import type { Subagent } from "../subagents/subagentFold";
+import { revealedSubagent } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
 import { setPaneNotices } from "../paneNoticeStore";
 import type { HandoffReviewInput } from "../handoff/review";
 import { CmuxCommandRefused } from "../cmuxCommands";
 import { handoffStore, receiveHandedCloudStart } from "../commandPlace";
+import { holdCloudAgentPick } from "../cloudAgentPick";
 import { askPermissionFocus } from "../permissions/focusRequest";
 import type { PermissionDecision } from "../permissions/protocol";
 import { planBuildTarget } from "../permissions/planBuild";
+import { forkFirstOffer } from "../direct/permissions";
 import { type PaneSurface, readSurface } from "../paneSurface";
 import { designSelectionChips, designSelectionRemovals } from "../designSelection";
 import { setFloatingState } from "../floatingState";
@@ -164,17 +183,17 @@ import { setSuggestedTasks } from "../offer/offersShown";
 import { offerPicks } from "../offer/offerChoice";
 import { offerWorktree } from "../offer/offerWorktree";
 import { setLinkPlaces, updateLinkPlaces } from "../chips/cmuxLinkPlaces";
-import type { StartedSession } from "../started/startedSessions";
 import { setExperimentSwitches } from "../../../experiments/switches";
-import { setSessionStatus } from "../sessionStatus";
 import { pageEditHold, pageReleaseHold } from "../../../pages/shared/webSwap";
 import type { SandboxTab } from "../sandboxRun";
 import { callNative } from "../callNative";
+import { pullRequestUrl, reviewPrompt } from "../prReview";
 import { nativeUnsentPrompts } from "../unsentPrompts";
 import { flushHeldModePick } from "../heldModePick";
 import type { NativeRegistry, OpenDiff } from "../rows/rowProps";
 import type { ScrollAnchor } from "../VirtualTranscript";
 import { emptySnapshot, saveSnapshot } from "../snapshotCache";
+import type { ShownChrome } from "../shownChrome";
 import { applyPaneTheme, applyPaneThemeCSS } from "../paneTheme";
 import { dismissFocusRing } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
@@ -193,8 +212,36 @@ import { fetchScrollAnchor, postScrollAnchor } from "./scrollAnchorHost";
 import { readWake } from "./wake";
 import { togglePlace, togglePromptRow } from "../conversation/togglePlace";
 
+/// What the chat-list stores read of a snapshot (newtab/chatStore.ts `publishSessions`,
+/// newtab/warmSnapshot.ts `publishWarmNewTab`, newtab/recentProject.ts `rememberRecentFolders`), and
+/// whether this page shows New Tab: a snapshot whose fields here are the same objects changes none
+/// of them, so the listener skips all three (a streamed chunk keeps every one).
+type ListInput = Pick<AcpmuxSnapshot, "sessions" | "listedSessions" | "sessionsWindowed" | "connection" | "origin"> & {
+  readonly showsNewTab: boolean;
+};
+
+const listInputOf = (snapshot: AcpmuxSnapshot, showsNewTab: boolean): ListInput => ({
+  sessions: snapshot.sessions,
+  listedSessions: snapshot.listedSessions,
+  sessionsWindowed: snapshot.sessionsWindowed,
+  connection: snapshot.connection,
+  origin: snapshot.origin,
+  showsNewTab,
+});
+
+const sameListInput = (a: ListInput | undefined, b: ListInput): boolean =>
+  a !== undefined &&
+  a.sessions === b.sessions &&
+  a.listedSessions === b.listedSessions &&
+  a.sessionsWindowed === b.sessionsWindowed &&
+  a.connection === b.connection &&
+  a.origin === b.origin &&
+  a.showsNewTab === b.showsNewTab;
+
 /** What AcpmuxPane's snapshot effect reads from the pane (App.tsx): its state, setters, refs and callbacks. */
 export type PaneSnapshotArgs = {
+  /// The pane view this chat is in a shared document (paneViewStore.ts); null or absent: its own page.
+  paneView?: string | null;
   scrollToBottomOnSendRef: React.RefObject<boolean>;
   sandbox: SandboxTab;
   setWorkflowLabsEnabled: React.Dispatch<React.SetStateAction<boolean>>;
@@ -214,6 +261,7 @@ export type PaneSnapshotArgs = {
   setPastWaitsForTrust: React.Dispatch<React.SetStateAction<boolean>>;
   setMachineName: React.Dispatch<React.SetStateAction<string | undefined>>;
   setLocalMachineName: React.Dispatch<React.SetStateAction<string | undefined>>;
+  setAutoCloudStartKey: React.Dispatch<React.SetStateAction<string | undefined>>;
   setCloudMachineID: React.Dispatch<React.SetStateAction<string | undefined>>;
   cloudMachineIDRef: React.RefObject<string | undefined>;
   setCloudRepositoryAvailable: React.Dispatch<React.SetStateAction<boolean>>;
@@ -311,9 +359,6 @@ export type PaneSnapshotArgs = {
   paletteCommands: React.RefObject<{ sessionId: string; commands: Record<string, () => void> }>;
   counted: React.RefObject<{
     summary: AcpmuxSnapshot["summary"];
-    runningAgents: readonly Subagent[];
-    runningCommands: readonly BackgroundCommand[];
-    runningSessions: readonly StartedSession[];
     sourceRows: AcpmuxRow[];
     childRows: AcpmuxRow[] | undefined;
     transcriptRows: AcpmuxRow[];
@@ -327,8 +372,19 @@ export type PaneSnapshotArgs = {
   drawnSnapshot: React.RefObject<AcpmuxSnapshot | undefined>;
   receivedSnapshot: React.RefObject<AcpmuxSnapshot | undefined>;
   toolOutputEpoch: React.RefObject<number>;
+  /// The draw (liveThought.ts `redraw`) of the snapshot the pane set last.
+  thoughtEpoch: React.RefObject<number>;
   pendingPaneDraw: PendingPaneDraw;
   snapshotRef: React.RefObject<AcpmuxSnapshot | undefined>;
+  /// The chrome the page drew before its attach answered, kept until then (shownChrome.ts).
+  chrome: ShownChrome;
+  /// What the page showed first, the reload copy, until a frame replaces it.
+  firstShown: React.RefObject<AcpmuxSnapshot | undefined>;
+  /// Whether a prompt naming `@computer-use` waits for Computer Use setup (App.tsx
+  /// `holdsForComputerUseSetup`, #48541): `/side` forks nothing while it holds.
+  holdsForComputerUseSetupRef: React.RefObject<
+    (text: string, toast?: boolean, place?: ComputerUsePlace, opensSetup?: boolean) => boolean
+  >;
   readSendAgain: () => SendPromptAgainState;
   readInterruptedResume: () => InterruptedResumeState;
   opensSideChat: React.RefObject<boolean>;
@@ -360,11 +416,11 @@ export type PaneSnapshotArgs = {
   cancelRetry: React.RefObject<(() => void) | undefined>;
   setAcpmuxRestartOffered: React.Dispatch<React.SetStateAction<boolean>>;
   restartGate: AcpmuxRestartGate;
-  setWaitingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
-  setRestartUnavailable: React.Dispatch<React.SetStateAction<boolean>>;
-  setRelinkingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
+  setLinkDown: React.Dispatch<React.SetStateAction<boolean>>;
   /// When the pane's trouble began (`troubleSince` below): bounds the bare "Reconnecting…".
   setHostTroubleSince: React.Dispatch<React.SetStateAction<number | undefined>>;
+  /// The handshake loop stopped (hostRetry.ts `hostRetryStep`): the line offers Restart agent service.
+  setHostGaveUp: React.Dispatch<React.SetStateAction<boolean>>;
   setHostRestoring: React.Dispatch<React.SetStateAction<HostRestoring | undefined>>;
   runPendingAdoption: React.RefObject<() => void>;
   freshRef: React.RefObject<boolean>;
@@ -377,6 +433,7 @@ export type PaneSnapshotArgs = {
 
 /** The body of AcpmuxPane's snapshot effect (RFD 0046 step 2), run by that effect in App.tsx; returns its cleanup. */
 export function paneSnapshotEffect({
+  paneView = null,
   scrollToBottomOnSendRef,
   sandbox,
   setWorkflowLabsEnabled,
@@ -397,6 +454,7 @@ export function paneSnapshotEffect({
   setMachineName,
   setLocalMachineName,
   setCloudMachineID,
+  setAutoCloudStartKey,
   cloudMachineIDRef,
   setCloudRepositoryAvailable,
   setCloudChatIdentity,
@@ -477,8 +535,12 @@ export function paneSnapshotEffect({
   drawnSnapshot,
   receivedSnapshot,
   toolOutputEpoch,
+  thoughtEpoch,
   pendingPaneDraw,
   snapshotRef,
+  chrome,
+  firstShown,
+  holdsForComputerUseSetupRef,
   readSendAgain,
   readInterruptedResume,
   opensSideChat,
@@ -502,10 +564,9 @@ export function paneSnapshotEffect({
   cancelRetry,
   setAcpmuxRestartOffered,
   restartGate,
-  setWaitingSince,
-  setRestartUnavailable,
-  setRelinkingSince,
+  setLinkDown,
   setHostTroubleSince,
+  setHostGaveUp,
   setHostRestoring,
   runPendingAdoption,
   freshRef,
@@ -530,7 +591,11 @@ export function paneSnapshotEffect({
   };
   window.cmuxAcpmuxBridge = {
     toggleInspector,
-    perfCapture: (options) => chatPerfCapture.capture(options),
+    perfCapture: (options) =>
+      chatPerfCapture.capture(options, undefined, () => ({
+        rows: rowsRef.current.length,
+        events: directClient.current?.eventSeq ?? null,
+      })),
     lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
     composerState: () => {
       const draft = composerHandle.current?.draft();
@@ -664,8 +729,9 @@ export function paneSnapshotEffect({
       )
         setContinuing(true);
     },
-    receive(next) {
-      if (next.protocolVersion !== 1) return;
+    receive(given) {
+      if (given.protocolVersion !== 1) return;
+      const next = chrome.keep(snapshotRef.current ?? firstShown.current, given);
       harnessSwitch.reconcile(next);
       rowsRef.current = next.rows;
       snapshotRef.current = next;
@@ -696,6 +762,7 @@ export function paneSnapshotEffect({
       // pick; nothing creates a paid VM without one.
       setPromptSurfaces(on === true);
       setStartRecoveryPreview(on === true);
+      setComputerUsePreviewControls(on === true);
       // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
     },
     applyLiveTree(on) {
@@ -706,9 +773,6 @@ export function paneSnapshotEffect({
     },
     applySidebarPreviewVariant(variant) {
       configureNativeSidebarPreviewVariant(variant);
-    },
-    applySessionStatus(on) {
-      setSessionStatus(on === true);
     },
     applyExperiments(value) {
       setExperimentSwitches(value);
@@ -794,9 +858,13 @@ export function paneSnapshotEffect({
       for (const chip of designSelectionChips(selection)) composerHandle.current?.attach(chip);
     },
   };
+  // In a shared pane document this chat's own host events (a command, a turn to reveal, dictation)
+  // reach its bridge by view (viewBridges.ts); window.cmuxAcpmuxBridge stays the document's.
+  const unregisterViewBridge =
+    paneView !== null && window.cmuxAcpmuxBridge ? registerViewBridge(paneView, window.cmuxAcpmuxBridge) : undefined;
   // On the shared page host the host pushes arrive as events once the bridge exists.
   const pageHost = pageHostClient();
-  if (pageHost) void startHostEvents(pageHost).catch(() => undefined);
+  if (pageHost) void startHostEvents(pageHost, paneView).catch(() => undefined);
   window.cmuxAcpmuxDebug = createAcpmuxDebug({
     replaceRows(rows, fields) {
       rowsRef.current = rows;
@@ -829,6 +897,8 @@ export function paneSnapshotEffect({
         runMode: () => automationCompose.current?.runMode(),
         setRunMode: (mode) => automationCompose.current?.setRunMode(mode) ?? false,
         cloudStart: () => automationCompose.current?.cloudStart() ?? null,
+        blocked: () => automationCompose.current?.blocked?.(),
+        runPlace: () => automationCompose.current?.runPlace?.() ?? {},
       },
     },
   });
@@ -859,6 +929,11 @@ export function paneSnapshotEffect({
   /// never stays open stops being a bare "Reconnecting…" past SELF_RETRY_SAID_MS.
   let troubleSince: number | undefined;
   let connecting = false;
+  /// The loop stopped (hostRetry.ts `hostRetryStep`): no timer asks again; an event does
+  /// (`HOST_WAKE_EVENTS`), as does the line's Retry.
+  let stopped = false;
+  /// The host's `acpmux-daemon-answered` already asked once in this stop (hostRetry.ts `hostWakeAsks`).
+  let answerSpent = false;
   /// The user asked to retry while an attempt was in flight; run a full one when it ends.
   let retryPending = false;
   // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
@@ -879,6 +954,11 @@ export function paneSnapshotEffect({
   /// Sessions a switch started whose first summary has not arrived: it names the model a new
   /// chat on that harness starts on.
   const startedSessions = new Set<string>();
+  /// The summary the harness profiles last observed, and what the chat-list stores were last
+  /// handed (`listInputOf`): a snapshot that keeps both runs neither.
+  let observedSummary: AcpmuxSnapshot["summary"] | null = null;
+  let publishedList: ListInput | undefined;
+  const lanes = pageLanes();
   /// Prompts a failed or cancelled switch held go back into the composer with their
   /// attachments, before what was typed since; while no composer is mounted they wait for one.
   /// The gesture of a send acpmux held for the folder trust answer (heldPrompt.ts).
@@ -894,6 +974,13 @@ export function paneSnapshotEffect({
   const heldRowPrompt = heldPrompts((intent) =>
     postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
   );
+  /// Where `client`'s chat runs, for `@computer-use` (CMUX-682): only a chat on this Mac has cmux's
+  /// Computer Use tools. A chat on another machine that has not answered yet starts on its first send.
+  const chatPlace = (client: AcpmuxDirectClient): ComputerUsePlace => {
+    const shown = trustRouteSnapshot.current?.summary;
+    if (shown?.hostKind === "cloud") return "cloud";
+    return shown?.host || shown?.peer || client.startsOnSend ? "machine" : "here";
+  };
   const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
     if (composerHandle.current) composerHandle.current.restore(text, attachments);
     else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
@@ -912,8 +999,6 @@ export function paneSnapshotEffect({
       acpmuxPerf.markAgent("handshakeStart");
       acpmuxPerf.markLaunch("handshakeStart");
       acpWire.lifecycle("handshake", { reconnect });
-      setWaitingSince(Date.now());
-      setRestartUnavailable(false);
       const answered = await callNative<{
         protocolVersion: number;
         transport?: string;
@@ -958,6 +1043,7 @@ export function paneSnapshotEffect({
         pickCloud?: unknown;
         /// Another chat's `/side --on cloud` or `/cd --on cloud` opened this tab (commandPlace.ts).
         cloudStartHandoff?: unknown;
+        autoCloudStartKey?: string;
         model?: unknown;
         sandboxState?: unknown;
         /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
@@ -970,13 +1056,24 @@ export function paneSnapshotEffect({
       const received = receiveHandedCloudStart(answered, reconnect, handoffStore(), Date.now());
       const host = received.host;
       if (received.folder) setHandedFolder(received.folder);
+      // A started Cloud chat's pick of another agent: this new Cloud chat's Cloud send starts on it
+      // (cloudAgentPick.ts), and this Mac's own remembered pick stays as it was (cmux#51731).
+      if (received.agent) holdCloudAgentPick(received.agent);
       // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
       if (typeof host.tab === "string" && host.tab) {
         setSessionInfoTab(host.tab);
         setStashTab(host.tab);
       }
+      // A pane opened on a subagent is the subagent's before anything draws: its header and composer
+      // are the subagent's from the first frame, not the chat's until the client connects (the 41 px
+      // composer drop and 40 to 28 px header of a subagent opening into a split, Leo 2026-11-22:
+      // "they need to be able to load faster and without layout shifts"). The reveal after connect
+      // runs again and changes nothing.
+      if (typeof host.revealTurn === "string" && revealedSubagent(host.revealTurn) !== undefined)
+        revealRef.current(host.revealTurn);
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
+      if (typeof host.autoCloudStartKey === "string") setAutoCloudStartKey(host.autoCloudStartKey);
       setCloudTeamMachine(host.cloudTeamMachine === true);
       const turnRewind =
         Array.isArray(host.cloudTurnRewind) && host.cloudTurnRewind.every((id) => typeof id === "string")
@@ -1153,7 +1250,8 @@ export function paneSnapshotEffect({
       acpmuxPerf.markLaunch("connectStart");
       const client = await AcpmuxDirectClient.connect(
         config,
-        (next) => {
+        (given) => {
+          const next = chrome.keep(snapshotRef.current ?? firstShown.current, given);
           harnessSwitch.reconcile(next);
           rowsRef.current = next.rows;
           snapshotRef.current = next;
@@ -1166,20 +1264,45 @@ export function paneSnapshotEffect({
               sessionId: next.sessionId,
             };
           // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
+          // Only when the summary changed: a streamed chunk keeps it, and each observation
+          // serializes and stores every harness's profile. In the idle lane (schedule/), never in a
+          // key's or a frame's task, the latest summary winning; durable, so a page that hides
+          // writes it then. A switch's first summary (once per switch) is observed at once: it
+          // names its harness's start model, which a later summary must not take over.
           const summary = next.summary;
-          const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
-          harnessProfiles.observe(summary, started);
+          const started = summary?.model !== undefined && startedSessions.has(summary.sessionId);
+          if (started) {
+            observedSummary = summary;
+            startedSessions.delete(summary!.sessionId);
+            // An older summary still waiting would land after it: it is dropped.
+            lanes.idle("pane:harness-profiles", () => {});
+            harnessProfiles.observe(summary, true);
+          } else if (summary !== observedSummary) {
+            observedSummary = summary;
+            lanes.idle("pane:harness-profiles", () => harnessProfiles.observe(summary, false), { durable: true });
+          }
           // The next New Tab page names the project used last on its first frame
-          // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
-          if (!mock) {
-            rememberRecentFolders(next);
-            // Every page's New Tab lists one chat store (newtab/chatStore.ts).
-            publishSessions(next);
-            // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
-            publishWarmNewTab(
-              next,
-              (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
-              showsNewTabRef.current,
+          // (newtab/recentProject.ts); the mock daemon's chats are not the app's. Each reads the
+          // chat list alone, which a streamed chunk keeps: compared by object first, then run in
+          // the idle lane with the latest list.
+          const listInput = listInputOf(next, showsNewTabRef.current);
+          if (!mock && !sameListInput(publishedList, listInput)) {
+            publishedList = listInput;
+            const at = Date.now();
+            lanes.idle(
+              "pane:chat-list",
+              () => {
+                rememberRecentFolders(next);
+                // Every page's New Tab lists one chat store (newtab/chatStore.ts).
+                publishSessions(next, at);
+                // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
+                publishWarmNewTab(
+                  next,
+                  (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
+                  listInput.showsNewTab,
+                );
+              },
+              { durable: true },
             );
           }
           // Only the streaming reply's text grew: its row draws it (streamingRow.ts); the pane,
@@ -1203,8 +1326,25 @@ export function paneSnapshotEffect({
             liveToolOutput.set(call.id, call.output, call.before);
             return;
           }
+          // Only a thought grew: the row that draws it reads it (liveThought.ts).
+          const thought =
+            drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
+              ? thoughtOnly(received, next)
+              : undefined;
+          if (thought) {
+            liveThought.set(thought.id, thought.before, thought.after);
+            return;
+          }
+          // Only the usage numbers moved (the context count, usage, time breakdown): the parts that
+          // draw them read them (liveSummary.ts); the pane, transcript and header keep what they drew.
+          if (drawn && !pendingPaneDraw.pending && usageOnly(drawn, next)) {
+            liveSummary.set(drawn.summary!, next.summary!);
+            return;
+          }
           streamingRow.clear();
+          liveSummary.clear();
           toolOutputEpoch.current = liveToolOutput.redraw();
+          thoughtEpoch.current = liveThought.redraw();
           // A redraw of the whole pane is a transition a key can go before, unless it answers what
           // the person just did or opens another chat (paneSnapshotLane.ts).
           const drewBefore = drawnSnapshot.current;
@@ -1231,21 +1371,37 @@ export function paneSnapshotEffect({
           harnessSwitch.disconnect(switchPort);
           setStartModeSource(undefined);
           catalogClientId.current += 1;
+          chrome.clientLost();
           directClient.current = undefined;
           delete window.cmuxAcpmuxActions;
           notifyDraftActionsChanged();
           // Until a client connects again, an open handed this page would wait for that connect.
           if (!mock) void postNative("pane.clientReady", { ready: false }).catch(() => undefined);
-          // Quiet while it comes back: one quiet "Reconnecting…" line (HostRecoveringLine) until
-          // the handshakes fail past the deadline, then the waiting line or the failure.
+          // A drop alone says nothing: its reconnect usually lands. Only a failed attempt marks
+          // the link down (`linkDown`, the quiet chip).
           failingSince = Date.now();
-          setRelinkingSince(failingSince);
           troubleSince = troubleSinceAfterLoss(troubleSince, failingSince - connectedAt, failingSince);
           setHostTroubleSince(troubleSince);
           // A client lost soon after it connected keeps the backoff growing: a daemon that drops
           // the pane right after every connect is not asked again every 250 ms. Jittered so the
           // tabs that lost one daemon together do not ask it again in lockstep.
           const lost = lostRetryDelay(retryDelay, Date.now() - connectedAt);
+          // Bounded: a daemon that keeps dropping the pane past SELF_RETRY_SAID_MS is not asked
+          // again on a timer; the line says so with Retry, and an event asks again (`stopped`).
+          const step = lostRetryStep({
+            troubleForMs: failingSince - troubleSince,
+            upForMs: failingSince - connectedAt,
+            waitMs: lost.wait,
+          });
+          if (step.kind === "stop") {
+            stopped = true;
+            setHostGaveUp(true);
+            const failure = new Error("The agent service keeps closing this chat's connection.");
+            setHostError(failure.message);
+            setHostFailure(failure);
+            setHostErrorShown(true);
+            return;
+          }
           retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(lost.wait));
           retryDelay = lost.next;
         },
@@ -1264,6 +1420,8 @@ export function paneSnapshotEffect({
         client.close();
         return;
       }
+      // One trace per user action, to the daemon's trace file when it writes one (actionTrace.ts).
+      actionTrace.install();
       acpmuxPerf.markLaunch("connected");
       connectingClient = client;
       directClient.current = client;
@@ -1346,8 +1504,11 @@ export function paneSnapshotEffect({
       // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
       setHostError(undefined);
       setHostErrorShown(false);
+      stopped = false;
+      answerSpent = false;
+      setHostGaveUp(false);
       failingSince = undefined;
-      setRelinkingSince(undefined);
+      setLinkDown(false);
       setHostRestoring(undefined);
       setAcpmuxRestartOffered(false);
       catalogClientId.current += 1;
@@ -1729,10 +1890,38 @@ export function paneSnapshotEffect({
           client.answerHeld(String(promptId), true, typeof revision === "number" ? revision : 0),
         "chat.queue.decline": ({ promptId }) => client.answerHeld(String(promptId), false),
         "chat.agentPair.resume": ({ peer }) => client.resumeAgentPair(String(peer)),
-        "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
-        "chat.secret": ({ secretId, value }) =>
-          client.secret(String(secretId), typeof value === "string" ? value : undefined),
-        "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId }) =>
+        // The transcript's queue controls (Send Now, an edit): held as the composer's are (CMUX-682), on
+        // the text this page has (a long queued prompt's preview may cut a later mention: the agent's own
+        // Computer Use tool still refuses while it is not set up).
+        "chat.queue.edit": ({ promptId, ...edit }) => {
+          const change = edit as QueueEdit;
+          const queued =
+            change.op === "update"
+              ? change.text
+              : change.op === "send_now"
+                ? // Send Now also releases the steers still waiting to be read: each is its own message.
+                  [
+                    trustRouteSnapshot.current?.queue.find((entry) => entry.id === String(promptId))?.prompt ?? "",
+                    ...client.waitingSteerTexts(),
+                  ].find((words) => computerUseGate(words, computerUseState(), chatPlace(client)) !== "free")
+                : undefined;
+          const place = chatPlace(client);
+          if (queued && computerUseGate(queued, computerUseState(), place) !== "free") {
+            holdsForComputerUseSetupRef.current(queued, false, place);
+            // An edit's typed refusal keeps the editor's text; Send Now leaves the row queued.
+            return change.op === "update"
+              ? Promise.reject(Object.assign(new Error("held"), { code: "computer_use_held" }))
+              : Promise.resolve(false);
+          }
+          return client.editQueued(String(promptId), change);
+        },
+        "chat.secret": ({ secretId, value, keepAs }) =>
+          client.secret(
+            String(secretId),
+            typeof value === "string" ? value : undefined,
+            typeof keepAs === "string" ? keepAs : undefined,
+          ),
+        "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId, forkFirst }) =>
           client.permission(
             String(permissionId),
             optionId === undefined || optionId === null ? undefined : String(optionId),
@@ -1740,6 +1929,7 @@ export function paneSnapshotEffect({
             // The Needs you list answers asks of other chats too.
             typeof sessionId === "string" && sessionId ? sessionId : undefined,
             annotations && typeof annotations === "object" ? (annotations as Record<string, unknown>) : undefined,
+            forkFirstOffer(forkFirst),
           ),
         "chat.plan.build": ({ permissionId, target, sessionId, plan }) =>
           client.planBuild(
@@ -2034,6 +2224,7 @@ export function paneSnapshotEffect({
               // on (Try again); acpmux's reason (no Trust answer, an invalid file) goes to the log.
               if (refused?.code === "transport.harness_not_confirmed") return undefined;
               console.warn("agent pane: enabling the harness was refused", refused?.detail ?? error);
+              // retry-prompt-ok: enabling a harness changes the person's settings.
               notices.failed(translate("harnesses.enableUnavailable"));
               return undefined;
             },
@@ -2042,6 +2233,15 @@ export function paneSnapshotEffect({
         // A failure card acts on its run of prompts (`rowIds`, in order; sendFailure.ts), else on `rowId`.
         // Retry sends the run again as one prompt: one click is one gesture (direct.ts `retryPrompts`).
         "chat.retryPrompt": ({ rowId, rowIds }) => {
+          // Retry sends the text again: one that names `@computer-use` is held as a send is, now, whatever
+          // the state was when it first failed; the failure card stays (CMUX-682).
+          const retried = failedRowIds(rowId, rowIds)
+            .map((id) => client.failedPromptText(id) ?? "")
+            .join("\n\n");
+          const retryPlace = chatPlace(client);
+          const retryGate = computerUseGate(retried, computerUseState(), retryPlace);
+          if (retryGate !== "free" && holdsForComputerUseSetupRef.current(retried, false, retryPlace))
+            throw new CmuxCommandRefused(translate(computerUseHoldText(retryGate).title));
           // The retry belongs to the chat it was clicked in: a trust refusal goes to that chat's
           // question, whose Trust sends the run again (no second manual Retry).
           const owner: TrustOwner = {
@@ -2281,6 +2481,20 @@ export function paneSnapshotEffect({
         // `splitRight`: `/side`'s, always a new split right of the chat (the menu's keeps the right
         // column's placement, AgentSidePanes).
         "chat.side": async ({ throughSeq, live, prompt, splitRight, attachments, gesture }) => {
+          // `/side` with `@computer-use` forks nothing while Computer Use is not ready on this Mac, nor
+          // on the chat's own machine, which has no Computer Use tools (`holdsForComputerUseSetup`,
+          // decided at once, #48541); held, the composer keeps `/side <prompt>`.
+          if (typeof prompt === "string") {
+            const side = snapshotRef.current;
+            const place: ComputerUsePlace = !side?.sideChatOnMachine
+              ? "here"
+              : side.summary?.hostKind === "cloud"
+                ? "cloud"
+                : "machine";
+            const gate = computerUseGate(prompt, computerUseState(), place);
+            if (gate !== "free" && holdsForComputerUseSetupRef.current(prompt, false, place, false))
+              throw new CmuxCommandRefused(translate(computerUseHoldText(gate).title));
+          }
           // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
           const chat = client.selectedSession;
           const split = splitRight === true ? { split: "right" } : {};
@@ -2293,6 +2507,9 @@ export function paneSnapshotEffect({
           // acpmux's own refusal shows in the side chat; one the host made never reached it.
           const sidePromptRefused = (error: unknown) => {
             const code = (error as { code?: unknown } | null)?.code;
+            // Held at dispatch for Computer Use (direct.ts `sendHold`): the reason, as a send's bubble says it.
+            if (code === "computer_use_held")
+              return notices.failed(translate("prompt.notSent", { reason: (error as Error).message }));
             if (typeof code === "string" && code.startsWith("transport."))
               notices.failed(
                 translate("prompt.notSent", { reason: knownRefusalText(error) ?? translate("transport.refused") }),
@@ -2328,7 +2545,44 @@ export function paneSnapshotEffect({
           }
           const text = typeof prompt === "string" ? prompt.trim() : "";
           if (!text && !files.length) return;
-          void client.promptSide(sessionId, text, files, held).catch(sidePromptRefused);
+          // Asked again once the fork is open (CMUX-682): Computer Use may have stopped meanwhile. The
+          // composer keeps `/side <prompt>` and its files, the side chat opens empty, and the chat says why.
+          // The Enter's ticket first, so a hold found after its wait still reaches the composer.
+          const ticket = held ? await held.ticket : undefined;
+          const lateHold = text ? client.sendHold?.(text) : undefined;
+          if (lateHold) throw new CmuxCommandRefused(lateHold);
+          void client
+            .promptSide(sessionId, text, files, held ? { ...held, ticket: Promise.resolve(ticket) } : undefined)
+            .catch((error: unknown) => {
+              // Held right before the wire (the child attach outlasted Computer Use): the words and files
+              // come back to the composer, never lost with only a notice.
+              if ((error as { code?: unknown } | null)?.code === "computer_use_held") restorePrompt(text, files);
+              sidePromptRefused(error);
+            });
+        },
+        // Review from link: a pull request link's Review (LinkHoverCard; the composer's URL chip
+        // calls this same action, so its params stay `{url}`). A side chat right of this one gets
+        // the review prompt (prReview.ts), as `/side <prompt>` would; a chat with nothing to fork
+        // yet takes the prompt itself, as the person's own.
+        "pr.review": async ({ url }) => {
+          const pullRequest = pullRequestUrl(String(url ?? ""));
+          // l10n-allow: a caller's bug; both entries offer Review on a pull request only.
+          if (!pullRequest) throw new Error("pr.review takes a GitHub pull request URL");
+          const prompt = reviewPrompt(pullRequest);
+          const shown = snapshotRef.current;
+          const target = shown ? forkToTarget(shown) : undefined;
+          if (!target) {
+            void send(prompt).catch(() => undefined);
+            return;
+          }
+          try {
+            await callNative("chat.side", { ...target, splitRight: true, prompt });
+          } catch (error) {
+            const reason = errorMessage(error);
+            notices.transient(
+              reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
+            );
+          }
         },
         // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
         // `worktree`: the task's Options > Worktree, else the agent's ask; `harness`, `model`,
@@ -2367,7 +2621,7 @@ export function paneSnapshotEffect({
         // An inbox notice's thread the person opened: its messages, read without marking them
         // read (conversation/InboxNoticeCard.tsx).
         "chat.inbox.thread": ({ threadId }) => client.inboxThread(String(threadId ?? "")),
-        // The held surge's threads (SurgeHoldRow.tsx): the chat's inbox listing, read as its panel opens.
+        // The held surge's threads (session-info/agentSide.ts): the chat's inbox listing, on request.
         "chat.inbox.threads": () => client.inboxThreads(),
         // An agent link or `HOST/NAME` in a reply (conversation/sessionRefs.ts): the session it names.
         "chat.session.resolve": ({ query }) => client.resolveSession(String(query ?? "")),
@@ -2681,6 +2935,13 @@ export function paneSnapshotEffect({
       flushHeldModePick();
       // A pending chat's access chip asks this client the mode acpmux starts it in.
       setStartModeSource((harness, cwd) => client.startMode(harness, cwd));
+      // Asked again at dispatch, after a send's uploads (direct.ts `sendHold`, CMUX-682).
+      client.sendHold = (text) => {
+        const place = chatPlace(client);
+        const gate = computerUseGate(text, computerUseState(), place);
+        if (gate === "free" || !holdsForComputerUseSetupRef.current(text, false, place, false)) return undefined;
+        return translate(computerUseHoldText(gate).title);
+      };
       acpmuxPerf.markAgent("composerReady");
       client.snapshot();
       void client.warmRecentProjects();
@@ -2696,7 +2957,19 @@ export function paneSnapshotEffect({
       // the prompt waits in the composer instead of vanishing.
       const prompt = pendingPrompt;
       const attachments = pendingAttachments ?? [];
-      const hasPrompt = Boolean(prompt || attachments.length);
+      // A seeded prompt that names `@computer-use` while Computer Use is not ready on this Mac (or for a
+      // chat on another machine, which has none) goes nowhere: it waits in the composer, and the chat says
+      // why (CMUX-682). The native New Tab and a palette prompt seed one that would go by itself.
+      const heldForComputerUse =
+        !!prompt &&
+        holdsForComputerUseSetupRef.current(
+          prompt,
+          false,
+          host.peer || client.startsOnSend ? "machine" : "here",
+          false,
+        );
+      if (heldForComputerUse) restorePrompt(prompt, attachments);
+      const hasPrompt = !heldForComputerUse && Boolean(prompt || attachments.length);
       const harness = pendingHarness;
       const model = pendingModel;
       // The picker's effort with its model (a Cloud start), held under its kind's id (heldOptions.ts).
@@ -2721,6 +2994,7 @@ export function paneSnapshotEffect({
             // this connection, not a reason to reconnect and repeat session/new forever.
             console.warn("agent pane: the new chat on the machine did not start", error);
             if (!cancelled && directClient.current === client)
+              // retry-prompt-ok: starting a chat again makes a new session.
               client.notice(knownRefusalText(error) ?? translate("chat.newFailed"));
           },
         );
@@ -2747,9 +3021,14 @@ export function paneSnapshotEffect({
         // A chat too large to open says so in plain words; the reply's byte count stays in the log.
         const tooLarge = hostRefusedTooLarge(error);
         // hostLine.ts words the line: only the pane's own text stands on it, the rest is Details.
+        // retry-prompt-ok: "Update cmux to open this chat, then Retry": the person updates first.
         setHostError(tooLarge ? translate("host.tooLarge") : errorMessage(error) || String(error));
         setHostFailure(error);
-        setHostRestoring(readHostRestoring((error as { details?: unknown } | null)?.details, Date.now()));
+        const restoring = readHostRestoring((error as { details?: unknown } | null)?.details, Date.now());
+        setHostRestoring(restoring);
+        // The transport's word that the link is down: any failed attempt but a planned restart's
+        // (an update's handoff, a start under way), which ends when the restarted daemon answers.
+        if (restoring || !hostPlannedRestart(error)) setLinkDown(true);
         failingSince ??= Date.now();
         troubleSince ??= failingSince;
         setHostTroubleSince(troubleSince);
@@ -2765,8 +3044,14 @@ export function paneSnapshotEffect({
         // Back off so a host without a daemon is not asked four times a second. A Restart acpmux
         // in flight asks again itself when it ends.
         // A reply too large to send is the same at every ask: only the line's Retry asks again.
-        if (!tooLarge && restartGate.mayAsk()) {
-          retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(retryDelay));
+        // Bounded (hostRetry.ts `hostRetryStep`): past SELF_RETRY_SAID_MS of trouble the timer
+        // stops; the line says why with Retry, and an event asks again (`stopped`).
+        const step = hostRetryStep({ error, troubleForMs: Date.now() - troubleSince, waitMs: retryDelay });
+        // A chat too large to open gets the same reply at every ask: only the line's Retry asks again.
+        stopped = step.kind === "stop" && !tooLarge;
+        setHostGaveUp(stopped);
+        if (step.kind === "retry" && restartGate.mayAsk()) {
+          retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(step.waitMs));
           retryDelay = nextRetryDelay(
             retryDelay,
             reconnect || recovering,
@@ -2780,7 +3065,6 @@ export function paneSnapshotEffect({
       }
     } finally {
       connecting = false;
-      setWaitingSince(undefined);
       // The Retry this attempt ran for (`retryNow`) has its answer.
       setRetryQueued(false);
       if (retryPending) {
@@ -2817,9 +3101,23 @@ export function paneSnapshotEffect({
     retryPending = true;
     setRetryQueued(true);
   };
+  // A stopped loop asks once more on an event, never on a tick: the window shown or focused again,
+  // the network back, or the host's word that its agent service changed.
+  const wake = (event: Event) => {
+    if (cancelled || !restartGate.mayAsk()) return;
+    const hidden = document.visibilityState === "hidden";
+    if (!hostWakeAsks({ event: event.type, stopped, connecting, hidden, answerSpent })) return;
+    answerSpent = event.type === "acpmux-daemon-answered";
+    void connectHost();
+  };
+  for (const name of HOST_WAKE_EVENTS.document) document.addEventListener(name, wake);
+  for (const name of HOST_WAKE_EVENTS.window) window.addEventListener(name, wake);
   void connectHost();
   return () => {
     cancelled = true;
+    unregisterViewBridge?.();
+    for (const name of HOST_WAKE_EVENTS.document) document.removeEventListener(name, wake);
+    for (const name of HOST_WAKE_EVENTS.window) window.removeEventListener(name, wake);
     window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
     harnessSwitch.disconnect();
     setStartModeSource(undefined);

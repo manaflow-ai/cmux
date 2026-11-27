@@ -54,6 +54,42 @@ pub const SEGMENT: u64 = 4 << 20;
 pub const TASK_MARK: &str = "ACPMUX_BG_TASK";
 /// From SIGTERM to SIGKILL on a stop.
 pub const GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+/// How often a stop's grace looks whether the task already ended.
+#[cfg(unix)]
+const GRACE_LOOK: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// Sleeps until `ended` holds or `grace` passes, looking every [`GRACE_LOOK`]; whether it ended.
+#[cfg(unix)]
+fn ended_within(grace: std::time::Duration, mut ended: impl FnMut() -> bool) -> bool {
+    let deadline = std::time::Instant::now() + grace;
+    loop {
+        if ended() {
+            return true;
+        }
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        std::thread::sleep(GRACE_LOOK.min(deadline - now));
+    }
+}
+
+/// Whether child `pid` exited, without reaping it (its pid keeps the group id the task's).
+#[cfg(unix)]
+fn leader_exited(pid: u32) -> bool {
+    // SAFETY: waitid into a zeroed siginfo this function owns; WNOWAIT leaves the child unreaped.
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let r = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOWAIT | libc::WNOHANG,
+        )
+    };
+    // SAFETY: si_pid is set by waitid when a child changed state, else left zero.
+    r == 0 && unsafe { info.si_pid() } != 0
+}
 
 /// What the daemon hands the runner.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -259,12 +295,28 @@ pub struct Output {
 /// oldest kept byte reads from it. A spool that rotated under every try is an error, never an
 /// empty read (a reader would take it for no output and start again from 0).
 pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io::Result<Output> {
+    read_output_at(dir, id, from, max, None)
+}
+
+/// [`read_output`], first trying the segment starts a listing of the folder found (`known`), so
+/// a list of many tasks lists their folder once, not once per task. A segment gone since then
+/// lists the folder as before.
+pub fn read_output_at(
+    dir: &Path,
+    id: &str,
+    from: Option<u64>,
+    max: u64,
+    known: Option<&[u64]>,
+) -> std::io::Result<Output> {
     use std::io::{Read, Seek, SeekFrom};
     // The newest two segments, opened before anything is measured: a rotation meanwhile deletes
     // a name but not an open file, and every segment but the newest no longer grows.
     let mut open = None;
-    for _ in 0..3 {
-        let starts = segments(dir, id)?;
+    for attempt in 0..3 {
+        let starts = match known {
+            Some(known) if attempt == 0 => known.to_vec(),
+            _ => segments(dir, id)?,
+        };
         let opened: std::io::Result<Vec<_>> = starts
             .get(starts.len().saturating_sub(2)..)
             .unwrap_or_default()
@@ -465,10 +517,24 @@ pub fn main() -> anyhow::Result<()> {
     // Set once a stop sent its SIGKILL: the reap waits for it, so the group id stays the task's
     // until then.
     let killed = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    // Set once the task's output pipe ended (every holder of it is gone).
+    let pipe_ended = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Whether no process carrying the task's mark still runs. Not `tree::descendants` of this
+    // runner: it lists by running `ps`, a child of this runner, so it is never empty. The
+    // leader itself stays, unreaped, until the reap: it is not a running process. A process
+    // that dropped the mark from its environment still gets the SIGKILL that follows.
+    let signal_tree_empty = {
+        let mark = mark.clone();
+        move |leader: u32| {
+            crate::agent_host::tree::marked(TASK_MARK, &mark).iter().all(|p| p.pid == leader)
+        }
+    };
     let stop = {
         let (task, dir, give_up, killed) =
             (task.clone(), dir.clone(), give_up.clone(), killed.clone());
         let signal_tree = signal_tree.clone();
+        let signal_tree_empty = signal_tree_empty.clone();
+        let pipe_ended = pipe_ended.clone();
         let held_id = id.clone();
         move || {
             let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
@@ -488,6 +554,8 @@ pub fn main() -> anyhow::Result<()> {
             drop(held);
             let (task, give_up, killed) = (task.clone(), give_up.clone(), killed.clone());
             let signal_tree = signal_tree.clone();
+            let signal_tree_empty = signal_tree_empty.clone();
+            let pipe_ended = pipe_ended.clone();
             std::thread::spawn(move || {
                 let sent = || {
                     *killed.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
@@ -506,8 +574,23 @@ pub fn main() -> anyhow::Result<()> {
                     signal_tree(signal);
                     if signal == libc::SIGKILL {
                         sent();
+                        // The pipe already ended: nothing is left for the grace to wait for.
+                        if pipe_ended.load(std::sync::atomic::Ordering::SeqCst) {
+                            break;
+                        }
+                        std::thread::sleep(GRACE);
+                    } else {
+                        // Up to the grace, and no longer than the task takes to end: once the
+                        // leader exited, the pipe ended and nothing of its tree still runs,
+                        // SIGKILL goes at once (to anything that left the group and the pipe
+                        // too). A stop took the whole 5 s grace for a task that ended on its
+                        // SIGTERM in milliseconds: bg_stop answered in 5.5 s at p50.
+                        ended_within(GRACE, || {
+                            pipe_ended.load(std::sync::atomic::Ordering::SeqCst)
+                                && leader_exited(pid)
+                                && signal_tree_empty(pid)
+                        });
                     }
-                    std::thread::sleep(GRACE);
                 }
                 // Every way out lets the reap go on, and ends the wait for a pipe a process
                 // outside the group (or one this runner cannot signal) still holds.
@@ -637,7 +720,7 @@ pub fn main() -> anyhow::Result<()> {
         }
     });
     {
-        let (task, dir) = (task.clone(), dir.clone());
+        let (task, dir, pipe_ended) = (task.clone(), dir.clone(), pipe_ended.clone());
         std::thread::spawn(move || {
             let mut buf = vec![0u8; 64 << 10];
             let mut failed = false;
@@ -657,6 +740,7 @@ pub fn main() -> anyhow::Result<()> {
                     let _ = write_record(&dir, &held.record);
                 }
             }
+            pipe_ended.store(true, std::sync::atomic::Ordering::SeqCst);
             let _ = done_tx.send(());
         });
     }

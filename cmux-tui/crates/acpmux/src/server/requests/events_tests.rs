@@ -6,11 +6,30 @@ use crate::store::{EventRecord, MemoryStore, SessionMeta, Store};
 /// A chat whose `session.json` was last saved at seq 2 while its log went on to seq 5, as a hard
 /// stop leaves it, in a daemon that started without reading chat logs yet (`new_deferred`).
 fn hard_stopped() -> Arc<Hub> {
+    hard_stopped_with_seen(None)
+}
+
+fn hard_stopped_with_seen(seen_seq: Option<u64>) -> Arc<Hub> {
+    hard_stopped_with_cursors(seen_seq, seen_seq, None)
+}
+
+fn hard_stopped_with_cursors(
+    seen_seq: Option<u64>,
+    owner_read_through: Option<u64>,
+    alice_read_through: Option<u64>,
+) -> Arc<Hub> {
     let store = MemoryStore::default();
+    let mut read_through = serde_json::Map::new();
+    if let Some(seq) = owner_read_through {
+        read_through.insert("owner".into(), json!(seq));
+    }
+    if let Some(seq) = alice_read_through {
+        read_through.insert("user_alice".into(), json!(seq));
+    }
     let meta: SessionMeta = serde_json::from_value(json!({
         "schema": crate::store::META_SCHEMA, "id": "c", "name": "chat", "harness": "fake",
         "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
-        "lastSeq": 2, "eventCount": 2,
+        "lastSeq": 2, "eventCount": 2, "seenSeq": seen_seq, "readThrough": read_through,
     }))
     .unwrap();
     store.save(&meta).unwrap();
@@ -57,6 +76,69 @@ fn a_read_past_the_saved_last_seq_gets_the_logs_tail_before_the_log_loads() {
     let past = handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "afterSeq": 9}), None)
         .unwrap_err();
     assert!(past.message.contains("cursor_future"), "{}", past.message);
+}
+
+#[test]
+fn since_seen_reads_after_the_saved_cutover_without_moving_it() {
+    let hub = hard_stopped_with_seen(Some(2));
+    let page =
+        handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "sinceSeen": true}), None)
+            .expect("the recap starts after the saved seen cursor");
+    assert_eq!(seqs(&page), [3, 4, 5]);
+    assert_eq!(page["seenSeq"], 2);
+    assert_eq!(page["lastSeq"], 5);
+    assert_eq!(page["pageThrough"], 5);
+    assert_eq!(hub.resolve("c").unwrap().meta().seen_seq, Some(2));
+
+    let never_focused = hard_stopped_with_seen(None);
+    let empty = handle(
+        &never_focused,
+        method::MUX_EVENTS,
+        &json!({"sessionId": "c", "sinceSeen": true}),
+        None,
+    )
+    .unwrap();
+    assert_eq!(seqs(&empty), Vec::<u64>::new());
+    assert_eq!(empty["seenSeq"], Value::Null);
+    assert_eq!(empty["lastSeq"], 5);
+
+    let invalid = handle(
+        &hub,
+        method::MUX_EVENTS,
+        &json!({"sessionId": "c", "sinceSeen": true, "afterSeq": 1}),
+        None,
+    )
+    .unwrap_err();
+    assert!(invalid.message.contains("cannot be combined"), "{}", invalid.message);
+}
+
+#[test]
+fn since_seen_uses_the_request_reader_cursor_over_legacy_seen_seq() {
+    let hub = hard_stopped_with_cursors(Some(4), Some(4), Some(3));
+    let owner = crate::hub::presence::Who { id: "owner".into(), name: "Owner".into() };
+    hub.presence.view_with_cutover("c", "conn-owner", &owner, true, true, Some(2)).unwrap();
+    let owner =
+        handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "sinceSeen": true}), None)
+            .unwrap();
+    assert_eq!(seqs(&owner), [3, 4, 5]);
+    assert_eq!(owner["seenSeq"], 2);
+
+    let other = handle(
+        &hub,
+        method::MUX_EVENTS,
+        &json!({"sessionId": "c", "sinceSeen": true,
+            "_meta": {"acpmux": {"author": {"id": "user_alice", "name": "Alice"}}}}),
+        None,
+    )
+    .unwrap();
+    assert_eq!(seqs(&other), [4, 5]);
+    assert_eq!(other["seenSeq"], 3);
+    hub.presence.leave("c", "conn-owner");
+    let away =
+        handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "sinceSeen": true}), None)
+            .unwrap();
+    assert_eq!(away["seenSeq"], 4);
+    assert_eq!(seqs(&away), [5]);
 }
 
 /// A reader that pages forward on its own (a durable watch on a peer chat, `hub/watch_events.rs`)
@@ -497,4 +579,33 @@ fn a_chats_newest_page_with_the_panes_budget_stays_constant_with_history() {
     let (before_10x, after_10x) = budgeted[1];
     assert!(before_10x > after_10x, "10x history: {before_10x} vs {after_10x}");
     assert!(after_10x <= budgeted[0].1.max(131_072) + 4096, "the budgeted page grew: {budgeted:?}");
+}
+
+/// The app's tail-first ask (`beforeSeq` past the end) of a chat whose log ends in records of a
+/// kind it did not ask for: the page holds to `lastSeq`, so the phone never reads again to confirm
+/// it is current. It used to stop at the page's newest transcript record, short of `lastSeq`.
+#[test]
+fn the_newest_page_asked_past_the_end_holds_to_the_logs_last_record() {
+    let (root, hub) = sparse_tail_chat(3);
+    let last = 203;
+    for limit in [400, 10] {
+        let mut ask = newest_transcript_page();
+        ask["limit"] = json!(limit);
+        let page = handle(&hub, method::MUX_EVENTS, &ask, None).unwrap();
+        assert_eq!(page["lastSeq"], json!(last), "{page}");
+        assert_eq!(*seqs(&page).last().unwrap(), 200, "the filler after it is not transcript");
+        assert_eq!(page["pageThrough"], json!(last), "limit {limit}: {}", page["hasMore"]);
+    }
+    // A page of older records, or a forward one with more to read, holds to its own last record.
+    for extra in [json!({"beforeSeq": 150}), json!({"beforeSeq": last}), json!({"afterSeq": 0})] {
+        let mut ask = newest_transcript_page();
+        ask.as_object_mut().unwrap().remove("beforeSeq");
+        ask["limit"] = json!(10);
+        ask.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let page = handle(&hub, method::MUX_EVENTS, &ask, None).unwrap();
+        let held = seqs(&page);
+        assert_eq!(page["pageThrough"], json!(held.last().unwrap()), "{extra}");
+        assert!(*held.last().unwrap() < last, "{extra}");
+    }
+    let _ = std::fs::remove_dir_all(root);
 }
