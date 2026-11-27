@@ -50,7 +50,7 @@ extension CloudStartChat {
     /// never be copied to one of them.
     static func checkAccount(_ asked: [String?], now: [String?], listCurrent: Bool) throws { // the rule: cmux-cloud-start-core `start`
         guard let check = CloudStartCore().checkAccount(asked, now: now, listCurrent: listCurrent) else { return }
-        throw CloudMove.Failure(message: check == .accountChanged ? CloudMoveStrings.startChatAccountChanged : CloudMoveStrings.startChatListUnread)
+        throw CloudMove.Failure(message: check == .accountChanged ? CloudMoveStrings.startChatAccountChanged : CloudMoveStrings.startChatListUnread, sendAgain: check != .accountChanged) // a list not read yet may pass later (recover ListUnread: rerun)
     }
 
     /// Connects the send's pinned machine or creates and pins one sized for the chat.

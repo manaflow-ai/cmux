@@ -38,6 +38,7 @@ export const CATEGORY_CARDS = [
   "voiceInput",
   "notices",
   "server",
+  "cloudCompute",
   "cloudModels",
   "cloudEnvironments",
   "worktreeSetup",
@@ -54,6 +55,7 @@ export const CATEGORY_CARDS = [
   "keys",
   "mcpServers",
   "integrationsHub",
+  "developerTokens",
   "automationsCloud",
 ] as const;
 

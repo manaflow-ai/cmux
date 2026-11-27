@@ -751,6 +751,8 @@ pub(crate) async fn fetch_model_list(
     key: Option<&str>,
     timeout: std::time::Duration,
 ) -> Result<Vec<String>, String> {
+    // The person typed this endpoint: the gate lets it through (docs/privacy.md "hosts you name").
+    cmux_egress::allow_named(&url);
     let _ = rustls::crypto::ring::default_provider().install_default();
     let client = crate::happy_dial::http_client()
         .timeout(timeout)

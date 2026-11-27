@@ -214,8 +214,10 @@ test("the pointer and the arrow keys move one selection in the suggestions", asy
   expect(selected(), "a reopened list keeps its selection on the first move").toEqual(before);
 });
 
+// A staged file goes to an agent: the rows keep only Ask, never a create row, a web search or an
+// address that would leave the file behind (Lucas 2026-11-26).
 test.each(["terminal", "browser", "chat"] as const)(
-  "Enter on %s with staged attachments runs the creation command",
+  "staged attachments offer only Ask rows for the %s create command",
   async (kind) => {
     const creates: string[] = [];
     const asks: unknown[][] = [];
@@ -244,19 +246,12 @@ test.each(["terminal", "browser", "chat"] as const)(
     const field = await promptField();
     await settleReact();
     const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
-    const index = rows.findIndex(
-      (row) => row.dataset.type === "create" && row.textContent?.includes(translateNewTab(`create.${kind}`)),
-    );
-    expect(index).toBeGreaterThanOrEqual(0);
-    const downs = downsTo(index);
-    for (let i = 0; i < downs; i++) await press(field, "ArrowDown");
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.dataset.type === "ask")).toBe(true);
     await press(field, "Enter");
-    expect(creates).toEqual(kind === "chat" ? [] : [kind]);
-    expect(asks.length).toBe(kind === "chat" ? 1 : 0);
-    if (kind === "chat") {
-      expect(asks[0]?.[1]).toBe("");
-      expect(asks[0]?.[5]).toEqual([attachment]);
-    }
+    expect(creates).toEqual([]);
+    expect(asks.length).toBe(1);
+    expect((asks[0]![5] as ComposerAttachment[]).map((sent) => sent.id)).toEqual([attachment.id]);
   },
 );
 
@@ -3061,6 +3056,44 @@ test("Return waits for a screenshot still being read, then asks", async () => {
   expect(String(asks[0]![1])).toStartWith("ls the notes folder");
 });
 
+// A screenshot still being read: the rows offer only Ask (attachedRows), so Return waits to ask. The
+// screenshot removed before it is read leaves the full rows, led by Run for a command: the waiting send
+// must not run it (or open an address); it is dropped and the draft stays.
+test("a send held for a screenshot that is then removed runs no command", async () => {
+  const asks: unknown[][] = [];
+  const shells: string[] = [];
+  const screenshot = screenshotBeingRead();
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={(...args) => void asks.push(args)}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={(command) => void shells.push(command)}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    ),
+  );
+  const field = await typePrompt("git status");
+  await screenshot.paste(field);
+  expect(screenshot.reading()).toBe(true);
+  const rows = [...document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")];
+  expect(rows.every((row) => row.dataset.type === "ask")).toBe(true);
+  await press(field, "Enter");
+  expect(asks).toEqual([]);
+  const remove = document.querySelector<HTMLButtonElement>(".acpmux-attachment-pending .acpmux-attachment-remove")!;
+  await act(async () => remove.click());
+  await act(async () => screenshot.release());
+  for (let turn = 0; turn < 20; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(screenshot.reading()).toBe(false);
+  expect(shells).toEqual([]);
+  expect(asks).toEqual([]);
+  expect(promptValue()).toContain("git status");
+});
+
 test("a Cloud machine folder starts the chat on its existing peer", async () => {
   const asks: unknown[][] = [];
   const clouded: unknown[][] = [];
@@ -3367,4 +3400,46 @@ test("with Cloud picked on a New Tab that starts on the last chat's Cloud machin
   // The pick is this Mac's: the host grants it for the Cloud start's copy, and the chip no longer names the machine.
   expect(asked).toEqual([["/Users/you/notes"]]);
   expect(container.querySelector(".acpmux-composer-context")?.textContent).not.toContain("cloud-box");
+});
+
+// Lucas 2026-11-26: a picked `/emil-ask-emil` offered `file:///emil-ask-emil` on top, and Return opened
+// that file tab. A draft that uses a skill offers only its Ask rows, and Return asks with it.
+test.each(["/emil-ask-emil ", "/emil-ask-emil fix the header", "use /emil-ask-emil now"])(
+  "%p offers only Ask rows and Return asks the agent with the skill",
+  async (draft) => {
+    const asks: unknown[][] = [];
+    const opened: string[] = [];
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          {...firstRunProps}
+          snapshot={noChat([], { commands: [{ name: "emil-ask-emil", description: "", source: "skill" }] })}
+          onAsk={(...args) => asks.push(args)}
+          onOpen={(url) => void opened.push(url)}
+        />,
+      );
+    });
+    const field = await typePrompt(draft);
+    const types = [...document.querySelectorAll<HTMLElement>(".nt-row")].map((row) => row.dataset.type);
+    expect(types.length).toBeGreaterThan(0);
+    expect(types.every((type) => type === "ask")).toBe(true);
+    await press(field, "Enter");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(opened).toEqual([]);
+    expect(asks.length).toBe(1);
+    expect(asks[0]?.[1]).toBe(draft.trim());
+  },
+);
+
+test("a `/name` the agent has no command for still offers its file", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], { commands: [{ name: "emil-ask-emil", description: "", source: "skill" }] })}
+      />,
+    );
+  });
+  await typePrompt("/tmp ");
+  expect(document.querySelector('.nt-row[data-type="open"]')).toBeTruthy();
 });

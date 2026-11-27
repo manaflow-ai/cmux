@@ -86,6 +86,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./ServerCard").then(({ ServerCard }) => () => <ServerCard />),
   cloudEnvironments: () =>
     import("./CloudEnvironmentsCard").then(({ CloudEnvironmentsCard }) => () => <CloudEnvironmentsCard />),
+  cloudCompute: () =>
+    import("./CloudComputeCard").then(({ CloudComputeCard }) => () => <CloudComputeCard />),
   cloudModels: () =>
     import("./ModelsCard").then(({ CloudModelsCard }) => (focus, _workspace, reveal) => (
       <CloudModelsCard focus={focus} reveal={reveal} />
@@ -123,6 +125,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./McpServersCard").then(({ McpServersCard }) => () => <McpServersCard />),
   integrationsHub: () =>
     import("./IntegrationsHubCard").then(({ IntegrationsHubCard }) => () => <IntegrationsHubCard />),
+  developerTokens: () =>
+    import("./DeveloperTokensCard").then(({ DeveloperTokensCard }) => () => <DeveloperTokensCard />),
   automationsCloud: () =>
     import("./AutomationsCard").then(({ AutomationsCard }) => () => <AutomationsCard />),
   tailnet: () =>

@@ -370,6 +370,20 @@
     "class": "format",
     "source": "%1$@: %2$@"
   },
+  "appHealth.line": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
+  "machineStorage.line": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
+  "sidebar.restoring.details": {
+    "source": "Details",
+    "identityLocales": {
+      "de": "Details is the standard German word for details; a translated entry is still required."
+    }
+  },
   "agent.kimi.displayName": {
     "source": "Kimi Code",
     "identityLocales": {
@@ -7347,29 +7361,6 @@
       "fr": "Cloud is the established French UI noun for the product area; an explicit translated entry remains required."
     }
   },
-  "settings.choice.modelRouterDeepSeekV41Flash": {
-    "class": "brand",
-    "source": "DeepSeek V4.1 Flash"
-  },
-  "settings.choice.modelRouterDeepSeekV4Flash": {
-    "class": "brand",
-    "source": "DeepSeek V4 Flash"
-  },
-  "settings.choice.modelRouterDeepSeekV4Pro": {
-    "class": "brand",
-    "source": "DeepSeek V4 Pro"
-  },
-  "settings.choice.modelRouterDeepSeekV41Flash1017": {
-    "source": "DeepSeek V4.1 Flash 1017 (Images)",
-    "identityLocales": {
-      "fr": {
-        "reason": "DeepSeek V4.1 Flash 1017 is an invariant model name, and Images is the standard French noun. The translated French entry is still required.",
-        "values": [
-          "DeepSeek V4.1 Flash 1017 (Images)"
-        ]
-      }
-    }
-  },
   "iphone.phone.transport.next": {
     "class": "brand",
     "source": "%@ · cmux next"
@@ -8456,6 +8447,101 @@
     "identityLocales": {
       "de": "International is the local spelling and any provider domain keeps its original form.",
       "fr": "International is the local spelling and any provider domain keeps its original form."
+    }
+  },
+  "settingsWindow.tokens.form.teamNamePlaceholder": {
+    "class": "technical",
+    "source": "CI"
+  },
+  "settingsWindow.tokens.row.fromGithub": {
+    "class": "brand",
+    "source": "GitHub Actions · %@"
+  },
+  "settingsWindow.tokens.github.title": {
+    "class": "brand",
+    "source": "GitHub Actions"
+  },
+  "settingsWindow.tokens.github.repositoryPlaceholder": {
+    "class": "syntax",
+    "source": "owner/name"
+  },
+  "settingsWindow.tokens.scope.machines": {
+    "source": "Machines",
+    "identityLocales": {
+      "fr": {
+        "reason": "Machines is the standard French plural for machines.",
+        "values": [
+          "Machines"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.scope.chats": {
+    "source": "Chats",
+    "identityLocales": {
+      "de": {
+        "reason": "Chats is the standard word for chat conversations in this language, as Apple's Messages uses it.",
+        "values": [
+          "Chats"
+        ]
+      },
+      "es": {
+        "reason": "Chats is the standard word for chat conversations in this language, as Apple's Messages uses it.",
+        "values": [
+          "Chats"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.form.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": {
+        "reason": "Name is the standard German word for a name field.",
+        "values": [
+          "Name"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.github.repository": {
+    "source": "Repository",
+    "identityLocales": {
+      "da": {
+        "reason": "Repository is the term GitHub and developer tools use in this language.",
+        "values": [
+          "Repository"
+        ]
+      },
+      "de": {
+        "reason": "Repository is the term GitHub and developer tools use in this language.",
+        "values": [
+          "Repository"
+        ]
+      },
+      "it": {
+        "reason": "Repository is the term GitHub and developer tools use in this language.",
+        "values": [
+          "Repository"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.github.workflow": {
+    "source": "Workflow",
+    "identityLocales": {
+      "da": {
+        "reason": "Workflow is the term GitHub Actions uses in this language.",
+        "values": [
+          "Workflow"
+        ]
+      },
+      "de": {
+        "reason": "Workflow is the term GitHub Actions uses in this language.",
+        "values": [
+          "Workflow"
+        ]
+      }
     }
   }
 }

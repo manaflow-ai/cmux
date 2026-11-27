@@ -65,8 +65,8 @@ pub(super) const ENGLISH: CliConnectionMessages = CliConnectionMessages {
     other: "cannot connect to session socket {socket}: {error}",
     no_answer: "the session did not answer in time; check it with `cmux daemon status`, or pass the right --socket",
     wrong_protocol: "the server on this socket does not speak cmux.protocol/2: it is an older cmux or another program; restart the session with this cmux, or pass the right --socket",
-    busy: "the session is busy: it refused this connection at its connection limit; retry (check it with `cmux daemon status`)",
-    unexpected_envelope: "the session sent a cmux.protocol/2 \"{kind}\" envelope where a reply was expected; retry",
+    busy: "the session is busy: it kept refusing connections at its connection limit for about 2 s, so this command did not run; `cmux daemon stats` shows its connection admission",
+    unexpected_envelope: "the session sent a cmux.protocol/2 \"{kind}\" envelope where a reply was expected; this cmux and the session are different builds (`cmux daemon status` names the session's)",
     app_socket_only: "CMUX_SOCKET_PATH names a cmux app socket, and nothing names that app's session (no CMUX_BUNDLE_ID or CMUX_TAG); pass --socket or --session, or set CMUX_TUI_SOCKET. cmux tried no other socket",
 };
 
@@ -78,7 +78,7 @@ pub(super) const JAPANESE: CliConnectionMessages = CliConnectionMessages {
     other: "セッションソケット {socket} に接続できません: {error}",
     no_answer: "セッションが時間内に応答しませんでした。`cmux daemon status` で確認するか、正しい --socket を指定してください",
     wrong_protocol: "このソケットのサーバーは cmux.protocol/2 を話しません。古い cmux か別のプログラムです。この cmux でセッションを再起動するか、正しい --socket を指定してください",
-    busy: "セッションが混雑しています。接続数の上限に達したため、この接続を拒否しました。再試行してください (`cmux daemon status` で確認できます)",
-    unexpected_envelope: "応答が必要な箇所で、セッションが cmux.protocol/2 の \"{kind}\" エンベロープを送信しました。再試行してください",
+    busy: "セッションが混雑しています。約 2 秒間、接続数の上限で接続を拒否し続けたため、このコマンドは実行されませんでした。`cmux daemon stats` で接続の受け付け状況を確認できます",
+    unexpected_envelope: "応答が必要な箇所で、セッションが cmux.protocol/2 の \"{kind}\" エンベロープを送信しました。この cmux とセッションのビルドが異なります (`cmux daemon status` でセッションのビルドを確認できます)",
     app_socket_only: "CMUX_SOCKET_PATH は cmux アプリのソケットを指定していますが、そのアプリのセッションを指定するものがありません (CMUX_BUNDLE_ID も CMUX_TAG もありません)。--socket か --session を指定するか、CMUX_TUI_SOCKET を設定してください。cmux は他のソケットを試していません",
 };

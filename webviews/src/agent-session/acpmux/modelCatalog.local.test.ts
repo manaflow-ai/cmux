@@ -338,3 +338,27 @@ test("Grok, Copilot and OpenRouter have picker models without a local installati
     expect(harness.models.some((entry) => entry.id === model)).toBe(true);
   }
 });
+
+test("Codex release additions stay disabled until the running provider reports them", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const model = "gpt-6.2-astra";
+  const available = { id: "gpt-6-astra", name: "Installed" };
+  const preview = { id: model, unavailable: "Included in Codex 0.171.0", codexUpdateVersion: "0.171.0" };
+  const picker = (offer?: typeof preview | { id: string }, current?: string) => {
+    const models = offer ? [available, offer] : [available];
+    const acpmux = mergeModelCatalog(
+      { harnesses: [{ id: "codex" }] },
+      {
+        harnesses: [{ harness: "codex", models, topModels: models.map((row) => row.id) }],
+      },
+    );
+    return buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux, session: { harness: "codex", model: current } })
+      .harnesses.find((h) => h.id === "codex")!
+      .models.find((m) => m.id === model);
+  };
+  expect(picker()).toBeUndefined();
+  expect(picker(preview)).toMatchObject(preview);
+  expect(picker(preview, model)?.unavailable).toBeUndefined();
+  expect(picker({ id: model })).toMatchObject({ id: model });
+  expect(picker({ id: model })?.unavailable).toBeUndefined();
+});

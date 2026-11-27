@@ -47,6 +47,7 @@ mod app_reply;
 mod attach_latency_bench;
 mod auto_gate;
 mod autocloud_enroll;
+pub(crate) mod bg_rearm;
 mod bg_tasks;
 pub(crate) mod browser_workspaces;
 #[cfg(test)]
@@ -76,11 +77,13 @@ mod client_request;
 mod compressed_link_tests;
 pub(crate) mod computer_use_relay;
 pub mod conn_auth;
+pub(crate) mod conn_handover;
 mod connection_loop;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
 pub(crate) mod connections;
+mod consent_grant;
 pub(crate) mod controls;
 mod delivery;
 pub(crate) mod dual_requests;
@@ -106,6 +109,7 @@ mod goal;
 mod harness_admin;
 mod harness_enable;
 mod held_rows;
+mod history;
 pub(crate) mod host_notice;
 pub(crate) mod host_power;
 mod http_refusal;
@@ -149,6 +153,8 @@ mod mcp_connect;
 mod media_forward;
 mod memory_inbox;
 mod mesh_control_send;
+/// A send carried to its machine directly while the team hub is down (`mesh_direct.rs`, RFD 0086).
+pub(crate) mod mesh_direct;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
 #[cfg(test)]
@@ -173,6 +179,7 @@ mod paused_files;
 pub mod peer_auth;
 mod peer_demand_wait;
 mod peer_forward;
+mod peer_presence;
 pub(crate) mod peer_status;
 mod peer_targeted;
 pub mod peer_text;
@@ -181,7 +188,8 @@ mod pending;
 #[path = "person_prove_tests.rs"]
 mod person_prove_tests;
 mod place;
-mod place_set;
+mod place_pending;
+pub(crate) mod place_set;
 mod plan_build;
 mod processes;
 mod project_new;
@@ -205,6 +213,9 @@ mod routes;
 mod run_elsewhere;
 mod secrets;
 mod send_check;
+mod send_hop;
+#[cfg(test)]
+mod send_hop_tests;
 mod session_auth;
 mod session_files;
 #[cfg(test)]
@@ -230,6 +241,9 @@ mod stream_cursor;
 #[cfg(test)]
 #[path = "stream_cursor_tests.rs"]
 mod stream_cursor_tests;
+#[cfg(test)]
+#[path = "stream_prev_tests.rs"]
+mod stream_prev_tests;
 mod subsessions;
 mod surgery;
 /// The stable tailnet node's front on the embedded node (`tailnet.stableNode.enabled`).
@@ -245,6 +259,7 @@ pub mod tailnet_ingress;
 #[path = "../tailnet/embedded_service.rs"]
 pub(crate) mod tailnet_service;
 mod team;
+mod team_directory;
 mod trigger_authority;
 mod trigger_chat;
 pub(crate) mod trust_gate;
@@ -254,6 +269,10 @@ mod unix_bind;
 #[cfg(test)]
 #[path = "update_cost_bench.rs"]
 mod update_cost_bench;
+// What a streamed reply costs at 32 attached event streams (manual).
+#[cfg(test)]
+#[path = "chunk_fanout_bench.rs"]
+mod chunk_fanout_bench;
 pub mod upload_frames;
 mod vault;
 mod view;
@@ -270,6 +289,7 @@ mod workflow_activity;
 mod workflow_runs;
 mod worktrees;
 mod ws_peek;
+pub use ws_peek::Replayed as WsReplayed;
 mod ws_read_ahead;
 mod ws_shutdown;
 pub(crate) use ws_shutdown::DRAIN_BUDGET as WS_DRAIN_BUDGET;
@@ -291,6 +311,10 @@ pub struct SubOpts {
     /// A peer's chat, attached through this daemon (`peer_forward.rs`): this daemon's presence
     /// for the same raw id is never its (`hub/presence.rs`).
     pub remote: bool,
+    /// Source of a remote presence snapshot; raw chat ids can coincide across peers.
+    pub remote_peer: Option<String>,
+    /// Subscription-owned recovery state for the bounded presence broadcast.
+    pub remote_presence: Option<Arc<crate::hub::presence::RemoteSnapshot>>,
     /// Follows the chat's transcript rows (`_acpmux/rows` `follow`): each live record's row
     /// changes go out as `_acpmux/rows_patch` (`rows/serve.rs`).
     pub rows: Option<Arc<crate::rows::Following>>,
@@ -309,6 +333,11 @@ pub struct SubOpts {
     /// as `afterSeq`, since the turn ends and status records that still went out moved the client's
     /// own cursor past the chunks it never got (`view.rs`).
     pub left_from: u64,
+    /// The seq of the last record this event stream sent the client for this chat (0: none yet):
+    /// the next one carries it as `prev`, so a client whose newest record is older knows records
+    /// were lost on the way (a bridge, a relay, a dropped frame) and reads them from its cursor,
+    /// instead of drawing a hole a reload alone repaired (`stream_prev`).
+    pub stream_sent: u64,
 }
 
 /// Whether `conn` attached `session_id` asking for no `timeBreakdown` (`SubOpts`).
@@ -544,6 +573,8 @@ pub struct Conn {
     /// The media files of peers' chats it opened, closed on the peer when it closes
     /// (`media_forward.rs`).
     pub(super) remote_media: media_forward::RemoteMedia,
+    outgoing_presence: peer_presence::Outgoing,
+    incoming_presence: peer_presence::Incoming,
     /// Requests this daemon sent the client, waiting on its answer (`client_request.rs`).
     client_requests: client_request::ClientRequests,
     /// The client's requests being served, by id, with their slots: what its
@@ -1189,6 +1220,23 @@ impl Conn {
         Ok(())
     }
 
+    /// The `prev` of an event-stream record of `session_id` with `seq` going out now: the seq of
+    /// the record this stream sent before it (0 when none since the attach, or `seq` is not past
+    /// it), and `seq` becomes the stream's last. A client that holds less than `prev` missed
+    /// records the stream sent: it reads them from its cursor (`_acpmux/events {afterSeq}`), the
+    /// read a reload did (Leo, 2026-11-22: "we need to make sure any solutions that reloading
+    /// would help with, we never encounter those classes of bugs in the first place.").
+    fn stream_prev(&self, session_id: &str, seq: u64) -> u64 {
+        let mut subs = self.subs.lock_or_recover();
+        let Some(sub) = subs.get_mut(session_id) else { return 0 };
+        let prev = sub.stream_sent;
+        if seq <= prev {
+            return 0;
+        }
+        sub.stream_sent = seq;
+        prev
+    }
+
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
@@ -1315,44 +1363,69 @@ pub async fn serve_unix_with_v2(
     listener: UnixListener,
     v2: Option<Arc<acpmux_core::life::V2>>,
 ) -> Result<()> {
+    // The daemon's beat (`daemon/hung_holder.rs`): this loop runs and accepts. A beat window with
+    // failed accepts and none that worked (EMFILE, a broken listener) writes none, so a waiter
+    // replaces a daemon stuck that way; an idle one beats on.
+    let mut beat = tokio::time::interval(crate::daemon::hung_holder::BEAT_EVERY);
+    beat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let (mut failed, mut accepted) = (0u32, 0u32);
     loop {
-        let (stream, _) = match listener.accept().await {
+        let next = tokio::select! {
+            next = listener.accept() => next,
+            _ = beat.tick() => {
+                if failed == 0 || accepted > 0 {
+                    crate::daemon::hung_holder::beat(crate::daemon::hung_holder::Phase::Serving);
+                }
+                (failed, accepted) = (0, 0);
+                continue;
+            }
+        };
+        let (stream, _) = match next {
             Ok(s) => s,
             Err(e) => {
+                failed = failed.saturating_add(1);
                 tracing::warn!("accept failed: {e}");
                 tokio::time::sleep(accept_retry_delay(&e)).await;
                 continue;
             }
         };
-        // The socket's mode admits this user only; the peer's uid says so again (one
-        // getsockopt, its pid read from the same answer below).
-        let cred = stream.peer_cred().ok();
-        // SAFETY: geteuid has no preconditions and cannot fail.
-        let own = unsafe { libc::geteuid() };
-        if !peer_uid_allowed(cred.map(|c| c.uid()), own) {
-            tracing::warn!(
-                uid = ?cred.map(|c| c.uid()),
-                "refused a socket peer that is not this user"
-            );
-            continue;
-        }
-        let hub = hub.clone();
-        let v2 = v2.clone();
-        tokio::spawn(async move {
-            // Named by its audit token, read once here, never by pid.
-            let peer = {
-                use std::os::fd::AsRawFd;
-                cmux_link::app_caller::peer_token(stream.as_raw_fd())
-            };
-            // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
-            let provisioner = crate::daemon::provision::accept_provisioner(&stream);
-            let socket_peer = cred
-                .and_then(|c| c.pid())
-                .and_then(|p| u32::try_from(p).ok())
-                .map_or(SocketPeer::Unknown, SocketPeer::Pid);
-            stream::serve_stream(hub, stream, peer, provisioner, socket_peer, v2).await;
-        });
+        accepted = accepted.saturating_add(1);
+        serve_accepted(hub.clone(), stream, v2.clone());
     }
+}
+
+/// Serve one connection of the daemon socket: one the listener accepted, or one the previous
+/// daemon accepted and handed over at a take-over (`conn_handover.rs`). Its peer is read from
+/// the socket either way, so it is the client's, and either way it must be this user.
+#[cfg(unix)]
+pub(crate) fn serve_accepted(
+    hub: Arc<Hub>,
+    stream: tokio::net::UnixStream,
+    v2: Option<Arc<acpmux_core::life::V2>>,
+) {
+    // The socket's mode admits this user only; the peer's uid says so again (one
+    // getsockopt, its pid read from the same answer below).
+    let cred = stream.peer_cred().ok();
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let own = unsafe { libc::geteuid() };
+    if !peer_uid_allowed(cred.map(|c| c.uid()), own) {
+        tracing::warn!(uid = ?cred.map(|c| c.uid()), "refused a socket peer that is not this user");
+        return;
+    }
+    tokio::spawn(async move {
+        // Named by its audit token, read once here, never by pid.
+        let peer = {
+            use std::os::fd::AsRawFd;
+            cmux_link::app_caller::peer_token(stream.as_raw_fd())
+        };
+        // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
+        let provisioner = crate::daemon::provision::accept_provisioner(&stream);
+        let socket_peer = cred
+            .and_then(|c| c.pid())
+            .and_then(|p| u32::try_from(p).ok())
+            .map_or(SocketPeer::Unknown, SocketPeer::Pid);
+        stream::serve_stream(hub, stream, peer, provisioner, socket_peer, v2).await;
+    });
 }
 
 static INDEX_HTML: cmux_embed::PackedStr =
@@ -1534,6 +1607,26 @@ const WS_HANDSHAKE_CONCURRENCY: usize = 64;
 /// past tungstenite's 16 MiB frame default, which ended the read with no log line and reset the
 /// socket mid-send ("The agent connection was interrupted", 2026-10-20).
 pub const WS_MAX_MESSAGE_BYTES: usize = 64 << 20;
+
+/// Accept a WebSocket upgrade on `stream` as this listener does (`serve_ws_until`): the request
+/// head alone goes to the handshake, and a first frame the client wrote behind it (the peer
+/// dialer's early `initialize`, `Peer::early_initialize`) is read after the 101. A peer stood up
+/// for a test with `tokio_tungstenite::accept_async` refused that frame as "junk after client
+/// request" whenever it arrived in the same read as the head, so which test failed changed from
+/// run to run. No token or origin check: it is for peers in tests and tools that check their own.
+pub async fn accept_ws(
+    mut stream: tokio::net::TcpStream,
+) -> Result<tokio_tungstenite::WebSocketStream<WsReplayed>, tokio_tungstenite::tungstenite::Error> {
+    let peer = stream.peer_addr()?;
+    let read = match ws_peek::request(&mut stream, peer).await {
+        ws_peek::Request::Head { read, .. } => read,
+        ws_peek::Request::TooLarge | ws_peek::Request::Gone => {
+            return Err(tokio_tungstenite::tungstenite::Error::ConnectionClosed);
+        }
+    };
+    tokio_tungstenite::accept_async_with_config(WsReplayed::new(read, stream), Some(ws_config()))
+        .await
+}
 
 /// The listener's and the peer client's WebSocket limits (`WS_MAX_MESSAGE_BYTES`).
 pub fn ws_config() -> tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
@@ -1874,7 +1967,7 @@ pub async fn serve_ws_gated(
                     () = read_shutdown.closing() => {},
                     () = async {
                         // Pings are answered while a frame waits to be taken (`ws_read_ahead.rs`).
-                        let ended = ws_read_ahead::read_ahead(source, |frame| {
+                        let ended = ws_read_ahead::read_ahead(ws_read_ahead::idle_bound(source, ws_read_ahead::IDLE_BOUND), |frame| {
                             let (frames, in_tx) = (frames.clone(), in_tx.clone());
                             async move {
                                 match frame {

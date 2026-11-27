@@ -30,6 +30,13 @@ on:
       - Packages/**
       - vendor/stack-auth-swift-sdk-prerelease/**
       - cmux-next-ios/CmuxMobileKit/**
+      # Files outside the kit its listed test targets read (scripts/ci/swift_linux_reach.py EXTRA_INPUTS).
+      - cmux-next-ios/rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json
+      - cmux-next-ios/rust/crates/cmux-mobile-host/tests/fixtures/seal-vectors.json
+      - cmux-next-ios/verify/agent-cli-hybrid/**
+      - schemas/deeplinks/agent-link.json
+      - schemas/notice-timing/notice-timing.json
+      - design/icons/source/**
       - scripts/ci/swift-linux-packages.txt
       - scripts/ci/swift-linux-targets.txt
       - scripts/ci/swift_linux_targets.py
@@ -74,7 +81,7 @@ jobs:
       - name: Checkout the merge commit and its base
         if: github.event_name == 'pull_request'
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -131,7 +138,7 @@ jobs:
           # shape); cmux-next-ios-kit.yml skips their test targets on the Mac.
           - group: ios-kit
             packages: cmux-next-ios/CmuxMobileKit
-          # Whole packages that pass on Linux; CmuxIrohTransport's IrohLib and dnssd suites run on a Mac in relay-tls.yml.
+          # Whole packages that pass on Linux.
           - group: CmuxAgentBrands
             packages: Packages/Shared/CmuxAgentBrands
           - group: CmuxChiefList
@@ -142,8 +149,6 @@ jobs:
             packages: Packages/Shared/CmuxDeviceHub
           - group: CmuxEgress
             packages: Packages/Shared/CmuxEgress
-          - group: CmuxIrohTransport
-            packages: Packages/Shared/CmuxIrohTransport
           - group: CmuxVisibleRows
             packages: Packages/Shared/CmuxVisibleRows
     steps:
@@ -153,7 +158,7 @@ jobs:
         id: checkout
         if: env.REACHED == '1'
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -163,7 +168,7 @@ jobs:
 
       - name: Retry checkout in a fresh repository
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -174,7 +179,7 @@ jobs:
       # (rustup under the package's .build, so the cache below keeps it; clang compiles the crates' C).
       - name: Install python3, SQLite and zlib headers, xz
         if: env.REACHED == '1'
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev xz-utils
+        run: bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev xz-utils
 
       - name: Cache key
         id: key
@@ -385,11 +390,11 @@ jobs:
     timeout-minutes: 15
     container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Install python3
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3
+        run: bash scripts/ci/apt-retry.sh -y -qq --no-install-recommends python3
       - name: Every listed target is in its package's Linux shape
         run: python3 scripts/ci/swift_linux_targets.py --verify
 
@@ -436,7 +441,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

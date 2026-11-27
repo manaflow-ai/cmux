@@ -292,7 +292,7 @@ extension AgentPaneHostError {
         case .daemonRestarting:
             String(localized: "agentPane.error.daemonRestarting", defaultValue: "The agent service is restarting after an update. This chat connects when it's back.", bundle: .localizedModule)
         case .daemonStopped:
-            String(localized: "agentPane.error.daemonStopped", defaultValue: "The agent service stopped.", bundle: .localizedModule)
+            String(localized: "agentPane.error.daemonStopped", defaultValue: "cmux couldn't start its agent service. Quit and reopen cmux to try again.", bundle: .localizedModule)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Chief to start it.", bundle: .localizedModule)
         case .chiefStarting:
@@ -433,8 +433,14 @@ extension AgentPaneModel {
 extension AgentPaneCloudRepositoryRefusal {
     /// A Cloud start's machine could not read the GitHub repository the chat starts in (`seed.needs_github`).
     nonisolated static func needsAccessMessage(_ repository: String) -> String {
-        // retry-prompt-ok: connecting GitHub is a sign-in
-        String(format: String(localized: "agentPane.github.cloneNeedsAccess", defaultValue: "Connect GitHub so Cloud can clone %@, then retry.", bundle: .localizedModule), repository)
+        String(format: String(localized: "agentPane.github.cloneNeedsAccess", defaultValue: "Sign in with GitHub so Cloud can clone %@.", bundle: .localizedModule), repository)
+    }
+
+    /// The same, when the person's own GitHub login was carried to the machine and can't reach it: says which
+    /// account, so they know to sign in with one that can (or add the repository on GitHub).
+    nonisolated static func needsAccessMessage(_ repository: String, login: AgentPaneGitHubLogin) -> String {
+        guard case .carried(let user?) = login else { return needsAccessMessage(repository) }
+        return String(format: String(localized: "agentPane.github.cloneLoginCantReach", defaultValue: "Your GitHub login %1$@ has no access to %2$@. Sign in with GitHub to give Cloud access to it.", bundle: .localizedModule), user, repository)
     }
 
     /// A Cloud start's clone of the GitHub repository the chat starts in did not finish.

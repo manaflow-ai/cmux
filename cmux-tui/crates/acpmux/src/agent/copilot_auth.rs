@@ -1,6 +1,6 @@
 //! Removes obsolete per-launch Copilot auth directories.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Mutex;
 
 pub(crate) const ROUTE_ENV: &str = "ACPMUX_COPILOT_ROUTE";

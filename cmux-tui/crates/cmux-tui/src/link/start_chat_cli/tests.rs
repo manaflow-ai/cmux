@@ -236,9 +236,20 @@ fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
         super::strand(&path, &first, ACCOUNT, "vm-new"),
         json!({"ok": true, "delete": false})
     );
+    assert_eq!(
+        plan(&path, &on(&second))["machine"],
+        "vm-new",
+        "the pinned retry keeps its machine"
+    );
+    assert_eq!(
+        plan(&path, &on(&key()))["machine"],
+        Value::Null,
+        "a fresh send gets its own machine"
+    );
     // The second fails for good too, after a third was pinned to it: still shared.
     let third = key();
     assert_eq!(pin(&path, &third, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
+    assert_eq!(plan(&path, &on(&third))["machine"], "vm-new");
     assert_eq!(super::strand(&path, &second, ACCOUNT, "vm-new")["delete"], false);
 
     // Alone on its machine: the strand deletes it, and the workspace's next send never finds it.
@@ -467,20 +478,27 @@ fn plan_pins_a_machine_that_exists_and_names_a_new_one_otherwise() {
 }
 
 #[test]
-fn a_copied_folder_keeps_move_to_clouds_name_under_the_sends_place() {
-    // The name `CloudMoveFolder.remoteName` gives: the folder's name and 24 bits of FNV-1a.
-    assert_eq!(remote_name("/Users/me/src/paint"), "paint");
-    assert_eq!(remote_name("/"), "folder");
+fn a_copied_folder_keeps_its_basename_under_the_sends_unique_place() {
+    let paint = remote_name("/Users/me/src/paint");
+    assert_eq!(paint, "paint");
+    let folder = remote_name("/");
+    assert_eq!(folder, "folder");
+    assert_eq!(remote_name("/tmp/.."), "folder");
+    assert_eq!(remote_name("/tmp/."), "folder");
+    for basename in ["a".repeat(255), "é".repeat(127)] {
+        let remote = remote_name(&format!("/tmp/{basename}"));
+        assert_eq!(remote, basename);
+    }
     let copy = copy_of("/Users/me/src/paint", "web/app");
     let place = copy.fresh_place();
     let send = format!("chats/{}/", copy.key.to_lowercase());
     assert!(place.starts_with(&send) && place.len() == send.len() + 8, "{place}");
     assert_ne!(copy.fresh_place(), place, "each copy gets a folder of its own");
     let (folder, chat) = copy.remote("/home/cmux/work", &place);
-    assert_eq!(folder, format!("/home/cmux/work/{place}/paint"));
-    assert_eq!(chat, format!("/home/cmux/work/{place}/paint/web/app"));
+    assert_eq!(folder, format!("/home/cmux/work/{place}/{paint}"));
+    assert_eq!(chat, format!("/home/cmux/work/{place}/{paint}/web/app"));
     let top = StartCopy { subpath: String::new(), ..copy };
-    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/paint"));
+    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/{paint}"));
 }
 
 fn copy_of(local: &str, subpath: &str) -> StartCopy {
@@ -523,7 +541,8 @@ fn a_copy_tries_the_next_work_root_only_when_the_first_is_not_the_machines_home(
     // Both roots were tried with the same folder of the send's own.
     let place = seen.borrow()[1].strip_prefix("/root/work/").unwrap().to_string();
     assert_eq!(seen.borrow()[0], format!("/home/cmux/work/{place}"));
-    let place = place.strip_suffix("/paint").unwrap();
+    let suffix = format!("/{}", remote_name(&copy.local));
+    let place = place.strip_suffix(&suffix).unwrap();
     assert_eq!(answer["chat"], json!(copy.remote("/root/work", place).1));
 
     // Another failure stops at once, with its code (the App's outdated-machine retry reads it).
@@ -561,6 +580,35 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
     let elsewhere = StartCopy { machine: "vm-b".into(), ..copy }.run(&path, &push);
     assert_eq!(elsewhere["copied"], json!(true));
     assert_eq!(*count.borrow(), 2);
+}
+
+#[test]
+fn a_projected_chat_opens_at_the_selected_subpath_and_retries_at_the_same_path() {
+    for subpath in ["", "web/app"] {
+        let dir = scratch();
+        let path = ledger_in(dir.path());
+        let copy = copy_of("/Users/me/src/paint", subpath);
+        let first = copy.run(&path, &|_: &Path, _: &Path, _: &str| {
+            Ok(super::pushed_fields(&json!({
+                "mode": "projected", "projected": {"name": "chat-key"},
+                "chat": "chat-key", "folder": "wrong", "copied": false,
+            })))
+        });
+        assert_eq!(first["ok"], true, "{first}");
+        assert_eq!(first["mode"], "projected");
+        assert_eq!(first["projected"]["name"], "chat-key");
+        assert_eq!(first["copied"], true, "the first preparation is complete, not cached");
+        let folder = first["folder"].as_str().unwrap();
+        let expected =
+            if subpath.is_empty() { folder.to_string() } else { format!("{folder}/{subpath}") };
+        assert_eq!(first["chat"], expected);
+        let retry = copy.run(&path, &|_: &Path, _: &Path, _: &str| {
+            panic!("a prepared projection must not be replaced on retry")
+        });
+        assert_eq!(retry["chat"], first["chat"]);
+        assert_eq!(retry["folder"], first["folder"]);
+        assert_eq!(retry["copied"], false);
+    }
 }
 
 /// A seed that answered at the chat's head is the send's copy: the chat opens in that

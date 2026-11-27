@@ -171,8 +171,25 @@ fn the_capability_is_advertised_with_an_acpmux_socket_and_a_host() {
     let listed = run(&mux, json!({"cmd":"identify"}))["capabilities"].clone();
     let credentials = json!(super::AGENT_TRANSFER_CREDENTIALS_CAPABILITY);
     assert!(listed.as_array().unwrap().contains(&credentials), "{listed}");
+    assert!(listed.as_array().unwrap().contains(&json!(super::AGENT_TRANSFER_SHARES_CAPABILITY)));
     mux.set_acpmux_socket(None);
     assert!(!advertised(&mux));
+}
+
+#[test]
+fn an_old_move_client_cannot_freeze_or_export_a_shared_chat() {
+    let fake = FakeAcpmux::start("xshares");
+    let home = Home::new("shares");
+    let mux = transfer_mux(&fake, "atx-shares", &home, false);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "xshares");
+    ok_data(&client.request(json!({"cmd":"agent-session-share-create", "surface":surface})));
+    let move_chat = json!({"cmd":"agent-transfer-begin", "surface":surface});
+    assert_code(&client.request(move_chat.clone()), "agent_transfer.shares_unsupported");
+    let mut supported = move_chat;
+    supported["checks_shares"] = json!(true);
+    let began = client.request(supported);
+    assert!(ok_data(&began)["manifest"][super::SHARE_MANIFEST_FIELD].is_array());
 }
 
 #[test]
@@ -1253,6 +1270,157 @@ fn persistent_mux(fake: &FakeAcpmux, home: &Home) -> Arc<Mux> {
     mux
 }
 
+#[test]
+fn transferred_shares_stay_private_after_restart_and_replay_keeps_a_revoke() {
+    let fake = FakeAcpmux::start("xshare-restart");
+    let home = Home::new("share-restart");
+    let source = transfer_mux(&fake, "share-source", &home, false);
+    let surface = agent_tab(&source, Some(SESSION));
+    let mut owner = Client::connect(&source, "share-source");
+    let created = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface}));
+    let share_id = ok_data(&created)["share_id"].clone();
+    let payload = super::export_transferred_chat_shares(&source, SESSION).unwrap();
+
+    let target = persistent_mux(&fake, &home);
+    super::stage_transferred_chat_shares(&target, "receive-shared", SESSION, payload).unwrap();
+    let pending_path =
+        target.session_state_directory().unwrap().join("agent-session-shares-incoming.json");
+    let pending = std::fs::read(&pending_path).unwrap();
+    assert!(super::export_transferred_chat_shares(&target, SESSION).is_none());
+    drop(target);
+
+    let target = persistent_mux(&fake, &home);
+    assert!(super::export_transferred_chat_shares(&target, SESSION).is_none());
+    super::finish_transferred_chat_shares(&target, "receive-shared", true).unwrap();
+    let installed = super::export_transferred_chat_shares(&target, SESSION).unwrap();
+    assert_eq!(installed.as_array().unwrap().len(), 1);
+    assert_eq!(installed[0]["share_id"], share_id);
+    let mut target_owner = Client::connect(&target, "share-target");
+    ok_data(
+        &target_owner.request(json!({"cmd":"agent-session-share-revoke", "share_id":share_id})),
+    );
+    drop(target_owner);
+    drop(target);
+
+    // A crash after the registry write but before deleting the pending receipt can replay it.
+    // The owner's later revoke must win over that old incoming copy.
+    std::fs::write(&pending_path, pending).unwrap();
+    let target = persistent_mux(&fake, &home);
+    super::finish_transferred_chat_shares(&target, "receive-shared", true).unwrap();
+    assert!(super::export_transferred_chat_shares(&target, SESSION).is_none());
+    let mut target_owner = Client::connect(&target, "share-target-replayed");
+    let listed = target_owner.request(json!({"cmd":"agent-session-share-list"}));
+    assert_eq!(ok_data(&listed)["shares"][0]["state"], "revoked");
+}
+
+#[test]
+fn aborting_a_restarted_share_receive_never_installs_its_grants() {
+    let fake = FakeAcpmux::start("xshare-abort");
+    let home = Home::new("share-abort");
+    let source = transfer_mux(&fake, "share-abort-source", &home, false);
+    let surface = agent_tab(&source, Some(SESSION));
+    let mut owner = Client::connect(&source, "share-abort-source");
+    ok_data(&owner.request(json!({"cmd":"agent-session-share-create", "surface":surface})));
+    let payload = super::export_transferred_chat_shares(&source, SESSION).unwrap();
+    let target = persistent_mux(&fake, &home);
+    super::stage_transferred_chat_shares(&target, "aborted-share", SESSION, payload).unwrap();
+    drop(target);
+    let target = persistent_mux(&fake, &home);
+    super::finish_transferred_chat_shares(&target, "aborted-share", false).unwrap();
+    drop(target);
+    let target = persistent_mux(&fake, &home);
+    super::finish_transferred_chat_shares(&target, "aborted-share", true).unwrap();
+    assert!(super::export_transferred_chat_shares(&target, SESSION).is_none());
+    assert!(super::export_transferred_chat_shares(&source, SESSION).is_some());
+}
+
+#[test]
+fn share_snapshot_rejects_mutations_until_confirmed_abort_even_after_restart() {
+    let fake = FakeAcpmux::start("xshare-freeze");
+    let home = Home::new("share-freeze");
+    let source = persistent_mux(&fake, &home);
+    let surface = agent_tab(&source, Some(SESSION));
+    let mut owner = Client::connect(&source, "share-freeze");
+    let created = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface,
+        "uses":8}));
+    let share = ok_data(&created).clone();
+    let guest = owner
+        .request(json!({"cmd":"agent-session-share-redeem", "share_id":share["share_id"],
+        "secret":share["secret"], "name":"Before", "attempt_id":"before"}));
+    let guest = ok_data(&guest).clone();
+    ok_data(
+        &owner.request(json!({"cmd":"agent-session-share-invite", "share_id":share["share_id"],
+        "account":"existing@example.com", "role":"view"})),
+    );
+    let snapshot =
+        super::freeze_transferred_chat_shares(&source, SESSION, true).unwrap().payload.unwrap();
+    fake.set_transfer_blocked(SESSION, true);
+    let mutations = [
+        json!({"cmd":"agent-session-share-revoke", "share_id":share["share_id"]}),
+        json!({"cmd":"agent-session-share-kick", "share_id":share["share_id"], "guest_id":guest["guest_id"]}),
+        json!({"cmd":"agent-session-share-invite", "share_id":share["share_id"], "account":"new@example.com", "role":"talk"}),
+        json!({"cmd":"agent-session-share-uninvite", "share_id":share["share_id"], "account":"existing@example.com"}),
+        json!({"cmd":"agent-session-share-redeem", "share_id":share["share_id"], "secret":share["secret"], "name":"After", "attempt_id":"after"}),
+        json!({"cmd":"agent-session-share-create", "surface":surface}),
+    ];
+    for mutation in &mutations {
+        assert_code(&owner.request(mutation.clone()), "share.moving");
+    }
+    assert_eq!(super::export_transferred_chat_shares(&source, SESSION), Some(snapshot.clone()));
+    drop(owner);
+    drop(source);
+    let source = persistent_mux(&fake, &home);
+    let mut owner = Client::connect(&source, "share-freeze-restarted");
+    assert_code(&owner.request(mutations[0].clone()), "share.moving");
+    assert_eq!(
+        super::freeze_transferred_chat_shares(&source, SESSION, true).unwrap().payload,
+        Some(snapshot)
+    );
+    // The close/list sweeps cannot delete the room while acpmux is finishing the move.
+    super::close_chat_shares(&source, SESSION);
+    assert!(super::export_transferred_chat_shares(&source, SESSION).is_some());
+    // The watchdog can abort without sending a cmux reply. The next named sharing
+    // request must use the durable local status and release the persisted freeze.
+    fake.set_transfer_blocked(SESSION, false);
+    ok_data(&owner.request(mutations[0].clone()));
+    assert!(super::export_transferred_chat_shares(&source, SESSION).is_none());
+}
+
+#[test]
+fn share_freeze_also_blocks_first_share_and_detach_persists_before_release() {
+    let fake = FakeAcpmux::start("xshare-empty-freeze");
+    let home = Home::new("share-empty-freeze");
+    let source = persistent_mux(&fake, &home);
+    let surface = agent_tab(&source, Some(SESSION));
+    let mut owner = Client::connect(&source, "share-empty-freeze");
+    let create = json!({"cmd":"agent-session-share-create", "surface":surface});
+    assert_eq!(
+        super::freeze_transferred_chat_shares(&source, SESSION, false).unwrap().payload,
+        None
+    );
+    fake.set_transfer_blocked(SESSION, true);
+    assert_code(&owner.request(create.clone()), "share.moving");
+    super::abort_transferred_chat_shares(&source, SESSION).unwrap();
+    ok_data(&owner.request(create));
+    let snapshot =
+        super::freeze_transferred_chat_shares(&source, SESSION, true).unwrap().payload.unwrap();
+    let target_home = Home::new("share-detach-target");
+    let target = persistent_mux(&fake, &target_home);
+    super::stage_transferred_chat_shares(&target, "receive-frozen", SESSION, snapshot).unwrap();
+    super::finish_transferred_chat_shares(&target, "receive-frozen", true).unwrap();
+    super::detach_transferred_chat_shares(&source, SESSION).unwrap();
+    drop(owner);
+    drop(source);
+    let source = persistent_mux(&fake, &home);
+    assert!(super::export_transferred_chat_shares(&source, SESSION).is_none());
+    assert!(super::export_transferred_chat_shares(&target, SESSION).is_some());
+    let outgoing = std::fs::read(
+        source.session_state_directory().unwrap().join("agent-session-shares-outgoing.json"),
+    )
+    .unwrap();
+    assert_eq!(serde_json::from_slice::<Value>(&outgoing).unwrap(), json!({}));
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
 }
@@ -1505,6 +1673,7 @@ fn a_tail_first_move_stages_the_tail_and_sends_the_history_after() {
     assert_eq!(data["prepare_id"], json!("pre_1"));
     assert_eq!(data["after_seq"], json!(7));
     assert_eq!(data["history_later"], json!(true));
+    assert!(!mux.agent_transfers.moving_session(SESSION));
     let sent = fake.frame();
     assert_eq!(sent["method"], json!("_acpmux/transfer_prepare"));
     assert_eq!(sent["params"], json!({"sessionId":SESSION,"historyLater":{"keepTurns":4}}));
@@ -1535,6 +1704,7 @@ fn a_tail_first_move_stages_the_tail_and_sends_the_history_after() {
     let begun = ok_data(&begun).clone();
     assert_eq!(begun["staged"], json!(true));
     assert_eq!(begun["history_later"], json!(true));
+    assert!(mux.agent_transfers.moving_session(SESSION));
     let sent = fake.frame();
     assert_eq!(sent["method"], json!("_acpmux/transfer_begin"));
     assert_eq!(
@@ -1594,4 +1764,23 @@ fn a_begin_without_a_prepare_sends_todays_params() {
                                        "transfer_id":"xfer_1","have":0}));
     assert_code(&export, "agent_transfer.unknown_transfer");
     fake.no_frame();
+}
+
+#[test]
+fn another_source_operation_is_refused_without_waiting_or_calling_acpmux() {
+    let fake = FakeAcpmux::start("xshare-source-busy");
+    let home = Home::new("share-source-busy");
+    let mux = persistent_mux(&fake, &home);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "share-source-busy");
+    let operation = mux.agent_transfers.source_operation(SESSION);
+    let guard = operation.lock().unwrap();
+    assert_code(
+        &client.request(json!({"cmd":"agent-transfer-begin","surface":surface})),
+        "agent_transfer.busy",
+    );
+    fake.no_frame();
+    drop(guard);
+    ok_data(&client.request(json!({"cmd":"agent-transfer-begin","surface":surface})));
+    skip_begin(&fake);
 }

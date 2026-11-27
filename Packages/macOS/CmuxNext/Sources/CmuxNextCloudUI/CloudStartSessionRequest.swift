@@ -20,29 +20,18 @@ package struct CloudStartSessionRequest: Equatable {
 
     /// The run's arguments, checked: `--agent` is a harness id, `--cwd` an absolute folder, `--from-folder` one on this Mac.
     @MainActor package static func parse(_ invocation: ActionInvocation, fromFolder: (ActionInvocation, String?) throws -> String?) throws -> Self {
-        let agent = invocation["agent"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789._-")
-        guard !agent.isEmpty, agent.utf8.count <= 64, agent.unicodeScalars.allSatisfy(allowed.contains), let first = agent.first, first.isLetter || first.isNumber else {
-            throw Refusal(message: CloudStartSessionStrings.agentInvalid)
+        let checked = CloudStartCore().launchRun(agent: invocation["agent"]?.stringValue, cwd: invocation["cwd"]?.stringValue, name: invocation["name"]?.stringValue,
+                                                 model: invocation["model"]?.stringValue, machineId: invocation.target.flatMap { $0.kind == .machine ? $0.id : nil })
+        switch checked {
+        case .failure(let invalid): throw Refusal(message: invalid == .cwd ? CloudStartSessionStrings.cwdInvalid : CloudStartSessionStrings.agentInvalid)
+        case .success(let run): // the machine checks the model
+            return Self(machineID: run.machineId, name: run.name, agent: run.agent, cwd: run.cwd, fromFolder: try fromFolder(invocation, run.cwd), model: run.model)
         }
-        var cwd = invocation["cwd"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-        if cwd?.isEmpty == true { cwd = nil }
-        if let cwd, !cwd.hasPrefix("/") || cwd.utf8.count > 4096 || cwd.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) {
-            throw Refusal(message: CloudStartSessionStrings.cwdInvalid)
-        }
-        let machineID = invocation.target.flatMap { $0.kind == .machine ? $0.id : nil }
-        let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-        return Self(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: try fromFolder(invocation, cwd), model: invocation["model"]?.stringValue.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }) // the machine checks the model
     }
 
+    /// The command that asks for this again, every word as the shell reads it back.
     package var command: String {
-        var words = ["cmux cloud start-session"]
-        if let machineID { words.append("--target machine:" + CloudStartCore.shellQuoted(machineID)) }
-        else if let name { words.append("--name " + CloudStartCore.shellQuoted(name)) }
-        words.append("--agent " + agent + (model.map { " --model " + CloudStartCore.shellQuoted($0) } ?? ""))
-        if let cwd { words.append("--cwd " + CloudStartCore.shellQuoted(cwd)) }
-        if let fromFolder { words.append("--from-folder " + CloudStartCore.shellQuoted(fromFolder)) }
-        return words.joined(separator: " ")
+        CloudStartCore().launchCommand(.init(machineId: machineID, name: name, agent: agent, cwd: cwd, fromFolder: fromFolder, model: model))
     }
 
     package func asked(machine: String) -> CloudStartSessionStrings.Asked {

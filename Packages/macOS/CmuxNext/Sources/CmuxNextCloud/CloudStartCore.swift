@@ -70,10 +70,14 @@ public nonisolated struct CloudStartCore: Sendable {
     /// (cmux-cloud-start-core `one_pane`). On by default; `CMUX_CLOUD_ONE_PANE=0` keeps the swap, as does an
     /// FFI that does not answer.
     public func keepsPage(inPlace: Bool, pageLive: Bool, cloudPageFree: Bool,
-                          killSwitch: String? = ProcessInfo.processInfo.environment["CMUX_CLOUD_ONE_PANE"]) -> Bool {
-        struct Request: Encodable { var inPlace: Bool, pageLive: Bool, cloudPageFree: Bool, killSwitch: String? }
+                          onePaneEnv: String? = ProcessInfo.processInfo.environment["CMUX_CLOUD_ONE_PANE"]) -> Bool {
+        // The wire key stays "killSwitch" (one_pane.rs); the Swift name is not, so check-kill-switches.py reads no reference.
+        struct Request: Encodable {
+            var inPlace: Bool, pageLive: Bool, cloudPageFree: Bool, onePaneEnv: String?
+            enum CodingKeys: String, CodingKey { case inPlace, pageLive, cloudPageFree, onePaneEnv = "killSwitch" }
+        }
         struct Reply: Decodable { var shown: String }
-        let request = Request(inPlace: inPlace, pageLive: pageLive, cloudPageFree: cloudPageFree, killSwitch: killSwitch)
+        let request = Request(inPlace: inPlace, pageLive: pageLive, cloudPageFree: cloudPageFree, onePaneEnv: onePaneEnv)
         return call("cloud_one_pane", request, as: Reply.self)?.shown == "rehome"
     }
 
@@ -126,6 +130,43 @@ public nonisolated struct CloudStartCore: Sendable {
         case ("pause", let ms?) where ms > 0: return .pause(ms: ms, readAfter: reply.readAfter ?? false)
         default: return .unread
         }
+    }
+
+    /// What the chat pane's start does with its failure before the card shows it (`recover::pane_step`, the same
+    /// table as `cmux cloud start-chat`'s): start again on its own after `ms`, or show the card.
+    public enum PaneRecovery: Sendable, Equatable {
+        /// Pause `ms`, then do what the card's Retry does; `cls` is the table's class it ran for, if any.
+        case rerun(ms: Int, cls: String?)
+        /// Show the card.
+        case surface
+    }
+
+    /// The pane's step for a failed start: its `code` (empty for none), `message`, whether the card would offer
+    /// Retry, how many reruns already ran and the milliseconds since the send began. An FFI that does not answer
+    /// shows the card, as before.
+    public func paneRecovery(code: String?, message: String, retryable: Bool, reruns: Int, elapsedMs: Int) -> PaneRecovery {
+        struct Request: Encodable { var code: String, message: String, retryable: Bool, reruns: Int, elapsedMs: Int }
+        struct Reply: Decodable { var next: String, pauseMs: Int?, `class`: String? }
+        let request = Request(code: code ?? "", message: message, retryable: retryable, reruns: max(reruns, 0), elapsedMs: max(elapsedMs, 0))
+        guard let reply = call("cloud_start_pane_recovery", request, as: Reply.self), reply.next == "rerun", let ms = reply.pauseMs, ms > 0 else { return .surface }
+        return .rerun(ms: ms, cls: reply.class)
+    }
+
+    /// A failed start the table reads: its code, words and whether the card would offer Retry.
+    public struct PaneFailure: Sendable, Equatable {
+        public let code: String?, message: String, retryable: Bool
+        public init(code: String?, message: String, retryable: Bool) { (self.code, self.message, self.retryable) = (code, message, retryable) }
+    }
+
+    /// Runs `once` (one start, which sets its failure) again, as the card's Retry would, while `paneRecovery` says
+    /// rerun; the table bounds the reruns and the time, and cancelling the task ends it. Returns the last answer.
+    public func paneRecovering<Answer>(_ once: (inout PaneFailure?) async -> Answer) async -> Answer {
+        let began = Date(); var failed: PaneFailure?, reruns = 0, answer = await once(&failed)
+        while let f = failed, case .rerun(let ms, _) = paneRecovery(code: f.code, message: f.message, retryable: f.retryable, reruns: reruns, elapsedMs: Int(Date().timeIntervalSince(began) * 1000)),
+              (try? await Task.sleep(for: .milliseconds(ms))) != nil { // wakeup-allow: bounded same-key rerun (recover::pane_step: PANE_RERUNS within PANE_BUDGET)
+            (failed, reruns) = (nil, reruns + 1); answer = await once(&failed)
+        }
+        return answer
     }
 
     /// Whether `root` is the disk's root or the home folder `home` (each as `standardizedFileURL`

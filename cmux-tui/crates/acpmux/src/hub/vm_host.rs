@@ -151,7 +151,14 @@ impl Hub {
         true
     }
 
-    fn schedule_gateway_restart(self: &Arc<Self>, session: &Session) {
+    fn schedule_gateway_restart(self: &Arc<Self>, session: &Arc<Session>) {
+        self.restart_agent_after_turn(session);
+    }
+
+    /// Restarts `session`'s agent, after the turn under way when there is one, so its next spawn
+    /// reads its environment again (the gateway fallback above; a Cloud machine's model route
+    /// that resolved after the spawn, `hub/turns.rs`).
+    pub(crate) fn restart_agent_after_turn(self: &Arc<Self>, session: &Arc<Session>) {
         let hub = Arc::clone(self);
         let ids = std::collections::BTreeSet::from([session.id.clone()]);
         // task-owner: one restart of one chat's agent; it ends with the restart.

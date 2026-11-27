@@ -241,6 +241,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Voice mode's source for a tab's terminal (its agent's Feed events in, typed prompts out).
     var voiceSourceProvider: (@MainActor (WorkspaceTab, Workspace, TerminalModel) -> (any AgentVoiceSource)?)?
     var uploaderProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (@MainActor (LinkUpload.Payload, String) async throws -> String)?)?
+    /// Live mode: the tab's upload queue (attachments start sending when picked, cancellable at every stage).
+    var attachmentSenderProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (any TerminalAttachmentSending)?)?
     var uploaderDirectoryProvider: (@MainActor (WorkspaceTab, _ macID: String) -> String?)?
     /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
@@ -249,6 +251,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     var reviewDemo = false
     /// The workspace's Mac, for the connecting placeholder's label.
     var macName: (@MainActor (Workspace) -> String?)?
+    /// The link's status line for a Mac (``TerminalModel/linkStatus``): what a page with no saved
+    /// copy says past the quiet bound, beside Retry.
+    var linkStatus: (@MainActor (_ macID: String) -> String?)?
     /// Opens Connected Devices for a live terminal of a Mac (its session, its Mac).
     var showConnectedDevices: (@MainActor (DaemonTerminalSession, _ macID: String) -> Void)?
 
@@ -320,6 +325,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         }
         model.setUploader(live == nil ? nil : uploaderProvider?(tab, workspace.macID),
                           directory: live == nil ? nil : uploaderDirectoryProvider?(tab, workspace.macID))
+        model.attachmentSender = live == nil ? nil : attachmentSenderProvider?(tab, workspace.macID)
         model.voiceSource = voiceSourceProvider?(tab, workspace, model)
         // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
         model.linkOpener = previous?.model.linkOpener
@@ -343,6 +349,20 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         var rows = key.flatMap { lastRows.removeValue(forKey: $0) } ?? previous?.model.rowsToKeep()
         if rows == nil, let key, let data = rowsStore?.load(key) { rows = String(data: data, encoding: .utf8) }
         model.restoreLastRows(rows)
+        // How old the saved copy is, for the offline line ("updated 3 min ago").
+        if let key {
+            model.restoreSavedAt(previous?.model.savedCopyAt)
+            for store in [rowsStore, frameStore].compactMap({ $0 }) {
+                let attributes = try? FileManager.default.attributesOfItem(atPath: store.url(for: key).path)
+                model.restoreSavedAt(attributes?[.modificationDate] as? Date)
+            }
+        }
+        let macID = workspace.macID
+        model.linkStatus = { [weak self] in self?.linkStatus?(macID) }
+        // The Mac's screen as its `tabs` service last pushed it (on disk across launches): the
+        // page takes it as rows if it has none of its own when it arrives, also after the page
+        // started (a page opened straight from a list, never as a grid card, never primed).
+        primeScreenText(for: tab, in: workspace, model: model)
         if live != nil, let frameStore, let key {
             // The next cold launch shows what was on screen last (R2-5), not
             // the frame from the last time the app went to the background.
@@ -571,9 +591,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     func statusSubtitle(for tab: WorkspaceTab) -> String? {
         let indicator = indicator(tab.id)
         guard indicator.isShown else { return nil }
-        if indicator.isOffline { return "Mac offline" }
+        let model = hosts[tab.id]?.model
+        // With the saved copy's age: "Mac offline · updated 3 min ago" (Leo, 2026-11-25).
+        if indicator.isOffline { return model?.offlineSubtitle(String(localized: "Mac offline")) ?? String(localized: "Mac offline") }
         // Still reattaching (or no host yet): nothing, the pill keeps its usual words (Leo, 2026-11-24).
-        return hosts[tab.id]?.model.connectionState.pillSubtitle
+        return model.flatMap { $0.offlineSubtitle($0.connectionState.pillSubtitle) }
     }
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {
@@ -611,10 +633,13 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// disk read brings it (a cold launch builds the cards before that read is done). The read
     /// below replaces it with the Mac's screen now.
     private func primeScreenText(for tab: WorkspaceTab, in workspace: Workspace, model: TerminalModel) {
-        guard model.cardScreenText == nil, !model.pageStarted,
+        // A started page that has nothing of its own yet takes it too (``TerminalModel/takesLateSeed``):
+        // the disk read often lands after the page's first layout, and the page then showed a
+        // placeholder over a blank surface for the whole outage (Leo, 2026-11-25, Kumquat).
+        guard model.cardScreenText == nil, !model.pageStarted || model.takesLateSeed,
               let key = snapshots.key(macID: workspace.macID, tabID: tab.id) else { return }
         MacTabCards.shared.whenScreen(key) { [weak model] screen in
-            guard let model, model.cardScreenText == nil, !model.pageStarted else { return }
+            guard let model, model.cardScreenText == nil, !model.pageStarted || model.takesLateSeed else { return }
             model.cardScreenText = screen
         }
     }

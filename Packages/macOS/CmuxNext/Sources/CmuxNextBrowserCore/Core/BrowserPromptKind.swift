@@ -13,6 +13,8 @@ public nonisolated enum BrowserPermissionKind: Hashable, Sendable {
     /// The device's location (Geolocation API): Block or Allow, remembered
     /// for the site.
     case location
+    /// Access to the system clipboard, remembered for the site.
+    case clipboard
     /// Web notifications (WebKit tabs): Block or Allow, remembered for the site.
     case notifications
 }

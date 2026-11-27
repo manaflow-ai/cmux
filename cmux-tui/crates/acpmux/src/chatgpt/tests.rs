@@ -1258,11 +1258,10 @@ fn callback_pages_use_the_cmux_sign_in_page_styles() {
         rest[..rest.find("\";").unwrap()].to_owned()
     };
     let own = css_of(include_str!("oauth.rs"));
-    for other in ["Native/OptChat/optchat-chief/src/mcp_hub/oauth.rs"] {
-        let path = format!("{}/../../../{other}", env!("CARGO_MANIFEST_DIR"));
-        let text = std::fs::read_to_string(&path).expect(other);
-        assert_eq!(css_of(&text), own, "{other} drifted from the sign-in page styles");
-    }
+    let other = "Native/OptChat/optchat-chief/src/mcp_hub/oauth.rs";
+    let path = format!("{}/../../../{other}", env!("CARGO_MANIFEST_DIR"));
+    let text = std::fs::read_to_string(&path).expect(other);
+    assert_eq!(css_of(&text), own, "{other} drifted from the sign-in page styles");
     if let Ok(dir) = std::env::var("CHATGPT_CALLBACK_PAGE_DUMP") {
         std::fs::write(format!("{dir}/success.html"), ok).unwrap();
         std::fs::write(format!("{dir}/error.html"), err).unwrap();

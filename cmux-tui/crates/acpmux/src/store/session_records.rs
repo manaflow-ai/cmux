@@ -282,4 +282,8 @@ pub struct CapacityFallback {
     pub from: String,
     /// The smaller model it runs meanwhile.
     pub to: String,
+    /// The provider's error asked for another model (`model_catalog::asks_for_another_model`):
+    /// the switch stands with switching off, until a turn ends well.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub asked: bool,
 }

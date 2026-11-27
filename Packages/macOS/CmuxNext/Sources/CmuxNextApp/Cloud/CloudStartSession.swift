@@ -166,6 +166,7 @@ struct CloudStartSession {
         return nil
     }
 
+    /// The run's arguments, checked: `--agent` is a harness id, `--cwd` an absolute folder, `--from-folder` one on this Mac.
     static func request(_ invocation: ActionInvocation) throws -> Request {
         do { return try Request.parse(invocation) { try Self.fromFolder($0, cwd: $1) } }
         catch let refusal as Request.Refusal { throw ActionFailure(message: refusal.message) }
@@ -393,17 +394,17 @@ struct CloudStartSession {
 
     /// The start's refusal in the run's words: the machine is up, its agent is not.
     static func startFailure(_ error: any Error, name: String, id: String, agent: String) -> String {
-        if let refusal = error as? AgentRemoteStartRefusal {
-            switch refusal.code {
-            case AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home": return CloudStartSessionStrings.needsFolder(name, id: id, agent: agent)
-            case AgentRemoteStartRefusal.connectionKeyRefusedCode: return refusal.userMessage
-            case let code where CloudStartSessionStrings.namedRefusals.contains(code): return CloudStartSessionStrings.namedRefusal(code, name, id: id, agent: agent, agentName: refusal.agentName ?? agent.chiefHarnessName, expired: refusal.signInExpired, harness: refusal.harness ?? agent) // never "its agent didn't (agent_session.refused)" (hq#11225)
-            case "agent_session.refused" where refusal.reason == "route.settings_secret": return CloudStartSessionStrings.claudeSettingsSecret
-            default: return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(refusal.userMessage))
-            }
+        let refusal = error as? AgentRemoteStartRefusal
+        if let refusal, refusal.code == AgentRemoteStartRefusal.connectionKeyRefusedCode { return refusal.userMessage }
+        if let refusal, refusal.code == "agent_session.refused", refusal.reason == "route.settings_secret" { return CloudStartSessionStrings.claudeSettingsSecret }
+        let message = refusal?.userMessage ?? (error as? AgentTabRefusal)?.message ?? (error as? ActionFailure)?.message ?? String(describing: error)
+        switch (CloudStartCore().launchFailure(code: refusal?.code, message: message, folderNeeded: AgentRemoteStartRefusal.folderNeededCode, named: CloudStartSessionStrings.namedRefusals), refusal) {
+        case (.needsFolder, _): return CloudStartSessionStrings.needsFolder(name, id: id, agent: agent)
+        case (.named(let code), let refusal?): // never "its agent didn't (agent_session.refused)" (hq#11225)
+            return CloudStartSessionStrings.namedRefusal(code, name, id: id, agent: agent, agentName: refusal.agentName ?? agent.chiefHarnessName, expired: refusal.signInExpired, harness: refusal.harness ?? agent)
+        case (.failed(let reason), _): return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: reason)
+        case (.named, nil): return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(message))
         }
-        let reason = (error as? AgentTabRefusal)?.message ?? (error as? ActionFailure)?.message ?? String(describing: error)
-        return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(reason))
     }
 
     /// `body`, the start past its machine. A failure that strands the start (``CloudMoveCLI/StartChatPlan/strands(_:)``) on a

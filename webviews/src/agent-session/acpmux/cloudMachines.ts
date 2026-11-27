@@ -109,6 +109,16 @@ export function cloudMachinesFromReply(reply: unknown): CloudMachine[] {
   return machines;
 }
 
+/// When the server last answered the list a reply carries (`lastSeenAt`, epoch ms): set only while the
+/// app, on a cold start before its first fresh read lands (control plane slow or down), answers with
+/// the list it kept from the last launch (`complete: false`). A fresh reply has none.
+export function cloudLastSeenFromReply(reply: unknown): number | undefined {
+  const value = reply as { signedIn?: unknown; loaded?: unknown; lastSeenAt?: unknown } | null | undefined;
+  if (value?.signedIn !== true || value.loaded !== true) return undefined;
+  const at = value.lastSeenAt;
+  return typeof at === "number" && Number.isFinite(at) && at > 0 ? at : undefined;
+}
+
 export function cloudSignedInFromReply(reply: unknown): boolean | undefined {
   const value = reply as { signedIn?: unknown } | null | undefined;
   return typeof value?.signedIn === "boolean" ? value.signedIn : undefined;
@@ -256,6 +266,16 @@ function publishPlan(next: CloudPlanView): void {
   for (const listener of listeners) listener();
 }
 
+/// The kept list's age (cloudLastSeenFromReply): set while the page shows machines from the last launch,
+/// cleared by a fresh reply, a refused read and a team change.
+let lastSeenAt: number | undefined;
+
+function publishLastSeen(next: number | undefined): void {
+  if (next === lastSeenAt) return;
+  lastSeenAt = next;
+  for (const listener of listeners) listener();
+}
+
 function publishAccount(next: boolean | undefined): void {
   if (next === accountSignedIn) return;
   accountSignedIn = next;
@@ -300,6 +320,7 @@ function readList(call: Call, fresh: boolean): Promise<CloudPlanView> {
         const answer = reply as { team?: unknown; teams?: unknown } | null | undefined;
         publishTeam(signedIn ? activeTeamFromReply(answer?.team, answer?.teams) : undefined);
         publishPlan(plan);
+        publishLastSeen(cloudLastSeenFromReply(reply));
         publish(list);
       }
       return plan;
@@ -311,6 +332,7 @@ function readList(call: Call, fresh: boolean): Promise<CloudPlanView> {
         publishAccount(undefined);
         publishTeam(undefined);
         publishPlan(UNKNOWN_PLAN);
+        publishLastSeen(undefined);
         publish([]);
       }
       return UNKNOWN_PLAN;
@@ -339,6 +361,7 @@ export function followCloudTeamChange(call: Call = postNative, target: EventTarg
   const changed = () => {
     generation += 1;
     inFlight = undefined;
+    publishLastSeen(undefined);
     void refreshCloudMachines(call);
   };
   target.addEventListener(CLOUD_TEAM_CHANGE_EVENT, changed);
@@ -369,6 +392,26 @@ export function runCloudMachine(machine: CloudMachine, call: Call = postNative):
         ? publish(machines.map((other) => (other.id === machine.id ? { ...other, stage: "failed" } : other)))
         : refreshCloudMachines(call),
     );
+}
+
+/// What a fresh read said of a kept row's machine (freshCloudMachine): listed (act on it as listed), the
+/// app still answering the kept list (cmux Cloud unreachable: nothing is done), or no longer listed.
+export type FreshCloudPick = { state: "fresh"; machine: CloudMachine } | { state: "unreachable" } | { state: "gone" };
+
+/// A pick of a row from the kept list (lastSeenAt set) never acts on it: one fresh read first
+/// (`{fresh: true}`: the app waits for the server rather than answering the kept list again), then
+/// the machine as that read lists it.
+export async function freshCloudMachine(machine: CloudMachine, call: Call = postNative): Promise<FreshCloudPick> {
+  await readCloudPlanFresh(call);
+  if (lastSeenAt !== undefined) return { state: "unreachable" };
+  const listed = machines.find((candidate) => candidate.id === machine.id);
+  return listed ? { state: "fresh", machine: listed } : { state: "gone" };
+}
+
+/// Retry over the kept list: one fresh read, resolved once the app answered it (the server's list, or the
+/// kept one again when cmux Cloud is still unreachable).
+export async function retryCloudMachines(call: Call = postNative): Promise<void> {
+  await readCloudPlanFresh(call);
 }
 
 /// After a pause or resume the app runs the action in the background and its list catches up
@@ -410,6 +453,11 @@ export function useCloudSignedIn(): boolean | undefined {
   return useSyncExternalStore(subscribe, accountSnapshot, accountSnapshot);
 }
 
+/// When the server last answered the list shown, while it is the one kept from the last launch.
+export function useCloudLastSeenAt(): number | undefined {
+  return useSyncExternalStore(subscribe, lastSeenSnapshot, lastSeenSnapshot);
+}
+
 /// The account state shown in capture diagnostics. This is deliberately read-only and mirrors the
 /// value consumed by EnvironmentPicker, including the fresh-home `undefined` state.
 export function cloudSignedInForDebug(): boolean | undefined {
@@ -428,7 +476,13 @@ export function setCloudMachinesForTest(next: readonly CloudMachine[]): void {
   inFlight = undefined;
   keepSignedIn(undefined);
   publishAccount(undefined);
+  publishLastSeen(undefined);
   publish(next);
+}
+
+/// Tests: the list as the kept one from the last launch, last answered at `at`.
+export function setCloudLastSeenForTest(at: number | undefined): void {
+  publishLastSeen(at);
 }
 
 /// Tests may seed the account state independently of the machine rows.
@@ -437,6 +491,9 @@ export function setCloudMachinesForTestAccount(next: boolean | undefined): void 
 }
 
 const accountSnapshot = () => accountSignedIn;
+const lastSeenSnapshot = () => lastSeenAt;
+/// The kept list's age as last read (the pick guard, tests).
+export const currentCloudLastSeenAt = lastSeenSnapshot;
 const teamSnapshot = () => activeTeam;
 /// The team as last read (tests and capture diagnostics).
 export const currentCloudTeam = teamSnapshot;
@@ -464,5 +521,6 @@ export function reloadKeptCloudAccountForTest(): void {
   generation += 1;
   inFlight = undefined;
   publishAccount(readKeptSignedIn());
+  publishLastSeen(undefined);
   publish([]);
 }

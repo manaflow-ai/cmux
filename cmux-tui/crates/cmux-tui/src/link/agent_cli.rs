@@ -403,6 +403,8 @@ pub(super) fn run(args: &[String]) -> i32 {
     let env = std::env::var("ACPMUX_MOVE_HISTORY_LATER").ok();
     args.history_later = history_later::turns(args.history_later, env.as_deref());
     let mut clock = Clock::new();
+    // Each daemon's `identify` is read once for the whole move (`machine_gate::Memo`).
+    let _memo = super::machine_gate::Memo::open();
     match move_chat(&args, &mut clock) {
         Ok(moved) => {
             let mut line = json!({"ok": true, "session_id": moved.session_id,
@@ -557,11 +559,13 @@ impl SyncFlags {
 }
 
 fn move_chat(args: &Args, clock: &mut Clock) -> Result<Moved, Failed> {
-    let records = Records::open(args.state_dir.clone(), &args.from, args.surface).map_err(|e| {
-        match e.downcast_ref::<record::Busy>() {
-            Some(busy) => Failed::new("move_in_progress", busy.to_string()),
-            None => Failed::state(&e),
-        }
+    // The record is filed by the tab's public id: a source daemon restart gives the tab a new
+    // surface slot, and a rerun by that slot must still find this chat's move.
+    let tab = slot_tab(&args.from, args.surface);
+    let records = Records::open(args.state_dir.clone(), &args.from, args.surface, tab.as_deref())
+        .map_err(|e| match e.downcast_ref::<record::Busy>() {
+        Some(busy) => Failed::new("move_in_progress", busy.to_string()),
+        None => Failed::state(&e),
     })?;
     let earlier = records.load().map_err(|e| Failed::state(&e))?;
     clock.lap("state");
@@ -691,6 +695,7 @@ fn fresh(
         Some(tab) => json!({"tab": tab, "interrupt": interrupt}),
         None => json!({"surface": args.surface, "interrupt": interrupt}),
     };
+    params.set("checks_shares", json!(true));
     if args.ask_first {
         params.set("ask_first", json!(true));
     }
@@ -1188,6 +1193,22 @@ fn up_to_finish(
         failed.side = Some("target");
         return Err(failed);
     }
+    use cmux_tui_core::server::agent_transfer::{
+        AGENT_TRANSFER_SHARES_CAPABILITY, SHARE_MANIFEST_FIELD,
+    };
+    if manifest.get(SHARE_MANIFEST_FIELD).is_some() {
+        let identity = target.call("identify", json!({}), CALL_TIMEOUT).map_err(target_failed)?;
+        if !super::machine_gate::served(&identity)
+            .is_some_and(|capabilities| capabilities.contains(&AGENT_TRANSFER_SHARES_CAPABILITY))
+        {
+            let mut failed = Failed::new(
+                "agent_transfer.shares_unsupported",
+                "update the receiving machine to move a shared chat",
+            );
+            failed.side = Some("target");
+            return Err(failed);
+        }
+    }
     let manifest = &taken_by_target(args, manifest, &record.transfer_id);
     let mut params = json!({"manifest": manifest, "cwd": args.cwd});
     if let Some(kind) = vm_kind {
@@ -1516,6 +1537,13 @@ fn pin_begin(
     };
     records.save(&record).ok()?;
     Some(record)
+}
+
+/// The public id of the tab in `surface` of the source (its `agent-transfer-source` read, which
+/// never attaches the chat); None from a source too old to answer one or that cannot be asked.
+fn slot_tab(from: &std::path::Path, surface: u64) -> Option<String> {
+    let answer = call_source(from, "agent-transfer-source", json!({"surface": surface})).ok()?;
+    answer.get("tab").and_then(Value::as_str).filter(|tab| !tab.is_empty()).map(str::to_owned)
 }
 
 /// Whether the tab still shows the chat `record`'s move took (the source's

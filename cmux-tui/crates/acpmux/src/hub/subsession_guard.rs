@@ -703,7 +703,12 @@ impl Hub {
     ) -> Result<bool, RpcError> {
         self.subsession_harness_check(pm, harness, model, folder).await?;
         self.subsession_folder_check(pm, folder, Walk::BeforeCard).await?;
-        let decided = self.ensure_folder_trusted(parent, folder, harness, short).await?;
+        // None: the parent's full access lent its trust (no card, no decision). The walk before
+        // the card already refused a folder marked untrusted; the one after it is for an answer.
+        let Some(decided) = self.ensure_folder_trusted(parent, folder, harness, short).await?
+        else {
+            return Ok(false);
+        };
         let rules = !Self::web_turn(parent);
         // The parent as it is after the card: one that left full access meanwhile walks as it is now.
         self.subsession_folder_check(&parent.meta(), folder, Walk::Answered { rules }).await?;

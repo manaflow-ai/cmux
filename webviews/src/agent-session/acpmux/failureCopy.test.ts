@@ -421,7 +421,7 @@ test("an account out of usage or turned off says so, with its reset and the ways
     t("turn.failure.usageLimitUntil", { harness: "Claude Code", time: "Nov 27, 7am (UTC)" }),
   );
   expect(failureCopy(t, weekly, claude)).toContain(
-    "Claude Code's account hit its usage limit. It resets Nov 27, 7am (UTC)",
+    "Claude Code's account hit its usage limit; it resets Nov 27, 7am (UTC)",
   );
   // As acpmux wraps it, and as a session limit with no date.
   expect(limitResetWords(`(turn failed: ${weekly})`)).toBe("Nov 27, 7am (UTC)");

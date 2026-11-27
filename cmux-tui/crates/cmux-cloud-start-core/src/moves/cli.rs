@@ -78,6 +78,9 @@ pub struct Answer {
     /// `link start-chat plan`'s `seed_refused` for a machine too small for the folder (`machine.too_small`): the
     /// machine's name, for "more than <machine> has room for".
     pub machine_title: Option<String>,
+    /// `link seed push`: how the folder reached the machine (copied, not cloned) and what stayed on
+    /// this Mac, for the done toast; none when it cloned and left nothing ([`super::landed::read`]).
+    pub landed: Option<super::landed::Landed>,
 }
 
 impl Answer {
@@ -178,6 +181,7 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         left_on_mac: left_on_mac(&object),
         size_locked: object.get("size_locked").filter(|size| size.is_object()).cloned(),
         machine_title: string(&object, "machine_title"),
+        landed: super::landed::read(&object),
     };
     (answer, Some(object))
 }

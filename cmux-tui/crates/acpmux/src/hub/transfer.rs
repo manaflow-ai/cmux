@@ -123,6 +123,8 @@ impl Hub {
             return Err(e);
         }
         out.flush()?;
+        // The draft's attachments go with its text (`draft_attachments.rs`).
+        self.export_draft_attachments(session, &dir)?;
         // The images its prompts sent (`prompt_images.rs`), which the log names but does not hold,
         // the pre-copied prefix's prompts' too.
         if let Some(after) = after {
@@ -387,6 +389,8 @@ impl Hub {
             self.drop_failed_import(&meta);
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
         }
+        // The draft's attachments, with the draft's text in `session.json`.
+        self.import_draft_attachments(bundle, &meta.id);
         let restored = match guarded {
             // A history-later move's receive bundle is read by nothing after its finish: its
             // transcript becomes the home folder's file by a link, not a copy under the freeze.

@@ -268,6 +268,24 @@ fn protocol_request_meta_lists_every_key_acpmux_clients_send() {
 /// `spec/acpmux-abi.compat.json`. Additive changes are free:
 /// `ACPMUX_PROTOCOL_BLESS=1` refreshes `spec/acpmux-abi.surface.json` with the IR.
 #[test]
+fn abi_is_the_compat_files_newest_revision() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("spec/acpmux-abi.compat.json");
+    let schema = cmux_api_compat::Schema::from_json(&std::fs::read(path).expect("compat file"))
+        .expect("compat file parses");
+    assert_eq!(super::ABI, schema.current(), "bump protocol::ABI with the compat file's revision");
+}
+
+#[test]
+fn a_peer_without_abi_reads_as_zero() {
+    use serde_json::json;
+    assert_eq!(super::peer_abi(&json!({})), 0);
+    assert_eq!(super::peer_abi(&json!({"_meta": {"acpmux": {"build": "x"}}})), 0);
+    assert_eq!(super::peer_abi(&json!({"_meta": {"acpmux": {"abi": "1"}}})), 0);
+    assert_eq!(super::peer_abi(&json!({"_meta": {"acpmux": {"abi": 1}}})), 1);
+    assert_eq!(super::peer_abi(&json!({"_meta": {"acpmux": {"abi": u64::MAX}}})), 0);
+}
+
+#[test]
 fn protocol_abi_breaks_have_rules() {
     let spec = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("spec");
     let ir: serde_json::Value = serde_json::from_str(&ir_text()).expect("IR is JSON");

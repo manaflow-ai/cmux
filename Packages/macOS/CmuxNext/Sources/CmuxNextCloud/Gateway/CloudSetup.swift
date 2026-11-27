@@ -469,16 +469,27 @@ public final class CloudSetup {
     }
 
     /// Whether the gateway of the team the machine is made in serves `family` now (``gateway``); false when it is unread, or when a start on it
-    /// this run found no model route (``unrouted(harness:model:account:)``).
+    /// found no model route within ``gatewayUnroutedHold`` (``unrouted(harness:model:account:)``).
     private func gatewayServes(_ family: String) async -> Bool {
         gatewayRead = nil // this read's own, never an earlier one's
         guard !unroutedGateway.contains(family) else { return false }
         return await gateway?()?.contains(family) == true
     }
 
-    /// The families whose team gateway a start found unrouted: for the rest of this run Set up Cloud waits for a
-    /// connection of the person's own instead of starting again on the same gateway, as ``unroutedOrganization`` does.
-    public private(set) var unroutedGateway: Set<String> = []
+    /// The families whose team gateway a start found unrouted within the last ``gatewayUnroutedHold``: until then Set up
+    /// Cloud waits for a connection of the person's own instead of starting again on the same gateway. Unlike
+    /// ``unroutedOrganization`` (the shared key has no route at all) a gateway that gave one machine no route is asked again
+    /// after the hold: held for the whole app run, one machine that came up without a model route refused every later
+    /// claude start in about 300 ms (start-matrix-production run 45857917362: 15 rows "No Cloud connection serves claude"
+    /// after the big-folder row, while the gateway still served).
+    public var unroutedGateway: Set<String> { Set(unroutedGatewayAt.filter { now().timeIntervalSince($0.value) < Self.gatewayUnroutedHold }.keys) }
+    /// When a start last found each family's gateway unrouted.
+    private var unroutedGatewayAt: [String: Date] = [:]
+    /// How long a gateway that gave a machine no model route is skipped: long enough that the Set up Cloud card does not
+    /// start again on it at once, short enough that the next start minutes later asks it again.
+    public nonisolated static let gatewayUnroutedHold: TimeInterval = 120
+    /// The clock ``unroutedGateway`` reads (tests move it).
+    public var now: @Sendable () -> Date = { Date() }
 
     /// The families whose organization shared key a start found unrouted (``organizationUnrouted(_:)``).
     public private(set) var unroutedOrganization: Set<String> = []
@@ -500,7 +511,7 @@ public final class CloudSetup {
         let family: String
         switch await choose(harness: harness, model: model, account: account) {
         case .organization(let chosen): family = chosen; organizationUnrouted(chosen)
-        case .gateway(let chosen): family = chosen; unroutedGateway.insert(chosen); connectionsChanged()
+        case .gateway(let chosen): family = chosen; unroutedGatewayAt[chosen] = now(); connectionsChanged()
         default: return nil
         }
         guard case .setup(_, let model) = await choose(harness: harness, model: model, account: account) else { return nil }

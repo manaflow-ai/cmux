@@ -25,7 +25,15 @@ export type Environment = {
   downSince?: number;
   /// Its owner enrolled it in AutoCloud (RFD 0172): AutoCloud's Mac tier, listed after this Mac.
   autoCloud?: MachineAutoCloud;
+  /// What acpmux says the peer is for (`_acpmux/status` `peers[].group`, one parent agent session
+  /// per VM, #54094): `own` a machine of the person's, listed inline in a new chat's picker, or
+  /// `agent` one of the agent machines, behind the picker's Agent machines list. Absent from an
+  /// older daemon: the name decides then (environmentSections).
+  group?: PeerGroup;
 };
+
+/// A peer's group as acpmux says it (`peers[].group`).
+export type PeerGroup = "own" | "agent";
 
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
 /// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on
@@ -81,6 +89,19 @@ export function peerKindsFromStatus(status: unknown): Record<string, "ssh" | "cl
     kinds[name] = ssh ? "ssh" : "cloud";
   }
   return kinds;
+}
+
+/// Each peer's group from `_acpmux/status` (`peers[].group`, #54094): `own` or `agent`. A peer with
+/// no group, or another word, is left out, so the name decides (environmentSections).
+export function peerGroupsFromStatus(status: unknown): Record<string, PeerGroup> {
+  const peers = (status as { peers?: unknown } | undefined)?.peers;
+  if (!Array.isArray(peers)) return {};
+  const groups: Record<string, PeerGroup> = {};
+  for (const peer of peers) {
+    const { name, group } = (peer ?? {}) as { name?: unknown; group?: unknown };
+    if (typeof name === "string" && name && (group === "own" || group === "agent")) groups[name] = group;
+  }
+  return groups;
 }
 
 /// Each peer's `connected` flag from `_acpmux/status` (the relay keeps it only as a JSON boolean;
@@ -251,23 +272,29 @@ export function environmentSections(environments: readonly Environment[]): Map<s
       if (environment.kind === "local") return [environment.id, "local"];
       if (environment.kind === "cloud") return [environment.id, "fleet"];
       if (environment.autoCloud) return [environment.id, "autocloud"];
+      // acpmux's own word wins over the name: an agent machine is the fleet's, a peer it calls own the person's.
+      if (environment.group === "agent") return [environment.id, "fleet"];
+      if (environment.group === "own") return [environment.id, "mine"];
       const stem = stemOf(environment);
       return [environment.id, stem && (stems.get(stem) ?? 0) >= POOL_MIN ? "fleet" : "mine"];
     }),
   );
 }
 
-const byName = intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+// Made on the first ordering, not while the pane's modules evaluate ahead of its handshake.
+let collator: Intl.Collator | undefined;
+const byName = () => (collator ??= intl.Collator(undefined, { numeric: true, sensitivity: "base" }));
 
 /// The environments in the order the picker lists them: This Mac, then the person's machines, then
 /// Cloud and VMs; in each, the machines a chat can start on first, then the ones still connecting or
 /// down, each part by name with its numbers in order (`lane-2` before `lane-10`).
 export function orderEnvironments<T extends Environment>(environments: readonly T[]): T[] {
   const sections = environmentSections(environments);
+  const names = byName();
   return SECTION_ORDER.flatMap((section) => {
     const listed = environments
       .filter((environment) => sections.get(environment.id) === section)
-      .sort((a, b) => byName.compare(a.label, b.label));
+      .sort((a, b) => names.compare(a.label, b.label));
     return [...listed.filter(environmentReady), ...listed.filter((environment) => !environmentReady(environment))];
   });
 }

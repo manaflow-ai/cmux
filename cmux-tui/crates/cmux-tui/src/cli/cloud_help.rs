@@ -26,6 +26,48 @@ pub(super) const ENV_USAGE: &str = "usage: cmux cloud env get [--backend NAME|OR
 
 pub(super) const ENV_USAGE_JA: &str = "使い方: cmux cloud env get [--json]\n        cmux cloud env set local|dev|preview-N|staging|prod [--json]\n        cmux cloud env check-create --backend NAME|ORIGIN --params JSON [--json]\n\n選択はこのアプリのバンドルごとに保存されます。DEV と NEXT nightly は切り替え可能です。\ncheck-create は capability の事前確認だけを行い、マシンを作成しません。\nRelease と RC は既定で prod を使用し、許可された起動先へ切り替え可能です。切り替え後は Cloud に再度サインインしてください。\n";
 
+/// `cmux env --help` (env_command.rs): the Cloud environments a chat's machine is set up with.
+/// Not `cmux cloud env`, which picks the backend ([`ENV_USAGE`]).
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(super) const ENVIRONMENTS_USAGE: &str = "usage: cmux env list
+       cmux env show ENV
+       cmux env create NAME [--repo OWNER/NAME] [--ref BRANCH] [--setup-file F] [--maintenance-file F]
+       cmux env edit ENV [--repo OWNER/NAME] [--ref BRANCH] [--setup-file F] [--maintenance-file F]
+                         [--image I] [--network off|limited|full]
+       cmux env set-var ENV KEY VALUE
+       cmux env unset-var ENV KEY
+       cmux env set-secret ENV KEY --host HOST [--host HOST]...
+       cmux env unset-secret ENV KEY
+       cmux env add-file ENV PATH --from LOCALFILE
+       cmux env rm-file ENV PATH
+       cmux env default [--repo OWNER/NAME] [ENV]
+       cmux env logs ENV [--repo OWNER/NAME] [--ref BRANCH]
+
+Your Cloud environments: what a Cloud chat's machine is set up with. ENV is an
+environment's id (env_...) or its name. Every command takes --json.
+
+  list          Your environments and your team's, Default first
+  show          One environment: repository, scripts, network, variables, files,
+                and each secret's name and hosts. A secret's value is never shown.
+  create        A new personal environment
+  edit          Change the flags given; the others stay
+  set-var       Set a plain variable (its value is shown by show)
+  unset-var     Remove a variable
+  set-secret    Set a secret sent only to HOST in a request header, never put on
+                the machine. Its value is read from a hidden prompt, or from stdin
+                (`op read ... | cmux env set-secret ENV KEY --host api.example.com`),
+                never from the command line.
+  unset-secret  Remove a secret
+  add-file      Put LOCALFILE's text at PATH on the machine
+  rm-file       Remove a file
+  default       Show this project's default environment, or set it to ENV. The
+                project is --repo, else this folder's GitHub origin.
+  logs          The last setup's steps and output for the environment's repository.
+                If it was never set up for that repository, this starts its setup.
+
+`cmux cloud env get|set` picks the Cloud backend; it is not this command.
+";
+
 /// A machine action's target flag.
 const TARGET: &str = "--target vm:VM_ID";
 

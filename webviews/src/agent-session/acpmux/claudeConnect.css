@@ -114,7 +114,6 @@
 }
 .acpmux-connect-card__disclosure > summary {
   width: fit-content;
-  cursor: pointer;
 }
 .acpmux-connect-card__field {
   display: flex;
