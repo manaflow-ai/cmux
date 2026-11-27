@@ -71,7 +71,7 @@ jobs:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.ref }}
@@ -276,9 +276,11 @@ jobs:
           # reset (GET /rate_limit does not count) and tries again, for up to an hour, rather than dropping the build:
           # runs 45865019093 and 45876639934 read the PR, then their dispatch got HTTP 403 and #55037 never built.
           deadline=$(( $(date +%s) + 3600 ))
+          # Only the attempt that succeeds prints: a refused `gh api` still writes GitHub's error JSON to stdout,
+          # and run 45946359448 read that "{" as #60628's state after its wait, so nothing built.
           past_limit() {
-            local err; err="$(mktemp)"
-            until "$@" 2> "$err"; do
+            local err out; err="$(mktemp)"; out="$(mktemp)"
+            until "$@" > "$out" 2> "$err"; do
               if ! grep -qi 'rate limit' "$err" || (( $(date +%s) >= deadline )); then cat "$err" >&2; return 1; fi
               local reset wait
               reset="$(gh api rate_limit --jq .resources.core.reset 2>/dev/null || echo 0)"
@@ -286,10 +288,10 @@ jobs:
               # A secondary limit leaves the hourly one unspent: back off a minute.
               if grep -qi secondary "$err" || (( wait < 1 )); then wait=60; fi
               (( wait <= deadline - $(date +%s) )) || wait=$(( deadline - $(date +%s) + 1 ))
-              # stderr: the PR read's stdout is its answer.
               echo "$(head -c 200 "$err"); waiting ${wait}s for the installation's API limit to reset" >&2
               sleep "$wait"
             done
+            cat "$out"
           }
           info="$(past_limit gh api "repos/$REPO/pulls/$PR" --jq '[.state, .head.ref, .head.sha, (.head.repo.full_name // "")] | @tsv')"
           IFS=$'\t' read -r state branch sha head_repo <<< "$info"

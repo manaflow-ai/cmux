@@ -58,11 +58,42 @@ public struct CloudCLICall: Sendable {
         }
     }
 
+    /// `cmux cloud apps-relay` as the signed-in person of `auth`: the app's `cloud.apps`, what `cmux app
+    /// ls` and `cmux app versions` call off a Cloud machine (RFD 0003). The forward takes `{op: "list"}` or
+    /// `{op: "get", slug}` as JSON bytes and answers `{ok: true, value}` or `{ok: false, error}`; the
+    /// rules (two reads, nothing else) are cmux-tui's `cmux_apps::account`. The token is read per call,
+    /// never stored, and goes on stdin.
+    @MainActor
+    public func appsRelay(signedIn auth: CloudAuth) -> @Sendable (Data) async -> Data {
+        let api = auth.configuration.relayAPIBaseURL().absoluteString
+        let session: @Sendable () async -> Result<(String, String?)?, any Error> = { @MainActor [weak auth] in
+            guard let auth, auth.isSignedIn else { return .success(nil) }
+            do { return .success((try await auth.tokens().access, auth.teamID)) } catch { return .failure(error) }
+        }
+        return { [self] request in
+            let found: (String, String?)?
+            switch await session() {
+            case let .success(value): found = value
+            case let .failure(error): return Self.unreachable(String(describing: error))
+            }
+            guard let stdin = await Self.relayEnvelope(api: api, credential: found?.0, team: found?.1, request: request) else {
+                return Self.unreachable("the request is not JSON")
+            }
+            do {
+                return try await run(["cloud", "apps-relay"], stdin: stdin, timeout: .seconds(25))
+            } catch {
+                return Self.unreachable(String(describing: error))
+            }
+        }
+    }
+
     /// The automation relay's stdin: the caller's request (any size) parsed and re-encoded inside the
     /// envelope, so its bytes can never add a field of their own. Off the main actor.
-    @concurrent private static func relayEnvelope(api: String, credential: String?, request: Data) async -> Data? {
+    /// `team`, when set, scopes the call to that team (the apps relay's `team` field).
+    @concurrent private static func relayEnvelope(api: String, credential: String?, team: String? = nil, request: Data) async -> Data? {
         let parsed = (try? JSONSerialization.jsonObject(with: request, options: .fragmentsAllowed)) ?? NSNull()
-        let envelope: [String: Any] = ["api": api, "credential": credential.map { $0 as Any } ?? NSNull(), "request": parsed]
+        var envelope: [String: Any] = ["api": api, "credential": credential.map { $0 as Any } ?? NSNull(), "request": parsed]
+        if let team { envelope["team"] = team }
         return try? JSONSerialization.data(withJSONObject: envelope)
     }
 

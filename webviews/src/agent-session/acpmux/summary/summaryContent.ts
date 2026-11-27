@@ -1,6 +1,7 @@
 // Whether the chat's summary has anything to show (the summary column or popover opens only then).
 import type { AcpmuxRow } from "../model";
 import { chatGallery } from "./chatGallery";
+import { RowMemo } from "../../shared/rowMemo";
 
 /// Whether one row puts something in the summary: subagents, a background task, or a tool call
 /// the summary lists (an edit, a fetch, a thought, a wakeup or cron job, a background shell, a
@@ -26,7 +27,7 @@ function rowShowsInSummary(row: AcpmuxRow): boolean {
 
 /// Each row's answer, kept while the row is the same object. Rows are immutable and a streamed
 /// update replaces only the live ones, so a snapshot examines only the rows that changed.
-const shown = new WeakMap<AcpmuxRow, boolean>();
+const shown = new RowMemo<AcpmuxRow, boolean>();
 
 /// Whether the summary has content: a row that shows in it, or an item of the chat's gallery.
 /// The chat asks on every snapshot; the rows are checked first, from the cache, so the gallery
