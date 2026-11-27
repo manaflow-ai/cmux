@@ -104,6 +104,26 @@ class PoolCheckoutReuse(unittest.TestCase):
                 result = fx.run(tail, sparse_value)
                 yield label, fx, result, sparse_value
 
+    def test_no_workflow_reapplies_sparsity_unguarded(self) -> None:
+        """A bare `git sparse-checkout reapply` is fatal on a reused .git that is not sparse (run 46023659544)."""
+        bad = []
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for n, line in enumerate(lines, 1):
+                # a step that turns sparse mode on unconditionally just above is always sparse: bare reapply is safe
+                always_sparse = any(l == " " * (len(line) - len(line.lstrip())) + "git config core.sparseCheckout true"
+                                    for l in lines[max(0, n - 4):n - 1])
+                # ...but only once the step drops extensions.worktreeConfig: a `git sparse-checkout disable` by
+                # another job leaves core.sparseCheckout=false in config.worktree, which beats .git/config and makes
+                # the reapply fatal anyway (cmux-next path routing, run 46055361348).
+                drops_worktree_config = any("git config --unset-all extensions.worktreeConfig" in l
+                                            for l in lines[max(0, n - 40):n - 1])
+                if "git sparse-checkout reapply" in line and GUARD not in line and not (
+                        always_sparse and drops_worktree_config):
+                    bad.append(f"{path.name}:{n}")
+        self.assertEqual(bad, [])
+
+
     def test_no_patterns_on_a_plain_reused_git_checks_out_the_whole_tree(self) -> None:
         for _label, fx, result, _ in self.each(lambda fx: None, sparse_override=""):
             self.assertEqual(result.returncode, 0, result.stderr)
