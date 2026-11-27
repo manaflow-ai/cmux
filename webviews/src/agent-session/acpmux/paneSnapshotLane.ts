@@ -111,18 +111,39 @@ function samePicks(a: Summary, b: Summary): boolean {
 /// renders, so an entry told from the pending snapshot's rows would leave the committed row
 /// without its newer output (its output would go back) until the draw commits. The output goes
 /// through the pane's draw instead, which React folds into the pending one.
+///
+/// A record that would draw the pane again while such a draw is pending waits for it (`owe`): once it
+/// commits, the newest record goes through the pane's bypasses from what that draw drew, and draws
+/// the pane again only if none takes it. Before, each one set the pane again, which restarts the
+/// pending transition, and every record until it committed (each thought chunk, each call) drew the
+/// whole pane too: 347 of 969 pane renders a replay window under load (bench replay-under-load
+/// RENDERS=1, `miss:…|pending`; goal renderer-main-busy).
 export class PendingPaneDraw {
   private rows: readonly AcpmuxRow[] | undefined;
+  private owed: (() => void) | undefined;
   get pending(): boolean {
     return this.rows !== undefined;
   }
-  /// The pane set `next` (urgent: at once, which overtakes any pending draw).
+  /// The pane set `next` (urgent: at once, which overtakes any pending draw and what it owed).
   drew(next: AcpmuxSnapshot, urgent: boolean): void {
     this.rows = urgent ? undefined : next.rows;
+    if (urgent) this.owed = undefined;
+  }
+  /// What runs once the pending draw commits; the newest replaces any before it.
+  owe(then: () => void): void {
+    this.owed = then;
+  }
+  /// The pane stopped: it owes nothing.
+  forget(): void {
+    this.owed = undefined;
   }
   /// The pane committed `snapshot` (its layout effect).
   committed(snapshot: AcpmuxSnapshot): void {
-    if (snapshot.rows === this.rows) this.rows = undefined;
+    if (snapshot.rows !== this.rows) return;
+    this.rows = undefined;
+    const owed = this.owed;
+    this.owed = undefined;
+    owed?.();
   }
 }
 

@@ -351,6 +351,10 @@ const STREAMED: ReadonlySet<string> = new Set([
   "tool_call_update",
   "agent_thought_chunk",
   "agent_message_chunk",
+  // A subagent's progress (claude_stdio task_progress, acpmux subagent_progress): 23 records a replay
+  // window under load whose only change was this name (bench replay-under-load RENDERS=1).
+  "claude.system.task_progress",
+  "subagent_progress",
 ]);
 
 /// Every field of the two snapshots is the same object, except `rows`.

@@ -7,6 +7,7 @@
 // record that changes only the rows skip the pane's own render.
 import { createContext, useCallback, useContext, useRef, useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
+import { acpmuxPerf } from "../perf";
 
 export type RowsStore = {
   /// The newest rows the client published; assigning publishes (a `RefObject` for existing callers).
@@ -71,6 +72,7 @@ export function useRowsValue<T>(
   same: (a: T, b: T) => boolean,
   shown: readonly AcpmuxRow[],
   client: readonly AcpmuxRow[],
+  label = "",
 ): T {
   const kept = useRef<{ rows: readonly AcpmuxRow[]; select: typeof select; value: T } | undefined>(undefined);
   const read = useCallback(() => {
@@ -79,10 +81,11 @@ export function useRowsValue<T>(
     const last = kept.current;
     if (last && last.rows === rows && last.select === select) return last.value;
     const value = select(rows);
+    if (acpmuxPerf.enabled && last && !same(last.value, value)) acpmuxPerf.render(`rows-value:${label}`);
     // The same value as before keeps its object: React sees no change and does not render.
     kept.current = { rows, select, value: last && same(last.value, value) ? last.value : value };
     return kept.current.value;
-  }, [store, select, same, shown, client]);
+  }, [store, select, same, shown, client, label]);
   return useSyncExternalStore(store.subscribe, read, read);
 }
 

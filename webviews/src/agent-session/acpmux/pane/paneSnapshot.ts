@@ -33,7 +33,7 @@ import type { CloudStartPick } from "../newtab/draftFolder";
 import { configurationSessionMatches, pickEffort } from "../configurationActions";
 import { rememberRecentFolders } from "../newtab/recentProject";
 import { publishWarmNewTab } from "../newtab/warmSnapshot";
-import { drawPaneSnapshot, type PendingPaneDraw } from "../paneSnapshotLane";
+import { drawPaneSnapshot, drawsAtOnce, type PendingPaneDraw } from "../paneSnapshotLane";
 import { setBookmarkTransport } from "../threadMinimap/bookmarks";
 import { setSavedPromptsTransport } from "../savedPrompts";
 import { setStashTab, setStashTransport } from "../composer/draftStash";
@@ -947,6 +947,101 @@ export function paneSnapshotEffect({
     pendingPaneDraw.drew(next, true);
     draw();
   };
+  /// A record the client emitted (`next`), after the pane published its rows: the row, line or
+  /// overlay that draws what moved, else the pane again (`redrawPane`).
+  const drawRecord = (next: AcpmuxSnapshot) => {
+    // Only the streaming reply's text grew: its row draws it (streamingRow.ts); the pane,
+    // the composer and Session Info keep the snapshot they drew.
+    const drawn = drawnSnapshot.current;
+    const received = receivedSnapshot.current;
+    receivedSnapshot.current = next;
+    // The replay bench's per-kind table: records whose one changed row is hidden under the
+    // running turn's closed fold, and those that still redraw the pane (drawnRows.ts).
+    const hiddenChange = acpmuxPerf.enabled && received !== undefined && changeHidden(received, next);
+    if (hiddenChange) acpmuxPerf.render("record:row-hidden");
+    const at = drawn ? streamedOnly(drawn, next) : -1;
+    if (drawn && at >= 0) {
+      streamingRow.set(next.rows[at]!, drawn.rows[at]!);
+      liveCallLine.follow(received, next);
+      return;
+    }
+    // Only a running command's output grew: the row that draws it reads it
+    // (liveToolOutput.ts); the pane, its header and Session Info keep what they drew.
+    // Not while the pane's own draw is pending (paneSnapshotLane.ts `PendingPaneDraw`).
+    const call =
+      drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
+        ? toolOutputOnly(received, next)
+        : undefined;
+    if (call) {
+      liveToolOutput.set(call.id, call.output, call.before);
+      liveCallLine.follow(received, next);
+      return;
+    }
+    // Only a thought grew: the row that draws it reads it (liveThought.ts).
+    const thought =
+      drawn && received && !streamingRowBlocked()
+        ? thoughtOnly(received, next, pendingPaneDraw.pending ? drawn.rows : undefined)
+        : undefined;
+    if (thought) {
+      liveThought.set(thought.id, thought.before, thought.after);
+      liveCallLine.follow(received, next);
+      return;
+    }
+    // Only a quiet call under the running turn's closed fold started or ended: the live line
+    // reads it (liveCallLine.ts); the pane, the transcript and the composer keep what they drew.
+    const line =
+      drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
+        ? callOnly(received, next, rowsRef.readersFollow)
+        : undefined;
+    if (line) {
+      setLiveLine(line.line);
+      return;
+    }
+    // Only the usage numbers moved (the context count, usage, time breakdown): the parts that
+    // draw them read them (liveSummary.ts); the pane, transcript and header keep what they drew.
+    if (drawn && !pendingPaneDraw.pending && usageOnly(drawn, next)) {
+      liveSummary.set(drawn.summary!, next.summary!);
+      liveCallLine.follow(received, next);
+      return;
+    }
+    // Nothing the pane draws moved: the same rows, and every other value the same or only the
+    // streamed record kind the client emitted for (liveToolOutput.ts `sameButRows`). Before,
+    // each such record redrew the whole pane: 35 a replay window under load (bench
+    // replay-under-load RENDERS=1, `redraw:none` and `redraw:connection`; goal renderer-main-busy).
+    if (received && !pendingPaneDraw.pending && next.rows === received.rows && sameButRows(received, next)) {
+      if (acpmuxPerf.enabled) acpmuxPerf.render("record:no-change");
+      liveCallLine.follow(received, next);
+      return;
+    }
+    if (hiddenChange) acpmuxPerf.render("pane:row-hidden");
+    if (acpmuxPerf.enabled && received) {
+      const cause = redrawCause(received, next);
+      acpmuxPerf.render(`redraw:${cause}`);
+      if (cause.includes("rows(+0,1:activity)")) {
+        const miss = `${callMiss(received, next)}|follow=${rowsRef.readersFollow}|${streamingRowBlocked() ? "blocked" : pendingPaneDraw.pending ? "pending" : callOnlyMiss()}`;
+        acpmuxPerf.render(`miss:${miss}`);
+        if (miss.includes("thought/")) acpmuxPerf.render(`thought:${thoughtMiss(received, next)}`);
+      }
+    }
+    // A draw still pending, and this one need not draw at once: the newest owed draws once it
+    // commits, through the bypasses above from what it drew (paneSnapshotLane.ts `PendingPaneDraw`).
+    const pendingBase = drawnSnapshot.current;
+    if (pendingPaneDraw.pending && pendingBase && !drawsAtOnce(pendingBase, next)) {
+      if (acpmuxPerf.enabled) acpmuxPerf.render("record:owed");
+      pendingPaneDraw.owe(replayOwed);
+      return;
+    }
+    redrawPane(next, false);
+  };
+  /// The pending draw committed: the newest record since, told from what that draw drew.
+  const replayOwed = () => {
+    const newest = receivedSnapshot.current;
+    const base = drawnSnapshot.current;
+    if (cancelled || !newest || !base || newest === base) return;
+    if (acpmuxPerf.enabled) acpmuxPerf.render("record:replayed");
+    receivedSnapshot.current = base;
+    drawRecord(newest);
+  };
   // A pass drew the running turn from the pane's older rows while its line ran ahead on hidden
   // calls (liveCallLine.ts): the client's newest snapshot, at once.
   const unregisterLineFlush = liveCallLine.onFlush(() => {
@@ -1368,80 +1463,7 @@ export function paneSnapshotEffect({
               { durable: true },
             );
           }
-          // Only the streaming reply's text grew: its row draws it (streamingRow.ts); the pane,
-          // the composer and Session Info keep the snapshot they drew.
-          const drawn = drawnSnapshot.current;
-          const received = receivedSnapshot.current;
-          receivedSnapshot.current = next;
-          // The replay bench's per-kind table: records whose one changed row is hidden under the
-          // running turn's closed fold, and those that still redraw the pane (drawnRows.ts).
-          const hiddenChange = acpmuxPerf.enabled && received !== undefined && changeHidden(received, next);
-          if (hiddenChange) acpmuxPerf.render("record:row-hidden");
-          const at = drawn ? streamedOnly(drawn, next) : -1;
-          if (drawn && at >= 0) {
-            streamingRow.set(next.rows[at]!, drawn.rows[at]!);
-            liveCallLine.follow(received, next);
-            return;
-          }
-          // Only a running command's output grew: the row that draws it reads it
-          // (liveToolOutput.ts); the pane, its header and Session Info keep what they drew.
-          // Not while the pane's own draw is pending (paneSnapshotLane.ts `PendingPaneDraw`).
-          const call =
-            drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
-              ? toolOutputOnly(received, next)
-              : undefined;
-          if (call) {
-            liveToolOutput.set(call.id, call.output, call.before);
-            liveCallLine.follow(received, next);
-            return;
-          }
-          // Only a thought grew: the row that draws it reads it (liveThought.ts).
-          const thought =
-            drawn && received && !streamingRowBlocked()
-              ? thoughtOnly(received, next, pendingPaneDraw.pending ? drawn.rows : undefined)
-              : undefined;
-          if (thought) {
-            liveThought.set(thought.id, thought.before, thought.after);
-            liveCallLine.follow(received, next);
-            return;
-          }
-          // Only a quiet call under the running turn's closed fold started or ended: the live line
-          // reads it (liveCallLine.ts); the pane, the transcript and the composer keep what they drew.
-          const line =
-            drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
-              ? callOnly(received, next, rowsRef.readersFollow)
-              : undefined;
-          if (line) {
-            setLiveLine(line.line);
-            return;
-          }
-          // Only the usage numbers moved (the context count, usage, time breakdown): the parts that
-          // draw them read them (liveSummary.ts); the pane, transcript and header keep what they drew.
-          if (drawn && !pendingPaneDraw.pending && usageOnly(drawn, next)) {
-            liveSummary.set(drawn.summary!, next.summary!);
-            liveCallLine.follow(received, next);
-            return;
-          }
-          // Nothing the pane draws moved: the same rows, and every other value the same or only the
-          // streamed record kind the client emitted for (liveToolOutput.ts `sameButRows`). Before,
-          // each such record redrew the whole pane: 35 a replay window under load (bench
-          // replay-under-load RENDERS=1, `redraw:none` and `redraw:connection`; goal renderer-main-busy).
-          if (received && !pendingPaneDraw.pending && next.rows === received.rows && sameButRows(received, next)) {
-            if (acpmuxPerf.enabled) acpmuxPerf.render("record:no-change");
-            liveCallLine.follow(received, next);
-            return;
-          }
-          if (hiddenChange) acpmuxPerf.render("pane:row-hidden");
-          if (acpmuxPerf.enabled && received) {
-            const cause = redrawCause(received, next);
-            acpmuxPerf.render(`redraw:${cause}`);
-            if (cause.includes("rows(+0,1:activity)")) {
-              const miss = `${callMiss(received, next)}|follow=${rowsRef.readersFollow}|${streamingRowBlocked() ? "blocked" : pendingPaneDraw.pending ? "pending" : callOnlyMiss()}`;
-              acpmuxPerf.render(`miss:${miss}`);
-              if (miss.includes("thought/")) acpmuxPerf.render(`thought:${thoughtMiss(received, next)}`);
-            }
-          }
-          redrawPane(next, false);
+          drawRecord(next);
         },
         () => {
           // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
@@ -3214,6 +3236,7 @@ export function paneSnapshotEffect({
   return () => {
     cancelled = true;
     unregisterLineFlush();
+    pendingPaneDraw.forget();
     unregisterViewBridge?.();
     for (const name of HOST_WAKE_EVENTS.document) document.removeEventListener(name, wake);
     for (const name of HOST_WAKE_EVENTS.window) window.removeEventListener(name, wake);
@@ -3242,7 +3265,10 @@ function redrawCause(before: AcpmuxSnapshot, after: AcpmuxSnapshot): string {
   const a = before as unknown as Record<string, unknown>;
   const b = after as unknown as Record<string, unknown>;
   const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((key) => !Object.is(a[key], b[key]));
-  const parts = keys.filter((key) => key !== "rows").sort();
+  const parts = keys
+    .filter((key) => key !== "rows")
+    .sort()
+    .map((key) => (key === "connection" ? `connection(${String(a[key])}>${String(b[key])})` : key));
   if (keys.includes("rows")) {
     const kinds = new Set<string>();
     let changed = 0;
