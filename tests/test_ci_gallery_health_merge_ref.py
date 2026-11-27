@@ -6,6 +6,9 @@ had already fixed (transcript-density: "Module not found health.ts" after #23333
 (GitHub's refs/pull/N/merge, the default checkout of a pull_request event) is what lands.
 """
 
+# guard-inputs: .github/workflows/gallery-health.yml .github/workflows/cmux-next-post-merge.yml
+# (its git reads are of temporary fixture repos; HEAD^ is text it checks the workflow for)
+
 from __future__ import annotations
 
 import importlib.util
