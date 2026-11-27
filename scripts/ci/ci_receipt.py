@@ -570,6 +570,13 @@ def merge_worktree(repo: Path, remote: str, head: str, into: Path) -> str:
     if merged.returncode != 0:
         raise SystemExit(f"ci-receipt: {head} does not merge cleanly into {BRANCH} ({base}); merge {BRANCH} into the "
                          f"branch and push: {merged.stdout.strip()} {merged.stderr.strip()}")
+    # A head already in the base (an empty commit's parent, which tested_head takes for fast-checks' snapshot) leaves
+    # `merge --no-ff` "Already up to date" with no merge commit, and fast-gates then refuses the checkout. GitHub's
+    # merge ref is still a two-parent merge with the base's tree: make that one.
+    if git(into, "rev-parse", "HEAD").stdout.strip() == base:
+        merge = git(into, *MERGE_IDENTITY, "commit-tree", f"{base}^{{tree}}", "-p", base, "-p", head,
+                    "-m", f"Merge {head} into {BRANCH}").stdout.strip()
+        git(into, "checkout", "--quiet", "--detach", merge)
     return base
 
 
