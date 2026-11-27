@@ -138,6 +138,8 @@
 //! the session weakly.
 
 use super::*;
+#[path = "inbox_point.rs"]
+pub(super) mod inbox_point;
 #[path = "inbox_page_rule.rs"]
 pub(super) mod page_rule;
 #[path = "inbox_reader.rs"]
@@ -2415,9 +2417,19 @@ impl Hub {
 
     /// The inbox from the session's log (`restore_queue`): every message, read and noticed as
     /// the log says. Run again, it adds only what it does not hold.
+    ///
+    /// From its inbox point (`inbox_point.rs`) when one matches the log: the records the inbox
+    /// held then, and the log past the point's seq only. The whole log's inbox records were
+    /// read on each restart's first prompt, a cost that grew with the chat (cmux#51494: 85 ms
+    /// of a 4 GB chat's first send after a restart, 157 ms after the next, 3 ms at 1 MB).
     pub(super) fn restore_inbox(&self, session: &Session) {
+        let point = self.read_inbox_point(session);
+        // Every record through `through` is in the journal: a point saved at it skips them.
+        let through = self.settled_seq(session);
+        let carry = self.inbox_point_saves(session);
+        let mut seen: Vec<EventRecord> = Vec::new();
         let surge_on = self.surge_inbox_on();
-        let mut counts = surge::Counts::default();
+        let mut counts = point.as_ref().map(|p| p.counts).unwrap_or_default();
         let mut recent_held = std::collections::VecDeque::new();
         // The messages the scan holds, in log order; a slot empties when its message is
         // withdrawn (`inbox_removed`), so a long inbox of handled messages is never held whole.
@@ -2430,12 +2442,17 @@ impl Hub {
         let mut any_item = false;
         let mut noticed: std::collections::HashMap<String, String> = Default::default();
         let mut read: std::collections::HashSet<String> = Default::default();
-        let mut removed: std::collections::HashSet<String> = Default::default();
+        // Withdrawn before the point too: a later record of one is withdrawn, as the whole log
+        // read it.
+        let mut removed: std::collections::HashSet<String> =
+            point.as_ref().map(|p| p.removed.iter().cloned().collect()).unwrap_or_default();
         let mut answered: std::collections::HashMap<String, super::queue::Answer> =
             Default::default();
         let kinds = Self::INBOX_KINDS;
-        // And what was changed here but is not in the journal yet (`scan_for_rebuild`).
-        let scanned = self.scan_for_rebuild(session, kinds, &mut |e: EventRecord| {
+        let mut visit = |e: EventRecord| {
+            if carry && e.seq <= through {
+                seen.push(e.clone());
+            }
             counts.restore(&e);
             let ids = || {
                 let ids = e.msg.get("promptIds").and_then(Value::as_array).cloned();
@@ -2534,12 +2551,32 @@ impl Hub {
                 _ => {}
             }
             true
-        });
+        };
+        // The point's records first, in their log order, then the log past it. And what was
+        // changed here but is not in the journal yet (`scan_for_rebuild`).
+        let scanned = match &point {
+            Some(p) => {
+                p.records.iter().cloned().for_each(|e| {
+                    visit(e);
+                });
+                self.scan_for_rebuild_after(session, p.seq, kinds, &mut visit)
+            }
+            None => self.scan_for_rebuild(session, kinds, &mut visit),
+        };
         drop(slots);
         let mut items: Vec<Item> = items.into_iter().flatten().collect();
         any_item |= !recent_held.is_empty();
         items.extend(recent_held);
-        if scanned.is_err() || (!any_item && counts.seq == 0) {
+        if scanned.is_err() {
+            return;
+        }
+        if !any_item && counts.seq == 0 {
+            if carry {
+                let inbox = session.inbox_state.lock().unwrap_or_else(|e| e.into_inner());
+                let point = inbox_point::InboxPoint::of(&inbox, through, counts, seen);
+                drop(inbox);
+                self.save_inbox_point(session, point);
+            }
             return;
         }
         // The state itself: `Session::inbox` calls this to fill it.
@@ -2550,6 +2587,12 @@ impl Hub {
             if counts.seq > live.seq {
                 *live = counts;
             }
+        }
+        // What the inbox let go of before the point: a resend of one answers as it did.
+        if let Some(p) = point {
+            inbox.removed.extend(p.removed);
+            inbox.trimmed.extend(p.trimmed);
+            inbox.held_evicted.extend(p.held_evicted);
         }
         inbox.removed.extend(removed_held);
         // The ids the inbox holds: a set, not a walk of the inbox for each restored message.
@@ -2585,7 +2628,11 @@ impl Hub {
         // A needYou journaled before a restart is counted again by the pass (a rule may have
         // changed what counts: program notices are fyi now).
         surge_held |= inbox.surge_counts_need_you() > 0;
+        let point = carry.then(|| inbox_point::InboxPoint::of(&inbox, through, counts, seen));
         drop(inbox);
+        if let Some(point) = point {
+            self.save_inbox_point(session, point);
+        }
         // A restart resumes the held backlog's triage with no new arrival (`surge_triage.rs`).
         if surge_held {
             super::surge_triage::resume_after_restore(session);
