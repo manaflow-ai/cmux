@@ -777,8 +777,24 @@ class IdleKeptTests(unittest.TestCase):
                                                      "ports": [], "timer_names": ["systemd:cmux-chief-update.timer"]})
         row = logs.line(event(timer))
         self.assertEqual(row["log"], {"msg": "cloud.idle.kept", "why": "workload", "team": logs.base.tag(TEAM),
-                                      "machine": logs.base.tag(VM), "timer_only": True, "daemon": "0.42.1",
-                                      "running": "1h-6h"})
+                                      "machine": logs.base.tag(VM), "timer_only": True, "busy": 0, "listening": 0,
+                                      "names": [], "names_other": 0, "daemon": "0.42.1", "running": "1h-6h"})
+
+    def test_a_busy_workload_prints_published_program_names_and_only_counts_the_rest(self):
+        w = {"busy": 3, "listening": 0, "timers": 0, "timer_names": [],
+             "process_names": ["curl", "(network)", "hunter2", "my-secret-job"]}
+        log = logs.line(event(self.kept(why="workload", workload=w)))["log"]
+        self.assertEqual((log["busy"], log["listening"], log["names"], log["names_other"]),
+                         (3, 0, ["(network)", "curl"], 2))
+        self.assertNotIn("hunter2", json.dumps(log))
+        self.assertNotIn("my-secret", json.dumps(log))
+
+    def test_a_recent_line_names_which_clock_and_its_age_band(self):
+        log = logs.line(event(self.kept(why="recent", active_at="busy", active_s=95)))["log"]
+        self.assertEqual((log["active_at"], log["active"]), ("busy", "1m-5m"))
+        log = logs.line(event(self.kept(why="recent", active_at="hunter2", active_s="x")))["log"]
+        self.assertNotIn("active_at", log)
+        self.assertNotIn("active", log)
 
     def test_any_other_workload_is_not_timer_only_and_its_names_never_print(self):
         for workload in ({"busy": 1, "timer_names": ["systemd:cmux-chief-update.timer"], "process_names": ["hunter2"]},

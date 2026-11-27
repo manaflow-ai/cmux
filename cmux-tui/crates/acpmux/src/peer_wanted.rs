@@ -22,6 +22,8 @@ use tokio::time::Instant;
 /// Every ssh of a peer shares its host's master (`ssh_command`).
 #[path = "peer_ssh_master.rs"]
 mod ssh_master;
+#[cfg(test)]
+pub(super) use ssh_master::SshMux;
 
 /// How long one ask keeps the peer wanted.
 pub(super) const WANTED_FOR: Duration = Duration::from_secs(60);

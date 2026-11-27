@@ -237,6 +237,9 @@ class Lookup(unittest.TestCase):
 class Workflows(unittest.TestCase):
     def test_only_the_dev_release_compile_reuses_a_product(self):
         for workflow in (ROOT / ".github/workflows").glob("*.y*ml"):
+            if workflow.name == "ci-guards.yml":
+                # The guard harness names this test in its own command; that is not a product reuse consumer.
+                continue
             text = workflow.read_text()
             uses = "dev_release_product_reuse.py" in text or "cmux-next-dev-release-product-" in text
             with self.subTest(workflow=workflow.name):
