@@ -94,6 +94,7 @@ on:
       - "cmux-tui/crates/cmux-lifeline/**"
       - "cmux-tui/crates/cmux-local-auth/**"
       - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
+      - "cmux-tui/crates/cmux-error-journal/**"
       - "cmux-tui/crates/cmux-palette-ranker/**"
       - "cmux-tui/crates/cmux-process/**"
       - "cmux-tui/crates/cmux-motion/**"
