@@ -6239,7 +6239,7 @@ function TranscriptView({
       .map((node) => warmMotionTokens(node, SEND_MOTION_TOKENS));
     // The motion gate's own read (motionMode, on the root).
     const root = ref.current?.ownerDocument.documentElement;
-    if (root) stops.push(warmMotionTokens(root, ["--agent-motion-in"]));
+    if (root) stops.push(warmMotionTokens(root, ["--agent-motion-in", "--cmux-motion-stream"]));
     return () => stops.forEach((stop) => stop());
   }, []);
   // The reader sent a prompt: the view goes to the latest message before the frame paints, even
