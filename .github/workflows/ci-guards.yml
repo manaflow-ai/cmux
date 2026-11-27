@@ -2196,6 +2196,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_link_ffi_cache_seed.py
 
+      - name: Validate the iOS fast verdict seed saves the DerivedData a hosted verdict restores
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_fast_verdict_seed.py
+
       - name: Validate a Mac-built CmuxMobileLinkFFI.xcframework is reused by the job's next step
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_link_ffi_sh.py
