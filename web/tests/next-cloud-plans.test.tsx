@@ -123,7 +123,9 @@ describe("the comparison block prints only measured rows", () => {
 
   test("a row with no proof cannot print, even with copy", () => {
     locale = "en";
-    const t = translator("nextCloudPlans");
+    // CloudCompareBlock takes a plain (key, values) translator, as its page passes one; use-intl's typed one is narrower.
+    const typed = translator("nextCloudPlans");
+    const t = (key: string, values?: Record<string, string | number>) => typed(key as never, values as never);
     const unproven: CloudCompareRow[] = CLOUD_COMPARE_ROWS.map((row) => ({ ...row, proof: null }));
     expect(renderToString(<CloudCompareBlock t={t} rows={unproven} />)).toBe("");
     const one: CloudCompareRow[] = [
