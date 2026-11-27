@@ -141,7 +141,7 @@ jobs:
       # A nightly tip's base: the last tip a tour finished on (media_last_toured.py).
       base: ${{ steps.last_toured.outputs.base }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -331,8 +331,9 @@ jobs:
     # The job's clock runs from the runner's setup. On 2026-11-25 (job
     # 139295566977) setup, both builds and the before/after capture took 116
     # min, so a 120 min cap cancelled "Record What's New clips" 4 min into its
-    # own 45 and the media hand-off after it: no clip that night. 180 leaves
-    # that step its whole 45 and the hand-off its time.
+    # own 45 and the media hand-off after it: no clip that night. The clips now
+    # stop on the job's clock, 12 min before this cap, so the hand-off keeps
+    # its time whenever the clip step starts.
     timeout-minutes: 180
     # actions: read finds and downloads another run's base app artifact.
     permissions:
@@ -387,7 +388,7 @@ jobs:
           echo "The job started $(( now - start )) s ago."
           echo "TOUR_JOB_START=$start" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -821,7 +822,12 @@ jobs:
         id: clips
         if: steps.scope.outputs.is_ui == 'true' && steps.scope.outputs.clips != '0' && steps.scope.outputs.clips != ''
         continue-on-error: true
-        timeout-minutes: 45
+        # The job's clock below stops the clips 12 min before the job's cap, so this step's own cap
+        # sits above that clock and never fires first. At 45 it did: run 45880649238 (job
+        # 140119006420) recorded its afters, then cloned and built the warn-before-quit-shortcut /
+        # space-button-spacing before app at a644014a for 41 min and was killed at 20:48Z, 3 min
+        # into that app's reload and 17 min before the clock, so both befores were lost.
+        timeout-minutes: 168
         env:
           BASE_APP: ${{ steps.build_base.outputs.base_app }}
           HEAD_APP: ${{ steps.build_head.outputs.head_app }}
@@ -874,10 +880,12 @@ jobs:
               --before "${CLIPS_BASE:-$MERGE_BASE}" --other-befores); do
             [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || continue
             tree="$RUNNER_TEMP/cmux-next-clip-before"
-            git fetch --no-tags --quiet --depth=1 origin "$sha" \
+            # Each network step runs on the job's clock too: the ghostty-next clone alone took 5.5 min
+            # in job 140119006420, and a stalled one must not run the step into the job's cap.
+            bounded git fetch --no-tags --quiet --depth=1 origin "$sha" \
               && git worktree add -f -f --detach "$tree" "$sha" \
-              && "$MEDIA_TOUR_CI/media_tree_submodules.sh" "$tree" \
-              && (cd "$tree" && GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh) \
+              && bounded "$MEDIA_TOUR_CI/media_tree_submodules.sh" "$tree" \
+              && (cd "$tree" && GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" bounded ./scripts/download-prebuilt-ghosttykit.sh) \
               && CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}" \
                 bounded "$MEDIA_TOUR_CI/media_build_app.sh" "$tree" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-clip-before.out" clip_before_app \
               || { echo "::warning title=What's New clip::no app at $sha; its befores wait"; continue; }
@@ -948,7 +956,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -1061,7 +1069,7 @@ jobs:
       # The publisher is this protected branch's own revision; it runs no pull
       # request code and reads the tour artifact as data.
       - name: Checkout the publisher
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false

@@ -67,12 +67,14 @@ pub fn unknown_command(message: &str) -> bool {
 fn update(daemon: &impl RawDaemon) -> Result<(), String> {
     let identity =
         daemon.send_once(IDENTIFY, json!({"revisions": true})).map_err(|e| e.to_string())?;
-    let installed =
-        identity["cli_path"].as_str().and_then(|cli| daemon.installed_build(Path::new(cli)));
+    let installed = identity
+        .get("cli_path")
+        .and_then(Value::as_str)
+        .and_then(|cli| daemon.installed_build(Path::new(cli)));
     match verdict(&identity, installed.as_ref()) {
         Verdict::NoNewerBuild(why) => Err(why),
         Verdict::Restart { cli } => {
-            if !first_restart(identity["pid"].as_u64()) {
+            if !first_restart(identity.get("pid").and_then(Value::as_u64)) {
                 return Err("the cmux daemon still refuses it after a restart".into());
             }
             daemon.restart_in_place(&cli)

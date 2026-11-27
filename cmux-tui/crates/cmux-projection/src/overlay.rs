@@ -2369,6 +2369,9 @@ pub mod shared;
 #[path = "overlay_age.rs"]
 mod age;
 
+#[path = "overlay_bulk.rs"]
+pub mod bulk;
+
 #[path = "overlay_extend.rs"]
 mod extend;
 pub use extend::Extended;
