@@ -783,6 +783,9 @@ class Swapper:
 
     def swap(self, built: dict[str, Path]) -> dict:
         steps: dict = {}
+        # A swap of one daemon runs it beside the other's older build: name the n/n-1 verdict it swaps under.
+        if len(built) == 1:
+            steps["skew"] = skew_verdict(os.environ.get("CMUX_ACPMUX_SKEW_REPORT"))
         if "cmux-tui" in built:
             new = built["cmux-tui"]
             t0 = time.monotonic()
@@ -828,6 +831,18 @@ class Swapper:
             steps["acpmux"] = "daemon restart"
             steps["acpmux_secs"] = round(time.monotonic() - t0, 3)
         return steps
+
+
+def skew_verdict(path: str | None) -> dict | None:
+    """The n/n-1 report scripts/cmux-next/acpmux-skew-matrix.py wrote (old acpmux with new cmux and the reverse,
+    one real prompt each): {"ok": 0|1, "pass": P, "total": T}, or None when there is none to read."""
+    if not path:
+        return None
+    try:
+        report = json.loads(Path(path).read_text())
+        return {"ok": int(report["ok"]), "pass": int(report["pass"]), "total": int(report["total"])}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 # ---------------------------------------------------------------- the loop

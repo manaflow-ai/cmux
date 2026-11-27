@@ -2230,6 +2230,46 @@ bun run typecheck || rc=1
 exit "$rc"
 '''
 
+# n/n-1 between acpmux and cmux (Leo: "of course acpmux/cmux protocols need to be able to work in lockstep with these
+# and improve ever further"): a live swap restarts one daemon beside the other's older build. The NEXT nightly's
+# shipped acpmux against this tree's cmux, this tree's acpmux against the nightly's cmux, one real prompt through each
+# pair; the pass/total report is the number rust-live.py's skew_verdict reads before a swap of one daemon.
+[step.acpmux-skew-matrix]
+job = "linux"
+# Its cargo build takes every core; 40 minutes is a cold debug build of both binaries and the two pairs.
+alone = true
+timeout = 2400
+title = "acpmux and cmux n/n-1"
+about = "the shipped NEXT nightly's acpmux answers this tree's cmux, and this tree's acpmux answers the nightly's cmux, one prompt each"
+needs = ["rust", "zig"]
+inputs = [
+  "cmux-tui/**",
+  "ghostty-next",
+  "scripts/cmux-next/acpmux-skew-matrix.py",
+  "scripts/cmux-next/rust-live.py",
+  "scripts/ci/cmux-tui-test-target.sh",
+  "tests/test_acpmux_skew_matrix.py",
+]
+run = '''
+root="$PWD"
+python3 -I tests/test_acpmux_skew_matrix.py
+cd cmux-tui
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
+export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0
+unset CMUX_ZIG ZIG
+# The last feat-cmux-next push's build (read only; a miss builds cold).
+../scripts/ci/cmux-tui-test-target.sh restore
+cargo build --locked -p cmux-tui --bin cmux-tui -p acpmux --bin acpmux
+target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+cd "$root"
+out="${RUNNER_TEMP:-$root/.ci-tmp}/acpmux-skew-matrix.json"
+mkdir -p "$(dirname "$out")"
+python3 -I scripts/cmux-next/acpmux-skew-matrix.py --old shipped \
+  --new-acpmux "$target_dir/debug/acpmux" --new-cmux "$target_dir/debug/cmux-tui" --out "$out"
+'''
+
 # acpmux's hot paths in instructions, not time (Leo: "are we also doing more work on perf while we're here? for the
 # app especially?"): Callgrind counts each case of cmux-tui/crates/acpmux/benches/icount.rs (an MCP connect to the
 # chat's tool servers, the chat pane's client core on v2 chat frames, a JSON-RPC parse and serialize) and the step
