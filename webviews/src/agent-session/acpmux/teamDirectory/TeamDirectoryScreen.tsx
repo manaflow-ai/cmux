@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
+import { Tooltip } from "../../../ui/Tooltip";
 import { useT, type StringKey } from "../i18n";
 import {
   directoryReason,
@@ -117,7 +118,7 @@ function Presence({ row }: { row: { status?: PresenceStatus | null; working: boo
       className="tdir-dot"
       data-status={row.status ?? "none"}
       data-working={row.working ? "" : undefined}
-      {...(row.working ? { title: t("teamDirectory.working") } : {})}
+      {...(row.working ? { "aria-label": t("teamDirectory.working"), role: "img" } : {})}
     />
   );
 }
@@ -146,14 +147,16 @@ function SpaceItem({ space }: { space: SpaceRow }) {
       <div className="tdir-space-head">
         <span className="tdir-space-title">{space.title}</span>
         {space.unread > 0 && (
-          <span className="tdir-count" data-tone="unread" title={t("teamDirectory.unread")}>
-            {space.unread}
-          </span>
+          <Tooltip label={t("teamDirectory.unread")}>
+            <span className="tdir-count" data-tone="unread">
+              {space.unread}
+            </span>
+          </Tooltip>
         )}
         {space.open > 0 && (
-          <span className="tdir-count" title={t("teamDirectory.open")}>
-            {space.open}
-          </span>
+          <Tooltip label={t("teamDirectory.open")}>
+            <span className="tdir-count">{space.open}</span>
+          </Tooltip>
         )}
       </div>
       {live > 0 ? (
@@ -184,9 +187,9 @@ function HitItem({ hit, onSession, openRef }: { hit: Hit; onSession(id: string):
   return (
     <li className="tdir-row" data-kind={hit.kind}>
       {open ? (
-        <button type="button" className="tdir-row-button" onClick={open}>
+        <Button bare className="tdir-row-button" onClick={open}>
           {body}
-        </button>
+        </Button>
       ) : (
         <div className="tdir-row-button">{body}</div>
       )}
@@ -255,10 +258,10 @@ function SessionLinks({
   const refButton = (key: RefKey, label: string, detail?: string) => (
     <li key={`${key.kind}/${key.source}/${key.id}`} className="tdir-row">
       {openRef ? (
-        <button type="button" className="tdir-row-button" onClick={() => openRef(key)}>
+        <Button bare className="tdir-row-button" onClick={() => openRef(key)}>
           <span className="tdir-row-label">{label}</span>
           {detail && <span className="tdir-row-detail">{detail}</span>}
-        </button>
+        </Button>
       ) : (
         <div className="tdir-row-button">
           <span className="tdir-row-label">{label}</span>
@@ -372,19 +375,21 @@ export function TeamDirectoryScreen({
               <ul className="tdir-teams" aria-label={t("teamDirectory.teams")}>
                 {navigator.teams.map((team) => (
                   <li key={team.id}>
-                    <button
-                      type="button"
+                    <Button
+                      bare
                       className="tdir-team"
                       aria-current={team.current ? "true" : undefined}
                       onClick={() => setTeamId(team.id)}
                     >
                       {team.name}
                       {team.unread > 0 && (
-                        <span className="tdir-count" data-tone="unread" title={t("teamDirectory.unread")}>
-                          {team.unread}
-                        </span>
+                        <Tooltip label={t("teamDirectory.unread")}>
+                          <span className="tdir-count" data-tone="unread">
+                            {team.unread}
+                          </span>
+                        </Tooltip>
                       )}
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ul>
