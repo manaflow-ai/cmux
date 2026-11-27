@@ -450,7 +450,7 @@ import Testing
             do {
                 try FileManager.default.createDirectory(at: request.chunks, withIntermediateDirectories: true)
                 try FileManager.default.copyItem(at: source, to: request.out)
-                if alter { try Data("changed".utf8).write(to: request.out.appending(path: "Native/changed.txt")) }
+                if alter { try Data("changed".utf8).write(to: request.out.appending(path: WebUpdateTree.inspectorOutput)) }
             } catch { return .failure(.init("copy: \(error)")) }
             return .success(.init(treeBytes: 100, chunks: 4, reused: 3, ranges: 1, rangeBytes: 25, metaBytes: 10))
         }
@@ -503,6 +503,17 @@ import Testing
         #expect(updater.lastFetch?.by == .archive)
         #expect(updater.lastFetch?.casMiss?.hasPrefix("tree: ") == true)
         #expect(Self.staging(in: root.appending(path: "store")).isEmpty)
+    }
+
+    @Test func aCasMissWhoseArchiveFailsRecordsNoFetch() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (server, _, updater, _) = try await Self.casSetup(root, result: .failure(.init("metered link")))
+        server.failures = 1
+        await updater.check()
+        #expect(server.casRequests.count == 1)
+        #expect(updater.state.active == nil)
+        #expect(updater.lastFetch == nil)
     }
 
     @Test func withoutCasFetchOnlyTheArchiveIsRead() async throws {

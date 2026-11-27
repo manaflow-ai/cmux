@@ -300,9 +300,15 @@ public final class WebUpdater {
             }
             phase = .downloading
             let tree: URL
-            if let fetched = await treeByCas(pointer) {
+            let cas = await treeByCas(pointer)
+            if case .tree(let fetched) = cas {
                 tree = fetched
             } else {
+                // Off or another channel since the cas attempt: no archive for a pointer this check no longer serves.
+                guard self.channel == channel else {
+                    phase = .idle
+                    return
+                }
                 var request = URLRequest(url: pointer.archiveURL(base: base))
                 request.allowsConstrainedNetworkAccess = allowsConstrained
                 request.allowsExpensiveNetworkAccess = allowsExpensive
@@ -322,8 +328,8 @@ public final class WebUpdater {
                     if let refusal = error as? WebUpdateRefusal, Self.isLasting(refusal), self.channel == channel { etag = tag }
                     throw error
                 }
-                lastFetch = FetchOutcome(key: pointer.key, by: .archive, casMiss: lastFetch?.key == pointer.key ? lastFetch?.casMiss : nil,
-                                         archiveBytes: pointer.size)
+                let casMiss: String? = if case .miss(let why) = cas { why } else { nil }
+                lastFetch = FetchOutcome(key: pointer.key, by: .archive, casMiss: casMiss, archiveBytes: pointer.size)
             }
             // Kept after the state writes queued during the download (a channel change).
             try await enqueue { [self] in
@@ -511,9 +517,13 @@ public final class WebUpdater {
         public var archiveBytes: Int
     }
 
-    /// The tree of `pointer` by `cas/1`, kept as `trees/<key>`, or nil (the archive is fetched).
-    func treeByCas(_ pointer: WebUpdatePointer) async -> URL? {
-        guard let casFetch, let cas = pointer.cas, let casBase = pointer.casBase(base: base) else { return nil }
+    /// How a cas/1 attempt ended: a tree, a miss (the archive is fetched; recorded in ``lastFetch``
+    /// only once the archive is installed), or none tried.
+    enum CasAttempt { case tree(URL), miss(String), none }
+
+    /// The tree of `pointer` by `cas/1`, kept as `trees/<key>`, or why not.
+    func treeByCas(_ pointer: WebUpdatePointer) async -> CasAttempt {
+        guard let casFetch, let cas = pointer.cas, let casBase = pointer.casBase(base: base) else { return .none }
         let casStore = store
         let held = [state.active, state.previous].compactMap { $0 }.filter { $0.key != pointer.key }
         let have = await Self.existingTrees(held.map { casStore.tree(for: $0.key).root })
@@ -526,17 +536,15 @@ public final class WebUpdater {
         case .success(let got): report = got
         case .failure(let failure):
             await Self.removeStaging([out, chunks])
-            lastFetch = FetchOutcome(key: pointer.key, by: .archive, casMiss: failure.reason, archiveBytes: pointer.size)
-            return nil
+            return .miss(failure.reason)
         }
         await Self.removeStaging([chunks])
         do {
             let tree = try await casStore.install(tree: out, pointer: pointer)
             lastFetch = FetchOutcome(key: pointer.key, by: .cas, cas: report, archiveBytes: pointer.size)
-            return tree
+            return .tree(tree)
         } catch {
-            lastFetch = FetchOutcome(key: pointer.key, by: .archive, casMiss: "tree: \(error)", archiveBytes: pointer.size)
-            return nil
+            return .miss("tree: \(error)")
         }
     }
 
