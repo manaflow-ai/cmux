@@ -178,7 +178,11 @@ impl Supervisor {
                     result => result,
                 }
             }
-            ("apps.updates.list", _) => self.updates_list(&args),
+            ("apps.updates.list", _) => {
+                let community = self.store_call_base(client, op, args.clone(), origin)?;
+                let git = self.updates_list(&args)?;
+                Ok(super::update_offers::merge_update_lists(community, git))
+            }
             ("apps.uninstall", _) => {
                 let result = self.store_call_base(client, op, args, origin)?;
                 if let Some(app) = app.as_deref() {

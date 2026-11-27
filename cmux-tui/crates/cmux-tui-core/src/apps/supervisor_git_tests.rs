@@ -358,7 +358,7 @@ fn the_update_check_offers_a_newer_release_and_apps_update_installs_it() {
     assert!(f.supervisor.community.set(community).is_ok());
     let v1 = app_tarball("octo/hello", "1.0.0", json!({}));
     git.serve("octo", "hello", A, &[("refs/heads/main", A), ("refs/tags/v1.0.0", A)], &[(A, v1)]);
-    install(&f, "github.com/octo/hello", "k1").unwrap();
+    install(&f, "github.com/octo/hello@v1.0.0", "k1").unwrap();
     assert!(f.supervisor.check_extension_updates_now().is_empty(), "current: no offer");
 
     let v2 = app_tarball("octo/hello", "1.1.0", json!({}));
@@ -375,6 +375,7 @@ fn the_update_check_offers_a_newer_release_and_apps_update_installs_it() {
     assert_eq!(installed, A, "the check only offers");
 
     let list = call(&f, "cmux.apps.updates.list", json!({}), Origin::Cli).unwrap();
+    assert_eq!(list["updates"].as_array().unwrap().len(), 1);
     assert_eq!(list["updates"][0]["app"], "octo/hello");
     assert_eq!(list["updates"][0]["version"], "1.1.0");
 
