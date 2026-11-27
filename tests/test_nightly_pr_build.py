@@ -240,7 +240,7 @@ class BaseRed(unittest.TestCase):
         self.assertIn(f"name=" + npb.PASS_ARTIFACT, text)
         self.assertIn("name: ${{ steps.verdict.outputs.name }}-${{ matrix.arch }}", text)
         # The fleet refusing the step for its own disk is no verdict, not a red on the head.
-        self.assertIn("failed on no worker: invalid ci-step: source depot full' \"$log\"", text)
+        self.assertIn("grep -q 'source depot full' \"$log\"", text)
         self.assertIn("continue-on-error: true  # past its time it builds", text)
         self.assertEqual(text.count("continue-on-error: true  # best effort: never changes the compile's verdict"), 2)
         self.assertIn("ADDED_LABEL: ${{ github.event.label.name }}", text)
