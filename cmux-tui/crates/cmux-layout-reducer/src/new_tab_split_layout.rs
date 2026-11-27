@@ -32,7 +32,7 @@ fn insert(tree: &Node, target: &str, ratio: f64) -> Option<Node> {
             *b.clone(),
         ));
     }
-    if let changed = insert(a, target, ratio) {
+    if let Some(changed) = insert(a, target, ratio) {
         return Some(Node::split(split, *axis, *old, changed, *b.clone()));
     }
     insert(b, target, ratio).map(|changed| Node::split(split, *axis, *old, *a.clone(), changed))

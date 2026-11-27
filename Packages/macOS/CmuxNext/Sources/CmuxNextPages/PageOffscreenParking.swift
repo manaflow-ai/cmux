@@ -29,6 +29,13 @@ public final class PageOffscreenParking: NSView {
         layoutSubtreeIfNeeded()
     }
 
+    /// Attach below the target window's content without making the parked page visible.
+    public func park(in content: NSView) {
+        guard superview !== content else { return }
+        autoresizingMask = []
+        content.addSubview(self, positioned: .below, relativeTo: nil)
+    }
+
     override public init(frame: NSRect) {
         super.init(frame: frame)
         alphaValue = 0

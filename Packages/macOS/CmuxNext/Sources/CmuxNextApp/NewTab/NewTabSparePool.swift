@@ -193,50 +193,28 @@ final class NewTabSparePool {
     /// Parks the parking view in `content`, at the target pane's size (``fitParked()``). It follows neither the window's
     /// size nor the pane's while hidden.
     private func park(in content: NSView) {
-        if parking.superview !== content {
-            parking.autoresizingMask = []
-            content.addSubview(parking, positioned: .below, relativeTo: nil)
-        }
+        parking.park(in: content)
         fitParked()
     }
 
     /// The size of the pane content a Cmd-T in the target window fills: its focused pane's.
-    var targetPaneSize: NSSize? { targetPane.map { Self.newTabContentSize(in: $0) }.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } }
+    var targetPaneSize: NSSize? { targetPane.map(\.newTabContentSize).flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } }
     var targetPane: PaneController? { services.windows.controllers.first { $0.window === target }?.content?.focusedPane }
     /// The context a Cmd-T in the target window gives (NewTabPage.open): the parked spare draws it (SHORTCUT FRAMES F2).
     private var preparedPage: AgentPaneNewTab {
         guard let pane = targetPane, pane.daemon.isLocal else { return NewTabPage.sparePage(services) }
         return NewTabPage.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
     }
-    var preparedFor: [AnyHashable]?
     var targetIdentity: [AnyHashable]? { targetPane.map { [ObjectIdentifier($0), $0.selectedTab?.id] } }
     private let prepareTimer = DemandTimer(owner: "NewTabSparePool.prepare")
     /// After the settle, never in an input's turn (a key window change, Cmd-T's refill).
     func schedulePrepare() { prepareTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.prepareParked() } }
-    /// Prepares the pool put off because the parked page had no handshake or first paint yet (tests wait on it).
-    private(set) var deferredPrepares = 0
-    /// Parked pages a prepare waits on for their first paint: one wait each.
-    private var awaitingPaint: Set<ObjectIdentifier> = []
-    /// Each parked page that finished its handshake and first paint draws the context a Cmd-T would give, and gives
-    /// its cover once it drew it; a page not ready yet is prepared when it painted. Never while an open settles.
+    var deferredPrepares: Int { spareFrames.deferredPrepares }
     private func prepareParked() {
-        guard !refills.isOpening else { return }
-        let page = preparedPage
-        for view in slot.all where view.superview === parking {
-            guard view.model.hasHandshake, view.model.hasPainted else {
-                deferredPrepares += 1
-                if awaitingPaint.insert(ObjectIdentifier(view)).inserted {
-                    view.model.whenPainted { [weak self, weak view] in
-                        if let view { self?.awaitingPaint.remove(ObjectIdentifier(view)) }
-                        self?.schedulePrepare()
-                    }
-                }
-                continue
-            }
-            let prepared = BenchSpans.measure("pool.prepare") { view.prepareNewTab(page) }
-            if view === slot.peek { preparedFor = targetIdentity }
-            if prepared { view.redraw.afterNextFrame { [weak self, weak view] in view.map { self?.snapshotParked($0) } } }
-        }
+        spareFrames.prepare(views: slot.all, parking: parking, opening: refills.isOpening,
+                            page: preparedPage, identity: targetIdentity,
+                            retry: { [weak self] in self?.schedulePrepare() },
+                            snapshot: { [weak self] in self?.snapshotParked($0) })
     }
 
     lazy var fits = FrameBatchQueue(owner: "NewTabSparePool.fit", budgeted: .background, on: services.mainWork)
@@ -323,10 +301,9 @@ final class NewTabSparePool {
 
     /// Drops the spare (memory pressure, the last window closing).
     func dropAll() {
-        spareFrames.cancel()
         nativeSpare?.removeFromSuperview()
         nativeSpare = nil
-        awaitingPaint.removeAll()
+        spareFrames.drop()
         for view in slot.dropAll() {
             covers.forget(view)
             view.removeFromSuperview()

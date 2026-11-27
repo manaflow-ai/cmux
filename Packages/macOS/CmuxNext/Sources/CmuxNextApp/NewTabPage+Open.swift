@@ -79,7 +79,7 @@ extension NewTabPage {
         // No spare either while an idle page waits (the untouched New Tab page that this pane leaves now, when no other window of the workspace draws that tab or has it selected, or one that no window shows): the new
         // tab takes that one when the pane shows it (`AgentTabStore.idlePage`), in this turn, so a hold of this key makes no page and uses no spare.
         let spare = seed == nil && pane.daemon.isLocal && services.agentTabs.idlePage(leaving: pane) == nil
-            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane), still: { [weak strip = pane.view.stripView] in strip?.whenStill($0) }) })
+            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: pane.newTabContentSize, still: { [weak strip = pane.view.stripView] in strip?.whenStill($0) }) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
         guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view, then: then) }) else {

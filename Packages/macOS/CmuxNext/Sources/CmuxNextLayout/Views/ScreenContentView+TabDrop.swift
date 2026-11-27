@@ -128,33 +128,24 @@ extension ScreenContentView {
     /// moves to `ratio`, and the new pane is the second child of the first side; this mirrors
     /// `DividerInsertPlan` before the daemon creates the pane.
     func newDividerPaneSize(splitting split: SplitID, ratio: Double) -> CGSize? {
-        let newPane = PaneID(rawValue: "__divider-prefetch-pane")
-        let newSplit = SplitID(rawValue: "__divider-prefetch-split")
-        func inserting(_ node: SplitNode) -> SplitNode {
-            switch node {
-            case .leaf: return node
-            case let .split(id, axis, old, a, b):
-                guard id == split else {
-                    return .split(id, axis: axis, ratio: old, a: inserting(a), b: inserting(b))
-                }
-                let wrapped = SplitNode.split(newSplit, axis: axis, ratio: 0.5, a: a, b: .leaf(newPane))
-                return .split(id, axis: axis, ratio: ratio, a: wrapped, b: b)
-            }
-        }
         let after: ScreenLayout
         switch layout {
-        case let .splits(root): after = .splits(inserting(root))
+        case let .splits(root):
+            guard let predicted = NewTabDividerLayout.predict(root, split: split, ratio: ratio) else { return nil }
+            after = .splits(predicted)
         case let .columns(columns):
             var changed = columns
             var found = false
             for index in changed.indices {
                 if changed[index].hasRows {
-                    for row in changed[index].rows.indices where changed[index].rows[row].root.node(for: split) != nil {
-                        changed[index].rows[row].root = inserting(changed[index].rows[row].root)
-                        found = true
+                    for row in changed[index].rows.indices {
+                        if let predicted = NewTabDividerLayout.predict(changed[index].rows[row].root, split: split, ratio: ratio) {
+                            changed[index].rows[row].root = predicted
+                            found = true
+                        }
                     }
-                } else if changed[index].root.node(for: split) != nil {
-                    changed[index].root = inserting(changed[index].root)
+                } else if let predicted = NewTabDividerLayout.predict(changed[index].root, split: split, ratio: ratio) {
+                    changed[index].root = predicted
                     found = true
                 }
             }
@@ -163,7 +154,7 @@ extension ScreenContentView {
         }
         let computed = ScreenGeometry.compute(after, viewport: bounds.size, style: context.style,
                                               scale: window?.backingScaleFactor ?? 2)
-        guard let cell = computed.panes[newPane] else { return nil }
+        guard let cell = computed.panes[NewTabDividerLayout.newPane] else { return nil }
         return PaneChromeGeometry.contentRect(forCell: cell, style: context.style).size
     }
 
