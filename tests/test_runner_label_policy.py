@@ -196,9 +196,11 @@ HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
 # checked by scripts/ci/runner_pools.py --check (ci-repo-variables.yml), not by the label policy.
 # CI_RUNNER_STATE is compressed discovery metadata, not a runs-on label.
 # RUNNER_ADMISSION_CONTROLLER is the build controller's URL that expected_wait.py reads, not a runs-on label.
+# MERGE_FREEZE_OWN_RUNNER is a 1/0 switch (merge-freeze.yml runs its own job into feat-cmux-next), not a label.
 NON_LABEL_RUNNER_VARIABLES = {
     "CI_RUNNER_STATE",
     "CI_SEED_KEEP_LOCAL_RUNNERS",
+    "MERGE_FREEZE_OWN_RUNNER",
     "RUNNER_ADMISSION_CONTROLLER",
     "RUNNER_POOLS",
 }

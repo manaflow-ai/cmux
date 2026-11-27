@@ -7374,7 +7374,8 @@ class Workflow(unittest.TestCase):
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read", "id-token": "write",
                                               "pull-requests": "read"})
         checkout = job["steps"][0]
-        self.assertEqual(checkout["with"], {"ref": "main", "persist-credentials": False})
+        # A full ref (#56905): a bare "main" made checkout fetch every feat-cmux-next-* branch.
+        self.assertEqual(checkout["with"], {"ref": "refs/heads/main", "persist-credentials": False})
 
     def test_runs_when_dispatched_or_for_a_screenshots_or_dev_daily_run(self):
         triggers = self.doc[True]
@@ -7482,11 +7483,11 @@ class Workflow(unittest.TestCase):
     def test_polls_from_an_ephemeral_runner(self):
         # Never from an owned pool it may rescue, and never only from
         # GitHub-hosted: a GitHub billing block must not stop the rescue. Every
-        # event leads with the repair one-job JIT label, off the pools it
-        # rescues from, and the ephemeral selector follows it.
+        # event takes the reserved queue one-job JIT label (what its switches
+        # resolved to, written out), off the pools it rescues from.
         self.assertEqual(
             self.doc["jobs"]["rescue"]["runs-on"],
-            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || vars.CI_QUEUE_RESERVED == \'1\' && \'cmux-gcp-queue-jit-x64\' || vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-gcp-repair-jit-x64\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-queue-jit-x64' }}",
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):

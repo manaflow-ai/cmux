@@ -34,5 +34,13 @@ class OidcSignInTest(unittest.TestCase):
         self.assertNotIn("CMUX_DOGFOOD_STACK_EMAIL", journey_job())
 
 
+    def test_only_the_codex_stub_skips_the_cold_create(self):
+        # The test team's hourly create cap: the codex stub (four runs an hour) leaves out the second create.
+        job = journey_job()
+        self.assertIn('skip=sync,pause\n', job)
+        self.assertIn('if [ "$AGENT" = codex ] && [ "$MODEL" = stub ]; then skip=sync,pause,cold; fi', job)
+        self.assertIn('--skip "$skip"', job)
+
+
 if __name__ == "__main__":
     unittest.main()
