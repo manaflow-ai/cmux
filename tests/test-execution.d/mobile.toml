@@ -5,3 +5,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_mobile_pair_matrix.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_mobile_pair_source_setup.py"
+lane = "linux-guard"
