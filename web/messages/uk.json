@@ -5856,7 +5856,7 @@
     "settings": "Налаштування аналітики"
   },
   "emailSignInCallback": {
-    "title": "Enter the code in the cmux app",
+    "title": "Введіть код у застосунку cmux",
     "body": "Поверніться до застосунку cmux і введіть 6-символьний код із цього листа. Відкриття цього посилання не виконує вхід у застосунку.",
     "browserPrompt": "Хочете користуватися cmux у цьому браузері?",
     "browserSignIn": "Увійти на cmux.com"

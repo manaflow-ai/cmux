@@ -5786,7 +5786,7 @@
     "settings": "Postavke analitike"
   },
   "emailSignInCallback": {
-    "title": "Enter the code in the cmux app",
+    "title": "Unesite kod u aplikaciji cmux",
     "body": "Vratite se u aplikaciju cmux i unesite kod od 6 znakova iz ovog e-maila. Otvaranje ovog linka ne prijavljuje aplikaciju.",
     "browserPrompt": "Želite li umjesto toga koristiti cmux u ovom pregledniku?",
     "browserSignIn": "Prijavite se na cmux.com"

@@ -18,7 +18,7 @@
     "description": "ターミナルに戻ってセットアップを完了してください。"
   },
   "emailSignInCallback": {
-    "title": "cmux アプリでサインインを完了してください",
+    "title": "cmux アプリでコードを入力してください",
     "body": "cmux アプリに戻り、このメールに記載された 6 文字のコードを入力してください。このリンクを開いてもアプリはサインインされません。",
     "browserPrompt": "このブラウザで cmux を使いますか？",
     "browserSignIn": "cmux.com でサインイン"

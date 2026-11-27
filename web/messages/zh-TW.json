@@ -5785,7 +5785,7 @@
     "settings": "分析設定"
   },
   "emailSignInCallback": {
-    "title": "Enter the code in the cmux app",
+    "title": "在 cmux App 中輸入驗證碼",
     "body": "回到 cmux App，輸入這封郵件中的 6 碼驗證碼。開啟此連結不會讓 App 登入。",
     "browserPrompt": "想在此瀏覽器中使用 cmux？",
     "browserSignIn": "在 cmux.com 登入"

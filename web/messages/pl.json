@@ -5786,7 +5786,7 @@
     "settings": "Ustawienia analityki"
   },
   "emailSignInCallback": {
-    "title": "Enter the code in the cmux app",
+    "title": "Wpisz kod w aplikacji cmux",
     "body": "Wróć do aplikacji cmux i wpisz 6-znakowy kod z tego e-maila. Otwarcie tego linku nie loguje aplikacji.",
     "browserPrompt": "Chcesz zamiast tego używać cmux w tej przeglądarce?",
     "browserSignIn": "Zaloguj się na cmux.com"
