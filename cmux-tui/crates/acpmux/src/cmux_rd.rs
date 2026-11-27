@@ -272,9 +272,10 @@ pub struct Live;
 
 impl Host for Live {
     async fn fetch(&self, url: &str) -> Result<Vec<u8>> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        // GitHub answers a release download with a redirect to its object store.
-        let client = reqwest::Client::builder().timeout(FETCH_LIMIT).build()?;
+        // GitHub answers a release download with a redirect to its object store
+        // (both hosts are in cmux-egress/hosts.txt).
+        let client =
+            cmux_egress::client_builder("acpmux::cmux_rd::fetch").timeout(FETCH_LIMIT).build()?;
         let mut answer = client.get(url).send().await?.error_for_status()?;
         let mut bytes = Vec::new();
         while let Some(chunk) = answer.chunk().await? {
