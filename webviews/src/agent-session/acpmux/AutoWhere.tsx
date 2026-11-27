@@ -4,11 +4,11 @@
 // (autoWhere.css), which hold still under reduced motion.
 import "./autoWhere.css";
 import { useId } from "react";
-import { useT } from "./i18n";
+import { useT, type StringKey } from "./i18n";
 import { type AutoLanding, type AutoLook, landingMove, landingTextKey } from "./autoWhereModel";
 
-/// Auto's icon. `split` (ships): half a computer, half a cloud, cut by an angled slash: this Mac or
-/// Cloud. `orbit`: your chat as a still centre and three machine-coloured dots going
+/// Auto's icon. `split` (ships): a laptop with a cloud badge on its corner, this Mac and Cloud at
+/// once, in the other rows' 14px box and stroke (cmux#51731). `orbit`: your chat as a still centre and three machine-coloured dots going
 /// round it. `constellation`: a spark in the machines' colours. `aurora`: there-and-back arrows in a
 /// cool gradient. `plain`: the arrows in the text colour, as any row's icon.
 export function AutoIcon({ look }: { look: AutoLook }) {
@@ -97,12 +97,12 @@ export function AutoIcon({ look }: { look: AutoLook }) {
   );
 }
 
-/// The `split` look: the computer's left half and the cloud's right half, each clipped to its side of
-/// one slash from top right to bottom left, with a hairline gap either side of the slash.
+/// The `split` look: a laptop (screen and base) with a filled cloud badge on its top-right corner, the
+/// laptop cut around the badge so the two read apart at 14px.
 function SplitIcon({ className }: { className: string }) {
   const id = useId();
-  const computer = `${id}-computer`;
-  const cloud = `${id}-cloud`;
+  const cut = `${id}-cut`;
+  const badge = "M10.2 6.8H14A1.4 1.4 0 0 0 14.2 4.02 2.15 2.15 0 0 0 10 4.1 1.5 1.5 0 0 0 10.2 6.8Z";
   return (
     <svg
       className={className}
@@ -119,24 +119,16 @@ function SplitIcon({ className }: { className: string }) {
       focusable="false"
     >
       <defs>
-        <clipPath id={computer}>
-          <path d="M0 0h9.6L3.6 16H0Z" />
-        </clipPath>
-        <clipPath id={cloud}>
-          <path d="M12.4 0H16v16H6.4Z" />
-        </clipPath>
+        <mask id={cut} maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16">
+          <rect width="16" height="16" fill="white" stroke="none" />
+          <path d={badge} fill="black" stroke="black" strokeWidth={2.5} />
+        </mask>
       </defs>
-      <g clipPath={`url(#${computer})`}>
-        <rect x="1.75" y="3" width="11" height="7.75" rx="1.25" />
-        <path d="M1 13.25h11" />
+      <g mask={`url(#${cut})`}>
+        <rect x="2" y="3.75" width="10.5" height="7.25" rx="1.25" />
+        <path d="M.75 13.25h13" />
       </g>
-      <path
-        className="acpmux-auto-split-cloud"
-        clipPath={`url(#${cloud})`}
-        stroke="var(--agent-ansi-4, currentColor)"
-        d="M5.4 13.25h6.85a3.05 3.05 0 0 0 .55-6.05A4.25 4.25 0 0 0 5.2 6.1a3.6 3.6 0 0 0 .2 7.15Z"
-      />
-      <path className="acpmux-auto-split-slash" d="M12 1.5 4 14.5" />
+      <path className="acpmux-auto-split-cloud" d={badge} fill="var(--agent-ansi-4, currentColor)" stroke="none" />
     </svg>
   );
 }
@@ -197,6 +189,24 @@ export function AutoArrival({
           </svg>
         </button>
       )}
+    </div>
+  );
+}
+
+/// The one-shot line shown while Auto's scale-up admission starts a machine. It uses the arrival
+/// line's existing Auto styling; the model decides whether the text is present.
+export function AutoAddingMachineLine({ text, look }: { text: StringKey; look: AutoLook }) {
+  const t = useT();
+  return (
+    <div
+      className="acpmux-auto-arrival"
+      data-auto-look={look}
+      data-went="scalingUp"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a flex row in the notices strip; <output> is inline and form-bound.
+      role="status"
+    >
+      <AutoIcon look={look} />
+      <span className="acpmux-auto-arrival-text">{t(text)}</span>
     </div>
   );
 }

@@ -118,20 +118,29 @@ final class BookmarkService {
 
     // MARK: Writing
 
-    /// Applies `operation` to `profile`'s tree and sends it to the daemon.
-    /// Validation errors throw before anything changes; so does an edit
-    /// before the home daemon serves bookmarks (it has nowhere to go).
+    /// Applies `operations` in order to `profile`'s tree in one `bookmarks_apply` call (one
+    /// result each; a refused one changes nothing), sends each that changed something to the
+    /// daemon and redraws once. Before the home daemon serves bookmarks, an edit is refused.
     @discardableResult
-    func apply(_ operation: BookmarkOperation, profile: String) throws -> BookmarkChange {
+    func apply(_ operations: [BookmarkOperation], profile: String) throws -> [Result<BookmarkChange, BookmarkError>] {
         guard usesDaemon else { throw DaemonError.notConnected }
         var tree = tree(profile)
-        let change = try tree.apply(operation)
-        guard !change.isEmpty || isImport(operation) else { return change }
+        let results = try tree.apply(operations)
+        let sent = BookmarkOperation.sent(operations, results)
+        guard !sent.isEmpty else { return results }
         trees[profile] = tree
-        if case .create(let node, _) = operation { lastFolder[profile] = node.parent }
-        send(operation, profile: profile)
+        for operation in sent {
+            if case .create(let node, _) = operation { lastFolder[profile] = node.parent }
+            send(operation, profile: profile)
+        }
         changed(profiles: [profile])
-        return change
+        return results
+    }
+
+    @discardableResult
+    func apply(_ operation: BookmarkOperation, profile: String) throws -> BookmarkChange {
+        guard let result = try apply([operation], profile: profile).first else { throw BookmarkError.unavailable }
+        return try result.get()
     }
 
     /// The home daemon's routed `bookmarks.*` ops (codec, imports, search, rank).
@@ -140,11 +149,6 @@ final class BookmarkService {
     /// Marks a bookmark as used now (opened from any bookmark surface).
     func touch(_ id: String, profile: String) {
         try? apply(.update(id: id, lastUsed: .set(Date())), profile: profile)
-    }
-
-    private func isImport(_ operation: BookmarkOperation) -> Bool {
-        if case .importDrafts = operation { return true }
-        return false
     }
 
     /// Every view of `profiles` redraws (stars, bars; the manager page follows the daemon's events).

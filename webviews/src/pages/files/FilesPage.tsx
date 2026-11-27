@@ -2,22 +2,30 @@
 // and Down move, Right opens a folder or steps into it, Left closes it or steps to its parent, Return
 // opens a file or toggles a folder, Home and End jump, typing selects by name). Any folder lists:
 // in a git repository as git sees it (ignored files never show), elsewhere from the disk.
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { FileIcon } from "../../file-icons";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
-import { Tree, type TreeLine } from "../../ui/Tree";
+import { Tree, useTreeLineCache, type TreeLine, type TreeLineBuilder } from "../../ui/Tree";
 import type { Strings } from "../shared/i18n";
-import { joinPath, type FilesStore, type FolderState, type Row } from "./store";
+import { joinPath, type FilesSnapshot, type FilesStore, type FolderState, type Row } from "./store";
 
 export function FilesPage({ store, strings }: { store: FilesStore; strings: Strings }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { rows, selected, root, folders, expanded } = snapshot;
+  // The lines change with the listings and the open folders, not with the selection; each keeps its
+  // object while its entry is the same, so the tree draws again only the rows that changed.
+  const cache = useTreeLineCache();
+  const lines = useMemo(
+    () => cache.build((line) => linesOf(line, folders, expanded, strings, "", 0)),
+    [cache, folders, expanded, strings],
+  );
+  const byPath = useMemo(() => new Map(rows.map((row) => [row.path, row])), [rows]);
 
   if (snapshot.unavailable) return <p className="files-message">{strings.t("files.page.unavailable")}</p>;
   if (snapshot.failed) return <p className="files-message">{snapshot.failed}</p>;
   if (!root) return <p className="files-message files-muted">{strings.t("files.page.loading")}</p>;
 
-  const current = rows.find((row) => row.path === selected);
+  const current = selected === undefined ? undefined : byPath.get(selected);
   const activate = (row: Row) => (row.kind === "directory" ? store.toggle(row.path) : void store.open(row.path));
 
   const menu = (row: Row | undefined): ContextMenuItem[] => {
@@ -59,58 +67,12 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
     return items;
   };
 
-  // A folder's rows, each open folder's rows under it, then the folder's own status line after them.
-  const linesOf = (folder: string, depth: number): TreeLine[] => {
-    const state = folders.get(folder);
-    const lines: TreeLine[] = [];
-    for (const entry of state?.entries ?? []) {
-      const path = joinPath(folder, entry.name);
-      const directory = entry.kind === "directory";
-      const open = directory && expanded.has(path);
-      lines.push({
-        kind: "item",
-        key: path,
-        depth,
-        text: entry.name,
-        expandable: directory,
-        expanded: open,
-        content: (
-          <>
-            <span
-              className={`files-chevron${directory ? "" : " is-leaf"}${open ? " is-open" : ""}`}
-              aria-hidden="true"
-            />
-            {directory ? <span className="files-folder" aria-hidden="true" /> : <FileIcon path={entry.name} />}
-            <span className="files-name">{entry.name}</span>
-          </>
-        ),
-      });
-      if (open) lines.push(...linesOf(path, depth + 1));
-    }
-    const status = statusText(state, strings);
-    if (status) {
-      lines.push({
-        kind: "note",
-        key: `status:${folder}`,
-        content: (
-          <div
-            className={`files-status${state?.failed ? " is-failed" : ""}`}
-            style={{ paddingInlineStart: 30 + depth * 14 }}
-          >
-            {status}
-          </div>
-        ),
-      });
-    }
-    return lines;
-  };
-
   return (
     <div className="files">
       <header className="files-header">{root.name}</header>
       <ContextMenu items={menu(current)} className="files-scroll">
         <Tree
-          lines={linesOf("", 0)}
+          lines={lines}
           selected={selected}
           label={root.name}
           className="files-tree"
@@ -119,7 +81,7 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
           onSelect={(path) => store.select(path)}
           onExpand={(path, open) => (open ? store.expand(path) : store.collapse(path))}
           onActivate={(item) => {
-            const row = rows.find((candidate) => candidate.path === item.key);
+            const row = byPath.get(item.key);
             if (row) activate(row);
           }}
         />
@@ -127,6 +89,46 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
       {snapshot.notice ? <p className="files-status is-failed files-notice">{snapshot.notice}</p> : null}
     </div>
   );
+}
+
+/** A folder's rows, each open folder's rows under it, then the folder's own status line after them. */
+function linesOf(
+  line: TreeLineBuilder,
+  folders: FilesSnapshot["folders"],
+  expanded: FilesSnapshot["expanded"],
+  strings: Strings,
+  folder: string,
+  depth: number,
+  lines: TreeLine[] = [],
+): TreeLine[] {
+  const state = folders.get(folder);
+  for (const entry of state?.entries ?? []) {
+    const path = joinPath(folder, entry.name);
+    const directory = entry.kind === "directory";
+    const open = directory && expanded.has(path);
+    lines.push(
+      line.item({ key: path, depth, text: entry.name, expandable: directory, expanded: open }, [], () => (
+        <>
+          <span className={`files-chevron${directory ? "" : " is-leaf"}${open ? " is-open" : ""}`} aria-hidden="true" />
+          {directory ? <span className="files-folder" aria-hidden="true" /> : <FileIcon path={entry.name} />}
+          <span className="files-name">{entry.name}</span>
+        </>
+      )),
+    );
+    if (open) linesOf(line, folders, expanded, strings, path, depth + 1, lines);
+  }
+  const status = statusText(state, strings);
+  if (status) {
+    const failed = !!state?.failed;
+    lines.push(
+      line.note(`status:${folder}`, [status, failed, depth], () => (
+        <div className={`files-status${failed ? " is-failed" : ""}`} style={{ paddingInlineStart: 30 + depth * 14 }}>
+          {status}
+        </div>
+      )),
+    );
+  }
+  return lines;
 }
 
 /** The muted line under a folder that is loading, empty, cut short or failed to list. */

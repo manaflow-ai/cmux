@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR edd365380654689985f3f1c18f1a98fa386f9d427f7cbc03b0b8a08a3aea0d6a. */
+/* cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "edd365380654689985f3f1c18f1a98fa386f9d427f7cbc03b0b8a08a3aea0d6a" as const;
+export const SDK_IR_SHA256 = "8643722ab2e1cf6dc9e0ce2e96aeba4a65938fa66bf35bef074884f46ce34b95" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -120,6 +120,10 @@ export const COMMAND_METADATA = {
       "resume_generation": {
         "since": null,
         "capability": "terminal-resume-v1"
+      },
+      "resume_max_bytes": {
+        "since": null,
+        "capability": "terminal-resume-bounded-v1"
       },
       "resume_offset": {
         "since": null,
@@ -1085,7 +1089,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only; the caller's principal must be an agent participant (not_agent) and the run its own (not_run_author). run is {id, turn?, answers?, thread_root?, status?, title?, started_at?, usage?, cost_usd?, model?, harness?, error?, session?, workspace?}; steps (at most 64, 1 MiB) are replaced by id; a run keeps at most 2000 steps (run_full). Refusals are run_rejected or conversation_rejected. See spec/commands.md."
+      "Trusted local connections only; the caller's principal must be an agent participant (not_agent) and the run its own (not_run_author). run is {id, turn?, answers?, thread_root?, status?, title?, started_at?, usage?, cost_usd?, model?, harness?, error?, session?, workspace?}; steps (at most 64, 1 MiB) are replaced by id; a run keeps every step (no count cap). Refusals are run_rejected or conversation_rejected. See spec/commands.md."
     ]
   },
   "conversation-runs": {
@@ -1517,6 +1521,17 @@ export const COMMAND_METADATA = {
       "Requests of one client with one transaction are one layout-undo entry. See spec/commands.md for the result object and error codes."
     ]
   },
+  "flush-launch-snapshot": {
+    "authority": "control",
+    "since": 12,
+    "capability": "launch-snapshot-flush-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Writes the launch snapshot (launch-snapshot-v1) now, with no settle, max delay or byte-budget wait, and answers once it landed or after 1 s: flushed is true when the file holds the session's state as of the request (written now, or already the same), false when the session has no launch snapshot writer, the write failed or the wait passed (the write still happens).",
+      "The daemon writes the same way on its own when a connection that wrote a native frontend projection closes (a quit, force quit, crash or kill of the app); a client sends this when it wants the answer. Other changes keep the settled timing."
+    ]
+  },
   "focus-direction": {
     "authority": "control",
     "since": 6,
@@ -1638,6 +1653,10 @@ export const COMMAND_METADATA = {
       "machine_metadata": {
         "since": 12,
         "capability": "machine-identity-v1"
+      },
+      "restore_progress": {
+        "since": 12,
+        "capability": null
       },
       "revisions": {
         "since": 12,
@@ -1808,6 +1827,10 @@ export const COMMAND_METADATA = {
       "limit": {
         "since": 12,
         "capability": "list-workspaces-limit-v1"
+      },
+      "since": {
+        "since": null,
+        "capability": "workspace-list-delta-v1"
       }
     },
     "stream": null,
@@ -2410,6 +2433,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "offer-link-to-phone": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Unix connection of this Mac's own app only (never a remote device). HTTP(S) only. Sends one phone-open-link control event to the phone that drives the terminal when its last key into it came from that phone within two minutes, a connection of that phone that declared phone-open-link-v1 is attached to it, and the address is public; otherwise offered is false and nothing happens. No resource or journal mutation; the URL is never logged."
+    ]
+  },
   "page-credential": {
     "authority": "local-admin",
     "since": 12,
@@ -2615,6 +2648,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "An absent lease is a successful no-op."
+    ]
+  },
+  "release-workspace-names": {
+    "authority": "control",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Idempotent: a second call releases nothing."
     ]
   },
   "reload-config": {
@@ -2984,11 +3027,16 @@ export const COMMAND_METADATA = {
     "authority": "local-admin",
     "since": 12,
     "capability": "server-stats-v1",
-    "fields": {},
+    "fields": {
+      "restore_progress": {
+        "since": 12,
+        "capability": null
+      }
+    },
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers, and disk_checkpoints, which adds checkpoints to disk); unknown names are ignored."
     ]
   },
   "set-attach-visibility": {
@@ -3372,6 +3420,10 @@ export const COMMAND_METADATA = {
     "since": 12,
     "capability": "workspace-metadata-v1",
     "fields": {
+      "keep_awake": {
+        "since": 12,
+        "capability": "workspace-keep-awake-v1"
+      },
       "marked_unread": {
         "since": 12,
         "capability": "notification-mark-unread-v1"
@@ -4109,6 +4161,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "apps-cloud-machine": {
+    "since": 12,
+    "capability": "apps-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "bell": {
     "since": 5,
     "capability": null,
@@ -4532,6 +4592,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "phone-open-link": {
+    "since": 12,
+    "capability": null,
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "program-status-changed": {
     "since": 12,
     "capability": null,
@@ -4863,6 +4931,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "live_agents counts agents whose state is working or blocked.",
       "last_user_input_at_ms is the wall-clock time of the newest keyboard, paste or mouse input from an attached client; null until the first.",
       "last_agent_action_at_ms is the wall-clock time of the newest agent hook commit or agent state report; null until the first.",
+      "last_person_attach_at_ms is the wall-clock time a person's client (tui, web, mac or frontend) last attached; absent from daemons without the vm-activity-echo-v1 capability, null until the first.",
+      "echo_input_at_ms and echo_at_ms pair the first person input after that attach with the first terminal output that followed it on the same terminal (input-to-echo timing); null until measured, reset by the next person attach.",
       "Times and counts only: no content and no surface ids."
     ],
     "fields": {
@@ -4874,9 +4944,33 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint32"
         }
       },
+      "echo_at_ms": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "echo_input_at_ms": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "last_agent_action_at_ms": {
         "nullable": true,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "last_person_attach_at_ms": {
+        "nullable": true,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "uint64"
@@ -8093,6 +8187,67 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "IdentifyRestore": {
+    "additional_properties": false,
+    "fields": {
+      "done": {
+        "constraints": [
+          "Units of the phase done (agent_roster: journal rows folded); null when the phase does not count."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "elapsed_ms": {
+        "constraints": [
+          "Milliseconds since the owner bound its socket and began the restore."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "last_advance_ms": {
+        "constraints": [
+          "When the restore last advanced (a new phase or a new done count), in milliseconds since it began."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "phase": {
+        "constraints": [
+          "The restore step running now: registry_open, schema, migrations, integrity, snapshot, agent_roster, mux_build, browsers, host_adoption, reconcile or finish. Clients show an unknown name as is."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "total": {
+        "constraints": [
+          "Units of the phase in all; null when unknown."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "IdentifyResult": {
     "additional_properties": false,
     "fields": {
@@ -8348,6 +8503,18 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "restore": {
+        "constraints": [
+          "Only with identify {restore_progress: true}, and only while the owner restores its session (lifecycle_ready false): what the restore does now. A restore that advances moves last_advance_ms; one that hangs keeps it while elapsed_ms grows."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "IdentifyRestore"
         }
       },
       "screen_device_id": {
@@ -8962,6 +9129,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "default": null,
         "nullable": true,
         "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ListWorkspacesSince": {
+    "additional_properties": false,
+    "fields": {
+      "epoch": {
+        "constraints": [
+          "Opaque; the epoch of the last reply applied (\"\" when none)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "seq": {
+        "constraints": [
+          "The seq of the last reply applied (0 when none)."
+        ],
+        "nullable": false,
+        "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "uint64"
@@ -9711,6 +9906,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "PhoneLinkOfferResult": {
+    "additional_properties": false,
+    "fields": {
+      "offered": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "PingResult": {
     "additional_properties": false,
     "fields": {
@@ -9919,6 +10128,30 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "SizeState"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ReleaseWorkspaceNamesResult": {
+    "additional_properties": false,
+    "fields": {
+      "released": {
+        "description": "Workspace names this call handed back to the automatic namer.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "still_pinned": {
+        "description": "User-owned names left pinned: a row renamed between the read and its release.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -11503,10 +11736,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "constraints": [
       "registry_bytes, wal_bytes and shm_bytes are the sizes of the registry file and its -wal and -shm files.",
       "files lists at most 32 entries of the registry's directory, largest first; files_unlisted counts the others, and files_truncated is true when the listing stopped at 20000 entries.",
-      "journal and segments are null when the registry could not be read, and error says why.",
+      "journal and segments are null when the registry could not be read, and error says why; so is checkpoints when present.",
+      "checkpoints is present only when the request's include also names disk_checkpoints; older daemons never send it.",
       "Reads on its own read-only connection, never under the registry lock and never a scan of the live journal."
     ],
     "fields": {
+      "checkpoints": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsDiskCheckpoints"
+        }
+      },
       "error": {
         "nullable": true,
         "presence": "required",
@@ -11604,6 +11847,56 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsDiskCheckpoints": {
+    "additional_properties": false,
+    "constraints": [
+      "checkpoints counts the rows of the registry's journal_checkpoints table; bytes sums each row's id, state and content references plus 96 bytes, and largest_bytes is the largest row.",
+      "budget_bytes is the daemon's checkpoint disk budget: the newest 16 checkpoints that pruning keeps plus 8 not yet sealed, 2 MiB each; over_budget is true when bytes exceeds it."
+    ],
+    "fields": {
+      "budget_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "checkpoints": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "largest_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "over_budget": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -12784,6 +13077,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "locks is present only when the request names it in include.",
       "hook_queue is present only when the request names it in include and the session serves a socket.",
       "disk is present only when the request names it in include and the session keeps its registry on disk.",
+      "disk.checkpoints is present only when the request names both disk and disk_checkpoints in include.",
       "commands is present only when the request names it in include.",
       "journal_followers is present only when the request names it in include."
     ],
@@ -16001,6 +16295,45 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "Tree": {
     "additional_properties": false,
     "fields": {
+      "changed": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "With delta: every workspace entry that changed past the cursor, as the whole tree renders it; replace the entry with the same id, or add it."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Workspace"
+          },
+          "kind": "array"
+        }
+      },
+      "delta": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "True when the reply answers since with only what changed: workspaces is then empty; apply changed and removed to the tree you hold."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "epoch": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "Opaque, random per daemon run; only in replies to a request with since. Send it back in since."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "generation": {
         "capability": "workspace-registry-v1",
         "nullable": false,
@@ -16024,6 +16357,21 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "order": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "With delta, when the order of the workspaces changed: every id, in the tree's order."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
       "pane_revision": {
         "nullable": false,
         "presence": "optional",
@@ -16041,6 +16389,33 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "removed": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "With delta: the ids of the workspaces no longer in the tree."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
+      "seq": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "Only in replies to a request with since. Send it back in since."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "terminal_revision": {
@@ -16823,6 +17198,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "resume_max_bytes": {
+          "capability": "terminal-resume-bounded-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         },
         "resume_offset": {
@@ -20394,6 +20779,14 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "ref",
             "name": "JsonValue"
           }
+        },
+        "op_id": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
         }
       },
       "kind": "object"
@@ -22176,6 +22569,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "name_source": {
+          "default": null,
+          "description": "user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "NameSource"
+          }
+        },
         "origin": {
           "default": null,
           "nullable": true,
@@ -22869,6 +23272,27 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "flush-launch-snapshot": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "flushed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "focus-direction": {
     "request": {
       "additional_properties": false,
@@ -23314,6 +23738,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "boolean"
           }
         },
+        "restore_progress": {
+          "constraints": [
+            "Answered while the owner restores its session too, at once, with lifecycle_ready false, placeholder session fields (registry_id and generation empty, revisions 0) and restore. Without it a restoring owner holds the request until the restore ends. A ready owner ignores it."
+          ],
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "revisions": {
           "constraints": [
             "Adds api_revision, min_api_revision, api_version, min_api_version, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
@@ -23647,6 +24084,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "uint64"
           }
+        },
+        "stats": {
+          "default": false,
+          "description": "true: the reply also carries agent_notice_stats.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
         }
       },
       "kind": "object"
@@ -23826,6 +24273,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "since": {
+          "capability": "workspace-list-delta-v1",
+          "constraints": [
+            "The cursor of the last reply the client applied. When the daemon still holds every change past it, the result is delta: true with only the changed workspace entries (changed, keyed by id) and the ids that went away (removed); otherwise the whole tree. Both carry the epoch and seq to send next. Takes precedence over known, limit and after."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ListWorkspacesSince"
           }
         }
       },
@@ -26423,6 +26883,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "NotifyResult"
     }
   },
+  "offer-link-to-phone": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "terminal_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "url": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "PhoneLinkOfferResult"
+    }
+  },
   "page-credential": {
     "request": {
       "additional_properties": false,
@@ -27202,6 +27690,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "release-workspace-names": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "ReleaseWorkspaceNamesResult"
     }
   },
   "reload-config": {
@@ -28509,6 +29008,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        },
+        "restore_progress": {
+          "constraints": [
+            "While the owner restores its session: refused at once with error_code server.restoring and error_details {lifecycle_ready: false, restore}, instead of held until the restore ends. A ready owner ignores it."
+          ],
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         }
       },
@@ -29949,6 +30461,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "keep_awake": {
+          "capability": "workspace-keep-awake-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "key": {
@@ -32482,6 +33005,51 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "apps-cloud-machine": {
+    "additional_properties": false,
+    "constraints": [
+      "Targeted only to the verified app connection whose apps-machine-state-watch names this machine; nothing is sent after that connection's list replaces or drops it. record (kind record only) is the platform's machine record. No bearer or raw frame."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "apps-cloud-machine"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "record",
+            "live",
+            "lost"
+          ]
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "record": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "bell": {
     "additional_properties": false,
     "fields": {
@@ -34719,6 +35287,36 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "phone-open-link": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "phone-open-link"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

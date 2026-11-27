@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.home.chiefDockOpenBeside.help" : {
+      "comment" : "Settings > Chief > Chief Dock > Keep Chief Docked help.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Links in the Chief open their workspace with the Chief over it. Esc hides it."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تفتح الروابط في Chief مساحة عملها مع Chief فوقها. يخفيه Esc."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Linkovi u Chiefu otvaraju svoj radni prostor s Chiefom iznad njega. Esc ga sakriva."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Links i Chief åbner deres arbejdsområde med Chief over det. Esc skjuler det."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Links im Chief öffnen ihren Arbeitsbereich mit dem Chief darüber. Esc blendet ihn aus."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los enlaces en Chief abren su espacio de trabajo con Chief encima. Esc lo oculta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les liens dans Chief ouvrent leur espace de travail avec Chief par-dessus. Esc le masque."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "I link in Chief aprono il loro spazio di lavoro con Chief sopra. Esc lo nasconde."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief のリンクはワークスペースを開き、その上に Chief を表示します。Esc で隠せます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "តំណក្នុង Chief បើកកន្លែងធ្វើការរបស់វា ដោយ Chief នៅពីលើ។ Esc លាក់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief의 링크는 Chief를 위에 띄운 채 해당 작업 공간을 엽니다. Esc로 숨깁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lenker i Chief åpner arbeidsområdet med Chief over. Esc skjuler den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Linki w Chief otwierają swój obszar roboczy z Chief nad nim. Esc go ukrywa."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Links no Chief abrem o espaço de trabalho deles com o Chief por cima. Esc o oculta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ссылки в Chief открывают своё рабочее пространство с Chief поверх него. Esc скрывает его."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลิงก์ใน Chief จะเปิดพื้นที่ทำงานโดยมี Chief อยู่ด้านบน กด Esc เพื่อซ่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief'teki bağlantılar, çalışma alanlarını Chief üstündeyken açar. Esc gizler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Посилання в Chief відкривають свій робочий простір із Chief поверх нього. Esc ховає його."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Liên kết trong Chief mở không gian làm việc của nó với Chief nổi phía trên. Nhấn Esc để ẩn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief 中的链接会打开其工作区，Chief 浮在上方。按 Esc 隐藏。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief 中的連結會開啟其工作區，Chief 浮動在上方。按 Esc 隱藏。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

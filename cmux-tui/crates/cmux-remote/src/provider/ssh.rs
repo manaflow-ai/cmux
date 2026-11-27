@@ -18,6 +18,7 @@ use crate::provider::{
     sanitized_route,
 };
 use crate::ssh_args::background_ssh_arguments;
+use crate::ssh_control::{SshConnectionShare, SshTarget};
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 /// ssh's ConnectTimeout for a redial (any open after the first). Short, so a
@@ -68,6 +69,9 @@ pub struct SshProviderConfig {
     /// as one line, and an ended link's error carries it after
     /// [`SSH_STDERR_MARK`]. Off, ssh speaks to the person directly.
     pub capture_stderr: bool,
+    /// One authenticated connection per host, shared by the bootstrap and
+    /// every carrier link of this connect (issue 38157). Off by default.
+    pub connection_share: SshConnectionShare,
 }
 
 impl Default for SshProviderConfig {
@@ -82,6 +86,7 @@ impl Default for SshProviderConfig {
             maximum_frame_bytes: 65_535,
             agent_hooks: Vec::new(),
             capture_stderr: false,
+            connection_share: SshConnectionShare::disabled(),
         }
     }
 }
@@ -290,6 +295,7 @@ impl LinkGroup for SshLinkGroup {
                 kind: TransportPathKind::Direct,
                 remote: Some(self.description.clone()),
                 rtt_micros: None,
+                outer: None,
             }),
         }
     }
@@ -298,14 +304,26 @@ impl LinkGroup for SshLinkGroup {
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::Transport("SSH connection group is closed".into()));
         }
-        let mut ssh_args = self.connect_timeout_args(request.generation).await;
-        ssh_args.extend(self.config.extra_args.iter().cloned());
+        // With a shared connection the link is a client of its master (no
+        // second authentication). Otherwise forwarding stays as configured
+        // unless `extra_args` pin `ControlMaster=no`: this run can become the
+        // shared master that interactive sessions reuse.
+        let mut extra_args = self
+            .config
+            .connection_share
+            .client_arguments(&SshTarget {
+                ssh_binary: self.config.ssh_binary.clone(),
+                destination: self.destination.clone(),
+                port: self.port,
+                extra_args: self.config.extra_args.clone(),
+            })
+            .await
+            .map_err(|error| ProviderError::Transport(error.to_string()))?;
+        extra_args.extend(self.connect_timeout_args(request.generation).await);
+        extra_args.extend(self.config.extra_args.iter().cloned());
         let mut command = Command::new(&self.config.ssh_binary);
-        // Forwarding stays as configured unless `extra_args` pin
-        // `ControlMaster=no`: otherwise this run can become the shared master
-        // that interactive sessions reuse.
         command
-            .args(background_ssh_arguments(self.port, &ssh_args, &self.destination))
+            .args(background_ssh_arguments(self.port, &extra_args, &self.destination))
             .args(remote_link_command(&self.config));
         // stderr is always read, for the banner timeout; uncaptured, every
         // byte still goes on to this process's stderr as ssh wrote it.

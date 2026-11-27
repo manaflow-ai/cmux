@@ -49,6 +49,41 @@ struct CloudApprovalsPrepareTests {
         #expect(await starts.read() == 0)
     }
 
+    /// A start's early read beside its connect (`cacheBusy: false`) keeps no busy answer: the read after the connect asks
+    /// again and keys a daemon that went idle meanwhile, where a kept answer would start the chat unkeyed for a minute.
+    @Test func anEarlyBusyReadIsAskedAgainAfterTheConnect() async {
+        let machine = "cloud-approvals-early-\(UUID().uuidString)"
+        let starts = Counter(), reads = Counter()
+        let early = await RemoteApprovalPreparations.shared.prepare(
+            machine: machine, daemonSaidSafe: false, held: false,
+            idle: { await reads.increment(); return false },
+            restart: { await starts.increment(); return true }, cacheBusy: false)
+        let after = await RemoteApprovalPreparations.shared.prepare(
+            machine: machine, daemonSaidSafe: false, held: false,
+            idle: { await reads.increment(); return true },
+            restart: { await starts.increment(); return true })
+
+        #expect(!early)
+        #expect(after)
+        #expect(await reads.read() == 2)
+        #expect(await starts.read() == 1)
+    }
+
+    /// The kept answer (the default): a second start within the minute reads nothing and starts unkeyed.
+    @Test func aKeptBusyAnswerIsNotReadAgain() async {
+        let machine = "cloud-approvals-kept-\(UUID().uuidString)"
+        let reads = Counter()
+        _ = await RemoteApprovalPreparations.shared.prepare(
+            machine: machine, daemonSaidSafe: false, held: false,
+            idle: { await reads.increment(); return false }, restart: { true })
+        let again = await RemoteApprovalPreparations.shared.prepare(
+            machine: machine, daemonSaidSafe: false, held: false,
+            idle: { await reads.increment(); return true }, restart: { true })
+
+        #expect(!again)
+        #expect(await reads.read() == 1)
+    }
+
     @Test func aKeyedStartFailureFallsBackWithoutThrowing() async {
         let machine = "cloud-approvals-failure-\(UUID().uuidString)"
         let starts = Counter()
@@ -175,5 +210,36 @@ struct CloudApprovalsPrepareTests {
         #expect(value == 7)
         #expect(await prep.ended)
         #expect(await !prep.cancelled)
+    }
+
+    /// cmux#54460's overlap: a failed connect cancels and awaits the early prep before the start ends, and runs no later one.
+    @MainActor @Test func aFailedConnectCancelsAndAwaitsTheEarlyPrep() async {
+        let prep = Prep(), later = Counter()
+        await #expect(throws: LoginFailed.self) {
+            try await RemoteApprovalPreparations.owned(early: true, connect: { await Task.yield(); throw LoginFailed() }, prepare: { early in
+                guard early else { await later.increment(); return true }
+                try? await Task.sleep(for: .seconds(30))
+                await prep.end(cancelled: Task.isCancelled)
+                return false
+            }) { 7 }
+        }
+        #expect(await prep.ended)
+        #expect(await prep.cancelled)
+        #expect(await later.read() == 0)
+    }
+
+    /// The early prep's yes stands; its no (or no early prep) runs the later one beside the body.
+    @MainActor @Test(arguments: [true, false]) func theLaterPrepRunsOnlyWhenTheEarlyOneSaidNo(earlyAnswer: Bool) async throws {
+        let later = Counter(), order = Counter()
+        let value = try await RemoteApprovalPreparations.owned(early: true, connect: { await Task.yield() }, prepare: { early in
+            if early { await order.increment(); return earlyAnswer }
+            await later.increment(); return true
+        }) { 7 }
+        #expect(value == 7)
+        #expect(await order.read() == 1)
+        #expect(await later.read() == (earlyAnswer ? 0 : 1))
+        let none = Counter()
+        _ = try await RemoteApprovalPreparations.owned(early: false, connect: {}, prepare: { early in #expect(!early); await none.increment(); return true }) { 0 }
+        #expect(await none.read() == 1)
     }
 }

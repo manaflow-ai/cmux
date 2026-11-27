@@ -3,8 +3,8 @@
 // them: a toolbar (file, save status, word wrap and minimap toggles), the conflict banner, notes, the
 // Monaco host element and a status bar. Monaco mounts through a callback ref. Cmd/Ctrl chords (Cmd-S)
 // come from the app's key dispatcher as page commands, never from page key handlers.
-import { useSyncExternalStore, type ReactNode } from "react";
-import { useLasting } from "../../ui/lasting";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import type { Strings } from "../shared/i18n";
 import type { ReadOnlyReason } from "./host";
 import { PREFERENCE_KEYS, isLargeFile, resolveEditorSettings } from "./settings";
@@ -37,6 +37,8 @@ export interface EditorPageProps {
   strings: Strings;
   /** Mounts the editor into its element (and unmounts it on null). */
   editorRef: (element: HTMLDivElement | null) => void;
+  /** Vim's mode line (`editor.vimMode`), which the view's vim writes; the status bar shows it. */
+  vimLine?: HTMLElement;
   /** The page with no file (store phase `empty`): the viewer empty state. */
   emptyState?: () => ReactNode;
 }
@@ -52,33 +54,43 @@ function fileName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
-export function EditorPage({ store, status, find, strings, editorRef, emptyState }: EditorPageProps) {
+export function EditorPage({ store, status, find, strings, editorRef, vimLine, emptyState }: EditorPageProps) {
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const view = useSyncExternalStore(status.subscribe, status.get);
   const { t } = strings;
-  // A lost link says so only once it lasts (a launch, a daemon restart: the store reads again when the
-  // link is back, `linkChanged`); until then the page stays blank.
-  const downLasting = useLasting(state.phase === "disconnected");
+  // A lost link or a read that failed is read again on its own (Leo, 2026-11-22: a "try again" is a
+  // vacuous decision), and at once when the link is back (`linkChanged`). A launch or a daemon restart
+  // drops the link for a few seconds, so the page stays blank, and only a failure that lasts the
+  // deadline says so, in one quiet line with no button. A file that cannot open at all (not found, too
+  // large) says so at once; reading again in the background still opens it once it can.
+  const [asking, setAsking] = useState(false);
+  const down = state.phase === "disconnected" || state.phase === "failed";
+  const { stillTrying } = useAutoRetry(
+    down ? state.phase : false,
+    () => {
+      setAsking(true);
+      void store.start().finally(() => setAsking(false));
+    },
+    { busy: asking },
+  );
 
   if (state.phase === "empty" && emptyState) return emptyState();
 
-  if (state.phase === "disconnected" && !downLasting)
-    return <div className="ed-page ed-page-message" aria-busy="true" />;
-
-  if (state.phase === "disconnected" || state.phase === "failed") {
+  if (state.phase === "failed" && !state.transient)
     return (
       <div className="ed-page ed-page-message" role="alert">
-        <p>
-          {state.phase === "failed" && state.failure
-            ? state.failure
-            : t(state.phase === "disconnected" ? L.disconnected : L.failed)}
-        </p>
-        <button type="button" className="ed-button" onClick={() => void store.start()}>
-          {t(L.retry)}
-        </button>
+        <p>{state.failure ?? t(L.failed)}</p>
       </div>
     );
-  }
+
+  if (down)
+    return (
+      <output className="ed-page ed-page-message" aria-busy={!stillTrying}>
+        {stillTrying ? (
+          <p>{state.phase === "disconnected" ? t(L.disconnected) : (state.failure ?? t(L.stillOpening))}</p>
+        ) : null}
+      </output>
+    );
 
   const settings = resolveEditorSettings(state.look.settings);
   const path = state.file?.path ?? "";
@@ -121,6 +133,7 @@ export function EditorPage({ store, status, find, strings, editorRef, emptyState
         <div className="ed-banner" role="alert">
           <span>{t(state.conflict.deleted ? L.conflictDeleted : L.conflictChanged)}</span>
           {state.conflict.deleted ? null : (
+            // retry-prompt-ok: reading the file from disk again discards the person's unsaved edits; Keep Mine is the other answer.
             <button type="button" className="ed-button" onClick={() => store.reloadFromDisk()}>
               {t(L.reload)}
             </button>
@@ -139,13 +152,28 @@ export function EditorPage({ store, status, find, strings, editorRef, emptyState
         <div className="ed-host" ref={editorRef} />
         {find ? <EditorFindBar find={find} strings={strings} /> : null}
       </div>
-      {settings.statusBar && view && state.phase === "ready" ? (
-        <footer className="ed-status">
-          <span>{strings.format(L.position, String(view.line), String(view.column))}</span>
-          <span>{strings.format(view.insertSpaces ? L.spaces : L.tabs, String(view.tabSize))}</span>
-          <span>{view.bom ? t(L.utf8Bom) : "UTF-8"}</span>
-          <span>{view.eol === "mixed" ? t(L.mixed) : view.eol}</span>
-          <span>{view.language === "text" ? t(L.plainText) : view.languageName}</span>
+      {((settings.statusBar && view) || (settings.vimMode && vimLine)) && state.phase === "ready" ? (
+        // With `editor.vimMode` the bar shows vim's mode line (and its `:` prompt) even when
+        // `editor.statusBar` is off.
+        <footer className="ed-status" data-vim={settings.vimMode && vimLine ? "" : undefined}>
+          {vimLine ? (
+            <div
+              className="ed-vim-slot"
+              ref={(slot) => {
+                // Moved only once: moving it again would blur an open `:` prompt.
+                if (slot && vimLine.parentNode !== slot) slot.replaceChildren(vimLine);
+              }}
+            />
+          ) : null}
+          {settings.statusBar && view ? (
+            <>
+              <span>{strings.format(L.position, String(view.line), String(view.column))}</span>
+              <span>{strings.format(view.insertSpaces ? L.spaces : L.tabs, String(view.tabSize))}</span>
+              <span>{view.bom ? t(L.utf8Bom) : "UTF-8"}</span>
+              <span>{view.eol === "mixed" ? t(L.mixed) : view.eol}</span>
+              <span>{view.language === "text" ? t(L.plainText) : view.languageName}</span>
+            </>
+          ) : null}
         </footer>
       ) : null}
     </div>

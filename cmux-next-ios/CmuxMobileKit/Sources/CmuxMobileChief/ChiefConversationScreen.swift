@@ -1,7 +1,9 @@
 #if os(iOS)
 import CmuxConversationCore
 import CmuxMobileArtifacts
+import CmuxMobileDesign
 import CmuxConversationUI
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileSupport
 import SwiftUI
@@ -48,6 +50,10 @@ public struct ChiefConversationScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showsInfo = false
     @State private var link = ChiefScreenLink()
+    /// Chief unavailable with something to try (a dropped Mac link, a kept conversation): it tries
+    /// again on its own, with backoff and at once back in the foreground, never a Try Again
+    /// (Leo, 2026-11-22: "vacuous decisions like that should be just done").
+    @State private var autoReconnect = AutoRetry()
 
     public init(session: ChiefSession = .shared, compose: ChiefComposer? = nil, focusesComposer: Bool = false,
                 options: ConversationPresentationOptions = .chief) {
@@ -84,9 +90,13 @@ public struct ChiefConversationScreen: View {
             // Focus carries only to a screen rebuilt in place; one that never
             // showed leaves none for the next visit (its text stays).
             .onDisappear { session.dropCarriedComposerFocus() }
+            .autoRetry(autoReconnect, failing: session.needsReconnect) { await session.reconnectAndWait() }
             .ignoresSafeArea()
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden()
+            // Its own layer: the list's bar, or Settings', never draws over the
+            // chat through a push or a swipe back (Leo, 2026-11-24).
+            .cmuxMobilePaneLayer()
             .navigationDestination(isPresented: $showsInfo) {
                 // Message: back to the conversation with the keyboard up.
                 ChiefSettingsView(session: session) { [link] in
@@ -123,6 +133,9 @@ extension ConversationPresentationOptions {
             trailingSymbol: ChiefPageMenu.symbol,
             header: ConversationHeaderPresentation(
                 scrollEdge: .system,
+                // Text under the header stops at it (iOS release bar read-back, 2026-11-22,
+                // shot 07; tbd d-189cea06b1).
+                hardTopEdge: true,
                 actionAccessibilityLabel: ChiefPageMenu.title,
                 avatarAccessibilityLabel: String(localized: "Chief"),
                 avatarAccessibilityHint: String(localized: "Opens Chief's settings")
@@ -143,6 +156,7 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
         let conversation = ConversationViewController(store: session.store, options: options,
                                                       keyboard: context.environment.mobileKeyboardFrameTracker)
+        conversation.dismissesKeyboardAfterSend = { CmuxMobilePreferences.dismissKeyboardAfterSend() }
         // A screen rebuilt in place (a new store) takes over the old one's
         // composer now, before either appears or disappears: SwiftUI may show
         // the new one before the old one leaves.
@@ -261,7 +275,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     /// and then drops the message (its store has no sender yet). The send
     /// button goes through this gate: once Chief takes sends it runs the
     /// package's own action; until then the text stays in the composer and
-    /// the screen says why, with Try Again.
+    /// the screen says why (and Chief is tried again on its own).
     private func installSendGate() {
         // App Review 5.1.2(i): nothing goes to the AI providers before the person agrees.
         // The conversation asks this before every send path (Send, Return, the effect
@@ -307,19 +321,15 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.composer.text" } as? UITextView
     }
 
-    /// The message stays in the composer; the alert says why and offers to
-    /// try Chief again.
+    /// The message stays in the composer; the alert says why. Chief is tried again at once
+    /// (the person just asked to send; there is nothing to decide), and on its own after that.
     private func holdUnsentMessage() {
         guard presentedViewController == nil else { return }
+        session.retryConnecting()
         let alert = UIAlertController(
             title: String(localized: "mobile.chief.notSent", defaultValue: "Not sent", bundle: .module),
             message: String(localized: "mobile.chief.draftKept", defaultValue: "Your draft is saved here.", bundle: .module),
             preferredStyle: .alert)
-        if session.canRetryConnecting {
-            alert.addAction(UIAlertAction(title: String(localized: "Try Again"), style: .default) { [weak self] _ in
-                self?.session.retryConnecting()
-            })
-        }
         alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .cancel))
         present(alert, animated: true)
     }

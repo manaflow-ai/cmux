@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// The trailing toolbar buttons (`BrowserToolbarButton`): media hub, zoom level,
-/// Favorites, Downloads, design mode, profile, theme, DevTools and More. Engine-neutral: the states come from
+/// Favorites, Downloads, design mode, theme, DevTools, profile and More. Engine-neutral: the states come from
 /// `BrowserToolbarPolicy` over the bound tab, and a press only reports the
 /// button (`onPress`); the App runs the button's catalog action. Holds no
 /// key handling: shortcuts go through the action registry.
@@ -15,6 +15,24 @@ public final class BrowserToolbarButtonsView: NSStackView {
     public var shortcutHint: ((BrowserToolbarButton) -> String?)? { didSet { rebind() } }
     /// The tab's browser profile name, for the profile button's tooltip.
     public var profileName: String? { didSet { render() } }
+    /// The tab's browser profile, drawn on the profile button as its avatar (its letter or icon on its
+    /// color) in place of the plain person glyph; nil keeps the glyph (an incognito tab).
+    public var profileBadge: BrowserProfileBadge? {
+        didSet { if profileBadge != oldValue { applyProfileBadge() } }
+    }
+    /// The profile button's avatar, made the first time a profile shows (tests read it).
+    private(set) var profileAvatar: ProfileBadgeView?
+
+    private func applyProfileBadge() {
+        guard let button = buttons[.profile] else { return }
+        guard let profileBadge else { return button.glyphReplacement = nil }
+        let side = ProfileBadgeView.side(forGlyph: OmnibarStyle.toolbarIconSize, limit: OmnibarStyle.buttonSize - 4)
+        let avatar = profileAvatar ?? ProfileBadgeView(side: side)
+        avatar.setSide(side)
+        avatar.show(profileBadge)
+        profileAvatar = avatar
+        button.glyphReplacement = avatar
+    }
     /// The App's downloads, read while rendering so an observable list
     /// redraws the button as downloads start and end. Set after `bind`, so
     /// it re-arms the observation to track the list.
@@ -105,6 +123,10 @@ public final class BrowserToolbarButtonsView: NSStackView {
         buttons[button] = view
         insertArrangedSubview(view, at: order.prefix(view.tag).filter { buttons[$0] != nil }.count)
         if let state = states[button] { apply(state, to: view) }
+        if button == .profile {
+            view.onDensityChange = { [weak self] in self?.applyProfileBadge() }
+            applyProfileBadge()
+        }
         return view
     }
 
@@ -309,11 +331,13 @@ public final class BrowserToolbarButtonsView: NSStackView {
         )
     }
 
-    /// The More menu's Show in Toolbar item (the last row of its Tools): one checked row per pinnable
+    /// The More menu's Show in Toolbar item (the last row of its Tools), with its pin icon: one checked row per pinnable
     /// button (`pinned`); choosing one calls `toggle`. Rows are disabled
     /// when `enabled` is false (a managed list).
     public func showInToolbarItem(enabled: Bool, toggle: @escaping (BrowserToolbarButton) -> Void) -> NSMenuItem {
         let item = NSMenuItem(title: BrowserToolbarButton.showInToolbarTitle, action: nil, keyEquivalent: "")
+        // Every other More row has its icon; without one this row starts its text an empty icon slot in (Leo 2026-11-22).
+        item.image = NSImage.menuSymbol("pin")
         let submenu = NSMenu(title: BrowserToolbarButton.showInToolbarTitle)
         submenu.autoenablesItems = false
         for button in BrowserToolbarButton.pinnable {

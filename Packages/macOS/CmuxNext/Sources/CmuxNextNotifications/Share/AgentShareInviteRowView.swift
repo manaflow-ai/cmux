@@ -12,7 +12,8 @@ final class AgentShareInviteRowView: NSView {
     let removeButton: CmuxDialogButtonView
     private let onRemove: () -> Void
 
-    init(account: String, detail: String, removeTitle: String, isRemoving: Bool, onRemove: @escaping () -> Void) {
+    init(account: String, detail: String, removeTitle: String, removeLabel: String, isRemoving: Bool,
+         onRemove: @escaping () -> Void) {
         self.account = ThemedLabel(labelWithString: account)
         self.detail = ThemedLabel(labelWithString: detail)
         self.onRemove = onRemove
@@ -32,6 +33,7 @@ final class AgentShareInviteRowView: NSView {
         text.spacing = 1
         removeButton.identifier = NSUserInterfaceItemIdentifier("cmux.agentShare.invites.remove")
         removeButton.isEnabled = !isRemoving
+        removeButton.setAccessibilityLabel(removeLabel)
         removeButton.setContentHuggingPriority(.required, for: .horizontal)
         removeButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         let row = NSStackView(views: [text, NSView(), removeButton])

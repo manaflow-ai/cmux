@@ -82,6 +82,9 @@ public final class ConversationViewController: UIViewController {
     /// A tapped link in a message: return true when the host handled it (a
     /// file preview); false, or unset, opens it with the system.
     public var onOpenLink: ((URL) -> Bool)?
+    /// Read after each send: true closes the keyboard once the message is sent (the host's
+    /// "Dismiss keyboard after sending" setting). Unset, the keyboard stays, as Messages does.
+    public var dismissesKeyboardAfterSend: (@MainActor () -> Bool)?
     /// Reply with Selection. When set, the edit menu of a bubble's selected
     /// text offers "Reply with Selection", which ends the selection and hands
     /// the host the message and the selected words; the host usually answers
@@ -388,7 +391,7 @@ public final class ConversationViewController: UIViewController {
             // is active), so the system pocket under the header takes over;
             // the header is its container (see +Background).
             collectionView.topEdgeEffect.isHidden = true
-            collectionView.topEdgeEffect.style = .soft
+            collectionView.topEdgeEffect.style = options.header.scrollEdge == .system && options.header.hardTopEdge ? .hard : .soft
             let top = UIScrollEdgeElementContainerInteraction()
             top.scrollView = collectionView
             top.edge = .top
@@ -429,11 +432,11 @@ public final class ConversationViewController: UIViewController {
         rebuild(change: .reset)
     }
 
-    /// The header's line under the name: only a drop past the store's quiet bound says so,
-    /// a normal reconnect shows nothing.
+    /// The header's line under the name says nothing about the link, however long it is down: the
+    /// conversation reconnects on its own (Leo, 2026-11-22: "i dont wanna see connecting to
+    /// cosmic-gray... with the spinner, i want it to just work").
     private func showConnectionStatus() {
-        let down = store.connection != .connected && store.connectionNoticeDue
-        header.setConnectionStatus(down ? String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module) : nil)
+        header.setConnectionStatus(nil)
     }
 
     /// The conversation draws its own header, so it hides its navigation
@@ -832,7 +835,11 @@ public final class ConversationViewController: UIViewController {
         // Reduce Motion keeps this: it only ever rides the system keyboard's
         // own animation (remaining > 0), which Reduce Motion doesn't remove;
         // landing early would part the composer from the keyboard.
-        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) {
+        // Interruptible: without `.allowUserInteraction` UIKit drops every
+        // touch on the views this pass moves until the keyboard settles, so a
+        // tap on the field or the transcript inside the keyboard's animation
+        // did nothing (`MobileKeyboardDock.follow`, the terminal's dock).
+        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
             self.view.layoutIfNeeded()
         }
     }

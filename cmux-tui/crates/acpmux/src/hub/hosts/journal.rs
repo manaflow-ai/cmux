@@ -318,7 +318,7 @@ const TASK_STARTED: &str = "claude.system.task_started";
 /// the one before, and a turn start the foreground ones, as live.
 fn seed_step(tree: &mut SubagentTree, head: &RecordHead<'_>) {
     // Expiry ages each subagent from its logged stamp (`subagents::expiry`).
-    tree.set_clock(head.at);
+    tree.set_log_clock(head.at);
     if head.dir == "mux" {
         match head.kind {
             "host_started" | "stopped" | "exited" => tree.end_background(),
@@ -350,7 +350,7 @@ fn seed_step(tree: &mut SubagentTree, head: &RecordHead<'_>) {
     if let Some(mut e) = head.record()
         && let Some(params) = e.msg.get_mut("params")
     {
-        tree.annotate_live(params, !replay);
+        tree.annotate_at(params, !replay, e.at);
     }
 }
 
@@ -431,7 +431,9 @@ impl WorkFold {
         };
         let subagents_own = e.dir == "in"
             && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
-            && e.msg.get_mut("params").is_some_and(|p| self.subagents.annotate(p).is_some());
+            && e.msg
+                .get_mut("params")
+                .is_some_and(|p| self.subagents.annotate_at(p, true, e.at).is_some());
         if e.dir == "mux" {
             let text = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
             match e.kind.as_str() {
@@ -535,6 +537,7 @@ impl WorkFold {
                 work.turn_line = e.msg.get("promptLine").and_then(Value::as_str).map(str::to_owned);
                 work.turn_device = e.msg.get("device").and_then(Value::as_str).map(str::to_owned);
                 work.turn_trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
+                work.turn_trust_gate = e.msg.get("trustGate") != Some(&Value::Bool(false));
                 work.turn_persons = e.msg.get("persons") == Some(&Value::Bool(true));
                 work.turn_at = e.at;
                 work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());
