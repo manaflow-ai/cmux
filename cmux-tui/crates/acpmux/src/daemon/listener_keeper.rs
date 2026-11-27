@@ -268,7 +268,6 @@ fn serve(listener: &UnixListener, held: &[(&'static [u8; 4], OwnedFd)], within: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::fd::AsFd as _;
 
     /// Connects to `port` every few ms while `gap` runs: how many were refused, of how many.
     fn connect_through(port: u16, gap: impl FnOnce()) -> (usize, usize, Vec<std::net::TcpStream>) {
