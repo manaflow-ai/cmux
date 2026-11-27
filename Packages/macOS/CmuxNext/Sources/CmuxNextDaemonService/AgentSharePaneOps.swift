@@ -42,10 +42,14 @@ extension AgentShareActions {
             switch op {
             case .state:
                 let listed = try await connected(chat.connection).request(AgentSessionShareListRequest(surface: chat.surface))
-                return .value(["shares": AgentSharePaneState.shares(of: chat.session, in: listed.shares)])
+                return .value(["shares": AgentSharePaneState.shares(of: chat.session, in: listed.shares),
+                               "teams": host.shareTeams.map { ["id": $0.id, "name": $0.name] }])
             case .link(let role):
                 let created = try await create(chat, ttl: paneLinkTTL, uses: paneLinkUses, role: role, host: host)
                 return .value(["shareId": created.shareId, "url": created.url ?? NSNull(), "expiresAt": Int(clamping: created.expiresAt)])
+            case .team(let teamID, let role):
+                let created = try await create(chat, ttl: paneLinkTTL, uses: nil, role: role, team: teamID, host: host)
+                return .value(["shareId": created.shareId, "inviteUrl": created.url ?? NSNull(), "expiresAt": Int(clamping: created.expiresAt)])
             case .invite(let account, let role):
                 let result = try await inviteWork(chat, account: account, role: role, ttl: nil, host: host)
                 return .value(["inviteUrl": AgentShareInvites.text(result["invite_url"]) ?? NSNull()])
@@ -84,7 +88,7 @@ enum AgentSharePaneState {
             return [
                 "shareId": share.shareId, "state": share.state, "url": NSNull(), "inviteUrl": share.inviteUrl ?? NSNull(),
                 "role": share.role ?? NSNull(), "createdAt": Int(clamping: share.createdAt), "expiresAt": Int(clamping: share.expiresAt),
-                "usesLeft": Int(share.usesLeft),
+                "usesLeft": Int(share.usesLeft), "teamId": share.teamId ?? NSNull(),
                 "guests": share.guests.map { guest -> [String: Any] in
                     ["guestId": guest.guestId, "name": guest.name, "account": guest.account ?? NSNull(), "role": guest.role ?? NSNull(),
                      "joined": guest.state == "active"]

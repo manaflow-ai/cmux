@@ -4,6 +4,18 @@ import Foundation
 
 /// Share with Guest's and Invite People's refusals and notices (Resources/AgentShare.xcstrings).
 enum AgentShareStrings {
+    static func teamConsentTitle(_ team: String, chat: String) -> String {
+        String(format: String(localized: "agentShare.team.title", defaultValue: "Share “%1$@” with %2$@?", table: "AgentShare", bundle: .localizedModule), chat, team)
+    }
+
+    static func teamConsentDetail(_ id: String) -> String {
+        String(format: String(localized: "agentShare.team.detail", defaultValue: "Members of team %1$@ can sign in to see this chat, including command output and the agent’s reasoning.", table: "AgentShare", bundle: .localizedModule), id)
+    }
+
+    static var teamUnavailable: String {
+        String(localized: "agentShare.team.unavailable", defaultValue: "The account, team, or chat changed. Open Share again to confirm who gets access.", table: "AgentShare", bundle: .localizedModule)
+    }
+
     static var notAChat: String {
         String(localized: "agentShare.notAChat", defaultValue: "Only a started agent chat can be shared.", table: "AgentShare", bundle: .localizedModule)
     }
@@ -185,6 +197,7 @@ enum AgentShareStrings {
         if let refusal = error as? AgentShareDeclined {
             return ActionWorkFailure(code: "share.declined", reason: refusal.invite ? inviteDeclined : declined)
         }
+        if error is AgentShareTeamUnavailable { return ActionWorkFailure(code: "share.team_unavailable", reason: teamUnavailable) }
         if error is AgentShareBadAccount { return ActionWorkFailure(code: "share.bad_request", reason: badAccount) }
         if error is AgentShareNotCloudOwner { return ActionWorkFailure(code: "share.not_owner", reason: notCloudOwner) }
         if error is AgentShareCloudRoomMissing { return ActionWorkFailure(code: "share.room_unconfigured", reason: cloudRoomMissing) }

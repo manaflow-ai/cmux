@@ -12,6 +12,7 @@ import { useT } from "../i18n";
 import { Face } from "../multiplayer/Faces";
 import { Icon } from "../icons/Icon";
 import { isAccount, type GeneralAccess, type SharePerson, type ShareRole, type ShareView } from "./shareState";
+import { ShareTeams } from "./ShareTeams";
 import "./share.css";
 
 export interface ShareDialogProps {
@@ -28,6 +29,9 @@ export interface ShareDialogProps {
   onRole(account: string, role: ShareRole): void;
   onRemove(account: string): void;
   onGeneral(access: GeneralAccess): void;
+  onTeam?(teamId: string, role: ShareRole): void;
+  onTeamRemove?(shareId: string): void;
+  onTeamCopy?(url: string): void;
   onCopy(): void;
   onDone(): void;
 }
@@ -44,6 +48,9 @@ export function ShareDialogBody({
   onRole,
   onRemove,
   onGeneral,
+  onTeam,
+  onTeamRemove,
+  onTeamCopy,
   onCopy,
   onDone,
 }: ShareDialogProps) {
@@ -140,6 +147,7 @@ export function ShareDialogBody({
           {view.general === "anyone" && <span className="share-dialog__fixed-role">{t("share.role.talk")}</span>}
         </RowPicker>
       </section>
+      <ShareTeams view={view} busy={busy} onTeam={onTeam} onRemove={onTeamRemove} onCopy={onTeamCopy} />
       <footer className="share-dialog__footer">
         <Button variant="subtle" disabled={busy || !canCopy} onClick={onCopy}>
           {t("share.copyLink")}

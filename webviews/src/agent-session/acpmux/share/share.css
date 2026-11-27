@@ -221,3 +221,20 @@
     display: none;
   }
 }
+
+.share-dialog__teams {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  max-height: calc(3 * var(--ds-control-primary));
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.share-dialog__team-add {
+  flex-wrap: wrap;
+}
+.share-dialog__section > .share-dialog__hint {
+  margin: 0;
+}

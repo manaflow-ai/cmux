@@ -27,7 +27,15 @@ const base: ChatShare = {
 afterEach(forgetShareLinks);
 
 test("a chat shared with nobody reads Restricted with only the owner", () => {
-  expect(shareView([])).toEqual({ people: [], general: "restricted", links: [], inviteUrl: null, guestsNow: 0 });
+  expect(shareView([])).toEqual({
+    people: [],
+    teams: [],
+    teamShares: [],
+    general: "restricted",
+    links: [],
+    inviteUrl: null,
+    guestsNow: 0,
+  });
 });
 
 test("invitees across live shares are one row each; removed and ended ones are not", () => {
@@ -214,4 +222,36 @@ test("Copy link asks the daemon once, for a view link (the host's gesture gate a
   });
   await client.viewerLink(shareView([]));
   expect(calls).toEqual([["link", { role: "view", session: "chat" }]]);
+});
+
+test("team access reopens with its role and invite URL, never as a bearer link", () => {
+  const team = { ...base, teamId: "team-a", role: "view" as const, inviteUrl: "https://room/i/team" };
+  const teams = [{ id: "team-a", name: "Design" }];
+  const view = shareView([team, { ...team, shareId: "old", state: "revoked" }], teams);
+  expect(view.general).toBe("restricted");
+  expect(view.links).toEqual([]);
+  expect(view.teams).toEqual(teams);
+  expect(view.teamShares).toEqual([team]);
+});
+
+test("restricting bearer access preserves team and named grants", async () => {
+  const team: ChatShare = { ...base, shareId: "team", teamId: "team-a", role: "view" };
+  const link: ChatShare = { ...base, shareId: "link", role: "view" };
+  const calls: unknown[] = [];
+  const client = shareClient("chat", async (op, params) => {
+    if (op === "revoke") calls.push(params);
+    return { shares: [team, { ...base, shareId: "named" }] };
+  });
+  await client.restrict(shareView([team, link]));
+  expect(calls).toEqual([{ shareId: "link", session: "chat" }]);
+});
+
+test("team creation pins chat, team and role in one gesture operation and propagates decline", async () => {
+  const calls: unknown[] = [];
+  const client = shareClient("chat-a", async (op, params) => {
+    calls.push([op, params]);
+    throw new Error("declined");
+  });
+  await expect(client.team("team-a", "talk")).rejects.toThrow("declined");
+  expect(calls).toEqual([["team", { teamId: "team-a", role: "talk", session: "chat-a" }]]);
 });

@@ -59,13 +59,14 @@ public struct AgentShareActions {
             // limits both to view or talk; `cmux share chat --view-only` sends both as view).
             let role = Self.argument(invocation, "role")
             let signedInRole = Self.argument(invocation, "signedInRole")
+            let team = Self.argument(invocation, "team")
             let person = Self.ownerStarted(invocation)
             let ask = AgentShareConsentAsk(chat: chat.title, ttlSecs: ttl, uses: uses)
             return Self.answer(registry) {
                 // A link exposes the chat's whole transcript: only the owner's yes makes one (#30263).
                 // Asked before the owner's token is minted, so a declined run spends nothing.
-                if !person, !(await host.shareAskOwner(ask)) { throw AgentShareDeclined() }
-                let created = try await Self.create(chat, ttl: ttl, uses: uses, role: role, signedInRole: signedInRole, host: host)
+                if team == nil, !person, !(await host.shareAskOwner(ask)) { throw AgentShareDeclined() }
+                let created = try await Self.create(chat, ttl: ttl, uses: uses, role: role, signedInRole: signedInRole, team: team, host: host)
                 // A person's palette or menu run copies the link at once; a script gets it back.
                 if person { Self.announce(created, host: host) }
                 return AgentShareResults.created(created)
@@ -114,25 +115,40 @@ public struct AgentShareActions {
     }
 
     /// A new share of `chat` with the owner's token (asked for only now, after any consent).
-    static func create(_ chat: AgentShareChat, ttl: UInt64?, uses: UInt32?, role: String? = nil, signedInRole: String? = nil,
+    static func create(_ chat: AgentShareChat, ttl: UInt64?, uses: UInt32?, role: String? = nil, signedInRole: String? = nil, team: String? = nil,
                        host: any AgentShareHost) async throws -> AgentSessionShareCreated {
         try await chat.requireCloudOwner()
+        let consent: AgentShareTeamConsent?
+        if let team { consent = try await confirmTeam(team, role: role ?? "view", chat: chat, host: host) }
+        else { consent = nil }
         // The token comes from the API the daemon's room takes (cmux#31372); a daemon too old to
         // say leaves the build's default.
         let room = try? await chat.connection?.request(AgentSessionShareRoomRequest())
         // A Cloud machine whose daemon has no room makes links nobody can open: refused before a
         // token goes to it.
-        if !chat.isLocal, room?.room == nil { throw AgentShareCloudRoomMissing() }
-        let token = await host.shareOwnerToken(api: room?.ownerApi.flatMap { URL(string: $0) })
+        if (!chat.isLocal || team != nil), room?.room == nil { throw AgentShareCloudRoomMissing() }
+        let api = room?.ownerApi.flatMap { URL(string: $0) }
+        let token: String?
+        if let consent {
+            try consent.requireCurrent(chat: chat, host: host)
+            token = await host.shareTeamOwnerToken(api: api, team: consent.team.id, accountScope: consent.accountScope)
+            try consent.requireCurrent(chat: chat, host: host)
+            guard token != nil else { throw AgentShareTeamUnavailable() }
+        } else { token = await host.shareOwnerToken(api: api) }
         // The session pins the chat: the daemon refuses if the surface shows another one by now.
         let createID = UUID().uuidString
         let request = AgentSessionShareCreateRequest(surface: chat.surface, session: chat.session, createId: createID, ttlSecs: ttl,
-                                                     uses: uses, ownerToken: token, role: role, signedInRole: signedInRole)
+                                                     uses: uses, ownerToken: token, role: role, signedInRole: signedInRole, teamId: team)
         // Create waits out the hosted room's provisioning (its request budget is 15 s,
         // agent_session_share_room.rs): its answer is the only copy of the link's secret.
         let connection = try Self.connected(chat.connection)
         do {
-            return try await connection.request(request, timeout: Self.createDeadline)
+            let created = try await connection.request(request, timeout: Self.createDeadline)
+            if let consent {
+                do { try consent.requireCurrent(chat: chat, host: host) }
+                catch { await Self.revokeUnanswered(createID: createID, on: connection); throw error }
+            }
+            return created
         } catch DaemonError.timedOut(let what) {
             // The daemon may still have made the link, but its secret was only in the answer
             // that never came: no one can use it, so end it rather than leave it live.

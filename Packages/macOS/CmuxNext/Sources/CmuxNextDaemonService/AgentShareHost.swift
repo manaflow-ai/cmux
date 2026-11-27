@@ -27,6 +27,10 @@ public protocol AgentShareHost: AnyObject {
     /// A fresh cmux install token of the signed-in owner (`/v1/auth/token`, ES256) from `api`, the API the
     /// daemon's share room takes tokens from (nil: the daemon did not say, the build's default); nil signed out.
     func shareOwnerToken(api: URL?) async -> String?
+    /// Account and active-team identity, pinned across the native confirmation and mint.
+    var shareAccountScope: String? { get }
+    var shareTeams: [AgentShareTeam] { get }
+    func shareTeamOwnerToken(api: URL?, team: String, accountScope: String) async -> String?
     /// What opening a share link (``AgentShareLinks``) needs, once a cold launch has them: this Mac's daemon
     /// connection (nil once startup gave up) and the signed-in person's cmux (Stack) access token for the room's
     /// one-time hand-off, after the stored session restored (nil signed out).
@@ -52,6 +56,9 @@ public protocol AgentShareHost: AnyObject {
 }
 
 public extension AgentShareHost {
+    var shareAccountScope: String? { nil }
+    var shareTeams: [AgentShareTeam] { [] }
+    func shareTeamOwnerToken(api: URL?, team: String, accountScope: String) async -> String? { nil }
     /// A host with no Cloud machines shares this Mac's chats only.
     func shareCloudOwner(_ tab: TabModel) -> (@MainActor @Sendable () async -> Bool)? { nil }
     /// Fail closed: a host with no consent sheet never lets automation make a link.
@@ -97,18 +104,24 @@ public struct AgentShareConsentAsk: Sendable, Hashable {
     public var uses: UInt32?
     /// Set for an invite (`agent.share.invite`); nil for a guest link.
     public var invite: Invite?
+    public var team: AgentShareTeam?
+    public var teamRole: String?
 
-    public init(chat: String, ttlSecs: UInt64?, uses: UInt32?, invite: Invite? = nil) {
+    public init(chat: String, ttlSecs: UInt64?, uses: UInt32?, invite: Invite? = nil, team: AgentShareTeam? = nil, teamRole: String? = nil) {
         self.chat = chat
         self.ttlSecs = ttlSecs
         self.uses = uses
         self.invite = invite
+        self.team = team
+        self.teamRole = teamRole
     }
 
     public var title: String {
-        invite.map { AgentShareStrings.inviteConsentTitle($0.account, chat: chat) } ?? AgentShareStrings.consentTitle(chat)
+        if let team { return AgentShareStrings.teamConsentTitle(team.name, chat: chat) }
+        return invite.map { AgentShareStrings.inviteConsentTitle($0.account, chat: chat) } ?? AgentShareStrings.consentTitle(chat)
     }
     public var lines: [String] {
+        if let team { return [AgentShareStrings.teamConsentDetail(team.id), AgentShareStrings.inviteRoleLine(teamRole ?? "view")] }
         if let invite { return [AgentShareStrings.inviteConsentDetail, AgentShareStrings.inviteRoleLine(invite.role)] }
         return [AgentShareStrings.consentDetail, AgentShareStrings.consentTerms(ttlSecs: ttlSecs ?? 86400, uses: uses ?? 1)]
     }
@@ -121,4 +134,11 @@ public struct AgentShareConsentAsk: Sendable, Hashable {
 public extension AgentShareHost {
     /// No sign-in to hand a share page: a link opens signed out.
     func shareLinkOpener() async -> (connection: DaemonConnection?, token: String?) { (shareLocalConnection, nil) }
+}
+
+/// An authorized team option; its id is the backend scope, never a display label.
+public struct AgentShareTeam: Sendable, Hashable {
+    public var id: String
+    public var name: String
+    public init(id: String, name: String) { self.id = id; self.name = name }
 }

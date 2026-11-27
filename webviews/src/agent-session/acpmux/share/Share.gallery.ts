@@ -36,6 +36,17 @@ const people: ChatShare = {
     { account: "@sam", role: "view", state: "invited", joined: false },
   ],
 };
+const teams = [
+  { id: "team-design", name: "Design" },
+  { id: "team-engineering", name: "Engineering" },
+];
+const teamShare: ChatShare = {
+  ...link,
+  shareId: "team-share",
+  teamId: "team-design",
+  inviteUrl: "https://share.example.com/i/team-share",
+  guests: [],
+};
 const viewing = [ANA, SAM, MEI, JORDAN];
 // Stress: invites nobody opened yet beside people in the chat now, a long address, and a list
 // past the four rows the band shows before it scrolls.
@@ -91,6 +102,7 @@ export default componentEntry<ShareDemoProps>({
     "agent-session/acpmux/share/ShareControl.tsx",
     "agent-session/acpmux/share/ShareDialog.tsx",
     "agent-session/acpmux/share/ShareDemo.tsx",
+    "agent-session/acpmux/share/ShareTeams.tsx",
   ],
   load: () => import("./ShareDemo").then((module) => module.ShareDemo),
   styles: () => import("./Share.gallery.css"),
@@ -108,6 +120,18 @@ export default componentEntry<ShareDemoProps>({
     "dialog-restricted": {
       note: "Share… from the ••• menu on a chat shared with nobody yet: Restricted, only the owner.",
       props: { viewing: [], shares: [], open: true },
+    },
+    "team-select": {
+      note: "An explicit team and role choice before the native owner confirmation. Existing links stay restricted.",
+      props: { viewing: [], shares: [], teams, open: true },
+    },
+    "team-view": {
+      note: "A saved team view grant has its own secretless invitation link. It is never Anyone with the link.",
+      props: { viewing: [], shares: [teamShare], teams, open: true },
+    },
+    "team-talk-with-link": {
+      note: "Team Can send and a bearer link coexist, with explicit copy/remove for the team and owner approval for each message.",
+      props: { viewing, shares: [{ ...teamShare, role: "talk" }, link], teams, open: true },
     },
     "dialog-shared": {
       note: "Two people invited (one in the chat now) and Anyone with the link, whose row says Can send: signed-in people can send messages, others can view (cmux#38102). Shipped: the sheet role's glass, veil and 14 px corners; every control a 28 px shared button or field; Done the one solid button.",

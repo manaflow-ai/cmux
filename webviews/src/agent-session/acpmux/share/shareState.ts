@@ -25,7 +25,14 @@ export interface ShareInvitee {
 }
 
 /** One share of the chat, as the host answers `share.op {op: "state"}`. */
+export interface ShareTeam {
+  id: string;
+  name: string;
+}
+
 export interface ChatShare {
+  /** A team share admits only authenticated members; it is never a bearer link. */
+  teamId?: string | null;
   shareId: string;
   state: string;
   url: string | null;
@@ -53,6 +60,10 @@ export interface SharePerson {
 
 export interface ShareView {
   people: SharePerson[];
+  /** Teams the signed-in owner may explicitly select. Older hosts omit this list. */
+  teams: ShareTeam[];
+  /** Active team grants, each with its own role and secretless invitation address. */
+  teamShares: ChatShare[];
   general: GeneralAccess;
   /** The live Anyone-with-the-link shares (Restricted ends them). */
   links: ChatShare[];
@@ -66,7 +77,7 @@ const live = (share: ChatShare) => share.state === "active" || share.state === "
 
 /** The dialog's rows from the chat's shares: invitees across live shares (oldest first, one row per
  * account), viewer links, and the invite link of the newest live share that has invitees. */
-export function shareView(shares: readonly ChatShare[]): ShareView {
+export function shareView(shares: readonly ChatShare[], teams: ShareTeam[] = []): ShareView {
   const open = shares.filter(live);
   const people = new Map<string, SharePerson>();
   for (const share of open) {
@@ -82,15 +93,17 @@ export function shareView(shares: readonly ChatShare[]): ShareView {
       } else people.set(invitee.account, { account: invitee.account, role: invitee.role, joined, opened });
     }
   }
-  // Every live view-role share is a bearer link, whatever invite records it also holds: Restricted
+  // Every live non-team view-role share is a bearer link, whatever invite records it also holds: Restricted
   // must end each one, or a link would keep working while the dialog says Restricted.
-  const links = open.filter((share) => share.role === "view");
+  const links = open.filter((share) => !share.teamId && share.role === "view");
   const inviteShare = [...open]
     .filter((share) => share.invitees.some((invitee) => invitee.state === "invited"))
     .sort((a, b) => b.createdAt - a.createdAt)[0];
   const guestsNow = links.reduce((count, share) => count + share.guests.filter((guest) => guest.joined).length, 0);
   return {
     people: [...people.values()],
+    teams,
+    teamShares: open.filter((share) => !!share.teamId),
     general: links.length > 0 ? "anyone" : "restricted",
     links,
     inviteUrl: inviteShare?.inviteUrl ?? null,
@@ -122,9 +135,11 @@ export function shareClient(sessionId: string, host: ShareCall = nativeShareCall
   const call: ShareCall = (op, params = {}) => host(op, { ...params, session: sessionId });
   return {
     async state(): Promise<ShareView> {
-      const answer = (await call("state")) as { shares?: ChatShare[] } | undefined;
-      return shareView(answer?.shares ?? []);
+      const answer = (await call("state")) as { shares?: ChatShare[]; teams?: ShareTeam[] } | undefined;
+      return shareView(answer?.shares ?? [], answer?.teams ?? []);
     },
+    team: (teamId: string, role: ShareRole) => call("team", { teamId, role }),
+    revoke: (shareId: string) => call("revoke", { shareId }),
     invite: (account: string, role: ShareRole) => call("invite", { account, role }),
     remove: (account: string) => call("uninvite", { account }),
     /** A role change is a remove, then an invite (the daemon refuses another role on an invited account). */
@@ -154,7 +169,7 @@ export function shareClient(sessionId: string, host: ShareCall = nativeShareCall
       let links = view.links;
       for (let round = 0; round < RESTRICT_ROUNDS; round += 1) {
         for (const share of links) await call("revoke", { shareId: share.shareId });
-        const answer = (await call("state")) as { shares?: ChatShare[] } | undefined;
+        const answer = (await call("state")) as { shares?: ChatShare[]; teams?: ShareTeam[] } | undefined;
         links = shareView(answer?.shares ?? []).links;
         if (links.length === 0) return;
       }

@@ -864,13 +864,19 @@ final class CloudService {
 
     /// A guest link's owner token from `api` (the daemon's room's, cmux#31372; nil: the build's default), registering that install first when
     /// sign-in did not (a DEV build on the local backend never calls the Cloud API). Nil signed out, switched, or with Cloud off or no team.
-    func shareOwnerToken(api: URL?) async -> String? {
+    func shareOwnerToken(api: URL?, team: String? = nil, accountScope: String? = nil) async -> String? {
         guard let stackUser = await auth.restoredUserID(), !policyDisabled, auth.managedTeamID == nil || auth.teamID != nil else { return nil }
+        if let accountScope, auth.accountKey != accountScope { return nil }
+        let scope = auth.accountKey
         let auth = auth, share = await shareInstalls.identity(for: api)
         do {
             try await share.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
-            let token = try await share.installToken()
-            return auth.user?.id == stackUser ? token : nil // an account switch meanwhile: not the old account's token
+            let token: String
+            if let team {
+                guard try auth.accessTokenTeam(requested: team) == team else { return nil }
+                token = try await share.installToken(team: team)
+            } else { token = try await share.installToken() }
+            return auth.user?.id == stackUser && auth.accountKey == scope ? token : nil // an account switch meanwhile: not the old account's token
         } catch {
             logger.error("share owner token failed: \(String(describing: error), privacy: .public)")
             return nil

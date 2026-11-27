@@ -190,6 +190,18 @@ export function ShareDialogHost({
           onRole={(account: string, role: ShareRole) => void step(() => client.setRole(account, role))}
           onRemove={(account: string) => void step(() => client.remove(account))}
           onGeneral={general}
+          onTeam={(teamId, role) => void step(() => client.team(teamId, role))}
+          onTeamRemove={(shareId) => void step(() => client.revoke(shareId))}
+          onTeamCopy={(url) =>
+            void step(async () => {
+              if (!(await copyTextResult(url))) throw new Error(translate("share.error.copy"));
+              shareToasts.show({
+                id: "share.copied",
+                title: translate("share.toast.invite"),
+                message: translate("share.toast.inviteDetail"),
+              });
+            })
+          }
           onCopy={copy}
           onDone={() => onOpenChange(false)}
         />

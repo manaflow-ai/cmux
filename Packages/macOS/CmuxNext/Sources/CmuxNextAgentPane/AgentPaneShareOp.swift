@@ -9,6 +9,8 @@ public nonisolated enum AgentPaneShareOp: Equatable, Sendable {
     case state
     /// `{op:"link", role}`: a new link to this chat (`role` `view` or `talk`, `view` when absent).
     case link(role: String)
+    /// A team share requires a native confirmation naming the team and permission.
+    case team(teamId: String, role: String)
     /// `{op:"invite", account, role}`: the account may join this chat after signing in.
     case invite(account: String, role: String)
     /// `{op:"uninvite", account}`: the account leaves every share of this chat.
@@ -23,7 +25,7 @@ public nonisolated enum AgentPaneShareOp: Equatable, Sendable {
     /// A link or an invite shows the chat to someone new: only the person's click makes one.
     public var needsGesture: Bool {
         switch self {
-        case .link, .invite: true
+        case .link, .invite, .team: true
         case .state, .uninvite, .revoke, .manage: false
         }
     }
@@ -45,6 +47,9 @@ public nonisolated enum AgentPaneShareOp: Equatable, Sendable {
         case "link":
             guard let role = role("view") else { return nil }
             self = .link(role: role)
+        case "team":
+            guard let team = text("teamId", limit: 128), let role = role(nil) else { return nil }
+            self = .team(teamId: team, role: role)
         case "invite":
             guard let account = text("account", limit: 320), let role = role(nil) else { return nil }
             self = .invite(account: account, role: role)

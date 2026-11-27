@@ -30,9 +30,11 @@ public struct AgentSessionShareCreateRequest: DaemonRequest {
     /// What a guest signed in to cmux may do on the link (`view` or `talk`; the daemon's default is
     /// `talk`); nil is left out of the frame, like `role`.
     public var signedInRole: String?
+    /// Team-scoped shares admit only members attested by the hosted room.
+    public var teamId: String?
 
     public init(surface: UInt64, session: String? = nil, createId: String? = nil, ttlSecs: UInt64? = nil, uses: UInt32? = nil,
-                ownerToken: String? = nil, role: String? = nil, signedInRole: String? = nil) {
+                ownerToken: String? = nil, role: String? = nil, signedInRole: String? = nil, teamId: String? = nil) {
         self.surface = surface
         self.session = session
         self.createId = createId
@@ -41,6 +43,7 @@ public struct AgentSessionShareCreateRequest: DaemonRequest {
         self.ownerToken = ownerToken
         self.role = role
         self.signedInRole = signedInRole
+        self.teamId = teamId
     }
 }
 
@@ -207,6 +210,8 @@ public struct AgentSessionShareUninviteRequest: DaemonRequest {
 public struct AgentSessionShareCreated: Decodable, Sendable, Equatable {
     public var shareId: String
     public var url: String?
+    public var inviteUrl: String?
+    public var teamId: String?
     /// Milliseconds since 1970.
     public var expiresAt: UInt64
     public var session: String
@@ -216,13 +221,17 @@ public struct AgentSessionShareCreated: Decodable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey {
         case url, session, surface
         case shareId = "share_id"
+        case inviteUrl = "invite_url"
+        case teamId = "team_id"
         case expiresAt = "expires_at"
         case usesLeft = "uses_left"
     }
 
-    public init(shareId: String, url: String?, expiresAt: UInt64, session: String, surface: UInt64, usesLeft: UInt32) {
+    public init(shareId: String, url: String?, expiresAt: UInt64, session: String, surface: UInt64, usesLeft: UInt32, inviteUrl: String? = nil, teamId: String? = nil) {
         self.shareId = shareId
         self.url = url
+        self.inviteUrl = inviteUrl
+        self.teamId = teamId
         self.expiresAt = expiresAt
         self.session = session
         self.surface = surface
@@ -259,6 +268,7 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
     public var invitees: [AgentSessionShareInvitee]
     /// The link's role (`view` or `talk`); nil from a daemon older than link roles.
     public var role: String?
+    public var teamId: String?
 
     public var id: String { shareId }
     public var isLive: Bool { state == "active" || state == "provisioning" }
@@ -272,11 +282,12 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         case expiresInSecs = "expires_in_secs"
         case usesLeft = "uses_left"
         case inviteUrl = "invite_url"
+        case teamId = "team_id"
     }
 
     public init(shareId: String, state: String, session: String, surface: UInt64, createdAt: UInt64 = 0, createId: String? = nil,
                 expiresAt: UInt64 = 0, expiresInSecs: UInt64 = 0, usesLeft: UInt32 = 0, room: String? = nil, inviteUrl: String? = nil,
-                guests: [AgentSessionShareGuest] = [], invitees: [AgentSessionShareInvitee] = [], role: String? = nil) {
+                guests: [AgentSessionShareGuest] = [], invitees: [AgentSessionShareInvitee] = [], role: String? = nil, teamId: String? = nil) {
         self.shareId = shareId
         self.state = state
         self.session = session
@@ -290,6 +301,7 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         self.inviteUrl = inviteUrl
         self.guests = guests
         self.invitees = invitees
+        self.teamId = teamId
         self.role = role
     }
 
@@ -309,6 +321,7 @@ public struct AgentSessionShare: Decodable, Sendable, Equatable, Identifiable {
         guests = try c.decode([AgentSessionShareGuest].self, forKey: .guests)
         invitees = try c.decodeIfPresent([AgentSessionShareInvitee].self, forKey: .invitees) ?? []
         role = try c.decodeIfPresent(String.self, forKey: .role)
+        teamId = try c.decodeIfPresent(String.self, forKey: .teamId)
     }
 }
 
