@@ -42,6 +42,7 @@ pub(crate) const FEATURES: &[Feature] = &[
         on: crate::claude_stdio::path_rules_enabled,
     },
     Feature { name: "verify", on: super::verify::enabled },
+    Feature { name: crate::model_router::FEATURE, on: crate::model_router::enabled },
     Feature { name: "prefetch", on: super::prefetch::enabled },
     Feature { name: "surgery", on: super::surgery::enabled },
     Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },

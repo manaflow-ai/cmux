@@ -7144,6 +7144,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/bg/rearm": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/bg/start": {
       "/*untyped*": {
         "ty": "json",
@@ -9102,6 +9108,12 @@
       }
     },
     "request:_acpmux/detach_parent": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/device_challenge": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -33557,6 +33569,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/bg/rearm": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/bg/start": {
       "/data/*untyped*": {
         "ty": "json",
@@ -34003,6 +34021,12 @@
     },
     "response:_acpmux/detach": {},
     "response:_acpmux/detach_parent": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/device_challenge": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
