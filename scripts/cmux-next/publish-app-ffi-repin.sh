@@ -66,6 +66,15 @@ rate_limit_wait() {
   [[ "$waited" =~ ^[0-9]+$ ]] || waited=0
   left=$((rate_limit_max - waited))
   retry="$(header "$1" retry-after)" remaining="$(header "$1" x-ratelimit-remaining)" reset="$(header "$1" x-ratelimit-reset)"
+  # A refusal with no headers (a call that is not `gh api --include`, such as scripts/ci/gh_pages.py) says nothing of
+  # the reset, and the backoff below then slept 60+120+240+180 s before failing (job 140440306992, 2026-11-27: 10 min
+  # spent on a limit that reset 30 min later). GET /rate_limit does not count against the limit: read the token's
+  # core budget there, so a reset past this run's bound fails now.
+  if [[ -z "$retry" && -z "$reset" ]] &&
+      read -r remaining reset < <(gh api rate_limit --jq '"\(.resources.core.remaining) \(.resources.core.reset)"' 2>/dev/null) &&
+      [[ "$remaining" =~ ^[0-9]+$ && "$reset" =~ ^[0-9]+$ ]]; then
+    ((remaining == 0)) || remaining="" reset=""
+  fi
   if [[ "$retry" =~ ^[0-9]+$ ]]; then
     wait_s=$((retry > 0 ? retry : 1)) wait_why="retry-after ${retry}s"
   elif [[ "$remaining" == 0 && "$reset" =~ ^[0-9]+$ ]]; then
@@ -239,7 +248,12 @@ pending_newer() {
   # the next and nothing pinned (2026-11-18: 44262749842, 44269219861 and 44272641346 each held, 07:56Z to 09:48Z,
   # and the pin trailed past the 120 min grace). A failed read keeps this release's commit time.
   if pin_time="$(git show -s --format=%ct "$pin_sha" 2>/dev/null)" && [[ "$pin_time" =~ ^[0-9]+$ ]]; then
-    if [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
+    # The oldest unpinned commit only makes the age larger, so a release whose own commit is already past the bound
+    # needs no walk. The walk is a path-limited `git log` in this treeless clone, which fetches each commit's trees
+    # one by one: 16 min in job 140515668328 and 5.7 min in 140468066668 (2026-11-27), each for a release 369 to
+    # 481 min old against the 60 min bound.
+    if (( ($(date +%s) - pin_time) / 60 <= pending_max_min )) &&
+        [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
         oldest="$(git log --format=%ct "$current..$pin_sha" -- "${input_paths[@]}" 2>/dev/null | tail -n 1)" &&
         [[ "$oldest" =~ ^[0-9]+$ ]] && (( oldest < pin_time )); then
       pin_time="$oldest"
