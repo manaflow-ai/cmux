@@ -429,6 +429,8 @@ jobs:
             scripts/ci/api_call_log/
             scripts/ci/cmux_tui_superseded_push.py
             scripts/ci/ci_pool_tokens.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
             scripts/ci/cmux-tui-darwin-builder
             scripts/cmux-next/cmux-tui-build-profiles.json
             scripts/ci/cmux_tui_tree_key.py
@@ -469,6 +471,8 @@ jobs:
             scripts/ci/api_call_log/
             scripts/ci/cmux_tui_superseded_push.py
             scripts/ci/ci_pool_tokens.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
             scripts/ci/cmux-tui-darwin-builder
             scripts/cmux-next/cmux-tui-build-profiles.json
             scripts/ci/cmux_tui_tree_key.py
@@ -2556,7 +2560,7 @@ jobs:
           fi
 
       - name: Download cmux-tui binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-tui-*
           path: assets/cmux-tui
@@ -2609,14 +2613,14 @@ jobs:
           ls assets/cmux-tui assets/cmux-tui-windows
 
       - name: Download cmux-relay binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-relay-*
           path: assets/cmux-relay
           merge-multiple: true
 
       - name: Download chatmux-relay binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: chatmux-relay-*
           path: assets/chatmux-relay
@@ -4423,7 +4427,7 @@ jobs:
           /usr/bin/arch -x86_64 /usr/bin/uname -m | grep -qx x86_64
 
       - name: Download the Linux-built macOS binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: macos-cross-binaries
           path: ${{ runner.temp }}/linux
@@ -4526,7 +4530,7 @@ jobs:
           fi
 
       - name: Download the macOS arm64 cmux-tui
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-tui-aarch64-apple-darwin
           path: assets/tree
@@ -4534,13 +4538,13 @@ jobs:
       # Linux daemon mode fetches the musl daemon and app host by tree key
       # (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target).
       - name: Download the Linux x86_64 cmux-tui
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-tui-x86_64-unknown-linux-musl
           path: assets/tree
 
       - name: Download the Linux arm64 cmux-tui
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: assets/tree
@@ -4550,7 +4554,7 @@ jobs:
       # without it, that step reads the published acpmux as before.
       - name: Download the macOS x86_64 cmux-tui
         continue-on-error: true
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-tui-x86_64-apple-darwin
           path: assets/macos-x86_64
@@ -4575,7 +4579,7 @@ jobs:
       - name: Download the Windows x86_64 cmux-tui
         if: env.CMUX_TUI_PUBLISH_PASS == 'windows'
         continue-on-error: true
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-tui-x86_64-pc-windows-gnu
           path: assets/windows
@@ -4969,6 +4973,36 @@ jobs:
           if [[ -n "$LEGACY_KEY" && "$LEGACY_KEY" != "$KEY" ]]; then
             verify_tree "$LEGACY_KEY"
           fi
+
+      # RFD 0166 step 2: the smaller acpmux update files beside the tree's
+      # binaries, which `acpmux machine self-update` reads before the raw
+      # binary: <name>.zst and <name>.from-<old sha256>.zst, a zstd
+      # --patch-from against the build feat-cmux-next names now (what the
+      # machines run; A1 measured about 11% of the binary). Content-named and
+      # write-once, made only from the bytes tree/<key>/<name> is, and never a
+      # publish failure: the client checks each against the channel's sha256
+      # and falls back to the raw binary, so a missing one costs a request.
+      - name: Publish the acpmux update files (zstd and patch-from)
+        if: env.CMUX_TUI_PUBLISH_PASS == 'unix'
+        continue-on-error: true
+        timeout-minutes: 12
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
+        run: |
+          set -euo pipefail
+          keys=(--key "$KEY")
+          if [[ -n "$LEGACY_KEY" && "$LEGACY_KEY" != "$KEY" ]]; then keys+=(--key "$LEGACY_KEY"); fi
+          python3 scripts/cas/acpmux_update_files.py \
+            --assets-dir assets/tree "${keys[@]}" \
+            --channel feat-cmux-next \
+            --uploader scripts/ci/upload-r2-object.py \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket cmux-binaries
 
       # cmux-next runs that probed this tree before it was published left a
       # cmux-next-tree-wait-<key> marker and skipped their tree jobs (no runner

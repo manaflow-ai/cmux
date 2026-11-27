@@ -176,7 +176,13 @@ export function agentStepPlan(options: Pick<ProbeOptions, "modelRoute" | "vmId">
   return { run: false, status: "UNVERIFIED", reason: "no model route: a raw clone has no coderouter edge and the probe takes no credential; the tools acpmux attaches are checked without a model" };
 }
 
-/** A `claude` stand-in that appends its command line (one argument per line, then RECORD_END) to `out`. */
+/**
+ * A `claude` stand-in that appends its command line (one argument per line, then RECORD_END) to `out`.
+ * acpmux starts claude more than once at a time (the session, and live_models/claude.rs's `-p` model list
+ * beside it), so each launch is built in its own file and appended with one write: in roll 45906244147 the
+ * printf-per-line appends of the session and a model-list launch interleaved, the session's record lost
+ * its MCP_CONFIG_LINE to the next record, and the probe read no servers at all.
+ */
 export function recorderScript(out: string): string {
   return [
     "#!/bin/sh",
@@ -419,13 +425,27 @@ async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boo
   return ws.code === 0;
 }
 
-/** One recorded launch: a fresh daemon with `env`, a session named `name`, one prompt, then shutdown. */
-function recordSteps(name: string, env: string): string[] {
+/** How often recordSteps starts a session whose launch was not recorded (a slow clone's first daemon). */
+export const RECORD_TRIES = 2;
+
+/**
+ * One recorded launch: a fresh daemon with `env`, a session named `name`, one prompt, then shutdown, into
+ * `launches`. A try that recorded no session launch (no `--plugin-dir`) is made again, once: in roll
+ * 45914140136 the first step's session on a slow clone (its daemon terminal took 42 s, about 1 s live) was
+ * never launched within its bounds, while the next step's was. What acpmux said each try is kept.
+ */
+export function recordSteps(name: string, env: string, launches: string): string[] {
+  const out = (step: string) => `${PROBE_DIR}/${name}-${step}.txt`;
   return [
     `export ${env}`,
-    `{ ${CURRENT_BIN}/cmux-tui acp new -d -m claude -n ${name} --cwd ${WORK_DIR}; echo "exit $?"; } > ${PROBE_DIR}/${name}-new.txt 2>&1`,
-    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp send ${name} hello; echo "exit $?"; } > ${PROBE_DIR}/${name}-send.txt 2>&1`,
-    `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown --end-agents; echo "exit $?"; } > ${PROBE_DIR}/${name}-shutdown.txt 2>&1`,
+    `rm -f ${out("new")} ${out("send")} ${out("shutdown")}`,
+    `for try in $(seq 1 ${RECORD_TRIES}); do`,
+    `  for f in ${out("new")} ${out("send")} ${out("shutdown")}; do echo "try $try" >> "$f"; done`,
+    `  { ${CURRENT_BIN}/cmux-tui acp new -d -m claude -n ${name} --cwd ${WORK_DIR}; echo "exit $?"; } >> ${out("new")} 2>&1`,
+    `  { timeout 60 ${CURRENT_BIN}/cmux-tui acp send ${name} hello; echo "exit $?"; } >> ${out("send")} 2>&1`,
+    `  { timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown --end-agents; echo "exit $?"; } >> ${out("shutdown")} 2>&1`,
+    `  grep -qx -- --plugin-dir ${launches} 2>/dev/null && break`,
+    "done",
   ];
 }
 
@@ -439,10 +459,11 @@ async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir:
     `export ACPMUX_HOME=${PROBE_DIR}/acpmux-recorder ACPMUX_LOGIN_ENV=0`,
     // First the launch a person's chat gets (the gateway on), kept apart; then the same with the gateway off
     // (ACPMUX_MCP_GATEWAY=0), whose stdio servers the probe starts and calls itself.
-    ...recordSteps("gateway", `PATH=${GATEWAY_RECORDER_DIR}:$PATH`),
-    ...recordSteps("recorder", `PATH=${RECORDER_DIR}:$PATH ACPMUX_MCP_GATEWAY=0`),
+    ...recordSteps("gateway", `PATH=${GATEWAY_RECORDER_DIR}:$PATH`, GATEWAY_LAUNCHES),
+    ...recordSteps("recorder", `PATH=${RECORDER_DIR}:$PATH ACPMUX_MCP_GATEWAY=0`, LAUNCHES),
   ].join("\n");
-  result.timings.recordMs = await inTerminal(vm, "record", terminalScript("record", body), 180);
+  // Each try is bounded by its two 60 s timeouts plus `acp new`: two steps of RECORD_TRIES tries.
+  result.timings.recordMs = await inTerminal(vm, "record", terminalScript("record", body), 180 * RECORD_TRIES);
   let text = "";
   try {
     text = await readGuest(vm, LAUNCHES);
