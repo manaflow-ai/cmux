@@ -514,6 +514,52 @@ async fn a_relayed_message_no_session_sent_names_the_machine_the_hub_proved_as_v
     relay.stop().await;
 }
 
+/// The turn count of `session` once no turn runs and it has reached `at_least`, or what it read
+/// last after 30 s.
+async fn settled_turns(local: &mut Client, session: &str, at_least: u64) -> Value {
+    let mut info = Value::Null;
+    for _ in 0..600 {
+        info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+        let idle = info.pointer("/result/turn").is_none_or(Value::is_null);
+        let count = info.pointer("/result/turnCount").and_then(Value::as_u64).unwrap_or(0);
+        if idle && count >= at_least {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    info
+}
+
+/// A plain send that names no sender (a shell's or a probe's `acpmux send HOST/ID` to a chat a
+/// hub move took there) runs a turn in the idle chat, as a peer link's plain prompt does. It
+/// filed as an unclassed agent's FYI, which since #58035 no first lease wakes, so the chat never
+/// answered (the offload round-trip probe's "no reply with the probe word within 90 s").
+#[tokio::test]
+async fn a_relayed_send_that_names_no_sender_runs_in_an_idle_chat() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let mut seed = message("msg-seed", "dep-land", Kind::Prompt);
+    seed.body = "[question]\n\nseed the chat".into();
+    fake.lease(seed);
+    fake.until("the seed's ack", |s| !s.acked("msg-seed").is_empty()).await;
+    let info = settled_turns(&mut local, &session, 1).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(1)), "{info}");
+    let mut bare = message("msg-bare", "dep-land", Kind::Prompt);
+    bare.from.name = None;
+    bare.body = "offload probe count msg-000001".into();
+    fake.lease(bare);
+    fake.until("the ack", |s| !s.acked("msg-bare").is_empty()).await;
+    assert_eq!(fake.with(|s| s.acked("msg-bare")), vec![Ack::delivered("msg-bare", None)]);
+    let info = settled_turns(&mut local, &session, 2).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(2)), "never ran: {info}");
+    let p = delivered_provenance(&mut local, &session, "msg-bare").await;
+    assert_eq!(p["fromName"], "gcp-lane", "{p}");
+    relay.stop().await;
+}
+
 /// A send from no session (a relay on this machine's unix socket) carries its relay record to the
 /// hub, so the receiving machine can name the session it came from; a proven session's send
 /// carries none, whatever it wrote.
