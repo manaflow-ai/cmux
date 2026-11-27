@@ -598,6 +598,10 @@ const WARM_VIEWPORTS = 1;
 /// land in the offset in the frame they are measured and no visible row moves.
 const HISTORY_VIEWPORTS = 4;
 
+/// Viewports at a cold open's end measured whole in its first layout (`coldOpenRoughAbove`): the view
+/// and one of margin, which holds the overscan rows the first frame mounts above and below it.
+const COLD_OPEN_MEASURED_VIEWPORTS = 2;
+
 /// How far the reader scrolls, in viewports, before the warm rows move with them.
 const WARM_STEP_VIEWPORTS = 0.5;
 
@@ -747,9 +751,11 @@ export function VirtualTranscript(props: VirtualTranscriptProps) {
 }
 
 /// A cold open at the chat's end (layoutConversation `roughAbove`): the px above the end measured
-/// whole, the view and the history mounted above it (HISTORY_VIEWPORTS) with a viewport of margin
-/// either side. Undefined when anything is already measured or kept, the box has no height yet, or
-/// the chat opens at a saved place in its rows.
+/// whole, the view with a viewport of margin (COLD_OPEN_MEASURED_VIEWPORTS). That is what the open's
+/// first frame mounts: its history waits until that frame has painted (`deferHistory`), when the rough
+/// estimate is laid out whole. Measuring the history's HISTORY_VIEWPORTS as well cost a small chat's
+/// first frame 135 measured rows for the 17 it drew. Undefined when anything is already measured or
+/// kept, the box has no height yet, or the chat opens at a saved place in its rows.
 function coldOpenRoughAbove(
   cache: ReadonlyMap<string, unknown>,
   kept: LastEstimate | undefined,
@@ -760,7 +766,7 @@ function coldOpenRoughAbove(
   if (cache.size > 0 || kept || resizing || view.height <= 0) return undefined;
   const openAt = view.openAt;
   if (openAt && rows.some((row) => row.id === openAt.rowId)) return undefined;
-  return (HISTORY_VIEWPORTS + 2) * view.height;
+  return COLD_OPEN_MEASURED_VIEWPORTS * view.height;
 }
 
 /// The layouts of the chats this page's transcripts showed (conversation/keptLayouts.ts).
