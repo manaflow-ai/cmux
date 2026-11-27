@@ -17,6 +17,7 @@ extension GitHubConnections {
         let (current, call) = liveCall(auth: auth, ownerAPI: ownerAPI, preview: preview)
         let model = GitHubConnections(scope: current, call: call, open: { url in LinkRouter.shared.openGitHubConnect(url) })
         model.completionLink = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
+        model.signInBackend = auth.configuration.signInBackendLine
         // The app finished an install GitHub handed back to it: the card reads its connections again.
         model.changes = Task { [weak model] in
             for await _ in ObservationStream({ auth.gitHubChanges.count }).dropFirst() {
@@ -30,7 +31,7 @@ extension GitHubConnections {
             guard current() == bound else { return nil }
             let team = backendTeam(project: auth.configuration.stackProjectID, stackTeam: bound.team) ?? personalTeam(user: bound.user)
             let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-            return await CloudOwnerAPIClient(baseURL: ownerAPI, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace)
+            return await CloudOwnerAPIClient(baseURL: ownerAPI, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO)
                 .gitHubReconfigureURL(team: team)
         }
         return model

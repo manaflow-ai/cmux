@@ -164,3 +164,54 @@ fn each_chat_keeps_its_own_template() {
     assert_eq!(parts(&d.frame(other, o)).0, CHUNK);
     assert_eq!(parts(&d.frame(CHAT, chunk(2, 150, 1, "b"))).0, CHUNK);
 }
+
+/// `same_shape` answers as building the shape and comparing did, for every way two events differ.
+#[test]
+fn the_in_place_shape_compare_answers_as_the_copy_did() {
+    let base = chunk(1, 100, 1, "a");
+    let mut variants = vec![base.clone(), chunk(9, 900, 1, "other text"), chunk(2, 100, 2, "a")];
+    let edits: [fn(&mut Value); 12] = [
+        |v| v["chunkRef"] = json!(7),
+        |v| v["dir"] = json!("out"),
+        |v| v["peer"] = json!("mac"),
+        |v| _ = v.as_object_mut().unwrap().remove("kind"),
+        |v| v["msg"]["params"]["update"]["messageId"] = json!("m1"),
+        |v| v["msg"]["params"]["update"]["content"]["annotations"] = json!({}),
+        |v| _ = v["msg"]["params"]["update"]["content"].as_object_mut().unwrap().remove("text"),
+        |v| v["msg"]["params"]["update"]["content"] = json!("flat"),
+        |v| v["msg"]["params"]["update"] = json!([1, 2]),
+        |v| v["msg"]["params"] = json!(null),
+        |v| v["msg"] = json!("raw"),
+        |v| v["msg"]["params"]["sessionId"] = json!("another"),
+    ];
+    for edit in edits {
+        let mut v = base.clone();
+        edit(&mut v);
+        variants.push(v);
+    }
+    variants.push(json!("not an object"));
+    variants.push(json!({"seq": 1}));
+    for a in &variants {
+        let shape = shape_of(a);
+        for b in &variants {
+            assert_eq!(same_shape(&shape, b), shape == shape_of(b), "{a} vs {b}");
+        }
+    }
+}
+
+/// A frame of shared params is the frame of the same params owned, byte for byte.
+#[test]
+fn a_shared_frame_is_the_owned_frame() {
+    let (owned, shared) = (on(), on());
+    for (i, text) in ["a", "b", "c"].iter().enumerate() {
+        let seq = i as u64 + 1;
+        let mut p = chunk(seq, 100 * seq, if i == 2 { 2 } else { 1 }, text);
+        assert_eq!(
+            shared.frame_shared(CHAT, &p).to_line(),
+            owned.frame(CHAT, p.clone()).to_line(),
+            "{p}"
+        );
+        p["kind"] = json!("status");
+        assert_eq!(shared.frame_shared(CHAT, &p).to_line(), owned.frame(CHAT, p).to_line());
+    }
+}
