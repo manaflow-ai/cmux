@@ -260,6 +260,21 @@ fn headless_loads_catalog_only_commands_before_reporting_done() {
 }
 
 #[test]
+fn headless_loads_the_command_scaffold_before_reporting_done() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    scaffold::scaffold(&dir, "hello", "command").unwrap();
+
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    options.build = Some("true".into());
+    let outcome = super::headless::once(&options);
+    assert_eq!(outcome.phase, Phase::Done, "{outcome:?}");
+    assert!(outcome.probe.is_none(), "catalog-only commands do not render: {outcome:?}");
+    assert!(outcome.next.as_deref().unwrap_or_default().contains("loaded"), "{outcome:?}");
+}
+
+#[test]
 fn headless_accepts_manifest_only_composer_contributions() {
     let root = tempfile::tempdir().unwrap();
     let dir = new_extension(root.path(), "standup");
