@@ -24,7 +24,7 @@
 #                   chat-100k, tabs-N, and any of them joined with + (L4+tabs-40)
 #    scenarios=LIST chat-long-return,terminal-return,chromium-return,new-tab,close-tab (default), or all: also
 #                   webkit-return, new-workspace, switch-workspace, close-workspace, rapid-open-5, rapid-close-3,
-#                   open-while-close; or matrix: the settle matrix (scripts/cmux-next/tab_switch_matrix.py), trigger to
+#                   open-while-close, browser-split (Split Browser Right: blank frames in the new pane, #56574); or matrix: the settle matrix (scripts/cmux-next/tab_switch_matrix.py), trigger to
 #                   truly settled over the window, the page side and the sidebar for workspace switches cold and warm,
 #                   new workspace and chat, split, resize, tab move, unsplit, window resize, pane to a new window, a
 #                   10k-row chat and a relaunch that restores (SETTLE lines, matrix.md). The settle matrix at Leo's
