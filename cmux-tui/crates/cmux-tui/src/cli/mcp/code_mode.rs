@@ -249,8 +249,9 @@ const GITHUB_STEER: &str = " When the person asks about their GitHub (can you se
 /// asked "Do you have a settings_ask tool (acpmux_settings_ask)?" said no (cmux ask
 /// c-073fa3e7ff, 2026-11-27).
 const SETTINGS_ASK: &str = "acpmux_settings_ask";
-const SETTINGS_STEER: &str = " To get a GitHub connection or any setting from the person, call \
+const SETTINGS_STEER: &str = " To get a GitHub or other service connection or any setting from the person, call \
     `cmux.acpmux_settings_ask({target, why})` (target connection:github[:ORG[/REPO]], \
+    connection:SERVICE for a catalog service such as linear or sentry, \
     setting:SECTION[/KEY] or a cmux://settings/... link): it opens that one control as a card or \
     link, instead of telling them to open Settings.";
 

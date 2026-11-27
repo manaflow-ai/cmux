@@ -39,9 +39,64 @@ export type GitHubConnectNeed = {
   org?: string;
   /// The agent's one line on why it asked (`settings_ask` `why`), drawn as the card's line.
   why?: string;
+  /// A cmux connection other than GitHub (Settings > Integrations > Connections: `linear`, `sentry`,
+  /// ...), by the name cmux-platform's catalog gives it: the card connects that service instead
+  /// (serviceConnectCall, and `settings_ask` `connection:NAME`). Absent: GitHub.
+  service?: string;
   /// The failed call's id: the card's identity within its turn.
   callId: string;
 };
+
+/// A connection's catalog name as cmux-platform keeps it (`[a-z0-9-]`, a letter or digit first);
+/// the Mac checks the same before it runs `connections.connect` (AgentPaneRequest+Decoding.swift).
+export function isServiceName(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,62}$/.test(value);
+}
+
+/// The app action a service card runs (Mac `connections.connect`: Settings > Integrations >
+/// Connections' own Connect, `cmux mcp-servers connect NAME`). The host runs it only on the
+/// person's gesture.
+export const SERVICE_CONNECT_ACTION = "connections.connect";
+
+/// cmux's hosted MCP bridge (acpmux hosted_mcp.rs `SERVER_NAME`), and the folding `cmux` server
+/// that carries it in code mode (code_mode.rs).
+const HOSTED_SERVERS = new Set(["cmux-hosted", "cmux"]);
+
+/// cmux-platform's refusal when a connection's sign-in lapsed (mcp-servers Servers.ts
+/// `callServedTool`): `mcp_server.needs_auth`, and a message naming the connection.
+export const SERVICE_NEEDS_AUTH = "mcp_server.needs_auth";
+const NEEDS_AUTH_LINE =
+  /^The ([a-z0-9][a-z0-9-]{0,62}) MCP server(?:(?:'|\u2019)s sign-in expired| refused its credential)/;
+
+/// What a failed hosted call asks to connect: the connection cmux-platform named in its
+/// `mcp_server.needs_auth` error. The name comes from the error's own structure or its one line at
+/// the start of the result, never from text anywhere inside it.
+export function serviceConnectCall(tool: Tool): Omit<GitHubConnectNeed, "callId"> | undefined {
+  const output = tool.output;
+  if (tool.status !== "failed" || !output || tool.command || tool.kind === "execute") return undefined;
+  if (!output.includes("MCP server")) return undefined;
+  const call = mcpCall(tool);
+  if (!call || !HOSTED_SERVERS.has(call.server)) return undefined;
+  const text = output.length > 65_536 ? output.slice(0, 65_536) : output;
+  const parsed = parseJSON(text);
+  const message = typeof parsed === "string" ? parsed : needsAuthMessage(parsed);
+  const service = message ? NEEDS_AUTH_LINE.exec(message.trim())?.[1] : undefined;
+  return isServiceName(service) && service !== "github" ? { reason: "needs-reauth", service } : undefined;
+}
+
+/// The needs_auth error's message at the top of a hosted result: `structuredContent.error`, the
+/// harness's bare `error`, or code mode's `{ok: false, error: {error}}`.
+function needsAuthMessage(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const candidates = [
+    isRecord(value.structuredContent) ? value.structuredContent.error : undefined,
+    value.error,
+    isRecord(value.error) ? value.error.error : undefined,
+  ];
+  for (const error of candidates)
+    if (isRecord(error) && error.code === SERVICE_NEEDS_AUTH && typeof error.message === "string") return error.message;
+  return undefined;
+}
 
 /// A GitHub account or org name as GitHub allows it (1 to 39 letters, digits and inner dashes);
 /// the Mac checks the same (AgentPaneRequest+Decoding.swift `isGitHubOwner`).
@@ -77,13 +132,19 @@ export function settingsAskCall(tool: Tool): Omit<GitHubConnectNeed, "callId"> |
   if (!target) return undefined;
   const rest = target.replace(/^connection:/, "");
   const [provider, ...scopeParts] = rest.split(":");
+  const why = text("why", "reason", "message", "text")?.slice(0, MAX_WHY);
+  // Any other connection by its catalog name (`connection:linear`): that service's card.
+  const service = provider?.trim().toLowerCase();
+  if (target.startsWith("connection:") && service !== "github")
+    return isServiceName(service) && scopeParts.length === 0
+      ? { reason: "asked", service, ...(why && { why }) }
+      : undefined;
   if (provider?.toLowerCase() !== "github") return undefined;
   const scope = scopeParts
     .join(":")
     .trim()
     .replace(/^https:\/\/github\.com\//, "")
     .replace(/\/$/, "");
-  const why = text("why", "reason", "message", "text")?.slice(0, MAX_WHY);
   const names = isGitHubRepo(scope)
     ? { repo: scope, org: scope.split("/")[0]! }
     : isGitHubOwner(scope)
@@ -168,7 +229,7 @@ export function githubConnectNeed(rows: readonly AcpmuxRow[]): GitHubConnectNeed
     for (let index = items.length - 1; index >= 0; index -= 1) {
       const tool = items[index]!.tool;
       if (!tool || tool.status === "pending" || tool.status === "in_progress") continue;
-      const need = githubConnectCall(tool) ?? settingsAskCall(tool);
+      const need = githubConnectCall(tool) ?? serviceConnectCall(tool) ?? settingsAskCall(tool);
       if (need) return { ...need, callId: tool.id };
     }
   }
@@ -260,5 +321,9 @@ export function afterVisibility(phase: GitHubConnectPhase, visible: boolean): Gi
 /// prompt (turnActions.ts `CONTINUE_PROMPT`). Connect rejects with the app's reason when it did not run.
 export type GitHubConnectOffer = {
   connect(repo: string | undefined, org?: string): Promise<void>;
+  /// A service card's Connect: the app's `connections.connect` for that catalog name, with this
+  /// chat's link to come back to. Absent: a pane whose host has no such action; the card shows
+  /// its line alone.
+  connectService?(service: string): Promise<void>;
   continue(): Promise<void>;
 };

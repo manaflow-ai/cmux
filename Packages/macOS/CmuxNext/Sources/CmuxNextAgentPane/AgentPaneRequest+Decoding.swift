@@ -54,6 +54,12 @@ extension AgentPaneRequest {
         value.utf8.count <= 39 && value.range(of: #"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"#, options: .regularExpression) != nil
     }
 
+    /// A cmux connections catalog name (`cmux mcp-servers catalog`, the Connect card's `service`): lowercase
+    /// letters, digits and hyphens, a letter or digit first, at most 63. Never a flag, a path or a URL.
+    static func isCatalogName(_ value: String) -> Bool {
+        value.utf8.count <= 63 && value.range(of: #"^[a-z0-9][a-z0-9-]{0,62}$"#, options: .regularExpression) != nil
+    }
+
     nonisolated static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
@@ -783,13 +789,16 @@ extension AgentPaneRequest {
                 // Connect GitHub's card names the failed call's repository and the chat's link: a
                 // malformed one is dropped (Connect still runs, as from the palette); the link is
                 // checked against this build's links where it runs (AgentPaneModel+Actions.swift).
-                let github = id == "accounts.githubConnect"
+                // A chat's Connect card (`connections.connect`) names the catalog service and the chat's link the same way.
+                let github = id == "accounts.githubConnect", connection = id == "connections.connect"
                 let repo = (params?["repo"] as? String).flatMap { github && AgentPaneRequest.isGitHubRepo($0) ? $0 : nil }
-                let returnTo = (params?["returnTo"] as? String).flatMap { github && $0.utf8.count <= 512 ? $0 : nil }
+                let returnTo = (params?["returnTo"] as? String).flatMap { (github || connection) && $0.utf8.count <= 512 ? $0 : nil }
                 let org = (params?["org"] as? String).flatMap { github && AgentPaneRequest.isGitHubOwner($0) ? $0 : nil }
+                let service = (params?["service"] as? String).flatMap { connection && AgentPaneRequest.isCatalogName($0) ? $0 : nil }
                 self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil, app: app ?? nil,
                                   repo: repo, returnTo: returnTo, org: org,
-                                  mode: mode ?? nil, queued: queued ?? nil, hasDraft: hasDraft ?? nil, sessions: sessions ?? nil, priority: priority ?? nil)
+                                  mode: mode ?? nil, queued: queued ?? nil, hasDraft: hasDraft ?? nil, sessions: sessions ?? nil, priority: priority ?? nil,
+                                  service: service)
             } else {
                 self = .unsupported(method)
             }

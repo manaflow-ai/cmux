@@ -89,12 +89,21 @@ public final class SettingsConnections: PageProvider {
         let stdin: Data? = words.contains("--key-stdin") ? SettingsIntegrationsHub.keyData(params) : nil
         if words.contains("--key-stdin"), stdin == nil { throw PageError.invalidParams("paste the server's key") }
         guard let cli = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no bundled cmux CLI") }
+        let answer = await perform(action, words: words, stdin: stdin, cli: cli,
+                                   name: params["name"]?.stringValue ?? Self.name(catalog, connection: params["id"]?.stringValue))
+        return answer ?? .object([:])
+    }
+
+    /// Runs `cmux mcp-servers WORDS --json`, opens the https sign-in page it answers (its server `name`
+    /// pending until a refresh shows it connected), keeps a refusal in the CLI's words, and reads the
+    /// catalog again. The CLI's answer, or nil when it did not answer.
+    private func perform(_ action: String, words: [String], stdin: Data?, cli: URL, name: String?) async -> JSONValue? {
         let reply = try? await awaitConcurrently({ try await runCLI(cli, ["mcp-servers"] + words + ["--json"], stdin) })
         let answer = reply.flatMap { SettingsIntegrationsHub.lastLine($0.1) }
         if let answer, answer["ok"]?.boolValue == true {
             lastError = nil
             if let page = answer["authorizeUrl"]?.stringValue, let url = Self.signInPage(page) {
-                pending = params["name"]?.stringValue ?? Self.name(catalog, connection: params["id"]?.stringValue)
+                pending = name
                 openInBrowser(url)
             }
         } else {
@@ -103,7 +112,61 @@ public final class SettingsConnections: PageProvider {
                          answer?["error"]?["message"]?.stringValue ?? "")
         }
         await refresh()
-        return answer ?? .object([:])
+        return answer
+    }
+
+    /// A chat's Connect card (`connections.connect`: a tool call that answered needs_auth, or a service the
+    /// agent asked for by name), on the person's click in the chat: the catalog is read again, then
+    /// `name`'s entry decides. Connect (an OAuth server) runs `connect NAME --owner me --return-to RETURN` and
+    /// opens its sign-in page; Reconnect runs `reconnect ID --return-to RETURN`; a connected one needs
+    /// nothing. RETURN is the chat's link (`returnTo`, already checked against this build's links by the
+    /// pane) when it is one of this build's, else this page (`<scheme>://settings/integrations`).
+    /// The reason the person reads when the chat cannot finish it (a server that takes a key, which is
+    /// pasted in Settings and never passes through a chat; one cmux cannot connect; a name not in the
+    /// catalog; the CLI's refusal), or nil. The caller opens Settings > Integrations on a reason.
+    public func connectFromChat(name: String, returnTo: String?) async -> String? {
+        guard !name.isEmpty else { return "This card does not name a service to connect." }
+        guard let cli = await cli() else { return "cmux could not find its bundled command line tool." }
+        await refresh()
+        guard problem == nil else { return "cmux could not read its connections catalog." }
+        guard let entry = Self.entries(catalog).first(where: { $0["name"]?.stringValue == name }) else {
+            return "\(name) is not in cmux's connections catalog."
+        }
+        let title = entry["title"]?.stringValue ?? name
+        let words: [String]
+        switch entry["state"]?.stringValue {
+        case "connected":
+            return nil
+        case "connect" where entry["keyField"]?.boolValue != true:
+            words = ["connect", name, "--owner", "me", "--return-to", chatReturn(returnTo)]
+        case "connect":
+            return "\(title) needs a key: paste it in Settings > Integrations."
+        case "reconnect":
+            guard let id = entry["connectionId"]?.stringValue, !id.isEmpty else { return "\(title) needs to be connected again in Settings > Integrations." }
+            words = ["reconnect", id, "--return-to", chatReturn(returnTo)]
+        case "unavailable":
+            let reason = entry["unavailableReason"]?.stringValue ?? ""
+            return reason.isEmpty ? "cmux cannot connect \(title) yet." : "cmux cannot connect \(title): \(reason)"
+        default:
+            return "Finish connecting \(title) in Settings > Integrations."
+        }
+        let answer = await perform(words[0], words: words, stdin: nil, cli: cli, name: name)
+        guard answer?["ok"]?.boolValue == true else {
+            let message = answer?["error"]?["message"]?.stringValue ?? ""
+            return message.isEmpty ? "cmux could not connect \(title)." : message
+        }
+        return nil
+    }
+
+    /// The link a chat's sign-in returns to: the chat's own when it is one of this build's links (no
+    /// space or control character, at most 512 bytes, as the CLI's `return_to` takes), else this page.
+    func chatReturn(_ returnTo: String?) -> String {
+        let scheme = linkScheme()
+        if let returnTo, returnTo.utf8.count <= 512, returnTo.hasPrefix("\(scheme)://"),
+           !returnTo.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0) }) {
+            return returnTo
+        }
+        return "\(scheme)://\(Self.returnPath)"
     }
 
     /// Whether `url` is this page's settings link, the one a provider's sign-in returns to
