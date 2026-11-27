@@ -510,7 +510,7 @@ extension CloudHandlers {
             let values = try await keychainValues(items)
             // Sealed on this Mac to the machine's daemon key and opened only there (`cmux carrier secrets`):
             // no value crosses the platform, a file API, a terminal or a log.
-            let delivered = try await cloud.machineAPI.daemon.deliverSealedSecrets(machineID, values: values)
+            let delivered = try await cloud.machineAPI.deliverSealedSecrets(machineID, values: values)
             guard case .wrote(let count) = delivered else {
                 throw ActionFailure(message: CloudStrings.secretsNotDelivered(Self.sealedReason(delivered)))
             }
