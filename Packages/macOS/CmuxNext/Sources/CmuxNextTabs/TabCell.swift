@@ -64,7 +64,11 @@ final class TabCell {
     /// came while hidden runs when the strip shows again.
     var isStripShown = true {
         didSet {
-            if isStripShown, !oldValue, owesIndicatorResync { statusIndicatorResync() }
+            if isStripShown, !oldValue, owesIndicatorResync {
+                statusIndicatorResync()
+            } else if isStripShown != oldValue, item.isBusy {
+                updateSpinner()
+            }
             if isStripShown != oldValue { updateNeedsYouGlowMotion() }
         }
     }

@@ -23,6 +23,18 @@ import Testing
                 "a waiting tab turns \(String(describing: cell.spinnerPlan.animation)), the rest \(String(describing: busy.animation))")
     }
 
+    @Test func aHiddenStripStopsItsBusyTabSpinnerUntilItShows() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let cell = TabCell(item: TabItem(id: TabID("hidden-strip"), title: "Agent", isBusy: true))
+        let shown = cell.spinnerPlan.animation
+        try #require(shown != nil, "the configured style should animate a busy indicator")
+        cell.isStripShown = false
+        #expect(cell.spinnerPlan.animation == nil, "a parked strip must not keep a compositor loop")
+        cell.isStripShown = true
+        #expect(cell.spinnerPlan.animation == shown, "the spinner resumes when the strip is shown")
+    }
+
     @Test func aChromeSpinnerDrawsTheSameGlyphAsATabOrRowSpinner() {
         let chrome = StatusIndicatorView.spinner()
         chrome.spin(true)

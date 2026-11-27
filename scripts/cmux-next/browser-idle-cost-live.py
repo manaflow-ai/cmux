@@ -29,6 +29,7 @@ sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from windowserver_metrics import parse_process_time  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("browser_engine_bench", os.path.join(HERE, "..", "perf", "browser_engine_bench.py"))
 bench = importlib.util.module_from_spec(_spec)
@@ -189,14 +190,10 @@ def window_server_cpu_s():
     for line in out.splitlines():
         parts = line.strip().split(None, 1)
         if len(parts) == 2 and parts[1].endswith("/WindowServer"):
-            total = 0.0
-            clock = parts[0]
-            if "-" in clock:
-                days, clock = clock.split("-", 1)
-                total += int(days) * 86400
-            for field in clock.split(":"):
-                total = total * 60 + float(field)
-            return total
+            try:
+                return parse_process_time(parts[0])
+            except ValueError:
+                continue
     return None
 
 
