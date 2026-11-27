@@ -882,3 +882,74 @@ fn the_kept_servers_survive_the_session_file() {
         serde_json::from_value(serde_json::to_value(&meta).unwrap()).unwrap();
     assert_eq!(back.idle_launch, Some(stored));
 }
+
+/// A reviewer harness runs Codex in a bubblewrap box: `python3 BOX ARGS` -> `bwrap ... -- python3
+/// INNER -- codex.js ARGS` -> bwrap's pid-namespace child (`bwrap`, the same argv) -> what the
+/// box's command became (`node codex.js ARGS`) -> the native program and its helper, with a fork
+/// of the box's command (its forwarder) under the launcher. The census took the `bwrap` for work
+/// the harness left running, so an idle reviewer never ended (34 refusals on one lane host,
+/// 2026-11-21, 8 processes and about 104 MB each). The box is the harness's own; what runs in it
+/// that is not the agent still keeps it up.
+#[test]
+fn a_sandbox_the_leader_runs_its_agent_in_lets_it_end() {
+    let (root, node) = node_on_path();
+    let path = root.to_string_lossy().into_owned();
+    let bwrap = root.join("bwrap").to_string_lossy().into_owned();
+    std::fs::copy(&node, &bwrap).unwrap();
+    let (launcher, bin, _) = npm_codex(&root);
+    let args = ["-c", "agents.max_depth=16", "app-server"];
+    let words = |s: &[&str]| s.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+    let who = |exe: &str, argv: Vec<String>| Some(Identity { exe: exe.into(), argv, cwd: None });
+    let python = "/usr/bin/python3.12";
+    let leader = [&["python3", "/home/u/tools/box"][..], &args].concat();
+    let command = [&[python, "-I", "/run/box/box", "__inner", "--", &launcher][..], &args].concat();
+    let options = ["bwrap", "--unshare-all", "--clearenv", "--setenv", "PATH", &path, "--"];
+    let sandbox = [&options[..], &command].concat();
+    let (native, helper) = (format!("{bin}/codex"), format!("{bin}/codex-code-mode-host"));
+    let inner_node = [&["node", &launcher][..], &args].concat();
+    let native_argv = [&[native.as_str()][..], &args].concat();
+    let idle = vec![
+        under(11, 10, "bwrap outer"),
+        under(12, 11, "bwrap inner"),
+        under(13, 12, "node codex.js"),
+        under(14, 13, "python3 forwarder"),
+        under(15, 13, "codex"),
+        under(16, 15, "codex-code-mode-host"),
+    ];
+    let extra: std::cell::RefCell<Option<(u32, Identity)>> = Default::default();
+    let census = |found: &[Under], bwrap_exe: &str| {
+        classify(found, 10, &[], Some(&path), |pid| match pid {
+            10 => who("/usr/bin/python3", words(&leader)),
+            11 | 12 => who(bwrap_exe, words(&sandbox)),
+            13 => who(&node, words(&inner_node)),
+            14 => who(python, words(&command)),
+            15 => who(&native, words(&native_argv)),
+            16 => who(&helper, vec![helper.clone()]),
+            _ => extra.borrow().as_ref().filter(|(p, _)| *p == pid).map(|(_, w)| w.clone()),
+        })
+    };
+    assert!(matches!(census(&idle, &bwrap), Census::Clear));
+    // `exec -a bwrap`: another program naming itself the box is not one.
+    assert!(matches!(census(&idle, "/tmp/devserver"), Census::Busy { pid: 11, .. }));
+
+    // Work in the box still keeps it up: under the agent, beside it in the box, a command the
+    // agent runs in a sandbox of its own (even one naming the leader's args), and a sandbox
+    // under the leader whose command is not the agent.
+    let own_box = [&["bwrap", "--ro-bind", "/", "/", "--", "/usr/bin/make"][..], &args].concat();
+    for (parent, argv) in [
+        (15, words(&["/usr/bin/sleep", "1000"])),
+        (12, words(&["/bin/sh", "-c", "make"])),
+        (13, words(&["/usr/bin/python3", "-m", "http.server"])),
+        (15, words(&own_box)),
+        (10, words(&["bwrap", "--", "/usr/bin/sleep", "1000"])),
+        (12, words(&["node", &launcher, "exec", "run-this"])),
+    ] {
+        let exe = if argv[0] == "bwrap" { bwrap.clone() } else { argv[0].replace("node", &node) };
+        *extra.borrow_mut() =
+            Some((17, Identity { exe: exe.into(), argv: argv.clone(), cwd: None }));
+        let mut found = idle.clone();
+        found.push(under(17, parent, "work"));
+        assert!(matches!(census(&found, &bwrap), Census::Busy { pid: 17, .. }), "{argv:?}");
+    }
+    let _ = std::fs::remove_dir_all(root);
+}
