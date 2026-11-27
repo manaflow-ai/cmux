@@ -32,7 +32,7 @@ jobs:
     environment:
       name: cmux-next-cloud-journey
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 60
     steps:
       - name: Check the build input
@@ -106,4 +106,4 @@ jobs:
           name: cloud-mvp-nightly-readback
           path: .build/cloud-mvp-nightly-readback/report.tgz
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7

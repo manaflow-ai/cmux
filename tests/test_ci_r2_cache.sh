@@ -326,6 +326,7 @@ CACHE_REQUIRED=true output_of save "$WORK/missing-dir" family-tool-six >/dev/nul
 CACHE_REQUIRED=true output_of save "$WORK/src" required-one >/dev/null || fail "a required save that wrote must pass, log: $(cat "$WORK/log")"
 [[ "$(cat "$NS/latest/required-")" == "required-one" ]] || fail "a required save must publish its pointers"
 touch "$WORK/store/fail-pointer"
-CACHE_REQUIRED=true output_of save "$WORK/src" required-two >/dev/null && fail "a required save whose pointer failed must fail: a prefix reader cannot find it"
+# A newer run: the same run id leaves the pointer alone (equal generation), so no pointer write could fail.
+GITHUB_RUN_ID=11 CACHE_REQUIRED=true output_of save "$WORK/src" required-two >/dev/null && fail "a required save whose pointer failed must fail: a prefix reader cannot find it"
 rm -f "$WORK/store/fail-pointer"
 echo "PASS: a required save fails when it saved nothing a reader finds, and passes when it did"

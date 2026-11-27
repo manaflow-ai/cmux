@@ -34,7 +34,9 @@ concurrency:
 jobs:
   measure:
     name: launch TTI (${{ matrix.leg }})
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # A fork's pull_request run reads no repository variables, so RUNNER_POOLS cannot be read there: skip it.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 90
     strategy:
       fail-fast: false

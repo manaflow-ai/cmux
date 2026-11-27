@@ -62,4 +62,4 @@ jobs:
             ${{ runner.temp }}/wake-echo/journey.json
             ${{ runner.temp }}/wake-echo/summary.md
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 3

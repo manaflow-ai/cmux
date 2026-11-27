@@ -31,6 +31,8 @@ from github_token_polling import (  # noqa: E402
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 ALLOWED: dict[str, str] = {
+    'pr-router.yml: Post the verdict':
+        'retry only: ui_proof_verdict.py post_status POSTs one commit status, rotating tokens, and sleeps 5/10/15 s only after a refused post (cmux#60415)',
     'ci-macos.yml: Select package tests':
         'the scan reads every loop of a script the step runs; fleet-test-products.py loops on the fleet controller, not GitHub, and sleeps only through its 429',
     'cmux-next.yml: Compile-check CmuxNext on the build fleet':

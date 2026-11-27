@@ -1525,6 +1525,21 @@ PYTHON
       content="${content/"$nightly_main_trusted_selector"/}"
       content="${content/"$nightly_next_side_selector"/}"
     fi
+    # Exact runs-on values that name one owned label directly, each a reviewed route (Leo's PRs), nothing looser:
+    # - the build-fleet gateway the CI_*_GATEWAY variables were frozen to (#55571), forks to hosted Ubuntu first;
+    # - the fast tier's fallback to the gateway when the Swift results are unavailable (#60707), in that file only;
+    # - the nightly deltas job on the trusted signer (#57000), in nightly.yml only.
+    content="${content/"\${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }}"*/}"
+    if [[ "$(basename "${line%%:*}")" == cmux-next-fast-tier-batch.yml ]]; then
+      content="${content/"\${{ needs.swift-results.outputs.verdict == 'unavailable' && 'glaeda-gateway-xcode-26.6' || 'cmux-linux' }}"/}"
+    fi
+    if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
+      content="${content/"\${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}"/}"
+    fi
+    # - machine-vault-e2e's ephemeral Blacksmith macOS VM (#58618), in that file only; hosted macos-26 is the fork side.
+    if [[ "$(basename "${line%%:*}")" == machine-vault-e2e.yml ]]; then
+      content="${content/"\${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}"*/}"
+    fi
     # A pull request workflow keeps the exemption only while its fork pull
     # request branch comes first on the line; base autofix runs on push only.
     pr_trigger=0

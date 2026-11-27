@@ -195,7 +195,12 @@ class CheapGateTests(unittest.TestCase):
 
     def test_cmux_next_release_compiles_wait_for_cargo(self):
         text = self.read("cmux-next.yml")
-        for job in ("macos-placement", "app-compile-placement", "release-compile", "compile-status"):
+        # The two placement jobs start beside the cargo tier, not after it (#56955).
+        for job in ("macos-placement", "app-compile-placement"):
+            with self.subTest(job=job):
+                needs = re.search(r"^    needs: \[(.*)\]$", _job(text, job), re.M).group(1).split(", ")
+                self.assertNotIn("fast-tier-cargo", needs)
+        for job in ("release-compile", "compile-status"):
             with self.subTest(job=job):
                 body = _job(text, job)
                 needs = re.search(r"^    needs: \[(.*)\]$", body, re.M).group(1).split(", ")

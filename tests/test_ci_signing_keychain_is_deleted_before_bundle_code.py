@@ -85,10 +85,11 @@ DELETE = re.compile(
     r"signing-keychain\.sh\s+delete\b|\bsecurity\s+delete-keychain\b"
     # These scripts sign and then delete the keychain themselves (rule 5).
     r"|scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-stapled-app-notarization\.sh"
+    r"|scripts/ci/nightly-steps/next-pkg\.sh"
 )
 # The scripts DELETE names that delete the keychain themselves.
 SELF_DELETING_SCRIPTS = ("scripts/ci/notarize-nightly-dmg.sh", "scripts/ci/resume-helper-notarization.sh",
-                         "scripts/ci/resume-stapled-app-notarization.sh")
+                         "scripts/ci/resume-stapled-app-notarization.sh", "scripts/ci/nightly-steps/next-pkg.sh")
 
 
 def deletes_keychain(words: list[str]) -> bool:
@@ -137,7 +138,10 @@ INLINE_DEVELOPER_ID_KEYCHAINS: set[tuple[str, str]] = set()
 # continuation, through its package tool). Rule 5 checks the order inside each.
 # A job that runs one of them needs no create of its own (script_made_keychain());
 # the jobs are read from the workflows, not listed.
-KEYCHAIN_MAKING_SCRIPTS = ("scripts/ci/notarize-nightly-dmg.sh", "scripts/ci/resume-stapled-app-notarization.sh")
+# nightly-steps/next-pkg.sh (nightly-next-pkg, #54859) makes it for the installer package's signature, runs no bundle
+# code, and deletes it before it returns.
+KEYCHAIN_MAKING_SCRIPTS = ("scripts/ci/notarize-nightly-dmg.sh", "scripts/ci/resume-stapled-app-notarization.sh",
+                           "scripts/ci/nightly-steps/next-pkg.sh")
 # Rule 8's signer scripts. A job whose certificate step runs one of them signs
 # with the release signer (release_pool_signer()); the jobs are read from the
 # workflows, not listed. None does today: nightly.yml's signer-app, signer-dmg,
@@ -404,9 +408,18 @@ def owned_route_failures(name: str, job: dict) -> list[str]:
                             f"({claim})")
         # The claim must be neither skippable nor survivable: an `if:` could leave the stale-keychain cleanup
         # and the claim re-check unrun, and continue-on-error would let a refused claim reach the key steps.
-        if str(steps[claim].get("if", "")).strip():
-            failures.append(f"{name}: the claim step ({claim}) is conditional (if: {steps[claim]['if']}); "
-                            "on an owned route it runs unconditionally")
+        # An `if:` is allowed only as test_ci_signing_owned_mac.py allows it (cmux-next-dev-daily's sign skips its
+        # whole body with no source artifact; the unconditional first-step gate still fails the job without the
+        # claim): every step that names a signing secret carries that same condition, so no credential is in
+        # reach on a run where the claim was skipped.
+        claim_if = str(steps[claim].get("if", "")).strip()
+        if claim_if:
+            bare = [step.get("name") or step.get("id") or "<step>" for step in steps
+                    if signing_secret(step) and claim_if not in str(step.get("if", ""))]
+            if bare:
+                failures.append(f"{name}: the claim step ({claim}) is conditional (if: {claim_if}) but step(s) "
+                                f"{bare} name a signing secret without that condition; on an owned route the "
+                                "claim runs unconditionally")
         if str(steps[claim].get("continue-on-error", "false")).strip().lower() != "false":
             failures.append(f"{name}: the claim step ({claim}) has continue-on-error, so a refused claim "
                             "would not fail the job")
@@ -593,6 +606,8 @@ def inline_step_scripts(job: dict, missing: list[str] | None = None) -> dict:
                 if line.strip().startswith("#"):
                     continue
                 for script in STEP_SCRIPT.findall(line):
+                    if script in KEYCHAIN_MAKING_SCRIPTS:
+                        continue  # stays one command: script_made_keychain() credits it, rule 5 reads inside it
                     path = ROOT / script
                     if path.is_file():
                         lines.extend(path.read_text(encoding="utf-8").splitlines())

@@ -391,7 +391,8 @@ describe("every chat start waits for an owner machine before session_start", () 
     expect(reserved).toBeGreaterThan(-1);
     expect(acp).toBeGreaterThan(reserved);
     for (const branch of [src.slice(reserved, src.indexOf("let reservedChat", reserved)), src.slice(src.lastIndexOf("} else {", acp), acp)]) {
-      const wait = branch.indexOf("await ownerKindStep();");
+      // The reserved start awaits ownerKindStep; the acp start reads the record in its own exec (startAfterOwnerKind, #60809), which falls back to ownerKindStep.
+      const wait = Math.max(branch.indexOf("await ownerKindStep();"), branch.indexOf("startAfterOwnerKind("));
       expect(wait).toBeGreaterThan(-1);
       expect(branch.indexOf('J.firstText.mark("session_start")')).toBeGreaterThan(wait);
     }

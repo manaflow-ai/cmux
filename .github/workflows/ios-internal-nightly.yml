@@ -213,7 +213,7 @@ jobs:
       # A plain git fetch, not actions/checkout: GitHub stalls the pack body to
       # fleet Macs (runs 45773843030 on one Mac, 45808800614 on another: one
       # depth-1 fetch sat silent for the whole 20 min). http.lowSpeed* drops a
-      # fetch that moves under 1 KB/s for 45 s, and the loop asks again on a
+      # fetch that moves under 1 B/s for 60 s (#61052), and the loop asks again on a
       # new connection.
       # testflight-build.sh reads only this commit (`git archive`, `git show`,
       # `git log -1`), so one commit is enough. Full history took 63 min on
@@ -659,7 +659,7 @@ jobs:
         with:
           name: cmux-internal-submission-ipa-${{ github.run_id }}
           path: ${{ runner.temp }}/submission-ipa/CmuxMobileApp.ipa
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: error
 
       - name: Keep the manifest and logs
@@ -736,5 +736,5 @@ jobs:
         with:
           name: cmux-internal-submission-receipt-${{ github.run_id }}
           path: ${{ runner.temp }}/receipt/submission.json
-          retention-days: 14
+          retention-days: 3
           if-no-files-found: error

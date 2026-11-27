@@ -313,7 +313,25 @@ def nightly_owned_label(label: object) -> bool:
 _POOL_READ_WHY = ("its secretless Linux jobs read vars.RUNNER_POOLS.linux (cmux#30878), which the pool reconciler keeps "
                   "on a live Linux member; the queue janitor re-runs a job queued on a dead one, and no owned Mac is "
                   "involved for the rescue to move")
+_SIDE_PROBE_WHY = ("a scheduled or manual side probe or bench that takes an owned side label on attempt 1 and its "
+                   "Blacksmith default from attempt 2; main's SIDE_WORKFLOW_PATHS does not list it yet, so it is "
+                   "acknowledged here, and a stuck or refused job ends at its job timeout and the person re-runs it")
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/cloud-mvp-nightly-readback.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/ios-launch-tti-hosted.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/ios-link-ffi-cache-seed.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/accounts-nightly-probe.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/cmux-next-fast-tier-batch.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/cmux-next-head-compile.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/cmux-next-ios-energy-nightly.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/cmux-next-ios-keyboard-motion.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/cmux-next-iphone-clips.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/cmux-next-perf-bench.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/cmux-next-stress-bench.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/cmux-next-tab-switch.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/fleet-compile-check.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/ios-base-bisect.yml": _SIDE_PROBE_WHY,
+    ".github/workflows/screen-stream-eval.yml": _SIDE_PROBE_WHY,
     ".github/workflows/cloud-composer-journey.yml":
         "takes no owned pool while Blacksmith macOS is on: pick-runner runs e2e_runner_pool.py with --owned 0 and "
         "keeps only a Blacksmith macOS 26 label, because the journey job holds a Stack account pair; a re-run takes "

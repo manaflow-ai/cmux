@@ -559,7 +559,7 @@ jobs:
             cmux-vm-image-out/*.qcow2.sha256
             cmux-vm-image-out/qcow2-export*
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 3
 
   # The record and, on a red gate or promotion, the loud part: an ::error, the summary and a comment on the
   # one open cloud-image-roll issue. The GITHUB_TOKEN writes both; its push to the record branch starts nothing.

@@ -82,12 +82,23 @@ let deleted = false;
 let lastMarker = "";
 const exec = (command: string) => {
   if (fixture.exec === "unavailable") return json({ ok: false, error: { code: "vm_unavailable" } }, 503);
-  const answer = (stdout: string, exitCode = 0) => json({ ok: true, value: { exitCode, stdout, stderr: "" } });
+  let kindRead = "";
+  const answer = (stdout: string, exitCode = 0) => json({ ok: true, value: { exitCode, stdout: kindRead + stdout, stderr: "" } });
   // The guest's boot 10 minutes ago and its bind 5 s before create was sent: a claimed spare.
   if (command.includes("guest_now")) return answer("guest_now " + Date.now() + " 600000\\nwall bound.json " + (createdAt - 5000) + "\\n");
   if (command.includes("CMUX_FIRST_TEXT")) return answer("@@first-text\\n");
   // waitOwnerKind (OWNER_KIND_PROGRAM): the fixture's machine is an owner machine from its first exec.
-  if (command.includes("cmux-vm-kind-sync")) return answer("vm-kind=owner\\n");
+  // The start carries the same read in its own exec (ownerKindGated, #60809): the read's lines, then the start's answer.
+  if (command.includes("cmux-vm-kind-sync")) {
+    kindRead = "vm-kind=owner\\n@@kind_ms 1\\n";
+    if (!command.includes("acp ensure") && !command.includes("acp send") && !command.includes("CMUX_JOURNEY_START")) return answer("");
+  }
+  // The one-exec start (launchCredentialStartProgram, #60809's startAfterOwnerKind): the session opens and the first prompt goes with it.
+  if (command.includes("CMUX_JOURNEY_START")) {
+    agentSent = true;
+    lastMarker = /\\[journey turn [^\\]]+\\]/.exec(command)?.[0] ?? lastMarker;
+    return answer("@@session fixture-session\\n@@prompted\\n");
+  }
   // A later turn: history lists the last sent prompt's marker, so the turn reads as started.
   if (command.includes("acp send")) agentSent = true;
   if (command.includes("acp send")) lastMarker = /\\[journey turn [^\\]]+\\]/.exec(command)?.[0] ?? lastMarker;

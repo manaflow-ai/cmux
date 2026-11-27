@@ -20,6 +20,13 @@ on:
 
 permissions: {}
 
+env:
+  # Renaming a source workflow silently stops this one from triggering; tests/test_ci_workflow_run_sources.py
+  # derives the expected names from these paths.
+  SOURCE_WORKFLOW_PATHS: >-
+    .github/workflows/test-ios.yml
+    .github/workflows/cmux-next-ios-kit.yml
+
 concurrency:
   group: ios-base-bisect
   cancel-in-progress: false
