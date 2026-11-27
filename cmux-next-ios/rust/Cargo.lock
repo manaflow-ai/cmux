@@ -698,6 +698,9 @@ dependencies = [
 [[package]]
 name = "cmux-message-preview"
 version = "0.1.0"
+dependencies = [
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "cmux-mobile-auto"
@@ -793,6 +796,7 @@ dependencies = [
  "cmux-hop-relay",
  "cmux-mobile-host",
  "cmux-mobile-link",
+ "cmux-proxy",
  "cmux-rd-core",
  "cmux-rd-proto",
  "cmux-relay-snapshot",
@@ -800,8 +804,6 @@ dependencies = [
  "cmux-terminal-projection",
  "cmux-transport",
  "cmux-wg",
- "core-foundation",
- "core-foundation-sys",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
@@ -811,7 +813,6 @@ dependencies = [
  "rcgen 0.13.2",
  "reqwest",
  "rustls",
- "rustls-platform-verifier",
  "serde",
  "serde_json",
  "sha2",
@@ -900,6 +901,24 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "wait-timeout",
+]
+
+[[package]]
+name = "cmux-proxy"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "core-foundation",
+ "core-foundation-sys",
+ "rustls",
+ "rustls-platform-verifier",
+ "serde",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "url",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]

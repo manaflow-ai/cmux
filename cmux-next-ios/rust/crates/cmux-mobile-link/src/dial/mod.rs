@@ -580,9 +580,16 @@ pub(crate) fn video_lane_listed(peer_lanes: &[String]) -> bool {
     peer_lanes.iter().any(|lane| lane == crate::media::VIDEO_LANE)
 }
 
-/// Whether both sides support the input lane.
+/// Whether both sides open the input lane: both offered it, and they did not
+/// agree on the reliable link, which carries input on its main carrier.
+/// Both sides decide it from the same two offers, so the phone never opens a
+/// lane the Mac does not take: on WireGuard the Mac's listener then reads
+/// the next connection as a resumed link, which ends the live one
+/// (2026-11-26: every reliable WireGuard link closed on its first send).
 pub(crate) fn input_lane_agreed(options: &DialOptions, peer_lanes: &[String]) -> bool {
-    options.input_lane && peer_lanes.iter().any(|lane| lane == crate::link::INPUT_LANE)
+    options.input_lane
+        && peer_lanes.iter().any(|lane| lane == crate::link::INPUT_LANE)
+        && !reliable_agreed(options, peer_lanes)
 }
 
 /// Attach the lane to `link` when it opens, or fall back when it fails.
@@ -1069,6 +1076,37 @@ mod tests {
         assert_eq!(route_name(LinkPath::TurnTls, None), "relay");
         assert_eq!(route_name(LinkPath::Hop, None), "relay");
         assert_eq!(route_name(LinkPath::NoPath, None), "none");
+    }
+
+    /// The phone and the Mac decide the input lane from the same two offers,
+    /// for every mix of input lane and reliable link: a lane one side opens
+    /// and the other does not take is read as a resumed link on WireGuard.
+    #[test]
+    fn both_sides_agree_on_the_input_lane() {
+        for phone_lane in [false, true] {
+            for mac_lane in [false, true] {
+                for phone_reliable in [false, true] {
+                    for mac_reliable in [false, true] {
+                        let phone = DialOptions {
+                            input_lane: phone_lane,
+                            reliable: phone_reliable,
+                            ..DialOptions::default()
+                        };
+                        let mac = DialOptions {
+                            input_lane: mac_lane,
+                            reliable: mac_reliable,
+                            ..DialOptions::default()
+                        };
+                        let phone_says = input_lane_agreed(&phone, &offered_lanes(&mac, false, false));
+                        let mac_says = input_lane_agreed(&mac, &offered_lanes(&phone, false, false));
+                        let case = (phone_lane, mac_lane, phone_reliable, mac_reliable);
+                        assert_eq!(phone_says, mac_says, "{case:?}");
+                        let reliable = phone_reliable && mac_reliable;
+                        assert_eq!(phone_says, phone_lane && mac_lane && !reliable, "{case:?}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

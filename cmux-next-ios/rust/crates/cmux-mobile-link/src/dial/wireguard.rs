@@ -610,6 +610,14 @@ fn relay_plan(
     // Both sides join as the dial starts only when both said `first` (an older
     // peer says `ready` and keeps the 3 s rule; one with no other path, `now`).
     let first = !now && options.relay_first && peer == RELAY_FIRST;
+    // An early join (asked for as `first`) that an older peer's `ready` turns
+    // back into the 3 s rule is let go: that rule joins on its own clock.
+    let early = if now || first {
+        early
+    } else {
+        abort_early(early.as_ref());
+        None
+    };
     Some(roam::RelayPlan { endpoint, now, first, ticket, early })
 }
 
@@ -3103,6 +3111,11 @@ pub(super) fn dial_wireguard<'a>(
         diagnose_gather(options, udp_blocked, turn.as_ref(), true);
         let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
         let relay_offer = relay_offer(options, own_relay_now);
+        // A side with no path but the relay (`now`), or one that dials the
+        // relay first (`first`), asks for its ticket in its `wg-init`, so its
+        // join runs while the Mac gathers and answers instead of after
+        // `wg-resp` (PROTOCOL.md "Early relay ticket"). An older hub ignores it.
+        let ask_ticket_early = own_relay_now || relay_offer.as_deref() == Some(RELAY_FIRST);
         let turn_missed = missed_turn(true, turn.as_ref(), options);
         let Gathered { mut endpoints, stun, .. } = gathered;
         let (mut relayed, relayed_tls) = relayed_of(turn.as_ref());
@@ -3142,9 +3155,7 @@ pub(super) fn dial_wireguard<'a>(
                     hop: hop_address,
                     version: WG_VERSION,
                     relay: relay_offer,
-                    // A side with no path but the relay asks for its ticket now,
-                    // so its join runs while the Mac gathers and answers.
-                    ticket_early: own_relay_now,
+                    ticket_early: ask_ticket_early,
                 },
             )
             .map_err(|e| DialError::Signaling(e.to_string()))?;
@@ -3202,7 +3213,7 @@ pub(super) fn dial_wireguard<'a>(
                     // before the Mac's. The join starts now, off the wait.
                     SignalPayload::WgTicket {} => {
                         if let (true, None, Some(endpoint), Some(ticket)) =
-                            (own_relay_now, &early_join, relay_endpoint(options), envelope.relay_ticket)
+                            (ask_ticket_early, &early_join, relay_endpoint(options), envelope.relay_ticket)
                         {
                             options.timeline.mark("relay_early_join");
                             let (session, peer, used) =
