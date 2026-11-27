@@ -1678,8 +1678,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
             ],
-            plugins: ["DeviceGlyphGeneratorPlugin"],
-            swiftSettings: daemonSwiftSettings
+            swiftSettings: daemonSwiftSettings,
+            plugins: ["DeviceGlyphGeneratorPlugin"]
         ),
         .testTarget(
             name: "CmuxNextDevicesTests",

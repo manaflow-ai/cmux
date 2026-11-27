@@ -340,7 +340,5 @@ pub fn glyph_table_json() -> String {
     format!("{{\n{}\n}}\n", rows.join(",\n"))
 }
 
-/// Swift consumers generate their table at build time from the web JSON table. Keeping the
-/// source in one checked-in JSON file avoids committing duplicate generated Swift outputs.
 #[cfg(test)]
 mod tests;
