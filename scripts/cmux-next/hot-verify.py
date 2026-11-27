@@ -3,7 +3,7 @@
 
     hot-verify.py plan --source dir:PATH|pr:N|sha:SHA [--repo CMUX_CLONE] [--app APP | --base COMMIT] [--json]
     hot-verify.py look --source dir:PATH|pr:N|sha:SHA --app APP --out DIR [--repo CMUX_CLONE] [--side NAME]
-                       [--kit DIR] [--state STEPS.json] [--no-video] [--watch]
+                       [--kit DIR] [--state STEPS.json] [--no-video] [--watch] [--pr N --record]
     hot-verify.py run --source dir:PATH|pr:N|sha:SHA --app APP --side NAME [--repo CMUX_CLONE] [--label TEXT]
     hot-verify.py extract --side NAME [--out FILE.patch]
     hot-verify.py stop --side NAME [--remove]
@@ -43,6 +43,9 @@ default hot-verify, under $CMUX_SIDE_ROOT), and writes into --out:
                                       Screen Recording grant) cut to the window (ffmpeg, else AVFoundation);
                                       else media/record-window.swift
   steps.json, receipt.json
+  proof-record.md                     with --pr N --record: the proof record posted on the PR (every after and
+                                      step shot with its sha256 and its pixel diff against the before shot of
+                                      NIGHTLY), which the `cmux/ui-proof` status reads (scripts/ci/ui_proof_verdict.py)
 
 The web layer comes from the bundles CI published for the head (a pull request's own layer,
 files.cmux.com/cmux-next-web/pr/N for a pr:N source or `look --pr N`, whose latest.json must name the head, else
@@ -1786,6 +1789,42 @@ def command_look(args) -> int:
         return finish(out, receipt, phases, began, EXIT_FAILED)
 
 
+def command_look_recorded(args) -> int:
+    """command_look, then with --record the proof record of the look at the PR's head posted on the PR: the
+    screens diffed against the copied NIGHTLY's before shots (ci/proof-record/README.md, suite gui-flows, web-flows
+    or mac-flows). A look that failed posts a failing record, so the gate says why; one that needed a build or
+    changed nothing in the app posts none."""
+    code = command_look(args)
+    if not getattr(args, "record", False):
+        return code
+    if not args.pr:
+        log("--record needs --pr N")
+        return EXIT_USAGE
+    out = Path(args.out).resolve()
+    try:
+        receipt = json.loads((out / "receipt.json").read_text())
+    except (OSError, ValueError) as error:
+        log(f"no record: the look wrote no receipt ({error})")
+        return code
+    head = ((receipt.get("plan") or {}).get("head")) or ""
+    layers = (receipt.get("plan") or {}).get("layers")
+    if code == EXIT_NEEDS_BUILD or not SHA.fullmatch(head) or not layers:
+        log("no record: the look needed a build or changed nothing in the app")
+        return code
+    sys.path.insert(0, str(HERE.parent / "ci"))
+    import ui_proof_verdict  # noqa: E402 - scripts/ci, beside the router that reads it
+    record = ui_proof_verdict.build_record(out, repo=args.repo_slug, pr=args.pr, head=head,
+                                           pushed_at=commit_time(Path(args.repo).resolve(), head))
+    from proof_record import render  # noqa: E402 - ui_proof_verdict put scripts/ci on the path
+    body = out / "proof-record.md"
+    body.write_text(render(record, ui_proof_verdict.summary(record)))
+    done = subprocess.run(["gh", "pr", "comment", str(args.pr), "--repo", args.repo_slug, "--body-file", str(body)],
+                          capture_output=True, text=True)
+    log(f"proof record {record['verdict']}: " + (why_exited(done) if done.returncode else "posted")
+        + "; " + ui_proof_verdict.rerun_gate(args.repo_slug, head))
+    return code
+
+
 def finish(out: Path, receipt: dict, phases, began: float, code: int) -> int:
     receipt["phases"] = {**phases.rounded(), "total": round(time.monotonic() - began, 3)}
     write_receipt(out, receipt)
@@ -2484,7 +2523,11 @@ def main(argv: list[str] | None = None) -> int:
                    "daemon_from whose head tree CI has not published (a lane head): used only while it is unpublished")
     p.add_argument("--watch", action="store_true")
     p.add_argument("--pr", type=int, help="the pull request a sha: source is the head of: its published web layer")
-    p.set_defaults(func=command_look)
+    p.add_argument("--record", action="store_true",
+                   help="after a look at pull request --pr, post its proof record (cmux/ui-proof reads it: "
+                   "scripts/ci/ui_proof_verdict.py) and rerun that gate")
+    p.add_argument("--repo-slug", default="manaflow-ai/cmux", help="the GitHub repository --record posts on")
+    p.set_defaults(func=command_look_recorded)
     p = sub.add_parser("run")
     p.add_argument("--source", required=True)
     p.add_argument("--app", required=True)
