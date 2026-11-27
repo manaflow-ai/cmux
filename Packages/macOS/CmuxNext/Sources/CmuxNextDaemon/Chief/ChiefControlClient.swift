@@ -7,7 +7,7 @@ public import Foundation
 /// owner_session splice to a paired server's daemon).
 public struct ChiefEngineReport: Decodable, Sendable, Equatable {
     /// The engine fields; nil is the brain's default.
-    public struct Engine: Decodable, Sendable, Equatable {
+    public struct Engine: Codable, Sendable, Equatable {
         public var harness: String?
         public var model: String?
         public var effort: String?
