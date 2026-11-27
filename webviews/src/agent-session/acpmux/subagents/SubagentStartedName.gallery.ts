@@ -7,7 +7,9 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
-import { SUBAGENTS, type Subagent } from "./subagentFold";
+import type { AcpmuxRow } from "../model";
+import type { Subagent } from "./subagentFold";
+import { SUBAGENT_STARTED } from "./subagentRows";
 
 const running = (task: string): Subagent => ({
   id: `agent-${task.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}`,
@@ -28,7 +30,8 @@ const scene = (agents: Subagent[]) =>
   chat(
     [
       user("land 61365", 2),
-      row(SUBAGENTS, 1, { subagents: agents }),
+      // The start line itself (subagentRows.ts SUBAGENT_STARTED), as RowAir.gallery.ts builds it.
+      row(SUBAGENT_STARTED, 1, { id: "started-name-cap", subagents: agents } as Partial<AcpmuxRow>),
       assistant("It runs in the background; I'll land it when it's green.", 1),
     ],
     { isWorking: true },
