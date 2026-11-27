@@ -134,7 +134,7 @@ fn a_link_works_once_and_a_retried_redeem_gets_the_same_guest() {
                 barrier.wait();
                 let redeem = Redeem {
                     share_id: share["share_id"].as_str().unwrap().into(),
-                    secret: share["secret"].as_str().unwrap().into(),
+                    secret: share.get("secret").and_then(Value::as_str).map(str::to_owned),
                     name: "Theo".into(),
                     attempt_id: attempt.into(),
                     account: None,
@@ -391,7 +391,7 @@ fn a_share_its_uses_kicks_and_revoke_survive_a_restart() {
             dir,
             Redeem {
                 share_id: share_id.clone(),
-                secret: share["secret"].as_str().unwrap().into(),
+                secret: share.get("secret").and_then(Value::as_str).map(str::to_owned),
                 name: "Ann".into(),
                 attempt_id: attempt.into(),
                 account: None,
@@ -828,7 +828,7 @@ fn invitees_survive_a_restart_and_an_old_file_without_them_loads() {
         dir,
         Redeem {
             share_id,
-            secret: String::new(),
+            secret: None,
             name: "Ann".into(),
             attempt_id: "a1".into(),
             account: Some("ann@example.com".into()),
@@ -921,7 +921,7 @@ fn every_acknowledged_change_reloads_however_many_invitees_join() {
             for g in 0..MAX_GUESTS_PER_ACCOUNT {
                 let redeem = Redeem {
                     share_id: share_id.clone(),
-                    secret: String::new(),
+                    secret: None,
                     name: "n".repeat(64),
                     attempt_id: format!("{a}-{g}-{}", "y".repeat(100)),
                     account: Some(account.clone()),
@@ -1038,7 +1038,7 @@ fn ending_everything_in_a_full_registry_stays_within_the_bound() {
             }
             let redeem = Redeem {
                 share_id: share_id.clone(),
-                secret: String::new(),
+                secret: None,
                 name: "n".repeat(64),
                 attempt_id: format!("{a}-{}", "y".repeat(100)),
                 account: Some(account),
@@ -1065,7 +1065,7 @@ fn ending_everything_in_a_full_registry_stays_within_the_bound() {
         let account = format!("0-{}@example.com", "x".repeat(280));
         let redeem = Redeem {
             share_id: share_id.clone(),
-            secret: String::new(),
+            secret: None,
             name: "n".repeat(64),
             attempt_id: format!("late-{}", "y".repeat(100)),
             account: Some(account),
@@ -1334,6 +1334,199 @@ fn a_default_link_guest_is_refused_and_an_invited_talker_is_held() {
     );
 }
 
+#[test]
+fn drive_is_rejected_for_link_roles_and_link_guests_never_get_promoted() {
+    let fake = FakeAcpmux::start("share-drive-link");
+    let mux = mux_with(&fake, "share-drive-link");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-drive-link-owner");
+    for extra in [json!({"role":"drive"}), json!({"signed_in_role":"drive"})] {
+        let mut frame = json!({"cmd":"agent-session-share-create", "surface":surface});
+        frame.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        assert_code(&owner.request(frame), "share.bad_request");
+    }
+    let share = create(&mut owner, surface, json!({"uses":3}));
+    let anon = redeem(&mut owner, &share, "Anon", "a1");
+    assert_eq!(anon.pointer("/data/role"), Some(&json!("view")));
+    let signed_in = redeem_signed_in(&mut owner, &share, "eve@example.com", "e1");
+    assert_eq!(signed_in.pointer("/data/role"), Some(&json!("talk")));
+    let (mut link, bound) = bind(&mux, &share, &signed_in, "share-drive-link-eve");
+    assert_eq!(bound.get("ok"), Some(&json!(true)), "{bound}");
+    invite(&mut owner, &share, "eve@example.com", Some("drive"));
+    wait_unbound(&mux, 0);
+    assert!(link.ends_within(WAIT));
+    assert_code(
+        &bind(&mux, &share, &signed_in, "share-drive-old-link").1,
+        "agent_session.share_ended",
+    );
+    assert_code(&redeem_as(&mut owner, &share, "eve@example.com", "e1"), "share.not_invited");
+    let invited = redeem_as(&mut owner, &share, "eve@example.com", "e2");
+    assert_eq!(invited.pointer("/data/role"), Some(&json!("drive")));
+    assert_ne!(invited.pointer("/data/guest_id"), signed_in.pointer("/data/guest_id"));
+    for bad_secret in ["", "wrong-secret"] {
+        let refused = owner.request(json!({"cmd":"agent-session-share-redeem",
+            "share_id":share.get("share_id"), "account":"eve@example.com", "secret":bad_secret,
+            "name":"Eve", "attempt_id":"e3"}));
+        assert_code(&refused, "share.secret");
+    }
+    // A valid link token still cannot return the Drive session, even on an invite retry.
+    assert_code(
+        &redeem_signed_in(&mut owner, &share, "eve@example.com", "e2"),
+        "share.not_invited",
+    );
+    let link_guest = redeem_signed_in(&mut owner, &share, "eve@example.com", "e3");
+    assert_eq!(link_guest.pointer("/data/role"), Some(&json!("talk")));
+    assert_ne!(link_guest.pointer("/data/guest_id"), invited.pointer("/data/guest_id"));
+    assert_code(&redeem_as(&mut owner, &share, "eve@example.com", "e3"), "share.not_invited");
+    let exhausted = redeem_signed_in(&mut owner, &share, "eve@example.com", "e4");
+    assert_code(&exhausted, "share.used");
+}
+
+#[test]
+fn drive_is_granted_to_one_named_account() {
+    let fake = FakeAcpmux::start("share-drive-account");
+    let mux = mux_with(&fake, "share-drive-account");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-drive-account-owner");
+    let share = create(&mut owner, surface, json!({}));
+    let invited = invite(&mut owner, &share, "ann@example.com", Some("drive"));
+    assert_eq!(invited.pointer("/data/account"), Some(&json!("ann@example.com")));
+    let ann = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    assert_eq!(ann.pointer("/data/role"), Some(&json!("drive")));
+    assert_code(&redeem_as(&mut owner, &share, "eve@example.com", "a1"), "share.not_invited");
+    assert_code(
+        &redeem_signed_in(&mut owner, &share, "eve@example.com", "a1"),
+        "share.not_invited",
+    );
+    let eve = redeem_signed_in(&mut owner, &share, "eve@example.com", "e1");
+    assert_eq!(eve.pointer("/data/role"), Some(&json!("talk")));
+    assert_ne!(ann.pointer("/data/guest_id"), eve.pointer("/data/guest_id"));
+}
+
+#[test]
+fn an_unauthenticated_guest_cannot_claim_a_drive_invite() {
+    let fake = FakeAcpmux::start("share-drive-anon");
+    let mux = mux_with(&fake, "share-drive-anon");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-drive-anon-owner");
+    let share = create(&mut owner, surface, json!({}));
+    invite(&mut owner, &share, "ann@example.com", Some("drive"));
+    let ann = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    assert_eq!(ann.pointer("/data/role"), Some(&json!("drive")));
+    let anonymous = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":share.get("share_id"), "name":"Ann Lee", "attempt_id":"a1"}));
+    assert_code(&anonymous, "share.secret");
+    assert_code(&redeem(&mut owner, &share, "Ann Lee", "a1"), "share.secret");
+    let viewer = redeem(&mut owner, &share, "Ann Lee", "anonymous");
+    assert_eq!(viewer.pointer("/data/role"), Some(&json!("view")));
+    let (mut client, bound) = bind(&mux, &share, &viewer, "share-drive-anon-viewer");
+    assert_eq!(bound.get("ok"), Some(&json!(true)), "{bound}");
+    assert_code(
+        &client.request(json!({"cmd":"agent-session-prompt", "surface":surface,
+        "client_id":"c1", "text":"hello"})),
+        "agent_session.scope_not_granted",
+    );
+}
+
+#[test]
+fn revoking_drive_refuses_the_old_guest_and_lowering_to_talk_holds_the_next_prompt() {
+    let fake = FakeAcpmux::start("share-drive-revoke");
+    let mux = mux_with(&fake, "share-drive-revoke");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-drive-revoke-owner");
+    let share = create(&mut owner, surface, json!({}));
+    invite(&mut owner, &share, "ann@example.com", Some("drive"));
+    let ann = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    let (mut client, bound) = bind(&mux, &share, &ann, "share-drive-revoke-ann");
+    assert_eq!(bound.get("ok"), Some(&json!(true)), "{bound}");
+    let revoked = owner.request(json!({"cmd":"agent-session-share-uninvite",
+        "share_id":share.get("share_id"), "account":"ann@example.com"}));
+    assert_eq!(revoked.get("ok"), Some(&json!(true)), "{revoked}");
+    wait_unbound(&mux, 0);
+    assert!(client.ends_within(WAIT));
+    assert_code(
+        &bind(&mux, &share, &ann, "share-drive-revoke-again").1,
+        "agent_session.share_ended",
+    );
+    invite(&mut owner, &share, "ann@example.com", Some("talk"));
+    let lowered = redeem_as(&mut owner, &share, "ann@example.com", "a2");
+    let (mut talk, bound) = bind(&mux, &share, &lowered, "share-drive-revoke-talk");
+    assert_eq!(bound.get("ok"), Some(&json!(true)), "{bound}");
+    let attach = talk.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_eq!(attach.get("ok"), Some(&json!(true)), "{attach}");
+    let prompt = talk.request(json!({"cmd":"agent-session-prompt", "surface":surface,
+        "client_id":"c1", "text":"next message"}));
+    assert_eq!(prompt.pointer("/data/awaiting_owner"), Some(&json!(true)), "{prompt}");
+    assert_code(
+        &talk.request(json!({"cmd":"agent-session-cancel", "surface":surface})),
+        "agent_session.scope_not_granted",
+    );
+}
+
+#[test]
+fn lowering_drive_in_place_rebinds_the_same_guest_and_holds_its_next_prompt() {
+    let fake = FakeAcpmux::start("share-drive-lower");
+    let mux = mux_with(&fake, "share-drive-lower");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-drive-lower-owner");
+    let share = create(&mut owner, surface, json!({}));
+    invite(&mut owner, &share, "ann@example.com", Some("drive"));
+    let ann = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    let (mut driver, bound) = bind(&mux, &share, &ann, "share-drive-lower-ann");
+    assert_eq!(bound["ok"], true, "{bound}");
+    let changed = invite(&mut owner, &share, "ann@example.com", Some("talk"));
+    assert_eq!(changed["data"]["role"], "talk", "{changed}");
+    wait_unbound(&mux, 0);
+    assert!(driver.ends_within(WAIT));
+    let again = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    assert_eq!(again["data"]["guest_id"], ann["data"]["guest_id"], "{again}");
+    assert_eq!(again["data"]["role"], "talk");
+    assert_eq!(list(&mut owner)[0]["invitees"][0]["state"], "invited");
+    let (mut talk, rebound) = bind(&mux, &share, &ann, "share-drive-lower-rebound");
+    assert_eq!(rebound["ok"], true, "{rebound}");
+    let attach = talk.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_eq!(attach["ok"], true, "{attach}");
+    assert_eq!(fake.frame()["params"]["_meta"]["acpmux"]["author"]["role"], "talk");
+    let prompt = talk.request(json!({"cmd":"agent-session-prompt", "surface":surface,
+        "client_id":"c1", "text":"next message"}));
+    assert_eq!(prompt.pointer("/data/awaiting_owner"), Some(&json!(true)), "{prompt}");
+    assert_code(
+        &talk.request(json!({"cmd":"agent-session-cancel", "surface":surface})),
+        "agent_session.scope_not_granted",
+    );
+}
+
+#[test]
+fn drive_prompts_skip_approval_can_cancel_and_cannot_steer_or_resolve_permissions() {
+    let fake = FakeAcpmux::start("share-drive-prompt");
+    let mux = mux_with(&fake, "share-drive-prompt");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-drive-prompt-owner");
+    let share = create(&mut owner, surface, json!({}));
+    invite(&mut owner, &share, "ann@example.com", Some("drive"));
+    let ann = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    let (mut drive, bound) = bind(&mux, &share, &ann, "share-drive-prompt-ann");
+    assert_eq!(bound.get("ok"), Some(&json!(true)), "{bound}");
+    let attach = drive.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_eq!(attach.get("ok"), Some(&json!(true)), "{attach}");
+    fake.frame();
+    let response = drive.request(json!({"cmd":"agent-session-prompt", "surface":surface,
+        "client_id":"c1", "text":"run it", "steer":true}));
+    assert_eq!(response.pointer("/data/awaiting_owner"), Some(&json!(false)), "{response}");
+    let prompt = fake.frame();
+    assert_eq!(prompt.pointer("/params/_meta/acpmux/author/role"), Some(&json!("drive")));
+    assert!(prompt.pointer("/params/_meta/acpmux/author/approval").is_none());
+    assert!(prompt.pointer("/params/_meta/acpmux/steer").is_none());
+    assert_code(
+        &drive.request(json!({"cmd":"agent-session-permission", "surface":surface,
+        "permission_id":"p", "option_id":"allow"})),
+        "agent_session.scope_not_granted",
+    );
+    let cancel = drive.request(json!({"cmd":"agent-session-cancel", "surface":surface}));
+    assert_eq!(cancel.get("ok"), Some(&json!(true)), "{cancel}");
+    assert_eq!(fake.frame().get("method"), Some(&json!("session/cancel")));
+}
+
 /// A link made with a role, `view` or `talk`, may admit up to 1000 guests (the Share dialog's
 /// "Anyone with the link"); a link with no role keeps its 8.
 #[test]
@@ -1404,7 +1597,7 @@ fn a_link_shares_role_survives_a_restart_and_old_files_have_none() {
             dir,
             Redeem {
                 share_id: share_id.clone(),
-                secret: share["secret"].as_str().unwrap().into(),
+                secret: share.get("secret").and_then(Value::as_str).map(str::to_owned),
                 name: "Ann".into(),
                 attempt_id: "a1".into(),
                 account: None,
@@ -1455,7 +1648,7 @@ fn a_view_link_redeemed_900_times_leaves_room_for_another_chats_share() {
     let join = |attempt: String| {
         let redeem = Redeem {
             share_id: share_id.clone(),
-            secret: secret.clone(),
+            secret: Some(secret.clone()),
             name: "n".repeat(64),
             attempt_id: attempt,
             account: None,
@@ -1548,7 +1741,7 @@ fn join_until(mux: &Mux, share: &Value, done: impl Fn(&[LinkShare]) -> bool) {
         }
         let redeem = Redeem {
             share_id: share["share_id"].as_str().unwrap().into(),
-            secret: share["secret"].as_str().unwrap().into(),
+            secret: share.get("secret").and_then(Value::as_str).map(str::to_owned),
             name: "n".repeat(64),
             attempt_id: format!("fill-{i}-{}", "y".repeat(100)),
             account: None,
@@ -1763,7 +1956,7 @@ fn a_signed_in_link_guest_is_forgotten_once_gone_and_an_invitee_is_not() {
             dir,
             Redeem {
                 share_id: share_id.clone(),
-                secret: share["secret"].as_str().unwrap().into(),
+                secret: share.get("secret").and_then(Value::as_str).map(str::to_owned),
                 name: "Guest".into(),
                 attempt_id: attempt.into(),
                 account: Some(account.into()),
@@ -1813,7 +2006,7 @@ fn a_guest_whose_picture_would_not_fit_joins_without_it() {
             dir,
             Redeem {
                 share_id: share_id.clone(),
-                secret: secret.clone(),
+                secret: Some(secret.clone()),
                 name: "Sam".into(),
                 attempt_id: attempt,
                 account,
@@ -1923,7 +2116,7 @@ fn a_link_join_recorded_before_the_upgrade_is_found_again() {
     let share_id = share["share_id"].as_str().unwrap().to_owned();
     let join = |account: Option<&str>| Redeem {
         share_id: share_id.clone(),
-        secret: share["secret"].as_str().unwrap().into(),
+        secret: share.get("secret").and_then(Value::as_str).map(str::to_owned),
         name: "Sam".into(),
         attempt_id: "s1".into(),
         account: account.map(str::to_owned),
