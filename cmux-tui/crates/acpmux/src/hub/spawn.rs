@@ -215,6 +215,7 @@ impl Hub {
     ) -> Result<Spawn, RpcError> {
         // A fork resumes its parent's conversation: it runs in the parent's folder.
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+        self.refresh_card(session).await;
         let meta = session.meta();
         let opencode = super::policy_mode::is_opencode(&meta, profile);
         // The owner's Cloud credential, held for this session only (`agent_credentials.rs`).
@@ -223,6 +224,31 @@ impl Hub {
             .spawn_profile_read(&meta, forking, profile, defaults_env, credential.as_ref())
             .await?;
         Ok(Spawn { profile, preset_digest, account_home, opencode, launch_digest })
+    }
+
+    /// The "where you are" card ([`crate::agent_card`]) with this machine's numbers now: a
+    /// resize or a move to another machine changed them since the chat was made. Before the
+    /// launch reads the rules, so its arguments and the recorded context agree.
+    async fn refresh_card(&self, session: &Session) {
+        let Some((harness, cwd, auto)) = session.read_meta(|m| {
+            let has = m
+                .cmux_context
+                .as_deref()
+                .is_some_and(|parts| parts.iter().any(|p| p.source == crate::agent_card::SOURCE));
+            (has && !m.remote_origin).then(|| {
+                (m.harness.clone(), m.cwd.clone(), m.auto_session.as_ref().is_some_and(|a| a.auto))
+            })
+        }) else {
+            return;
+        };
+        let env = {
+            let cfg = self.config.read().await;
+            cfg.harnesses.get(&harness).map(|p| p.env.clone()).unwrap_or_default()
+        };
+        let Some(mut parts) = session.read_meta(|m| m.cmux_context.clone()) else { return };
+        if crate::agent_card::refresh(&mut parts, &env, std::path::Path::new(&cwd), auto) {
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).cmux_context = Some(parts);
+        }
     }
 
     /// `spawn_profile` for a session's meta, also before the session exists
@@ -268,6 +294,16 @@ impl Hub {
         let mut prompt_file = None;
         {
             let cfg = self.config.read().await;
+            // The built-in Claude Code's or Codex's program, home, args and env from cmux
+            // Settings (`agents.providers.*`, provider_settings.rs), read at each start; a
+            // person's own profile keeps its own. Before the preset and the remote checks, so
+            // both see the launch as it will run.
+            if let Some(provider) = crate::provider_settings::Provider::of_builtin(
+                profile,
+                cfg.discovered.contains(&meta.harness),
+            ) {
+                crate::provider_settings::Launch::current(provider).apply(&mut p, provider);
+            }
             if let Some(name) = &meta.preset
                 && let Some(preset) = cfg.presets.get(name)
             {
@@ -797,7 +833,8 @@ impl Hub {
         // Claude Code keeps the prompt cache one hour only on a Claude
         // subscription, five minutes on an API key or any other endpoint:
         // acpmux starts it on the cache `agents.promptCache` names (one
-        // hour by default, prompt_cache_env.rs). A profile's own value wins.
+        // hour by default, prompt_cache_env.rs; a trusted project's
+        // `.cmux/cmux-next.json` over the user's). A profile's own value wins.
         // The login shell's values are applied after this env (agent/command.rs), so one it
         // sets counts as set; a remote-origin chat gets no login env.
         if crate::agent_tools::is_claude_code(&meta.harness, profile) {
@@ -809,12 +846,33 @@ impl Hub {
             };
             crate::prompt_cache_env::apply(
                 &mut p.env,
-                crate::prompt_cache_env::PromptCache::current(),
+                crate::prompt_cache_env::PromptCache::for_cwd(std::path::Path::new(&meta.cwd)),
                 &login,
             );
             // Per-turn context in the user turn, not a trailing system message the
             // next turn cannot read from the cache (prompt_cache_env.rs).
             crate::prompt_cache_env::keep_turn_context_in_user_turn(&mut p.env, &login);
+        }
+        // The person's `agents.env` and `agents.envExclude` (agent_env.rs), every harness: a
+        // value already set here or by the login shell wins; the exclude list goes to the
+        // command build, which removes those names last. A remote-origin chat gets no values.
+        {
+            let family = crate::config::derive_family(&meta.harness, profile);
+            let remote = meta.remote_origin;
+            let login = |key: &str| {
+                crate::login_env::var(key)
+                    .filter(|v| !remote && crate::login_env::allowed(key, v, Some(&family)))
+            };
+            crate::agent_env::AgentEnv::current().apply(&mut p.env, remote, &login);
+        }
+        // `agents.sandbox.mode` `workspaceWrite` (agent_sandbox.rs): Claude Code starts with its
+        // sandbox on. A remote chain refuses a profile `--settings` and keeps its own sandbox.
+        if profile.kind == crate::config::HarnessKind::ClaudeStdio && !meta.remote_origin {
+            crate::agent_sandbox::claude_argv(
+                crate::agent_sandbox::Sandbox::current(),
+                &mut p.argv,
+                Path::new(&meta.cwd),
+            );
         }
         // The MCP servers this chat turned off (`tools.rs`): Claude Code never calls their tools.
         if profile.kind == crate::config::HarnessKind::ClaudeStdio {

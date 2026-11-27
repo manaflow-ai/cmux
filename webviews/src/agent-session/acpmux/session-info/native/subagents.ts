@@ -4,12 +4,11 @@
 // subagents and started chats (a nested subagent under its parent), past five a "Show more" row, then
 // the ended ones' row ("94 done · 1 failed"), which opens into their lines. The lists, their order and
 // their words come from the page's own helpers, so both panels say the same thing.
-import { formatDuration } from "../../conversation/turns";
 import type { PaneLanguage, Translate } from "../../i18n";
 import { isRepeatedAgentKind } from "../../subagents/agentIdentityModel";
 import { agentTone } from "../../subagents/agentTones";
 import { nestAgents } from "../../subagents/agentsPillModel";
-import { elapsed } from "../../subagents/subagentGroupModel";
+import { subagentTime } from "../../subagents/subagentGroupModel";
 import { subagentProgress } from "../../subagents/subagentProgress";
 import { namedAction } from "../../subagents/trayDetail";
 import { retrying, type RetryQuiet } from "../../subagents/retryState";
@@ -133,7 +132,7 @@ export function subagentsSection(
       detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       status,
       state: subagentStateText(t, agent, waiting, input.connectionQuiet, now),
-      time: formatDuration(elapsed(agent, input.now)),
+      time: subagentTime(agent, input.now),
       progress: subagentProgress(t, input.language ?? "en", agent, { usage: false }).join(" · ") || undefined,
       task: agent.task && agent.task !== agent.name ? agent.task : undefined,
       kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,

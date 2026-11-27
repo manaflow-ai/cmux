@@ -39,6 +39,11 @@ import Testing
         private var gate: CheckedContinuation<Void, Never>?
         private var gateOpen = false
         private var _promptWrites = 0
+        private var outboundBytes: UInt64 = 0
+        var sentBytes: UInt64? { lock.withLock { outboundBytes } }
+        func acceptChunk() { lock.withLock { outboundBytes += 16_384 } }
+        private var closeInfo: LinkError?
+        var closedBy: LinkError? { lock.withLock { closeInfo } }
         private let inbox: AsyncStream<Data>
         private let continuation: AsyncStream<Data>.Continuation
         private var iterator: AsyncStream<Data>.AsyncIterator
@@ -133,7 +138,10 @@ import Testing
         }
 
         func receive() async throws -> Data? { await iterator.next() }
-        func close(code: String, reason: String) async { continuation.finish() }
+        func close(code: String, reason: String) async {
+            lock.withLock { closeInfo = LinkError(code: code, message: reason) }
+            continuation.finish()
+        }
     }
 
     func openChat(_ channel: SlowMac, clock: FakeClock) async -> (AcpmuxHub, AcpmuxSessionSource, AgentChatStore) {
@@ -212,11 +220,12 @@ import Testing
         // A whole window passes between two attempts (the prompt is held, not being written;
         // the outbox gives back only what is queued, never one mid-write): the draft comes back.
         await eventually { source.heldPrompts.count == 1 }
-        // Past the window the outbox holds (Rust's default, 30 s since #55099), not a number of its own.
+        // Past the window the outbox holds (``AgentChatStore/sendDeadline``), not a number of its own.
         clock.advance(by: source.heldPromptWindow + .seconds(1))
-        await eventually { store.returnedDraft != nil }
-        #expect(store.returnedDraft?.text == "run the tests")
-        #expect(store.clientError == "Not sent: mini is offline.")
+        await eventually { store.turns.last?.localSend == .notSent }
+        #expect(store.turns.last?.prompt == "run the tests")
+        #expect(store.returnedDraft == nil)
+        #expect(store.clientError == nil)
     }
     #endif
 
@@ -238,20 +247,20 @@ import Testing
         // with a failed attempt in each: never a whole window between two attempts, so only a
         // wait that is not restarted by each failure can run out (the Rust outbox ages it from
         // the first failure and moves it on by what each write took: nothing here).
-        // Enough 4 s steps to pass the window the outbox holds (30 s since #55099), and two more.
+        // Enough 4 s steps to pass the window the outbox holds (``AgentChatStore/sendDeadline``), and two more.
         let steps = Int(source.heldPromptWindow / .seconds(4)) + 2
-        for _ in 0..<steps where store.returnedDraft == nil {
+        for _ in 0..<steps where store.turns.last?.localSend != .notSent {
             let before = channel.promptWrites
             clock.advance(by: .seconds(4))
             // The prompt is queued (not mid-write) whenever the test moves the clock, so the
             // advance is never counted as time a write took.
             await eventually {
-                (channel.promptWrites > before && source.heldPrompts.count == 1) || store.returnedDraft != nil
+                (channel.promptWrites > before && source.heldPrompts.count == 1) || store.turns.last?.localSend == .notSent
             }
         }
-        await eventually { store.returnedDraft != nil }
-        #expect(store.returnedDraft?.text == "run the tests")
-        #expect(store.clientError == "Not sent: mini is offline.")
+        await eventually { store.turns.last?.localSend == .notSent }
+        #expect(store.turns.last?.prompt == "run the tests")
+        #expect(store.clientError == nil)
         #expect(mac.prompts.isEmpty)
     }
     #endif
@@ -288,6 +297,71 @@ import Testing
         #expect(store.clientError == nil)
         #expect(store.returnedDraft == nil)
     }
+
+    @Test func aRetiredPartialMessageChannelIsReopenedBeforeTheNextPrompt() async throws {
+        let mac = ChatPromptBlipTests.Mac()
+        let clock = FakeClock()
+        let first = SlowMac(mac, clock: clock)
+        let (hub, _, store) = await openChat(first, clock: clock)
+        var rebinds = 0
+        hub.onStall = {
+            rebinds += 1
+            await hub.bind(SlowMac(mac, clock: clock))
+        }
+        await first.close(code: "partial_message", reason: "write was cancelled")
+        await eventually { rebinds == 1 && hub.isReady }
+        #expect(rebinds == 1)
+        store.send(prompt: "next")
+        await eventually { !mac.prompts.isEmpty }
+        #expect(mac.prompts.map(\.text) == ["next"])
+        #expect(store.returnedDraft == nil)
+    }
+
+    #if canImport(CmuxMobileLinkFFI)
+    @Test(arguments: [true, false]) func queuedPromptFollowsItsWriterAcrossItsOwnShorterHold(moving: Bool) async throws {
+        let mac = ChatPromptBlipTests.Mac()
+        let clock = FakeClock()
+        let channel = SlowMac(mac, clock: clock, writes: [.gate])
+        let (hub, source, store) = await openChat(channel, clock: clock)
+        hub.writeBase = .seconds(30)
+        source.heldPromptWindow = .seconds(2)
+        store.send(prompt: "first")
+        await eventually { channel.isSendingPrompt }
+        store.send(prompt: "second")
+        await eventually { source.heldPrompts.contains { $0.text == "second" } }
+        for _ in 0..<4 {
+            if moving { channel.acceptChunk() }
+            clock.advance(by: .seconds(2))
+            source.flushHeldPrompts()
+            #expect(source.heldPrompts.contains { $0.text == "second" } == moving)
+        }
+        channel.openGate()
+        let expected = moving ? ["first", "second"] : ["first"]
+        await eventually { mac.prompts.count == expected.count }
+        #expect(mac.prompts.map(\.text) == expected)
+        if moving { #expect(store.returnedDraft == nil) }
+        else {
+            await eventually { store.returnedDraft != nil }
+            #expect(store.returnedDraft?.text == "second")
+        }
+    }
+
+    @Test func preparationCompletingNinetySecondsAfterTapStillDeliversInOrder() async throws {
+        let mac = ChatPromptBlipTests.Mac()
+        let clock = FakeClock()
+        let (hub, _, store) = await openChat(SlowMac(mac, clock: clock), clock: clock)
+        defer { withExtendedLifetime(hub) {} }
+        // The attachment's completed upload is on the Mac. Both taps are recorded synchronously,
+        // and neither queued MainActor preparation task hands off its payload until we yield.
+        let file = AgentAttachment(kind: .file, name: "clip.mov", macPath: "/w/clip.mov")
+        store.send(prompt: "see clip", attachments: [file])
+        store.send(prompt: "then reply")
+        clock.advance(by: .seconds(90))
+        await eventually { mac.prompts.count == 2 }
+        #expect(mac.prompts.map(\.text) == ["see clip", "then reply"])
+        #expect(store.returnedDraft == nil)
+    }
+    #endif
 
     /// The write bound grows with the payload: 30 s, plus its bytes at 16 KiB/s.
     @Test func theWriteBoundScalesWithThePayload() {

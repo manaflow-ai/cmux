@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextRemote
 import Foundation
 import os
 
@@ -102,7 +103,7 @@ final class CloudMachineUpdates {
 
     /// The live ``CloudMachineUpdateTarget/Source`` of `session`. Each step reads the session on
     /// the main actor; nothing holds it.
-    static func source(_ session: CloudMachineSession, machines: MachineRegistry, cli: CloudMoveCLI, api: CloudAPIClient? = nil,
+    static func source(_ session: CloudMachineSession, machines: MachineRegistry, cli: CloudMoveCLI, api: CloudDaemon? = nil,
                        ifOlder: Bool = true, logger: Logger) -> CloudMachineUpdateTarget.Source {
         let machineID = session.machineID
         let binary = cli.binary
@@ -149,5 +150,12 @@ final class CloudMachineUpdates {
         guard let session else { return nil }
         if let connection = session.daemon.connection, let path = await connection.endpoint?.socketPath { return path }
         return await session.appLink.currentSocket
+    }
+}
+
+extension CloudLegacyMachineUpdate {
+    /// The guest script, from the app's resources.
+    nonisolated static var script: String? {
+        Bundle.module.url(forResource: "cmux-tui-upgrade", withExtension: "sh").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
     }
 }
