@@ -1936,6 +1936,7 @@ dependencies = [
  "cmux-embed",
  "cmux-json",
  "cmux-layout-reducer",
+ "cmux-message-preview",
  "cmux-theme-tokens",
  "core-foundation 0.10.1",
  "core-foundation-sys",
@@ -2530,6 +2531,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
