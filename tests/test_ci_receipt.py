@@ -480,5 +480,122 @@ class RustSummary(unittest.TestCase):
         self.assertIn("CI receipt audit", out)
 
 
+def lane_receipt(**overrides) -> dict:
+    receipt = {"schema": "ci-receipt/v1", "check": "fast-gates", "repo": REPO, "head": HEAD, "head_tree": HEAD_TREE,
+               "base": BASE, "tree": MERGE_TREE, "tree_kind": "lane-merge", "producer": "lane:fs-agent-lane-9",
+               "command_sha256": __import__("hashlib").sha256(CANONICAL.encode()).hexdigest(), "exit": 0,
+               "sig": "c2ln", "shadow": False}
+    receipt.update(overrides)
+    return receipt
+
+
+def lane_verify(receipts, *, fake: FakeGitHub | None = None, base: str = BASE, audit_percent: int = 0,
+                body: str = "Change.\n", pr: int | None = None) -> tuple[dict, list[dict]]:
+    asked: list[dict] = []
+
+    def ask(payload):
+        asked.append(payload)
+        if isinstance(receipts, Exception):
+            raise receipts
+        return {"receipts": receipts}
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
+        handle.write(body)
+    args = SimpleNamespace(job="fast-gates", repo=REPO, head=HEAD, base=base, head_tree=HEAD_TREE,
+                           merge_tree=MERGE_TREE, body_file=handle.name, audit_percent=audit_percent, workspaces=None,
+                           pr=pr, lane=True)
+    try:
+        return ci_receipt.verify(args, fetch=fake or FakeGitHub(), lane_ask_fn=ask), asked
+    finally:
+        Path(handle.name).unlink()
+
+
+class LaneReceipts(unittest.TestCase):
+    """A lane's own pass, signed by the controller and asked for by head tree (Leo, 2026-11-25: "what other
+    fundamental cuts can we make? let's do them")."""
+
+    def test_a_lane_receipt_on_the_same_base_counts_with_no_pointer(self):
+        result, asked = lane_verify([lane_receipt()])
+        self.assertEqual(result["valid"], "true", result["reason"])
+        self.assertEqual(result["producer"], "lane:fs-agent-lane-9")
+        self.assertEqual(result["base"], BASE)
+        self.assertEqual(asked, [{"op": "lookup", "check": "fast-gates", "head_tree": HEAD_TREE}])
+
+    def test_same_base_needs_the_same_merge_tree(self):
+        result, _ = lane_verify([lane_receipt(tree="9" * 40)])
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("not this run's", result["reason"])
+
+    def test_an_older_base_counts_only_as_an_ancestor(self):
+        self.assertEqual(lane_verify([lane_receipt(base=OLD_BASE)])[0]["valid"], "true")
+        result, _ = lane_verify([lane_receipt(base=OLD_BASE)], fake=FakeGitHub(compare="diverged"))
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("not an ancestor", result["reason"])
+
+    def test_another_command_repo_tree_or_producer_is_refused(self):
+        for bad in ({"command_sha256": "0" * 64}, {"repo": "x/y"}, {"head_tree": "1" * 40},
+                    {"producer": "actions:x"}, {"check": "rust-workspaces"}, {"base": "short"}):
+            result, _ = lane_verify([lane_receipt(**bad)])
+            self.assertEqual(result["valid"], "false", bad)
+
+    def test_the_first_covering_receipt_wins(self):
+        result, _ = lane_verify([lane_receipt(tree="9" * 40, producer="lane:a"), lane_receipt(producer="lane:b")])
+        self.assertEqual((result["valid"], result["producer"]), ("true", "lane:b"))
+
+    def test_a_producer_in_shadow_is_always_audited(self):
+        result, _ = lane_verify([lane_receipt(shadow=True)])
+        self.assertEqual((result["valid"], result["audit"]), ("true", "true"))
+        self.assertIn("shadow", result["reason"])
+
+    def test_audit_samples_lane_receipts_too(self):
+        self.assertEqual(lane_verify([lane_receipt()], audit_percent=100)[0]["audit"], "true")
+        self.assertEqual(lane_verify([lane_receipt()], audit_percent=0)[0]["audit"], "false")
+
+    def test_no_lane_receipt_or_a_down_controller_runs_the_gates(self):
+        result, _ = lane_verify([])
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("no lane receipt", result["reason"])
+        result, _ = lane_verify(ci_receipt.Rejected("the controller did not answer: timeout"))
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("did not answer", result["reason"])
+
+    def test_without_a_lane_receipt_discovery_still_runs(self):
+        result, _ = lane_verify([], pr=5)
+        self.assertEqual(result["valid"], "true", result["reason"])  # FakeGitHub's run is a real receipt
+        self.assertFalse(result["producer"].startswith("lane:"))
+
+
+class LaneRecord(unittest.TestCase):
+    def test_records_on_a_lane_and_never_inside_actions(self):
+        args = SimpleNamespace(job="fast-gates", record=True)
+        self.assertTrue(ci_receipt.lane_records(args, env={}))
+        self.assertFalse(ci_receipt.lane_records(args, env={"GITHUB_ACTIONS": "true"}))
+        self.assertFalse(ci_receipt.lane_records(SimpleNamespace(job="fast-gates", record=False), env={}))
+        self.assertFalse(ci_receipt.lane_records(SimpleNamespace(job="rust-workspaces", record=True), env={}))
+
+    def test_record_posts_the_pass_and_a_refusal_is_exit_zero(self):
+        import json as j  # noqa: PLC0415
+        sent = []
+
+        def post(url, data):
+            sent.append((url, j.loads(data)))
+            return 200, j.dumps({"recorded": True, "receipt": {"producer": "lane:x"}}).encode()
+        code = ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE, merge_tree=MERGE_TREE,
+                                      seconds=12.0, post=post, env={"CMUX_CI_CONTROLLER": "http://c:1/"})
+        self.assertEqual(code, 0)
+        url, body = sent[0]
+        self.assertEqual(url, "http://c:1/v1/ci/lane-receipt")
+        self.assertEqual((body["command"], body["exit"], body["head_tree"], body["merge_tree"]),
+                         (CANONICAL, 0, HEAD_TREE, MERGE_TREE))
+        self.assertNotIn("producer", body)  # the controller names it from the tailnet
+        self.assertEqual(ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE,
+                                                merge_tree=MERGE_TREE, seconds=1, post=lambda u, d: (403, b"no"),
+                                                env={}), 0)
+
+        def down(u, d):
+            raise OSError("unreachable")
+        self.assertEqual(ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE,
+                                                merge_tree=MERGE_TREE, seconds=1, post=down, env={}), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
