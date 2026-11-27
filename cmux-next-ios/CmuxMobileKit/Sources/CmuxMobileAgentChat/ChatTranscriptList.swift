@@ -673,7 +673,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         // The layout-shift count: rows on screen, in the list's visible bounds, native and hosted
         // cells alike. Measured in the list, so the list scaled or moved whole (the tab grid's
         // zoom, the live page following its card) is not a shift.
-        LayoutShiftProbe.shared?.watch(collectionView, prefix: "chat.") { [weak self] in self?.probeRows() ?? [] }
+        LayoutShiftProbe.shared?.watch(collectionView, prefix: "chat.") { [weak self] in self?.shiftProbeRows() ?? [] }
         #if DEBUG
         if let probe = LoadFrameProbe.shared {
             probe.watch(collectionView, rows: { [weak self] in self?.probeRows() ?? [] },
@@ -1369,6 +1369,12 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             guard let id = dataSource.itemIdentifier(for: indexPath), let cell = collectionView.cellForItem(at: indexPath) else { return nil }
             return (id, cell.frame.offsetBy(dx: -offset.x, dy: -offset.y))
         }
+    }
+
+    /// `probeRows` with each row's content revision as laid out, so `LayoutShiftProbe` reads a
+    /// streamed answer growing as new content, not a shift.
+    private func shiftProbeRows() -> [(id: String, frame: CGRect, content: Int?)] {
+        probeRows().map { (id: $0.0, frame: $0.1, content: layout.shownState(of: $0.0)?.revision) }
     }
 
     #if DEBUG

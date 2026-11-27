@@ -29,7 +29,7 @@ public final class LayoutShiftProbe {
     private struct WatchedList {
         weak var view: UIScrollView?
         let prefix: String
-        let rows: () -> [(String, CGRect)]
+        let rows: () -> [(id: String, frame: CGRect, content: Int?)]
     }
     @ObservationIgnored private var counter = LayoutShiftCounter()
     @ObservationIgnored private var link: CADisplayLink?
@@ -55,8 +55,10 @@ public final class LayoutShiftProbe {
     /// list's visible bounds and its frame there (content frame less the content offset), as
     /// `LoadFrameProbe.watch` does. Nothing is counted while the list is off screen or hidden.
     /// Measured in the list, so a transform of the list (the grid's zoom, the live page following
-    /// its card) is not a shift, and native and SwiftUI cells are counted alike.
-    public func watch(_ view: UIScrollView, prefix: String, rows: @escaping () -> [(String, CGRect)]) {
+    /// its card) is not a shift, and native and SwiftUI cells are counted alike. `content` is each
+    /// row's content revision, so a row growing with new content is not a shift
+    /// (`LayoutShiftCounter.Row.content`).
+    public func watch(_ view: UIScrollView, prefix: String, rows: @escaping () -> [(id: String, frame: CGRect, content: Int?)]) {
         lists.append(WatchedList(view: view, prefix: prefix, rows: rows))
     }
 
@@ -66,8 +68,8 @@ public final class LayoutShiftProbe {
         for list in lists {
             guard let view = list.view, Self.isShown(view) else { continue }
             let visible = CGRect(origin: .zero, size: view.bounds.size)
-            for (id, frame) in list.rows() where frame.intersects(visible) {
-                out[list.prefix + id] = .init(frame, .window)
+            for (id, frame, content) in list.rows() where frame.intersects(visible) {
+                out[list.prefix + id] = .init(frame, .window, content: content)
             }
         }
         return out

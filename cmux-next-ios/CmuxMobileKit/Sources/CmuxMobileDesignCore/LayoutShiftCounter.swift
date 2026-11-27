@@ -20,6 +20,13 @@ import Foundation
 ///   read as the scroll and only rows that moved otherwise (by more than the tolerance), or
 ///   resized, count.
 ///
+/// A row may carry its content's revision (`content`). A row that resizes at a revision other than
+/// the one its last size was drawn for (the list may lay the new content out a frame after the
+/// revision lands) drew new content (a streamed token, a tool call's output): as the web's CLS does not count
+/// an element growing, its resize is not a shift, and it counts only when neither its top nor its
+/// bottom edge stayed put (with the frame's scroll, in `.window` space). The rows its growth pushed
+/// still count. A resize at the same revision (an estimated height measured late) still counts.
+///
 /// Neither space is the screen: as the web's CLS leaves out CSS transforms, a list scaled or moved
 /// whole (the tab grid's zoom, the live page riding its card on the grid, a push) shifts nothing
 /// in it. Only rows inside their list's visible bounds are reported (the CLS viewport).
@@ -29,9 +36,13 @@ public struct LayoutShiftCounter: Sendable {
     public struct Row: Sendable, Equatable {
         public var rect: CGRect
         public var space: Space
-        public init(_ rect: CGRect, _ space: Space) {
+        /// The revision of what the row draws, when its list knows it (nil: unknown, so any resize
+        /// counts).
+        public var content: Int?
+        public init(_ rect: CGRect, _ space: Space, content: Int? = nil) {
             self.rect = rect
             self.space = space
+            self.content = content
         }
     }
 
@@ -52,6 +63,8 @@ public struct LayoutShiftCounter: Sendable {
     /// Moves and resizes up to this many points are rounding, not a shift.
     public let tolerance: CGFloat
     private var last: [String: Row] = [:]
+    /// Each drawn row's revision when it took its current size.
+    private var sizedFor: [String: Int] = [:]
     private var painted = false
 
     public init(tolerance: CGFloat = 1) {
@@ -66,17 +79,32 @@ public struct LayoutShiftCounter: Sendable {
             painted = true
         }
         frames += 1
-        var moves: [(id: String, before: CGRect, after: CGRect, space: Space)] = []
+        var moves: [(id: String, before: CGRect, after: CGRect, space: Space, grew: Bool)] = []
         for (id, row) in rows {
             guard let before = last[id], before.space == row.space else { continue }
-            if differs(before.rect, row.rect) { moves.append((id, before.rect, row.rect, row.space)) }
+            let drawnFor = sizedFor[id] ?? before.content
+            let grew = resized(before.rect, row.rect) && drawnFor != nil && row.content != nil && drawnFor != row.content
+            if differs(before.rect, row.rect) { moves.append((id, before.rect, row.rect, row.space, grew)) }
         }
+        var sized: [String: Int] = [:]
+        for (id, row) in rows {
+            let kept = last[id].map { !resized($0.rect, row.rect) } ?? false
+            if let content = kept ? sizedFor[id] ?? row.content : row.content { sized[id] = content }
+        }
+        sizedFor = sized
         last = rows
         guard !moves.isEmpty else { return 0 }
 
-        // Among window-space rows that kept their size, the most common translation is a scroll.
+        // Among window-space rows that kept their size, the most common translation is a scroll;
+        // not rows below a row that grew that moved down: that growth pushed them (the web's CLS
+        // case of content landing above what the reader reads).
+        let growth = moves.filter { $0.grew }.map { $0.before }
+        let pushed: (CGRect, CGRect) -> Bool = { before, after in
+            after.minY - before.minY > self.tolerance && growth.contains { before.minY >= $0.maxY - self.tolerance }
+        }
+        let scrolled = moves.filter { $0.space == .window && !resized($0.before, $0.after) && !pushed($0.before, $0.after) }
         var counts: [Delta: Int] = [:]
-        for move in moves where move.space == .window && !resized(move.before, move.after) {
+        for move in scrolled {
             counts[Delta(move.before, move.after, tolerance), default: 0] += 1
         }
         let bucket = counts.max { $0.value == $1.value ? $0.key > $1.key : $0.value < $1.value }?.key
@@ -85,12 +113,19 @@ public struct LayoutShiftCounter: Sendable {
         // -3.1 pt (either side of a bucket's edge) are not read as one row moving against the rest.
         var scroll: (dx: CGFloat, dy: CGFloat)?
         if let bucket {
-            let alike = moves.filter { $0.space == .window && !resized($0.before, $0.after) && Delta($0.before, $0.after, tolerance) == bucket }
+            let alike = scrolled.filter { Delta($0.before, $0.after, tolerance) == bucket }
             let n = CGFloat(alike.count)
             scroll = (alike.reduce(0) { $0 + $1.after.minX - $1.before.minX } / n,
                       alike.reduce(0) { $0 + $1.after.minY - $1.before.minY } / n)
         }
         let shifted = moves.filter { move in
+            // New content: one of its edges held still (less the scroll) is the row growing.
+            if move.grew {
+                let held = (dx: move.space == .window ? scroll?.dx ?? 0 : 0, dy: move.space == .window ? scroll?.dy ?? 0 : 0)
+                guard abs(move.after.minX - move.before.minX - held.dx) <= tolerance else { return true }
+                return abs(move.after.minY - move.before.minY - held.dy) > tolerance
+                    && abs(move.after.maxY - move.before.maxY - held.dy) > tolerance
+            }
             if move.space == .scrollContent || resized(move.before, move.after) { return true }
             guard let scroll else { return true }
             return abs(move.after.minX - move.before.minX - scroll.dx) > tolerance
