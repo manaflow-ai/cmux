@@ -338,6 +338,18 @@ struct Provider {
     events: &'static [&'static str],
 }
 
+macro_rules! journal_plugin {
+    ($file:literal) => {
+        Format::Plugin {
+            template: concat!(
+                include_str!("../assets/agent-hooks/plugin-stream.js"),
+                "\n",
+                include_str!(concat!("../assets/agent-hooks/", $file))
+            ),
+        }
+    };
+}
+
 const PROVIDERS: &[Provider] = &[
     Provider {
         id: "codex",
@@ -415,7 +427,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".omp/agent/config.json",
         override_env: None,
         override_relative_path: "config.json",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/omp.ts") },
+        format: journal_plugin!("omp.ts"),
         events: &[],
     },
     Provider {
@@ -424,7 +436,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".campfire/agent/config.json",
         override_env: None,
         override_relative_path: "config.json",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/campfire.ts") },
+        format: journal_plugin!("campfire.ts"),
         events: &[],
     },
     Provider {
@@ -505,7 +517,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".config/opencode/plugins/cmux-tui-journal.js",
         override_env: Some("OPENCODE_CONFIG_DIR"),
         override_relative_path: "plugins/cmux-tui-journal.js",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/opencode.js") },
+        format: journal_plugin!("opencode.js"),
         events: &[],
     },
     Provider {
@@ -514,7 +526,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".config/amp/plugins/cmux-tui-journal.ts",
         override_env: None,
         override_relative_path: "plugins/cmux-tui-journal.ts",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/amp.ts") },
+        format: journal_plugin!("amp.ts"),
         events: &[],
     },
     Provider {
@@ -523,7 +535,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".pi/agent/extensions/cmux-tui-journal.ts",
         override_env: Some("PI_CODING_AGENT_DIR"),
         override_relative_path: "extensions/cmux-tui-journal.ts",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/pi.ts") },
+        format: journal_plugin!("pi.ts"),
         events: &[],
     },
 ];
@@ -1712,19 +1724,18 @@ fn provider_status(
                 state
             }
         }
-        Format::Plugin { .. } => match fs::read(path) {
-            Ok(content) if is_current_plugin(&content) => "installed",
+        Format::Plugin { template } => match fs::read(path) {
+            Ok(content) if content == template.as_bytes() => "installed",
             Ok(content) if is_owned_plugin(&content) => "partial",
             _ => "absent",
         },
-        Format::HermesPlugin { .. } => {
+        Format::HermesPlugin { module: expected_module, manifest: expected_manifest } => {
             let module = fs::read(path.join("__init__.py"));
             let manifest = fs::read(path.join("plugin.yaml"));
             match (module, manifest) {
                 (Ok(module), Ok(manifest))
-                    if [module.as_slice(), manifest.as_slice()]
-                        .into_iter()
-                        .all(is_current_plugin) =>
+                    if module == expected_module.as_bytes()
+                        && manifest == expected_manifest.as_bytes() =>
                 {
                     "installed"
                 }
@@ -1920,10 +1931,6 @@ fn is_owned_plugin(content: &[u8]) -> bool {
     [PLUGIN_MARKER.as_bytes(), b"cmux-tui-agent-hook".as_slice(), b"cmux-tui-cmux-irc".as_slice()]
         .into_iter()
         .any(|needle| content.windows(needle.len()).any(|window| window == needle))
-}
-
-fn is_current_plugin(content: &[u8]) -> bool {
-    content.windows(PLUGIN_MARKER.len()).any(|window| window == PLUGIN_MARKER.as_bytes())
 }
 
 fn ensure_owned_plugin_directory(path: &Path) -> anyhow::Result<()> {

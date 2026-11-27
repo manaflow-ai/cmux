@@ -347,11 +347,30 @@ echo "SCREEN-STREAM-EVAL-MACHINE $run"
 
 pids=()
 cleanup() {
+  local rc=$?
   for pid in ${pids[@]+"${pids[@]}"}; do kill "$pid" 2>/dev/null || true; done
   # A run cut short leaves the current target's host (and iphone-sim's simulator) running: its
   # host-stop ends them. host-stop is a no-op for a host that already stopped.
   if [[ -n "${script:-}" && -f "${script:-}" && -n "${EVAL_STATE:-}" ]]; then
     bash "$script" host-stop >/dev/null 2>&1 || true
+  fi
+  # A stage-table viewer that ends before its ledger (no grants, a failed build, a signal) still ends the host
+  # half, which otherwise holds its Mac until the 45 min silence stop (2026-11-27: viewer exit 3 at the grant
+  # check, host served 45 min). The ledger's own /done comes first; a second one finds the server gone.
+  if [[ -n "${stage_table:-}" && -n "${viewer_of:-}" ]]; then
+    printf '%s' "$peer_token" | python3 -I -c 'import sys, urllib.request
+t = sys.stdin.read().strip()
+urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/done", data=b"{}", method="POST",
+                                              headers={"X-Eval-Token": t}), timeout=5).close()' \
+      "http://$viewer_of:4181" >/dev/null 2>&1 || true
+  elif [[ -n "${viewer_of:-}" ]]; then
+    # The same for a targets viewer: /bye lets the host's wait for agent.json (30 min) and each call (15 min) end
+    # now. After the agent's own done the host is past both, so this one changes nothing.
+    printf '%s' "$peer_token" | python3 -I -c 'import json, sys, urllib.request
+t = sys.stdin.read().strip()
+urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/bye/0", data=json.dumps({"exit": int(sys.argv[2])}).encode(),
+                                              method="POST", headers={"X-Eval-Token": t}), timeout=5).close()' \
+      "http://$viewer_of:$peer_port" "$rc" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -561,6 +580,10 @@ except OSError as e:
     print(f"no answer: {e!r}")' "$lan" "$peer_port")"
   for _ in $(seq 1 360); do
     [[ -s "$work/peer/agent.json" ]] && break
+    if [[ -s "$work/peer/bye.json" ]]; then
+      finish "two Macs: the viewer Mac's step ended before it connected ($(cat "$work/peer/bye.json"); its own log says why)"
+      exit 4
+    fi
     # A server that could not bind (an address this Mac lacks, a port in use) ends at once: say so.
     if ! kill -0 "$server" 2>/dev/null; then
       finish "two Macs: the peer server on $lan:$peer_port stopped ($(tail -1 "$work/peer.log" 2>/dev/null))"

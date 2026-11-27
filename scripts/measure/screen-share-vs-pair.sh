@@ -86,7 +86,17 @@ done
 
 out=artifacts/screen-share-vs-pair
 work=$(mktemp -d "${TMPDIR:-/tmp}/ssvp.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+# viewer_done: the host half's /done to the viewer half, once. On every exit after the viewer answered: an early
+# exit 3 (no LAN address, the tools build, the NIGHTLY helper, the rig) left the viewer Mac serving its whole hold-s=.
+viewer_url=""
+viewer_done() {
+  [[ -n "$viewer_url" ]] || return 0
+  python3 -I -c 'import sys, urllib.request
+urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/done", data=b"{}", method="POST",
+    headers={"X-Eval-Token": open(sys.argv[2]).read().strip()}), timeout=10).close()' "$viewer_url" "$work/peer-token" || true
+  viewer_url=""
+}
+trap 'viewer_done; rm -rf "$work"' EXIT
 mkdir -p "$out"
 self=$(hostname -s)
 self_ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)
@@ -168,7 +178,8 @@ PY
     sleep 5
   done
   echo "SSVP peer $url out=${got:0:300}" | tee -a "$work/probe.txt"
-  [[ "$got" == "$partner"* ]] && target="$partner" via_args=(--via peer --peer-url "$url" --peer-token-file "$work/peer-token")
+  [[ "$got" == "$partner"* ]] && target="$partner" viewer_url="$url" \
+    via_args=(--via peer --peer-url "$url" --peer-token-file "$work/peer-token")
 fi
 [[ -n "$peer_token" ]] || for t in "$partner" "$partner.local" ${partner_ip:+"$partner_ip"}; do
   got=$(ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new "$t" 'hostname -s' 2>&1 | tail -1)
@@ -268,11 +279,7 @@ if [[ -n "$rig_pid" ]]; then
   kill "$rig_pid" 2>/dev/null; wait "$rig_pid" 2>/dev/null
 fi
 [[ -n "$rig_root" ]] && rm -rf "$rig_root"
-if [[ -n "$peer_token" ]]; then  # the viewer half ends now, not at its hold
-  python3 -I -c 'import sys, urllib.request
-urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/done", data=b"{}", method="POST",
-    headers={"X-Eval-Token": open(sys.argv[2]).read().strip()}), timeout=10).close()' "$url" "$work/peer-token" || true
-fi
+viewer_done  # the viewer half ends now, not at its hold
 echo "SSVP done rc=$rc host=$self ($host) viewer=$partner link=$link inputs=$inputs at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 pack
 [[ "$rc" == 0 ]] || exit 1
