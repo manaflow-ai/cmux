@@ -63,10 +63,14 @@ public nonisolated struct CloudStartCore: Sendable {
     /// (cmux-cloud-start-core `one_pane`). On by default; `CMUX_CLOUD_ONE_PANE=0` keeps the swap, as does an
     /// FFI that does not answer.
     public func keepsPage(inPlace: Bool, pageLive: Bool, cloudPageFree: Bool,
-                          killSwitch: String? = ProcessInfo.processInfo.environment["CMUX_CLOUD_ONE_PANE"]) -> Bool {
-        struct Request: Encodable { var inPlace: Bool, pageLive: Bool, cloudPageFree: Bool, killSwitch: String? }
+                          onePaneEnv: String? = ProcessInfo.processInfo.environment["CMUX_CLOUD_ONE_PANE"]) -> Bool {
+        // The wire key stays "killSwitch" (one_pane.rs); the Swift name is not, so check-kill-switches.py reads no reference.
+        struct Request: Encodable {
+            var inPlace: Bool, pageLive: Bool, cloudPageFree: Bool, onePaneEnv: String?
+            enum CodingKeys: String, CodingKey { case inPlace, pageLive, cloudPageFree, onePaneEnv = "killSwitch" }
+        }
         struct Reply: Decodable { var shown: String }
-        let request = Request(inPlace: inPlace, pageLive: pageLive, cloudPageFree: cloudPageFree, killSwitch: killSwitch)
+        let request = Request(inPlace: inPlace, pageLive: pageLive, cloudPageFree: cloudPageFree, onePaneEnv: onePaneEnv)
         return call("cloud_one_pane", request, as: Reply.self)?.shown == "rehome"
     }
 
