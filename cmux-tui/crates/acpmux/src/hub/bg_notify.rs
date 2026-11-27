@@ -36,7 +36,9 @@
 //!   or while no subagent runs, goes to the chat, saying whose it was (W5-M, 2026-11-08: the end of a subagent's
 //!   `acpmux run` task carried a lane's reply into its lead's chat). One that went well waits in
 //!   the chat's inbox for its next turn (or the held result's deadline), as a coordinator's does;
-//!   a failed one wakes it ([`holds_end`]).
+//!   a failed one wakes it ([`holds_end`]). The lead's own end that went well, in an idle chat,
+//!   waits too, but only [`OWN_END_HOLD_MS`], so ends that come together wake it once
+//!   ([`end_hold`]).
 
 use super::bg_tasks::{bg_generation, bg_view};
 use super::*;
@@ -242,11 +244,17 @@ comes to you."
         // send again finds it there.
         let prompt_id = format!("{PROMPT_PREFIX}{id}");
         let ok = notice.get("severity").and_then(Value::as_str) == Some("info");
-        let listed =
-            super::inbox::page_rule::listed(&*self.config.read().await, &session.meta().name);
-        if holds_end(ok, listed, ended.is_some())
-            && self.inbox_hold_end(session, &prompt_id, &text, &provenance)
-        {
+        let listed = self.page_rule_lists(&session.meta().name);
+        // The lead's own exit-0 end in an idle plain chat that ran a turn waits too, but only
+        // [`OWN_END_HOLD_MS`]: ends that come close together, or with another message, wake the
+        // chat once ([`end_hold`]). Into a running turn it steers at the next tool step as
+        // before, and a chat that never ran a turn takes it as its first work.
+        let idle = session.turn().is_none() && session.meta().turn_count > 0;
+        let hold = end_hold(ok, listed, ended.is_some(), idle);
+        if let Some(within) = hold.flatten() {
+            provenance.set(crate::prompt_provenance::WITHIN, json!(within));
+        }
+        if hold.is_some() && self.inbox_hold_end(session, &prompt_id, &text, &provenance) {
             if let Err(e) = crate::home_fs::write(&mark, b"") {
                 tracing::warn!(mark = %mark.display(), "a held task end was not marked: {e}");
             }
@@ -362,6 +370,30 @@ fn end_notice(dir: &Path, record: &Record) -> Value {
 /// stuff much less >400". A failed end still wakes the chat: its exit is the news.
 fn holds_end(ok: bool, listed: bool, orphan: bool) -> bool {
     ok && (listed || orphan)
+}
+
+/// How long the lead's own exit-0 end waits in a plain chat's inbox before it wakes the chat.
+/// One lane's 24 h (one lane VM, 2026-11-26): 1,177 of its 3,060 wakes (38%) were task
+/// ends, each a turn of its own, and 28% of all its wakes came less than 5 minutes after the one
+/// before. Held this long in an idle chat, ends that come close together, and an end that comes
+/// just before another message, go in as one notice. Leo: "us not getting fucking swamped by our
+/// own fucking wake-ups, our own tool calls". A failed end, an end while a turn runs (the turn
+/// may be waiting on it: it steers in at the next tool step) and an end to a chat that never ran
+/// a turn are not held so.
+pub(super) const OWN_END_HOLD_MS: u64 = 5 * 60 * 1000;
+
+/// Whether a task end waits in the chat's inbox, and its own deadline there: `None` sends it as
+/// a prompt (a failure: its exit is the news); `Some(None)` holds it to its class's deadline
+/// ([`holds_end`]); `Some(Some(ms))` holds the lead's own exit-0 end [`OWN_END_HOLD_MS`] when
+/// its chat is `idle` (no turn runs, and it ran one).
+fn end_hold(ok: bool, listed: bool, orphan: bool, idle: bool) -> Option<Option<u64>> {
+    if holds_end(ok, listed, orphan) {
+        Some(None)
+    } else if ok && idle {
+        Some(Some(OWN_END_HOLD_MS))
+    } else {
+        None
+    }
 }
 
 /// The provenance field that says how the chat draws a task end (`"none"` or `"line"`).
@@ -689,7 +721,14 @@ mod tests {
         let (hub, session) = hub_with_chat("coord-bg-ok", true).await;
         let dir = cmux_unix_socket::short_test_dir("bg-fold-ok");
         let record = ended("ok1", &session, 0);
-        hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
+        let writer = hub.config.write().await;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            hub.bg_end_to_chat(&session, dir.path(), &record, None),
+        )
+        .await
+        .expect("an exit notice reaches the inbox while configuration is being written");
+        drop(writer);
         hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
         assert!(bg_run::notified_path(dir.path(), "ok1").exists(), "sent: no restart owes it");
         {
@@ -772,16 +811,46 @@ mod tests {
         assert!(!bg_run::notified_path(dir.path(), "o2").exists(), "o2 took the prompt path");
     }
 
-    /// A chat not on the list gets its exit-0 end as before: a prompt, not an inbox item.
+    /// Which ends wait, and how long: a coordinator's or an orphan's to its class's deadline,
+    /// the lead's own exit 0 in an idle chat [`OWN_END_HOLD_MS`], a failure not at all.
+    #[test]
+    fn how_long_task_ends_wait() {
+        assert_eq!(end_hold(true, true, false, true), Some(None));
+        assert_eq!(end_hold(true, false, true, false), Some(None));
+        assert_eq!(end_hold(true, false, false, true), Some(Some(OWN_END_HOLD_MS)));
+        assert_eq!(end_hold(true, false, false, false), None, "a running turn may wait on it");
+        assert_eq!(end_hold(false, false, false, true), None, "a failure always wakes");
+        assert_eq!(end_hold(false, true, true, true), None);
+    }
+
+    /// A chat not on the list holds its own exit-0 end [`OWN_END_HOLD_MS`]: an inbox item due
+    /// then, marked sent, no turn tried; a second end in that window joins it, one wake for both.
     #[tokio::test]
-    async fn an_unlisted_chats_exit_zero_end_is_unchanged() {
+    async fn an_unlisted_chats_exit_zero_end_waits_briefly() {
         let (hub, session) = hub_with_chat("plain-bg-ok", false).await;
         let dir = cmux_unix_socket::short_test_dir("bg-fold-unlisted");
         hub.bg_end_to_chat(&session, dir.path(), &ended("u1", &session, 0), None).await;
+        hub.bg_end_to_chat(&session, dir.path(), &ended("u2", &session, 0), None).await;
+        for id in ["u1", "u2"] {
+            assert!(bg_run::notified_path(dir.path(), id).exists(), "{id} held, so marked sent");
+        }
+        let inbox = session.inbox();
+        assert_eq!(inbox.items.len(), 2);
+        for item in &inbox.items {
+            assert_eq!(item.within, Some(OWN_END_HOLD_MS));
+            assert_eq!(item.due(), item.at + OWN_END_HOLD_MS, "due in 5 minutes, not 15");
+        }
+        assert!(inbox.in_flight.is_none() && inbox.refused_at == 0, "no turn was tried yet");
+        assert!(inbox.timer.is_some(), "its wake is timed");
+    }
+
+    /// Its failed end is still a prompt, at once.
+    #[tokio::test]
+    async fn an_unlisted_chats_failed_end_is_unchanged() {
+        let (hub, session) = hub_with_chat("plain-bg-bad", false).await;
+        let dir = cmux_unix_socket::short_test_dir("bg-fold-unlisted-bad");
+        hub.bg_end_to_chat(&session, dir.path(), &ended("u3", &session, 1), None).await;
         assert!(session.inbox().items.is_empty());
-        assert!(
-            !bg_run::notified_path(dir.path(), "u1").exists(),
-            "it took the prompt path, not held"
-        );
+        assert!(!bg_run::notified_path(dir.path(), "u3").exists(), "it took the prompt path");
     }
 }

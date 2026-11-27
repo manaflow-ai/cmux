@@ -73,7 +73,8 @@ export const MessageRow = memo(function MessageRow({
   onDiscard,
 }: MessageRowProps) {
   const { t, format } = strings;
-  const transcript = useContext(RunsContext)?.presentation === "transcript";
+  const detail = useContext(RunsContext)?.detail;
+  const transcript = detail !== undefined && detail !== "messages";
   const author = people.get(message.author);
   const time = timeFormat.format(message.createdAt);
   const [confirmDelete, setConfirmDelete] = useState(false);

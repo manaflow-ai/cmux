@@ -13,7 +13,8 @@
 //! The reaper is deadline-driven: it sleeps until the earliest unattached
 //! terminal's policy is due, and is woken early when a policy changes or a
 //! view detaches. With no policy-bearing terminal it blocks indefinitely
-//! (it used to tick every 15 s whether or not any policy existed).
+//! (it used to tick every 15 s whether or not any policy existed). The idle
+//! freeing timer (`idle_freeing.rs`) runs on the same thread and deadline.
 
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread::JoinHandle;
@@ -296,6 +297,12 @@ pub fn start_idle_terminal_reaper(
             let Some(owner) = mux.upgrade() else { break };
             let now = Instant::now();
             let (_, next) = owner.reap_idle_terminals_until_next(now);
+            // The freeing timer shares this thread and its one deadline (`idle_freeing.rs`).
+            let freeing = owner.free_idle_terminals_until_next(now);
+            let next = match (next, freeing) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
             drop(owner);
             let message = match next {
                 None => messages.recv().map_err(|_| RecvTimeoutError::Disconnected),

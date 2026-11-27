@@ -98,7 +98,7 @@ WINDOW_SIZE = (1600, 1000)  # width, height in points (debug.window_frame)
 # here, bottom-left screen points, as before.
 LEGACY_ORIGIN = (80, 40)
 MINIMUM_PANE = {"layout.minimumPaneWidth": 80, "layout.minimumPaneHeight": 32}
-WEB_DEV_CONFIG = os.path.expanduser("~/.config/cmux/web-dev.json")  # routes pages to a dev server when present
+WEB_DEV_CONFIG = os.path.expanduser("~/.config/" + ("cmux-next" if sys.platform == "darwin" else "cmux") + "/web-dev.json")  # routes pages to a dev server when present
 # The LARGE session (module docstring, plans/cmux-next/main-thread-scheduling.md 1.5).
 LARGE_WORKSPACES = 60
 LARGE_MIX = ("terminal", "terminal", "terminal", "chat", "chromium", "webkit")  # the first terminal comes with the workspace

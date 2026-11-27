@@ -116,6 +116,8 @@ public final class MacScreenPages {
     /// Send System Shortcuts to the Remote Mac: the app's one system shortcut tap.
     public let systemShortcuts: MacScreenSystemShortcuts
     public var events = MacScreenTabEvents()
+    /// What a Sign In on the home page or a card signs in to ("Signs in to cmux.com"), the line under it.
+    public var signInBackend: String?
     /// Kept apart from app tab events so replacing those cannot disconnect the registered action.
     var shareThisMac: () -> Void = {}
     /// The app's shortcut matcher: true keeps a key down in cmux.
@@ -259,13 +261,15 @@ public final class MacScreenPages {
             switch ticket.role {
             case .host: if !remoteHosted { hubHost.serve(ticket) }
             case .viewer:
-                // The tab whose session (or, before the request's answer, whose host) it names.
-                let viewers = hubViewers
-                if let target = viewers.first(where: { $0.phase.sessionID == ticket.sessionId }) ?? viewers.first(where: { $0.accepts(ticket) }) {
-                    target.accept(ticket)
-                } else if ticket.pushed {
-                    // No tab asked for it: a share moved here, or a host pushed its screen here.
-                    openPushed(ticket)
+                // The tab whose session (or, before the request's answer, whose host) it names; a pushed
+                // one no tab asked for opens (pages.ticketTarget).
+                let tabs = hubTabs
+                let target = RdUI.decode(RdUI.call("pages.ticketTarget", encoding: TicketArgs(
+                    sessionId: ticket.sessionId, pushed: ticket.pushed, tabs: Self.rdTabs(tabs, ticket: ticket))), as: TabAction.self)
+                switch target?.action {
+                case "accept": tabs.first { $0.key == target?.key }?.viewer.accept(ticket)
+                case "openPushed": openPushed(ticket)
+                default: break
                 }
             }
         case let .sessionDenied(id):
@@ -301,21 +305,19 @@ public final class MacScreenPages {
     /// (``makeHubPane``); an end or revocation of that session drops it before then.
     private func openPushed(_ ticket: SessionTicket) {
         let device = ticket.peer.id
-        guard MacScreenRecord.normalizedDeviceID(device) != nil else { return }
-        let record = MacScreenRecord(deviceID: device)
-        let moved = ticket.movedFrom.flatMap { from in
-            hubTabs.first { $0.viewer.phase.sessionID == from || $0.viewer.movedSession == from }
-        }
-        if let moved, moved.viewer.deviceID == device {
-            moved.viewer.acceptPushed(ticket)
-            return
-        }
-        pushedTickets[device] = ticket
-        let idle = hubTabs.first { $0.viewer.deviceID == device && !$0.viewer.phase.isPending && $0.viewer.phase.streamingScope == nil }
-        if let key = moved?.key ?? idle?.key {
-            replace(key, with: record)
-        } else {
-            events.openInNewTab(record, "")
+        let tabs = hubTabs
+        let pushed = RdUI.decode(RdUI.call("pages.openPushed", encoding: PushedArgs(
+            deviceId: device, movedFrom: ticket.movedFrom, tabs: Self.rdTabs(tabs, ticket: nil))), as: TabAction.self)
+        let key = pushed?.key
+        switch pushed?.action {
+        case "acceptPushed": tabs.first { $0.key == key }?.viewer.acceptPushed(ticket)
+        case "replace":
+            pushedTickets[device] = ticket
+            if let key { replace(key, with: MacScreenRecord(deviceID: device)) }
+        case "open":
+            pushedTickets[device] = ticket
+            events.openInNewTab(MacScreenRecord(deviceID: device), "")
+        default: break
         }
     }
 
@@ -483,30 +485,6 @@ public final class MacScreenPages {
         Self.route(of: tabs[key]?.record ?? records[key] ?? MacScreenRecord(macID: nil))
     }
 
-    /// The route of `record`.
-    static func route(of record: MacScreenRecord) -> String {
-        if let device = record.deviceID {
-            // A run's link keeps its display, control and name: "device:<id>?display=<n>&control=1&name=<run>".
-            let query = record.url.query(percentEncoded: true).map { $0.split(separator: "&").filter { !$0.hasPrefix("device=") }.joined(separator: "&") }
-            return "device:" + device + (query.map { $0.isEmpty ? "" : "?" + $0 } ?? "")
-        }
-        return record.macID.map { "mac:" + $0.uuidString } ?? "home"
-    }
-
-    /// The record a route names; nil for anything else.
-    public static func record(route: String) -> MacScreenRecord? {
-        if route == "home" { return MacScreenRecord(macID: nil) }
-        if route.hasPrefix("device:") {
-            let parts = route.dropFirst(7).split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
-            let id = String(parts.first ?? "")
-            guard MacScreenRecord.normalizedDeviceID(id) != nil else { return nil }
-            guard parts.count > 1, let url = URL(string: "cmux://mac-screen?device=\(id)&" + parts[1]) else { return MacScreenRecord(deviceID: id) }
-            return MacScreenRecord(url: url) ?? MacScreenRecord(deviceID: id)
-        }
-        guard route.hasPrefix("mac:"), let id = UUID(uuidString: String(route.dropFirst(4))) else { return nil }
-        return MacScreenRecord(macID: id)
-    }
-
     /// A tab came back on `route` (relaunch, Reopen Closed): it shows that
     /// record and waits for Connect. An unknown route shows the home page.
     public func restore(_ route: String, for key: String) {
@@ -615,6 +593,7 @@ public final class MacScreenPages {
         actions.openDevice = { [weak self] id, scope in self?.openDeviceFromHome(id, scope: scope, in: key) }
         actions.openDeviceInNewTab = { [weak self] id, scope in self?.openDeviceInNewTab(id, scope: scope, from: key) }
         actions.signIn = { [weak self] in self?.events.signIn() }
+        actions.signInBackend = signInBackend
         actions.shareThisMac = { [weak self] in self?.shareThisMac() }
         // In the tab's theme scope: Settings > Appearance changes show at once. The page fills the tab.
         return MacScreenHomeView(host: host, actions: actions, systemShortcuts: systemShortcuts, devices: MacScreenHomeDevices(pages: self))
@@ -648,6 +627,7 @@ public final class MacScreenPages {
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
         pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
         pane.handlers.signIn = { [weak self] in self?.events.signIn() }
+        pane.handlers.signInBackend = signInBackend
         pane.handlers.isLocalShortcut = { [weak self] event in self?.isLocalShortcut(event) ?? false }
         pane.handlers.keyboardChanged = { [weak self] in self?.systemShortcuts.update() }
         pane.model.systemShortcuts = systemShortcuts
