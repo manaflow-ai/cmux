@@ -3535,7 +3535,10 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-cargo-target-delta.md
       - name: Test the R2 workspace delta
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
-        run: bash scripts/ci/tests/cargo-target-delta.test.sh
+        run: |
+          bash scripts/ci/tests/cargo-target-delta.test.sh
+          # The delta with rustc's incremental state is over a single PUT's 5 GiB (seed run 45982767555).
+          bash scripts/ci/tests/r2-cache-multipart.test.sh
 
       # Why: 2026-11-24-fast-tier-cargo-4.md
       - name: Mount the warm cargo target (feat-cmux-next push, commits)
@@ -3602,6 +3605,17 @@ jobs:
           key: ${{ steps.r2-cargo-key.outputs.target-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
 
+      # Why: 2026-11-27-cargo-delta-matched-entry.md
+      - name: Key the workspace delta to the restored dependency entry
+        id: r2-cargo-ws-base
+        if: ${{ steps.r2-cargo-target.outputs.cache-matched-key != '' }}
+        continue-on-error: true
+        env:
+          MATCHED: ${{ steps.r2-cargo-target.outputs.cache-matched-key }}
+          TARGET_PREFIX: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+          WS_BASE: ${{ steps.r2-cargo-key.outputs.ws-base }}
+        run: scripts/ci/cargo-delta-prefix.sh "$MATCHED" "$TARGET_PREFIX" "$WS_BASE" >> "$GITHUB_OUTPUT"
+
       # Why: 2026-11-26-fast-tier-cargo-reuse.md
       - name: Restore source mtimes for the R2 cargo build
         if: ${{ steps.r2-cargo-target.outputs.cache-matched-key != '' }}
@@ -3635,7 +3649,9 @@ jobs:
           backend: r2
           path: ${{ runner.temp }}/cargo-delta
           key: ${{ steps.r2-cargo-key.outputs.ws-key }}
-          restore-keys: ${{ steps.r2-cargo-key.outputs.ws-prefix }}
+          restore-keys: |
+            ${{ steps.r2-cargo-ws-base.outputs.prefix }}
+            ${{ steps.r2-cargo-key.outputs.ws-prefix }}
 
       - name: Apply the workspace delta
         id: r2-cargo-ws-apply

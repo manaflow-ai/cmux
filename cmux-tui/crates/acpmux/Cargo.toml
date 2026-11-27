@@ -67,6 +67,12 @@ hub-carrier = ["dep:cmux-remote", "dep:cmux-remote-protocol", "dep:async-trait",
 # binary's allocator records every block and writes `ACPMUX_DHAT_OUT` when the daemon stops
 # (`heap_profile.rs`). Never in a shipped build: it slows every allocation.
 dhat-heap = ["dep:dhat"]
+# Bench only: the system allocator (glibc malloc) in place of mimalloc, for the allocator A/B of
+# scripts/measure/infinite-items-linux.sh alloc_ab=1. Never in a shipped build.
+system-alloc = []
+# Bench only: mimalloc's v2 line in place of the v3 the crate builds by default, for the same A/B
+# (v3 held about 2.5x the live bytes at n=1,000 with the resident cap, job 5056393a).
+mimalloc-v2 = ["mimalloc/v2"]
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-registry = "1.4"
