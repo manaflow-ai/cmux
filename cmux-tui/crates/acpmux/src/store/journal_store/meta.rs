@@ -567,6 +567,7 @@ fn write_session_json(
     if written.is_err() {
         let _ = crate::home_fs::remove_file(&tmp);
     }
+    crate::dead_temps::remove_beside(&path);
     written
 }
 

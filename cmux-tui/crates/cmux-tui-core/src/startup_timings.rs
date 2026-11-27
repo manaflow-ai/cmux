@@ -13,7 +13,9 @@
 //!
 //! Laps never overlap and are recorded in order, so their sum is at most the
 //! total. Time a nested phase's own steps did not cover is named
-//! `<phase>.other`.
+//! `<phase>.other`. A step that names its parts keeps its own name for that
+//! time: `mux.build` and `registry.migrations.rehome` are the rest of their
+//! step, written after the entries that have the name as a prefix.
 //!
 //! The clock starts at the process's first statement, not at the owner's
 //! first step: the process marks its own steps before it knows it is an
@@ -55,7 +57,9 @@ pub struct StartupTimings {
 }
 
 /// One lap: its name, how long it took and, for a lap over table rows, how
-/// many rows it changed.
+/// many rows it changed. The parked trim of the output store
+/// (`mux.build.output_store.parked_trim`) has no table: its count is the
+/// rewrites of a snapshot file that the pass ran.
 #[derive(Debug, Clone)]
 struct Step {
     name: Cow<'static, str>,
@@ -108,6 +112,12 @@ impl StartupTimings {
     /// [`absorb`](Self::absorb)s it, which names the rest of the phase.
     pub fn record_rows(&mut self, step: String, took: Duration, rows: u64) {
         self.steps.push(Step { name: Cow::Owned(step), took, rows: Some(rows) });
+    }
+
+    /// Records a step timed by its caller, with no count. As
+    /// [`record_rows`](Self::record_rows), it does not move the lap mark.
+    pub fn record(&mut self, step: &'static str, took: Duration) {
+        self.steps.push(Step { name: Cow::Borrowed(step), took, rows: None });
     }
 
     /// Takes `inner`'s laps, which ran since this clock's previous lap, and

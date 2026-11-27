@@ -168,6 +168,7 @@ final class NotificationCenterService {
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }
+        desktop.onOpenTab = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
         desktop.onReply = { [weak self] id, surface, text in
             self?.reply(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), text: text)
         }
@@ -661,7 +662,7 @@ final class NotificationCenterService {
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, workspaceName: String? = nil,
                       sound: String?, volume: Double = 1, program: ProgramStatusNotification? = nil, headline: String? = nil,
                       owner: TabModel? = nil) {
-        let id = "cmux-notification-\(notification.notification.rawValue)"
+        let id = "\(DesktopNotifier.tabBannerPrefix)\(notification.notification.rawValue)"
         let owner = owner ?? tab
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
         let headline = headline ?? program?.title(localizations: localizations) ?? notification.title

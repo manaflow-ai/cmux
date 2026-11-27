@@ -21,7 +21,11 @@ public extension PageDescriptor {
 ///   once it closes (`row`: New Workspace on This Machine; `joined`: Check, Rotate Credential, Revoke…);
 /// - `remove {row}` → a joined machine's Remove, after the page's own question: revoked if it still
 ///   can join, and off every machine list (`cmux device remove`, whose record is cmux-tui's).
-/// Every op but `snapshot` runs only on the person's own input, on a row the section shows.
+/// - `openJoined {row, again?}` → ``JoinedDialAnswer``: New Workspace on an online joined Mac the app
+///   reaches only through the hub (a `joined:<id>` row): ask it, and once its person allows this
+///   account's other Macs, open the workspace on it (hq#11046). `again` asks once more, with no click,
+///   only for a row whose ask a click started and that Mac has not answered.
+/// Every op but `snapshot` (and `openJoined`'s `again`) runs only on the person's own input, on a row the section shows.
 /// The layout (groups, order, words) is the page's.
 @MainActor @Observable
 public final class MachineSectionPageProvider: PageProvider {
@@ -32,6 +36,7 @@ public final class MachineSectionPageProvider: PageProvider {
     static let addMachineOp = "cmux.machines.addMachine"
     static let menuOp = "cmux.machines.menu"
     static let removeOp = "cmux.machines.remove"
+    static let openJoinedOp = "cmux.machines.openJoined"
     /// The menus `menuOp` opens: a row's New Workspace, and a joined machine's Check / Rotate / Revoke.
     static let rowMenu = "row", joinedMenu = "joined"
 
@@ -52,13 +57,18 @@ public final class MachineSectionPageProvider: PageProvider {
         /// The team the Cloud machines belong to (the active team): its name and whether it is the
         /// person's own, named on the Cloud header; nil signed out or before membership loads.
         var cloudTeam: @MainActor () -> (name: String, personal: Bool)?
+        /// New Workspace on a joined Mac reached through the hub alone: ask it, and once it allows,
+        /// connect its route and open the workspace there.
+        var openJoined: @MainActor (_ machine: JoinedMachine) async -> JoinedDialAnswer
 
         public init(rows: @escaping @MainActor () -> [MachineSectionRow], style: @escaping @MainActor () -> MachineSectionStyle,
                     joined: @escaping @MainActor () -> JoinedMachineStore?, newWorkspace: @escaping @MainActor (String) -> Bool,
                     addMachine: @escaping @MainActor () -> Bool, present: @escaping @MainActor (NSMenu, CGPoint) async -> Void,
                     menu: @escaping @MainActor (String, MachineSectionRow) -> NSMenu?,
-                    cloudTeam: @escaping @MainActor () -> (name: String, personal: Bool)? = { nil }) {
+                    cloudTeam: @escaping @MainActor () -> (name: String, personal: Bool)? = { nil },
+                    openJoined: @escaping @MainActor (JoinedMachine) async -> JoinedDialAnswer) {
             self.cloudTeam = cloudTeam
+            self.openJoined = openJoined
             self.rows = rows
             self.style = style
             self.joined = joined
@@ -77,6 +87,13 @@ public final class MachineSectionPageProvider: PageProvider {
     public private(set) var isShown = false
     /// Each live stream's sender, which the show runs at once; a cancelled one goes at the next show.
     @ObservationIgnored private var streams: [(task: Task<Void, Never>, send: @MainActor () -> Void)] = []
+    /// Rows whose `openJoined` a click started and whose Mac has not answered yet, with when: only these
+    /// may ask `again` without a click, and only within ``waitLimit`` of that click's ask.
+    @ObservationIgnored private var waitingRows: [String: ContinuousClock.Instant] = [:]
+    /// Rows with an `openJoined` running: a second one for the row is refused, so one click opens one workspace.
+    @ObservationIgnored private var dialingRows: Set<String> = []
+    /// How long a waiting ask may be asked `again` without a click: past the page's whole schedule (about 3 min).
+    static let waitLimit: Duration = .seconds(240)
 
     public init(dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -134,6 +151,30 @@ public final class MachineSectionPageProvider: PageProvider {
                 throw PageError.invalidParams("row is not a joined machine of the section")
             }
             return ["removed": .bool(await joined.perform(.remove, machine.id))]
+        case Self.openJoinedOp:
+            // Only an online joined Mac the section shows with no link of its own (its row is `joined:<id>`).
+            guard let id = params["row"]?.stringValue, let row = dependencies.rows().first(where: { $0.id == id }),
+                  let machine = row.joined, row.id == JoinedMachine.healthID(machine.id), machine.state == .online,
+                  machine.isMac else {
+                throw PageError.invalidParams("row is not an online joined Mac of the section")
+            }
+            if params["again"]?.boolValue == true {
+                guard let since = waitingRows[id], since.duration(to: .now) < Self.waitLimit else {
+                    waitingRows[id] = nil
+                    throw PageError.invalidParams("no ask of this row is waiting")
+                }
+            } else {
+                try Self.requireGesture(context)
+            }
+            guard dialingRows.insert(id).inserted else { throw PageError.invalidParams("an ask of this row is running") }
+            defer { dialingRows.remove(id) }
+            let answer = await dependencies.openJoined(machine)
+            if answer != .consentRequired {
+                waitingRows[id] = nil
+            } else if params["again"]?.boolValue != true {
+                waitingRows[id] = .now
+            }
+            return answer.json
         default:
             throw PageError.unknownOp(op)
         }

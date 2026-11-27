@@ -39,6 +39,8 @@ export type LaunchIntent = {
   path: string;
   /// The agent word as typed ("claude"), absent when the text is a path alone.
   word?: string;
+  /// The text before the path as typed ("codex in "): Tab's fill keeps it.
+  before?: string;
   /// The text named an agent by its whole name: its rows lead, above Ask, and Return takes them.
   named: boolean;
 };
@@ -125,7 +127,8 @@ export function launchIntent(
   // The rest is a folder (a path or one word), else the text is a prompt to the agent.
   if (rest && !looksLikePath(rest) && (/\s/.test(rest) || rest.length < MIN_FOLDER_WORD)) return undefined;
   if (looksLikePath(rest) && /\s/.test(rest)) return undefined;
-  return { agents: named, path: rest, word, named: found.exact };
+  const before = rest && looksLikePath(rest) ? query.slice(0, query.length - rest.length) : undefined;
+  return { agents: named, path: rest, word, named: found.exact, ...(before ? { before } : {}) };
 }
 
 /// The known folders a typed folder text finds, best first: for a path, the folders under it (the
@@ -209,6 +212,9 @@ export function listingWanted(
 ): string | undefined {
   const intent = launchIntent(text, agents, defaultAgent);
   if (!intent || !looksLikePath(intent.path)) return undefined;
+  // "/model" or "/rev" is a slash command being typed, not a folder under /: only "/" itself or a
+  // path with a second part ("/Users/") lists from the disk.
+  if (intent.path.startsWith("/") && intent.path !== "/" && !intent.path.slice(1).includes("/")) return undefined;
   const full = expandHome(intent.path, home);
   return full.startsWith("/") ? parentOf(full) : undefined;
 }
@@ -239,7 +245,7 @@ export function launchRows(
   const fill = (folder: string) => {
     if (!intent.path || !looksLikePath(intent.path)) return undefined;
     const shown = intent.path.startsWith("~") ? homePath(folder) : folder;
-    const prefix = intent.word ? `${intent.word} ` : "";
+    const prefix = intent.before ?? "";
     return `${prefix}${shown}/`;
   };
   const row = (agent: LaunchAgent, folder: string): LaunchRow => {

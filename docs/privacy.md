@@ -60,8 +60,9 @@ Each row is a host, its kind and what the app sends there. Kinds:
   check stays exact.
 
 Not in this list: hosts you type or open yourself (the browser, git remotes, SSH hosts, a self-hosted server or an
-API endpoint you configure), hosts an agent you run reaches on its own, and a host the code builds from parts at run
-time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com`) and IP addresses are skipped.
+API endpoint you configure), hosts an agent you run reaches on its own, and a host made entirely of parts known only
+at run time. A host the code builds around a fixed name (`https://${site}.atlassian.net`) is listed with `*` for
+each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com`) and IP addresses are skipped.
 
 
 
@@ -77,6 +78,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `cdn.agentclientprotocol.com` | connects | the public registry of ACP coding agents, read by the daemon |
 | `api.anthropic.com` | connects | the Anthropic API, when you use an Anthropic key or sign in a Cloud machine's Claude |
 | `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser |
+| `*.atlassian.net` | connects | the Jira integration: your company's Jira site, only when an agent uses it in your signed-in browser |
 | `api.bing.com` | connects | search suggestions as you type, when Bing is your search engine |
 | `chatgpt.com` | connects | OpenAI's Codex backend, when you use Codex with a ChatGPT sign-in; install script |
 | `api.cloudflare.com` | connects | the Cloudflare API, only when you run `cmux keys connect cloudflare` or `cmux keys mint` |
@@ -134,6 +136,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `herdr.dev` | connects | the agent-detection catalog, read by the daemon |
 | `cmux-api-development.debussy.workers.dev` | connects | cmux API in development builds |
 | `cmux-api-staging.debussy.workers.dev` | connects | cmux API on staging, only when chosen |
+| `cmux-api-preview-*.debussy.workers.dev` | connects | cmux API of one pull request's preview, only when chosen |
 | `cmux-device-hub.debussy.workers.dev` | connects | the device hub: pairing and screen sharing between your devices (production) |
 | `cmux-device-hub-dev.debussy.workers.dev` | connects | the device hub in development builds |
 | `cmux-mobile-api-dev.debussy.workers.dev` | connects | the iPhone pairing API in development builds |
@@ -314,6 +317,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `webauthn.io` | example | a sample saved passkey |
 | `cdn-example.net` | example | a sample in a dialog |
 | `mini.tail1234.ts.net` | example | a placeholder in a settings field |
+| `*.example.ts.net` | example | a device address in the Debug menu's sample device list |
 | `r.org` | example | a value in a self-check |
 
 ### Text that looks like a host name
@@ -347,6 +351,5 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `build.sh` | not-a-host | a file name |
 | `cmux-debug-cli.sh` | not-a-host | a file name |
 | `login.sh` | not-a-host | a file name |
-| `web-lint.sh` | not-a-host | a file name |
 | `libopenh264-2.6.0-linux-arm64.8.so` | not-a-host | a file name |
 | `libopenh264-2.6.0-linux64.8.so` | not-a-host | a file name |

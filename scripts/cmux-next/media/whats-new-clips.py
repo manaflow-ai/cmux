@@ -53,7 +53,8 @@ carries into the signed notes.
 With no person: cmux-next-media.yml's nightly tour (a push to nightly-next) builds the previous
 nightly tip and the new one. `plan` (run on Linux by the route job, so a tip whose only change is a
 highlight and its spec still gets a Mac) lists the New and Improved highlights that have a spec, no
-`clip:` line and a role not published yet: the ones the new tip adds, then the ones added in the
+`clip:` line and a role not published yet (an Improved one with a `clip:` line too, for its before
+alone: the line is its after): the ones the new tip adds, then the ones added in the
 CLIP_REANNOUNCE_DAYS before it (an earlier tour left them waiting, or their spec came later), at
 most PLAN_LIMIT. The tour job writes each spec as a tour.py tour (`write-tours`) and runs them on the
 new tip's app (the clip) and, for an improvement, on the app of the commit before its highlight (its
@@ -515,7 +516,8 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
          app: str | None = None) -> list[dict]:
     """With APP, only the specs that record that app (the media workflow plans "mac", the iPhone clips
     workflow "iphone"; each has its own LIMIT). The highlights the tour records (highlight_rows): New or Improved, a valid spec, no `clip:` line, and
-    a role whose clip is not on pr-media yet. Each row's `before` is the commit its before is recorded on;
+    a role whose clip is not on pr-media yet; an Improved one with a `clip:` line records its before alone (the
+    line is its after, and release-notes.py shows the two as a pair). Each row's `before` is the commit its before is recorded on;
     at most EXTRA_BEFORES rows have one other than base (each is another app to build), and a row past
     that records its after now and its before on a later tour. Writes each one's tour to TOURS/ID.json."""
     git = lambda *a: run(["git", "-C", str(root), *a], text=True).stdout
@@ -527,7 +529,8 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
             continue
         meta = front_matter(git("show", f"{head}:{path}"))
         category = meta.get("category", "new").lower() or "new"
-        if category not in {"new", "improved"} or "clip" in meta:
+        clip_line = "clip" in meta
+        if category not in {"new", "improved"} or (clip_line and category != "improved"):
             continue
         try:
             spec = load_spec(clip_id, root / "release-notes/next/clips")
@@ -535,7 +538,7 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
             if app is not None and spec.get("app", "mac") != app:
                 continue
             roles = [role for role in AUTO_ROLES[:2 if category == "improved" else 1]
-                     if not exists(auto_url(clip_id, role))]
+                     if not (clip_line and role == "after") and not exists(auto_url(clip_id, role))]
             # An iPhone clip's before builds on its own simulator step, never in the Mac tour's base slot.
             if not iphone and "before" in roles and before != base and before not in others \
                     and len(others) >= extra_befores:

@@ -298,6 +298,26 @@ class NightlyTourTests(unittest.TestCase):
                                exists=lambda url: url in done, root=repo)
             self.assertEqual([(r["id"], r["roles"], r.get("before")) for r in again], [("later", ["before"], other)])
 
+    def test_an_improvement_with_a_clip_line_still_records_its_before(self):
+        # A hand-published `clip:` line is the after; an Improved one's before still comes from its spec
+        # (buttons-always-visible-minimal-mode shipped in a nightly with no before). A New one has nothing left.
+        day = 86400
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.history(tmp)
+            t0 = 1_800_000_000
+            previous = self.commit(repo, "root", t0, {"README": "r\n"})
+            files = {}
+            for name, category in (("tidy", "improved"), ("fresh", "new")):
+                files[f"release-notes/next/highlights/{name}.md"] = (
+                    f"title: {name.title()}\ncategory: {category}\nclip: {URL} | {SHA}\n\nBody.\n")
+                files[f"release-notes/next/clips/{name}.json"] = json.dumps(SPEC)
+            tip = self.commit(repo, "clip lines", t0 + day, files)
+            rows = clips.plan(previous, tip, Path(tmp, "t"), exists=lambda url: False, root=repo)
+            self.assertEqual([(r["id"], r["roles"], r.get("before")) for r in rows], [("tidy", ["before"], previous)])
+            self.assertEqual(sorted(p.stem for p in Path(tmp, "t").glob("*.json")), ["tidy"])
+            done = {clips.auto_url("tidy", "before")}
+            self.assertEqual(clips.plan(previous, tip, Path(tmp, "t2"), exists=lambda url: url in done, root=repo), [])
+
     def test_a_spec_added_after_its_highlight_shipped_is_planned(self):
         day = 86400
         with tempfile.TemporaryDirectory() as tmp:

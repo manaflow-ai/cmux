@@ -4,14 +4,16 @@
 //! a target delay of zero or less means "no delay".
 //!
 //! Chrome's timing (chrome/browser/ui/views/tabs/hovercard/tab_hover_card_controller.cc,
-//! read 2026-10-28 at 9220cdeed22f): `GetShowDelay` waits 800 ms plus 500 ms for
-//! a tab at standard width (narrower tabs scale down to 300 ms);
-//! `ShouldShowImmediately` skips the wait within 300 ms after the card went; an
-//! open card moves to the next tab at once. History of the cold delay: 1300 ms
-//! (2026-10-14), 250 ms (Lawrence 2026-10-18), Chrome's again (2026-10-28), then
-//! 400 ms (Leo 2026-11-01: "i need these hover previews to appear a hell of a
-//! lot faster than they do now"): Chrome's floor for a narrow tab plus a beat,
-//! so a pointer passing over the sidebar still opens nothing.
+//! read 2026-11-15 at 6845f5c3ba82): `GetShowDelay` waits `kMaximumTriggerDelay`
+//! 800 ms plus `kTabHoverCardAdditionalMaxWidthDelay` 500 ms for a tab at
+//! standard width (narrower tabs scale down to `kMinimumTriggerDelay` 300 ms);
+//! `ShouldShowImmediately` skips the wait within `kShowWithoutDelayTimeBuffer`
+//! 300 ms after the card went; an open card moves to the next tab at once. The
+//! Swift source of these numbers is `HoverIntentTiming.cardDelay` and
+//! `.cardReshow` (HoverIntent.swift). History of the cold delay: 1300 ms
+//! (2026-10-14), 250 ms (Lawrence 2026-10-18), Chrome's (2026-10-28), 400 ms
+//! (Leo 2026-11-01), Chrome's exactly on every card (Lawrence 2026-11-15:
+//! "copy chrome's delay exactly ... consistent between every thing").
 
 /// Nanoseconds in one millisecond.
 const NANOS_PER_MS: i64 = 1_000_000;
@@ -24,7 +26,7 @@ pub const fn millis(ms: i64) -> i64 {
 
 /// The cold delay: how long the pointer rests on a sidebar row or a tab
 /// before the first card opens. `sidebar.hoverCards.delay` overrides it.
-pub const HOVER_CARD_SHOW_DELAY: i64 = millis(400);
+pub const HOVER_CARD_SHOW_DELAY: i64 = millis(1300);
 /// Warm mode: after a card goes, a hover this soon shows the next one at once
 /// (Chrome's `kShowWithoutDelayTimeBuffer`); a gap between rows this short
 /// keeps the card.

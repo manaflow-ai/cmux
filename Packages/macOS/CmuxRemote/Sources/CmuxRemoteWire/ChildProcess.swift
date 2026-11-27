@@ -44,7 +44,17 @@ public struct ChildProcess: Sendable {
             posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
         }
         for (source, target) in inherit { posix_spawn_file_actions_adddup2(&actions, source, target) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
+        // A child inherits the spawning thread's signal mask, and some callers' threads block
+        // SIGTERM: start every child unblocked, with SIGTERM's default action, so the host's
+        // stop signal reaches it.
+        var unblocked = sigset_t()
+        sigemptyset(&unblocked)
+        var terminate = sigset_t()
+        sigemptyset(&terminate)
+        sigaddset(&terminate, SIGTERM)
+        posix_spawnattr_setsigmask(&attributes, &unblocked)
+        posix_spawnattr_setsigdefault(&attributes, &terminate)
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
         let argv: [UnsafeMutablePointer<CChar>?] = ([executable] + arguments).map { strdup($0) } + [nil]
         let envp: [UnsafeMutablePointer<CChar>?] = environment.sorted { $0.key < $1.key }.map { strdup("\($0.key)=\($0.value)") } + [nil]
         defer {

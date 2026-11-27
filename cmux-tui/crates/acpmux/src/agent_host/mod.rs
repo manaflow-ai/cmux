@@ -827,6 +827,7 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
     if written.is_err() {
         let _ = crate::home_fs::remove_file(&tmp);
     }
+    crate::dead_temps::remove_beside(path);
     written
 }
 /// Windows port: host records are owner-only files there (a later landing).

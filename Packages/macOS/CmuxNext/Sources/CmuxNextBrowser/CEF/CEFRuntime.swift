@@ -457,6 +457,9 @@ final class CEFRuntime {
         ThemeScope.app.store.addResponder(self)
         // Extension popup windows keep their window id (CEFPopupWindows).
         if CEFPopupWindows.isEnabled(forkAPIVersion: Int(shim.forkAPIVersion())) { shim.setPopupWindowsEnabled(1) }
+        // The omnibar's direct-URL-input prerender (fork API 33; CEF keeps Prerender2 off otherwise). Chromium's
+        // own checks still decide each one: "Preload pages", Battery Saver, Data Saver, memory (CEFTab+OmniboxPreload).
+        shim.setOmniboxPrerender(1)
         // chrome://newtab without an extension override (BrowserNewTabPage).
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
         // cmux-page:// first-party pages from their bundled roots (CEFPageSchemes).

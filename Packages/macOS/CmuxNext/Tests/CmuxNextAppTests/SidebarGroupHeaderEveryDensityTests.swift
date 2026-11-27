@@ -118,8 +118,12 @@ import Testing
             #expect(abs(view.frame.height - rowView.frame.height) <= 0.5, "\(label): \(name) header view \(view.frame.height) vs row view \(rowView.frame.height)")
             #expect(abs(bar - rowView.frame.height) <= 0.5, "\(label): \(name) header bar \(bar) vs row view \(rowView.frame.height)")
             for sub in view.subviews where !sub.isHidden {
-                #expect(sub.frame.minY >= -0.5 && sub.frame.maxY <= view.bounds.height + 0.5,
-                        "\(label): \(name) header part \(type(of: sub)) spans \(sub.frame.minY)...\(sub.frame.maxY) of \(view.bounds.height)")
+                // A pinned header's pin draws in the row glyph's optical square (`SidebarStyle.rowGlyphOptics`), which
+                // may stand taller than a short row (Ultra Compact and Compact since #42393's 19 and 20 pt rows); its
+                // ink is what must stay inside the header.
+                let part = sub.frame == view.pinSquareFrame ? (view.pinInkFrame ?? sub.frame) : sub.frame
+                #expect(part.minY >= -0.5 && part.maxY <= view.bounds.height + 0.5,
+                        "\(label): \(name) header part \(type(of: sub)) spans \(part.minY)...\(part.maxY) of \(view.bounds.height)")
             }
         }
         if shape == .open, let memberSlot = list.displayed.row(for: .workspace(member)) {

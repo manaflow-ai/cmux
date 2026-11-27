@@ -90,7 +90,7 @@ export type MockOptions = {
   tryOn?: CustomizeTryOn;
 };
 
-/** This Mac joined to a team with the one-line join, both consent switches off. */
+/** This Mac joined to a team with the one-line join, every consent switch off. */
 export const mockDevicesJoin: DevicesJoinState = {
   title: "This Mac on Your Team",
   joined: "Joined to Example Team as studio",
@@ -105,6 +105,12 @@ export const mockDevicesJoin: DevicesJoinState = {
       surface: "control",
       title: "Control",
       help: "Your team's machines can move the pointer and type here",
+      on: false,
+    },
+    {
+      surface: "signedInMachines",
+      title: "Your other Macs",
+      help: "Your other Macs signed in to this account can open workspaces and terminals here",
       on: false,
     },
   ],
@@ -208,6 +214,9 @@ export class MockSettingsProvider {
   readonly workspaceBackgrounds = new Map<string, WorkspaceBackground>();
   /** Holds `cmux.settings.host.lists` until it settles: a test's host that answers after the values. */
   holdHost: Promise<void> | null = null;
+
+  /** Every catalog action the page ran, with its arguments, in order (tests). */
+  readonly actionsRun: Array<{ action: string; args: Params }> = [];
 
   constructor(options: MockOptions = {}) {
     this.chatFolders = options.chatFolders;
@@ -654,6 +663,7 @@ export class MockSettingsProvider {
         ) {
           throw new ProtocolError("cmux.page.action_refused", `action ${String(params.action)} is not allowed here`);
         }
+        this.actionsRun.push({ action: String(params.action), args: (params.args ?? {}) as Params });
         if (!this.actionRan) return { ran: false };
         this.runProfileAction(
           params.action as string,

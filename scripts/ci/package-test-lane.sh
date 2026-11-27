@@ -804,8 +804,11 @@ run_suite() {
     configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
   fi
+  case "$suite_package" in
+    Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
+      ensure_web_bundles ;;
+  esac
   if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
-    ensure_web_bundles
     ensure_cmux_tui_tree
   fi
   local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"

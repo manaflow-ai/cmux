@@ -262,12 +262,15 @@ App token's hour ends (it is minted just before the wait).
 
 A refused status post (`post()`, the same function in compile-status and compile-status-handoff) prints GitHub's
 answer (`HTTP 403: {"message":...}`) and waits out a rate limit: a 403 or 429 that says so waits its Retry-After or
-primary reset, at least 60 s and twice as long each try (a retry inside a secondary limit extends it), up to 600 s;
-a 5xx or no answer tries again in 10 s; any other refusal (a bad token, no permission) is final at once. The pending
+primary reset, at least 60 s and twice as long each try (a retry inside a secondary limit extends it), up to the
+step's own end (`post_end`, 54 min after the step starts, inside the App token's hour; hq#11485: cmux#43659's success
+post met the cmux-bot installation's spent pool with its reset past the old 600 s budget, stopped after one try, and
+the passed check sat pending 2.5 h); a pending post's explicit budget still bounds its wait; a 5xx or no answer tries again in 10 s; any other refusal (a bad token, no permission) is final at once. The pending
 post only shows the wait, so it gets 30 s and a refusal is a warning: on 2026-11-11 from 02:38Z a ten-minute 403 rate
 limit on cmux-bot failed this job on #40351, #40942, #41007 and the base push at the pending post, before any compile
-was read. A terminal post that still fails leaves the job's own `cmux-next/compile is not a pass for SHA (STATE)`
-line: no verdict for base_red_excuse.py (`NO_VERDICT`) for every state but `fail`, which stays a compile red.
+was read. A terminal post that still fails prints `NO_VERDICT: GitHub refused the cmux-next/compile verdict ...;
+re-run this job, RUN_URL` (the status stays as last posted, so the line says what to do), then the job's own
+`cmux-next/compile is not a pass for SHA (STATE)` line: no verdict for base_red_excuse.py (`NO_VERDICT`) for every state but `fail`, which stays a compile red.
 `test_every_cmux_next_compile_post_waits_out_a_rate_limit` fails on a job that posts cmux-next/compile any other way.
 
 Forks get no secret and no status: the job does not run, the gate is missing, and a missing
@@ -376,8 +379,11 @@ run_attempt too; a carried reading, whoever re-ran the run, sends it to the movi
 (vars.MACOS_RUNNER_26, else RUNNER_POOLS.macos_26), as a push Release compile's fallback does.
 cmux#38484's run 42728317341 (2026-11-10) kept `cmux app scheme compile (Debug)` on
 glaeda-side-std-xcode-26.6 through three re-runs of failed jobs: 2 h, 15 h and 1 h 49 min queued
-(tests/test_ci_next_macos_cascade.py CarriedPlacement). The placement runs only on attempt 1 and the
-rescue's attempts 2 and 3, so attempt 4 and later never take an owned label; fast-tier-handback-placement's
+(tests/test_ci_next_macos_cascade.py CarriedPlacement). The placement runs on attempt 1 and on every
+rescue bot attempt, placed afresh (next_macos_cascade.bot_rerun()); a person's re-run past attempt 1 carries
+attempt 1's reading and never takes an owned label. Run 43716323834's attempt 5 (#43733, 2026-11-15) queued
+on glaeda-side-std-xcode-26.6 while glaeda-gui-std-xcode-26.6 had nothing queued, because placement then ran only
+up to the bot's attempt 3; fast-tier-handback-placement's
 reading is gated on its own placed_attempt the same way.
 
 ## note-20
@@ -3108,6 +3114,18 @@ placement, so the runs-on fell through to `fromJSON(vars.RUNNER_POOLS).macos_26`
 `tests/test_ci_next_macos_cascade.py` `test_every_blacksmith_macos_job_is_behind_the_off_switch` refuses a
 Mac job whose runs-on can name a Blacksmith macOS label while the switch is off.
 
+The scoped value `pr-rescue` (hq#11523, 2026-11-15: `glaeda-side-std-xcode-26.6` had 76 jobs queued, the oldest
+150 min, and no owned Mac was free) is Blacksmith macOS for this workflow's pull-request jobs only. Its
+placement (`next_macos_cascade.pr_rescue()`, `rescue_open()`) opens the Blacksmith labels only when the event is
+`pull_request`, `GITHUB_WORKFLOW_REF` is this file, and the owned route's oldest queued job has waited
+`RESCUE_ROUTE_MINUTES` (45); the slots then go through the same cascade, `CAPACITY` and `MAX_PER_RUN` caps as `on`.
+In runs-on, a placement-listed Blacksmith job reads `vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue'` (no fromJSON, so tests/runs_on_labels.py resolves it), and every
+owned fallback reads `(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' ||
+github.run_attempt < 2) && vars.CI_BLACKSMITH_MACOS != 'on'`: a pull request's re-run (the bot's stall-move or
+refusal rescue, or a person's re-run of failed jobs) takes Blacksmith macOS; attempt 1 stays owned. Every other
+workflow compares the variable with exactly `on`, so nightly, promote, signing and release read `pr-rescue` as
+off; `BlacksmithPrRescue` in `tests/test_ci_next_macos_cascade.py` proves both. Unset or `on` behave as before.
+
 The repository's generic `vars.MACOS_RUNNER_26` is a Blacksmith macOS read too, and it sat ahead of the switch: a
 bot re-run past an attempt cap (`run_attempt <= 3`, #22565), or one carrying attempt 1's placement, took it. On
 2026-11-14 cmux#42880's fast tier (run 43600399789, attempt 5) waited on `blacksmith-6vcpu-macos-26` with no runner
@@ -3533,3 +3551,16 @@ are first compiled here) opens the revert of the one merge since the compile las
 within minutes. Several merges in the range, or a red older than the scanned runs, open
 nothing (push attribution comments on each). The revert is pushed and opened by the
 manaflow-glaeda-route App so its own CI runs; it lands through the normal review path.
+
+## note-385
+
+Above each owned-Mac `Keep Swift package builds on this owned Mac` step in `.github/workflows/cmux-next.yml`
+(swift-canary, fast tier, swift-test, daemon-test, generated-files).
+
+A mini's runner slots run as one user and share one SwiftPM cache (~/Library/Caches/org.swift.swiftpm). Two
+slots that both miss a new binary artifact (a Sentry bump, a new GhosttyNextKit) download it at once, and
+the second fails `swift build` with "failed downloading '<url>' ... artifacts/<name> already exists in file
+system" (cmux#43892 daemon test, job 132938818634, cmux11s-mac-mini-glaeda-8, 2026-11-15). The step then
+seeds that cache for CmuxNext's whole package graph with scripts/ci/swiftpm_prefetch_binary_artifacts.py:
+a checksum-keyed store under one host lock, atomic renames into the cache, so SwiftPM only reads it. The
+cache stays shared and warm. tests/test_ci_swiftpm_prefetch_shared_cache.py is the detector.

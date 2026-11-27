@@ -484,6 +484,8 @@ pub(super) async fn enroll_at(
         record = None;
     }
     let mut replace = false;
+    // The joined machine this enroll would replace, named when its mint fails.
+    let joined_id = record.as_ref().map(|record| record.machine_id.clone());
     if let Some(record) = record.filter(|record| !copied_here(home, record, current)) {
         // This box's own sign-out was revoking this credential when it stopped: a revoke the
         // hub holds for it is that sign-out's, never someone else's.
@@ -573,7 +575,12 @@ pub(super) async fn enroll_at(
     let token = match port.mint(name).await {
         Ok(token) => token,
         Err(e) => {
-            tracing::warn!("sign-in enroll: the mint failed: {e:#}");
+            // No machine credential goes with a mint: the person's token does (named in `e`).
+            let machine = if replace { joined_id.as_deref() } else { None };
+            tracing::warn!(
+                machine = machine.unwrap_or("none (a new join)"),
+                "sign-in enroll: the mint failed: {e:#}"
+            );
             return EnrollOutcome::Unavailable;
         }
     };
@@ -672,7 +679,13 @@ impl EnrollHub for Platform {
             serde_json::from_value(json!({"label": label, "ttlSeconds": MINT_TTL_SECS}))?;
         let minted = match self.person()?.machine_join_mint(&body).await {
             Ok(body) => serde_json::to_value(body.into_inner())?,
-            Err(error) => return Err(refused(error).await),
+            // What was sent where, never the token: the next probe row explains itself.
+            Err(error) => {
+                let sent = super::sent_credential::describe(&self.access, now_ms() / 1000);
+                return Err(refused(error)
+                    .await
+                    .context(format!("POST {}/v1/machines/join-tokens with {sent}", self.hub)));
+            }
         };
         let token = minted
             .get("token")

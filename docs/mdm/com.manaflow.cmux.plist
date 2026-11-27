@@ -6083,7 +6083,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>400</integer>
+			<integer>1300</integer>
 			<key>pfm_description</key>
 			<string>How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.</string>
 			<key>pfm_name</key>
@@ -6219,7 +6219,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>1500</integer>
+			<integer>1300</integer>
 			<key>pfm_description</key>
 			<string>How long the pointer rests on a group before its summary card opens.</string>
 			<key>pfm_name</key>

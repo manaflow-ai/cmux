@@ -5,13 +5,14 @@
 //! proxy and their p95 line (`V2_GATE_OUT`).
 
 use crate::hub::Hub;
+use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use acpmux_book::index::SummaryIndex;
 use acpmux_core::life::V2;
 use serde_json::{Value, json};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// An error of this module's own: what a step that cannot go on found.
@@ -181,18 +182,134 @@ pub fn twenty_live_beside(hub: &Hub, closed: usize) -> io::Result<usize> {
     Ok(20 + closed)
 }
 
-/// A proxy to a daemon's socket that counts the bytes the daemon sends. It relays until dropped.
+/// The live and closed-today chats of [`usage_beside`]: each a Claude chat with its own
+/// transcript, so a usage pass reads every one of them.
+pub const USAGE_LIVE: usize = 8;
+pub const USAGE_CLOSED_TODAY: usize = 8;
+
+/// The usage pass's fixture (`hub/usage_view.rs`): [`USAGE_LIVE`] live Claude chats and
+/// [`USAGE_CLOSED_TODAY`] closed an hour ago, each with an agent session id and a transcript in
+/// `store` (their `CLAUDE_CONFIG_DIR`), and `closed` closed two days ago or more beside them,
+/// Claude chats with ids too, which the pass reads none of. The rows the v2 index holds.
+pub fn usage_beside(hub: &Hub, closed: usize, store: &Path) -> io::Result<usize> {
+    let now = crate::store::now_ms();
+    let day = crate::usage_stats::DAY_MS;
+    let projects = store.join("projects").join("-work");
+    std::fs::create_dir_all(&projects)?;
+    let claude = |id: &str, status: &str, at: u64, tags: Value| -> io::Result<_> {
+        let mut meta = meta(id, id, status, at, tags)?;
+        let sid = format!("sid-{id}");
+        meta.family = Some("claude".to_owned());
+        meta.agent_session_id = Some(sid.clone());
+        meta.chat_store = Some(store.to_path_buf());
+        Ok((meta, sid))
+    };
+    let add = |id: String, status: &str, at: u64, transcript: bool| -> io::Result<()> {
+        let tags = if status == "closed" { json!({}) } else { json!({"area": "acpmux"}) };
+        let (meta, sid) = claude(&id, status, at, tags)?;
+        if transcript {
+            std::fs::write(projects.join(format!("{sid}.jsonl")), "")?;
+        }
+        insert(hub, meta);
+        Ok(())
+    };
+    for n in 0..USAGE_LIVE as u64 {
+        add(format!("live-{n:02}"), "idle", now - n * 1_000, true)?;
+    }
+    for n in 0..USAGE_CLOSED_TODAY as u64 {
+        add(format!("today-{n:02}"), "closed", now - 3_600_000 - n * 1_000, true)?;
+    }
+    for n in 0..closed as u64 {
+        add(format!("closed-{n:06}"), "closed", now - 2 * day - n, false)?;
+    }
+    Ok(USAGE_LIVE + USAGE_CLOSED_TODAY + closed)
+}
+
+/// A proxy to a daemon's socket that counts the bytes the daemon sends, and the connections it
+/// relays. It relays until dropped.
 pub struct Counted {
     pub path: PathBuf,
     pub bytes: Arc<AtomicU64>,
+    open: Arc<Open>,
     _dir: tempfile::TempDir,
     _tasks: cmux_scope::Scope,
 }
+
+/// The connections a [`Counted`] relays now, and a wake as each one ends.
+#[derive(Default)]
+struct Open {
+    count: AtomicUsize,
+    ended: tokio::sync::Notify,
+}
+
+/// One relay's place in [`Open`], given back when the relay ends.
+struct Relaying(Arc<Open>);
+
+impl Relaying {
+    fn new(open: &Arc<Open>) -> Self {
+        open.count.fetch_add(1, Ordering::AcqRel);
+        Self(open.clone())
+    }
+}
+
+impl Drop for Relaying {
+    fn drop(&mut self) {
+        self.0.count.fetch_sub(1, Ordering::AcqRel);
+        self.0.ended.notify_waiters();
+    }
+}
+
+/// How long [`Counted::settled`] waits for the daemon to close the connections clients left.
+const SETTLE: Duration = Duration::from_secs(10);
 
 impl Counted {
     /// The bytes the daemon has sent through the proxy.
     pub fn sent(&self) -> u64 {
         self.bytes.load(Ordering::Relaxed)
+    }
+
+    /// Waits until the proxy relays no connection: each client that left had its daemon side
+    /// shut, and the daemon closed it, having sent all it owed. An error past [`SETTLE`]: the
+    /// daemon keeps a connection its client left.
+    pub async fn settled(&self) -> io::Result<()> {
+        let deadline = tokio::time::Instant::now() + SETTLE;
+        loop {
+            let ended = self.open.ended.notified();
+            tokio::pin!(ended);
+            ended.as_mut().enable();
+            if self.open.count.load(Ordering::Acquire) == 0 {
+                return Ok(());
+            }
+            if tokio::time::timeout_at(deadline, ended).await.is_err() {
+                let open = self.open.count.load(Ordering::Acquire);
+                return Err(failed(format!(
+                    "the daemon kept {open} connections open {SETTLE:?} after their clients left"
+                )));
+            }
+        }
+    }
+}
+
+/// The descriptors this process holds (`None` off Linux).
+pub fn open_fds() -> Option<usize> {
+    std::fs::read_dir("/proc/self/fd").ok().map(Iterator::count)
+}
+
+/// The descriptors a gate may hold past its first round's start, after any round: room for
+/// the runtime's own and descriptors still closing after [`Counted::settled`] returns (the
+/// client's reader task, the in-process daemon's halves), never for a sample's connections
+/// (7 each). Keep that slack: at 0 the assert fails on closes still in flight.
+pub const FDS_PAST_A_ROUND: usize = 6;
+
+/// Fails `name` if this process holds more than [`FDS_PAST_A_ROUND`] descriptors beyond
+/// `before` ([`open_fds`] before the gate's first round): a fixture that keeps a sample's
+/// connections grows by each sample.
+pub fn assert_fds_given_back(name: &str, before: Option<usize>) {
+    if let (Some(before), Some(now)) = (before, open_fds()) {
+        assert!(
+            now <= before + FDS_PAST_A_ROUND,
+            "{name}: {now} descriptors open after a round, {before} before the first"
+        );
     }
 }
 
@@ -203,6 +320,8 @@ pub async fn counted(target: PathBuf) -> io::Result<Counted> {
     let listener = tokio::net::UnixListener::bind(&path)?;
     let bytes = Arc::new(AtomicU64::new(0));
     let total = bytes.clone();
+    let open = Arc::new(Open::default());
+    let relaying = open.clone();
     let tasks = cmux_scope::Scope::new("list-daemon counted proxy");
     // One task: the accepts and every connection's relay, polled together.
     tasks.spawn_until_cancelled("list-daemon counted proxy", async move {
@@ -213,28 +332,32 @@ pub async fn counted(target: PathBuf) -> io::Result<Counted> {
                 accepted = listener.accept() => {
                     let Ok((client, _)) = accepted else { return };
                     let Ok(server) = tokio::net::UnixStream::connect(&target).await else { return };
-                    relays.push(relay(client, server, total.clone()));
+                    let place = Relaying::new(&relaying);
+                    relays.push(relay(client, server, total.clone(), place));
                 }
                 Some(()) = relays.next(), if !relays.is_empty() => {}
             }
         }
     });
-    Ok(Counted { path, bytes, _dir: dir, _tasks: tasks })
+    Ok(Counted { path, bytes, open, _dir: dir, _tasks: tasks })
 }
 
 /// One connection through [`Counted`]: the client's bytes up, the daemon's down and counted,
-/// until the daemon's side ends.
+/// until the daemon's side ends. Both sockets, and `_place`, go with it.
 async fn relay(
     client: tokio::net::UnixStream,
     server: tokio::net::UnixStream,
     total: Arc<AtomicU64>,
+    _place: Relaying,
 ) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let (mut client_read, mut client_write) = client.into_split();
     let (mut server_read, mut server_write) = server.into_split();
     let up = async move {
         let _ = tokio::io::copy(&mut client_read, &mut server_write).await;
-        // The client's side ended: the daemon's answers still come down.
+        // The client's side ended: the daemon reads its end too, and its answers still come
+        // down until it closes.
+        let _ = server_write.shutdown().await;
         std::future::pending::<()>().await;
     };
     let down = async move {
@@ -252,16 +375,11 @@ async fn relay(
     }
 }
 
-/// The 95th percentile of `values`.
-pub fn p95(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    values[((values.len() * 95).div_ceil(100)).saturating_sub(1)]
-}
-
-/// The gate line of `name`: each side's best round p95, printed and appended to `V2_GATE_OUT`.
+/// The gate line of `name`: each side's best round p95, printed and appended to `V2_GATE_OUT`,
+/// after its rounds ([`gate_rounds::report`]).
 pub fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (u128, u128) {
-    let best = |rounds: &[Vec<u128>]| rounds.iter().map(|r| p95(&mut r.clone())).min().unwrap_or(0);
-    let (small_p95, god_p95) = (best(small), best(god));
+    gate_rounds::report(name, &[("small", small), ("god", god)]);
+    let (small_p95, god_p95) = (best_p95(small), best_p95(god));
     write_line(json!({"name": name, "small_p95": small_p95, "god_p95": god_p95, "unit": unit}));
     (small_p95, god_p95)
 }
@@ -275,10 +393,8 @@ pub fn emit_with_all(
     god: &[Vec<u128>],
     unit: &str,
 ) -> (u128, u128, u128) {
-    let best = |rounds: &[Vec<u128>]| rounds.iter().map(|r| p95(&mut r.clone())).min().unwrap_or(0);
-    let (small_p95, god_p95) = (best(small), best(god));
-    let mut all: Vec<u128> = god.iter().flatten().copied().collect();
-    let god_p95_all = if all.is_empty() { 0 } else { p95(&mut all) };
+    gate_rounds::report(name, &[("small", small), ("god", god)]);
+    let (small_p95, god_p95, god_p95_all) = (best_p95(small), best_p95(god), all_p95(god));
     write_line(json!({"name": name, "small_p95": small_p95, "god_p95": god_p95,
         "god_p95_all": god_p95_all, "unit": unit}));
     (small_p95, god_p95, god_p95_all)

@@ -246,10 +246,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         // At idle after the first terminal frame: the palette panel (native) and the icon catalog (off the main actor). The icon picker and
-        // group editor (WebKit, ~60 MB of processes) wait for the first menu or palette open, where every Set Icon and Rename Group is.
+        // group editor (WebKit, ~60 MB of processes) wait for a menu or palette open, where every Set Icon and Rename Group is,
+        // and are freed again once their idle limit passes with no open or menu (IconPickerService/GroupEditorService.idleLimit);
+        // each menu or palette open makes them again or pushes that limit back.
         launchSettle.whenSettled { [palette = services.palette, weak services] in Self.preparePalette(palette, step: 0); services?.iconPicker.prepare(page: false) }
         let warmOverlays = { @MainActor [weak services] in services?.iconPicker.prepare(); services?.groupEditor.prepare() }
-        services.keyRouter.menuPickKeys.tracking.onFirstMenu(warmOverlays); services.palette.onFirstShow(warmOverlays)
+        services.keyRouter.menuPickKeys.tracking.onMenus(warmOverlays)
+        services.palette.onShows(warmOverlays)
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.

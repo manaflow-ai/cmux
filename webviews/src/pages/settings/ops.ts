@@ -178,20 +178,23 @@ export type DevicesHostState = {
   activity: Array<{ time: string; what: string; subject: string }>;
 };
 
-/** This Mac joined to a team with the one-line join: its consent switches, both off until the person turns them on. */
+/** A consent this joined Mac keeps (acpmux's machine consent): `signedInMachines` lets the person's other Macs signed in to this account open workspaces here. */
+export type JoinConsentSurface = "screen" | "control" | "signedInMachines";
+
+/** This Mac joined to a team with the one-line join: its consent switches, all off until the person turns them on. */
 export type DevicesJoinState = {
   title: string;
   /** "Joined to <team> as <name>". */
   joined: string;
   help: string;
   error: string | null;
-  /** A consent write is in flight: both switches are disabled until it ends. */
+  /** A consent write is in flight: the switches are disabled until it ends. */
   busy: boolean;
-  /** acpmux's record is known: without it both switches are disabled (an off nobody confirmed). */
+  /** acpmux's record is known: without it the switches are disabled (an off nobody confirmed). */
   known: boolean;
-  /** The label of the action that turns both off while the record is unknown; null while it is known. */
+  /** The label of the action that turns every switch off while the record is unknown; null while it is known. */
   revoke_all: string | null;
-  switches: Array<{ surface: "screen" | "control"; title: string; help: string; on: boolean }>;
+  switches: Array<{ surface: JoinConsentSurface; title: string; help: string; on: boolean }>;
 };
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
@@ -1197,8 +1200,8 @@ export type SettingsOps = {
   "cmux.settings.devices.full_access": [{ id: string; on: boolean }, { error?: string }];
   /** Native: Settings > Machines' "Dedicated agent machine" switch on a Cloud machine (on: the person's gesture only). */
   "cmux.settings.machines.vm_host": [{ id: string; on: boolean }, { error?: string }];
-  /** Native: Settings > Devices' Screen sharing or Control switch of this joined Mac (on: the person's gesture only). */
-  "cmux.settings.devices.join_consent": [{ surface: "screen" | "control"; on: boolean }, { error?: string }];
+  /** Native: Settings > Devices' consent switch of this joined Mac (Screen sharing, Control, Your other Macs) (on: the person's gesture only). */
+  "cmux.settings.devices.join_consent": [{ surface: JoinConsentSurface; on: boolean }, { error?: string }];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Server's Restart…: opens the host's confirm, never restarts by itself (the person's gesture only). */
@@ -1437,6 +1440,8 @@ export const settingsPageActions = [
   "importFromBrowser",
   // Settings > Mobile's Sign In, where the iPhone card says to sign in (msg 3790).
   "palette.auth.signIn",
+  // A search no setting matches: Ask cmux to do this opens the Customize chat with the words.
+  "customize.open",
 ] as const;
 
 export type SettingsPageAction = (typeof settingsPageActions)[number];

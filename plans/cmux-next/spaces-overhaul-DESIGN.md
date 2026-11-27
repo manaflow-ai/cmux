@@ -76,6 +76,14 @@ Nov 7 follow-up (Lawrence: "do ctrl option cmd hl for navigating spaces"): **Ctr
 Previous / Next Space catalog keys; Ctrl-Opt-Cmd-Left / Right stay as aliases. No shipped cmux, Ghostty or
 macOS default holds that chord.
 
+Nov 15 (Lawrence: "sidebar needs keyboard shortcuts for making new spaces", and a space switch key that "doesn't
+conflict with tmux"): **Ctrl-Opt-Cmd-N** is New Space's catalog key, in the same family. Every step and create key
+holds Cmd, and a terminal never sends Cmd to its program, so tmux (prefix Ctrl-B), vim, emacs (C-M-digit) and
+readline keep every key they have; no chord prefix is needed. No cmux, Ghostty, macOS or Chrome default holds
+Ctrl-Opt-Cmd-N. New Incognito Space stays unbound: Ctrl-Opt-Shift-Cmd is the Hyper key that launchers bind
+system-wide. Window managers (Rectangle, Magnet) bind Ctrl-Opt-Cmd-Left / Right system-wide for next display;
+there the arrows never reach cmux, and H / L still work.
+
 The old space keys keep working: Opt-Cmd-[ / ] stay as aliases of previous / next, and Ctrl-Opt-1…9
 stays the digit scheme's space key (ShortcutDigitScheme, onboarding's Number Keys card). Each key
 follows its action: rebinding or unbinding the action in Settings or `cmux.json`

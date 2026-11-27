@@ -140,3 +140,6 @@ Packages/macOS/CmuxNext/usage-warning-gallery.tar
 # The extension SDK's customize types: every build of cmux-extension-sdk writes them from
 # cmux_customize::schema (build.rs); `cmux customize schema --typescript` prints the same text.
 /cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/
+
+/Packages/Shared/CmuxDeviceHub/Sources/CmuxDeviceHub/DeviceGlyphKind.swift
+/Packages/macOS/CmuxNext/Sources/CmuxNextDevices/DeviceGlyphKind.swift

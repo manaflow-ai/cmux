@@ -13,6 +13,9 @@
     "ci.yml": {
       "changes": "routing reads names, trees and the CI scripts and workflows it opens (scripts/ci, .github, tests); build_input_fingerprint.py hashes `git ls-tree -r`, which lists verify/ from the tree; the change-area walk's `git grep` no longer sees verify/ files, which run no CI helper, so they no longer send a helper change to every area"
     },
+    "cmux-web-layer-fork.yml": {
+      "layer": "builds the web bundles from webviews/, schemas/ and scripts/cmux-next; git diff/apply read objects, and the applied change lands in the sparse tree"
+    },
     "cmux-next-batch.yml": {
       "batch": "next_batch.py merges in a worktree that inherits the sparse patterns; regenerate() adds with `git add -A -- .`, which skips skip-worktree paths; touches_tree reads scripts/cmux-next/cmux-tui-tree-inputs.txt"
     },

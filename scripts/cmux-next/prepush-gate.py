@@ -329,6 +329,17 @@ PORT_DRIFT_SCRIPT = SCRIPTS + "/ffi_caller_ratchet.py"
 PORT_DRIFT_HEADER = re.compile(r"^cmux-tui/crates/[^/]+/include/[^/]+\.h$")
 PORT_DRIFT_NAME = re.compile(r"\b(?:cmux|acpmux)_\w+")
 PORT_DRIFT_TIP = "refs/remotes/origin/feat-cmux-next"  # drift already here is not a push's (port_drift)
+# The production journey's schedule registers from main, so main's copy of this workflow is what runs; only the
+# scripts come from feat-cmux-next. cmux#43781's --preclaim-login sat on feat-cmux-next's copy and never reached
+# production until cmux#43866 synced main's. Local only (CLAUDE.md: no new CI gates; Lawrence, 2026-10-23).
+MAIN_TWIN_CHECK = "Production journey workflow matches main's (the schedule runs main's copy)"
+MAIN_TWIN_FILE = ".github/workflows/cloud-journey-prod.yml"
+MAIN_TWIN_REF = "refs/remotes/origin/main"
+MAIN_TWIN_TRAILER = re.compile(r"^Main-Twin:[ \t]*\S", re.MULTILINE)
+# feat-cmux-next's `environment: {name, deployment: false}` and main's `environment: NAME` are one setting to compare.
+MAIN_TWIN_ENV_BLOCK = re.compile(r"^(\s*)environment:\n\s+name: (\S+)\n\s+deployment: false$")
+MAIN_TWIN_HINT = ("Open the same change against main (`gh pr create --base main`; workflows land there under the CI "
+                  "exception), then add a `Main-Twin: <that PR's URL>` trailer to this commit and push again.")
 FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
                   "`fallback` that takes the job and `after_minutes`), then push. Check with "
                   "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
@@ -1843,6 +1854,63 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
         return [line for line in head_lines if base_stopped or line not in set(base_lines)]
 
 
+def _journey_jobs(text: str) -> str:
+    """The `jobs:` section of a journey workflow as GitHub runs it, for comparing feat-cmux-next's copy with main's:
+    comment lines and blank lines dropped, and an `environment:` block with `deployment: false` read as main's string
+    form (main's actionlint knows only `environment: NAME`; cmux#43866). `runs-on:` lines are dropped too: main's guards
+    pin a job holding production secrets to a literal label (tests/test_ci_runner_set.py PINNED), while
+    feat-cmux-next's runs it from the runner pool, so the runner is each branch's own."""
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.rstrip() == "jobs:"), None)
+    if start is None:
+        return ""
+    kept = [line.rstrip() for line in lines[start:]
+            if line.strip() and not line.lstrip().startswith(("#", "runs-on:"))]
+    out: list[str] = []
+    i = 0
+    while i < len(kept):
+        block = MAIN_TWIN_ENV_BLOCK.match("\n".join(kept[i:i + 3]))
+        if block:
+            out.append(f"{block.group(1)}environment: {block.group(2)}")
+            i += 3
+            continue
+        out.append(kept[i])
+        i += 1
+    return "\n".join(out)
+
+
+def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_REF) -> list[str]:
+    """What head adds to MAIN_TWIN_CHECK: a change to the production journey workflow's jobs that main's copy lacks.
+
+    The schedule registers from main, so main's definition is what runs in production; only the scripts come from
+    feat-cmux-next. cmux#43781 changed feat-cmux-next's copy (--preclaim-login) and production never ran it until
+    cmux#43866 brought main's copy along. A push that changes MAIN_TWIN_FILE's jobs so they differ from main's is
+    refused, unless a pushed commit that changes the file names the main twin PR in a `Main-Twin:` trailer. A push
+    that leaves the jobs as base had them (comments only) or makes them match main passes, and so does a push when
+    main's copy cannot be read (local only: the twin rule is not a CI gate)."""
+    names = git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_FILE,
+                check=False).decode(errors="replace").split()
+    if MAIN_TWIN_FILE not in names:
+        return []
+
+    def read(rev: str) -> str | None:
+        done = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{MAIN_TWIN_FILE}"], capture_output=True)
+        return done.stdout.decode(errors="replace") if done.returncode == 0 else None
+
+    ours, before, main = read(head), read(base), read(main_ref)
+    if ours is None or main is None:
+        return []
+    jobs = _journey_jobs(ours)
+    if jobs == _journey_jobs(main) or (before is not None and jobs == _journey_jobs(before)):
+        return []
+    messages = git(repo, "log", "--format=%B%x1e", f"{base}..{head}", "--", MAIN_TWIN_FILE,
+                   check=False).decode(errors="replace")
+    if MAIN_TWIN_TRAILER.search(messages):
+        return []
+    return [f"{MAIN_TWIN_FILE}: its jobs now differ from {main_ref}'s, and the schedule runs main's copy, so this change "
+            f"never reaches production. {MAIN_TWIN_HINT}"]
+
+
 def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """What head adds to the port-drift ratchet (PORT_DRIFT_CHECK) over base: an exported cmux-tui C function with
     no Swift caller that the baseline does not list, or a baseline line whose function gained a caller.
@@ -2760,6 +2828,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         drift = port_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((PORT_DRIFT_CHECK, drift))
+    # Local only, like the workflow parse (CLAUDE.md: no new CI gates): hq's NOW names a standing difference.
+    if (highlights_layer if only is None else "main-twin" in only) and restrict is None:
+        drift = main_twin_drift(repo, base, head)
+        if drift:
+            reserved.append((MAIN_TWIN_CHECK, drift))
     if only is None or "sidebar" in only:
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
@@ -3543,7 +3616,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
-                                       "settings-export-keys")
+                                       "settings-export-keys,main-twin")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child

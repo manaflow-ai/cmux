@@ -64,8 +64,7 @@ final class GroupHeaderRowView: SidebarRowView {
     let moreButton = OverflowButton(label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
     /// the Edge group header). Shows with the more button.
-    let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 },
-                                      label: GroupEditorStrings.newWorkspace)
+    let addButton = SidebarIconButton(plus: GroupEditorStrings.newWorkspace)
     /// A pinned group's Unpin button (#27700): shows with the + and more, left of them, as a pinned
     /// workspace row's does; the bar's pin is only a mark, and a click there folds the group. An
     /// unpinned group shows none (Leo 2026-10-21: "no empty pin symbol by default"); Pin Group stays in

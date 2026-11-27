@@ -4,6 +4,7 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import CmuxNextAgentPane
 import CmuxNextControl
+import CmuxNextPages
 
 /// `debug.new_tab` benches (R81): Cmd-W on a new tab page and `!` in its
 /// field, each driven through the real key path (`debug.key`), with the
@@ -48,6 +49,28 @@ enum DebugNewTabBench {
             result = .object(fields)
         }
         return result
+    }
+
+    /// `bench_settings`: Cmd-, in window `window` (Settings opens late, 2026-11-15). `tab_ms`: a pane's strip (any: an inactive
+    /// app may keep the focus in Home's dock) first selects a Settings tab it hosts; `visible_ms`: that page drew (no paint hold over it) at its size.
+    static func settings(_ controller: WindowController, _ services: AppServices) async -> JSONValue {
+        var tab: Double?, page: PageWebView?
+        let claims = services.pageHostPool.claims.count
+        let result = await run(services) {
+            _ = DebugKey.send(["key": .string(","), "modifiers": .array([.string("command")]), "window": .string(controller.state.id)], services: services)
+        } until: { at in
+            guard let pane = controller.content?.panes.values.first(where: { ($0.view.content as? InternalPageView)?.page == .settings && $0.currentTabKey != nil
+                    && $0.stripModel.selectedID?.rawValue == $0.currentTabKey }), let view = pane.view.content as? InternalPageView else { return false }
+            if tab == nil { tab = at }
+            page = view.content as? PageWebView
+            return page?.hasPainted == true && pane.view.paintHold.kept == nil && view.window != nil && view.alphaValue > 0.99
+        }
+        guard case .object(var fields) = result else { return result }
+        fields["tab_ms"] = tab.map { .number($0) } ?? .null
+        fields["engine"] = .string(page.map { $0.showsChromium ? "cef" : "webkit" } ?? "none")
+        fields["spare"] = .bool(services.pageHostPool.claims.count > claims && services.pageHostPool.claims.last?.spare == true)
+        fields["claim"] = page?.lastClaim.map { .string($0.path.rawValue) } ?? .null
+        return .object(fields)
     }
 
     /// `bench_bang`: `!` typed into the focused new tab page; measured until a terminal shows.

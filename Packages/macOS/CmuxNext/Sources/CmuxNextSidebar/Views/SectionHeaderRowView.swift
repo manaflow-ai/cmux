@@ -18,7 +18,7 @@ final class SectionHeaderRowView: SidebarRowView {
     private let badge = SidebarRowView.label(font: SidebarStyle.headerFont)
     private(set) var badgeText: String?
     private let chevron = DecorativeImageView()
-    let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.newWorkspace)
+    let addButton = SidebarIconButton(plus: Strings.newWorkspace)
     /// Screen Sharing from the machine header (Leo: "if theres no easy path to use it then theres no point"):
     /// Share on This Mac, View screen on a Cloud machine; no button on SSH and server machines.
     let screenButton = SidebarIconButton(icon: .remoteDisplay, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.viewScreen)

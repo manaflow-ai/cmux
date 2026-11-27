@@ -431,6 +431,50 @@ struct CloudStartSessionTests {
         #expect(!message.contains(".)"), "the reason's own period sits inside the parentheses: \(message)")
     }
 
+    /// hq#11225 (Leo 2026-11-15: "so does cloud work? ... and other harnesses/etc too?"): a new Cloud machine whose
+    /// Cursor, Gemini or Grok is not signed in said "started but its agent didn't (agent_session.refused)". It names the
+    /// agent and what to do, never the code.
+    @Test func aStartWhoseAgentIsNotSignedInNamesTheAgent() {
+        let refused = AgentRemoteStartRefusal(code: "agent_session.sign_in_required", machine: "devbox-3", agentName: "Cursor")
+        let message = CloudStartSession.startFailure(refused, name: "devbox-3", id: "vm-devbox3", agent: "cursor")
+        #expect(message.contains("Cursor isn't signed in on that machine"), "\(message)")
+        #expect(message.contains("cmux cloud start-session --target machine:vm-devbox3 --agent cursor"))
+        #expect(!message.contains("agent_session") && !message.contains("its agent didn't"), "\(message)")
+        let expired = AgentRemoteStartRefusal(code: "agent_session.sign_in_required", machine: "devbox-3", agentName: "Grok", signInExpired: true)
+        #expect(CloudStartSession.startFailure(expired, name: "devbox-3", id: "vm-devbox3", agent: "grok").contains("Grok's sign-in expired"))
+        // No harness in the refusal: the agent asked for, by name.
+        let unnamed = AgentRemoteStartRefusal(code: "agent_session.sign_in_required", machine: "devbox-3")
+        #expect(CloudStartSession.startFailure(unnamed, name: "devbox-3", id: "vm-devbox3", agent: "gemini").contains("Gemini CLI isn't signed in"))
+        #expect(refused.userMessage == "Cursor isn't signed in on devbox-3. Sign it in there, then start the chat again.")
+        #expect(refused.pageFacts == ["reason": "agent.sign_in_required", "errorKind": "auth.signed_out"])
+        #expect(expired.pageFacts["errorKind"] == "auth.expired")
+    }
+
+    /// hq#11225: a Cloud start of an agent the machine lacks (pi without its adapter) or of the cmux router (no local
+    /// router on a Cloud machine) said "<machine> refused to start the agent chat (agent_session.harness_missing)". Each
+    /// names the agent from the refusal's `data.harness` and the cause, never the code.
+    @Test func aStartOfAMissingAgentOrAnUnservedRouteNamesTheCause() {
+        func refusal(_ code: String, _ data: [String: CmuxNextDaemon.JSONValue]) -> AgentRemoteStartRefusal {
+            AgentRemoteStartRefusal.refused(AgentSessionAttachError(code: code, message: "x", details: .object(data)), code: code,
+                                            machine: "devbox-3", folder: nil, harness: "claude", name: \String.chiefHarnessName)
+        }
+        let missing = refusal("agent_session.harness_missing", ["reason": .string("agent.not_installed"), "harness": .string("pi")])
+        #expect(missing.agentName == "pi".chiefHarnessName)
+        #expect(missing.userMessage == "\("pi".chiefHarnessName) isn't installed on devbox-3. Install it there or pick another agent, then start the chat again.")
+        let cli = CloudStartSession.startFailure(missing, name: "devbox-3", id: "vm-devbox3", agent: "pi")
+        #expect(cli.contains("isn't installed on that machine") && !cli.contains("agent_session"), "\(cli)")
+        // No harness in `data`: never the one asked for (the refusal names what the machine lacks).
+        let unnamed = refusal("agent_session.harness_missing", ["reason": .string("agent.not_installed")])
+        #expect(unnamed.userMessage.hasPrefix("This agent isn't installed on devbox-3."), "\(unnamed.userMessage)")
+
+        let router = refusal("agent_session.route_unavailable", ["reason": .string("route.unavailable"), "harness": .string("cmux")])
+        #expect(router.userMessage == "The cmux router isn't available on devbox-3. Pick another agent, or start the chat again later.")
+        let routerCLI = CloudStartSession.startFailure(router, name: "devbox-3", id: "vm-devbox3", agent: "cmux")
+        #expect(routerCLI.contains("the cmux router isn't available on that machine") && !routerCLI.contains("agent_session"), "\(routerCLI)")
+        let route = refusal("agent_session.route_unavailable", ["reason": .string("route.not_found"), "harness": .string("cursor")])
+        #expect(route.userMessage.hasPrefix("\("cursor".chiefHarnessName)'s model route isn't available on devbox-3."), "\(route.userMessage)")
+    }
+
     @Test(arguments: [AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home"])
     func aStartWithNoFolderSaysToPassOne(code: String) {
         let message = CloudStartSession.startFailure(AgentRemoteStartRefusal(code: code, machine: "devbox-3"), name: "devbox-3", id: "vm-devbox3", agent: "claude")
@@ -492,6 +536,8 @@ struct CloudStartSessionTests {
             CloudStartSessionStrings.listUnread(Self.asked),
             CloudStartSessionStrings.createFailed("dev", quoted: "dev", agent: "claude", reason: "x"), CloudStartSessionStrings.notConnected("dev", id: "vm-x", agent: "claude"),
             CloudStartSessionStrings.agentFailed("dev", id: "vm-x", agent: "claude", reason: "x"), CloudStartSessionStrings.needsFolder("dev", id: "vm-x", agent: "claude"),
+            CloudStartSessionStrings.agentSignedOut("dev", id: "vm-x", agent: "cursor", agentName: "Cursor", expired: false),
+            CloudStartSessionStrings.agentSignedOut("dev", id: "vm-x", agent: "grok", agentName: "Grok", expired: true),
             CloudStartSessionStrings.notInChat(Self.asked), CloudStartSessionStrings.noPage(Self.asked), CloudStartSessionStrings.askOpen(Self.asked),
             CloudStartSessionStrings.declined(Self.asked), CloudStartSessionStrings.expired(Self.asked),
         ]

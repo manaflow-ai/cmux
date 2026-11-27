@@ -356,7 +356,8 @@ async fn gate_daemon(closed: usize) -> Daemon {
 }
 
 /// One caller's run through the v2 list on a new client of `proxy`: its wall time and the bytes
-/// the daemon sent.
+/// the daemon sent. Past the clock, the run's connections end (`Counted::settled`) before the
+/// bytes are read, so they are all the daemon sent.
 async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
     let client = Client::connect(&proxy.path).await.unwrap();
     let via = || Via::List(proxy.path.clone());
@@ -381,6 +382,7 @@ async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
     }
     let wall = started.elapsed().as_nanos();
     drop(client);
+    proxy.settled().await.unwrap();
     // The client's initialize reply is counted too, alike on both sides.
     (wall, u128::from(proxy.bytes.load(Ordering::Relaxed) - before))
 }
@@ -395,6 +397,7 @@ async fn v2_pr07b_callers() {
     let god = gate_daemon(11_000).await;
     let (small_proxy, god_proxy) =
         (counted(small.path.clone()).await, counted(god.path.clone()).await);
+    let fds = list_daemon::open_fds();
     for caller in ["ls", "pending", "send_tag_dry_run", "mcp_ls"] {
         let (mut small_wall, mut small_bytes, mut god_wall, mut god_bytes) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
@@ -412,7 +415,11 @@ async fn v2_pr07b_callers() {
             small_bytes.push(sb);
             god_wall.push(gw);
             god_bytes.push(gb);
+            list_daemon::assert_fds_given_back(&format!("v2.pr07b.{caller}"), fds);
         }
+        // Round one's samples, where a cost a fixture builds up would land first.
+        let (small_one, god_one) = (&small_wall[0], &god_wall[0]);
+        eprintln!("v2.pr07b.{caller}_wall round 1: small {small_one:?} god {god_one:?}");
         for (measure, small, god, unit) in
             [("bytes", &small_bytes, &god_bytes, "bytes"), ("wall", &small_wall, &god_wall, "ns")]
         {
@@ -431,4 +438,73 @@ async fn v2_pr07b_callers() {
     assert!(source.connection().unhanded_peak() <= 1, "{}", source.connection().unhanded_peak());
     drop(god.v2);
     drop(small.v2);
+}
+
+/// A hub for the usage pass's gate: [`list_daemon::usage_beside`] with `closed` rows closed two
+/// days ago or more, settled (decision 284): its order built, and two passes run, the first
+/// finding each chat's transcript and the second reading nothing new.
+async fn usage_gate_daemon(closed: usize) -> (ListDaemon, tempfile::TempDir) {
+    let store = tempfile::tempdir().unwrap();
+    let path = store.path().to_path_buf();
+    let daemon = list_daemon::serve(Serves::NoV2, |hub| {
+        list_daemon::usage_beside(hub, closed, &path).unwrap()
+    })
+    .await
+    .unwrap();
+    daemon.hub.warm_list_order_for_test();
+    for _ in 0..2 {
+        daemon.hub.usage_pass_due_for_test();
+        daemon.hub.refresh_usage_stats().await;
+    }
+    daemon.hub.warm_list_order_for_test();
+    (daemon, store)
+}
+
+/// Row `v2.pr07b.usage_first_read`: a usage pass (`Hub::refresh_usage_stats`, which `ls --json`,
+/// `--wide`, `_acpmux/info` and `_acpmux/sessions {usage: true}` wait for), wall time within 1.2x
+/// with 110,000 closed rows beside the same live and closed-today chats against 1,100. Each
+/// timed sample is a pass that ran over the same 16 chats on both sides (decision 271), each
+/// side holds the closed rows its name says (decision 278), and the kept list order is patched,
+/// never sorted again, in every sample. Both hubs settled first, then their rounds in turn.
+#[ignore = "Linux release gate: a usage pass at 110,000 closed rows against 1,100"]
+#[tokio::test(flavor = "multi_thread")]
+async fn v2_pr07b_usage_first_read() {
+    let sources = list_daemon::USAGE_LIVE + list_daemon::USAGE_CLOSED_TODAY;
+    let (small, _small_store) = usage_gate_daemon(1_100).await;
+    let (god, _god_store) = usage_gate_daemon(110_000).await;
+    for (side, closed) in [(&small, 1_100), (&god, 110_000)] {
+        let sessions = side.hub.session_handles();
+        let shut = sessions
+            .iter()
+            .filter(|s| s.read_meta(|m| m.status == crate::store::SessionStatus::Closed))
+            .count();
+        assert_eq!(sessions.len() - shut, list_daemon::USAGE_LIVE, "live chats");
+        assert_eq!(shut, closed + list_daemon::USAGE_CLOSED_TODAY, "closed rows");
+    }
+    let built = [small.hub.list_order_rebuilds_for_test(), god.hub.list_order_rebuilds_for_test()];
+    let (mut small_wall, mut god_wall) = (Vec::new(), Vec::new());
+    for _ in 0..5 {
+        let (mut sw, mut gw) = (Vec::new(), Vec::new());
+        for _ in 0..20 {
+            for (side, walls) in [(&small, &mut sw), (&god, &mut gw)] {
+                side.hub.usage_pass_due_for_test();
+                let (passes, _) = side.hub.usage_passes_for_test();
+                let started = Instant::now();
+                side.hub.refresh_usage_stats().await;
+                walls.push(started.elapsed().as_nanos());
+                assert_eq!(side.hub.usage_passes_for_test(), (passes + 1, sources), "a pass ran");
+            }
+        }
+        small_wall.push(sw);
+        god_wall.push(gw);
+    }
+    let rebuilt =
+        [small.hub.list_order_rebuilds_for_test(), god.hub.list_order_rebuilds_for_test()];
+    assert_eq!(rebuilt, built, "a timed pass sorted every chat again");
+    acpmux_book::gate_rounds::report(
+        "v2.pr07b.usage_first_read",
+        &[("small", &small_wall), ("god", &god_wall)],
+    );
+    // The row's line last, with no assert after it: the home judges the ratio.
+    emit("v2.pr07b.usage_first_read", &small_wall, &god_wall, "ns");
 }

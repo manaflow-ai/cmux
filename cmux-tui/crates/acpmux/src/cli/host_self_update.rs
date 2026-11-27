@@ -338,8 +338,17 @@ fn keep(dir: &Path, target: &str, bytes: &[u8]) -> Result<()> {
 /// alone and restarts one that is not, so an update stopped between the
 /// install and the restart is finished by the next run (review of #24232). A
 /// build whose daemon was rolled back is marked, so the next run leaves it
-/// alone; when the mark cannot be written, the row says so.
-pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> PeerUpdate {
+/// alone; when the mark cannot be written, the row says so. Unless `now`, a
+/// daemon an update restarted within the host's restart window (this timer's
+/// or a `host update` from another machine: one stamp on the host) is left
+/// alone, and nothing is installed: the first run after the window brings
+/// the newest build.
+pub(super) fn apply(
+    remote: &dyn Remote,
+    plan: &Plan,
+    target: &'static str,
+    now: bool,
+) -> PeerUpdate {
     let (dir, installed) = match &plan.step {
         Step::Current(build) => (&plan.dir, build.as_deref()),
         Step::Install(dir) => (dir, None),
@@ -348,7 +357,11 @@ pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> P
         binary_dir: Some(dir.clone()),
         if_idle: false,
         keep_newer: false,
+        // The channel names the build this host runs (an older one too, when
+        // it pulls a bad build back); only pushes from elsewhere are refused.
+        allow_downgrade: true,
         caller: None,
+        now,
     };
     let mut up = update_peer(&plan.lease.fence(remote), &opts);
     up.target.get_or_insert(target);
@@ -436,7 +449,7 @@ impl Remote for LocalRemote {
 /// Exits 1 when the row failed. The channel decides: a build pushed by hand
 /// with `host update` is replaced by the channel's at the next run, unless
 /// automatic updates are off.
-pub(crate) async fn self_update(channel: &str, json_out: bool) -> Result<()> {
+pub(crate) async fn self_update(channel: &str, now: bool, json_out: bool) -> Result<()> {
     if std::env::consts::OS != "linux" {
         bail!(
             "host self-update keeps a Linux host's own daemon updated; update another machine with `acpmux machine update NAME`"
@@ -463,7 +476,7 @@ pub(crate) async fn self_update(channel: &str, json_out: bool) -> Result<()> {
         }
         Prepared::Ready(plan) => plan,
     };
-    let up = apply(&LocalRemote, &plan, paths.target);
+    let up = apply(&LocalRemote, &plan, paths.target, now);
     let name = crate::hand::pair::hostname();
     if json_out {
         print_json(&json!({

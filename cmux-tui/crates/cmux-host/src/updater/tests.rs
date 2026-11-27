@@ -2589,3 +2589,35 @@ fn a_flip_reports_stopping_before_it_restarts_the_services() {
     assert!(started.elapsed() < Duration::from_secs(2), "the restart waited past the bound");
     assert_eq!(crate::cloud::role::STOPPING_REPORT_BOUND, Duration::from_secs(2));
 }
+
+/// The real [`role::restart_after_flip`] (the restart every flip, `adopt` and rollback run),
+/// driven inside the gate as the check's flip runs it: its stopping report goes out first, then
+/// the restarts of what runs the old binary. Its two effects are the test's record
+/// (`role::after_flip`), so a body that skips the report fails here.
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_after_flip_sends_the_stopping_report_before_the_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let old = role::store_binary(OLD_TUI);
+    role::after_flip::CALLS.with(|c| c.borrow_mut().clear());
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            inside.flip_restart_queued(T0_MS, FLIP_OFFSET_NS);
+            role::restart_after_flip(&paths, &old);
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    let calls = role::after_flip::CALLS.with(|c| c.borrow().clone());
+    assert_eq!(
+        calls,
+        [format!("stopping {}", paths.at("/").display()), format!("restart {}", old.display())],
+        "restart_after_flip must report stopping, then restart"
+    );
+}

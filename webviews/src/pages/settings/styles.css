@@ -2365,3 +2365,74 @@ button.menu-disclosure {
   display: flex;
   gap: 4px;
 }
+
+/* A search no setting matches (AskCmuxRow.tsx): the words become a wish for the Customize chat.
+   One row under "No settings match.", a hover fill on its own box like a result row, the words
+   quoted under the action; Return in the search does the same. */
+.ask-cmux {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 100%;
+  margin-top: var(--ds-space-2);
+  padding: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+}
+
+.ask-cmux:hover {
+  background: var(--input-bg);
+}
+
+.ask-cmux:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.ask-cmux-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ask-cmux-title {
+  font-weight: 600;
+}
+
+.ask-cmux-words {
+  overflow: hidden;
+  color: var(--muted-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-cmux > svg:last-child {
+  color: var(--soft-text);
+}
+
+.ask-cmux[data-look="button"] {
+  width: fit-content;
+  border: 1px solid var(--border);
+}
+
+.ask-cmux[data-look="button"] .ask-cmux-words,
+.ask-cmux[data-look="link"] .ask-cmux-words,
+.ask-cmux[data-look="link"] > svg {
+  display: none;
+}
+
+.ask-cmux[data-look="link"] {
+  width: fit-content;
+  padding: 0;
+  color: var(--cmux-accent);
+}
+
+.ask-cmux[data-look="link"]:hover {
+  background: transparent;
+  text-decoration: underline;
+}

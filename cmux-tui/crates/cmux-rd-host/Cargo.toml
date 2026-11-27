@@ -36,6 +36,14 @@ cmux-codecs = { path = "../cmux-codecs", default-features = false, optional = tr
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.14", features = ["shm", "damage", "xtest", "xinput"] }
+# `cmux-rd linux-host` (src/linux_host/): the device key (P-256 ECDSA), SHA-256 and the hub's
+# HTTPS and WebSocket over the TLS stack this crate already links through cmux-encode's
+# OpenH264 download (ring provider, platform trust store): no new crate in the lockfile.
+ring = "0.17"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+# The host's `cmux-rd serve` children: owned, ended with their session.
+cmux-process = { path = "../cmux-process" }
 # Wayland capture (feature `portal`: src/portal.rs, src/pipewire_capture.rs): the
 # xdg-desktop-portal ScreenCast handshake over D-Bus and the PipeWire stream it opens.
 # pipewire links libpipewire-0.3 (build needs libpipewire-0.3-dev, libspa-0.2-dev, clang).

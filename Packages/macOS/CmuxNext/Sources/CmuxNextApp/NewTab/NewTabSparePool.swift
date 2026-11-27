@@ -28,8 +28,8 @@ final class NewTabSparePool {
     static let maximumOpenings = 64
 
     private unowned let services: AppServices
-    /// Two spares so a rapid pair of Cmd-T adopts two loaded pages; one on a Mac with less than 16 GB.
-    private var slot = AgentPaneSpareSlot<AgentPaneView>(capacity: ProcessInfo.processInfo.physicalMemory >= 16 << 30 ? 2 : 1)
+    /// One spare: each is a renderer and an acpmux client at idle (Home idle memory, Leo 2026-11-14); `debug.new_tab capacity` raises it.
+    private var slot = AgentPaneSpareSlot<AgentPaneView>(capacity: 1)
     private lazy var refills = AgentPaneSpareRefiller(on: services.mainWork) { [weak self] in
         self?.prepareParked()
         self?.warmNow()

@@ -598,7 +598,12 @@ impl HubCarrier {
             match self.tickets.register().await {
                 Ok(answer) => break answer,
                 Err(e) => {
-                    tracing::debug!("hub carrier: no register ticket yet: {e}");
+                    // The first refusal is the start's answer; the retries after it stay quiet.
+                    if wait == Duration::from_secs(1) {
+                        tracing::warn!("hub carrier: no register ticket yet, retrying: {e}");
+                    } else {
+                        tracing::debug!("hub carrier: no register ticket yet: {e}");
+                    }
                     tokio::time::sleep(wait).await;
                     wait = (wait * 2).min(Duration::from_secs(60));
                 }
@@ -952,7 +957,9 @@ where
             if n == 0 {
                 return Ok::<_, String>(());
             }
-            link.send(Bytes::copy_from_slice(&buf[..n])).await.map_err(|e| e.to_string())?;
+            // `read` never returns more than `buf` holds; `get` keeps that a checked fact.
+            let read_bytes = buf.get(..n).ok_or("the read overran its buffer")?;
+            link.send(Bytes::copy_from_slice(read_bytes)).await.map_err(|e| e.to_string())?;
             stats.sent.fetch_add(n as u64, Ordering::Relaxed);
             stats.records.fetch_add(1, Ordering::Relaxed);
         }
@@ -1137,12 +1144,23 @@ pub async fn start_configured(
     websocket: Option<SocketAddr>,
     held: Option<Arc<cmux_link::key_holder::KeyHolder>>,
 ) -> Option<HubServe> {
-    let config = hub.config.read().await.mesh_relay.clone()?;
+    // Every way out says why, so a start's log always holds the carrier's state.
+    let Some(config) = hub.config.read().await.mesh_relay.clone() else {
+        tracing::info!(
+            "hub carrier off: this machine is not joined (config.json has no meshRelay)"
+        );
+        return None;
+    };
     if config.credential.as_deref() != Some("join") {
+        tracing::info!("hub carrier off: meshRelay's credential is not the machine join");
         return None;
     }
+    let Some(websocket) = websocket else {
+        tracing::warn!("hub carrier off: the daemon has no loopback WebSocket listener");
+        return None;
+    };
     // Only this daemon's loopback listener, whose tokens stay mandatory, as WireGuard's bridge.
-    let websocket = match crate::wireguard::local_websocket(websocket?) {
+    let websocket = match crate::wireguard::local_websocket(websocket) {
         Ok(websocket) => websocket,
         Err(e) => {
             tracing::warn!("hub carrier off: {e:#}");
@@ -1232,6 +1250,8 @@ pub fn stop_kept(hub: &crate::hub::Hub) -> bool {
     use crate::no_panic::LockExt;
     let carrier = hub.hub_carrier.clear();
     let serving = hub.hub_carrier_serve.lock_or_recover().take();
+    // The workspace routes to the person's other machines go with the carrier they dial.
+    hub.machine_routes.clear();
     carrier.is_some() || serving.is_some()
 }
 

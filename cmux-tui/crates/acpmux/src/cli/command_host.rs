@@ -187,6 +187,15 @@ pub enum PeerCmd {
         /// keeps it off across updates; remove it to turn the timer on).
         #[arg(long)]
         no_auto_update: bool,
+        /// Replace the machine's acpmux even when it is built from a newer
+        /// commit than this one (the machine refuses that otherwise).
+        #[arg(long)]
+        allow_downgrade: bool,
+        /// Restart the daemon even when an update restarted it in the last
+        /// hour. Without it the machine refuses inside that hour, in its own
+        /// install step, and nothing is changed.
+        #[arg(long)]
+        now: bool,
     },
     /// Copy this binary to a machine you added (or every one with --all) and restart
     /// its daemon. The previous binary is kept and put back when the
@@ -210,6 +219,18 @@ pub enum PeerCmd {
         /// than the one pushed, or one with local changes: never a move back.
         #[arg(long)]
         keep_newer: bool,
+        /// Restart the daemon even when an update (this one, another machine's,
+        /// or the machine's own acpmux-update.timer) restarted it in the last
+        /// hour. Without it such a machine is left alone (`busy`, reason
+        /// `restartWindow`) until the hour is over.
+        #[arg(long)]
+        now: bool,
+        /// Install the pushed binary even when the machine's acpmux is built
+        /// from a newer commit. Without it the machine refuses that move back
+        /// (`current`, reason `newerInstalled`) in its own install step, so a
+        /// push from an older build never undoes its self-update.
+        #[arg(long)]
+        allow_downgrade: bool,
     },
     /// Hold a machine (a machine name or its ssh host) off `machine update`: the
     /// update, `--all` and the app's own update queue leave it alone (`held`)
@@ -233,11 +254,17 @@ pub enum PeerCmd {
     /// the installed ~/.local/bin/acpmux differs from the channel's, download
     /// this machine's binary, check its sha256, install it and restart the
     /// daemon, agents kept; a daemon that does not come back on it is rolled
-    /// back. Prints the row `machine update` prints for a machine.
+    /// back. An update restarts the daemon at most once an hour, whichever
+    /// update it is (this one or `machine update` from another machine);
+    /// within the hour the machine is left alone until the next run. Prints
+    /// the row `machine update` prints for a machine.
     SelfUpdate {
         /// The channel to follow.
         #[arg(long, default_value = "feat-cmux-next")]
         channel: String,
+        /// Restart the daemon even when an update restarted it in the last hour.
+        #[arg(long)]
+        now: bool,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,

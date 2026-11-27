@@ -14,6 +14,7 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("ProfileActions", "action.space.new", "New Space"),
         keywords: &["room", "profile", "space", "create"],
+        default_shortcut: Some(Shortcut { key: "n", modifiers: CTRL | OPT | CMD }),
         category: "workspace",
         symbol: "circle.badge.plus",
         surfaces: PALETTE | KEYBOARD | MENU | CONTEXT_MENU,

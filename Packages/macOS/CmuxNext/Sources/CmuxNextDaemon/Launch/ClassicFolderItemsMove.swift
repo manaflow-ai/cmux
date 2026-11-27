@@ -70,6 +70,17 @@ public struct ClassicFolderItemsMove: Sendable {
         return outcomes
     }
 
+    /// Moves the bundle's Computer Use runtime folder (its helper's agent token and state) from classic's
+    /// `cmux/cmux-cua/runtime/<scope>` to ``NextSupport/computerUseRuntime(bundleID:)``, once, leaving a
+    /// symlink for a helper an older app started. Other scopes' folders and the shared `helper` copies stay.
+    @discardableResult
+    public func moveComputerUseRuntime(bundleID: String) -> StateFolderMove.Outcome {
+        let support = NextSupport(applicationSupport: applicationSupport)
+        let old = support.classicComputerUseRuntime(bundleID: bundleID)
+        guard Self.isFolder(old) else { return .nothing }
+        return log(StateFolderMove.move(old: old, new: support.computerUseRuntime(bundleID: bundleID)), old: old)
+    }
+
     private static func isFolder(_ url: URL) -> Bool {
         var info = stat()
         return lstat(url.path, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR

@@ -2465,6 +2465,9 @@ mod receipt_env_tests;
 mod open_cost_tests;
 
 #[cfg(test)]
+mod open_invariants_tests;
+
+#[cfg(test)]
 mod temp_store_tests;
 
 #[cfg(test)]

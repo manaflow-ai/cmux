@@ -33,26 +33,6 @@ fn web_glyph_table_is_current() {
     assert_eq!(have, want, "{} is stale: rerun with CMUX_DEVICE_KIND_WRITE=1", path.display());
 }
 
-/// The Swift packages that draw device-hub records hold this crate's table too
-/// (`CMUX_DEVICE_KIND_WRITE=1` rewrites them).
-#[test]
-fn swift_glyph_tables_are_current() {
-    let want = glyph_table_swift();
-    for relative in SWIFT_GLYPH_TABLES {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..").join(relative);
-        if std::env::var_os("CMUX_DEVICE_KIND_WRITE").is_some() {
-            std::fs::write(&path, &want).unwrap();
-        }
-        let have = std::fs::read_to_string(&path).unwrap_or_default();
-        assert_eq!(have, want, "{} is stale: rerun with CMUX_DEVICE_KIND_WRITE=1", path.display());
-    }
-    // Every kind but generic is in it, with its own symbol.
-    for kind in DeviceKind::ALL {
-        let row = format!("\"{}\": \"{}\",", kind.as_str(), kind.symbol());
-        assert_eq!(want.contains(&row), kind != DeviceKind::Generic, "{row}");
-    }
-}
-
 #[test]
 fn mac_models_name_their_line() {
     for (model, kind) in [

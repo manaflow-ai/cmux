@@ -408,6 +408,7 @@ pub(super) fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
     if written.is_err() {
         let _ = crate::home_fs::remove_file(&tmp);
     }
+    crate::dead_temps::remove_beside(path);
     written
 }
 

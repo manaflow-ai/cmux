@@ -1023,7 +1023,8 @@ class LightRerunRoute(unittest.TestCase):
             "idle std takes them": (self.values(), [*(runner(f"mini-{host}-glaeda-3") for host in "abcdefg"), *idle],
                                     None),
             "a person's re-run": (self.values(GITHUB_TRIGGERING_ACTOR="teamleaderleo"), idle, None),
-            "past the bot's last placed attempt": (self.values(GITHUB_RUN_ATTEMPT="4"), idle, None),
+            "a person's later re-run": (self.values(GITHUB_RUN_ATTEMPT="4", GITHUB_TRIGGERING_ACTOR="teamleaderleo"),
+                                        idle, None),
             "no fit jobs (push, fork)": (self.values(LIGHT_FIT_JOBS=""), idle, None),
             "nightly waits on light": (self.values(), idle,
                                        light_seen({"glaeda-trusted-light-xcode-26.6": {"reserved_queued": 1}})),
@@ -1180,6 +1181,105 @@ class SessionSpill(unittest.TestCase):
                     unlisted["needs"][CmuxNextWiring.PLACEMENT]["outputs"].update(
                         deferred_runner=SIDE, session_spill_runner=SESSION, session_jobs=" ", placed_attempt="1")
                     self.assertEqual(evaluate(expression, unlisted), SIDE)
+
+
+class PlacementTakesTheShallowerOwnedQueue(unittest.TestCase):
+    """Placement judges owned queues by the rescue's depth rule (#43799's deeper_queue()): more jobs queued, or as
+    many with an older oldest one. On 2026-11-15 glaeda-side-std-xcode-26.6 had 61 queued, the oldest 203 min, while
+    glaeda-gui-std-xcode-26.6 had 1; no runner was idle and no session runner took the job, yet a PR's daemon tests
+    still queued on the side label."""
+
+    def runners(self, *, session: int = 0):
+        return ([runner(f"mini{index}-glaeda-3", busy=True) for index in range(8)]
+                + [runner(f"mini{index}-glaeda-7", busy=True, labels=(GUI,)) for index in range(10)]
+                + [runner(f"mini{index}-glaeda-11", busy=True, labels=(SESSION,)) for index in range(session)])
+
+    def seen(self, waits=None, **depths):
+        """A fresh janitor snapshot: label -> (queued, oldest queued minutes)."""
+        return placement.cascade.Seen(
+            waits=waits or {}, owned_queued={label: queued for label, (queued, _) in depths.items() if queued},
+            owned={label: float(oldest) for label, (queued, oldest) in depths.items() if queued},
+            snapshot={"pools": {label: {"queued": queued, "oldest_queued_minutes": oldest}
+                                for label, (queued, oldest) in depths.items()}})
+
+    def place(self, runners, seen, waiting=None) -> dict:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
+            waiting = {**free, **(waiting or {})}
+            with mock.patch.object(placement.pool, "GitHub") as github, \
+                    mock.patch.object(placement.cascade, "read", return_value=(free, waiting, seen)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                github.return_value.runners.return_value = runners
+                placement.main(env(GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux"))
+            return dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+
+    def pr_route(self, lines, name: str) -> str:
+        wiring = CmuxNextWiring()
+        context = wiring.context(runner="")
+        context["needs"][CmuxNextWiring.PLACEMENT]["outputs"].update(
+            deferred_runner=lines["deferred_runner"], session_spill_runner=lines["session_spill_runner"],
+            session_jobs=lines["session_jobs"], placed_attempt="1")
+        return evaluate(runs_on_route(wiring.workflow()["jobs"][name], name), context)
+
+    def test_the_incident_daemon_tests_take_the_shallower_gui_queue(self):
+        lines = self.place(self.runners(), self.seen(**{SIDE: (61, 203), GUI: (1, 2)}))
+        self.assertEqual(lines["session_spill_runner"], GUI)
+        self.assertIn(" daemon-test ", lines["session_jobs"])
+        self.assertEqual(self.pr_route(lines, "daemon-test"), GUI)
+
+    def test_a_deeper_gui_queue_keeps_the_daemon_tests_on_side(self):
+        for gui in ((70, 240), (61, 204)):
+            with self.subTest(gui=gui):
+                lines = self.place(self.runners(), self.seen(**{SIDE: (61, 203), GUI: gui}))
+                self.assertNotIn(" daemon-test ", lines["session_jobs"])
+                self.assertEqual(self.pr_route(lines, "daemon-test"), SIDE)
+
+    def test_never_onto_a_session_queue_deeper_than_the_side_one(self):
+        # Per runner the session queue is shorter (12 on 13 against 10 on 8), but by the rescue's rule it is the
+        # deeper one, so the rescue would hold a re-run off it: placement does not send the jobs there either.
+        runners = self.runners(session=13)
+        lines = self.place(runners, self.seen(**{SIDE: (10, 20), SESSION: (12, 300), GUI: (40, 90)}))
+        self.assertNotEqual(lines["session_spill_runner"], SESSION)
+        self.assertEqual(self.pr_route(lines, "daemon-test"), SIDE)
+
+    def test_a_push_takes_the_gui_label_when_the_session_queue_is_deeper(self):
+        # Blacksmith 6 vCPU stalled keeps a deep role label (healthy_role_label()); between the two owned labels
+        # a push's daemon tests take the shallower one.
+        small = placement.cascade.SMALL
+        lines = self.place(self.runners(session=4),
+                           self.seen({small: 102.0}, **{SIDE: (3, 5), SESSION: (20, 100), GUI: (12, 30)}),
+                           {small: 50})
+        self.assertEqual(lines["gui_runner"], GUI)
+        self.assertEqual(lines["session_runner"], GUI)
+
+    def test_the_rescues_attempt_5_is_placed_and_takes_the_shallower_gui_queue(self):
+        # Run 43716323834 (#43733): the rescue re-ran 'cmux-next generated files' as attempt 5 and it queued on
+        # glaeda-side-std-xcode-26.6 again while glaeda-gui-std-xcode-26.6 had 0 queued: macos-placement ran only
+        # on attempt 1 and the bot's attempts up to 3.
+        job = CmuxNextWiring().workflow()["jobs"]["macos-placement"]
+        bots = "contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)"
+        self.assertIn(f"(github.run_attempt == 1 || {bots})", job["if"])
+        self.assertNotIn("run_attempt <= 3", job["if"])
+        for actor in RESCUE_BOTS:
+            with self.subTest(actor=actor):
+                values = env(GITHUB_RUN_ATTEMPT="5", GITHUB_TRIGGERING_ACTOR=actor)
+                self.assertTrue(placement.cascade.bot_rerun(values))
+                runners, seen = self.runners(), self.seen(**{SIDE: (42, 47), GUI: (0, 0)})
+                with tempfile.TemporaryDirectory() as tmp:
+                    output = Path(tmp) / "out"
+                    free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
+                    printed = io.StringIO()
+                    with mock.patch.object(placement.pool, "GitHub") as github, \
+                            mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), seen)), \
+                            contextlib.redirect_stdout(printed):
+                        github.return_value.runners.return_value = runners
+                        placement.main({**values, "GITHUB_OUTPUT": str(output), "ROUTE_TOKEN": "t",
+                                        "GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+                    lines = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+                self.assertIn("the rescue's re-run", printed.getvalue())
+                self.assertEqual(lines["session_spill_runner"], GUI)
+                self.assertIn(" generated-files ", lines["session_jobs"])
 
 
 class FreshRoute(unittest.TestCase):

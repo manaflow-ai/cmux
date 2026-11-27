@@ -134,6 +134,10 @@ impl Source for HubSource {
         Ok(())
     }
     fn page(&self, page: &Page, _person: Option<&[u8]>) -> Result<Frame, ConnError> {
+        // A peer's `all` or `keys` page needs no sub (decision 266); its `live` walk does.
+        if self.peer && page.view != Some(crate::wire::ListView::Live) {
+            return Ok(self.hub.peer_page(page)?);
+        }
         let tasks = self
             .tasks
             .lock()

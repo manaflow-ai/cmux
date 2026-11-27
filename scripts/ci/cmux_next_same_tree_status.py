@@ -55,8 +55,10 @@ SHA = re.compile(r"^[0-9a-f]{40}$")
 DESCRIPTION_MAX = 140
 POST_WAITS = (0, 20, 60)
 # A post refused on a rate limit waits for it to lift (Retry-After, x-ratelimit-reset), this long in all; the
-# reporter jobs' timeout-minutes leaves room for it.
-RATE_LIMIT_BUDGET_S = 600
+# reporter jobs' timeout-minutes leaves room for it. A spent installation resets up to an hour later, and 600 s
+# gave up at once on any reset past it (hq#11485: cmux#43659's passed check stayed pending 2.5 h), so the wait
+# runs to just under the hour the cmux-bot spare token, minted at the job's start, stays valid.
+RATE_LIMIT_BUDGET_S = 3540
 # Waits after a rate-limit refusal that names no time to wait (a secondary limit), in order; the last repeats.
 SECONDARY_BACKOFF_S = (30, 60, 120, 180)
 LOST_RUNNER = re.compile(r"lost communication|runner .*(?:shut ?down|was deprovisioned|stopped)|"
@@ -231,8 +233,8 @@ def post(api: notify.Api, args: argparse.Namespace, state: str, description: str
             left = RATE_LIMIT_BUDGET_S - (now() - started)
             if wait > left:
                 log(f"::error title=same-tree status not posted::{context}={state} on {args.status_sha} was "
-                    f"refused on a rate limit ({error_text}; {why}) past this job's {RATE_LIMIT_BUDGET_S} s; "
-                    "re-run this job to post it")
+                    f"refused on a rate limit ({error_text}; {why}) past this job's {RATE_LIMIT_BUDGET_S} s: NO_VERDICT, "
+                    "the status stays as last posted; re-run this job to post it")
                 return False
             log(f"::warning::the {context} status post was refused on a rate limit ({error_text}); {why}; "
                 f"trying again in {int(wait)} s")
@@ -249,8 +251,8 @@ def post(api: notify.Api, args: argparse.Namespace, state: str, description: str
             break
         log(f"::warning::the {context} status post was refused ({error_text}); trying again")
         sleep(POST_WAITS[others])
-    log(f"::error title=same-tree status not posted::could not post {context}={state} on {args.status_sha}; "
-        "re-run this job to post it")
+    log(f"::error title=same-tree status not posted::could not post {context}={state} on {args.status_sha}: "
+        "NO_VERDICT, the status stays as last posted; re-run this job to post it")
     return False
 
 

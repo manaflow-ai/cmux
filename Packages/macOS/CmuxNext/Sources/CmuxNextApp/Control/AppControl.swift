@@ -4,7 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserImport
-import CmuxNextControl
+public import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
@@ -387,6 +387,12 @@ final class AppControl {
             .async("debug.open_panel_bench") { [weak services] call in
                 await DebugOpenPanelBench.run(call.params, services)
             }.withDeadline(.fixed(.seconds(30))),
+            // One icon picker (Set Icon) or group editor (the first group's Rename) open, warm, cold or after intent, to its drawn frame.
+            .async("debug.overlay_open_bench") { @MainActor [weak services] call in
+                guard let services else { return .null }
+                let open = { (kind: String) in kind == "icon_picker" ? services.registry.perform("workspace.setIcon") : services.windows.active?.sidebar.container.beginRenameFirstGroup() ?? false }
+                return await OverlayOpenBench(pages: ["icon_picker": services.iconPicker, "group_editor": services.groupEditor], open: open).run(call.params)
+            }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.omnibar_type") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.type(call.params, services: services))
@@ -669,3 +675,9 @@ final class AppControl {
         service?.stop()
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+// `debug.overlay_open_bench` drives the two WebKit overlay pages through these (OverlayOpenBench).
+extension IconPickerService: OverlayBenchPage {}
+extension GroupEditorService: OverlayBenchPage {}
+#endif

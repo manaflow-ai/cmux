@@ -98,7 +98,7 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
         {join.revoke_all && (
           <div className="row">
             <div className="row-control">
-              {/* Off always works, from any input: turning both off needs no record to be read. */}
+              {/* Off always works, from any input: turning every switch off needs no record to be read. */}
               <Button
                 type="button"
                 className="button"
@@ -107,8 +107,7 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
                 onClick={() => {
                   setSetting("all");
                   void (async () => {
-                    await store.setJoinConsent("screen", false);
-                    await store.setJoinConsent("control", false);
+                    for (const item of join.switches) await store.setJoinConsent(item.surface, false);
                   })().finally(() => setSetting(null));
                 }}
               >

@@ -326,6 +326,8 @@ final class TerminalStatusBanner: NSView {
                 return strings.text("terminal.link.lost.restartExhausted", defaultValue: "Terminal stopped: its host kept failing")
             case .restartFailed:
                 return strings.text("terminal.link.lost.restartFailed", defaultValue: "Terminal stopped: it could not restart")
+            case .restartFailedNoFreeTerminal:
+                return strings.text("terminal.link.lost.restartFailed.noPty", defaultValue: "Terminal stopped: out of terminals. Close some, then restart.")
             case nil:
                 return strings.text("terminal.link.exited", defaultValue: "Process exited")
             }

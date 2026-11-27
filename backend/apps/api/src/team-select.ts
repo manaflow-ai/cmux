@@ -1,7 +1,7 @@
 import type { Principal } from "@cmux/ownership"
 import { withGrantClasses } from "./auth.ts"
 import { roleHas } from "./domains/team-roles.ts"
-import { personalTeamIdFor } from "./domains/user.ts"
+import { personalTeamIdFor, stackTeamIdFor } from "./domains/user.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
 import type { Env } from "./env.ts"
 import { memberCheck, stackHealDeps, type MemberCheck, type StackHealDeps } from "./stack-team-heal.ts"
@@ -19,6 +19,19 @@ import { memberCheck, stackHealDeps, type MemberCheck, type StackHealDeps } from
 export const TEAM_HEADER = "x-cmux-team"
 export const TEAM_SUBPROTOCOL_PREFIX = "team."
 const TEAM_ID = /^team_[0-9a-f]{20}$/
+const STACK_TEAM_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The team a session's `x-cmux-team` names, as this Worker's `team_` id. A client that keeps its active team as Stack
+ * names it sends the Stack team's UUID, the same team as `stackTeamIdFor` (the NEXT app's Codex holder: on Leo's
+ * NIGHTLY on production, 2026-11-15, every Codex login delivery was refused with "x-cmux-team must name a team id").
+ * Only a session's, and only the id: whether the caller is a member is still asked of that team's TeamDO, so a Stack id
+ * selects nothing its `team_` id would not.
+ */
+const requestedTeam = (env: Env, p: TeamPrincipal, requested: string | null | undefined) =>
+  requested && p.kind === "session" && STACK_TEAM_UUID.test(requested)
+    ? stackTeamIdFor(env.STACK_PROJECT_ID, requested.toLowerCase())
+    : requested
 
 /** The principal in its own personal team, whatever team the request named (user.ensure creates that team). */
 export const personalPrincipal = (p: Principal): Principal => (p.user ? { ...p, team: personalTeamIdFor(p.user) } : p)
@@ -30,7 +43,8 @@ export type TeamSelection =
   | { readonly ok: true; readonly principal: TeamPrincipal }
   | { readonly ok: false; readonly code: "auth.forbidden" | "team.not_member" | "owner.unreachable"; readonly message: string }
 
-export const selectTeam = async (env: Env, p: TeamPrincipal, requested: string | null | undefined, heal: StackHealDeps = stackHealDeps(env)): Promise<TeamSelection> => {
+export const selectTeam = async (env: Env, p: TeamPrincipal, asked: string | null | undefined, heal: StackHealDeps = stackHealDeps(env)): Promise<TeamSelection> => {
+  const requested = requestedTeam(env, p, asked)
   if (requested && requested !== p.team) {
     if (!TEAM_ID.test(requested)) return { ok: false, code: "auth.forbidden", message: `${TEAM_HEADER} must name a team id` }
     if (p.kind !== "session") return { ok: false, code: "auth.forbidden", message: "an install token acts only in the team it was minted for" }

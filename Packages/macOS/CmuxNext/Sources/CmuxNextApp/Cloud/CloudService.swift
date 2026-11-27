@@ -196,7 +196,7 @@ final class CloudService {
         let userHome = FileManager.default.homeDirectoryForCurrentUser
         codexBroker = CloudCodexHolder(
             configuration: .init(binary: machineIO?.binary, root: paths.root, userHome: userHome, api: configuration.ownerAPIBaseURL(),
-                                 cacheDirectory: machineIO?.cacheDirectory, appVersion: "cmux-next"),
+                                 cacheDirectory: machineIO?.cacheDirectory, appVersion: "cmux-next", stackProject: configuration.stackProjectID),
             answers: .init(
                 credential: { try? await auth.tokens().access },
                 acpmux: {

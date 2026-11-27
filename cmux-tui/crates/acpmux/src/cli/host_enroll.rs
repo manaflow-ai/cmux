@@ -323,22 +323,35 @@ fn fail(step: Step, detail: impl Into<String>, fix: impl Into<String>) -> StepRe
 
 /// Why `ssh -o BatchMode=yes HOST true` failed, from its stderr.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SshFailure {
+pub(super) enum SshFailure {
     NoRoute,
     SshOff,
     KeyRejected,
     HostKeyChanged,
+    HostKeyRevoked,
+    HostKeyConfigInvalid,
+    HostKeyUnknown,
     HostKeyUntrusted,
     Other,
 }
 
 impl SshFailure {
-    fn of(stderr: &str) -> Self {
+    pub(super) fn of(stderr: &str) -> Self {
         let s = stderr.to_ascii_lowercase();
         let any = |needles: &[&str]| needles.iter().any(|n| s.contains(n));
         // ssh prints the host key warning before anything else it reports.
-        if any(&["remote host identification has changed"]) {
+        if any(&["revoked host key", "host key is revoked", "revoked by file"]) {
+            Self::HostKeyRevoked
+        } else if any(&["remote host identification has changed"]) {
             Self::HostKeyChanged
+        } else if s.contains("error checking host key") && s.contains("in revoked keys file") {
+            Self::HostKeyConfigInvalid
+        } else if s.lines().any(|line| {
+            line.starts_with("no ")
+                && line.contains(" host key is known for ")
+                && line.contains("you have requested strict checking")
+        }) {
+            Self::HostKeyUnknown
         } else if any(&["host key verification failed"]) {
             Self::HostKeyUntrusted
         } else if any(&["connection refused"]) {
@@ -361,13 +374,15 @@ impl SshFailure {
         }
     }
 
-    fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Self::NoRoute => "no route to the host",
             Self::SshOff => "ssh is off (connection refused)",
             Self::KeyRejected => "the ssh key was rejected",
             Self::HostKeyChanged => "the host key has changed",
-            Self::HostKeyUntrusted => "the host key is not trusted",
+            Self::HostKeyRevoked => "the host key has been revoked",
+            Self::HostKeyConfigInvalid => "the ssh revocation file could not be checked",
+            Self::HostKeyUnknown | Self::HostKeyUntrusted => "the host key is not trusted",
             Self::Other => "ssh failed",
         }
     }
@@ -389,8 +404,17 @@ impl SshFailure {
             Self::HostKeyChanged => format!(
                 "Verify {bare}'s new fingerprint with its owner before removing the old key with `ssh-keygen -R {bare}` and reconnecting."
             ),
-            Self::HostKeyUntrusted => format!(
+            Self::HostKeyRevoked => format!(
+                "The host key for {bare} was revoked and cannot be accepted. Contact its owner to replace the revoked key and verify the replacement fingerprint before reconnecting."
+            ),
+            Self::HostKeyConfigInvalid => format!(
+                "Check the RevokedHostKeys file in your SSH configuration for {bare}. Restore a readable, valid revocation file before reconnecting."
+            ),
+            Self::HostKeyUnknown => format!(
                 "Run `ssh {host}` to inspect the host key. For a new machine, Add Machine or `acpmux machine enroll {host} --accept-new-host-key` records its first key; changed keys are still refused."
+            ),
+            Self::HostKeyUntrusted => format!(
+                "Run `ssh -v {host}` to inspect the host-key verification failure. Check your SSH configuration and verify the host and IP fingerprints with the machine's owner before reconnecting."
             ),
             Self::Other => format!("Run `ssh {host}` in a terminal to see why it fails."),
         }
@@ -941,7 +965,10 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
         )
         .with_reason(REASON_NOT_THIS_PROGRAM);
     }
-    let pushed = hosts::push_binary(r, bin).and_then(|_| {
+    // Enroll asks for exactly this build (it checks it after), so it may move
+    // a host back, and inside its restart window; `host update` and `host
+    // setup` refuse both.
+    let pushed = hosts::push_binary(r, bin, true, true).and_then(|_| {
         if bin == DAEMON_BIN {
             return Ok(String::new());
         }

@@ -29,7 +29,7 @@ import os
 /// hibernate event is sent only while the page is still hidden with the
 /// same generation, so a page the user selects meanwhile is never touched.
 ///
-/// Long before that, a hidden Chromium page freezes after
+/// Long before that, a hidden Chromium or WebKit page freezes after
 /// `browser.freezeHiddenTabs` seconds (30 by default) to save power, and
 /// thaws when it shows, when an agent drives it, or before it hibernates.
 ///
@@ -138,7 +138,7 @@ final class BrowserHibernation {
     var uncoveredWakes = 0
     private let lowPower: LowPowerMode
     private var lowPowerObservation: LowPowerModeObservation?
-    /// The page's freeze control (a seam for tests; Chromium pages only in the app).
+    /// The page's freeze control (a seam for tests; Chromium and WebKit pages in the app).
     var freezer: (any BrowserTab) -> (any BrowserFreezing)? = { $0 as? any BrowserFreezing }
 
     /// When the person showed each tab lately (the ranking's `recentFocusCount`).

@@ -1060,7 +1060,8 @@ class FastTierRoute(unittest.TestCase):
 
     def test_web_bundle_inputs_beside_rust_skip_it(self):
         """#28160 and #28015: acpmux Rust and the pane's protocol types. The fast tier job builds no
-        bundle, and no suite reads one (BundleInputs): the daemon tier and the compiles carry them."""
+        bundle, and no suite reads one (BundleInputs): the daemon tier carries them, and a running app
+        takes both live (HotOnlyRoute), so no app compile runs."""
         for changed in (["cmux-tui/crates/acpmux/src/rpc.rs", "webviews/src/agent-session/acpmux/direct.ts",
                          "webviews/src/agent-session/acpmux/protocol/generated/methods.ts"],
                         ["cmux-tui/crates/acpmux/src/lib.rs",
@@ -1070,7 +1071,8 @@ class FastTierRoute(unittest.TestCase):
                 self.assertEqual(result["fast_tier"], "false")
                 self.assertEqual(result["swift"], "false")
                 self.assertEqual(result["daemon"], "true")
-                self.assertEqual(result["native"], "true")
+                self.assertEqual(result["native"], "false")
+                self.assertEqual(result["hot_only"], "true")
         # Read only by CmuxNextSettingsTests (no fast tier suite) and a bundle input.
         result = tiers(["schemas/settings/settings-schema.json"])
         self.assertEqual((result["swift"], result["fast_tier"]), ("true", "false"))
@@ -1869,6 +1871,109 @@ class FfiRepinRoute(unittest.TestCase):
                                  capture_output=True, text=True).stdout.split()
         self.assertEqual(sorted(changed), sorted([self.MANIFEST, self.PIN]))
         self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+
+
+class HotOnlyRoute(unittest.TestCase):
+    """Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
+    can get it to do". A pull request a running app takes live (web bundle sources, daemon Rust hot-apply.py swaps)
+    runs no app compile or package test tier; the daemon tier stays. Anything else keeps the full routing."""
+
+    APP_TIERS = ("native", "scheme", "swift", "generated", "fast_tier", "mac_release", "swift_canary")
+
+    def assert_hot(self, changed, layers):
+        result = tiers(changed)
+        self.assertEqual(result["hot_only"], "true", changed)
+        self.assertEqual(result["hot_layers"], layers)
+        for tier in self.APP_TIERS:
+            self.assertEqual(result[tier], "false", tier)
+        self.assertEqual(result["swift_targets"], "")
+        return result
+
+    def assert_not_hot(self, result):
+        self.assertEqual(result["hot_only"], "false")
+        self.assertEqual(result["hot_layers"], "")
+
+    def test_web_only(self):
+        result = self.assert_hot(["webviews/src/agent-session/pane.tsx", "webviews/src/agent-session/pane.css"], "web")
+        self.assertEqual(result["daemon"], "false")
+        self.assertEqual(result["macos"], "false")
+
+    def test_daemon_rust_only_keeps_the_daemon_tier(self):
+        for changed in (["cmux-tui/crates/acpmux/src/lib.rs"],
+                        ["cmux-tui/crates/acpmux/src/rpc.rs", "cmux-tui/crates/cmux-app-host/src/lib.rs"]):
+            with self.subTest(changed=changed):
+                result = self.assert_hot(changed, "rust")
+                self.assertEqual(result["daemon"], "true")
+                self.assertEqual(result["macos"], "true")
+
+    def test_web_and_daemon_rust_drop_the_app_compiles(self):
+        """Before hot_only the web sources ran the scheme and Release compiles beside the daemon tier."""
+        result = self.assert_hot(["cmux-tui/crates/acpmux/src/rpc.rs", "webviews/src/agent-session/acpmux/direct.ts"],
+                                 "rust web")
+        self.assertEqual(result["daemon"], "true")
+        self.assertEqual(result["macos"], "true")
+
+    def test_docs_and_ci_files_beside_a_hot_change_stay_hot(self):
+        self.assert_hot(["webviews/src/agent-session/pane.tsx", "docs/cmux-next.md", "tests/test_ci_warm_sources.py"],
+                        "web")
+
+    def test_rust_beside_swift_runs_the_full_routing(self):
+        result = tiers(["cmux-tui/crates/acpmux/src/lib.rs", f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"])
+        self.assert_not_hot(result)
+        self.assertEqual(result["native"], "true")
+        self.assertEqual(result["swift"], "true")
+        self.assertEqual(result["daemon"], "true")
+
+    def test_web_beside_resources_runs_the_app_compiles(self):
+        for changed in (["webviews/src/agent-session/pane.tsx", "Resources/markdown-viewer/viewer-navigation.js"],
+                        ["webviews/src/agent-session/pane.tsx", "App/Assets.xcassets/AppIcon.appiconset/Contents.json"],
+                        ["cmux-tui/crates/acpmux/src/lib.rs", f"{PACKAGE}/Sources/CmuxNextApp/Resources/x.json"]):
+            with self.subTest(changed=changed):
+                result = tiers(changed)
+                self.assert_not_hot(result)
+                self.assertEqual(result["native"], "true")
+
+    def test_rust_the_app_links_or_bundles_is_not_hot(self):
+        """CCmuxAppFFI and the swift test job's crates need a new app (hot-apply.py linked_rust), as does Rust the
+        scheme's build phases bundle (helper_rust)."""
+        import cmux_next_route as route_module
+        changed = [["cmux-tui/crates/cmux-app-ffi/src/lib.rs"], ["cmux-tui/rust-toolchain.toml"]]
+        changed += [[p.rstrip("/") + "/src/lib.rs" if p.endswith("/") else p]
+                    for p in route_module.scheme_phase_rust_inputs(ROOT)[:3] if p.startswith("cmux-tui/")]
+        for paths in changed:
+            with self.subTest(changed=paths):
+                self.assert_not_hot(tiers(paths))
+
+    def test_the_web_abi_and_files_a_swift_test_reads_are_not_hot(self):
+        self.assert_not_hot(tiers(["webviews/src/web-abi.json"]))
+        self.assert_not_hot(tiers(["webviews/test/fixtures/new-tab-intents.json"]))
+        self.assert_not_hot(tiers(["cmux-tui/crates/acpmux/src/rpc.rs", "cmux-tui/spec/sdk-schema.json"]))
+
+    def test_full_ci_dev_build_and_pushes_run_the_full_routing(self):
+        changed = ["cmux-tui/crates/acpmux/src/rpc.rs", "webviews/src/agent-session/acpmux/direct.ts"]
+        result = tiers(changed, labels=frozenset({"full-ci"}))
+        self.assert_not_hot(result)
+        self.assertEqual(result["full"], "true")
+        result = tiers(changed, labels=frozenset({"dev-build"}))
+        self.assert_not_hot(result)
+        self.assertEqual(result["scheme"], "true")
+        for event in ("push", "workflow_dispatch"):
+            with self.subTest(event=event):
+                result = tiers(changed, event=event)
+                self.assert_not_hot(result)
+                self.assertEqual(result["full"], "true")
+
+    def test_the_replay_explains_the_dropped_app_tiers(self):
+        import cmux_next_route_replay as replay
+        changed = ["cmux-tui/crates/acpmux/src/rpc.rs", "webviews/src/agent-session/acpmux/direct.ts"]
+        before = outputs(cmux_next_route.path_route(ROOT, "pull_request", changed, set()))
+        self.assertEqual(before["native"], "true")
+        result = route(ROOT, "pull_request", changed, set())
+        verdict = replay.explain(before, outputs(result), list(result.reasons))
+        self.assertEqual(verdict.kind, "explained", verdict.detail)
+        # The reason never explains a dropped daemon tier.
+        after = dict(outputs(result), daemon="false")
+        self.assertEqual(replay.explain(before, after, list(result.reasons)).kind, "unexplained")
 
 
 if __name__ == "__main__":

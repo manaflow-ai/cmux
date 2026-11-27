@@ -25,7 +25,8 @@ let package = Package(
         .library(name: "CmuxDeviceHub", targets: ["CmuxDeviceHub"]),
     ],
     targets: [
-        .target(name: "CmuxDeviceHub", swiftSettings: swiftSettings),
+        .plugin(name: "DeviceGlyphGeneratorPlugin", capability: .buildTool(), path: "Plugins/DeviceGlyphGeneratorPlugin"),
+        .target(name: "CmuxDeviceHub", plugins: ["DeviceGlyphGeneratorPlugin"], swiftSettings: swiftSettings),
         .testTarget(name: "CmuxDeviceHubTests", dependencies: ["CmuxDeviceHub"], swiftSettings: swiftSettings),
     ]
 )

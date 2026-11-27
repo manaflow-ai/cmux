@@ -16,7 +16,7 @@ name: cmux-tui artifacts
 #                                                  install as cmux-cloud beside it
 #   cmux-tui/<commit-sha>/cmux-tui-browser-host-<rust-target>  browser host (macOS);
 #                                                  install as cmux-browser-host beside cmux-tui
-#   cmux-tui/<commit-sha>/cmux-tui-host-<rust-target>  slim terminal host (macOS);
+#   cmux-tui/<commit-sha>/cmux-tui-host-<rust-target>  slim terminal host (macOS, Linux);
 #                                                  install as cmux-tui-host beside cmux-tui
 #   cmux-tui/<commit-sha>/cmux-tui-holder-<rust-target>  terminal holder (macOS);
 #                                                  install as cmux-holder beside cmux-tui
@@ -2183,6 +2183,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -2670,6 +2672,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -2795,6 +2799,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -2873,6 +2879,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -2933,6 +2941,8 @@ jobs:
               ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
               --require-artifact cmux-tui-host-aarch64-apple-darwin \
               ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+              --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+              --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
               --require-artifact cmux-tui-holder-aarch64-apple-darwin \
               ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
               --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -3127,6 +3137,8 @@ jobs:
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
             ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
             --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
@@ -4174,6 +4186,44 @@ jobs:
           LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
         run: scripts/ci/cmux-tui-mark-daemon-tested.sh "$KEY_V2" "$LEGACY_KEY"
 
+  # A Team-signed copy of this push's darwin tree build, for hot-apply into a Team-signed app (a
+  # NIGHTLY, cmuxterm-hq#11364): cmux-tui-team-signed.yml signs it with the NEXT nightly's identity,
+  # which only ref nightly-next can hold, so this asks for a run there. It holds nothing: no job
+  # needs it, it never fails the run, and a missing workflow on nightly-next (before a promotion
+  # carries it) is a warning.
+  request-team-signed-tree:
+    name: request the Team-signed tree
+    needs: [tree-preflight, publish-tree-tested]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: write
+    steps:
+      # Every push whose tree is published and tested asks, as point-feat-channel moves: also one whose
+      # tree another run published and tested (publish-tree-tested is then skipped). Most pushes keep
+      # the tree key of the one before, whose set is signed already: those dispatch nothing. The key names the run's concurrency group, so a burst of pushes of one new key signs once.
+      - name: Dispatch cmux-tui-team-signed.yml on nightly-next
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          if curl --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
+              "https://files.cmux.com/cmux-tui/tree/$KEY/team-signed/completion.json?request=$RUN_ID"; then
+            echo "Tree $KEY already has its Team-signed set; nothing to request." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if gh workflow run cmux-tui-team-signed.yml --repo "$REPO" --ref nightly-next -f commit="$SHA" -f key="$KEY"; then
+            echo "Asked nightly-next's cmux-tui-team-signed.yml to sign $SHA's tree." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=Team-signed tree not requested::gh workflow run cmux-tui-team-signed.yml --ref nightly-next failed (the file may not be on nightly-next yet); dispatch it by hand with -f commit=$SHA"
+          fi
+
   # Linux hosts keep their daemon on the newest feat-cmux-next build by
   # themselves (`acpmux host self-update`, run by their acpmux-update.timer):
   # they read cmux-tui/channels/feat-cmux-next.json, the tree key, commit and
@@ -4700,7 +4750,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, mark-tree-commits, sweep-commit-manifests, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, mark-tree-commits, sweep-commit-manifests, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.

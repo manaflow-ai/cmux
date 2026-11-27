@@ -125,7 +125,7 @@ public final class JoinConsentAskView: NSView {
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         row.addArrangedSubview(spacer)
-        row.addArrangedSubview(button(JoinConsentStrings.deny, role: .cancel, allow: false, id: "cmux.joinConsentAsk.deny"))
+        row.addArrangedSubview(button(JoinConsentStrings.decline(ask.surface), role: .cancel, allow: false, id: "cmux.joinConsentAsk.deny"))
         let allow = button(JoinConsentStrings.allow, role: .default, allow: true, id: "cmux.joinConsentAsk.allow")
         self.allow = allow
         row.addArrangedSubview(allow)

@@ -13,14 +13,38 @@ import { TeamTag } from "../../agent-session/acpmux/TeamTag";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
-import { KIND_ICON, healthHelp, isLinked, joinedCaption, sectionItems, showsStateLine, stateText } from "./model";
+import {
+  KIND_ICON,
+  healthHelp,
+  isLinked,
+  joinedCaption,
+  sectionItems,
+  showsStateLine,
+  stateText,
+  asksFirst,
+  dialStopped,
+  dialText,
+} from "./model";
 import type { MachinesStore } from "./store";
-import type { HostHealth, JoinedMachineChange, MachineRow } from "./types";
+import type { HostHealth, JoinedMachineChange, MachineRow, JoinedDialPhase } from "./types";
+
+/** Where a joined row says how its New Workspace on another Mac stands (the gallery's variants; the
+ * app ships `caption`): in the caption's place with Retry after it, at the trailing edge, or in the
+ * caption's place in a tinted ink with Retry as the New Workspace button. */
+export type DialLayout = "caption" | "trailing" | "tinted";
 
 const ICON = 16;
 const SMALL_ICON = 12;
 
-export function MachinesSection({ store, strings }: { store: MachinesStore; strings: Strings }) {
+export function MachinesSection({
+  store,
+  strings,
+  dialLayout = "caption",
+}: {
+  store: MachinesStore;
+  strings: Strings;
+  dialLayout?: DialLayout;
+}) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const snapshot = state.snapshot;
   // Nothing to show until the first snapshot: the section's frame stays empty, never a placeholder
@@ -31,7 +55,7 @@ export function MachinesSection({ store, strings }: { store: MachinesStore; stri
   const asked = state.confirmRemove ? snapshot.rows.find((row) => row.id === state.confirmRemove) : undefined;
   return (
     <>
-      <ul className="machines" data-style={snapshot.style}>
+      <ul className="machines" data-style={snapshot.style} data-dial-layout={dialLayout}>
         {sectionItems(snapshot, strings, state.removed).map((item) => {
           switch (item.type) {
             case "header":
@@ -60,6 +84,8 @@ export function MachinesSection({ store, strings }: { store: MachinesStore; stri
                   failed={snapshot.failed[item.row.joined.id]}
                   menuOpen={state.menuOpen === item.row.id || snapshot.openMenu === item.row.joined.id}
                   store={store}
+                  dial={state.dials[item.row.id]}
+                  dialLayout={dialLayout}
                 />
               ) : (
                 <MachineRowView
@@ -211,19 +237,34 @@ const JoinedRow = memo(function JoinedRow({
   failed,
   menuOpen,
   store,
-}: RowProps & { busy: boolean; failed?: JoinedMachineChange }) {
+  dial,
+  dialLayout,
+}: RowProps & { busy: boolean; failed?: JoinedMachineChange; dial?: JoinedDialPhase; dialLayout: DialLayout }) {
   const machine = row.joined!;
   const caption = joinedCaption(machine, failed, strings);
   const help = healthHelp(row, strings);
   const linked = isLinked(row);
-  const canOpen = linked && row.isConnected;
+  const asks = asksFirst(row);
+  const canOpen = (linked && row.isConnected) || asks;
   const newWorkspace = strings.t("machines.newWorkspace");
+  // New Workspace on a Mac reached through the hub alone: the row says where the ask stands, in its
+  // caption's place (the pick) or at its trailing edge, never in a dialog; Retry once it stopped.
+  const asking = dial === "connecting" || dial === "waiting";
+  const stopped = dialStopped(dial);
+  const dialWords = dial ? dialText(dial, row.name, strings) : undefined;
+  const inCaption = dialWords !== undefined && dialLayout !== "trailing";
+  const retry = strings.t("machines.dial.retry");
+  const open = () => {
+    if (asks) store.openJoined(row.id);
+    else if (canOpen) store.newWorkspace(row.id);
+  };
   return (
     <li
       className="machines-row machines-joined"
-      aria-label={[row.name, caption, help ?? ""].filter(Boolean).join(", ")}
+      aria-label={[row.name, dialWords ?? caption, help ?? ""].filter(Boolean).join(", ")}
       data-menu-open={menuOpen ? "" : undefined}
       data-busy={busy ? "" : undefined}
+      data-dial={dial}
       onContextMenu={(event) => openMenuAt(store, row.id, "joined", event)}
     >
       <MachineIcon row={row} />
@@ -233,10 +274,29 @@ const JoinedRow = memo(function JoinedRow({
           <span className="machines-name machines-name-truncate">{row.name}</span>
           <HealthMark health={row.health} />
         </span>
-        <span className="machines-state" data-failed={failed ? "" : undefined}>
-          {caption}
+        <span className="machines-state-line">
+          {inCaption ? (
+            // An <output> is a status: a screen reader reads each new word of the ask as it lands.
+            <output className="machines-state" data-dial={dial}>
+              {dialWords}
+            </output>
+          ) : (
+            <span className="machines-state" data-failed={failed ? "" : undefined}>
+              {caption}
+            </span>
+          )}
+          {stopped && dialLayout === "caption" && (
+            <button type="button" className="machines-retry" onClick={open}>
+              {retry}
+            </button>
+          )}
         </span>
       </span>
+      {dialWords !== undefined && dialLayout === "trailing" && (
+        <output className="machines-state machines-state-trailing" data-dial={dial}>
+          {dialWords}
+        </output>
+      )}
       {busy ? (
         <Spinner size={SMALL_ICON} className="machines-spinner machines-joined-spinner" loading />
       ) : (
@@ -269,17 +329,27 @@ const JoinedRow = memo(function JoinedRow({
           <Icon name="action.remove" size={SMALL_ICON} />
         </button>
       )}
-      <button
-        type="button"
-        className="machines-action"
-        aria-label={newWorkspace}
-        // tooltip-allow: why a workspace cannot open on a mesh-only machine.
-        title={linked ? newWorkspace : strings.t("machines.joined.noWorkspace")}
-        disabled={!canOpen}
-        onClick={() => canOpen && store.newWorkspace(row.id)}
-      >
-        <Icon name="action.add" size={SMALL_ICON} />
-      </button>
+      {asking ? (
+        <Spinner size={SMALL_ICON} className="machines-spinner machines-joined-spinner machines-dial-spinner" loading />
+      ) : (
+        <button
+          type="button"
+          className="machines-action machines-new"
+          aria-label={stopped && dialLayout !== "caption" ? retry : newWorkspace}
+          // tooltip-allow: why a workspace cannot open on a mesh-only machine.
+          title={
+            canOpen
+              ? stopped && dialLayout !== "caption"
+                ? retry
+                : newWorkspace
+              : strings.t("machines.joined.noWorkspace")
+          }
+          disabled={!canOpen}
+          onClick={open}
+        >
+          <Icon name={stopped && dialLayout !== "caption" ? "action.retry" : "action.add"} size={SMALL_ICON} />
+        </button>
+      )}
     </li>
   );
 });
