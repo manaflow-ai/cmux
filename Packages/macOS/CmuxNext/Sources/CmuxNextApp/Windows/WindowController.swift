@@ -508,6 +508,17 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
     func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
 
+    /// The smallest content a full-screen tile may give this window: the window's own minimum (`minSize`, the floor a
+    /// person can resize it to), or a size set here. Without one AppKit derives it from the content's Auto Layout
+    /// constraints after each change of the window's views (`_doUpdateTilingConstraintsImmediately`, a run loop
+    /// observer), measuring every view in the window: about 3 ms of the main thread after each new tab, workspace or
+    /// pane in a fleet sample (CMUX NEXT Stable perf gate, 2026-11-27).
+    override var minFullScreenContentSize: NSSize {
+        get { tileMinimum ?? contentRect(forFrameRect: NSRect(origin: .zero, size: minSize)).size }
+        set { tileMinimum = newValue }
+    }
+    private var tileMinimum: NSSize?
+
     /// Every frame stays on the test screen in an agent screenshot launch, whichever path sets it
     /// (`WindowPlacement.containedOnTestScreen`), and is kept as given with no display (`constrainsToScreen`).
     override func setFrame(_ frameRect: NSRect, display flag: Bool) { super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag) }
