@@ -42,11 +42,23 @@ pub(crate) fn tcp_segment(dir: &str, packet: &[u8]) {
     }
     let Some(text) = describe_tcp(packet) else { return };
     if PRINTED.fetch_add(1, Ordering::Relaxed) < TCP_TRACE_MAX {
-        eprintln!("WGTCP t={:.3} {dir} {text}", now_ms() as f64 / 1000.0);
+        eprintln!("WGTCP t={:.4} {dir} {text}", epoch().elapsed().as_secs_f64());
     }
 }
 
 const TCP_TRACE_MAX: u64 = 600;
+
+/// Trace only, with [`tcp_segment`]: an owner's bytes going into a tunnel
+/// socket (`write` lines), so a split first write shows beside the SYN.
+pub(crate) fn tcp_write(port: u16, state: &dyn core::fmt::Display, len: usize) {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    let enabled = *ENABLED.get_or_init(|| {
+        std::env::var("CMUX_WG_TCP_TRACE").is_ok_and(|value| !value.is_empty() && value != "0")
+    });
+    if enabled && len > 0 {
+        eprintln!("WGTCP t={:.4} write {port} {state} len={len}", epoch().elapsed().as_secs_f64());
+    }
+}
 
 /// `sport>dport FLAGS seq=S ack=A len=L win=W` for an IPv4 or IPv6 TCP packet.
 fn describe_tcp(packet: &[u8]) -> Option<String> {
