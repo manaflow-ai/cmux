@@ -10,20 +10,25 @@
 //! * `place_undo {sessionId, confirm?}`: moves back to where the newest `moved` line came from.
 //! * `place_get {sessionId | sessionIds}`: the pin, and where a move stands.
 //!
-//! The move is the existing `acpmux session move` (this daemon runs it as a child), so a chat
-//! moves exactly as `session move` moves it: `--carry-changes`, the branch pushed, the worktree
-//! made there. A chat between turns moves now; a running one waits for its turn to end here and
-//! then moves (`after_turn`). The move line (transcript kind `moved`) is written before the
-//! move so it travels with the chat; a move that fails writes one more with `failed: true`.
-//! The pin is the chat's own metadata (`SessionMeta::place_mode`), so it moves with the chat; a
-//! chat with none reads as `place_pin::effective` says (pinned here until this machine's
-//! one-time migration ran, `hub/place_migrate.rs`; Auto after it), so nothing moves unasked.
+//! The move to a machine is the existing `acpmux session move` (this daemon runs it as a child), so
+//! a chat moves exactly as `session move` moves it: `--carry-changes`, the branch pushed, the
+//! worktree made there. Cloud starts a fresh Cloud machine and moves the chat onto it with the
+//! `cmux` CLI (`login_env::cmux_cli`: `CMUX_BIN`, else the app's bundled CLI, else `cmux` on PATH),
+//! the same two steps a hybrid start's driver runs (`place_move::cloud_new_words`,
+//! `cloud_move_words`): the machine starts at once, even mid-turn, and the chat moves once it is up
+//! and the chat is between turns; a fresh machine the chat did not move to is paused. A chat
+//! between turns moves now; a running one waits for its turn to end here and then moves
+//! (`after_turn`). The move line (transcript kind `moved`) is written before the move so it travels
+//! with the chat; a move that fails writes one more with `failed: true`. The pin is the chat's own
+//! metadata (`SessionMeta::place_mode`), so it moves with the chat; a chat with none reads as
+//! `place_pin::effective` says (pinned here until this machine's one-time migration ran,
+//! `hub/place_migrate.rs`; Auto after it), so nothing moves unasked.
 //!
-//! Not here yet: Cloud (refused, `place_move::CLOUD_UNREACHABLE`) and Auto's later move.
+//! Not here yet: Auto's later move.
 
 use crate::hub::{EventFilter, Hub};
 use crate::place_mode::PlaceMode;
-use crate::place_move::{self as pm, LeftBehind, State};
+use crate::place_move::{self as pm, LeftBehind, State, Target};
 use crate::rpc::RpcError;
 use crate::store::SessionStatus;
 use serde_json::{Value, json};
@@ -35,6 +40,8 @@ use std::time::Duration;
 const TURN_WAIT: Duration = Duration::from_secs(600);
 /// The longest a move runs.
 const MOVE_LIMIT: Duration = Duration::from_secs(1800);
+/// The longest the pause of an unused fresh Cloud machine runs.
+const PAUSE_LIMIT: Duration = Duration::from_secs(120);
 /// How long a pick waits for a move the target turns away before answering `moving`.
 const EARLY_REFUSAL: Duration = Duration::from_secs(8);
 const DEFAULT_WHY: &str = "you chose it";
@@ -214,8 +221,10 @@ async fn one(
         return refused(&id, &current, "this chat is already moving");
     }
     let running = matches!(meta.status, SessionStatus::Running | SessionStatus::Waiting);
-    let left = if pm::needs_left(want, here) { gather(&meta.cwd).await } else { Vec::new() };
-    let plan = pm::plan(want, here, running, &left, confirm);
+    let on_cloud = crate::cloud_host::is_cloud_vm();
+    let left =
+        if pm::needs_left(want, here, on_cloud) { gather(&meta.cwd).await } else { Vec::new() };
+    let plan = pm::plan(want, here, on_cloud, running, &left, confirm);
     if plan.store
         && let Err(e) = hub.set_place_mode(&session, Some(want.clone()))
     {
@@ -241,7 +250,7 @@ async fn one(
             match outcome {
                 Ok(()) => set_stand(&sid, None),
                 Err(reason) => {
-                    fail_line(&hub, &sid, &to, &reason);
+                    fail_line(&hub, &sid, to.label(), &reason);
                     set_stand(&sid, Some(Stand::Failed(reason)));
                 }
             }
@@ -255,34 +264,101 @@ async fn one(
     chat(&id, plan.state, &current, &left, None)
 }
 
-/// Runs the move: waits out a running turn, writes the line, then `acpmux session move`.
+/// Runs the move: for Cloud starts its fresh machine first, waits out a running turn, writes
+/// the line, then moves (`acpmux session move`, or for Cloud `cmux move`).
 async fn run_move(
     hub: &Arc<Hub>,
     id: &str,
-    to: &str,
+    to: &Target,
     why: &str,
     cwd: Option<String>,
     wait: bool,
 ) -> Result<(), String> {
     let session = hub.resolve(id).map_err(|e| e.message)?;
-    if wait {
-        let started = tokio::time::Instant::now();
-        while matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting) {
-            if started.elapsed() > TURN_WAIT {
-                return Err(format!("its turn did not end within {}s", TURN_WAIT.as_secs()));
-            }
-            tokio::time::sleep(Duration::from_millis(500)).await;
+    match to {
+        Target::Machine(machine) => {
+            between_turns(&session, id, wait).await?;
+            move_line(hub, &session, machine, None, why);
+            session_move(id, machine, cwd).await
         }
+        Target::NewCloud => {
+            // Started now, mid-turn too: the machine boots while the turn runs.
+            let machine = pm::machine_of(&cmux(&pm::cloud_new_words(), MOVE_LIMIT).await?)
+                .map_err(|e| format!("its Cloud machine did not start: {e}"))?;
+            let moved = async {
+                between_turns(&session, id, wait).await?;
+                move_line(hub, &session, "Cloud", Some(&machine), why);
+                cmux(&pm::cloud_move_words(id, &machine), MOVE_LIMIT).await.map(|_| ())
+            }
+            .await;
+            if moved.is_err()
+                && let Err(e) = cmux(&pm::cloud_pause_words(&machine), PAUSE_LIMIT).await
+            {
+                tracing::warn!(session = %id, %machine, error = %e, "place_set: an unused Cloud machine was not paused");
+            }
+            moved
+        }
+    }
+}
+
+/// Waits while the chat is mid-turn (a turn started while a Cloud machine booted counts too).
+async fn between_turns(
+    session: &crate::hub::Session,
+    id: &str,
+    waited: bool,
+) -> Result<(), String> {
+    let started = tokio::time::Instant::now();
+    let mut waited = waited;
+    while matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting) {
+        if started.elapsed() > TURN_WAIT {
+            return Err(format!("its turn did not end within {}s", TURN_WAIT.as_secs()));
+        }
+        waited = true;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    if waited {
         set_stand(id, Some(Stand::Moving));
     }
+    Ok(())
+}
+
+/// The move line, written before the move so it travels with the chat. `machine`: a Cloud
+/// move's fresh machine.
+fn move_line(
+    hub: &Arc<Hub>,
+    session: &Arc<crate::hub::Session>,
+    to: &str,
+    machine: Option<&str>,
+    why: &str,
+) {
     let from = crate::hub::host_label();
-    let text = pm::move_line(to, why);
-    hub.append(
-        &session,
-        "mux",
-        "moved",
-        json!({"text": text, "to": to, "from": from, "why": why, "undo": {"machine": from}}),
-    );
+    let mut line = json!({"text": pm::move_line(to, why), "to": to, "from": from, "why": why, "undo": {"machine": from}});
+    if let (Some(machine), Some(o)) = (machine, line.as_object_mut()) {
+        o.insert("machine".into(), json!(machine));
+    }
+    hub.append(session, "mux", "moved", line);
+}
+
+/// One `cmux --json` step ([`pm::step_answer`]), bounded by `limit`.
+async fn cmux(words: &[String], limit: Duration) -> Result<Value, String> {
+    let bin = crate::login_env::cmux_cli();
+    let mut command = tokio::process::Command::new(bin);
+    command.args(words).stdin(std::process::Stdio::null()).kill_on_drop(true);
+    let step = words.iter().take(2).cloned().collect::<Vec<_>>().join(" ");
+    let out = match tokio::time::timeout(limit, command.output()).await {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => return Err(format!("could not run cmux {step}: {e}")),
+        Err(_) => return Err(format!("cmux {step} ran past {}s", limit.as_secs())),
+    };
+    pm::step_answer(
+        out.status.success(),
+        &String::from_utf8_lossy(&out.stdout),
+        &String::from_utf8_lossy(&out.stderr),
+    )
+}
+
+/// `acpmux session move` of the chat to `to`.
+async fn session_move(id: &str, to: &str, cwd: Option<String>) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut command = tokio::process::Command::new(exe);
     command

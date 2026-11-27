@@ -346,10 +346,10 @@ impl CreationHold {
         let id = self.next_id;
         self.newest_creation = id;
         self.newest_opened_at_ns = Some(open.at_ns.unwrap_or(live.now_ns));
-        if open.new_workspace {
-            if let Some(lane) = open.press_terminal {
-                self.press_lanes.insert(id, PressLane { lane, person_moves: open.person_moves });
-            }
+        if open.new_workspace
+            && let Some(lane) = open.press_terminal
+        {
+            self.press_lanes.insert(id, PressLane { lane, person_moves: open.person_moves });
         }
         let arm = ReplyBound { opened: self.newest_creation, bound_ns: self.reply_wait_limit_ns };
         self.pending.insert(id, open.generation);
@@ -917,10 +917,10 @@ impl CreationHold {
         shown: Option<&str>,
         terminal_ready: bool,
     ) -> Option<i64> {
-        if let Some(current) = self.shown_workspace_to_wait_for() {
-            if Some(current.as_str()) == shown {
-                return None;
-            }
+        if let Some(current) = self.shown_workspace_to_wait_for()
+            && Some(current.as_str()) == shown
+        {
+            return None;
         }
         let (ticket, workspace) = self.left_workspace_with_keys()?;
         (Some(workspace.as_str()) != shown || !terminal_ready).then_some(ticket)

@@ -99,7 +99,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/model.ts#opensBackgroundTurn", "agent-session/acpmux/transcriptGrid.ts#transcriptGap"],
   variants: {
     block: {
-      note: "Shipped: the woken turn's first tool row stands the block gap under the footer (24), as any row under a footer does. The footer already closes the turn above; a reply there keeps a prompt's turn gap.",
+      note: "Shipped: the woken turn's work folds under its Worked for, the run gap (16) under the footer (footer-working-16), never the empty turn gap. The footer already closes the turn above; a reply there keeps a prompt's turn gap.",
       snapshot: chat([]),
       recording,
     },
@@ -110,7 +110,7 @@ export default agentPaneEntry({
       documentAttributes: { "woken-gap": "turn" },
     },
     tail: {
-      note: "Alternative: the tool row takes the hidden notice's place, 8 under the footer as a status line there sits. It reads as the ended turn's tail.",
+      note: "Alternative: the tool row takes the hidden notice's place, flush under the footer as a status line there sits. It reads as the ended turn's tail.",
       snapshot: chat([]),
       recording,
       documentAttributes: { "woken-gap": "tail" },
@@ -118,9 +118,29 @@ export default agentPaneEntry({
     // Leo, 2026-11-25: "did we identify the cause between the gap here? betwen the copy branch etc
     // buttons and the next working for?" The woken turn still running under the footer.
     working: {
-      note: "Shipped, while the woken turn runs: its first row stands the block gap under the footer (24), as its Worked for does once it ends. test/woken-turn-gap.test.ts holds it.",
+      note: "Shipped, while the woken turn runs: its first tool row stands the block gap under the footer (24), as any step under a footer does; once it ends, its Worked for stands 16. test/woken-turn-gap.test.ts holds both.",
       snapshot: working(),
       recording: recordingOf(true),
+    },
+    // Leo, 2026-11-25: "did we identify the cause between the gap here? betwen the copy branch etc buttons and the
+    // next working for?" The footer row to the woken turn's Worked for: `<html data-footer-working-gap>`
+    // (transcriptGrid.ts `footerWorkingGapLook`). `run` (16) ships.
+    "footer-working-24": {
+      note: "Before: Worked for stood the block gap (24) under the footer row; with the buttons centred in their 32 row and the line in its 32 row it reads as ~38 from the icons to the words.",
+      snapshot: chat([]),
+      recording,
+      documentAttributes: { "footer-working-gap": "block" },
+    },
+    "footer-working-16": {
+      note: "Shipped: the run gap (16), as Worked for stands under any one-line row. ~30 from the icons to the words.",
+      snapshot: chat([]),
+      recording,
+    },
+    "footer-working-8": {
+      note: "Alternative: the footer gap (8), as the footer sits under its reply. ~22 from the icons to the words.",
+      snapshot: chat([]),
+      recording,
+      documentAttributes: { "footer-working-gap": "footer" },
     },
   },
 });

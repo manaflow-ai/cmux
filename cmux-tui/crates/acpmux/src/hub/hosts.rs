@@ -763,6 +763,8 @@ impl Hub {
         let of = incarnation.clone();
         let (resume_after, subagents, turn_open) = self
             .read_whole_log(session, move |hub, s| {
+                // One fold of the log, which the reads below and recovery resume from.
+                hub.save_checkpoint_now(s, &of);
                 (hub.last_host_seq(s, &of), hub.subagents_from_log(s, &of), hub.log_turn_open(s))
             })
             .await?;
@@ -895,6 +897,8 @@ impl Hub {
             "host_adopted",
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
+        // Its loop's timers outlived the daemon that heard them (`agent_timer.rs`).
+        super::agent_timer::note_adopted_goal(session);
         // An agent that cannot keep the chat's policy (a build without its gate, a policy narrowed
         // while no daemon reached it) does not run on (`policy_mode.rs`).
         if self.refuse_unheld(session).await {
@@ -917,7 +921,7 @@ impl Hub {
         // Recovery sets the turn and `running` under the spawn lock every new prompt waits on, so
         // no prompt starts in between. When recovery wrote a status (a recovered turn, which may
         // also have ended by now; a permission asked again), it stands. Else the status loaded from
-        // disk is replaced as a turn's end does (`turns.rs` `finish_turn`): `waiting` while
+        // disk is replaced as a turn's end does (`turns/finish.rs` `finish_turn`): `waiting` while
         // something still asks the person, `ready` otherwise, read under the permissions lock
         // that an answer takes.
         if session.status_changes.load(Ordering::SeqCst) == changes && session.turn().is_none() {
@@ -968,10 +972,12 @@ impl Hub {
             && work.turn_carried
             && work.prompt_request.is_none()
         {
-            let mut turn = TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control);
-            if let Some(line) = &work.turn_line {
-                turn.show(line);
-            }
+            let mut turn = match &work.turn_line {
+                Some(line) => {
+                    TurnInfo::prompted_as(&client, &prompt, &turn_id, &prompt_id, control, line)
+                }
+                None => TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control),
+            };
             turn.trigger = work.turn_trigger;
             turn.turn_seq = turn_seq;
             if work.turn_at > 0 {
@@ -1101,6 +1107,7 @@ impl Hub {
                     let next_raised = work.next_raised;
                     let s = session.clone();
                     let c = child.clone();
+                    let install_turn = self.harness_turn(session).await;
                     tokio::spawn(async move {
                         // New prompts queue behind the recovered turn.
                         let guard = s.turn_lock.lock().await;
@@ -1180,7 +1187,7 @@ impl Hub {
                         hub.schedule_auto_resume(&s, &turn_id, cut);
                         if let Some(carried) = &carried {
                             // Its task takes the turn lock once this one lets it go.
-                            hub.start_carried(&s, &c, &turn_id, carried, None);
+                            hub.start_carried(&s, &c, &turn_id, carried, None, install_turn);
                             if raised {
                                 hub.recovered_floor(&s, Control::Web);
                             }
@@ -1192,7 +1199,11 @@ impl Hub {
                         // now and the next prompt starts it again, resuming
                         // the chat. Not started here: this task runs inside
                         // the adoption a start itself may run.
-                        if s.route_switch.swap(false, Ordering::SeqCst) {
+                        // Work below it waits for quiet (`restart_waits_for_work_below`).
+                        if s.route_switch.load(Ordering::SeqCst)
+                            && !hub.restart_waits_for_work_below(&s)
+                            && s.route_switch.swap(false, Ordering::SeqCst)
+                        {
                             hub.detach_child(&s).await;
                         }
                         // A Stop ended its agent (`cancel.rs`). Not started again here, for the

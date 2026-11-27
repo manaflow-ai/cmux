@@ -16,13 +16,16 @@ const PARAGRAPH =
 function workTurn(b: SimBuilder, calls: number, { thoughts = true, middleText = true } = {}): SimBuilder {
   for (let call = 0; call < calls; call += 1) {
     if (thoughts) b.think(`Checking step ${call + 1} before running it.`);
-    b.tool(`rg -n "retry" src/api/part${call}.ts`, { ms: 600 + (call % 3) * 400 });
+    b.tool(`rg -n "retry" src/api/part${call}.ts`, {
+      ms: 600 + (call % 3) * 400,
+    });
     if (middleText && call === Math.floor(calls / 2)) b.say(PARAGRAPH, { chunks: 6 });
   }
   return b;
 }
 
 export const SCENARIOS: Record<string, () => SimScenario> = {
+  "fork-mid-stream": () => forkMidStream(),
   // Leo, 2026-11-22: "this is also a crazy situation for the folding and whatever the steer and you think and
   // messages and situations come in and subagents come in and out", "i am still seeing flickers and flashes of
   // bullshit. sub-second in and out bullshit." A coordinator's busy turn: thoughts between quick commands,
@@ -45,8 +48,12 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     b.subagent("Fix doubled handbook row on hq main", { ms: 2_500, report: "finished" });
     b.steer("not sure why there are 595 held for you", { after: 300, readMs: 1_200 });
     b.tool("Inspect tail and parent processes", { ms: 300 });
-    b.think("I'm puzzled why tail -3 seems alive but isn't reading.", { chunks: 2 });
-    b.say("Leo's question first: why 595 messages are held for me.", { chunks: 2 });
+    b.think("I'm puzzled why tail -3 seems alive but isn't reading.", {
+      chunks: 2,
+    });
+    b.say("Leo's question first: why 595 messages are held for me.", {
+      chunks: 2,
+    });
     for (let call = 0; call < 3; call += 1) b.tool(`Show acpmux inbox step ${call + 1}`, { ms: 250 + call * 150 }, 150);
     b.think("I'm looking for where the held count in the chat UI comes from.", { chunks: 2 });
     b.subagent("Summarize held inbox messages by sender", { ms: 1_800, report: "finished" });
@@ -67,13 +74,38 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo, 2026-11-22 21:37Z: "when i sent that message it was as if briefliy the worked for disappeared and then
+  // reappeared ... accounting for space for the worked for/working heading should always be there anyways". A
+  // turn with work settles and folds under its Worked for; a prompt sent after it is answered with a thought and
+  // a short reply, no calls.
+  "send-after-settle": () => {
+    const b = sim(
+      "send-after-settle",
+      "A turn with work settles; the next prompt is answered at once, with no calls: its heading must hold its place.",
+    );
+    b.prompt("Find out why the land waits.");
+    b.think("Reading the log.", { chunks: 2 });
+    b.tool("Inspect the stuck process", { ms: 400 });
+    b.tool("List its open files", { ms: 300 });
+    b.say("The stdout pipe is full.", { chunks: 2 });
+    b.turnEnd();
+    b.wait(4_000);
+    b.prompt("thanks, now just say done", 0);
+    b.think("A short answer.", { chunks: 1 });
+    b.say("Done.", { chunks: 1 });
+    return b.turnEnd().build();
+  },
+
   basic: () =>
     sim("basic", "One prompt: a thought, commands with text between, a reply, the turn ends.")
       .prompt("The retry test is flaky. Find out why and fix it.")
       .think("Reading the helper first.")
       .tool("sed -n 1,80p src/api/client.ts", { kind: "read" })
       .say(PARAGRAPH)
-      .tool("bun test api/client.test.ts", { status: "failed", output: "1 fail" })
+      .tool("bun test api/client.test.ts", {
+        status: "failed",
+        output: "1 fail",
+      })
       .say("Fixed: the loop now makes exactly `attempts` calls.")
       .turnEnd()
       .build(),
@@ -112,7 +144,10 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     workTurn(b, 2);
     b.say("Done.");
     b.turnEnd();
-    b.wait(10_000).incoming("Can you also rebase on main?", { kind: "agent_message", fromName: "coord-deputy" });
+    b.wait(10_000).incoming("Can you also rebase on main?", {
+      kind: "agent_message",
+      fromName: "coord-deputy",
+    });
     b.tool("git fetch origin && git rebase origin/main", { ms: 2_000 });
     b.say("Rebased; the branch is up to date.");
     return b.turnEnd().build();
@@ -477,6 +512,22 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo, 2026-11-24: "the extra spacing after thinking added more layout shifts". A thought streams, then the
+  // reply streams under it: nothing drawn over the reply moves when the thought ends or the reply starts.
+  "think-then-answer": () => {
+    const b = sim("think-then-answer", "A thought streamed in deltas, then the reply streamed under it, twice.");
+    b.prompt("Why does the retry path double the wait?");
+    b.think("Weighing the retry path and what the jitter does to the wait between attempts.", { chunks: 8 });
+    b.say("The jitter is added after the backoff doubles, so the wait grows twice per attempt.", { chunks: 8 });
+    b.turnEnd();
+    b.prompt("And the fix?", 4_000);
+    b.think("The jitter should be drawn once per attempt, before the doubling.", { chunks: 6 });
+    b.tool("bun test retry", { ms: 600 });
+    b.think("The test passes with the jitter drawn first.", { chunks: 4 });
+    b.say("Draw the jitter before doubling; the retry test passes.", { chunks: 6 });
+    return b.turnEnd().build();
+  },
+
   "thought-only-turn": () => {
     const b = sim(
       "thought-only-turn",
@@ -720,6 +771,35 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
   },
 };
 
+/// The prompts and the cut-off reply a fork made mid-stream holds (fork-hammer, #50021): its records
+/// are the chat's through the cut, its running turn ended `cancelled` there, then its `forked` record.
+export const FORK_MID_STREAM = {
+  prompts: ["Remember codeword PELICAN-41.", "Write the numbers from 1 to 400 as words."],
+  partial: "one, two, three, four, five, six, seven, eight, nine, ten, eleven, twelve, thirteen",
+};
+
+/// A fork of a chat made while its reply streams (Fork Conversation on a working chat): the rows
+/// the fork draws are the turns its records hold, the cut-off reply included, and the fork is idle.
+/// The daemon's half of the invariant (those turns are the ones the fork's agent holds) is
+/// `cmux-tui/crates/acpmux/tests/hub_integration/fork_context.rs`.
+export function forkMidStream(): SimScenario {
+  const b = sim("fork-mid-stream", "A fork made while the chat's reply streamed: its copy of the turn ends cut off.");
+  const [codeword, numbers] = FORK_MID_STREAM.prompts as [string, string];
+  b.prompt(codeword).say("Noted.").turnEnd();
+  b.prompt(numbers).say(FORK_MID_STREAM.partial, { chunks: 6 });
+  // The fork's copy of the running turn ends now (acpmux hub/fork.rs), then its own history begins.
+  b.record(
+    "mux",
+    "turn_result",
+    { status: "cancelled", stopReason: "cancelled", detail: "forked" },
+    50,
+    "turn_result cut",
+  );
+  b.record("mux", "status", { status: "ready" }, 5, "status ready");
+  b.record("mux", "forked", { parentId: "sim-parent", forkSeq: 40, midTurn: true }, 5, "forked");
+  return b.build();
+}
+
 /// A monstrously long chat: `turns` turns of mixed work (prompts and incoming messages, thoughts,
 /// commands, text, a compaction every 25 turns, a background shell every 10), about 12 rows a turn,
 /// minutes of virtual time each. `longRun(1000)` is 10k+ rows and many hours of simulated time.
@@ -736,7 +816,9 @@ export function longRun(turns: number): SimScenario {
     const calls = 2 + (turn % 5);
     for (let call = 0; call < calls; call += 1) {
       if (call % 2 === 0) b.think(`Planning call ${call + 1}.`, { chunks: 2 });
-      b.tool(`run step ${turn}.${call}`, { ms: 500 + ((turn * 7 + call * 13) % 9) * 700 });
+      b.tool(`run step ${turn}.${call}`, {
+        ms: 500 + ((turn * 7 + call * 13) % 9) * 700,
+      });
       if (call === 1) b.say(`Progress on turn ${turn + 1}: ${PARAGRAPH}`, { chunks: 3 });
     }
     if (turn % 25 === 24) b.compaction();
