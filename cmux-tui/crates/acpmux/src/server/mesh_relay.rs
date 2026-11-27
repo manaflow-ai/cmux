@@ -1348,6 +1348,8 @@ pub async fn deliver(
             "steer": !team && message.mode == Mode::Now,
             "promptId": prompt_id,
             "resend": true,
+            // Only a lease after the first waited (`prompt_provenance::resend_waited`).
+            (crate::prompt_provenance::LEASE_ATTEMPT): message.attempt,
             "fromAgent": from_name,
             "teamMessage": team,
             "startWork": message.start_work,

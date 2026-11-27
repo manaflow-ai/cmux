@@ -67,6 +67,13 @@ pub struct SessionRow {
     /// The role addresses it claimed (`acpmux role claim`), at most [`MAX_ROLES`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<RoleClaim>,
+    /// When the session last changed here (ms since the epoch, its meta's `updated_at`): what
+    /// another machine's row shows as `updatedAt`. Without it a reading daemon stamps each hub row
+    /// with its own clock whenever it first sees it, so every restart of a reader moved all of a
+    /// fleet's rows to one millisecond (`mesh_book::set_mesh_book`). A hub that does not know the
+    /// key drops it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<u64>,
 }
 
 /// The most `formerNames` one heartbeat row lists.
@@ -212,6 +219,9 @@ pub struct BookSession {
     /// Its heartbeat's `roles` (`SessionRow::roles`), when the hub returns them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<RoleClaim>,
+    /// Its heartbeat's `updatedAt` (`SessionRow::updated_at`), when the hub returns it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<u64>,
 }
 
 /// A heartbeat: it replaces this daemon's sessions in the address book.

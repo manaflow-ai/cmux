@@ -255,6 +255,7 @@
           "\"connected\"",
           "\"connecting\"",
           "\"degraded\"",
+          "\"idle\"",
           "\"offline\"",
           "\"paused\"",
           "\"reconnecting\"",
@@ -22757,6 +22758,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/send_hop": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/send_queue": {
       "/*untyped*": {
         "ty": "json",
@@ -36571,6 +36578,12 @@
       }
     },
     "response:_acpmux/send_fanout": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/send_hop": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
