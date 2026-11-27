@@ -2079,9 +2079,11 @@ def test_sweep_skips_a_coalesced_run():
 def test_coalesce_saves_records_only_on_a_first_attempt():
     # A re-run whose -t-SHA record was lost must not claim the current wall-clock window.
     text = (ROOT / ".github/workflows/base-coalesce.yml").read_text()
-    for step in ("Claim this window", "Record this tip as tested"):
+    # The window claim keys on save_window: a direct push inside a taken window records its tip but does not
+    # claim the window again (tests/test_base_coalesce_direct_push.py).
+    for step, output in (("Claim this window", "save_window"), ("Record this tip as tested", "save")):
         block = text.split(f"- name: {step}\n", 1)[1].split("\n      - name:", 1)[0]
-        assert "steps.decide.outputs.save == 'true' && github.run_attempt == '1'" in block, step
+        assert f"steps.decide.outputs.{output} == 'true' && github.run_attempt == '1'" in block, step
 
 
 def test_cmux_next_base_tier_run_falls_back_to_the_newest_published_tree():

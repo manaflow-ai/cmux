@@ -366,7 +366,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -383,7 +383,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1370,10 +1370,18 @@ jobs:
 
       # What this leg built on top of the dependency entry, packed before the strip below removes it;
       # every run prints its size, feat-cmux-next pushes save it. Why: docs/ci/cmux-next-workflow-notes/2026-11-26-cargo-target-delta.md
+      # On an exact dependency hit nothing after the pack reads cmux-tui/target (the strip and the
+      # dependency save run only on a miss), so the build tree goes once the pack has hard-linked what
+      # it keeps: the leg holds the delta, not the delta plus every group's unpacked output, while the
+      # delta's archive is written. Job 140250090793 (x86_64 musl, pool) ran the VM's disk to zero in
+      # the save below and the runner died writing its _diag log; r2-cache.sh now also skips a save
+      # without room for its archive.
       - name: Pack the workspace delta
         id: r2-cargo-ws-pack
         if: ${{ success() && steps.r2-cargo-ws-apply.outcome == 'success' }}
         continue-on-error: true
+        env:
+          TARGET_HIT: ${{ steps.r2-cargo-target.outputs.cache-hit }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1381,6 +1389,11 @@ jobs:
           scripts/ci/cargo-target-delta.sh pack cmux-tui/target "$RUNNER_TEMP/cargo-delta.stamp" \
             "$RUNNER_TEMP/cargo-delta-out" "${{ matrix.target }}" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "cargo delta: pack took $((SECONDS - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
+          before="$(df -Pk . | awk 'NR == 2 { print $4 }')"
+          if [[ "$TARGET_HIT" == true ]]; then rm -rf cmux-tui/target; fi
+          after="$(df -Pk . | awk 'NR == 2 { print $4 }')"
+          echo "cargo delta: $((before >> 20)) -> $((after >> 20)) GiB free after the pack (target hit: ${TARGET_HIT:-false})" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the workspace delta to R2
         if: ${{ success() && steps.r2-cargo-ws-pack.outcome == 'success' && github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
@@ -1502,7 +1515,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1519,7 +1532,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1657,7 +1670,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1703,7 +1716,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1798,7 +1811,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1815,7 +1828,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1885,7 +1898,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1902,7 +1915,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -2189,7 +2202,7 @@ jobs:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -2258,7 +2271,7 @@ jobs:
       attestations: write
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
