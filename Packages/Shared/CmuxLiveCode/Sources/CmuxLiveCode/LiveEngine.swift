@@ -18,6 +18,7 @@
 #if canImport(MachO) && (os(macOS) || DEBUG)
 import Darwin
 import Foundation
+import MachO
 
 /// The live folder's changes, applied one at a time off the main thread.
 public actor LiveEngine {
