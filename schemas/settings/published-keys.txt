@@ -53,6 +53,7 @@ agentPane.display.senderIcon.lead
 agentPane.display.sessionInfo.placement
 agentPane.display.statusVerbs.custom
 agentPane.display.statusVerbs.mode
+agentPane.display.streaming
 agentPane.display.subagentOf
 agentPane.display.thinking.glyph
 agentPane.display.thinking.glyphSize
@@ -499,6 +500,7 @@ experiments.chatInstantUnderLoad
 experiments.chatWidgets
 experiments.cloudDiskBar
 experiments.cloudToggle
+experiments.compactionThresholdInsight
 experiments.composerButtonsVisible
 experiments.composerCustomizer
 experiments.composerHatGroups
@@ -579,6 +581,7 @@ labs.machineJoin
 labs.pauseAgentMachines
 labs.previewFeatures
 labs.previousBuild
+labs.teamCompute
 labs.voiceRoom
 labs.voiceRoomURL
 layout.centerFocusedColumn

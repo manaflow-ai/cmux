@@ -608,6 +608,11 @@ extension WorkspaceCreator {
     public func settled(_ pick: TaskAgentPick, harness: AgentHarnessChoice, catalog: AgentCatalog) -> TaskAgentPick {
         var pick = pick
         let last = lastAgentSettings(harness.id)
+        // A model this agent no longer lists (a draft kept from an older catalog) is not kept
+        // invisibly: its picker would read Default while Start sent it. It falls back as no pick.
+        if let model = pick.model, harness.model(model) == nil, !harness.models.isEmpty || model != harness.defaultModel {
+            pick.model = nil
+        }
         if pick.model == nil {
             let remembered = last?.model.flatMap { id in harness.model(id).flatMap { $0.unavailableReason == nil ? $0.id : nil } }
             let start = catalog.resolve(AgentChatStart(harness: harness.id))?.model
