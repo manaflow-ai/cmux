@@ -2397,6 +2397,7 @@ dependencies = [
 name = "cmux-hub-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-device-kind",
  "cmux-file-lock",
  "cmux-process",
  "cmux-rd-proto",
