@@ -8,6 +8,11 @@
  * sending it again is safe whatever its method. Nothing else is retried here: any other status, a lost
  * response, and a stored answer of a request that ran (the background request id header) go to the caller
  * as before. The wait is bounded (CAPACITY_RETRY_DELAYS_MS, about 3 minutes), so a real outage still fails.
+ *
+ * The provider's other refused-start answer is the same kind: 429 INFRASTRUCTURE_OVERLOADED, "VM start capacity
+ * queue wait expired" (the VM never started). On 2026-11-27 it failed the roll twice in an hour: the bake's
+ * builder create (job 140356895603) and two smoke clones (job 140345575994). The rebake path already retries it
+ * (devbox-image-common.ts retryFreestyleOverload); the roll's scripts now do too, here.
  */
 
 /** Waits before each retry; Retry-After lengthens one up to CAPACITY_RETRY_MAX_DELAY_MS. 7 tries over 195 s. */
@@ -24,17 +29,19 @@ export type CapacityRetryDeps = {
   delaysMs?: readonly number[];
 };
 
-/** A 429 whose message says the provider is at capacity. */
+/** A 429 whose message says the provider is at capacity, or whose code says its VM start queue was overloaded. */
 export function isCapacityAnswer(status: number, body: string): boolean {
   if (status !== 429) return false;
   let message = body;
+  let code = "";
   try {
-    const parsed = JSON.parse(body) as { message?: unknown };
+    const parsed = JSON.parse(body) as { message?: unknown; code?: unknown };
     if (typeof parsed?.message === "string") message = parsed.message;
+    if (typeof parsed?.code === "string") code = parsed.code;
   } catch {
     // a plain-text body is its own message
   }
-  return /\bat capacity\b/i.test(message);
+  return /\bat capacity\b/i.test(message) || code === "INFRASTRUCTURE_OVERLOADED" || /\binfrastructure overloaded\b/i.test(message);
 }
 
 /** Only a body sent whole can be sent again; a stream is spent by the first send. */
