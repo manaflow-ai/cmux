@@ -308,6 +308,18 @@ jobs:
           ./scripts/install-rust-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
 
+      # The app's build phase clones the pinned cmux-cua source when this
+      # Mac's cache lacks it, with no token and only at the end of a 20-30
+      # minute build. On 11-26 two glaeda-std seeds lost their whole build to
+      # a dropped clone there (runs 45907750099, 45897427815: "RPC failed;
+      # curl 18"). Fetch it here with the run's token, as ci-macos.yml compile
+      # admission does (#57957), so a network failure costs seconds, not the
+      # build; a warm cache makes no network call.
+      - name: Fetch the pinned cmux-cua source
+        env:
+          CMUX_CUA_GIT_TOKEN: ${{ github.token }}
+        run: ./scripts/build-cmux-cua.sh --source-only
+
       # The same contract compile admission computes: product inputs, Xcode,
       # SDK, host major, tool versions and the canonical build location. It
       # reads rustc and cargo, so it follows the install above.
