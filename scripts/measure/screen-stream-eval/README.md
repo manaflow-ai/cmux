@@ -424,9 +424,9 @@ Network privacy refuses LAN addresses to the binaries a step starts (Apple's own
 exempt, so a shell probe proves nothing), while the tailnet path between two Macs on one LAN is direct,
 inside WireGuard. The summary's link then says `lan via tailnet`.
 
-A third-party viewer target (its `caps` prints `viewer-grants`, as `moonlight` does) also needs
-Screen Recording and Accessibility on the viewer Mac, where `cmux-rd observe` posts input and
-captures the display: that half then takes the same grant check and launcher as the host.
+The `apple-high`, `apple-standard`, and `moonlight` targets declare `viewer-grants` because their
+viewers use `cmux-rd observe` to post input and capture the display. For these targets the viewer
+checks Screen Recording and Accessibility and uses the same launcher as the host.
 
 The host Mac runs everything as usual (scene, marker, host bound to `lan`, OCR, results), and waits
 up to 30 minutes for the viewer Mac. Submit the viewer half first and the host half once the viewer's
