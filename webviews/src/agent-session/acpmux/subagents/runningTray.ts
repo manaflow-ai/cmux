@@ -107,7 +107,11 @@ function newestFirst(items: readonly TrayItem[]): TrayItem[] {
   const owned: TrayItem[] = [];
   for (const item of items) {
     const last = groups.at(-1);
-    if (item.kind === "command" && item.owner && items.some((each) => each.kind === "agent" && each.id === item.owner!.id)) {
+    if (
+      item.kind === "command" &&
+      item.owner &&
+      items.some((each) => each.kind === "agent" && each.id === item.owner!.id)
+    ) {
       owned.push(item);
       continue;
     }

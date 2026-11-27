@@ -46,8 +46,20 @@ const wedged: Subagent = {
   background: true,
   startedAt: minutesAgo(7),
 };
-const resolveAgent: Subagent = { ...wedged, id: "gallery-chat/toolu_resolve", name: "Resolve cmux#61365 conflict, land", task: "Resolve cmux#61365 conflict, land", startedAt: minutesAgo(1) };
-const brokerAgent: Subagent = { ...wedged, id: "gallery-chat/toolu_broker", name: "Broker allowlist for verdict dispatch", task: "Broker allowlist for verdict dispatch", startedAt: minutesAgo(2) };
+const resolveAgent: Subagent = {
+  ...wedged,
+  id: "gallery-chat/toolu_resolve",
+  name: "Resolve cmux#61365 conflict, land",
+  task: "Resolve cmux#61365 conflict, land",
+  startedAt: minutesAgo(1),
+};
+const brokerAgent: Subagent = {
+  ...wedged,
+  id: "gallery-chat/toolu_broker",
+  name: "Broker allowlist for verdict dispatch",
+  task: "Broker allowlist for verdict dispatch",
+  startedAt: minutesAgo(2),
+};
 
 let next = 0;
 const command = (line: string, description: string | undefined, seconds: number, subagent?: string) => {
@@ -109,12 +121,26 @@ const SCENES: Record<CommandTitlesScene, { agents: Subagent[]; commands: Backgro
   // with one title, apart by start time.
   leo: {
     agents: [wedged, resolveAgent, brokerAgent],
-    commands: [command("wt new manaflow-ai/cmux lane/acpmux-delivery-wedged --topic 'delivery wedged'", undefined, 353, wedged.id)],
+    commands: [
+      command(
+        "wt new manaflow-ai/cmux lane/acpmux-delivery-wedged --topic 'delivery wedged'",
+        undefined,
+        353,
+        wedged.id,
+      ),
+    ],
   },
   // Its owner ended: the command names it first, as nothing else lists it.
   "owner-gone": {
     agents: [{ ...wedged, state: "completed" }],
-    commands: [command("wt new manaflow-ai/cmux lane/acpmux-delivery-wedged --topic 'delivery wedged'", undefined, 353, wedged.id)],
+    commands: [
+      command(
+        "wt new manaflow-ai/cmux lane/acpmux-delivery-wedged --topic 'delivery wedged'",
+        undefined,
+        353,
+        wedged.id,
+      ),
+    ],
   },
 };
 
