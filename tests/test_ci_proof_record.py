@@ -229,6 +229,43 @@ class Plan(unittest.TestCase):
         self.assertEqual((got["head_sha"], got["repo"], got["verdict"]), (HEAD, "manaflow-ai/cmux", "pass"))
         self.assertEqual(pr.problems(got), [])
 
+    def test_a_base_merge_that_changes_the_loop_runs_the_merged_loop(self):
+        # cmux#57582: its head predated #62103, so the loop it ran still posted the worker, and public-body-guard
+        # refused the comment ("this text names fleet host 'cmux22'"). Merging the base brought the fix onto disk
+        # only; the loop now re-executes the merged copy, pinned to the merged head, before it verifies or posts.
+        from unittest import mock
+
+        class Exec(Exception):
+            pass
+
+        view = {"number": 7, "url": "https://github.com/o/r/pull/7", "baseRefName": "feat-cmux-next",
+                "headRefOid": OTHER}
+        merged_loop = {f: b"merged" for f in ios_verify.TOOL}
+        with mock.patch.object(ios_verify, "pr_view", return_value=view), \
+                mock.patch.object(ios_verify, "merge_base_first", return_value=(HEAD, True)), \
+                mock.patch.object(ios_verify, "TOOL_LOADED", merged_loop), \
+                mock.patch.dict(ios_verify.os.environ, {}, clear=False), \
+                mock.patch.object(ios_verify.os, "execve", side_effect=Exec) as execve:
+            ios_verify.os.environ.pop(ios_verify.REEXEC_HEAD, None)
+            with self.assertRaises(Exec):
+                ios_verify.main(["--pr", "7", "--workers", "cmux22"])
+        exe, args, env = execve.call_args.args
+        self.assertEqual(args[1:], ["-I", str(ios_verify.HERE / "ios_verify.py"), "--pr", "7", "--workers", "cmux22"])
+        self.assertEqual(env[ios_verify.REEXEC_HEAD], HEAD)
+
+        # The merged loop takes the merged head as given: it neither merges again nor re-executes again.
+        with mock.patch.object(ios_verify, "pr_view", return_value=view), \
+                mock.patch.object(ios_verify, "merge_base_first") as merge, \
+                mock.patch.dict(ios_verify.os.environ, {ios_verify.REEXEC_HEAD: HEAD}), \
+                mock.patch.object(ios_verify, "git", side_effect=Exec) as git:
+            with self.assertRaises(Exec):
+                ios_verify.main(["--pr", "7", "--workers", "cmux22"])
+        merge.assert_not_called()
+        self.assertEqual(git.call_args.args, ("merge-base", "origin/feat-cmux-next", HEAD))
+
+        # An unchanged loop goes on in this process.
+        self.assertFalse(ios_verify.tool_changed())
+
     def test_baseline_prefers_a_proof_in_the_nightly(self):
         rec = dict(RECORD, runs=[dict(RECORD["runs"][0], mode="test")])
         body = pr.render(rec)
