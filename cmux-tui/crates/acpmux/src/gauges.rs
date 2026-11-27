@@ -96,6 +96,7 @@ impl Gauges {
             "uptimeMs": millis(self.born.elapsed()),
             "startup": phases,
             "memory": memory(),
+            "coldRehydrates": cold_rehydrates().status(),
             "peerLists": peer_lists().status(),
             "peerNotices": peer_notices().status(),
             "recordWrites": record_writes().status(),
@@ -853,6 +854,48 @@ pub fn memory() -> Value {
         "peakRssBytes": peak_rss_bytes(),
         "closedRows": closed_rows().status(),
     })
+}
+
+/// The cold archive's churn (`hub/cold_archive.rs` `Recent`): chats brought back from their
+/// archive, how many the hub remembers as brought back lately and its bound, the ones it let go
+/// to stay under it, and the archives the automatic passes held back for a chat brought back
+/// lately, since the daemon started.
+pub fn cold_rehydrates() -> &'static ColdRehydratesGauge {
+    static COLD: OnceLock<ColdRehydratesGauge> = OnceLock::new();
+    COLD.get_or_init(ColdRehydratesGauge::default)
+}
+
+#[derive(Default)]
+pub struct ColdRehydratesGauge {
+    rehydrates: AtomicU64,
+    recent: AtomicU64,
+    cap: AtomicU64,
+    evicted: AtomicU64,
+    held_back: AtomicU64,
+}
+
+impl ColdRehydratesGauge {
+    pub fn rehydrated(&self, recent: usize, cap: usize, evicted: u64) {
+        let n = |v: usize| u64::try_from(v).unwrap_or(u64::MAX);
+        self.rehydrates.fetch_add(1, Ordering::Relaxed);
+        self.recent.store(n(recent), Ordering::Relaxed);
+        self.cap.store(n(cap), Ordering::Relaxed);
+        self.evicted.fetch_add(evicted, Ordering::Relaxed);
+    }
+
+    pub fn held_back(&self, chats: u64) {
+        self.held_back.fetch_add(chats, Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "rehydrates": self.rehydrates.load(Ordering::Relaxed),
+            "recent": self.recent.load(Ordering::Relaxed),
+            "cap": self.cap.load(Ordering::Relaxed),
+            "evicted": self.evicted.load(Ordering::Relaxed),
+            "heldBack": self.held_back.load(Ordering::Relaxed),
+        })
+    }
 }
 
 /// The closed rows' cached bytes (`hub/closed_rows.rs`): the forms kept, their bytes, their
