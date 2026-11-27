@@ -654,7 +654,12 @@ async fn counting_upstream() -> (String, Arc<std::sync::atomic::AtomicUsize>) {
                             break;
                         }
                         got.drain(..end + 4 + len);
-                        let reply = "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}";
+                        // HEAD advertises the representation length but sends no body bytes.
+                        let reply = if head.starts_with("head ") {
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n"
+                        } else {
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}"
+                        };
                         if sock.write_all(reply.as_bytes()).await.is_err() {
                             return;
                         }
@@ -711,4 +716,17 @@ fn warms_every_origin_its_calls_go_to() {
     assert_eq!(proxy.warm_urls(), vec!["http://sr2:4016".to_owned()]);
     let codex = Provider::new(Upstream::Codex { auth: "/x/auth.json".into() }, test_client());
     assert_eq!(codex.warm_urls(), vec![CODEX_BACKEND.to_owned()]);
+}
+
+/// The call line splits the provider's wait before its head (time to first token on a pool that holds its head) from
+/// the stream after it, under the 200 characters the Cloud probe keeps, starting `-> STATUS (TOTAL ms` as it reads.
+#[test]
+fn call_line_splits_head_from_stream() {
+    let line = call_line("m-1", "POST", "/v1/messages", 200, 2057, 1900, Some(1902));
+    assert_eq!(line, "m-1 POST /v1/messages -> 200 (2057 ms, head 1900 ms, first data 1902 ms)");
+    let empty = call_line("m-1", "POST", "/v1/messages", 204, 30, 29, None);
+    assert!(empty.ends_with("-> 204 (30 ms, head 29 ms, first data none)"), "{empty}");
+    let longest =
+        call_line(&"m".repeat(64), "POST", "/v1/messages", 200, 600_000, 600_000, Some(600_000));
+    assert!(format!("cmux inference gateway: {longest}").len() <= 200, "{}", longest.len());
 }
