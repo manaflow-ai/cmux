@@ -243,7 +243,8 @@ mod tests {
         // A live session registered with the linked cwd still holds the worktree git lists by
         // its real path, so a cleanup pass keeps it.
         std::fs::create_dir_all(&recorded).unwrap();
-        let session = [crate::procs::Process { pid: u32::MAX, cwd: cwd.join("src") }];
+        let session =
+            [crate::procs::Process { pid: u32::MAX, cwd: cwd.join("src"), session_id: None }];
         assert!(crate::procs::inside(&session, &recorded).is_some());
         assert!(crate::procs::inside(&session, &real.join("app/other")).is_none());
         let _ = std::fs::remove_dir_all(&dir);

@@ -2313,6 +2313,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_git_fetch_retry.py
 
+      - name: Validate every git request to github.com from one Mac shares one gate (slots, budget, backoff)
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 -I tests/test_github_git_gate.py
+
       - name: Validate the warm nightly-next checkout reads GitHub only with the release App's token
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_warm_checkout_app_token.py

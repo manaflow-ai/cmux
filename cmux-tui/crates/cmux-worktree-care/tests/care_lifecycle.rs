@@ -401,6 +401,7 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
             open: true,
             archived_checkout: None,
             updated_ms: 0,
+            ids: Vec::new(),
         }],
         settings: Settings {
             recent_hours: zero,
@@ -643,6 +644,7 @@ fn pr_archive_preserves_late_writes_and_restores_the_linked_checkout() {
             branch: "cmux/pr".into(),
             head: git(&wt, &["rev-parse", "HEAD"]),
         }),
+        ids: Vec::new(),
     };
     let mut options = Options {
         roots: vec![main],
@@ -679,6 +681,171 @@ fn pr_archive_preserves_late_writes_and_restores_the_linked_checkout() {
     restore(&store, &manifest, None).unwrap();
     assert_eq!(std::fs::read_to_string(wt.join(".env")).unwrap(), "written after the scan");
     assert_eq!(git(&wt, &["branch", "--show-current"]), "cmux/pr");
+}
+
+/// `git` in `dir` as if run `hours` ago: its commits and reflog entries
+/// carry that time.
+#[cfg(unix)]
+fn git_ago(dir: &Path, hours: u64, args: &[&str]) {
+    let then = inventory::now_ms() / 1000 - hours * 3600;
+    let out = Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgSign=false"])
+        .args(["-c", "core.hooksPath=/dev/null"])
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_COMMITTER_DATE", format!("@{then} +0000"))
+        .env("GIT_AUTHOR_DATE", format!("@{then} +0000"))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+}
+
+/// Every file and folder under `path` (it too) last changed `hours` ago.
+#[cfg(unix)]
+fn age(path: &Path, hours: u64) {
+    let then = std::time::SystemTime::now() - std::time::Duration::from_secs(hours * 3600);
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        let meta = std::fs::symlink_metadata(&path).unwrap();
+        if meta.is_symlink() {
+            continue;
+        }
+        if meta.is_dir() {
+            stack.extend(std::fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
+        }
+        std::fs::File::open(&path).unwrap().set_modified(then).unwrap();
+    }
+}
+
+/// A checkout of a bare mirror as `wt new` makes them, everything about
+/// it 25 h old: `<base>/checkouts/lane--x` on branch `lane/x`, one commit
+/// of its own pushed to origin, reflogs on (as the mirrors keep them).
+#[cfg(unix)]
+fn mirror_checkout(name: &str) -> (PathBuf, PathBuf, PathBuf) {
+    let (base, main) = repository(name);
+    let mirror = base.join("mirror.git");
+    git(&base, &["clone", "-q", "--bare", "origin.git", "mirror.git"]);
+    git(&mirror, &["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"]);
+    git(&mirror, &["config", "core.logAllRefUpdates", "true"]);
+    git_ago(&mirror, 25, &["fetch", "-q", "origin"]);
+    let checkout = base.join("checkouts/lane--x");
+    let at = checkout.to_str().unwrap();
+    git_ago(&mirror, 25, &["worktree", "add", "-q", "-b", "lane/x", at, "origin/main"]);
+    write(&checkout.join("src/lib.txt"), "lane\n");
+    git_ago(&base, 25, &["-C", at, "commit", "-qam", "lane"]);
+    git_ago(&base, 25, &["-C", at, "push", "-q", "origin", "HEAD:lane/x"]);
+    git(&main, &["fetch", "-q", "origin"]);
+    age(&base, 25);
+    (base, mirror, checkout)
+}
+
+/// A pass over `<base>/checkouts` with the default waits at high pressure
+/// (pushed work goes after 24 h idle), acting or not.
+#[cfg(unix)]
+fn high_pressure(base: &Path, apply: bool) -> Options {
+    Options {
+        roots: vec![base.join("checkouts")],
+        sessions: Vec::new(),
+        uses: nothing(),
+        open: closed(),
+        settings: Settings::default(),
+        apply,
+        pressure: Some(Pressure::High),
+        only: Vec::new(),
+        measure: false,
+        guarded: unguarded(),
+    }
+}
+
+/// The verdict a pass gave `path`.
+#[cfg(unix)]
+fn verdict_of(report: &pass::Report, path: &Path) -> cmux_worktree_care::Verdict {
+    report.items.iter().find(|i| i.path == path).expect("listed").verdict.clone()
+}
+
+/// hq#13316 (detector `vanished-owned-checkout`): on 2026-11-18 a loop
+/// whose folder was elsewhere used its checkout only through `git -C`,
+/// and the pass removed it as "everything pushed; idle 25 h". The
+/// mirror's refs of its branch count as use: a checkout whose folder,
+/// index and HEAD are 25 h old stays once its owner's work moves
+/// `lane/x` there.
+#[cfg(unix)]
+#[test]
+fn care_a_checkout_its_owner_uses_only_through_git_c_stays_after_25_h_idle() {
+    let _slot = merge_tree_slot();
+    let (base, mirror, checkout) = mirror_checkout("git-c");
+    let store = Store::open(base.join("store")).unwrap();
+    // Untouched for 25 h: it would go.
+    let before = verdict_of(&pass::run(&high_pressure(&base, false), &store).unwrap(), &checkout);
+    assert_eq!(before.action, Action::Reclaim, "{}", before.reason);
+    assert_eq!(before.reason, "everything pushed; idle 25 h");
+
+    // The owner's job pushes more of `lane/x` from elsewhere and fetches
+    // it through `git -C <checkout>`; its own HEAD does not move.
+    let main = base.join("main");
+    git(&main, &["switch", "-q", "-c", "lane/x", "origin/lane/x"]);
+    write(&main.join("src/lib.txt"), "loop\n");
+    git(&main, &["commit", "-qam", "loop"]);
+    git(&main, &["push", "-q", "origin", "lane/x"]);
+    git(&base, &["-C", checkout.to_str().unwrap(), "fetch", "-q", "origin"]);
+    // Only the mirror's refs of `lane/x` show it: the folder and its
+    // private git folder are 25 h old again.
+    age(&checkout, 25);
+    age(&mirror.join("worktrees"), 25);
+    let after = verdict_of(&pass::run(&high_pressure(&base, true), &store).unwrap(), &checkout);
+    assert_eq!(after.action, Action::Keep, "{}", after.reason);
+    assert!(after.reason.starts_with("used "), "{}", after.reason);
+    assert!(checkout.exists());
+}
+
+/// hq#13316: a checkout whose `wt-owner.json` (as `wt new` writes it)
+/// names a process that runs is in use, however idle; one naming a
+/// process that is gone is judged by its other signals.
+#[cfg(unix)]
+#[test]
+fn care_a_checkout_whose_wt_owner_runs_stays_after_25_h_idle() {
+    let _slot = merge_tree_slot();
+    let (base, mirror, checkout) = mirror_checkout("wt-owner");
+    let store = Store::open(base.join("store")).unwrap();
+    let owner_file = mirror.join("worktrees/lane--x/wt-owner.json");
+    let record = |pid: u32| {
+        serde_json::json!({
+            "branch": "lane/x",
+            "created_at": "2026-11-17T02:00:00Z",
+            "owner": {
+                "callsign": null,
+                "harness": "claude",
+                "host": null,
+                "ids": ["01a1e717-2364-7022-b435-b2ba9f4ad05c"],
+                "pid": pid,
+                "proc_start": "217810655",
+                "session_id": "01a1e717-2364-7022-b435-b2ba9f4ad05c",
+                "user": "t"
+            },
+            "repo": "o/r",
+            "sparse": null,
+            "start": "origin/main",
+            "v": 1
+        })
+        .to_string()
+    };
+    // Far above any pid_max: never running, so the other signals decide.
+    write(&owner_file, &record(2_000_000_000));
+    age(&base, 25);
+    let gone = verdict_of(&pass::run(&high_pressure(&base, false), &store).unwrap(), &checkout);
+    assert_eq!(gone.action, Action::Reclaim, "{}", gone.reason);
+
+    write(&owner_file, &record(std::process::id()));
+    age(&base, 25);
+    let kept = verdict_of(&pass::run(&high_pressure(&base, true), &store).unwrap(), &checkout);
+    assert_eq!(kept.action, Action::Keep, "{}", kept.reason);
+    let pid = std::process::id();
+    assert_eq!(
+        kept.reason,
+        format!("owner 01a1e717-2364-7022-b435-b2ba9f4ad05c's process {pid} runs")
+    );
+    assert!(checkout.exists());
 }
 
 /// LAUNCH-NO-TCC-PROMPTS (2026-11-22, air-blue): a daemon's start-up pass ran

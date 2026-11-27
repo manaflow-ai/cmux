@@ -26,6 +26,11 @@ impl Hub {
                     open: m.status != SessionStatus::Closed,
                     updated_ms: m.updated_at,
                     archived_checkout: managed.and_then(|root| checkout(m, root, rules)),
+                    ids: std::iter::once(&m.id)
+                        .chain(m.agent_session_id.as_ref())
+                        .chain(&m.previous_agent_session_ids)
+                        .cloned()
+                        .collect(),
                 });
                 if row.archived_checkout.is_some() && self.settle_blocked(&session) {
                     row.archived_checkout = None;
