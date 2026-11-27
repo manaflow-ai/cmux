@@ -55,14 +55,14 @@ pub(super) fn tool() -> Value {
                 "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "block/blocker: you are stuck until it acts; question: you wait on its answer (both wake it). result/action (default): wakes it only if you started it or gave it work. fyi: wakes no one."},
                 "pr": {"type": "integer", "description": "The PR it is about; the receiver's inbox threads by it."},
                 "thread": {"type": "string", "description": "A topic or an inbox_read threadId (default: by the PR its first line names, else all yours)."},
-                "file": {"type": "string", "description": "Instead of text: a file holding it, any size."},
-                "attach": {"type": "array", "items": {"type": "string"}, "description": "Absolute paths of files to send with it, any size: images show as images, others as links. Never a provider file id (libfile_...)."},
+                "file": {"type": "string", "description": "Instead of text: a file with it, any size."},
+                "attach": {"type": "array", "items": {"type": "string"}, "description": "Absolute file paths, any size: images show inline, others as links. Never a provider file id (libfile_...)."},
                 "tag": {"type": "string", "description": "Instead of to: every live session with this tag (key or key=value), not you."},
-                "supersede": {"type": "string", "description": "A key: your message still queued at the receiver under it is replaced by this one."},
+                "supersede": {"type": "string", "description": "A key: replaces your message still queued at the receiver under it."},
                 "notice": notice_schema("Send as a tool's notice (severity, title, links); text is its body."),
                 "messages": {
                     "type": "array",
-                    "description": "A batch, sent in order: each item takes the fields above, which are its defaults.",
+                    "description": "A batch, sent in order; the fields above are each item's defaults.",
                     "items": {
                         "type": "object",
                         "properties": {

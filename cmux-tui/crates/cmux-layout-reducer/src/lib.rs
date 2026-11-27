@@ -968,6 +968,7 @@ pub mod group_hover_summary;
 pub mod keep_awake;
 pub mod new_placement;
 pub mod optimistic;
+pub mod pane_drop_zones;
 pub mod pane_focus;
 #[cfg(kani)]
 mod proofs;

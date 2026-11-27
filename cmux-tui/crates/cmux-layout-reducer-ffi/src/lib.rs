@@ -109,6 +109,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+pub mod pane_drop_zones;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
