@@ -159,6 +159,11 @@ fn rerun_request(
         return Some(again);
     }
     let details = at(error, "details");
+    // A pre-existing same-name create may belong to another provider. Only this run's
+    // accepted create permits dropping its create-only provider choice on a retry.
+    if request.provider.is_some() && at(details, "creation_accepted") != &Value::Bool(true) {
+        return None;
+    }
     let id = at(details, "machine_id").as_str().filter(|id| !id.is_empty() && *id != "ID");
     let name = at(details, "machine_name").as_str().filter(|name| !name.is_empty());
     let machine = match (id, name, &request.machine) {
@@ -168,7 +173,7 @@ fn rerun_request(
         (None, None, other) => other.clone(),
     };
     let environment = if machine == request.machine { request.environment.clone() } else { None };
-    Some(Request { machine, environment, ..again })
+    Some(Request { machine, environment, provider: None, ..again })
 }
 
 /// The machine id a failure says this run made (`details.new_machine`), so the rerun's answer on it still says so.

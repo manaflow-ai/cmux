@@ -35,7 +35,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var account: String?
     /// The selected Cloud environment id; nil lets workspace ensure resolve personal Default.
     public var environment: String?
-    /// The explicit Cloud provider for a new machine (`gcp` or `freestyle`); nil keeps the
+    /// The explicit Cloud provider for a new machine (`gcp`, `freestyle` or `own-host`); nil keeps the
     /// account's existing default route.
     public var provider: String?
     /// The warm machine reserved by this compose; Send binds it using ``key``.
@@ -102,7 +102,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
               let team = name("team"), let mode = name("mode"), let effort = name("effort"), let account = name("account"),
               let provider = name("provider"),
               let replacesChat = name("replacesChat") else { return nil }
-        guard provider == nil || provider == "gcp" || provider == "freestyle" else { return nil }
+        guard provider == nil || provider == "gcp" || provider == "freestyle" || provider == "own-host" else { return nil }
         // A connection id only (``CloudSetup/isConnectionID(_:)``).
         if let account, !CloudSetup.isConnectionID(account) { return nil }
         let reservationKey = params?["reservationKey"]

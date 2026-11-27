@@ -534,7 +534,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public func startChatCreateBegin(key: String, account: String, name: String, createKey: String, provider: String? = nil) async throws -> (Answer, Void) {
         var call = ["verb": "start-chat-create-begin", "key": key, "account": account, "name": name, "createKey": createKey]
         call["provider"] = provider
-        (try await run(call).answer, ())
+        return (try await run(call).answer, ())
     }
 
     /// `route`: how the create goes out, kept with its key (``StartChatPlan/recorded(_:)``; nil names none, the relay).

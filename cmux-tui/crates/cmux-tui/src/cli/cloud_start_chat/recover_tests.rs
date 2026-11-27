@@ -170,6 +170,52 @@ fn a_pending_start_is_started_again_on_the_machine_it_names() {
     assert_eq!(fake.paused, Duration::from_secs(5));
 }
 
+#[test]
+fn an_explicit_provider_create_recovers_on_its_machine_without_creating_twice() {
+    for provider in ["gcp", "own-host", "freestyle"] {
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            made(),
+            ok(json!({"pending": true, "machine_id": "vm-1", "text": "still starting"})),
+            signed_in(),
+            signed_in(),
+            started(),
+            exec_out(""),
+        ]);
+        let asked = bounded(request(&["--provider", provider, "--name", "insurance"]), &fake);
+        let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+        assert_eq!(answer["machine_id"], "vm-1");
+        assert_eq!(answer["new_machine"], true);
+        assert_eq!(answer["recovered_reruns"], 1);
+        assert_eq!(
+            fake.ran.iter().filter(|args| args.get(1).is_some_and(|a| a == "new-machine")).count(),
+            1
+        );
+        assert!(
+            fake.ran
+                .iter()
+                .filter(|args| args.get(1).is_some_and(|a| a == "start-session"))
+                .all(|args| args.windows(2).any(|pair| pair == ["--target", "machine:vm-1"])
+                    && !args.iter().any(|arg| arg == "--provider"))
+        );
+    }
+}
+
+#[test]
+fn an_explicit_provider_never_recovers_onto_an_unverified_pending_machine() {
+    let mut fake = Fake::new(vec![]);
+    let began = fake.clock;
+    let asked = bounded(request(&["--provider", "gcp", "--name", "chat-fresh"]), &fake);
+    let error = injected(Class::StartPending);
+    let failure = Outcome::Failed { error: error.clone(), exit: 75 };
+    let Outcome::Failed { error: after, .. } = recover(&mut fake, &asked, began, failure) else {
+        panic!("unverified pending machine must not run")
+    };
+    assert_eq!(after["code"], error["code"]);
+    assert!(fake.ran.is_empty());
+    assert_eq!(fake.paused, Duration::ZERO);
+}
+
 /// A pending start that names no machine, on a run that asked for a new one, is not started again: that would
 /// make a second machine. It passes through.
 #[test]

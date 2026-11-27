@@ -320,8 +320,10 @@ struct AgentPaneCloudStartTests {
     }
 
     @Test func anExplicitCloudProviderIsValidatedAndPreserved() throws {
-        let gcp = try #require(AgentPaneCloudStart(params: Self.good.merging(["provider": "gcp"]) { $1 }))
-        #expect(gcp.provider == "gcp")
+        for provider in ["gcp", "freestyle", "own-host"] {
+            let start = try #require(AgentPaneCloudStart(params: Self.good.merging(["provider": provider]) { $1 }))
+            #expect(start.provider == provider)
+        }
         let defaultStart = try #require(AgentPaneCloudStart(params: Self.good))
         #expect(defaultStart.provider == nil)
         #expect(AgentPaneCloudStart(params: Self.good.merging(["provider": "hetzner"]) { $1 }) == nil)

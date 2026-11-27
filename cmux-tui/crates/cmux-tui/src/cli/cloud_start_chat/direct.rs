@@ -195,6 +195,35 @@ fn flag<'w>(args: &'w [String], name: &str) -> Option<&'w str> {
 }
 
 impl DirectRunner<'_> {
+    fn new_machine(&mut self, args: &[String]) -> Ran {
+        let Some(name) = flag(args, "--name").filter(|name| !name.trim().is_empty()) else {
+            return refused(error("usage.invalid", "cloud new-machine needs --name"));
+        };
+        if flag(args, "--environment").is_some() {
+            return refused(error(
+                "cloud.provider.unsupported",
+                "the direct create route does not support a Cloud environment",
+            ));
+        }
+        let provider = flag(args, "--provider");
+        if provider.is_some_and(|provider| !matches!(provider, "gcp" | "freestyle" | "own-host")) {
+            return refused(error(
+                "usage.invalid",
+                "the provider must be gcp, freestyle or own-host",
+            ));
+        }
+        let key = self.cloud.new_key();
+        match self.cloud.create(name, &key, provider) {
+            Ok(row) => answered(json!({
+                "machine_id": row.id,
+                "machine_name": row.name,
+                "status": row.status,
+                "route": "direct",
+            })),
+            Err(error) => refused(error),
+        }
+    }
+
     fn list_machines(&mut self) -> Ran {
         match self.cloud.list() {
             Ok(rows) => answered(json!({
@@ -287,6 +316,7 @@ impl DirectRunner<'_> {
                 .or_else(|| target.strip_prefix("vm:"))
                 .unwrap_or(target);
             let row = self.cloud.get(id)?;
+            verify_existing_provider(&row, flag(args, "--provider"))?;
             let origin = row.reused(now);
             (row, origin)
         } else if let Some(name) = flag(args, "--name") {
@@ -294,6 +324,7 @@ impl DirectRunner<'_> {
                 self.cloud.list()?.into_iter().find(|row| row.name.as_deref() == Some(name));
             match found {
                 Some(row) => {
+                    verify_existing_provider(&row, flag(args, "--provider"))?;
                     let origin = row.reused(now);
                     (row, origin)
                 }
@@ -404,6 +435,22 @@ impl DirectRunner<'_> {
     }
 }
 
+/// The current machine catalog has no provider identity. An explicit choice may make a new
+/// machine, but must not silently reuse a named/targeted machine whose provider is unknown.
+/// A retry pinned to a machine it created omits the create-only provider choice.
+fn verify_existing_provider(row: &Row, provider: Option<&str>) -> Result<(), Value> {
+    let Some(provider) = provider else { return Ok(()) };
+    Err(json!({
+        "code": "cloud.provider.unverified",
+        "message": format!(
+            "cannot verify that existing machine {} uses {provider}; use a new machine name for an explicit provider",
+            row.id,
+        ),
+        "retryable": false,
+        "details": {"machine_id": row.id, "provider": provider},
+    }))
+}
+
 fn at<'v>(value: &'v Value, key: &str) -> &'v str {
     value.get(key).and_then(Value::as_str).unwrap_or_default()
 }
@@ -443,6 +490,7 @@ impl Runner for DirectRunner<'_> {
     fn cmux(&mut self, args: &[String]) -> Ran {
         match (args.first().map(String::as_str), args.get(1).map(String::as_str)) {
             (Some("cloud"), Some("list-machines")) => self.list_machines(),
+            (Some("cloud"), Some("new-machine")) => self.new_machine(args),
             (Some("cloud"), Some("start-session")) => self.start_session(args),
             (Some("cloud"), Some("exec")) => self.cloud_exec(args),
             (Some("cloud"), Some("pause-machine")) => self.pause_machine(args),
@@ -456,8 +504,8 @@ impl Runner for DirectRunner<'_> {
             (
                 Some("cloud"),
                 Some(
-                    "list-machines" | "start-session" | "exec" | "pause-machine" | "resume-machine"
-                    | "kill-machine",
+                    "list-machines" | "new-machine" | "start-session" | "exec" | "pause-machine"
+                    | "resume-machine" | "kill-machine",
                 ),
             ) => self.cmux(args),
             _ => self.inner.cmux_by(args, until),
@@ -592,20 +640,11 @@ impl cmux_cloud_wire::Op for CreateWhole {
 /// catalog is regenerated; serde preserves the backend's optional field without changing the
 /// shared generated protocol types.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct DirectCreateParams {
+pub(super) struct DirectCreateParams {
+    #[serde(flatten)]
+    pub(super) machine: cmux_cloud_wire::CloudMachineCreateParams,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    name: Option<String>,
-    size: cmux_cloud_wire::CloudMachineSize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    image: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    from_snapshot: Option<cmux_cloud_wire::SnapshotId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    origin: Option<cmux_cloud_wire::CloudMachineOrigin>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    ttl_seconds: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    provider: Option<String>,
+    pub(super) provider: Option<String>,
 }
 
 fn row_of(machine: cmux_cloud_wire::CloudMachine) -> Row {
@@ -727,19 +766,21 @@ impl Cloud for Api {
     }
 
     fn create(&mut self, name: &str, key: &str, provider: Option<&str>) -> Result<Row, Value> {
-        use cmux_cloud_wire::CloudMachineSize;
+        use cmux_cloud_wire::{CloudMachineCreateParams, CloudMachineSize};
         let (cpu, memory_mb, disk_mb) = super::super::cloud_journey::start_size_from_env();
         let params = DirectCreateParams {
-            name: Some(name.to_owned()),
-            size: CloudMachineSize {
-                cpu: Some(cpu),
-                memory_mb: Some(memory_mb),
-                disk_mb: Some(disk_mb),
+            machine: CloudMachineCreateParams {
+                name: Some(name.to_owned()),
+                size: CloudMachineSize {
+                    cpu: Some(cpu),
+                    memory_mb: Some(memory_mb),
+                    disk_mb: Some(disk_mb),
+                },
+                image: None,
+                from_snapshot: None,
+                origin: None,
+                ttl_seconds: None,
             },
-            image: None,
-            from_snapshot: None,
-            origin: None,
-            ttl_seconds: None,
             provider: provider.map(str::to_owned),
         };
         let whole = self.call::<CreateWhole>(params, Some(key))?;

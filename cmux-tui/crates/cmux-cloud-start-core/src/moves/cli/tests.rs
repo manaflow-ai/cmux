@@ -426,6 +426,19 @@ fn each_verb_carries_its_arguments() {
         pin.args,
         ["link", "start-chat", "pin", "--key", "k", "--account", "a", "--machine", "m"]
     );
+    for provider in ["gcp", "own-host", "freestyle"] {
+        for mut request in [
+            json!({"verb": "start-chat-pin", "key": "k", "account": "a", "machine": "m"}),
+            json!({"verb": "start-chat-create-begin", "key": "k", "account": "a", "name": "n", "createKey": "c"}),
+        ] {
+            let default = call(request.clone());
+            request["provider"] = json!(provider);
+            let explicit = call(request);
+            assert_eq!(&explicit.args[..default.args.len()], default.args.as_slice());
+            assert_eq!(explicit.args[default.args.len()..], ["--provider", provider]);
+            assert_eq!(explicit.timeout_seconds, default.timeout_seconds);
+        }
+    }
     // The ledger verbs are a locked file change on this Mac: a minute, never the 30 of a copy.
     assert_eq!(pin.timeout_seconds, Some(START_CHAT_LEDGER_TIMEOUT_SECONDS));
     for ledger in [

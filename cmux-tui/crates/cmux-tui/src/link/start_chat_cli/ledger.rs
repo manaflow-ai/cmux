@@ -378,12 +378,8 @@ impl Ledger {
     /// pending ([`Self::begin_create`]), the App's create; a repick's machine, chosen, never is.
     pub(crate) fn record_pin(&mut self, machine: &str, send: &Send) {
         let made = self.pending_create(send).is_some_and(|pending| !pending.refused);
-        self.record_made_with_provider(
-            machine,
-            send,
-            made,
-            self.pending_create(send).and_then(|p| p.provider.as_deref()),
-        );
+        let provider = self.pending_create(send).and_then(|p| p.provider);
+        self.record_made_with_provider(machine, send, made, provider.as_deref());
     }
 
     pub(crate) fn record_pin_with_provider(
