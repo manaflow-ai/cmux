@@ -18427,6 +18427,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
             "fleet-test-compile.yml", "fleet-rd-host-macos.yml", "gallery-advisory.yml",
             "gallery-health.yml",
+            # The onboarding browser walk (#60998) exercises product behavior at three viewport widths.
+            "intro-walk-check.yml",
             "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
             "nightly-next-canary.yml", "nightly-next-launch-smoke.yml",
             "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
