@@ -141,8 +141,11 @@ final class CEFHostedPageView: NSView {
                                     appWindows: () -> [NSWindow] = { NSApp?.windows ?? [] }) -> NSWindow? {
         guard let window, !isHiddenOrHasHiddenAncestor else { return nil }
         let rect = window.convertToScreen(convert(bounds, to: nil))
-        let placed = { (page: NSWindow) in page !== window && isEmbedded(page) && CEFTab.frame(page.frame, isPlacedAt: rect) }
-        return window.childWindows?.first(where: placed) ?? appWindows().first(where: placed)
+        func placed(_ page: NSWindow) -> Bool {
+            page !== window && isEmbedded(page) && CEFTab.frame(page.frame, isPlacedAt: rect)
+        }
+        if let child = window.childWindows?.first(where: placed) { return child }
+        return appWindows().first(where: placed)
     }
 
     /// `debug.cef` `tracker.hosted_pages` counts the hosted views in a
