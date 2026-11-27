@@ -325,6 +325,7 @@ jobs:
         with:
           sparse-checkout: |
             scripts/ci/ios_runner_pool.py
+            scripts/ci/xcode-pins.txt
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
@@ -547,12 +548,12 @@ jobs:
   # The `ios macos` job: the kit's macOS swift test (ci/steps.toml's ios-kit-macos), which ios-kit ran before its
   # simulator leg in the `ios` job. On its own Mac it runs beside the simulator leg instead of before it: the `ios`
   # verdict is the longer leg, not the sum (Aziz's iOS PR verdict, goal ios-ci-under-5min). It needs no simulator,
-  # so it takes Blacksmith's macOS when vars.CI_BLACKSMITH_MACOS is on, else the mac job's pool. ios-kit reads its
+  # so it takes the same pool as the mac job. ios-kit reads its
   # verdict (scripts/ci/ios_macos_leg.py): a red one skips the simulator leg and turns `ios` red, as before.
   ios-macos:
     name: ios macos
     if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_BLACKSMITH_MACOS == 'on' && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     # ci/run's setup (10 min) and tool downloads (3 min), then the `alone` ios-kit-macos (45 min), with room for the
     # checkout and Xcode (tests/test_ci_step_table.py holds this).
     timeout-minutes: 70
