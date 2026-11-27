@@ -747,6 +747,23 @@ CHIEF_UPDATE_TIMERS = frozenset({"systemd:cmux-chief-update.timer", "cmux-chief-
 DAEMON_VERSION = re.compile(r"^[0-9][0-9A-Za-z.+_-]{0,47}$")
 # How long the machine had run since its last power when the line was written: a coarse band, never the number.
 RUNNING_BANDS = ((3600, "lt1h"), (6 * 3600, "1h-6h"), (24 * 3600, "6h-24h"))
+# cloud.idle.kept `workload` process names (the guest's 15-character `comm`, cmux-host workload.rs) that are a
+# published program's own name, never a tenant's word: the image's tools and daemons, the package manager, the
+# shells and runtimes, the agent CLIs and the probe's `(network)` for a transfer above its rate. A machine that never
+# paused idle (2026-11-27, `workload` then `recent` every 3-5 min with no client) printed no name, so which of these
+# woke it could not be read. Any other name prints only as a count.
+KNOWN_WORKLOAD_NAMES = frozenset({
+    "(network)", "cmux", "cmux-host", "cmux-dns-check", "cmux-machine-he", "acpmux", "claude", "codex", "opencode",
+    "gemini", "pi", "sh", "bash", "dash", "zsh", "sleep", "env", "timeout", "sudo", "su", "systemctl", "resolvectl",
+    "journalctl", "curl", "wget", "tar", "gzip", "xz", "zstd", "unzip", "sha256sum", "git", "ssh", "python3",
+    "python", "node", "npm", "npx", "bun", "deno", "uv", "pip", "apt", "apt-get", "apt-check", "dpkg", "http",
+    "https", "store", "gpgv", "snapd", "snap", "packagekitd", "udisksd", "ModemManager", "networkd-dispat",
+    "systemd-hostnam", "systemd-machine", "systemd-timedat", "systemd-tmpfile", "cloud-init", "qemu-ga",
+    "fwupd", "fwupdmgr", "update-notifier", "ubuntu-advantag", "landscape-sysi", "motd-news", "man-db",
+})
+# cloud.idle.kept `recent`'s `active_at` (IdleKept.ts: the newest idle-clock time) and its age, in coarse bands.
+IDLE_ACTIVE_AT = frozenset({"input", "agent", "busy", "power"})
+ACTIVE_BANDS = ((60, "lt1m"), (300, "1m-5m"), (900, "5m-15m"), (3600, "15m-1h"))
 
 
 # cloud.machine.edge_dns's `guest` (cmux-platform#2293 NeverBoundProbe.ts edgeDnsGuestFacts): the guest's own DNS facts
@@ -820,7 +837,9 @@ def edge_dns_guest(g):
 def idle_kept(j):
     """cloud.idle.kept's typed projection: why, a timer_only flag for `workload`, the daemon version and a running
     band. The line's team and machine are ids and its process, port and timer names are the guest's own words: only
-    whether the names were exactly cmux-chief-update.timer leaves the line."""
+    whether the names were exactly cmux-chief-update.timer leaves the line, with `workload`'s busy and listening
+    counts and the process names that are a published program's (KNOWN_WORKLOAD_NAMES; any other is only counted),
+    and `recent`'s active_at and its age band."""
     why = j.get("why")
     out = {"msg": "cloud.idle.kept", "why": why if why in IDLE_KEPT_WHY else "other"}
     for k in ("team", "machine"):
@@ -833,6 +852,22 @@ def idle_kept(j):
         quiet = all(not w.get(k) for k in ("busy", "listening", "process_names", "ports"))
         out["timer_only"] = bool(quiet and isinstance(names, list) and names
                                  and all(isinstance(n, str) and n in CHIEF_UPDATE_TIMERS for n in names))
+        for k in ("busy", "listening"):
+            v = w.get(k)
+            if isinstance(v, int) and not isinstance(v, bool) and v >= 0:
+                out[k] = min(v, 100)
+        procs = w.get("process_names")
+        if isinstance(procs, list):
+            known = sorted({n for n in procs if isinstance(n, str) and n in KNOWN_WORKLOAD_NAMES})[:8]
+            out["names"] = known
+            out["names_other"] = sum(1 for n in procs if not (isinstance(n, str) and n in KNOWN_WORKLOAD_NAMES))
+    if why == "recent":
+        at = j.get("active_at")
+        if isinstance(at, str) and at in IDLE_ACTIVE_AT:
+            out["active_at"] = at
+        a = j.get("active_s")
+        if isinstance(a, int) and not isinstance(a, bool) and a >= 0:
+            out["active"] = next((band for limit, band in ACTIVE_BANDS if a < limit), "ge1h")
     d = j.get("daemon")
     if isinstance(d, str) and DAEMON_VERSION.match(d):
         out["daemon"] = base.tag(d) if base.ID_LIKE.search(d) else d
@@ -878,10 +913,17 @@ def work_machine(j):
 # phases' ms and providerTimingsMs's {fixed word: ms}; the VM's id and the mesh's id are dropped. Without it a
 # snapshot boot that stalled at the provider read as no line at all (cmux-platform live-fork create_overdue,
 # cmuxterm-hq run 45883744191: 3076 cmux-vm events scanned, the copy's create invisible).
-VM_EVENTS = frozenset({"vm_create"})
+#
+# The provider create queue (workers/cmux-vm src/limits/create-admission.ts, cmux#61073) adds its wait and the queue it
+# met (admitWaitMs, admitQueueMs, admitInFlight, admitQueued), and on a refusal its fixed reason and estimated wait;
+# vm_create_admission_unavailable is the line of a create sent without the queue because the queue could not be
+# reached. Without them a staging burst after the deploy could not say whether the queue held creates back at all.
+VM_EVENTS = frozenset({"vm_create", "vm_create_admission_unavailable"})
 VM_EVENT_MS = ("preMs", "recoverMs", "verifyImageMs", "createMs", "recoverAfterMs", "resizeMs", "recordMs", "memberMs",
-               "providerTotalMs", "totalMs")
+               "providerTotalMs", "totalMs", "admitWaitMs", "admitQueueMs", "admitRetryAfterMs", "admitInFlight",
+               "admitQueued")
 VM_EVENT_BOOLS = ("ok", "recovered", "oversized", "meshAtCreate", "meshJoined")
+VM_ADMISSION_REASONS = ("queue_full", "wait_expired")
 
 
 def vm_event(j):
@@ -897,6 +939,8 @@ def vm_event(j):
     variant = j.get("imageVariant")
     if variant in ("large", "base", "unlisted"):
         out["imageVariant"] = variant
+    if j.get("admission") in VM_ADMISSION_REASONS:
+        out["admission"] = j["admission"]
     timings = token_counts(j.get("providerTimingsMs"))
     if timings is not None:
         out["providerTimingsMs"] = timings

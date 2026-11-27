@@ -1047,6 +1047,9 @@ impl Started {
         super::tree::kill_still_running(&state.under);
         remove_own_artifacts(&state.spec.hosts_dir, &state.record);
         remove_promoted(&state.spec.hosts_dir, &state.record);
+        // What double-forked away after that look is still in the host's scope: end it there,
+        // the host with it, when switched on (`scope_kill.rs`). Nothing after this runs then.
+        super::scope_kill::end_own_scope();
         Ok(())
     }
 }
