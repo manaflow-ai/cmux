@@ -98,7 +98,8 @@ def plan(selection: dict, flows: list[dict], workers: list[str], pair: str) -> l
                       "worker": workers[i % len(workers)]})
     chosen = {f["id"] for f in flows if f["id"] in selection["flows"]}
     wants_pair = any(f.get("pair_e2e") for f in flows if f["id"] in chosen)
-    if selection["ios"] and (pair == "always" or (pair == "auto" and wants_pair)):
+    has_pair = any(s["mode"] == "pair-e2e" for s in steps)  # sim_args already added the flow's pair-e2e run
+    if selection["ios"] and not has_pair and (pair == "always" or (pair == "auto" and wants_pair)):
         steps.append({"name": "pair-e2e: tagged Mac pairs, drops, reconnects", "mode": "pair-e2e",
                       "args": ["pair-e2e"], "worker": workers[len(steps) % len(workers)]})
     return steps

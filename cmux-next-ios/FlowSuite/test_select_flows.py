@@ -88,6 +88,14 @@ class SelectTests(unittest.TestCase):
             self.assertEqual(fs.sim_args(r, 1)[-1], "pair-e2e reconnect-drops=10,60")
         self.assertNotIn("reconnect-after-drop", self.sel("cmux-tui/crates/cmux-tui/src/main.rs")["flows"])
 
+    def test_pair_e2e_true_runs_the_paired_mac_with_no_words(self):
+        # flows.json writes "pair_e2e": true for a flow that needs the paired run with its defaults;
+        # select() iterated it as a list and crashed `cmux ios verify` on every PR that selected it.
+        r = self.sel("Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/Host.swift")
+        self.assertIn("pairing-mac-identity", r["flows"])
+        self.assertTrue(r["pair"])
+        self.assertEqual(fs.sim_args(r, 1)[-1].split()[0], "pair-e2e")
+
     def test_shared_swift_package_the_app_links_is_ios_affecting(self):
         r = self.sel("Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/AuthCoordinator.swift")
         self.assertTrue(r["compile"])
