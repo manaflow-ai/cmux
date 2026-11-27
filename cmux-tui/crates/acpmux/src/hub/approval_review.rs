@@ -37,6 +37,8 @@ pub(crate) const KILL_ENV: &str = "ACPMUX_HM_APPROVALREVIEW";
 pub(crate) const BOUND: Duration = Duration::from_secs(25);
 /// The longest tool input the brief carries, in bytes.
 const INPUT_CAP: usize = 6000;
+/// The longest title the brief carries, in bytes.
+const TITLE_CAP: usize = 500;
 
 /// The model's verdict on one prompt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,22 +163,26 @@ pub(crate) fn offers_allow_once(request: &Value) -> bool {
     })
 }
 
+/// `text`, cut to at most `max` bytes on a character boundary.
+fn cap(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_owned();
+    }
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{} …(cut)", &text[..end])
+}
+
 /// The reviewer's brief for `request`, run in `cwd`.
 pub(crate) fn brief(request: &Value, cwd: &Path) -> String {
     let cwd = cwd.display();
     let call = request.get("toolCall").cloned().unwrap_or(Value::Null);
-    let title = call.get("title").and_then(Value::as_str).unwrap_or("");
+    let title = cap(call.get("title").and_then(Value::as_str).unwrap_or(""), TITLE_CAP);
     let kind = call.get("kind").and_then(Value::as_str).unwrap_or("");
     let tool = call.pointer("/_meta/claude/tool").and_then(Value::as_str).unwrap_or("");
-    let mut input = call.get("rawInput").map(Value::to_string).unwrap_or_default();
-    if input.len() > INPUT_CAP {
-        let mut end = INPUT_CAP;
-        while !input.is_char_boundary(end) {
-            end -= 1;
-        }
-        input.truncate(end);
-        input.push_str(" …(cut)");
-    }
+    let input = cap(&call.get("rawInput").map(Value::to_string).unwrap_or_default(), INPUT_CAP);
     format!(
         "You review one permission prompt from a coding agent working in {cwd}.\n\
          Answer ALLOW only when the call is routine for a coding agent in that project and \
