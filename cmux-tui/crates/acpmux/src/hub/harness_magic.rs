@@ -6,8 +6,9 @@
 //! steering rate, time to the first useful result)".
 //!
 //! Every feature has one switch, `agents.harnessMagic.<feature>.enabled` in the settings file
-//! (`turnRules` is on unless `false`: it does nothing with no rules; context surgery and dedupe
-//! are off unless `true`, Leo 2026-11-26: "only do it for our personal fleet situation"), and a
+//! (`turnRules` and `pathRules` are on unless `false`: each does nothing with no rules; context
+//! surgery and dedupe are off unless `true`, Leo 2026-11-26: "only do it for our personal fleet
+//! situation"), and a
 //! kill switch, `ACPMUX_HM_<FEATURE>=0` in the daemon's environment
 //! (the name upper-cased, every other character `_`). A feature lists itself in [`FEATURES`]
 //! with the gate it asks before it acts, so the stamp says exactly what ran: a feature with a
@@ -36,6 +37,10 @@ pub(crate) struct Feature {
 pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: super::turn_rules::FEATURE, on: || enabled(super::turn_rules::FEATURE) },
     Feature { name: super::cache_alarm::FEATURE, on: || enabled(super::cache_alarm::FEATURE) },
+    Feature {
+        name: crate::claude_stdio::PATH_RULES_FEATURE,
+        on: crate::claude_stdio::path_rules_enabled,
+    },
     Feature { name: "verify", on: super::verify::enabled },
     Feature { name: "prefetch", on: super::prefetch::enabled },
     Feature { name: "surgery", on: super::surgery::enabled },
@@ -44,6 +49,7 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
     Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
+    Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
 ];
 
 /// The settings key of `feature`'s off switch.
