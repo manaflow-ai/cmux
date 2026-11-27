@@ -277,6 +277,17 @@ if (JSON.stringify(turnShape) !== JSON.stringify(expectedShape)) {
   throw new Error(`agent messages grouped wrong: ${JSON.stringify(turnShape)}`);
 }
 
+const sameTurnMessages = groupTurns([
+  { kind: "user", text: "keep these in order" },
+  { kind: "message", id: "m1", from: "one", body: "first" },
+  { kind: "message", id: "m2", from: "two", body: "second" },
+  { kind: "message", id: "m3", from: "three", body: "third" },
+  { kind: "assistant", text: "done", open: false },
+], "idle");
+if (JSON.stringify(sameTurnMessages[0]?.messages?.map((message) => message.id)) !== JSON.stringify(["m1", "m2", "m3"])) {
+  throw new Error("agent messages in one turn lost their arrival order");
+}
+
 // A sender name is shown as written, even with replacement patterns in it.
 const { agentMessageLabel } = await import("../src/components/Transcript");
 if (agentMessageLabel("a$&b", ["en"]) !== "Message from a$&b") {

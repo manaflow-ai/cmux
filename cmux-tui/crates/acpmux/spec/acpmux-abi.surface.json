@@ -6730,6 +6730,10 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/hold": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/kinds": {
         "ty": "untagged_union|string|array",
         "nullable": true
@@ -13047,6 +13051,12 @@
       },
       "/cwd": {
         "ty": "json"
+      }
+    },
+    "request:_acpmux/heap_profile": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
       }
     },
     "request:_acpmux/here": {
@@ -22378,6 +22388,12 @@
       }
     },
     "request:_acpmux/scorecard": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/scorecard_replay": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -33914,6 +33930,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/heap_profile": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/here": {
       "/data/here": {
         "ty": "array",
@@ -36536,6 +36558,12 @@
       }
     },
     "response:_acpmux/scorecard": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/scorecard_replay": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

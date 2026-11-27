@@ -18,6 +18,11 @@ head before any merge. How a draft gets the full tier: mark it ready for review 
 not listen to `labeled` (it would start on every label of every PR), so there the label takes effect at the next
 push: push a commit (an empty one does) after adding it.
 
+Heavy-at-land rule (off unless the repository variable CI_HEAVY_AT_LAND is 1; Leo, 2026-11-26: "de facto, im asking
+for 99% fewer minutes of ci time, period."): a pull request from this repository runs the full tier only on the
+`labeled` event that adds `ready-to-land` or `full-ci`; every other head that would be full (later pushes while
+`full-ci` stays on, stacked pull requests on other bases, ask-rule heads) gets the cheap tier. Off, nothing changes.
+
 Idle rule (cmuxterm-hq docs/ci/idle-pr-heads-2026-11-21.md, hq#16419): a head that only merges the base into a
 pull request whose own last commit is more than 24 hours old gets the tier `none`: the router starts nothing, and
 ci.yml and cmux-next.yml run it like a draft. Base merges were 37% of PR runner-minutes over 11-13..19, most on
@@ -125,7 +130,8 @@ repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gi
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
 off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule and the same-patch rule off; CI_LAND_CARRY=0 turns the land carry rule
 off (a landing base merge runs the full tier again); CI_LABELLED_BASE_MERGE_SKIP=0 turns the labelled base merge rule
-off; CI_RED_BASE_MERGE_RERUN=0 turns the red-head base merge rule off; CI_FULL_CI_BASE_MERGE_CARRY=0 turns the full-ci base
+off; CI_RED_BASE_MERGE_RERUN=0 turns the red-head base merge rule off; CI_CONTENT_BASE_MERGE=0 counts a merge as a
+base merge by its message only again (same_change_as); CI_FULL_CI_BASE_MERGE_CARRY=0 turns the full-ci base
 merge carry rule off; CI_LAND_FULL_PER_PR=1 turns the hourly full tier rule off (a
 landing head runs the full tier again). Stdlib only; anything unreadable gives
 `full`.
@@ -453,14 +459,46 @@ def land_affected(decided: tuple[str, str]) -> bool:
     return decided[0] == "cheap" and str(decided[1]).startswith(LAND_AFFECTED_REASON)
 
 
+HEAVY_AT_LAND_REASON = "heavy at land (CI_HEAVY_AT_LAND=1)"
+
+
+def same_repo(event: dict) -> bool:
+    """Whether EVENT's pull request comes from this repository (a fork's head keeps its tier)."""
+    pr = event.get("pull_request") or {}
+    base_repo = str(((pr.get("base") or {}).get("repo") or {}).get("full_name") or "")
+    head_repo = str(((pr.get("head") or {}).get("repo") or {}).get("full_name") or "")
+    return bool(base_repo) and base_repo == head_repo
+
+
+def land_handoff(event: dict) -> bool:
+    """Heavy-at-land rule (CI_HEAVY_AT_LAND, default off; cmux#ci-min-per-pr-30): whether EVENT is the one event
+    that hands a ready pull request to land, `ready-to-land` or `full-ci` being added. Only that event keeps the
+    full tier; every other push of the pull request, the landing ones and stacked pull requests on other bases
+    included, runs the cheap tier, so a heavy job runs once per landing attempt instead of on every head (merged
+    PRs' superseded heads and never-merged PRs were 93% of PR-head minutes on 11-25..26)."""
+    pr = event.get("pull_request") or {}
+    added = str((event.get("label") or {}).get("name") or "")
+    return event.get("action") == "labeled" and added in (LAND_LABEL, FULL_CI) and pr.get("draft") is not True
+
+
 def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = None, now: float | None = None,
          idle_switch: str = "1", land_switch: str = "0", sync_switch: str = "1",
          green_switch: str = "1", carry_switch: str = "1", land_full_switch: str = "1",
-         labelled_switch: str = "1", rerun_switch: str = "1", full_carry_switch: str = "1") -> tuple[str, str]:
+         labelled_switch: str = "1", rerun_switch: str = "1", full_carry_switch: str = "1",
+         heavy_at_land_switch: str = "0") -> tuple[str, str]:
     """(tier, reason) for one event. Anything not a draft, idle, green-head or agent-made base merge or (with
-    LAND_SWITCH on) not-yet-landing pull request head is `full`."""
+    LAND_SWITCH on) not-yet-landing pull request head is `full`. With HEAVY_AT_LAND_SWITCH on, a full head of a pull
+    request from this repository is `cheap` unless its event is the land handoff itself (see heavy_at_land)."""
     if event_name not in ("pull_request", "pull_request_target"):
         return "full", f"event {event_name or 'unknown'} is not a pull request"
+    if (heavy_at_land_switch or "0").strip() not in ("0", "") and same_repo(event) and not land_handoff(event):
+        decided = tier(event_name, event, switch, facts, now, idle_switch, land_switch, sync_switch, green_switch,
+                       carry_switch, land_full_switch, labelled_switch, rerun_switch, full_carry_switch)
+        if decided[0] == "full":
+            return "cheap", (f"{HEAVY_AT_LAND_REASON}: heavy jobs run once, on the event that hands this pull "
+                             f"request to land (adding `{LAND_LABEL}` or `{FULL_CI}`), not on every push; "
+                             f"without CI_HEAVY_AT_LAND this head would be full ({decided[1]})")
+        return decided
     pr = event.get("pull_request") or {}
     labels = labels_of(event)
     carried_run = full_carry(facts) if full_carry_rule_applies(event, full_carry_switch) else None
@@ -506,8 +544,13 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
     if pr.get("draft") is True:
         return "cheap", "draft pull request: the full tier runs when it is marked ready for review (or with full-ci)"
     if land_on and not landing:
-        return "cheap", (f"not handed off to land yet: the full tier runs when `{LAND_LABEL}` is added (land-judge "
-                         f"adds it when asked to land) or with full-ci; {LAND_STATUS} stays pending until then")
+        # Name what really gives this head the full tier: with CI_LAND_FULL_PER_PR off, `ready-to-land` lands on the
+        # affected tier below (the hourly base run), so only full-ci runs the full tier on the pull request itself.
+        when = (f"`{LAND_LABEL}` is added (land-judge adds it when asked to land) or with {FULL_CI}"
+                if (land_full_switch or "0").strip() == "1" else
+                f"{FULL_CI} is added (`{LAND_LABEL}` lands on the affected tier: the full tier runs hourly on "
+                f"{LAND_BASE}'s head)")
+        return "cheap", f"not handed off to land yet: the full tier runs when {when}; {LAND_STATUS} stays pending until then"
     if landing and land_on and (land_full_switch or "0").strip() != "1":
         return "cheap", (f"{LAND_AFFECTED_REASON}: the full tier runs once an hour on {LAND_BASE}'s head "
                          f"(cmux-next-hourly-full-tier.yml); {FULL_CI} gives this head the full tier, and "
@@ -560,8 +603,12 @@ def head_facts(event: dict, depth: int = 30, actions: tuple[str, ...] = ("synchr
             fetch(sha, 1)
         parents, _, message = commit(sha)
         by_github = github_made  # the head's own committer; the walk below reads older commits
-        if len(parents) != 2 or not merge.match(message):
+        read = "message"
+        if len(parents) == 2 and not merge.match(message):
+            read = "content" if same_change_as(base, sha, parents[0]) else ""
+        if len(parents) != 2 or not read:
             return {"base_merge_only": False, "own_last": None, "by_github": by_github}
+        more = {"merge_read": "content"} if read == "content" else {}
         previous = rev = parents[0]
         base_parent = parents[1]
         for _ in range(depth):  # first parents: past earlier base merges to the branch's own last commit
@@ -570,12 +617,12 @@ def head_facts(event: dict, depth: int = 30, actions: tuple[str, ...] = ("synchr
             parents, when, message = commit(rev)
             if not (len(parents) == 2 and merge.match(message)):
                 return {"base_merge_only": True, "own_last": when, "by_github": by_github, "previous": previous,
-                        "base_parent": base_parent}
+                        "base_parent": base_parent, **more}
             rev = parents[0]
     except (subprocess.SubprocessError, OSError, StopIteration, ValueError, IndexError):
         return None
     return {"base_merge_only": True, "own_last": None, "by_github": by_github, "previous": previous,
-            "base_parent": base_parent}
+            "base_parent": base_parent, **more}
 
 
 def full_carry_facts(event: dict, facts: dict) -> dict:
@@ -601,6 +648,23 @@ def full_carry_facts(event: dict, facts: dict) -> dict:
     workflow = workflow_file(os.environ.get("GITHUB_WORKFLOW_REF"))
     return {**out, "own_change_kept": kept, "previous_runs": runs, "previous_green": green_previous(runs),
             "workflow": workflow, "workflow_passed": passed_there(runs, workflow)}
+
+
+def same_change_as(base: str, sha: str, first_parent: str) -> bool:
+    """Whether merge commit SHA only merged the base into FIRST_PARENT, read by its content, not its message: the
+    change SHA makes over its merge base with BASE is the change FIRST_PARENT made (own_patch_key, the same-patch
+    rule's key). So nothing was hand-resolved or edited in the merge and nothing but base commits came in (a merge of
+    another branch adds that branch's change). An agent's `git merge` with its own wording ("Merge commit 'SHA' into
+    lane/x", "Merge feat-cmux-next to resync PR head") did not match base_merge_message, so the head ran every tier
+    as a new change: 238 such heads on 2026-11-25 22Z..11-26 22Z, about 24k runner-min (ci-min-per-pr-140). Two
+    compare reads, made only for a two-parent head whose message is not a base merge's; unread is no."""
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    if (os.environ.get("CI_CONTENT_BASE_MERGE", "1").strip() == "0"
+            or not re.fullmatch(r"[0-9a-f]{40}", first_parent)):
+        return False
+    key = own_patch_key(repo, base, sha, token)
+    return key is not None and own_patch_key(repo, base, first_parent, token) == key
 
 
 def same_patch_facts(event: dict) -> dict:
@@ -638,6 +702,7 @@ def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], di
     labelled_switch = os.environ.get("CI_LABELLED_BASE_MERGE_SKIP", "1")
     rerun_switch = os.environ.get("CI_RED_BASE_MERGE_RERUN", "1")
     full_carry_switch = os.environ.get("CI_FULL_CI_BASE_MERGE_CARRY", "1")
+    heavy_at_land_switch = os.environ.get("CI_HEAVY_AT_LAND", "0")
     labels = labels_of(event)
     pull = event_name in ("pull_request", "pull_request_target")
     if pull and full_carry_rule_applies(event, full_carry_switch):
@@ -675,7 +740,7 @@ def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], di
         runs = runs_at(repo, previous, token) if landed else None
         facts = {**facts, "previous_landed": landed and runs is not None and green_previous(runs)}
     return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch,
-                carry_switch, land_full_switch, labelled_switch, rerun_switch, "0"), facts
+                carry_switch, land_full_switch, labelled_switch, rerun_switch, "0", heavy_at_land_switch), facts
 
 
 def _load(path: str) -> dict:
