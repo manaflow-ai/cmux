@@ -114,7 +114,13 @@ extension ScreenContentView {
 
     /// Exact pane bounds for an idle New Tab pre-render, using the drop's final split geometry.
     func newSplitPaneSize(splitting pane: PaneID, zone: PaneDropZone) -> CGSize? {
-        guard !isCanvas, let cell = predictedGeometry(splitting: pane, zone: zone, removing: nil)?.panes[DropPreviewLayout.newPane] else { return nil }
+        // Canvas splits retain the source pane's size. Strip splits can move the camera, which
+        // suppresses a drop highlight but does not change the new pane's content size.
+        if isCanvas { return geometry.panes[pane].map { PaneChromeGeometry.contentRect(forCell: $0, style: context.style).size } }
+        guard let split = DropPreviewLayout(splitting: pane, zone: zone, in: layout, removing: nil,
+                                           evenSizing: context.model.splitSizing == .even, equalizesClose: !zoomed) else { return nil }
+        let after = ScreenGeometry.compute(split.layout, viewport: bounds.size, style: context.style, scale: window?.backingScaleFactor ?? 2)
+        guard let cell = after.panes[DropPreviewLayout.newPane] else { return nil }
         return PaneChromeGeometry.contentRect(forCell: cell, style: context.style).size
     }
 

@@ -1,7 +1,5 @@
 import AppKit
 import CmuxNextAgentPane
-import CmuxNextBridge
-import CmuxNextLayout
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
@@ -29,9 +27,9 @@ final class NewTabSparePool {
     static let fitSettle: Duration = .milliseconds(120)
     static let maximumOpenings = 64
 
-    private unowned let services: AppServices
+    unowned let services: AppServices
     /// One spare: each is a renderer and an acpmux client at idle (Home idle memory, Leo 2026-11-14); `debug.new_tab capacity` raises it.
-    private var slot = AgentPaneSpareSlot<AgentPaneView>(capacity: 1)
+    var slot = AgentPaneSpareSlot<AgentPaneView>(capacity: 1)
     private(set) lazy var refills = AgentPaneSpareRefiller(on: services.mainWork, inInput: { [weak self] in self?.services.inputDispatch.inputUnderWay == true }, loading: { [weak self] in self.map { $0.shownChats.loadingNow($0.services.agentTabs.views.values) } ?? [] }) { [weak self] in
         self?.prepareParked()
         self?.warmNow()
@@ -44,7 +42,7 @@ final class NewTabSparePool {
     }
     /// Memory pressure dropped the spares: none is made again until it is back to normal.
     private var pressured = false
-    private let parking = PageOffscreenParking()
+    let parking = PageOffscreenParking()
     /// The main window the spare parks in (the key one, or the last key one).
     private(set) weak var target: NSWindow?
     private let warmTimer = DemandTimer(owner: "NewTabSparePool.warm")
@@ -201,18 +199,18 @@ final class NewTabSparePool {
     }
 
     /// The size of the pane content a Cmd-T in the target window fills: its focused pane's.
-    private var targetPaneSize: NSSize? { targetPane.map { Self.newTabContentSize(in: $0) }.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } }
-    private var targetPane: PaneController? { services.windows.controllers.first { $0.window === target }?.content?.focusedPane }
+    var targetPaneSize: NSSize? { targetPane.map { Self.newTabContentSize(in: $0) }.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } }
+    var targetPane: PaneController? { services.windows.controllers.first { $0.window === target }?.content?.focusedPane }
     /// The context a Cmd-T in the target window gives (NewTabPage.open): the parked spare draws it (SHORTCUT FRAMES F2).
     private var preparedPage: AgentPaneNewTab {
         guard let pane = targetPane, pane.daemon.isLocal else { return NewTabPage.sparePage(services) }
         return NewTabPage.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
     }
-    private var preparedFor: [AnyHashable]?
-    private var targetIdentity: [AnyHashable]? { targetPane.map { [ObjectIdentifier($0), $0.selectedTab?.id] } }
+    var preparedFor: [AnyHashable]?
+    var targetIdentity: [AnyHashable]? { targetPane.map { [ObjectIdentifier($0), $0.selectedTab?.id] } }
     private let prepareTimer = DemandTimer(owner: "NewTabSparePool.prepare")
     /// After the settle, never in an input's turn (a key window change, Cmd-T's refill).
-    private func schedulePrepare() { prepareTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.prepareParked() } }
+    func schedulePrepare() { prepareTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.prepareParked() } }
     /// Prepares the pool put off because the parked page had no handshake or first paint yet (tests wait on it).
     private(set) var deferredPrepares = 0
     /// Parked pages a prepare waits on for their first paint: one wait each.
@@ -239,41 +237,7 @@ final class NewTabSparePool {
         }
     }
 
-    /// The size a Cmd-T tab in `pane` shows at: the pane less its tab bar, also where a browser's
-    /// header band holds the bar now (the band goes with the browser).
-    static func newTabContentSize(in pane: PaneController) -> NSSize {
-        let scale = pane.view.window?.backingScaleFactor ?? 2
-        let strip = pane.hidesTabBar || pane.isAppPane ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: scale)
-        return NSSize(width: pane.view.bounds.width, height: max(0, pane.view.bounds.height - strip))
-    }
-
-    /// Sizes the parking view and the spare in it to the target pane now, laid out, when it is parked in a window.
-    private func fitParked() {
-        prefetchToken = nil
-        prefetchDeadline.cancel()
-        guard let content = parking.superview else { return }
-        let size = targetPaneSize ?? content.bounds.size
-        schedulePrepare()
-        guard parking.frame != PageOffscreenParking.frame(in: content.bounds, size: size) else {
-            if !refills.isOpening { slot.all.filter { $0.redraw.newTabFrameCaptureChanged == nil }.forEach(snapshotParked) }
-            return
-        }
-        BenchSpans.measure("pool.fit") { parking.fit(to: size) }
-        if !refills.isOpening { slot.all.forEach(snapshotParked) }
-    }
-
-    /// A pane of `window` changed size, or its focus or tab moved: the spare draws the context Cmd-T there gives and takes the
-    /// pane's size in one background fit once the sizes settled (``fitSettle``) and the layout is still (`whenSettled`).
-    func paneLayoutDidChange(in window: NSWindow?) {
-        guard let window, window === target, parking.superview != nil else { return }
-        if services.windows.controllers.first(where: { $0.window === window })?.content?.layoutView.isInLayoutMotion == true {
-            prefetchToken = nil
-            prefetchDeadline.cancel()
-        }
-        if targetIdentity != preparedFor { schedulePrepare() }
-        services.windows.controllers.first { $0.window === window }?.content?.layoutView.whenSettled("NewTabSparePool.fit", after: Self.fitSettle, on: fits) { [weak self] in self?.fitParked() }
-    }
-    private lazy var fits = FrameBatchQueue(owner: "NewTabSparePool.fit", budgeted: .background, on: services.mainWork)
+    lazy var fits = FrameBatchQueue(owner: "NewTabSparePool.fit", budgeted: .background, on: services.mainWork)
 
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
     /// A spare parked in another window is adopted all the same (a reparent).
@@ -307,74 +271,12 @@ final class NewTabSparePool {
 
     /// The spare taken last and the size its opening shows it at, when known.
     private var opening: (view: ObjectIdentifier, size: NSSize?)?
-    private let covers = AgentPaneSpareCovers()
+    let covers = AgentPaneSpareCovers()
+    var prefetchToken: UUID?
+    var prefetchAttempt: [AnyHashable]?
+    let prefetchDeadline = DemandTimer(owner: "NewTabSparePool.prefetch")
+
     func openingSize(of view: AgentPaneView) -> NSSize? { opening.flatMap { $0.view == ObjectIdentifier(view) ? $0.size : nil } }
-    private func snapshotParked(_ view: AgentPaneView) {
-        guard prefetchToken == nil else { return }
-        covers.capture(view, parked: { [weak self] page in page.superview === self?.parking && self?.slot.all.contains { $0 === page } == true }) { [weak self, weak view] in
-            if let view { self?.prefetchSplits(view) }
-        }
-    }
-
-    /// The same geometry that a split's drop preview and even-sizing commit use; no half-size guess.
-    static func splitContentSize(in pane: PaneController, zone: PaneDropZone) -> NSSize? {
-        guard var size = pane.workspace?.layoutView.newSplitPaneSize(splitting: pane.layoutPaneID, zone: zone) else { return nil }
-        let full = newTabContentSize(in: pane)
-        size.height = max(0, size.height - (pane.view.bounds.height - full.height))
-        return size
-    }
-
-    private var prefetchToken: UUID?
-    private var prefetchAttempt: [AnyHashable]?
-    private let prefetchDeadline = DemandTimer(owner: "NewTabSparePool.prefetch")
-    /// Native rendering glue: run Rust's exact-size plan on the ONE spare while parked, then restore it.
-    private func prefetchSplits(_ view: AgentPaneView) {
-        guard prefetchToken == nil, !refills.isOpening, view.superview === parking, view === slot.peek,
-              let pane = targetPane, pane.workspace?.layoutView.isInLayoutMotion != true, view.model.hasPainted else { return }
-        let full = Self.newTabContentSize(in: pane), identity = targetIdentity
-        let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
-        let frames = AgentPaneNewTabFrame.shared, generation = frames.generation
-        let sizes = [PaneDropZone.right, .bottom].compactMap { Self.splitContentSize(in: pane, zone: $0) }
-        let cached = sizes.filter { frames.image(size: $0, appearance: appearance) != nil }
-        let plan = NewPlacementPlan.newTabPrefetch(parked: full, splits: sizes, cached: cached)
-        let attempt: [AnyHashable] = [ObjectIdentifier(view), generation, full.width, full.height, appearance?.rawValue ?? ""] + (identity ?? []) + sizes.flatMap { [AnyHashable($0.width), AnyHashable($0.height)] }
-        guard !plan.isEmpty, prefetchAttempt != attempt, frames.image(size: full, appearance: appearance) != nil else { return }
-        prefetchAttempt = attempt
-        let token = UUID()
-        prefetchToken = token
-        // A lost compositor answer must not leave the Cmd-T spare at a split size indefinitely.
-        prefetchDeadline.schedule(after: .seconds(3)) { @MainActor [weak self] in
-            guard let self, self.prefetchToken == token else { return }
-            self.fitParked()
-        }
-        covers.forget(view)
-        func render(_ index: Int) {
-            guard self.prefetchToken == token, view.superview === self.parking, view === self.slot.peek else { return }
-            guard !self.refills.isOpening, self.targetIdentity == identity, self.targetPaneSize == full,
-                  frames.generation == generation, view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == appearance,
-                  pane.workspace?.layoutView.isInLayoutMotion != true else {
-                self.prefetchToken = nil
-                self.prefetchDeadline.cancel()
-                self.paneLayoutDidChange(in: self.target)
-                return
-            }
-            guard index < plan.count else {
-                self.prefetchToken = nil
-                self.prefetchDeadline.cancel()
-                self.snapshotParked(view)
-                return
-            }
-            view.isHidden = false
-            // Register before layout, so Chromium answers only a frame at this exact size.
-            view.redraw.when(view) { [weak self, weak view] in
-                guard let self, let view, self.prefetchToken == token, view.superview === self.parking else { return }
-                view.redraw.rememberFrame(of: view, appearance: appearance) { render(index + 1) }
-            }
-            self.parking.fit(to: plan[index])
-        }
-        render(0)
-    }
-
     /// A closed new tab page that never became a chat or a terminal: reset to
     /// the spare context (the page remounts its screen) and parked as the
     /// spare, so the close does no teardown and the pool builds nothing (R81).
