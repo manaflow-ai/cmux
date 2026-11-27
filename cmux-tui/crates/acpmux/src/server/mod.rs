@@ -152,6 +152,8 @@ mod mcp_connect;
 mod media_forward;
 mod memory_inbox;
 mod mesh_control_send;
+/// A send carried to its machine directly while the team hub is down (`mesh_direct.rs`, RFD 0086).
+pub(crate) mod mesh_direct;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
 #[cfg(test)]
@@ -1360,15 +1362,33 @@ pub async fn serve_unix_with_v2(
     listener: UnixListener,
     v2: Option<Arc<acpmux_core::life::V2>>,
 ) -> Result<()> {
+    // The daemon's beat (`daemon/hung_holder.rs`): this loop runs and accepts. A beat window with
+    // failed accepts and none that worked (EMFILE, a broken listener) writes none, so a waiter
+    // replaces a daemon stuck that way; an idle one beats on.
+    let mut beat = tokio::time::interval(crate::daemon::hung_holder::BEAT_EVERY);
+    beat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let (mut failed, mut accepted) = (0u32, 0u32);
     loop {
-        let (stream, _) = match listener.accept().await {
+        let next = tokio::select! {
+            next = listener.accept() => next,
+            _ = beat.tick() => {
+                if failed == 0 || accepted > 0 {
+                    crate::daemon::hung_holder::beat(crate::daemon::hung_holder::Phase::Serving);
+                }
+                (failed, accepted) = (0, 0);
+                continue;
+            }
+        };
+        let (stream, _) = match next {
             Ok(s) => s,
             Err(e) => {
+                failed = failed.saturating_add(1);
                 tracing::warn!("accept failed: {e}");
                 tokio::time::sleep(accept_retry_delay(&e)).await;
                 continue;
             }
         };
+        accepted = accepted.saturating_add(1);
         serve_accepted(hub.clone(), stream, v2.clone());
     }
 }
