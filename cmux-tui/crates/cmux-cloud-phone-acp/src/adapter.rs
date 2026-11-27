@@ -133,7 +133,7 @@ impl Adapter {
             _ => DEADLINE,
         };
         self.next += 1;
-        command["id"] = json!(self.next);
+        set_field(&mut command, "id", json!(self.next));
         let deadline = IdleDeadline::new_at(now, deadline, None);
         self.pending.insert(self.next, Pending { phone_id, reply, deadline });
         Effects { to_native: vec![command], ..Effects::default() }
@@ -198,7 +198,7 @@ impl Adapter {
             let mut command = page_command("agent-session-attach", surface, params);
             let info = method == "_acpmux/info";
             if info {
-                command["limit"] = json!(1);
+                set_field(&mut command, "limit", json!(1));
             }
             return Ok(self.call(
                 command,
@@ -339,9 +339,9 @@ impl Adapter {
                 }
                 self.attached.insert(surface);
                 if let Some(tab) = self.tabs.get_mut(&session) {
-                    tab.summary = data["session"].clone();
+                    tab.summary = field(&data, "session");
                 }
-                Ok(answer(phone, if info { data["session"].clone() } else { data }))
+                Ok(answer(phone, if info { field(&data, "session") } else { data }))
             }
             Reply::Prepare { session, surface, command, kind } => {
                 if self.surface_sessions.get(&surface) != Some(&session)
@@ -351,7 +351,7 @@ impl Adapter {
                     return Ok(error(phone, -32000, "Cloud tab no longer names the selected chat"));
                 }
                 self.attached.insert(surface);
-                if matches!(kind, Simple::Prompt) && !phone_prompt_mode(&data["session"]) {
+                if matches!(kind, Simple::Prompt) && !phone_prompt_mode(&field(&data, "session")) {
                     return Ok(error(
                         phone,
                         -32000,
@@ -428,7 +428,7 @@ impl Adapter {
                 if matches!(kind, Simple::Prompt) {
                     // Native prompt replies only after durable prompt_accepted, not turn end.
                     let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
-                        "sessionId":session,"promptId":data["prompt_id"],"turnId":data["turn_id"],"queued":data["queued"]}});
+                        "sessionId":session,"promptId":field(&data, "prompt_id"),"turnId":field(&data, "turn_id"),"queued":field(&data, "queued")}});
                     let mut result = answer(phone, json!({}));
                     result.to_phone.insert(0, accepted);
                     Ok(result)
@@ -586,6 +586,18 @@ fn now_ms() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
+/// Reads one object field without `Value`'s indexing, `Null` when absent.
+fn field(value: &Value, key: &str) -> Value {
+    value.get(key).cloned().unwrap_or(Value::Null)
+}
+
+/// Writes one object field; a non-object value is left as it is.
+fn set_field(value: &mut Value, key: &str, entry: Value) {
+    if let Some(map) = value.as_object_mut() {
+        map.insert(key.to_owned(), entry);
+    }
+}
+
 fn page_command(cmd: &str, surface: u64, params: &Value) -> Value {
     let mut out = json!({"cmd":cmd,"surface":surface});
     for (from, to) in [
@@ -595,7 +607,7 @@ fn page_command(cmd: &str, surface: u64, params: &Value) -> Value {
         ("kinds", "kinds"),
     ] {
         if let Some(value) = params.get(from) {
-            out[to] = value.clone();
+            set_field(&mut out, to, value.clone());
         }
     }
     out

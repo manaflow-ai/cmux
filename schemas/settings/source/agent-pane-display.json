@@ -343,6 +343,35 @@
           ]
         },
         {
+          "key": "agentPane.display.sendScrollsToTop",
+          "note": "A sent prompt scrolls to the top of the transcript with room below it for the reply, which fills in under it (cmux#56827, Leo: \"sent message scrolls to top\"). Off unless switched on: off, the view follows the bottom as before. The room is one term of conversation/roomUnder.ts (sendTop), read from chatDisplay.ts.",
+          "title": {
+            "key": "settings.agentPane.display.sendScrollsToTop",
+            "text": "Scroll Sent Prompts to Top"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sendScrollsToTop.help",
+            "text": "A prompt you send moves to the top of the chat, with room below it for the reply."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "send",
+            "sent",
+            "prompt",
+            "scroll",
+            "top",
+            "pin",
+            "pinned",
+            "reply",
+            "toggle"
+          ]
+        },
+        {
           "key": "agentPane.display.trayTucked",
           "note": "The hat over the composer tucked away to a pull tab at the composer's top middle (webviews subagents/TrayPullTab.tsx; Leo, 2026-11-04: \"what if you wanted to collapse that one line?\"). The hat's own chevron and the tab write it too.",
           "title": {
@@ -1052,7 +1081,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.inspector.help",
-            "text": "Push narrows the chat; Overlay covers it."
+            "text": "Push narrows the chat; Overlay covers it; Inline puts it atop the chat."
           },
           "kind": "choice",
           "choices": [
@@ -1068,6 +1097,13 @@
               "title": {
                 "key": "settings.choice.agentChatInspectorOverlay",
                 "text": "Overlay"
+              }
+            },
+            {
+              "value": "inline",
+              "title": {
+                "key": "settings.choice.agentChatInspectorInline",
+                "text": "Inline"
               }
             }
           ],
@@ -1087,6 +1123,320 @@
             "overlay",
             "push",
             "details"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.environment",
+          "name": "sessionInfoShowsEnvironment",
+          "note": "Whether Session Info (the chat's thread details) shows its Environment section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.environment",
+            "text": "Session Info: Environment"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.environment.help",
+            "text": "Where the chat runs: this Mac or Cloud, its folder and branch."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "machine",
+            "folder",
+            "branch",
+            "cloud"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.context",
+          "name": "sessionInfoShowsContext",
+          "note": "Whether Session Info (the chat's thread details) shows its Context section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.context",
+            "text": "Session Info: Context"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.context.help",
+            "text": "How full the context window is, and what fills it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "context",
+            "tokens",
+            "window"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.subagents",
+          "name": "sessionInfoShowsSubagents",
+          "note": "Whether Session Info (the chat's thread details) shows its Subagents section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.subagents",
+            "text": "Session Info: Subagents"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.subagents.help",
+            "text": "The subagents and chats this chat started."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "subagents",
+            "agents",
+            "children"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.tasks",
+          "name": "sessionInfoShowsTasks",
+          "note": "Whether Session Info (the chat's thread details) shows its Background Tasks section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.tasks",
+            "text": "Session Info: Background Tasks"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.tasks.help",
+            "text": "The commands, servers and scheduled jobs the chat runs."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "tasks",
+            "background",
+            "commands",
+            "servers"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.sources",
+          "name": "sessionInfoShowsSources",
+          "note": "Whether Session Info (the chat's thread details) shows its Sources section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.sources",
+            "text": "Session Info: Sources"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.sources.help",
+            "text": "The files and pages the agent read."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "sources",
+            "files",
+            "read"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.outputs",
+          "name": "sessionInfoShowsOutputs",
+          "note": "Whether Session Info (the chat's thread details) shows its Outputs section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.outputs",
+            "text": "Session Info: Outputs"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.outputs.help",
+            "text": "The documents and files the chat made for you."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "outputs",
+            "files",
+            "documents"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.changes",
+          "name": "sessionInfoShowsChanges",
+          "note": "Whether Session Info (the chat's thread details) shows its Pull Requests section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.changes",
+            "text": "Session Info: Pull Requests"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.changes.help",
+            "text": "The chat's pull requests and their checks."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "changes",
+            "pull request",
+            "pr",
+            "checks"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.usage",
+          "name": "sessionInfoShowsUsage",
+          "note": "Whether Session Info (the chat's thread details) shows its Usage section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.usage",
+            "text": "Session Info: Usage"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.usage.help",
+            "text": "Tokens, cost and time this chat used."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "usage",
+            "tokens",
+            "cost",
+            "time"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.connectors",
+          "name": "sessionInfoShowsConnectors",
+          "note": "Whether Session Info (the chat's thread details) shows its Connectors section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.connectors",
+            "text": "Session Info: Connectors"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.connectors.help",
+            "text": "The MCP servers and connectors the chat has."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "connectors",
+            "mcp",
+            "servers"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.carried",
+          "name": "sessionInfoShowsCarried",
+          "note": "Whether Session Info (the chat's thread details) shows its Carried memory section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.carried",
+            "text": "Session Info: Carried memory"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.carried.help",
+            "text": "The MCP servers and carried the chat has."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "carried",
+            "memory",
+            "instructions"
           ]
         },
         {
@@ -1550,6 +1900,57 @@
             "custom",
             "comma",
             "thinking"
+          ]
+        },
+        {
+          "key": "agentPane.display.streaming",
+          "note": "How an agent reply's text shows while it streams (webviews conversation/streamingStyle.ts). Words is today's whole-word reveal with its newest words fading in; Lines ends the reveal at a whole line; Instant shows text as it arrives with no fade, as Reduce Motion does. A theme or profile file may set it.",
+          "title": {
+            "key": "settings.agentPane.display.streaming",
+            "text": "Reply Streaming"
+          },
+          "help": {
+            "key": "settings.agentPane.display.streaming.help",
+            "text": "How an agent's reply text appears as it arrives."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "words",
+              "title": {
+                "key": "settings.choice.streamingWords",
+                "text": "Word by Word"
+              }
+            },
+            {
+              "value": "lines",
+              "title": {
+                "key": "settings.choice.streamingLines",
+                "text": "Line by Line"
+              }
+            },
+            {
+              "value": "instant",
+              "title": {
+                "key": "settings.choice.streamingInstant",
+                "text": "Instant"
+              }
+            }
+          ],
+          "default": "words",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "streaming",
+            "reveal",
+            "fade",
+            "words",
+            "lines",
+            "instant",
+            "animation",
+            "typing"
           ]
         },
         {
