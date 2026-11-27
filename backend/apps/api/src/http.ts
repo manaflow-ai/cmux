@@ -121,7 +121,7 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
 
 /** The stream a read answers from (Home conversations are keyed by params, inbox reads by the user). */
 const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
-  op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
+  op.startsWith("appkv.") ? `appkv:${p.user}` : op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
 
 /**
  * NEXT Cloud's ops (owner cloud:CloudDO) are cmux-platform's: platformForward (platform-forward.ts) sends every one of
@@ -462,6 +462,12 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const mux = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(stub.submit(agent, p, { t: "op", ...frame })), catch: unreachable })
           return toResponse(payload.op, mux.frames)
         }
+        // Synced app storage (storage:synced) runs on UserDO's `appkv:` stream (user-appkv.ts).
+        if (payload.op.startsWith("appkv.")) {
+          const p = yield* principalFor(def.owner, principal)
+          const r = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(userStub(p.user!).submitAppKv(p.user!, p, { t: "op", ...frame })), catch: unreachable })
+          return toResponse(payload.op, r.frames)
+        }
         if (def.owner === "cloud:ConversationDO" || payload.op.startsWith("inbox.")) {
           const p = yield* principalFor(def.owner, principal)
           const home = yield* Effect.tryPromise({
@@ -480,6 +486,13 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const c = response.value as Connection
           const impl = providers[c.provider]
           const asked = connectAsk(payload.params)
+          const connections = () => requestEnv().CONNECTION_DO.get(requestEnv().CONNECTION_DO.idFromName(c.owner))
+          // An installation that has not accepted the App's updated permissions: Connect opens its page, where an
+          // owner accepts them (GitHub's "Review request"), never the install or authorize page.
+          const accept = c.provider === "github" && (c.status === "active" || !asked.repo)
+            ? yield* Effect.promise(() => rpc<string | null>(connections().githubConnectAccept(c.owner, principal, asked.repo)).catch(() => null))
+            : null
+          if (accept) return { ...response, value: { connection: c, authorize_url: accept, permissions_pending: true as const } }
           // Reuse before asking: the owner answered an active connection that already covers the repository.
           if (asked.repo && c.status === "active") return { ...response, value: { connection: c, connected: true as const } }
           const target = asked.repo && c.provider === "github"
@@ -562,6 +575,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         const r = yield* Effect.tryPromise({
           try: (): Promise<ReadResult> => {
             if (def.owner === "cloud:ConversationDO") return conversationRead(requestEnv(), reader, payload.op, payload.params) as Promise<ReadResult>
+            if (payload.op.startsWith("appkv.")) return rpc<ReadResult>(userStub(reader.user!).readAppKv(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
             if (payload.op.startsWith("inbox.")) return rpc<ReadResult>(userStub(reader.user!).readInbox(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
             if (payload.op === "user.teams.list") return listUserTeams(requestEnv(), shape.stack_session ? { ...reader, stack_session: shape.stack_session } : reader) // user-teams.ts; the session id answers each team's SSO rule
             const route = ownerRoute(owner, reader)
