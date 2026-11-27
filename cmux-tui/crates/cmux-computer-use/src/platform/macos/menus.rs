@@ -905,6 +905,7 @@ impl MacDesktop {
         windows: Vec<u32>,
         all: Vec<Item>,
         (keyboard_held, nested_hidden): (bool, bool),
+        names_ready: bool,
         route: &str,
     ) -> ActionOutcome {
         let hidden = all.iter().filter(|i| i.denied).count();
@@ -933,7 +934,7 @@ impl MacDesktop {
         // The menu was read from accessibility: it opened.
         let mut out = ActionOutcome::confirmed(route);
         out.expect = self.keep_check(Some(shown_check));
-        if let Some(note) = loading_note(workspace::app_names_ready()) {
+        if let Some(note) = loading_note(names_ready) {
             out.note = note.into();
         }
         let mut report = MenuReport::open(shown, hidden);
@@ -959,6 +960,10 @@ impl MacDesktop {
         // it (the person's window would even look active), so it is never
         // left open; it is listed and closed, as on the fallback.
         let kept = guard.armed() && keyboard == "menu";
+        // `items` snapshots the names source while deriving each item's
+        // denied flag. Wait first, then use this same readiness value for the
+        // safety decision and any loading note in `leave_open`.
+        let names_ready = workspace::app_names_ready_soon();
         let all = items(self, &menu);
         let held = !guard.armed() || kept;
         let decision = held_menu_decision(
@@ -966,7 +971,7 @@ impl MacDesktop {
             kept,
             all.iter().any(|i| i.denied),
             all.iter().any(|i| i.info.submenu),
-            workspace::app_names_ready(),
+            names_ready,
         );
         let nested_hidden = decision != HeldMenu::LeaveOpen;
         if nested_hidden {
@@ -1001,7 +1006,8 @@ impl MacDesktop {
             out.menu = Some(report);
             return Ok(out);
         }
-        let mut out = self.leave_open(t, menu, windows, all, (held, nested_hidden), route);
+        let mut out =
+            self.leave_open(t, menu, windows, all, (held, nested_hidden), names_ready, route);
         if let Some(report) = out.menu.as_mut() {
             report.keyboard = keyboard;
         }
@@ -1063,12 +1069,17 @@ impl MacDesktop {
         let mut chosen: Option<Item> = None;
         for (n, part) in path.iter().enumerate() {
             let last = n + 1 == path.len();
+            // Wait for the app-name index before reading item policy flags.
+            // `items` snapshots the names source, so gating only after that
+            // read can leave denied/protected items marked visible even
+            // though the index became ready before the pick.
+            let names_ready = workspace::app_names_ready_soon();
             let mut all = items(self, &level);
             let titles: Vec<String> = all.iter().map(|i| i.info.title.clone()).collect();
             let hidden: Vec<bool> = all.iter().map(|i| i.denied).collect();
             // Items are checked against the app names: none is chosen while
             // they load (the protected apps always apply).
-            let picked = match gated_pick(workspace::app_names_ready(), &titles, &hidden, part) {
+            let picked = match gated_pick(names_ready, &titles, &hidden, part) {
                 Ok(p) => p,
                 Err(why) => return refuse(why.into()),
             };
