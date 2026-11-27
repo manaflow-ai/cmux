@@ -13,14 +13,13 @@ extension TerminalModel {
     /// This terminal replaces `previous` (the placeholder became the live session, or a
     /// reconnect rebuilt it): the draft and attachments come along. A send `previous` still
     /// held for an unreachable Mac never went (its session stops with it), so it comes back
-    /// to the composer, said not sent, rather than vanish.
+    /// to the composer, quietly, rather than vanish.
     public func adoptComposer(from previous: TerminalModel) {
         if composerText.isEmpty {
             if !previous.composerText.isEmpty {
                 composerText = previous.composerText
             } else if let held = previous.heldComposerSend {
                 composerText = held.text
-                composerNotice = TerminalConnectionState.inputNotSentNotice
             }
         }
         adoptAttachments(from: previous)
