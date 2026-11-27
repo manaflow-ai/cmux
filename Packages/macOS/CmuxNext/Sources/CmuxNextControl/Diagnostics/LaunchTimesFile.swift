@@ -23,8 +23,8 @@ public nonisolated struct LaunchTimesRecorder: Sendable {
     let file: LaunchTimesFile
     let work: BackgroundWork
     let version: String, build: String, commit: String?
-    /// Whether the updater pre-warmed `build` before this launch (consumes its marker). Blocking.
-    let prewarmed: @Sendable (_ build: String) -> Bool
+    /// Whether the updater pre-warmed `build` before this launch, and why (consumes its marker). Blocking.
+    let prewarmed: @Sendable (_ build: String) -> (preWarmed: Bool, reason: String)
     /// The one rewrite of this launch's row with the prior chat's columns (CMUX-119), and the lock its file writes take.
     let priorChat = LaunchPriorChatWatch()
     /// Each launch binder's milliseconds (``LaunchTimesRecord/binders``).
@@ -37,7 +37,7 @@ public nonisolated struct LaunchTimesRecorder: Sendable {
     public init(file: LaunchTimesFile, work: BackgroundWork, info: [String: Any],
                 listen: (@escaping @Sendable (String) -> Void) -> Void = { _ in }, marks: @escaping @Sendable () -> [String: Double] = { [:] },
                 binders: @escaping @Sendable () -> [String: Double] = { [:] },
-                prewarmed: @escaping @Sendable (_ build: String) -> Bool) {
+                prewarmed: @escaping @Sendable (_ build: String) -> (preWarmed: Bool, reason: String)) {
         self.file = file
         self.work = work
         version = info["CFBundleShortVersionString"] as? String ?? ""
@@ -62,8 +62,8 @@ public nonisolated struct LaunchTimesRecorder: Sendable {
             do {
                 let line = try recorder.priorChat.writing(prewarmed: { recorder.prewarmed(recorder.build) }) { prewarmed, written in
                     try recorder.file.append(LaunchTimesRecord(marks: marks, startedAt: Self.processStart, version: recorder.version,
-                                                               build: recorder.build, commit: recorder.commit, prewarmed: prewarmed,
-                                                               workspaces: workspaces, binders: recorder.binders()),
+                                                               build: recorder.build, commit: recorder.commit, prewarmed: prewarmed.preWarmed,
+                                                               workspaces: workspaces, binders: recorder.binders(), prewarmReason: prewarmed.reason),
                                              rewritingLast: written)
                 }
                 log.notice("launch-times \(line, privacy: .public)")
@@ -108,7 +108,7 @@ public nonisolated struct LaunchPriorChat {
 public nonisolated final class LaunchPriorChatWatch: Sendable {
     private let claimed = Mutex(false)
     /// Held by every write of the row: the build's pre-warm answer, read on the first write, and whether the row is written.
-    private let files = Mutex<(prewarmed: Bool?, written: Bool)>((nil, false))
+    private let files = Mutex<(prewarmed: (preWarmed: Bool, reason: String)?, written: Bool)>((nil, false))
 
     public init() {}
 
@@ -122,7 +122,8 @@ public nonisolated final class LaunchPriorChatWatch: Sendable {
 
     /// Runs `write` alone, so the first write and the rewrite never race on the file, with whether the build was
     /// pre-warmed (`prewarmed` is asked on the first write only: it consumes its marker) and whether the row is written.
-    func writing(prewarmed: () -> Bool, _ write: (_ prewarmed: Bool, _ written: Bool) throws -> String) throws -> String {
+    func writing(prewarmed: () -> (preWarmed: Bool, reason: String),
+                 _ write: (_ prewarmed: (preWarmed: Bool, reason: String), _ written: Bool) throws -> String) throws -> String {
         try files.withLock { state in
             let warmed = state.prewarmed ?? prewarmed()
             state.prewarmed = warmed
@@ -175,6 +176,10 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     /// The updater pre-warmed this build before this launch (`StagedUpdatePrewarm`): this is the first
     /// launch of a build the running app ran once while the update waited.
     public var prewarmed: Bool
+    /// Why ``prewarmed`` is what it is, from the updater's marker: `main` or `full` (how far the pre-warm got),
+    /// `full_legacy` (a marker an older build wrote), `started_not_finished`, `skipped:<why>`, `other_build:<b>`
+    /// (a staged update not installed yet) or `no_record`. Nil in a record an older build wrote.
+    public var prewarmReason: String?
     /// The launch before this one (in the file) was another build or there was none: the first launch of
     /// this bundle's build, so likely the first exec of its files.
     public var firstLaunchOfBuild: Bool
@@ -204,14 +209,14 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         case homeFirstPageMs = "home_first_page_ms", homeRevealedBy = "home_revealed_by"
         case windowUsableMs = "window_usable_ms", firstShellLiveMs = "first_shell_live_ms", noSnapshot = "no_snapshot"
         case priorChatPaintedMs = "prior_chat_painted_ms", priorChatLiveMs = "prior_chat_live_ms"
-        case prewarmed, firstLaunchOfBuild = "first_launch_of_build", phases
+        case prewarmed, prewarmReason = "prewarm_reason", firstLaunchOfBuild = "first_launch_of_build", phases
         case stages, launchKind = "launch_kind", workspaces, daemonSpawned = "daemon_spawned", binders
     }
 
     /// The record of a launch whose marks are `marks` (name to milliseconds since process start).
     /// ``firstLaunchOfBuild`` is set by ``LaunchTimesFile/append(_:)``, which knows the launch before.
     public init(marks: [String: Double], startedAt: Date, version: String, build: String, commit: String?, prewarmed: Bool,
-                workspaces: Int? = nil, binders: [String: Double] = [:]) {
+                workspaces: Int? = nil, binders: [String: Double] = [:], prewarmReason: String? = nil) {
         func round(_ ms: Double?) -> Double? { ms.map { ($0 * 10).rounded() / 10 } }
         self.startedAt = startedAt.formatted(.iso8601)
         self.version = version
@@ -235,6 +240,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         let slowest = binders.sorted { $0.value > $1.value }.prefix(Self.binderCount)
         self.binders = slowest.isEmpty ? nil : Dictionary(uniqueKeysWithValues: slowest.map { ($0.key, (($0.value * 100).rounded() / 100)) })
         self.prewarmed = prewarmed
+        self.prewarmReason = prewarmReason
         firstLaunchOfBuild = true
     }
 
