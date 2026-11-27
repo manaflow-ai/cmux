@@ -10,8 +10,8 @@ import CmuxTabsKit
 
 /// Leo, 2026-11-23: "we want a ... filtering mechanism for only agent sessions, agent
 /// sessions/terminals, and ... browsers on their own honestly should be a ... toggle."
-/// The overview's tabs follow the pane filter. The default is agent sessions and terminals, with
-/// browsers one tap away behind their toggle (Leo's proxy on the default, 2026-11-23).
+/// The overview's tabs follow the pane filter. The default is agent sessions and terminals with
+/// browsers shown, and the toggle can narrow the view (Leo's ask, 2026-11-26).
 /// `ws-cmux` (mock) lists t-claude (agent), t-zsh (terminal), t-docs (browser).
 @MainActor @Suite(.serialized) struct PaneFilterTests {
     static let everything = PaneFilter(scope: .agentsAndTerminals, showBrowsers: true)
@@ -28,22 +28,21 @@ import CmuxTabsKit
         return (source, setting)
     }
 
-    @Test func theDefaultTucksBrowsersBehindTheirToggle() {
+    @Test func theDefaultShowsBrowsersAndCanHideThem() {
         let (source, setting) = Self.rig()
         #expect(!setting.isChanged)
-        #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh"])
-        // The hidden browser is counted, so the control shows it is one tap away.
-        #expect(source.paneFilterResult.hiddenBrowsers == 1)
-        setting.showsBrowsers = true
-        #expect(setting.isChanged)
         #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh", "t-docs"])
-        #expect(!source.paneFilterResult.filtering)
+        #expect(source.paneFilterResult.hiddenBrowsers == 0)
+        setting.showsBrowsers = false
+        #expect(setting.isChanged)
+        #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh"])
+        #expect(source.paneFilterResult.hiddenBrowsers == 1)
     }
 
     /// The overview owner's warning: card pictures are kept per tab id, so a tab the filter hides
     /// keeps its entry (and its picture) and comes back drawn when the filter clears.
     @Test func aHiddenTabKeepsItsCard() {
-        let (source, setting) = Self.rig()
+        let (source, setting) = Self.rig(PaneFilter(scope: .agentsAndTerminals, showBrowsers: false))
         #expect(!source.tabs.map(\.id).contains("t-docs"))
         let entry = try? #require(source.entry("t-docs"))
         setting.showsBrowsers = true
@@ -83,7 +82,7 @@ import CmuxTabsKit
         setting.showsBrowsers = false
         #expect(source.tabs.map(\.id) == ["t-claude"])
         setting.filter = paneFilterDefault()
-        #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh"])
+        #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh", "t-docs"])
     }
 
     @Test func theChoiceIsKeptAcrossLaunches() throws {
@@ -92,7 +91,12 @@ import CmuxTabsKit
         defer { defaults.removePersistentDomain(forName: suite) }
         let first = PaneFilterSetting(defaults: defaults)
         #expect(first.filter == paneFilterDefault())
-        first.filter = PaneFilter(scope: .agents, showBrowsers: true)
+        #expect(first.showsBrowsers)
+        first.filter = PaneFilter(scope: .agentsAndTerminals, showBrowsers: false)
+        let reloaded = PaneFilterSetting(defaults: defaults)
+        #expect(reloaded.filter == PaneFilter(scope: .agentsAndTerminals, showBrowsers: false))
+        #expect(!reloaded.showsBrowsers)
+        reloaded.filter = PaneFilter(scope: .agents, showBrowsers: true)
         #expect(PaneFilterSetting(defaults: defaults).filter == PaneFilter(scope: .agents, showBrowsers: true))
         defaults.set("from-a-newer-build", forKey: PaneFilterSetting.key)
         #expect(PaneFilterSetting(defaults: defaults).filter == paneFilterDefault())
