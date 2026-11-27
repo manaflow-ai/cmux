@@ -7,7 +7,6 @@ import type { AccessOffer } from "../accessOffer";
 import { callNative } from "../callNative";
 import type { HarnessCatalog } from "../catalog";
 import type { HunkReview } from "../changes/hunkReview";
-import { type ChatAccounts, ownRouteOf } from "../chatAccounts";
 import type { Presentation } from "../chatDisplay";
 import { type CloudSignIn, terminalSignIn } from "../cloudAgentLogin";
 import type { ComposerHandle } from "../Composer";
@@ -15,7 +14,7 @@ import { PICKER_LABELS } from "../composerPickerModel";
 import type { MessageBranch } from "../conversation/branches";
 import { chatAfterRewind, type ChatMarks } from "../conversation/cloudTurnCheckpoints";
 import { projectInboxRows } from "../conversation/laneNoticeBatches";
-import { messagesRows } from "../conversation/messagesRows";
+import { detailRows } from "../chatDetail";
 import { takeBackSteer, takesSteersBack } from "../conversation/pendingSteerModel";
 import type { QueuedMessageActionsValue } from "../conversation/QueuedMessageCard";
 import type { RetryModel } from "../conversation/retryModelSections";
@@ -96,7 +95,7 @@ export interface TurnRowsShownDeps {
   /// Only the fields the memo's deps array names.
   snapshot: Pick<
     AcpmuxSnapshot,
-    "isWorking" | "canLoadNewer" | "clockOffsetMs" | "turnStartedAtMs" | "waitingSteers"
+    "isWorking" | "canLoadNewer" | "clockOffsetMs" | "turnStartedAtMs" | "waitingSteers" | "heldFromAt"
   > & {
     summary?: Pick<Summary, "family">;
   };
@@ -160,7 +159,6 @@ export interface TurnActionsDeps {
   catalog: HarnessCatalog;
   cloudRouteHostKind: "local" | "cloud" | undefined;
   cloudTeamMachine: boolean;
-  chatAccounts: ChatAccounts | undefined;
   access: AccessOffer;
 }
 
@@ -191,7 +189,7 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     heldFolds,
     chatShellRuns,
   } = deps;
-  if (chatPresentation === "messages") return messagesRows(childRows ?? sourceRows);
+  if (chatPresentation === "messages") return detailRows(childRows ?? sourceRows, "messages");
   if (childRows) {
     return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
   }
@@ -237,6 +235,8 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
           messageBreaks,
           trayAgents,
           supersededReplyIds,
+          // What the chat let go of stays gone (turns.ts `retainVisibleReplies`).
+          heldFromAt: snapshot.heldFromAt,
         },
         last?.turns,
       );
@@ -362,7 +362,6 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     catalog,
     cloudRouteHostKind,
     cloudTeamMachine,
-    chatAccounts,
     access,
   } = deps;
   // Sign in again's terminal login: a chat here or on an own machine, and a Cloud chat on an older
@@ -641,8 +640,7 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
       ...(terminalLogin.onCloud && { terminalSignIn: true }),
     },
     switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
-    // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
-    ...(chatAccounts && snapshot.sessionId ? { ownRoute: ownRouteOf(chatAccounts, snapshot.sessionId) } : {}),
+
     access,
   };
 }
