@@ -52,7 +52,7 @@ struct AgentShareTeamTests {
         return (fixture, AgentShareChat(surface: 1, session: AgentShareTests.session, connection: nil, title: "Fix the build"))
     }
 
-    @Test func teamConsentNamesTheTeamAndRoleAndDeclineMintsNothing() async {
+    @Test func teamConsentNamesTheTeamAndRoleAndDeclineMintsNothing() async throws {
         let (fixture, chat) = chat()
         let host = Host(fixture.services)
         host.allow = false
