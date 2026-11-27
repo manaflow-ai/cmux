@@ -132,7 +132,7 @@ jobs:
     # owned Mac leaves queued or refuses is re-run by ci-owned-pool-rescue.yml
     # (its sweeper), and every re-run attempt takes retry_runs_on (Blacksmith).
     # scripts/ci/ios_runner_pool.py has the rules.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
     # (see ios_runner_pool.py for the API budget).
@@ -159,13 +159,14 @@ jobs:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
       - name: Checkout pool helper
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             scripts/ci/ios_runner_pool.py
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/simple_pool_picker.py
+            .github/actions/app-token-spread/
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -181,10 +182,12 @@ jobs:
         if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -196,10 +199,12 @@ jobs:
         if: steps.route-token.outcome == 'failure'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
 
       - name: Pick the macOS pool
@@ -310,7 +315,7 @@ jobs:
           esac
 
       - name: Checkout workflow revision
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.ref }}
           # Manual dispatch only needs this workflow revision. Preserve full
@@ -412,7 +417,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
@@ -444,7 +449,11 @@ jobs:
           && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}
     # Focused runs build the shell and its macros from a cold SwiftPM cache.
-    timeout-minutes: ${{ inputs.swift_package != '' && 25 || 10 }}
+    # The full run needs more than 10 minutes on an owned Mac: the job-start
+    # hook, checkout and package lints take about 4 minutes before the
+    # CmuxMobileShell tests start, and those ran past 6 minutes, so a 10-minute
+    # cap cancelled the job mid-test with no verdict (cmux#50533, 2026-11-23).
+    timeout-minutes: ${{ inputs.swift_package != '' && 25 || 20 }}
     env:
       # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
       # pull-request lane's Xcode pin, so take that Xcode there, as
@@ -516,7 +525,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
@@ -529,7 +538,7 @@ jobs:
 
       - name: Retry checkout without the git object seed
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
@@ -755,7 +764,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
@@ -769,7 +778,7 @@ jobs:
 
       - name: Retry checkout without the git object seed
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
@@ -1105,7 +1114,7 @@ jobs:
     # build job (after a successful build). The pattern of #27622.
     needs: [ios-simulator-build]
     if: ${{ !cancelled() && needs.ios-simulator-build.result == 'success' && inputs.seed_cache && github.ref == 'refs/heads/main' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 5
     permissions:
@@ -1177,7 +1186,7 @@ jobs:
               ;;
           esac
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
