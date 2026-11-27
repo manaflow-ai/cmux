@@ -82,7 +82,14 @@ async function tray(onOpenPanel?: () => void) {
   const items = trayItems([agent("a1", "Review the tray", 9_000), agent("a2", "Audit the stack", 3_000)], [], [], true);
   await act(async () =>
     root.render(
-      createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {}, onOpenPanel }),
+      createElement(SubagentTray, {
+        items,
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+        onOpenPanel,
+        foldHeadLook: "groups",
+      }),
     ),
   );
   return {
@@ -104,7 +111,7 @@ describe("the running tray opens the Background tasks panel", () => {
       // A sibling of the header's own button (a button holds no button), over its slot.
       expect(bar.head().contains(button)).toBe(false);
       expect(bar.head().querySelector(".acpmux-running-tray__open-slot")).not.toBeNull();
-      // The folded header counts its two groups in words while they fit (the `groups` default,
+      // The folded header counts its two groups in words while they fit (the explicit `groups` arm,
       // trayFoldHead.experiment.ts; an unmeasured header draws its richest step); running needs no word.
       expect(bar.head().querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents");
       await act(async () => button!.click());
