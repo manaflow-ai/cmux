@@ -944,6 +944,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextImportSuggestions",
                 "CmuxNextOnboarding",
                 "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings

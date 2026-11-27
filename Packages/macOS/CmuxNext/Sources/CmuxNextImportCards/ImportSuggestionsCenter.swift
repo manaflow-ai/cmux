@@ -6,6 +6,7 @@ import CmuxNextDesign
 public import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 /// The import suggestion cards for the whole app: it scans this Mac off the
@@ -213,7 +214,7 @@ public final class ImportSuggestionsCenter {
         // Read here, so the page's observation rebuilds this section when `cloud.autoCloud` changes;
         // the rescan runs after the read, never inside it.
         if let scannedOffer, (host?.autoCloud?.offered() ?? false) != scannedOffer {
-            Task { @MainActor [weak self] in self?.refreshIfOfferChanged() }
+            MainDelivery().later { [weak self] in self?.refreshIfOfferChanged() }
         }
         var value = ImportCardJSON.value(list(), icons: icons, keepEmpty: true)
         if case .object(var members) = value {

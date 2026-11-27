@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextImportSuggestions
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// What the import cards host runs for Move this Mac to AutoCloud.
@@ -160,7 +161,7 @@ public struct MoveToAutoCloudImport {
     static func stepLines(_ gate: ProgressGate) -> @Sendable (String) -> Void {
         { line in
             guard let fraction = (try? JSONDecoder().decode(Step.self, from: Data(line.utf8)))?.progress else { return }
-            Task { @MainActor in gate.report(fraction) }
+            MainDelivery().run { gate.report(fraction) }
         }
     }
 
