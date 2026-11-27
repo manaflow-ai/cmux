@@ -361,6 +361,21 @@ on:
       - scripts/gh-merge-green  # tests/test_base_red_excuse.py
       - scripts/install-axe-ci.sh  # tests/test_base_red_excuse.py
       - .github/post-merge-batch.json  # scripts/ci/base_red_excuse.py
+      - skills/cmux-extension-author/prompts/add-animation.md
+      - skills/cmux-extension-author/prompts/clone-app-flow.md
+      - skills/cmux-extension-author/prompts/composer-slash-command.md
+      - skills/cmux-extension-author/prompts/new-tab-page.md
+      - skills/cmux-extension-author/prompts/palette-command.md
+      - skills/cmux-extension-author/prompts/sidebar-show.md
+      - skills/cmux-extension-author/recipes/command.md
+      - skills/cmux-extension-author/recipes/composer-command.md
+      - skills/cmux-extension-author/recipes/composer-mention.md
+      - skills/cmux-extension-author/recipes/live-section.md
+      - skills/cmux-extension-author/recipes/newtab.md
+      - skills/cmux-extension-author/recipes/pane.md
+      - skills/cmux-extension-author/recipes/section.md
+      - skills/cmux-extension-author/recipes/session-info.md
+      - skills/cmux-extension-author/recipes/widget.md
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -732,6 +747,21 @@ on:
       - scripts/gh-merge-green  # tests/test_base_red_excuse.py
       - scripts/install-axe-ci.sh  # tests/test_base_red_excuse.py
       - .github/post-merge-batch.json  # scripts/ci/base_red_excuse.py
+      - skills/cmux-extension-author/prompts/add-animation.md
+      - skills/cmux-extension-author/prompts/clone-app-flow.md
+      - skills/cmux-extension-author/prompts/composer-slash-command.md
+      - skills/cmux-extension-author/prompts/new-tab-page.md
+      - skills/cmux-extension-author/prompts/palette-command.md
+      - skills/cmux-extension-author/prompts/sidebar-show.md
+      - skills/cmux-extension-author/recipes/command.md
+      - skills/cmux-extension-author/recipes/composer-command.md
+      - skills/cmux-extension-author/recipes/composer-mention.md
+      - skills/cmux-extension-author/recipes/live-section.md
+      - skills/cmux-extension-author/recipes/newtab.md
+      - skills/cmux-extension-author/recipes/pane.md
+      - skills/cmux-extension-author/recipes/section.md
+      - skills/cmux-extension-author/recipes/session-info.md
+      - skills/cmux-extension-author/recipes/widget.md
   # Why: note-366
   workflow_dispatch:
     inputs:
