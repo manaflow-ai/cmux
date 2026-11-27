@@ -75,6 +75,11 @@ def run_record(**overrides) -> dict:
     return record
 
 
+
+# The verifier reads compares with git first (ci_receipt.git_compare); these tests answer them from FakeGitHub's
+# REST compare, and GitCompareTest drives the git path against a local repository.
+ci_receipt.git_compare = lambda *args, **kwargs: None
+
 class FakeGitHub:
     def __init__(self, *, run: dict | None = None, log: str | None = None, compare: str = "ahead",
                  jobs: list | None = None, files: list[str] | None = None):
@@ -648,6 +653,72 @@ class LaneRecord(unittest.TestCase):
             self.assertEqual(ci_receipt.flush(env=env, post=lambda u, d: (502, b""), sleep=lambda s: None,
                                               now=lambda: later), 0)
             self.assertEqual(list(Path(folder).glob("*.json")), [])
+
+
+
+class GitCompareTest(unittest.TestCase):
+    """base_covers reads OLDER...BASE with git, so a REST budget spent elsewhere does not drop a receipt."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.repo = Path(self.dir.name) / "src"
+        self.repo.mkdir()
+        run = lambda *argv: subprocess.run(["git", "-C", str(self.repo), *argv], check=True, capture_output=True,
+                                           text=True).stdout.strip()
+        self.run = run
+        run("init", "-q", "-b", "main")
+        run("config", "user.email", "t@example.com")
+        run("config", "user.name", "t")
+        run("config", "uploadpack.allowFilter", "true")
+        run("config", "uploadpack.allowAnySHA1InWant", "true")
+        (self.repo / "a.txt").write_text("a\n")
+        run("add", ".")
+        run("commit", "-qm", "one")
+        self.older = run("rev-parse", "HEAD")
+        (self.repo / "crates").mkdir()
+        (self.repo / "crates" / "lib.rs").write_text("fn x() {}\n")
+        run("add", ".")
+        run("commit", "-qm", "two")
+        self.base = run("rev-parse", "HEAD")
+        self.token = {"GH_TOKEN": "t"}
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def compare(self, older, base, files=False):
+        from unittest import mock
+        with mock.patch.dict("os.environ", self.token):
+            return ci_receipt._git_compare(REPO, older, base, files=files, remote=f"file://{self.repo}")
+
+    def test_an_ancestor_is_ahead_without_rest(self):
+        self.assertEqual(self.compare(self.older, self.base), {"status": "ahead", "files": []})
+
+    def test_files_come_from_the_trees(self):
+        self.assertEqual(self.compare(self.older, self.base, files=True),
+                         {"status": "ahead", "files": [{"filename": "crates/lib.rs"}]})
+
+    def test_off_history_falls_back_to_rest(self):
+        self.run("checkout", "-q", "-b", "side", self.older)
+        (self.repo / "b.txt").write_text("b\n")
+        self.run("add", ".")
+        self.run("commit", "-qm", "side")
+        side = self.run("rev-parse", "HEAD")
+        self.assertIsNone(self.compare(side, self.base))
+
+    def test_no_token_falls_back_to_rest(self):
+        self.token = {"GH_TOKEN": ""}
+        self.assertIsNone(self.compare(self.older, self.base))
+
+    def test_base_covers_takes_the_git_answer(self):
+        def no_rest(path):
+            raise ci_receipt.Rejected(f"GitHub answered 403 for {path}")
+        saved = ci_receipt.git_compare
+        ci_receipt.git_compare = lambda *args, **kwargs: {"status": "ahead", "files": []}
+        try:
+            ci_receipt.base_covers(no_rest, repo=REPO, job="fast-gates", where="w", receipt_base=self.older,
+                                   receipt_tree="0" * 40, base=self.base, merge_tree="", rust_roots=None)
+        finally:
+            ci_receipt.git_compare = saved
 
 
 if __name__ == "__main__":

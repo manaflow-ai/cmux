@@ -18459,19 +18459,21 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "vm-hassle.yml", "zero-to-going.yml",
             # RFD 0166's cas/1 replay: cmux-cas's tests and the web bundle replay (reports, does not gate).
             "cas-replay.yml",
+            # Its W1 row (RFD 0166): the web OTA bundles replayed through cas/1, path-gated on cmux-cas (reports).
+            "cmux-cas-replay.yml",
+            # The pool's first compile (#60943): `cargo check` of the app FFI workspace a change reaches.
+            "pool-build-path.yml",
             # The degenerate lab (#57434): one job per daemon part, scale and load; a red is the product's panic.
             "cmux-next-degenerate-lab.yml",
             # The Windows RD host's build (path-gated on its crates), as cmux-rd-windows.yml.
             "cmux-rd-windows-host-build.yml",
             # cmux-shotdiff's self-check on real Chrome renders (#57873): reads the tool's own code.
             "shotdiff.yml",
+            # The Make cmux Yours intro walk (#60998), path-gated on the onboarding page: a red is that page's.
+            "intro-walk-check.yml",
             # Measurements of a product build on pull requests, not gates: iOS first connect on a hosted runner
             # (#57443) and the pause-policy A/B on staging (#54833).
-            "ios-launch-tti-hosted.yml", "pause-ab.yml",
-            # cmux-cas's W1 replay of the published web bundles (reports, does not gate), as cas-replay.yml.
-            "cmux-cas-replay.yml",
-            # The pool build path (#60943): `cargo check` of the app FFI workspace; a red is that product code's.
-            "pool-build-path.yml"),
+            "ios-launch-tti-hosted.yml", "pause-ab.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "classic-frozen-guard.yml", "labels-sync.yml",
             "merge-freeze.yml", "pr-body-checks.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",

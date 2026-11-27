@@ -29,6 +29,8 @@ export class FakeHost {
   /** The daemon signals cache's watches (`daemonWatch` hosts only), and refresh asks. */
   readonly watches = new Map<number, { name: string; params: any; mount: string; everySeconds: number }>()
   readonly watchRefreshes: number[] = []
+  /** Every `keepState` object the runtime sent (`cmux.state`), oldest first. */
+  readonly keptStates: Array<Record<string, unknown>> = []
   private nextSub = 1
   private nextTimer = 1
 
@@ -74,6 +76,9 @@ export class FakeHost {
       },
       log(level: string, message: string) {
         host.logs.push([level, message])
+      },
+      keepState(json: string) {
+        host.keptStates.push(JSON.parse(json))
       },
       commandDone(cbId: number, ok: boolean, json: string) {
         const body = JSON.parse(json)
