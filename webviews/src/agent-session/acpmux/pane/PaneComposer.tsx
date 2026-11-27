@@ -22,9 +22,9 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberCloudPick, rememberStartedProject } from "../newtab/startedProject";
+import { rememberStartedProject, rememberCloudPick } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
@@ -38,7 +38,7 @@ import { pullTabCounts } from "../subagents/trayPullTabModel";
 import { isWaitingForWords, type Dictation } from "../dictation";
 import { SIDE_COMMAND } from "../composer/sendMenuModel";
 import { DictationNotice } from "../DictationNotice";
-import { ACTIVITY_LINE, DATE, THINKING, WORKING } from "../conversation/turns";
+import { DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
 import { DEFAULT_PICK_MODEL, lastPick } from "../lastPick";
 import { cloudAgentPick } from "../cloudAgentPick";
@@ -87,7 +87,7 @@ import { hatShows, type HatQuestion } from "../question/hatModel";
 import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrust, type SentFrom } from "./sendHost";
 import { keptAttachments } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
-import type { AcpmuxSnapshot, AcpmuxPlanEntry, AcpmuxRow, AcpmuxPermission } from "../model";
+import type { AcpmuxSnapshot, AcpmuxRow, AcpmuxPermission } from "../model";
 import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
@@ -192,6 +192,10 @@ export type PaneComposerDeps = {
     healthSignIn: CloudSignIn | undefined;
   };
   switchLoginCommand: string | undefined;
+  /// A failed start that starts again on its own (startFailure.ts): no card until it lasts.
+  switchFailedByItself: boolean;
+  /// That start has kept failing past the hold (useAutoRetry): its card says it is still trying.
+  switchStillTrying: boolean;
   composerHandle: React.RefObject<ComposerHandle | null>;
   healthStale: React.RefObject<boolean>;
   connectMachine: (kind: ConnectKind) => undefined;
@@ -219,6 +223,8 @@ export type PaneComposerDeps = {
   /// A started chat's Local, Cloud, Auto chips (undefined in the floating chat or before a session): one element per
   /// chat and toast sink, so a pane render that changes neither hands the composer the same one.
   placeControl: React.ReactNode | undefined;
+  /// The New Tab page's Hybrid control (hybrid/newTabHybrid.ts), before a chat exists; undefined with AutoCloud off.
+  newTabPlaceControl?: React.ReactNode;
   worktreeCreatingHere: boolean;
   worktreeSetupHere: boolean;
   worktreeSetupFolder: string | undefined;
@@ -256,8 +262,6 @@ export type PaneComposerDeps = {
   trayNode: React.JSX.Element | null;
   trayList: TrayItem[];
   waitingAgents: Set<string>;
-  hatPlan: readonly AcpmuxPlanEntry[] | undefined;
-  hatKept: boolean;
   trayHandle: TrayHandleSide;
   /// Where the tucked hat's pill stands: trayHandle, or aside when the jump stack takes the center
   /// line (hatSide, hatPillPlace.experiment.ts).
@@ -460,8 +464,11 @@ export function drawPaneComposer({
   startsElsewhere,
   chatSignIns,
   switchLoginCommand,
+  switchFailedByItself,
+  switchStillTrying,
   composerHandle,
   placeControl,
+  newTabPlaceControl,
   healthStale,
   connectMachine,
   chooseWorkspaceFolder,
@@ -519,8 +526,6 @@ export function drawPaneComposer({
   trayNode,
   trayList,
   waitingAgents,
-  hatPlan,
-  hatKept,
   trayHandle,
   hatHandle,
   hatPillArm,
@@ -744,9 +749,14 @@ export function drawPaneComposer({
                 {harnessCard}
               </Notice>
             ) : (
-              <Notice id="switch" tier="error" when={snapshot.switching?.phase === "failed"}>
+              <Notice
+                id="switch"
+                tier="error"
+                when={snapshot.switching?.phase === "failed" && (!switchFailedByItself || switchStillTrying)}
+              >
                 <SwitchNotice
                   switching={snapshot.switching}
+                  stillTrying={switchFailedByItself}
                   // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
                   installs={!startsElsewhere}
                   // An agent not signed in: on another machine its sign-in runs there, in the card; on
@@ -980,7 +990,6 @@ export function drawPaneComposer({
             <TrayPullTab
               chat={shownSessionId}
               {...pullTabCounts(trayList, waitingAgents)}
-              working={hatPlan !== undefined && hatPlan.length > 0 && !hatKept}
               side={hatHandle}
               quiet={hatPillQuiet(hatPillArm) && (hatHandle !== trayHandle || hatPillInMiddle(hatPillArm))}
             />
@@ -1212,7 +1221,7 @@ export function drawPaneComposer({
                     .join("\n\n");
                   const anchor = [...turnRowsShown]
                     .reverse()
-                    .find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind));
+                    .find((row) => ![WORKING, THINKING, DATE].includes(row.kind));
                   const client = directClient.current;
                   btwNotes.ask(
                     snapshot.sessionId,
@@ -1595,6 +1604,7 @@ export function drawPaneComposer({
             // Built once per chat by the pane (App.tsx `placeControl`): an inline element here was a new prop on
             // every pane render, so each streamed chunk drew the composer and its box again while keys waited.
             {...(placeControl ? { placeControl } : {})}
+            {...(newTabPlaceControl ? { newTabPlaceControl } : {})}
             // The floating chat has no tab to move.
             {...(quick
               ? {}
