@@ -1489,11 +1489,23 @@ export function devboxSettleBeforeSnapshotCommand(): string {
  * Code start with that config dir rewrites the file without `theme` (Claude
  * drops values equal to its defaults) and adds per-install ids
  * (firstStartTime, machineID, userID) every clone would then share. The bake
- * runs it right before the snapshot and the verifier on the clone, so a start
- * during the bake fails the bake, not the verify after it.
+ * runs it right before the snapshot, so a start during the bake fails the bake.
+ *
+ * The verifier runs it on the clone with `afterResume`, and a start there is
+ * expected: acpmux's live model probe (`claude -p`, acpmux
+ * `live_models/mod.rs`) runs as the work user at resume when its cached list
+ * is stale, and so does a person's first `claude`. The ids it writes are that
+ * clone's own, since the bake's check proved the snapshot held none. So on the
+ * clone the check keeps what a start must not lose (onboarding done, "/"
+ * trusted, the placeholder key approved, mode 0600) and lets Claude's own
+ * rewrite drop `theme` and add its ids.
  */
-export function devboxClaudeTeamOnboardingCheckCommand(homes: readonly string[] = ["/root", DEVBOX_WORK_HOME]): string {
-  return `python3 -c 'import json, pathlib; homes = ${JSON.stringify(homes)}; configs = [pathlib.Path(h) / ".config/cmux/claude-team/.claude.json" for h in homes]; rows = [json.loads(p.read_text()) for p in configs]; assert all(j.get("hasCompletedOnboarding") is True and j.get("theme") == "dark" and j.get("projects", {}).get("/", {}).get("hasTrustDialogAccepted") is True and "-vm-edge-placeholder" in j.get("customApiKeyResponses", {}).get("approved", []) and "firstStartTime" not in j for j in rows), rows; assert all(p.stat().st_mode & 0o777 == 0o600 for p in configs)' && echo claude-team-onboarding-ok`;
+export function devboxClaudeTeamOnboardingCheckCommand(
+  homes: readonly string[] = ["/root", DEVBOX_WORK_HOME],
+  { afterResume = false }: { afterResume?: boolean } = {},
+): string {
+  const seedOnly = afterResume ? "" : ` and j.get("theme") == "dark" and "firstStartTime" not in j`;
+  return `python3 -c 'import json, pathlib; homes = ${JSON.stringify(homes)}; configs = [pathlib.Path(h) / ".config/cmux/claude-team/.claude.json" for h in homes]; rows = [json.loads(p.read_text()) for p in configs]; assert all(j.get("hasCompletedOnboarding") is True and j.get("projects", {}).get("/", {}).get("hasTrustDialogAccepted") is True and "-vm-edge-placeholder" in j.get("customApiKeyResponses", {}).get("approved", [])${seedOnly} for j in rows), rows; assert all(p.stat().st_mode & 0o777 == 0o600 for p in configs)' && echo claude-team-onboarding-ok`;
 }
 
 /**

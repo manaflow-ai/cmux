@@ -5,7 +5,7 @@ declare const Bun: {
 };
 import { spawn } from "node:child_process";
 import { runChild } from "./helpers/run-child";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -1210,7 +1210,7 @@ test "$daemon_pid" = fixture
     expect(bake).toContain(
       'await step("settle-before-snapshot", `${devboxSettleBeforeSnapshotCommand()} && ${devboxClaudeTeamOnboardingCheckCommand()}`);',
     );
-    expect(readScript("verify-devbox-image.ts")).toContain("  devboxClaudeTeamOnboardingCheckCommand(),");
+    expect(readScript("verify-devbox-image.ts")).toContain("  devboxClaudeTeamOnboardingCheckCommand(undefined, { afterResume: true }),");
   });
 
   test("the Claude team seed check passes on the seed and fails on the config a Claude start rewrote", async () => {
@@ -1256,6 +1256,26 @@ test "$daemon_pid" = fixture
         { mode: 0o600 },
       );
       expect((await runChild("/bin/sh", ["-c", check])).status).not.toBe(0);
+      // On the clone (run 45947789684): acpmux's model probe started Claude at resume.
+      // Its own ids and the dropped `theme` pass; losing onboarding or 0600 does not.
+      const clone = devboxClaudeTeamOnboardingCheckCommand(homes, { afterResume: true });
+      const started = {
+        customApiKeyResponses: { approved: ["-vm-edge-placeholder"], rejected: [] },
+        hasCompletedOnboarding: true,
+        projects: { "/": { hasTrustDialogAccepted: true } },
+        firstStartTime: "2026-11-27T06:57:31.874Z",
+        machineID: "m",
+        userID: "u",
+      };
+      writeFileSync(configs[1], JSON.stringify(started), { mode: 0o600 });
+      const resumed = await runChild("/bin/sh", ["-c", clone]);
+      expect(resumed.stdout).toContain("claude-team-onboarding-ok");
+      expect(resumed.status).toBe(0);
+      writeFileSync(configs[1], JSON.stringify({ ...started, hasCompletedOnboarding: false }), { mode: 0o600 });
+      expect((await runChild("/bin/sh", ["-c", clone])).status).not.toBe(0);
+      writeFileSync(configs[1], JSON.stringify(started));
+      chmodSync(configs[1], 0o644);
+      expect((await runChild("/bin/sh", ["-c", clone])).status).not.toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
