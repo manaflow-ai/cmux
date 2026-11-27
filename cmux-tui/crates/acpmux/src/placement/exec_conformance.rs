@@ -180,7 +180,7 @@ pub fn normalize_case(case: &Case, bytes: &[u8]) -> Vec<u8> {
     let mut kept = Vec::with_capacity(bytes.len());
     for entry in bytes.split_inclusive(|b| *b == 0) {
         let body = entry.strip_suffix(b"\0").unwrap_or(entry);
-        let name = &body[..body.iter().position(|b| *b == b'=').unwrap_or(body.len())];
+        let name = body.split(|b| *b == b'=').next().unwrap_or(body);
         if name == super::exec_router::FORCE_ENV.as_bytes() || env_held(name) {
             continue;
         }

@@ -53,7 +53,7 @@ pub struct Row {
 pub const EXCERPT: usize = 2000;
 
 fn excerpt(bytes: &[u8]) -> String {
-    let cut = &bytes[..bytes.len().min(EXCERPT)];
+    let cut = bytes.get(..EXCERPT).unwrap_or(bytes);
     let mut s = String::from_utf8_lossy(cut).into_owned();
     if bytes.len() > EXCERPT {
         s.push_str(&format!("... ({} bytes)", bytes.len()));
@@ -231,7 +231,8 @@ fn env_diff(local: &[u8], routed: &[u8]) -> Vec<String> {
             .filter(|e| !e.is_empty())
             .map(|e| {
                 let at = e.iter().position(|c| *c == b'=').unwrap_or(e.len());
-                (String::from_utf8_lossy(&e[..at]).into_owned(), e[at..].to_vec())
+                let (name, value) = e.split_at(at);
+                (String::from_utf8_lossy(name).into_owned(), value.to_vec())
             })
             .collect()
     };

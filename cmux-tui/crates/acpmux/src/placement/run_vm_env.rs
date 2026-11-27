@@ -91,7 +91,8 @@ pub fn fork_env(
     let mut out = Vec::with_capacity(sent.len() + held.len());
     for kv in sent {
         let Some(eq) = kv.iter().position(|b| *b == b'=') else { continue };
-        let (k, v) = (kv[..eq].to_vec(), kv[eq + 1..].to_vec());
+        let (k, rest) = kv.split_at(eq);
+        let (k, v) = (k.to_vec(), rest.get(1..).unwrap_or_default().to_vec());
         out.push((OsString::from_vec(k), OsString::from_vec(v)));
     }
     for name in held {

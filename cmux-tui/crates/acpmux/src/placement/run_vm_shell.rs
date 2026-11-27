@@ -65,7 +65,7 @@ impl Harness for ShellHarness {
                     match r.read(&mut buf) {
                         Ok(0) => break,
                         Ok(n) => {
-                            if tx.send((fd, buf[..n].to_vec())).is_err() {
+                            if tx.send((fd, buf.get(..n).unwrap_or(&buf).to_vec())).is_err() {
                                 break;
                             }
                         }

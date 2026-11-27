@@ -656,7 +656,7 @@ pub fn fold_role_holders(registry: &mut Value) {
     let mut roles: Vec<&String> = holders.keys().collect();
     roles.sort();
     for role in roles {
-        let Some(list) = holders[role].as_array() else { continue };
+        let Some(list) = holders.get(role).and_then(Value::as_array) else { continue };
         for host in list.iter().filter_map(Value::as_str) {
             let Some(m) = machines.get_mut(host).and_then(Value::as_object_mut) else { continue };
             let entry = m.entry("roles").or_insert_with(|| json!([]));

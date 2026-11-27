@@ -196,7 +196,12 @@ pub fn sizing(predicted: &Predicted) -> Option<Sizing> {
         .find(|(_, vcpu, mem)| *vcpu >= need.vcpu && *mem >= need.mem_gib)
         .or(LADDER.last())
         .copied()?;
-    (size != LADDER[0].0).then_some(Sizing { size, vcpu, mem_gib, runs: predicted.runs })
+    (Some(size) != LADDER.first().map(|(s, _, _)| *s)).then_some(Sizing {
+        size,
+        vcpu,
+        mem_gib,
+        runs: predicted.runs,
+    })
 }
 
 /// The notice row for a sized run VM: what it starts at and why, in place of an ask.
