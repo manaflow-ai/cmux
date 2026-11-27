@@ -33,6 +33,7 @@ if [ "${CHAT_SIZE_DHAT:-}" = 1 ]; then
 fi
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 out_dir="${FAST_CHECKS_OUT:-${TMPDIR:-/tmp}}"
+mkdir -p "$out_dir"
 log="$out_dir/chat-size-sweep.log"
 [ -n "${FAST_CHECKS_OUT:-}" ] && exec > >(tee -a "$log") 2>&1
 head_sha="$(git -C "$root" rev-parse HEAD)"
@@ -53,7 +54,7 @@ run_log="$(mktemp)"
 trap 'rm -f "$run_log"' EXIT
 code=0
 ACPMUX_CHAT_SIZES="$sizes" ACPMUX_CHAT_SIM_BIN="$sim_bin" \
-  cargo test -p acpmux --release "${features[@]}" --test god_daemon chat_size_sweep -- --ignored --nocapture 2>&1 | tee "$run_log" \
+  cargo test -p acpmux --release ${features[@]+"${features[@]}"} --test god_daemon chat_size_sweep -- --ignored --nocapture 2>&1 | tee "$run_log" \
   || code=$?
 # The row any runner publishes: the harness's last `infinite_chat_size_ratio_max <ratio> <axis> <size>` line.
 python3 - "$run_log" "$out_dir/chat-size-row.json" "$sizes" "$head_sha" "$(hostname -s 2>/dev/null || hostname)" <<'PY'

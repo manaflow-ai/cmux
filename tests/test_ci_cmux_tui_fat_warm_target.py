@@ -429,6 +429,14 @@ class PoolRunnerWarmTarget(ToolchainStamp):
         self.assertFalse(obj.exists())
         self.assertFalse((self.repo / "cmux-tui" / "target").exists())
 
+    def test_the_pool_free_floor_keeps_a_tree_on_a_host_with_38_gb_free(self) -> None:
+        # Job 140059291498: the darwin tree recorded 7.7 GB with 38.6 GB free on the host, and the
+        # 40 GiB floor removed it at once, so the leg never ran warm. The default sits below that.
+        script = WARM.read_text()
+        floor = re.search(r'MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES:-\$\(\((\d+) \* 1024 \* 1024 \* 1024\)\)', script)
+        self.assertIsNotNone(floor)
+        self.assertLess(int(floor.group(1)) * 1024**3, 38_627_414_016)
+
     def test_record_keeps_the_tree_for_later_readers_and_release_drops_it(self) -> None:
         # Job 140189679068: record removed the tree on a host short of disk, so the workspace
         # delta's pack and the R2 dependency save after it found a dangling cmux-tui/target.
