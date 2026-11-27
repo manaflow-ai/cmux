@@ -311,6 +311,8 @@ mod subagent_title_tests;
 mod dedupe;
 /// Whether dedupe is on now, for the harness-magic stamp (`hub/harness_magic.rs`).
 pub(crate) use dedupe::enabled as dedupe_enabled;
+#[cfg(test)]
+pub(crate) use dedupe::enabled_with as dedupe_enabled_with;
 mod dedupe_shell;
 mod dir_rules;
 /// Whether path rules are on now, for the harness-magic stamp (`hub/harness_magic.rs`).

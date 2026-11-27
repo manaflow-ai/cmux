@@ -131,7 +131,7 @@ impl ProfileSources {
 /// `root` is the default acpmux home. `None` for every other home: NIGHTLY,
 /// cmux NEXT, RC, release and a standalone acpmux keep the person's folder.
 ///
-/// The user folder (`~/.config/cmux/harnesses`) is per person, not per
+/// The user folder (`~/.config/cmux-next/harnesses`) is per person, not per
 /// build, so a profile a DEV build or a dogfood script wrote there showed in
 /// every shipped build's model picker (hq#2569 item 11: a fake agent "P"
 /// with models m1 and m2 in cmux NEXT). A DEV build never writes it; it still

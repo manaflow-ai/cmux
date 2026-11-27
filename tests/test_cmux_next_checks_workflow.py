@@ -987,7 +987,7 @@ class PathRoutingStructure(unittest.TestCase):
         swift = jobs["swift-test"]
         self.assertIn("SWIFT_PRIORITY_FILTER", job_env(swift))
         run = next(step for step in swift["steps"] if step.get("name", "").startswith("Run package tests"))
-        script = run["run"]
+        script = step_run(run)
         self.assertIn("SWIFT_PRIORITY_FILTER", script)
         self.assertIn("--skip", script)
         self.assertIn("priority", script.lower())
@@ -1916,9 +1916,9 @@ class SameTreeIsAnEvent(unittest.TestCase):
         ready = steps["Report the ready same-tree cmux-tui"]
         failed = steps["Report the unavailable same-tree cmux-tui"]
         self.assertIn("== 'ready'", ready["if"])
-        self.assertNotIn("exit 1", ready["run"])
+        self.assertNotIn("exit 1", step_run(ready))
         self.assertIn("== 'failed'", failed["if"])
-        self.assertIn("exit 1", failed["run"])
+        self.assertIn("exit 1", step_run(failed))
 
     def test_the_artifacts_workflow_starts_the_deferred_jobs(self):
         jobs = load_yaml(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -4869,13 +4869,22 @@ class FastTierCargoRoute(unittest.TestCase):
                         path = entry["path"]
                     self.assertTrue(self.reaches(path))
 
+    def test_full_ci_on_a_tooling_only_change_routes_by_paths(self):
+        # ci-min-per-pr-140: full-ci forces it unless every change is a CI or tooling file (scripts/ci/tooling_only.py).
+        tooling = ("scripts/ci/test_reds.py", "tests/test_test_reds.py", ".github/workflows/nightly.yml", "docs/x.md")
+        self.assertFalse(self.reaches(*tooling, labels=["full-ci"]))
+        self.assertTrue(self.reaches(*tooling, ".github/workflows/cmux-next.yml", labels=["full-ci"]))
+        self.assertTrue(self.reaches(*tooling, "scripts/cmux-next/fast-tier.py", labels=["full-ci"]))
+        self.assertTrue(self.reaches(*tooling, "webviews/src/app.tsx", labels=["full-ci"]))
+        self.assertTrue(self.reaches(labels=["full-ci"]))
+
     def test_a_change_that_reaches_no_entry_skips_it(self):
         self.assertFalse(self.reaches("Packages/macOS/CmuxNext/Sources/CmuxNext/App.swift", "webviews/src/app.tsx",
                                       "docs/ci/x.md", ".github/workflows/ci-web.yml"))
         self.assertFalse(self.reaches())
 
     def test_full_ci_and_an_unreadable_registry_run_it(self):
-        self.assertTrue(self.reaches("docs/x.md", labels=("full-ci",)))
+        self.assertTrue(self.reaches("webviews/src/app.tsx", labels=("full-ci",)))
         with tempfile.TemporaryDirectory() as empty:
             self.assertTrue(self.route.reaches(["docs/x.md"], set(), Path(empty))[0])
 

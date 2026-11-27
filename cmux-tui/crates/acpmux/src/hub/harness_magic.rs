@@ -217,4 +217,22 @@ mod tests {
         let missing: Vec<&String> = seen.iter().filter(|n| !names.contains(&n.as_str())).collect();
         assert!(missing.is_empty(), "harness-magic switches with no FEATURES row: {missing:?}");
     }
+
+    #[test]
+    fn opt_in_features_are_off_unless_switched_on() {
+        // Surgery and dedupe are opt-in (Leo 2026-11-26: "only do it for our personal fleet
+        // situation"): their own gates, which their FEATURES rows ask, read off by default.
+        let names: Vec<&str> = FEATURES.iter().map(|f| f.name).collect();
+        assert!(names.contains(&"surgery") && names.contains(&"dedupe"), "{names:?}");
+        assert!(!super::super::surgery::enabled_with(None, None));
+        assert!(!crate::claude_stdio::dedupe_enabled_with(None, None));
+        let on = json!({"agents": {"harnessMagic": {
+            "surgery": {"enabled": true}, "dedupe": {"enabled": true}}}});
+        assert!(super::super::surgery::enabled_with(Some(&on), None));
+        assert!(crate::claude_stdio::dedupe_enabled_with(Some(&on), None));
+        assert!(!super::super::surgery::enabled_with(Some(&on), Some("0")));
+        // Dedupe's daemon switch turns it on too (#58129); surgery's only turns it off.
+        assert!(crate::claude_stdio::dedupe_enabled_with(None, Some("1")));
+        assert!(!super::super::surgery::enabled_with(None, Some("1")));
+    }
 }
