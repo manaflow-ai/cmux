@@ -36,7 +36,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import path from "node:path";
-import { type ChaosExec, dropCommand, sessionHostKillCommand } from "./cloud-chaos.ts";
+import { type ChaosExec, dropCommand, resolveChatSurface, sessionHostKillCommand } from "./cloud-chaos.ts";
 
 export const MOVE_DIRECTIONS = ["local-cloud", "cloud-local", "cloud-cloud"] as const;
 export const MOVE_STEPS = ["before-begin", "after-begin", "frozen-sync", "after-receive", "mid-copy", "before-finish", "after-finish", "after-commit"] as const;
@@ -712,30 +712,6 @@ export async function startSettled(ctx: Pick<MoveContext, "status" | "start">, m
 }
 
 /** Brings every side back: the local machine and the carriers running, each Cloud machine running and answering. */
-/** The surface of the one tab in the workspace named `name` in a `list-workspaces` tree, null without exactly one. */
-export function surfaceInTree(tree: unknown, name: string): number | null {
-  const workspaces: any[] = Array.isArray((tree as any)?.workspaces) ? (tree as any).workspaces : [];
-  const ws = workspaces.filter((w) => w?.name === name || w?.title === name);
-  if (ws.length !== 1) return null;
-  const found = new Set<number>();
-  const walk = (v: unknown): void => {
-    if (Array.isArray(v)) { v.forEach(walk); return; }
-    if (!v || typeof v !== "object") return;
-    for (const [k, x] of Object.entries(v)) {
-      if (k === "surface" && typeof x === "number") found.add(x);
-      else walk(x);
-    }
-  };
-  walk(ws[0]);
-  return found.size === 1 ? [...found][0] : null;
-}
-
-async function surfaceIn(socket: string, name: string): Promise<number | null> {
-  const r = await daemonRpc(socket, { cmd: "list-workspaces" }, 30_000);
-  if (!r?.ok) throw new Error(`list-workspaces: ${r?.error_code ?? ""} ${String(r?.error ?? "").slice(0, 120)}`);
-  return surfaceInTree(r.data, name);
-}
-
 export async function bringBack(ctx: Pick<MoveContext, "status" | "start" | "ensureStub">, carriers: CarrierServe[], sides: MoveSide[], note: (s: string) => void): Promise<void> {
   for (const s of sides) {
     const local = s.local;
@@ -818,8 +794,10 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
     const t = await rpc(side, { cmd: "new-conversation-tab", workspace: ws.workspace, agent_session: { host: `registry:${id.registry_id ?? id.session_id}`, harness: "claude" } });
     // The person trusts the chat's folder (a fresh Cloud folder reads trusted already; a refusal there is noted only).
     await rpc(side, { cmd: "agent-session-trust", surface: t.surface, cwd: folder, level: "trusted", vm_kind: "owner" }).catch((e: Error) => note(`trust ${side.name}: ${e.message}`));
+    if (typeof t.tab_resource_id === "string") tabs.set(t.surface, t.tab_resource_id);
     return t.surface;
   };
+  const tabs = new Map<number, string>();
   const surface = await tab(a.src, srcFolder);
   const buildOf = (side: MoveSide) => rpc(side, { cmd: "identify" }).then((id: any) => String(id?.build_id ?? id?.build_commit ?? "?"), () => "unreadable");
   const srcBuild = await buildOf(a.src);
@@ -941,7 +919,7 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
     // --surface answered agent_transfer.unknown_tab). The drill reads it again the same way.
     const nowBuild = await buildOf(a.src);
     if (nowBuild !== srcBuild) note(`source ${a.src.name} daemon replaced mid-move: build ${srcBuild} -> ${nowBuild}`);
-    const now = await surfaceIn(a.src.socket, `kmm ${tag}`).catch((e: Error) => { note(`retry surface: ${e.message}`); return null; });
+    const now = await resolveChatSurface((f) => daemonRpc(a.src.socket, f, 30_000), tabs.get(surface) ?? "", session).catch((e: Error) => { note(`retry surface: ${e.message}`); return null; });
     if (now !== null && now !== surface) {
       note(`retry surface: ${surface} -> ${now} (the source lists the tab again)`);
       args[args.indexOf("--surface") + 1] = String(now);

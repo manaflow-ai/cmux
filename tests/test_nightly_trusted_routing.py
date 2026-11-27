@@ -39,7 +39,7 @@ SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-dmg')
 SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-signer-app', 'legacy-signer-dmg')
 TAIL_CONTROL_JOBS = (
     'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
-    'report-nightly-failure', 'close-nightly-failure-issue',
+    'report-nightly-failure', 'close-nightly-failure-issue', 'report-nightly-shelf-red',
 )
 # Our runners' fallback labels (nightly.yml): the nightly-only Mac pool (vars.CI_NIGHTLY_ONLY_RUNNER), the
 # owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and, for a fork only, GitHub-hosted Ubuntu.
@@ -54,27 +54,15 @@ OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 CMUX_LINUX = 'cmux-linux'
 CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-cli-helper',
                    'prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker',
-                   'published-build', 'check-nightly-app-store-shelf')
-# The post-feed dispatchers (#56483): they mint App tokens (cmux-bot and the CI pools) so a refused dispatch moves to
-# another installation's hour at once, and those keys stay off the nightly mini. So they take the nightly's reserved
-# Linux label on attempt 1 (RFD 0021, tests/test_ci_nightly_labels_reserved.py: no PR job can name it) and our
-# cmux-linux pool on a rerun or loop retry, never Blacksmith, a fork hosted Ubuntu. job -> why.
-NIGHTLY_LINUX_LABEL = 'cmux-gcp-nightly-x64'
-NIGHTLY_LINUX_ROUTE = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && "
-                       "(github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == "
-                       "'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || "
-                       "'cmux-linux' }}")
-NIGHTLY_LINUX_CONTROLS = {
-    'wake-nightly-next-tick': "dispatches main's nightly-next tick with App tokens (#56483), off the nightly mini",
-    'dispatch-published-in': 'dispatches the post-publication run with App tokens (#56483), off the nightly mini',
-}
+                   'published-build', 'check-nightly-app-store-shelf', 'check-nightly-webviews',
+                   'early-nightly-webviews')
 # The tail's secret jobs that take the ephemeral JIT nightly label, outside the push group, never Blacksmith
 # (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
 # publish-nightly-next-github is the loop run's one hosted job (test_nightly_owned_minis_only.HOSTED_LOOP_JOBS, Leo's
 # override): an upload with the release App key that held the whole signing Mac. The names keep "hosted": these
 # jobs take an ephemeral VM, never a mini, though since 2026-11-21 that VM is ours, not GitHub's.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
-                      'publish-nightly-next-github', 'published-in')
+                      'publish-nightly-next-github', 'published-in', 'wake-nightly-next-tick', 'dispatch-published-in')
 # Leo, 2026-11-19 (ask-b3e8183722): "why isn't nightly getting priority then? on the linux things". These hosted
 # jobs queued behind the org's busy hosted pool (publish-release-notes waited 24 min on ubuntu-24.04, run
 # 44556480014), so on attempt 1 they take cmux-gcp-nightly-jit-x64 first: one-job GCE VMs (no service account, no
@@ -105,6 +93,7 @@ NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
 # route choice, so it stays a hand list; this is the other half of it: job -> why it is not hosted. A new secret job
 # must be named in one of the two (test_every_secret_job_is_hosted_or_named_owned), so none escapes the route check.
 OWNED_SECRET_JOBS = {
+    "nightly-next-deltas": "signs and uploads post-feed deltas on the owned signing Mac behind its own whole-Mac claim",
     'nightly-next-one': "builds, signs and publishes nightly-next in one job on cmux15's signer label (NIGHTLY_NEXT_ONE_JOB)",
     'sign-live-code-variant': "signs, notarizes and publishes nightly-next-one's live code variant on the same signer label",
     'decide': 'reads the routing App key (ci-routing-agent) to place early controls; a credentialed control',
@@ -124,11 +113,8 @@ OWNED_SECRET_JOBS = {
     'generate-nightly-deltas': "Sparkle keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
     'publish-nightly': "release and feed credentials in the push run; the signer's label",
     'keep-published-dsyms': "release credentials, short; the signer's label",
+    'nightly-next-pkg': "the .pkg's Installer identity (RFD 0134 cut 2, #54859); the signer's label, after publish",
     'republish-nightly-deltas': "the signer's label on nightly-next, the JIT nightly label for classic and RC (NIGHTLY_NEXT_ONLY_OWNED)",
-    'nightly-next-pkg': "signs, notarizes and uploads the pre-warming .pkg (release-next); the signer's label",
-    'visual-gate-nightly': "reads the GhosttyKit R2 cache keys only; on the visual gate mini route-visual-gate-nightly picks",
-    'wake-nightly-next-tick': 'App keys for the dispatch; our reserved Linux label, then cmux-linux (NIGHTLY_LINUX_CONTROLS)',
-    'dispatch-published-in': 'App keys for the dispatch; our reserved Linux label, then cmux-linux (NIGHTLY_LINUX_CONTROLS)',
 }
 # Parser anchors: a regression in holds_secret that empties the derived sets would empty the checks with them.
 SECRET_ANCHORS = {'decide', 'build-sign-notarize-nightly', 'publish-nightly', 'publish-nightly-next-github'}
@@ -638,7 +624,6 @@ class NightlyTrustedRouting(unittest.TestCase):
                                    'needs.prepare-nightly-variant-primary.result': primary}
                         allowed = ({hosted_route(name, attempt)} if name in HOSTED_SECRET_JOBS or name in HOSTED_PREFLIGHT_JOBS
                                    else {CMUX_LINUX} if name in CMUX_LINUX_JOBS
-                                   else {NIGHTLY_LINUX_LABEL, CMUX_LINUX} if name in NIGHTLY_LINUX_CONTROLS
                                    else OUR_LABELS - {HOSTED})
                         with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary):
                             self.assertIn(evaluate(parse_expression(source), context), allowed)
@@ -651,6 +636,9 @@ class NightlyTrustedRouting(unittest.TestCase):
                                         **context, 'github.ref': ref, 'needs.decide.outputs.track': 'nightly'}), JIT_LABEL)
         self.assertGreater(checked, 20)
 
+    def test_visual_gate_only_reads_public_cache_on_the_session_runner(self):
+        self.assertFalse(workflow_jobs.secret_names(DOC['jobs']['visual-gate-nightly']))
+
     def test_every_secret_job_is_hosted_or_named_owned(self):
         # HOSTED_SECRET_JOBS is a route choice, so a new secret job must be named in it or in OWNED_SECRET_JOBS
         # (with its reason): one on a route this test's Ubuntu filter skips (a matrix pool, a reusable workflow)
@@ -662,16 +650,17 @@ class NightlyTrustedRouting(unittest.TestCase):
                          'it: give it our runners and add it to OWNED_SECRET_JOBS with the reason, or (Leo\'s call) '
                          'hosted Ubuntu with a reason in test_nightly_owned_minis_only.py')
         self.assertEqual(set(HOSTED_SECRET_JOBS) & set(OWNED_SECRET_JOBS), set())
-        # No stale entry: each one still names a secret job, or (published-in, #57680) a hosted tail job whose
-        # credential is a write token (test_nightly_owned_minis_only allows a JIT job a secret or a write token).
-        tokens = {name for name in HOSTED_SECRET_JOBS if holds_credential(DOC['jobs'][name])}
-        self.assertEqual((set(HOSTED_SECRET_JOBS) | set(OWNED_SECRET_JOBS)) - found - tokens, set())
+        # No stale entry: each one still names a secret job.
+        # published-in holds no secret but a pull-requests: write token, so it takes the JIT VM all the same.
+        write_token = {name for name in HOSTED_SECRET_JOBS
+                       if 'write' in (workflow_jobs.jobs(DOC)[name].get('permissions') or {}).values()}
+        self.assertEqual((set(HOSTED_SECRET_JOBS) | set(OWNED_SECRET_JOBS)) - found - write_token, set())
         for name, reason in OWNED_SECRET_JOBS.items():
             with self.subTest(job=name):
                 self.assertTrue(reason.strip())
         # The hosted half keeps its reasons in one place.
-        from test_nightly_owned_minis_only import HOSTED_LOOP_JOBS, HOSTED_TAIL_JOBS
-        self.assertEqual(set(HOSTED_SECRET_JOBS), set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS))
+        from test_nightly_owned_minis_only import HOSTED_DISPATCH_JOBS, HOSTED_LOOP_JOBS, HOSTED_TAIL_JOBS
+        self.assertEqual(set(HOSTED_SECRET_JOBS), set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_DISPATCH_JOBS))
 
     def test_a_new_secret_job_is_named_until_classified(self):
         """The class #36559 hit in backend.yml: a job split out with a secret that nobody lists."""
@@ -814,9 +803,29 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertTrue(evaluate(build_if, {**context, 'needs.resolve-nightly-cmux-tui-client.outputs.superseded': 'false'}))
                 self.assertFalse(evaluate(build_if, {**context, 'needs.resolve-nightly-cmux-tui-client.outputs.superseded': 'true'}))
 
+    def test_deltas_keep_trusted_signing_under_any_mini(self):
+        route = parse_expression(DOC['jobs']['nightly-next-deltas']['runs-on'][3:-2].strip())
+        # The signer label alone, as nightly-next-one: no runner carries both it and glaeda-nightly-mini
+        # (hq build-fleet/mini-fleet.json), so an array of the two would queue with no runner to take it.
+        for mini in ('', 'glaeda-nightly-mini', 'label"with-quote'):
+            for owner in ('manaflow-ai', 'fork'):
+                with self.subTest(owner=owner, mini=mini):
+                    expected = 'macos-26' if owner != 'manaflow-ai' else 'glaeda-trusted-next-signing'
+                    self.assertEqual(evaluate(route, {'github.repository_owner': owner,
+                                                     'vars.CI_NIGHTLY_MINI': mini}), expected)
+
     def test_only_a_build_replaced_before_it_started_goes_unreported(self):
         script = next(step for step in DOC['jobs']['report-nightly-failure']['steps']
                       if step.get('name') == 'Open or update the nightly failure issue')['with']['script']
+        self.assertIn("require('./.publish-tooling/scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
+        checkout = next(s for s in DOC['jobs']['report-nightly-failure']['steps']
+                        if str(s.get('uses', '')).startswith('actions/checkout@'))
+        self.assertEqual(checkout['with']['path'], '.publish-tooling')
+        self.assertIn('actions/checkout@', checkout['uses'])
+        self.assertEqual(checkout['with']['ref'], '${{ github.sha }}')
+        self.assertIs(checkout['with']['persist-credentials'], False)
+        self.assertEqual(checkout['with']['sparse-checkout'], 'scripts/ci/nightly-steps')
+        script = (ROOT / 'scripts/ci/nightly-steps/report-nightly-failure.cjs').read_text()
         # A replaced build never got a runner; a timed-out or cancelled one did.
         self.assertIn("!build.runner_name && !(build.steps || []).length", script)
         # Other failed jobs of the run still report.
@@ -1109,11 +1118,6 @@ def control_route_failures(doc):
     failures = {}
     for job in sorted(credentialed_control_jobs(doc) - set(CONTROL_ROUTE_EXEMPT)):
         cells = workflow_jobs.runs_on_cells(doc['jobs'][job])
-        if job in NIGHTLY_LINUX_CONTROLS:
-            # Their one route is NIGHTLY_LINUX_ROUTE as written: any other text (a pool, a Blacksmith label) fails.
-            if [' '.join(cell.split()) for cell in cells or []] != [NIGHTLY_LINUX_ROUTE]:
-                failures[job] = f'runs-on is not NIGHTLY_LINUX_ROUTE: {cells!r}'
-            continue
         if not cells:
             failures[job] = 'runs-on has a matrix value nothing resolves' if cells is None else 'no runs-on'
             continue
@@ -1150,21 +1154,6 @@ class CredentialedControls(unittest.TestCase):
                 self.assertIn(job, CREDENTIALED_CONTROL_JOBS)
                 self.assertTrue(reason.strip())
                 self.assertTrue(runs_on_text(DOC['jobs'][job], job).endswith(f"|| '{NIGHTLY_SLOT}' }}}}"))
-
-    def test_the_nightly_linux_controls_are_live_and_take_our_linux_labels(self):
-        for job, reason in NIGHTLY_LINUX_CONTROLS.items():
-            with self.subTest(job=job):
-                self.assertIn(job, CREDENTIALED_CONTROL_JOBS)
-                self.assertTrue(reason.strip())
-                for attempt, event, label in ((1, 'push', NIGHTLY_LINUX_LABEL), (1, 'schedule', NIGHTLY_LINUX_LABEL),
-                                              (2, 'push', CMUX_LINUX), (1, 'pull_request', CMUX_LINUX)):
-                    source = NIGHTLY_LINUX_ROUTE.removeprefix('${{').removesuffix('}}')
-                    self.assertEqual(evaluate(parse_expression(source), {
-                        'github.repository_owner': 'manaflow-ai', 'github.run_attempt': attempt,
-                        'github.event_name': event, 'inputs.nightly_next_loop_retry': ''}), label)
-        doc = copy.deepcopy(DOC)
-        doc['jobs']['dispatch-published-in']['runs-on'] = "${{ fromJSON(vars.RUNNER_POOLS).linux || 'blacksmith-4vcpu-ubuntu-2404' }}"
-        self.assertIn('dispatch-published-in', control_route_failures(doc))
 
     def test_every_control_takes_our_nightly_pool_and_forks_take_hosted(self):
         self.assertEqual(control_route_failures(DOC), {})

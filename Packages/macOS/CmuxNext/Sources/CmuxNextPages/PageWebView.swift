@@ -444,7 +444,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         bridge = webKitBridge
         let target = PageScriptTarget(webKitBridge)
         scriptTarget = target
-        scripts = PageScriptPipeline { script in target.evaluate(script) }
+        scripts = PageScriptPipeline { envelopeText in target.receive(envelopeText) }
         let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
         engineDecision = pooled || !load ? decision.webKitOnly : decision
         super.init(frame: .zero)

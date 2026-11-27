@@ -83,7 +83,7 @@ jobs:
       fallback: ${{ steps.pick.outputs.fallback }}
     steps:
       - name: Checkout the picker at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 2
         with:
@@ -126,7 +126,7 @@ jobs:
     # "Pin Xcode 27" fails: no INTERNAL build shipped after 08:16Z 11-25. The picker's `fallback` (a
     # Blacksmith Mac) replaces that label set when the runner census shows no online runner carrying
     # xcode-27.0: run 45717448413 waited 2 h 23 min on it with no Mac offering Xcode 27.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.CI_OVERFLOW_MAC || needs.pick-archive-runner.outputs.fallback != '' && needs.pick-archive-runner.outputs.fallback || fromJSON('{"labels":["cmux-mac","xcode-27.0"]}').labels }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.CI_OVERFLOW_MAC || fromJSON(needs.pick-archive-runner.outputs.fallback != '' && needs.pick-archive-runner.outputs.fallback || '["cmux-mac","xcode-27.0"]') }}
     timeout-minutes: 90
     outputs:
       marketing: ${{ steps.stamp.outputs.marketing }}
@@ -237,7 +237,7 @@ jobs:
               echo "::warning::fetch of $SHA stalled or failed; asking again in $wait s"
               sleep "$wait"
             fi
-            if git -c protocol.version=2 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=45 \
+            if timeout 600 git -c protocol.version=2 -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 \
                  -c "http.https://github.com/.extraheader=$auth" \
                  fetch --no-tags --prune --no-recurse-submodules --depth=1 --filter=blob:none origin "$SHA"; then
               fetched=1
@@ -308,6 +308,10 @@ jobs:
 
       - name: Archive
         working-directory: ${{ steps.kept.outputs.directory || steps.source.outputs.remote }}
+        # 6-8 min on Blacksmith (runs 45871646299, 45866160671); fleet Macs sat 66-70+ min here and held every
+        # later dispatch. testflight-build.sh bounds its xcframework build at 20 min; this bounds the rest
+        # (20 + Swift package backoff 9 + archive ~3, plus headroom). Live only after rc/cnx-ios-builder moves.
+        timeout-minutes: 40
         env:
           CMUX_INTERNAL_SPARSE_ARCHIVE: '1'
           MARKETING: ${{ steps.stamp.outputs.marketing }}
@@ -317,6 +321,11 @@ jobs:
           root="$HOME/cmux-mobile-builds"
           [ "$HOSTED_FALLBACK" != true ] || root="$RUNNER_TEMP/cmux-mobile-builds"
           export CMUX_MOBILE_BUILDS_ROOT="$root"
+          # Hosted fallback jobs use a disposable build root. Keep Swift package clones under the
+          # runner's home so repeated INTERNAL archives do not fetch the same pins from GitHub.
+          if [ "$HOSTED_FALLBACK" = true ]; then
+            export CMUX_MOBILE_SPM_CACHE="$HOME/Library/Caches/cmux-mobile-internal/spm"
+          fi
           cmux-next-ios/scripts/testflight-build.sh --ref "$SHA" --unsigned --no-asc \
             --marketing-version "$MARKETING" --build-number "$BUILD_NUMBER"
           out="$(find "$root" -maxdepth 1 -type d -name "*-${SHA:0:10}-testflight" -print0 | xargs -0 ls -td | head -1)"
@@ -376,7 +385,7 @@ jobs:
       ref: ${{ steps.asc.outputs.ref }}
     steps:
       - name: Checkout the builder branch (trusted script)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -425,7 +434,7 @@ jobs:
       - name: Checkout the builder branch (trusted script)
         timeout-minutes: 12
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # History (trees, no file contents) for git log over base..sha; the
@@ -486,7 +495,7 @@ jobs:
       # which fetches that one object on demand (the repository is public).
       # Measured: cmuxterm-hq docs/findings/2026-11-25-ios-cicd-equilibrium.md.
       - name: Checkout the builder branch (trusted signing script)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 1

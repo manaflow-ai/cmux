@@ -9,7 +9,15 @@ request runs it when a changed path is
   toolchain pin, .cargo/) or the ghostty-next gitlink the core links;
 - in a script entry's folder;
 - a file the job's steps or the script entries run (JOB_INPUTS, SCRIPT_INPUTS);
-- or the pull request carries the full-ci label.
+- or the pull request carries the full-ci label and the change can reach the entries' inputs (graph_inputs): a
+  crate the entries' packages depend on (path dependencies, transitively), a file outside those crates that their
+  sources name with a "../" literal (cargo_affected.py's rule, `// affected-reads:` included), cmux-tui/spec/ or
+  bindings/, or a cmux-tui tree input no crate names (ghostty-next, the macOS cross scripts). A tooling-only change
+  (scripts/ci/tooling_only.py) routes by the paths above under full-ci too. When the graph cannot be read, full-ci
+  runs it. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." Before, full-ci ran it
+  for any change: 2026-11-26T11..11-27T11 it ran on full-ci heads of Swift- and web-only merged pull requests,
+  about 2,100 of its 9,500 pull request runner-min/day (goal ci-min-per-pr-14, the affected-set replay in
+  leo-workspace goals/ci-min-per-pr-breakdown.md).
 A change to another crate the entries depend on, or to another cmux-tui tree input (webviews/, schemas/, ...),
 no longer runs it on the pull request: 111 of the workspace's 161 crates and every tree input reached it, so
 59% of pull request heads ran it (12.6 min each, 43,295 runner-min on 2026-11-22T21..11-23T21, the largest
@@ -31,9 +39,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tooling_only  # noqa: E402
 
 REGISTRY = "scripts/cmux-next/fast-tier.json"
 # Files of a cargo workspace root that reach every crate in it, and what the core links outside cmux-tui/.
@@ -51,6 +64,7 @@ JOB_INPUTS = (
     "scripts/ci/init-submodule.sh",
     "scripts/install-zig-ci.sh",
     "scripts/ci/fast_tier_cargo_route.py",
+    "scripts/ci/tooling_only.py",
     "scripts/ci/pool-warm-target.sh",
     "scripts/ci/tests/pool-warm-target.test.sh",
     "scripts/blacksmith-testbox-source-mtimes.py",
@@ -97,10 +111,141 @@ def inputs(root: Path) -> list[str] | None:
     return prefixes
 
 
+def _repo_paths(root: Path) -> set[str]:
+    """Every file and folder of HEAD, from git's trees: the router's sparse checkout lacks most of the files the
+    crates name (webviews/, Resources/), and a blob:none clone still has every tree. Empty without git."""
+    try:
+        out = subprocess.run(["git", "-C", str(root), "ls-tree", "-r", "-t", "--name-only", "HEAD"], check=True,
+                             capture_output=True, text=True, timeout=60).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return set(out.splitlines())
+
+
+def graph_inputs(root: Path) -> list[str] | None:
+    """The path prefixes the cargo entries' packages can read (full-ci's route), or None when the graph cannot be
+    read: a registry, a manifest or an entry package that is missing, or a source that names the whole tree."""
+    # Imported here: fast-tier.py and rebuild_mirror.py import this module on hosts whose Python lacks tomllib.
+    try:
+        import tomllib  # noqa: PLC0415
+        from cargo_affected import AFFECTED_READS, RELATIVE_REF, TREE_INPUTS  # noqa: PLC0415
+    except ImportError:
+        return None
+    try:
+        registry = json.loads((root / REGISTRY).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    top = os.path.abspath(root)
+    known = _repo_paths(root)
+
+    def exists(rel: str) -> bool:
+        return rel in known or os.path.exists(os.path.join(top, rel))
+
+    prefixes: list[str] = []
+    for workspace in sorted({(e.get("path") or "").rstrip("/") for e in registry.get("entries", [])
+                             if e.get("kind") == "cargo" and e.get("path")}):
+        try:
+            members = {m.parent.relative_to(root).as_posix(): tomllib.loads(m.read_text(encoding="utf-8"))
+                       for m in sorted((root / workspace).glob("crates/*/Cargo.toml"))
+                       + sorted((root / workspace).glob("crates/*/*/Cargo.toml"))}
+            shared = tomllib.loads((root / workspace / "Cargo.toml").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        shared = shared.get("workspace", {}).get("dependencies", {})
+        by_name = {data.get("package", {}).get("name"): rel for rel, data in members.items()}
+
+        def deps(rel: str) -> set[str]:
+            data = members.get(rel, {})
+            out = set()
+            for table in [data, *data.get("target", {}).values()]:
+                for kind in ("dependencies", "dev-dependencies", "build-dependencies"):
+                    for name, spec in table.get(kind, {}).items():
+                        if isinstance(spec, dict) and spec.get("workspace"):
+                            spec, base = shared.get(name), workspace
+                        else:
+                            base = rel
+                        if isinstance(spec, dict) and "path" in spec:
+                            out.add(os.path.normpath(os.path.join(base, spec["path"])))
+            return out
+
+        todo = [by_name.get(e.get("package")) for e in registry["entries"]
+                if e.get("kind") == "cargo" and (e.get("path") or "").rstrip("/") == workspace]
+        if None in todo:
+            return None
+        closure: set[str] = set()
+        while todo:
+            crate = todo.pop()
+            if crate not in closure:
+                closure.add(crate)
+                todo.extend(deps(crate))
+        # What any member's sources name outside it ("../" literals): path -> the members that name it.
+        named: dict[str, set[str]] = {}
+        for rel in members:
+            for folder, dirs, files in os.walk(root / rel):
+                dirs[:] = [d for d in dirs if d not in ("target", "node_modules", ".git")]
+                for file in files:
+                    if not file.endswith(".rs"):
+                        continue
+                    text = Path(folder, file).read_text(encoding="utf-8", errors="replace")
+                    if "../" not in text:
+                        continue
+                    for literal in RELATIVE_REF.findall(text):
+                        for anchor in (os.path.join(top, os.path.relpath(folder, root)), os.path.join(top, rel)):
+                            target = Path(os.path.relpath(os.path.normpath(os.path.join(anchor, literal.lstrip("/"))),
+                                                          top)).as_posix()
+                            if target.startswith("..") or target == rel or target.startswith(rel + "/"):
+                                continue
+                            if target == ".":
+                                listed = " ".join(AFFECTED_READS.findall(text)).split()
+                                if listed == ["none"]:
+                                    continue
+                                reads = listed if listed and all(exists(p) for p in listed) else ["."]
+                            elif exists(target):
+                                reads = [target]
+                            else:
+                                continue
+                            for read in reads:
+                                named.setdefault(read, set()).add(rel)
+        for read, crates in named.items():
+            if crates & closure:
+                if read == ".":
+                    return None
+                prefixes.append(read)
+        prefixes += [crate + "/" for crate in closure if crate != workspace]
+        prefixes += [f"{workspace}/spec/", f"{workspace}/bindings/"]
+        try:
+            lines = (root / TREE_INPUTS).read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return None
+        for line in lines:
+            parts = line.split()
+            if len(parts) == 2 and not line.startswith("#") and parts[1] != workspace:
+                entry = parts[1]
+                if not any(read == entry or read.startswith(entry + "/") for read in named):
+                    prefixes.append(entry)
+    return prefixes
+
+
+def _reached(path: str, prefix: str) -> bool:
+    """A graph prefix is a file or a folder, with or without its trailing /."""
+    prefix = prefix.rstrip("/")
+    return path == prefix or path.startswith(prefix + "/")
+
+
 def reaches(changed: list[str], labels: set[str], root: Path) -> tuple[bool, str]:
-    if labels & FORCE_LABELS:
-        return True, "full-ci label"
     prefixes = inputs(root)
+    if labels & FORCE_LABELS and not tooling_only.tooling_only(changed):
+        graph = graph_inputs(root) if changed and prefixes is not None else None
+        if graph is None:
+            return True, "full-ci label (the cargo graph could not be read)"
+        for path in changed:
+            for prefix in prefixes:
+                if _under(path, prefix):
+                    return True, f"full-ci label: {path} (under {prefix})"
+            for prefix in graph:
+                if _reached(path, prefix):
+                    return True, f"full-ci label: {path} (the entries read {prefix})"
+        return False, "full-ci label, but no changed path is in the cargo entries' crates, their dependencies or what they read"
     if prefixes is None:
         return True, f"could not read {REGISTRY}; running it"
     for path in changed:

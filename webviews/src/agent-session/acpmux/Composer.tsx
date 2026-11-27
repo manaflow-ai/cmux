@@ -68,6 +68,8 @@ import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { handleVimKey, VIM_INITIAL, type VimMode, type VimState } from "./composer/vimKeys";
 import { MentionMenu } from "./MentionMenu";
 import { mentionAsk, useExtensionMentionPrefixes, useExtensionMentions } from "./composer/extensionMentions";
+import { type ExtensionChip, useExtensionChips, withChipText } from "./composer/extensionChipModel";
+import { ExtensionChips } from "./composer/ExtensionChips";
 import { markdownOffset, mentionResults, useMentionSearch } from "./mentionMenuModel";
 import {
   loadRecentMentionPaths,
@@ -186,7 +188,7 @@ import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { playUnpop } from "./conversation/unpopMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
-import { ComposerStatusFoot, dotSaysQueuePaused, statusDotMounts } from "./ComposerStatusDot";
+import { ComposerStatusFoot, statusDotMounts, dotSaysQueuePaused } from "./ComposerStatusDot";
 import { peerLink, type PeerLink } from "./peerLink";
 import type { EmojiTrigger } from "./emojiShortcodes";
 import type { MentionTrigger } from "./composer/emojiTokens";
@@ -587,6 +589,9 @@ type Props = {
   /// stack's edge from it (App.tsx `data-focused` on `.acpmux-dock`, composerStates.css). Called on
   /// focus and shell changes only.
   onFocusEdge?(lit: boolean): void;
+  /// Whether the prompt holds anything (text, chips, pending tiles), on each change: Toggle
+  /// Terminal and Chat reads it without a page call (conversation/toggleDraft.ts).
+  onFilled?(filled: boolean): void;
 };
 
 /// What the prompt holds: its text and the chips placed in it.
@@ -863,6 +868,7 @@ function ComposerFrame({
   attachRefusal,
   relayed = false,
   onFocusEdge,
+  onFilled,
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
@@ -1125,6 +1131,7 @@ function ComposerFrame({
     plainFooter,
     attachmentView,
     followUpMode,
+    composerPlaceholder,
   } = useComposerSettings();
   // Modal vim in the prompt (composer/vimKeys.ts), when `agentPane.composerVimKeys` is on. The state
   // lives in a ref so a key reads the latest; the mode alone renders (the indicator).
@@ -2445,6 +2452,19 @@ function ComposerFrame({
   useInsertionEffect(() => {
     submitNow.current = send;
   });
+  // Installed extensions' context chips (cmux.composer.chip/1, composer/extensionChipModel.ts): a click
+  // writes the chip's text at the caret.
+  const extensionChips = useExtensionChips();
+  const pickChip = (chip: ExtensionChip) => {
+    if (composing.current) return;
+    const { text, caret } = promptRef.current;
+    const at = markdownOffset(text, caret);
+    const next = withChipText(text, at, chip.insert);
+    plusDraft.current = undefined;
+    pendingCaret.current = caret + (next.caret - at);
+    edit(next.text, caret + (next.caret - at));
+    field.current?.focus();
+  };
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
   // Writes "@" at the caret, or "@path " for a file picked in Search files.
   const mention = (picked?: string) => {
@@ -2602,6 +2622,7 @@ function ComposerFrame({
   const stopShown = !shell && stopPresence.shown;
   const stop = stopShown && facts.empty;
   const hasDraft = Boolean(!facts.empty || attachments.length || pending.length);
+  useEffect(() => onFilled?.(hasDraft), [hasDraft, onFilled]);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
@@ -2657,9 +2678,11 @@ function ComposerFrame({
             ? COMPOSER_LABELS.placeholderSteerQuick
             : COMPOSER_LABELS.placeholder;
   // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
-  // mid-turn and Esc hints still win, since they say what a key does now.
+  // mid-turn and Esc hints still win, since they say what a key does now. Otherwise
+  // `agentPane.composerPlaceholder` (empty by default) replaces cmux's own idle text.
+  const idlePlaceholder = placeholder || composerPlaceholder;
   const placeholderText =
-    placeholder && placeholderKey === COMPOSER_LABELS.placeholder ? placeholder : t(placeholderKey);
+    idlePlaceholder && placeholderKey === COMPOSER_LABELS.placeholder ? idlePlaceholder : t(placeholderKey);
   // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
   // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
   const cwd = snapshot.summary?.cwd;
@@ -2947,6 +2970,7 @@ function ComposerFrame({
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
       {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
+      {...(snapshot.peerGroups ? { peerGroups: snapshot.peerGroups } : {})}
       {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       {...(runMode ? { runMode } : {})}
@@ -3058,7 +3082,7 @@ function ComposerFrame({
   const chooseSend = (choice: SendChoice) => {
     if (choice === "side") send(false, false, undefined, "side");
     // Queue for later is ⌘Return; Send is the button's own send.
-    else send(false, choice === "queue" ? steersAlways : followUpSteers("return", followUpMode, followUp));
+    else send(false, followUpSteers(choice === "queue" ? "menuQueue" : "return", followUpMode, followUp));
   };
   // Declared after every value they read: the React Compiler refuses a closure that reads one declared
   // below it.
@@ -3263,7 +3287,7 @@ function ComposerFrame({
       event.preventDefault();
       const typed = typedWords().trim() !== "";
       const sendAndOpen = (gesture?: SendGesture) => {
-        const sent = submitNow.current(false, steersAlways || steersUnseen, gesture);
+        const sent = submitNow.current(false, followUpSteers("quickOpen", followUpMode, followUp), gesture);
         // A prompt the host refused stays in the composer, and the chat stays here.
         if (typed && !sent) return;
         openInWindow.current?.(sent);
@@ -3611,6 +3635,7 @@ function ComposerFrame({
           />
         </div>
       )}
+      {!shell && <ExtensionChips chips={extensionChips} onPick={pickChip} />}
       <ComposerBox
         handle={box}
         onPersonEdit={() => {
