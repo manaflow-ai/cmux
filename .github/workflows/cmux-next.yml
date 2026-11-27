@@ -316,6 +316,7 @@ on:
       - scripts/cmux-next/lint-browser-chrome-icons.py
       - scripts/icons/**
       - design/icons/**
+      - design/cmux-icon-chevron.png
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
@@ -690,6 +691,7 @@ on:
       - scripts/cmux-next/lint-browser-chrome-icons.py
       - scripts/icons/**
       - design/icons/**
+      - design/cmux-icon-chevron.png
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
@@ -840,6 +842,8 @@ jobs:
       key: cmux-next-pure-checks
       hold_minutes: 30
       no_coalesce: ${{ format('{0}', vars.CMUX_NEXT_PURE_CHECKS_COALESCE) == '0' }}
+      # A hand push compiles on its own commit, inside a taken window too (base-coalesce.yml); lander merges coalesce.
+      run_direct_pushes: true
 
   # Why: 2026-11-24-pure-checks-coalesce-1.md, note-11
   # Why: note-pr-control-pool
@@ -1027,7 +1031,7 @@ jobs:
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
       - name: Mint a read token with its own quota
         id: base-red-token
-        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci')
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && steps.route.outputs.fast_tier_cargo != 'false'
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1035,10 +1039,10 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: read
-      # Why: 2026-11-24-path_route-3.md, 2026-11-26-route-retry.md
+      # Why: 2026-11-24-path_route-3.md, 2026-11-26-route-retry.md, 2026-11-27-base-red-token-burn.md
       - name: Jobs red on the base right now
         id: base-red
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(steps.route.outputs.labels, ',full-ci,') }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(steps.route.outputs.labels, ',full-ci,') && steps.route.outputs.fast_tier_cargo != 'false' }}
         continue-on-error: true
         timeout-minutes: 3
         env:
