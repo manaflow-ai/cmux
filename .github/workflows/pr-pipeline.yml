@@ -646,9 +646,12 @@ jobs:
   # resolved packages) and runs only its tests, as its own check, so it reports before the full matrix. It does not
   # wait for the router's `ios` route (pr_router.json routes none since #57353): every full-tier pull request plans.
   # vars.CI_IOS_FAST_VERDICT=0 turns it off.
+  # !cancelled(): in a called workflow the implicit success() also reads the caller's needs, and pr-router.yml's
+  # pipeline needs fast-gates, which skips on a landing head; that skipped every job here, and the `cmux/ios-fast`
+  # pending the route posted stayed pending (cmux#57755, router run 45952045688, both attempts).
   ios-fast-runner:
     name: ios fast verdict runner
-    if: ${{ vars.CI_IOS_FAST_VERDICT != '0' }}
+    if: ${{ !cancelled() && vars.CI_IOS_FAST_VERDICT != '0' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:

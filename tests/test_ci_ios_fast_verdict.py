@@ -313,6 +313,20 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("--device-family iphone", pick["run"])
         self.assertEqual(runner["runs-on"], self.jobs["ios-runner"]["runs-on"])
 
+    def test_a_skipped_caller_need_never_skips_the_picker(self) -> None:
+        # pr-router.yml's pipeline needs fast-gates, which skips on a landing head; the implicit success() reads the
+        # caller's needs too, so without !cancelled() the picker skipped and cmux/ios-fast stayed pending (cmux#57755).
+        self.assertTrue(self.jobs["ios-fast-runner"]["if"].startswith("${{ !cancelled() && "))
+
+    def test_every_route_pending_gets_an_answer(self) -> None:
+        router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())["jobs"]
+        status = router["ios-fast-status"]
+        self.assertIn("pipeline", status["needs"])
+        self.assertIn("needs.route.outputs.ios_status == 'pending'", status["if"])
+        # A skipped pipeline posts error (rerun), never leaves the route's pending in place.
+        self.assertNotIn("needs.pipeline.result", status["if"])
+        self.assertTrue(status["if"].startswith("${{ !cancelled() && "))
+
     def test_the_mac_job_runs_the_plan_warm(self) -> None:
         job = self.jobs["ios-fast"]
         self.assertEqual(job["name"], "ios fast verdict")
