@@ -22,12 +22,18 @@ iroh-transport = ["cmux-remote/iroh-transport"]
 # when PowerShell 7 starts (about 470 ms per terminal for the 41 MB daemon);
 # a loaded DLL is not scanned that way. Without this feature cmux-tui.exe is
 # the whole program on every platform (dev builds, tests).
-windows-thin-exe = []
+# The DLL is the whole daemon, so it carries the `identify` reply itself (cmux-tui-core
+# server/identify_reply.rs); the thin executable installs nothing.
+windows-thin-exe = ["cmux-tui-core/bundled-identify"]
 # Debug only: patch the running daemon in place under `dx serve --hot-patch`
 # (cmux-tui-core/src/hotpatch.rs). No shipped build enables it.
 # It also builds cmux-terminal-client: dx 0.7.10 replays every workspace crate that
 # depends on an edited one, and fails on one its first build never compiled.
-hotpatch = ["cmux-tui-core/hotpatch", "dep:cmux-terminal-client"]
+hotpatch = [
+    "cmux-tui-core/hotpatch",
+    "cmux-tui-core/bundled-identify",
+    "dep:cmux-terminal-client",
+]
 # Measurement only: the daemon's heap by allocation site (dhat), written to the file
 # CMUX_TUI_DHAT_OUT names when it exits (src/heap_profile.rs). No shipped build enables it.
 dhat-heap = ["dep:dhat"]
@@ -340,6 +346,9 @@ path = "tests/windows_terminal_hosts.rs"
 serde_json.workspace = true
 
 [dev-dependencies]
+# The library's tests serve `identify` in process, with no cmux-tui binary to install it
+# (cmux-tui-core server/identify_reply.rs).
+cmux-tui-core = { workspace = true, features = ["bundled-identify"] }
 # tests/it/main.rs: the list of test files (tests/it/modules/build.rs).
 cmux-tui-test-modules = { path = "tests/it/modules" }
 cmux-build-space = { workspace = true, features = ["testing"] }

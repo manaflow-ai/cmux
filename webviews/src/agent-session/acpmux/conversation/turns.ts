@@ -333,6 +333,66 @@ export function retryTargetIn(rows: readonly AcpmuxRow[]): RetryTarget {
   return NO_RETRY_TARGET;
 }
 
+/// One `retryTargetIn` scan, kept for the next snapshot's (`retryScanOf`): the rows it read, the
+/// index of their last retryable prompt (-1: none) and of the first turn summary after it (-1: none).
+export type RetryScan = {
+  readonly rows: readonly AcpmuxRow[];
+  readonly prompt: number;
+  readonly footer: number;
+  readonly target: RetryTarget;
+};
+
+function retryScanFrom(rows: readonly AcpmuxRow[], prompt: number, footer: number, last?: RetryScan): RetryScan {
+  let target = NO_RETRY_TARGET;
+  if (prompt >= 0) {
+    const row = rows[prompt]!;
+    const summary = footer >= 0 ? rows[footer]! : undefined;
+    const footerId =
+      summary && offersRetry(summary) && summary.retryRowId === row.id && !isEmptyFooter(summary)
+        ? summary.id
+        : undefined;
+    // The same ids give the last target back, so what keys on it sees no change.
+    target =
+      last && last.target.promptId === row.id && last.target.footerId === footerId
+        ? last.target
+        : footerId
+          ? { promptId: row.id, footerId }
+          : { promptId: row.id };
+  }
+  return { rows, prompt, footer, target };
+}
+
+const firstSummaryFrom = (rows: readonly AcpmuxRow[], from: number) => {
+  for (let at = from; at < rows.length; at += 1) if (rows[at]!.kind === "turnSummary") return at;
+  return -1;
+};
+
+/// `retryTargetIn(rows)` (its oracle, test/retry-target-scan.test.ts), reading only the rows after
+/// those `rows` kept of `last.rows` (prefixFlatMap.ts `keptPrefix`, which the client says of each
+/// snapshot). The transcript asked `retryTargetIn` on every rows change, a streamed token too, and
+/// it walked back over the whole chat when no prompt there can be retried (another agent's chat, a
+/// long turn of work after the prompt): 0.6 ms at 100k rows, 5 to 10 ms at 1M, per frame. Now a token
+/// costs the rows it changed. Only an edit that takes away the last retryable prompt itself walks
+/// back from the change, as `retryTargetIn` would.
+export function retryScanOf(rows: readonly AcpmuxRow[], last?: RetryScan): RetryScan {
+  if (last && last.rows === rows) return last;
+  const kept = last ? keptPrefix(last.rows, rows) : 0;
+  // A retryable prompt in the rows past the kept ones is the last one: its footer is past it too.
+  for (let at = rows.length - 1; at >= kept; at -= 1)
+    if (isRetryablePrompt(rows[at]!)) return retryScanFrom(rows, at, firstSummaryFrom(rows, at + 1), last);
+  if (!last || last.prompt >= kept) {
+    // No scan to start from, or its prompt was in the rows that changed: walk back from the change.
+    for (let at = kept - 1; at >= 0; at -= 1)
+      if (isRetryablePrompt(rows[at]!)) return retryScanFrom(rows, at, firstSummaryFrom(rows, at + 1), last);
+    return retryScanFrom(rows, -1, -1, last);
+  }
+  // The last scan's prompt is kept and still the last. Its footer is the same row while that row is
+  // kept; else no summary came between the prompt and the kept rows' end, so it is the first after.
+  if (last.prompt < 0) return retryScanFrom(rows, -1, -1, last);
+  const footer = last.footer >= 0 && last.footer < kept ? last.footer : firstSummaryFrom(rows, kept);
+  return retryScanFrom(rows, last.prompt, footer, last);
+}
+
 /// Where the transcript draws its one Retry: on the reply footer when that footer shows and offers
 /// it (the person's last prompt's turn ended with a footer that has something at rest, or failed),
 /// else under the prompt, as the prompt's Retry was drawn before Retry moved to the footer, so
@@ -1760,7 +1820,9 @@ function sentHeader(sent: AcpmuxRow, line: AcpmuxRow, expanded: Folds): AcpmuxRo
   if (experimentArm(liveTurnClock) !== "top" || !headsOwnTurn(sent)) return [];
   line.untimed = true;
   const header: AcpmuxRow = { id: turnHeaderId(sent.id), version: 1, at: sent.at, kind: WORKED, turnPhase: "running" };
-  if (experimentArm(liveTurnWork) === "folded") header.foldOpen = expanded.has(turnHeaderId(sent.id));
+  // No turn yet, so no work under it to open.
+  if (experimentArm(liveTurnWork) === "folded")
+    Object.assign(header, { foldOpen: expanded.has(turnHeaderId(sent.id)), foldEmpty: true });
   return [header];
 }
 
@@ -3767,7 +3829,10 @@ function shapeLiveRows(
     turnPhase: "running",
     ...(clock.durationMs !== undefined && clock.answered && { durationMs: clock.durationMs }),
   };
-  if (folds) header.foldOpen = workOpen;
+  if (folds) {
+    header.foldOpen = workOpen;
+    if (!liveFoldHidesWork(drawn, named?.tool.id)) header.foldEmpty = true;
+  }
   // A /compact the person steered into: the stretch before the steer is the compaction alone, which
   // the ended turn draws with no fold (`compactOnly`, shapedTurn), so the line stands under the
   // steer, where that turn's one "Worked for" lands, one row from the start: it never stands over
@@ -4497,6 +4562,80 @@ function earlierRun(row: AcpmuxRow, named: string | undefined, fold = true): Acp
   return out;
 }
 
+/// Whether the `folded` arm's "Working for" has work to open: a row `open` draws of the running
+/// stretch that `line` leaves out, with a step the transcript shows (`hidesEveryCall`: a run of
+/// discovery calls alone draws nothing). None before the turn's first step, or while its only step
+/// is the call in flight, which the live line names: the header then shows no chevron that opens
+/// nothing. Read from the end back to the stretch's summary, as `codexRuns` shapes the same rows, and
+/// done at the first row that shows: the newest finished step answers it in O(that run).
+function liveFoldHidesWork(rows: AcpmuxRow[], named: string | undefined): boolean {
+  let latest = rows.length - 1;
+  // ends: `latest` falls by one each pass, to 0 at most
+  while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
+  const shows = (row: AcpmuxRow) => !hidesEveryCall(row);
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.kind === "turnSummary") return false;
+    // Not activity, or a run that keeps its own row (`keepsRow`): `line` draws it as `open` does.
+    if (row.kind !== "activity" || keepsRow(row)) continue;
+    if (index !== latest) {
+      if (earlierRun(row, named, false).some(shows)) return true;
+      continue;
+    }
+    const all = row.items ?? [];
+    // The calls still running in earlier runs matter only to a running call of this run.
+    const carried = all.some((item) => item.tool && item.tool.id !== named && isRunning(item.tool))
+      ? runningBeforeLastRun(rows)
+      : undefined;
+    const items = latestRunSteps(all, named, carried);
+    if (items.length && shows({ ...row, items })) return true;
+  }
+  return false;
+}
+
+/// A run with a file change still waiting for its permission, or a call that keeps its own row
+/// while it runs: `codexRuns` leaves it as it is under every arm.
+const keepsRow = (row: AcpmuxRow) =>
+  (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)));
+
+/// The latest run's steps (`codexRuns`): what is happening now leaves it for the live line, so the
+/// run holds only finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up
+/// instead of replacing each other").
+function latestRunSteps(
+  all: readonly AcpmuxActivity[],
+  named: string | undefined,
+  carried: ReadonlySet<string> | undefined,
+): AcpmuxActivity[] {
+  // A thought still coming stays in the run from its first words, not only once the next step
+  // ends it (Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the
+  // thinking ... I only started seeing your thinking bit, like, seven seconds in"). It draws as it
+  // will once done, its folded line (ThoughtRow, not `streaming`: the row is not `live`), so the
+  // row neither grows under the reader as it streams nor shrinks when it ends (Leo, 2026-11-07:
+  // "the jumps are jarring. We want to minimize the jumps"); the live line under it says
+  // Thinking. Not while it is still quiet by
+  // the rule a finished thought draws by (thoughts.ts `isQuietThought`): its text and its time only
+  // grow, so one shown here never leaves when it ends, and a short thought that has run a second
+  // shows now, as it does once the turn ends or the chat reloads (Leo, 2026-11-09: "oh i guess the
+  // service or something must have crashed in between cuz now i see it").
+  const tail = all.at(-1);
+  const steps = (shows: boolean) =>
+    all.filter((item, at) =>
+      item.tool
+        ? !isRunning(item.tool) || (carried?.has(item.tool.id) === true && item.tool.id !== named)
+        : !(at === all.length - 1 && item.kind !== "tool" && !shows),
+    );
+  const thinking =
+    tail !== undefined &&
+    isThought(tail) &&
+    !isQuietThought(tail) &&
+    // A thought that is the run's first step waits out its first chunks (FIRST_THOUGHT_MS of them,
+    // by their own times): its run arrives with the turn's Working line (`shapeLiveTurn`) and the
+    // reply's last text, and the two rows landing in one frame moved the rows above by 29 px
+    // (test/turn-transition-jumps.test.ts burst-thought). One later step in, it arrives alone.
+    (steps(false).length > 0 || (thoughtDuration(tail) ?? FIRST_THOUGHT_MS) >= FIRST_THOUGHT_MS);
+  return steps(thinking);
+}
+
 function codexRuns(
   rows: AcpmuxRow[],
   named?: string,
@@ -4519,9 +4658,7 @@ function codexRuns(
     // it ends. One with a file change still waiting for its permission stays as it is, so the change
     // it asks about stays in sight (an ended turn's folded run keeps it in sight too: TurnRows.tsx
     // `staysInSight`).
-    if (
-      (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)))
-    ) {
+    if (keepsRow(row)) {
       let own = keptRuns.get(row);
       if (!own) keptRuns.set(row, (own = { ...row, foldRun: false, version: row.version * RUN_STATES }));
       return [own];
@@ -4531,38 +4668,8 @@ function codexRuns(
     const fold = !open || index <= ended;
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
     if (index !== latest) return earlierRun(row, named, fold);
-    // The latest run: what is happening now leaves it for the live line, so the run holds only
-    // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
-    // of replacing each other").
-    const all = row.items ?? [];
-    // A thought still coming stays in the run from its first words, not only once the next step
-    // ends it (Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the
-    // thinking ... I only started seeing your thinking bit, like, seven seconds in"). It draws as it
-    // will once done, its folded line (ThoughtRow, not `streaming`: the row is not `live`), so the
-    // row neither grows under the reader as it streams nor shrinks when it ends (Leo, 2026-11-07:
-    // "the jumps are jarring. We want to minimize the jumps"); the live line under it says
-    // Thinking. Not while it is still quiet by
-    // the rule a finished thought draws by (thoughts.ts `isQuietThought`): its text and its time only
-    // grow, so one shown here never leaves when it ends, and a short thought that has run a second
-    // shows now, as it does once the turn ends or the chat reloads (Leo, 2026-11-09: "oh i guess the
-    // service or something must have crashed in between cuz now i see it").
-    const tail = all.at(-1);
-    const steps = (shows: boolean) =>
-      all.filter((item, at) =>
-        item.tool
-          ? !isRunning(item.tool) || (carried?.has(item.tool.id) === true && item.tool.id !== named)
-          : !(at === all.length - 1 && item.kind !== "tool" && !shows),
-      );
-    const thinking =
-      tail !== undefined &&
-      isThought(tail) &&
-      !isQuietThought(tail) &&
-      // A thought that is the run's first step waits out its first chunks (FIRST_THOUGHT_MS of them,
-      // by their own times): its run arrives with the turn's Working line (`shapeLiveTurn`) and the
-      // reply's last text, and the two rows landing in one frame moved the rows above by 29 px
-      // (test/turn-transition-jumps.test.ts burst-thought). One later step in, it arrives alone.
-      (steps(false).length > 0 || (thoughtDuration(tail) ?? FIRST_THOUGHT_MS) >= FIRST_THOUGHT_MS);
-    const items = steps(thinking);
+    // The latest run: only its finished steps (`latestRunSteps`).
+    const items = latestRunSteps(row.items ?? [], named, carried);
     if (!items.length) return [];
     // Whether it shows its thought is the row's own (its text and its chunks' times, not the
     // clock), so the version it has says it: state 1 either way, never an ended fold's 3.

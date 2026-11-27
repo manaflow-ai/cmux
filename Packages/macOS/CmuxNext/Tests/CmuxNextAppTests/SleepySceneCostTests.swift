@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextFloating
 import CmuxNextTestSupport
 import Foundation
 import Observation
