@@ -33,8 +33,15 @@ concurrency:
   # which skips pr pipeline), cancelled the full run, so the iOS matrix never ran and the land stopped matrix_missing
   # (#54957 run 45875774607, cancelled by 45876000317). A push still starts the new head's run; the old head's full
   # run finishes or is cancelled by its callees' own per-ref groups.
-  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'labeled' && github.event.label.name == 'full-ci' && format('-full-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
-  cancel-in-progress: true
+  # An added ready-to-land gets a group per head too, and both handoff groups queue instead of cancelling: a bot
+  # takes ready-to-land off and puts it back on the same head every few minutes, and each re-add cancelled the
+  # in-flight run with its 20-55 min nightly pr build compile (#47278 head 9b27d460: added 10:59:48, removed 11:12,
+  # re-added 11:30:15; runs 45986744639 -> 45991007377). Same-head cancels were 15.6 runner-h/day on the 24 h to
+  # 2026-11-27T10Z. The re-add now waits for the in-flight run, and the callees' input-keyed caches skip what passed.
+  # A newer push still cancels the old head's run (ci-pr-superseded-cancel.yml). CI_PR_ROUTER_HANDOFF_QUEUE=0 restores
+  # the shared group and cancel-in-progress for ready-to-land.
+  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'labeled' && github.event.label.name == 'full-ci' && format('-full-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event.action == 'labeled' && github.event.label.name == 'ready-to-land' && format('{0}', vars.CI_PR_ROUTER_HANDOFF_QUEUE) != '0' && format('-land-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ !(github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('{0}', vars.CI_PR_ROUTER_HANDOFF_QUEUE) != '0') }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -64,6 +71,9 @@ jobs:
       land_status_unposted: ${{ steps.land-status-post.outputs.unposted }}
       # The step table's jobs the change routes (pr_router.py table_jobs_routed): pr-pipeline.yml starts only those.
       table: ${{ steps.route.outputs.table }}
+      # The steps those jobs run only (pr_router.py nightly_gate_table): a landing head of the affected tier runs just
+      # the steps the nightly also runs that its change routes. Empty: every routed step.
+      only: ${{ steps.route.outputs.only }}
       # The `cmux/ios-fast` commit status the route posted (pr_router.py ios_status); `pending` hands it to
       # ios-fast-status below, which posts the verdict's own result.
       ios_status: ${{ steps.route.outputs.ios_status }}
@@ -86,7 +96,7 @@ jobs:
           # A same-repo pull request's runner reads the git mirror, which serves whole blobs in about 10 s; a blob
           # filter skips the mirror and the sparse checkout then fetches each blob from GitHub (57 to 81 s a head,
           # note-559). A fork, or any other event, keeps blob:none.
-          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
+          filter: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && 'blob:none' || '' }}
           sparse-checkout: |
             scripts/ci/pr_router.py
             scripts/ci/pr_router.json
@@ -126,6 +136,9 @@ jobs:
         # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
         env:
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          # A landing head of the affected tier runs the step table's nightly-mirroring steps its change routes
+          # (pr_router.py NIGHTLY_GATE_JOBS); 0 turns that off.
+          CI_NIGHTLY_GATE_ON_LAND: ${{ vars.CI_NIGHTLY_GATE_ON_LAND || '1' }}
           # 1: a ready-to-land head runs the full tier again; unset or 0: it runs the affected tier and the full tier
           # runs hourly on feat-cmux-next (head_tier.py hourly full tier rule, cmux-next-hourly-full-tier.yml).
           CI_LAND_FULL_PER_PR: ${{ vars.CI_LAND_FULL_PER_PR || '0' }}
@@ -510,6 +523,7 @@ jobs:
     uses: ./.github/workflows/pr-pipeline.yml
     with:
       jobs: ${{ needs.route.outputs.table || '' }}
+      only: ${{ needs.route.outputs.only || '' }}
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
@@ -540,7 +554,7 @@ jobs:
         with:
           fetch-depth: 1
           # Same as the route job's checkout: a same-repo head reads the runner's git mirror with whole blobs.
-          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
+          filter: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && 'blob:none' || '' }}
           sparse-checkout: |
             scripts/ci/ios_fast_verdict.py
             scripts/ci/proof_record.py
@@ -576,7 +590,7 @@ jobs:
           elif [ "$VERDICT" = failure ]; then
             state=failure; desc="Failed: ${SUMMARY:-the changed iOS targets} (the ios fast verdict job's log)"
           else
-            state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled); rerun it"
+            state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled or skipped); rerun it"
           fi
           if [ "$state" = success ] && [ "$RUN" != false ] && [ "$NEED_PROOF" = true ]; then
             IFS=$'\t' read -r pstate pdesc < <(python3 -I scripts/ci/proof_record.py gate --suite ios-flows)
@@ -603,9 +617,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # The merge commit and the base tip: the gate reads the paths the head adds (new visible UI); an added
-          # Swift file's text comes with `git show` (the blob filter fetches it alone).
+          # Swift file's text comes with `git show`; same-repo PRs borrow whole blobs from the runner mirror.
           fetch-depth: 2
-          filter: blob:none
+          filter: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && 'blob:none' || '' }}
           sparse-checkout: |
             scripts/ci/ui_proof_verdict.py
             scripts/ci/proof_record.py
