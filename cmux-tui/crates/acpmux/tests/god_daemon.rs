@@ -2438,6 +2438,12 @@ fn size_run(label: &str, bytes: u64) -> Value {
         .zip(last_before_restart)
         .is_some_and(|(seq, before)| seq > before);
     let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
+    let restart_probe_at = Instant::now();
+    std::thread::sleep(Duration::from_millis(300));
+    let probe_300 = send_first_token(&mut rpc, &id, &format!("size {label} restarted probe300"));
+    std::thread::sleep(Duration::from_millis(1200));
+    let probe_1500 = send_first_token(&mut rpc, &id, &format!("size {label} restarted probe1500"));
+    eprintln!("RESTART-PROBE size={label} allLogs={:?} first={:?} p300={:?} p1500={:?} spent_ms={}", restart_all_logs.as_ref().ok(), restart_send.as_ref().ok(), probe_300.as_ref().ok(), probe_1500.as_ref().ok(), restart_probe_at.elapsed().as_millis());
     let (restart_rss, restart_peak_rss) = daemon.rss();
     let restart_maps = daemon.rss_maps();
     drop(rpc);
