@@ -106,6 +106,20 @@ pub(crate) fn enabled() -> bool {
     on
 }
 
+/// Whether the feature is on for `doc` and the daemon's switch value `env`, uncached: the
+/// harness-magic stamp's reading (`hub/harness_magic.rs`), so the scorecard can split turns by it.
+pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
+    if env_off(env) {
+        return false;
+    }
+    if env.is_some_and(|v| {
+        matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes")
+    }) {
+        return true;
+    }
+    enabled_in(doc)
+}
+
 /// On unless the settings document turns it off.
 pub(super) fn enabled_in(doc: Option<&Value>) -> bool {
     doc.and_then(|d| crate::user_settings::value(d, SETTING_ENABLED)).and_then(|v| v.as_bool())
