@@ -1027,6 +1027,17 @@ class PipelineTest(unittest.TestCase):
                      "pull_request": {"draft": False, "labels": [{"name": "full-ci"}]}}
             start, why = pr_router.route(event, callees, web, decided=("full", "full-ci"))
             self.assertIn("pr-pipeline.yml", start)
+            self.assertIn("react-apps-check", why["pr-pipeline.yml"])
+            # land-judge's lane-VM pulse: full-ci added and taken off 2 s later, so the `labeled` payload no longer
+            # lists it. It is the land handoff (the full tier starts) but routes no browser step.
+            pulse = {"action": "labeled", "label": {"name": "full-ci"},
+                     "pull_request": {"draft": False, "labels": [{"name": "merge-train"}]}}
+            self.assertFalse(pr_router.full_ci_kept(pulse))
+            self.assertTrue(pr_router.full_ci_kept(event))
+            start, why = pr_router.route(pulse, callees, web, decided=("full", "full-ci"))
+            self.assertIn("pr-pipeline.yml", start)
+            self.assertFalse(browser & set(why["pr-pipeline.yml"].removeprefix("routes ").split(", ")))
+            self.assertTrue(set(why["pr-pipeline.yml"].removeprefix("routes ").split(", ")) - browser)
         # The repository variable turns it off.
         with mock.patch.dict(os.environ, {"CI_PR_BROWSER_FULL_CI_ONLY": "0"}):
             self.assertEqual(pr_router.table_jobs_routed(callees, web, full_ci=False), ["linux", "web-browser"])
@@ -2073,8 +2084,11 @@ class IosJobTest(unittest.TestCase):
             jobs["ios"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
-            "fromJSON(github.run_attempt > 1 && needs.ios-runner.outputs.retry_runs_on || "
+            "fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), "
+            "github.triggering_actor) && needs.ios-runner.outputs.retry_runs_on || "
             "needs.ios-runner.outputs.runs_on) }}")
+        # Only the rescue bot's re-run takes Blacksmith; a person's re-run keeps the pick (RFD 0165).
+        self.assertEqual(jobs["ios-fast"]["runs-on"], jobs["ios"]["runs-on"].replace("ios-runner", "ios-fast-runner"))
         for picker in ("ios-runner", "ios-fast-runner"):
             steps = jobs[picker]["steps"]
             pick = next(s for s in steps if s.get("id") == "pool")
