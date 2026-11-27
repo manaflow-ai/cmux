@@ -94,12 +94,22 @@ enum Wake {
 /// Watch the installed executable; swap once an update replaced it. The path, its identity and
 /// the kernel watch are taken here, when this is called (before the daemon says ready: an update
 /// right after ready is then a change, never the baseline); the future it returns never resolves.
-pub(super) fn watch(args: Vec<String>) -> impl std::future::Future<Output = ()> + Send + 'static {
+pub(super) fn watch(args: Vec<String>) -> Watch {
     let start = start();
     if let Some((installed, owned, _, _)) = &start {
         let _ = WATCHED.set((installed.clone(), owned.clone()));
     }
-    async move {
+    Watch { args, start }
+}
+
+pub(super) struct Watch {
+    args: Vec<String>,
+    start: Option<Started>,
+}
+
+impl Watch {
+    pub(super) async fn run(self, hub: std::sync::Arc<crate::hub::Hub>) {
+        let Self { args, start } = self;
         let Some((installed, owned, _watcher, mut rx)) = start else {
             return std::future::pending().await;
         };
@@ -151,13 +161,26 @@ pub(super) fn watch(args: Vec<String>) -> impl std::future::Future<Output = ()> 
                     installed.display()
                 ),
             }
+            // The executable watcher can beat machine update's explicit restart. It must
+            // use the same admission fence before a supervisor can signal this daemon.
+            let drain = match crate::server::update_drain::prepare(&hub).await {
+                Ok(drain) => drain,
+                Err(error) => {
+                    failed += 1;
+                    tracing::info!("update deferred; daemon serves on: {error}");
+                    continue;
+                }
+            };
             let mut steps = ExeSwap { installed: installed.clone(), args: args.clone() };
             match tokio::task::spawn_blocking(move || {
                 cmux_supervise_core::make_before_break(&mut steps, READY_WITHIN)
             })
             .await
             {
-                Ok(Swapped::New) => return std::future::pending().await,
+                Ok(Swapped::New) => {
+                    drain.commit();
+                    return std::future::pending().await;
+                }
                 Ok(Swapped::KeptOld(why)) => {
                     failed += 1;
                     let next = RETRY_AFTER.get(failed - 1).map_or_else(

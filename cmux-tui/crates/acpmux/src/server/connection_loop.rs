@@ -292,6 +292,19 @@ pub(super) async fn serve_connection_from(
                 {
                     wire.enable();
                 }
+                // Register before spawning: update admission and request dispatch cannot race.
+                // send_queue remains open: its on-disk inbox is replayed by the successor.
+                let update_send = if m == method::SESSION_PROMPT {
+                    match hub.update_admission.admit() {
+                        Ok(permit) => Some(permit),
+                        Err(error) => {
+                            conn.send_replying(&Message::err(id, error), Some(&m));
+                            continue;
+                        }
+                    }
+                } else {
+                    None
+                };
                 // A peer link sent this request on two paths (`dual_requests.rs`): in order, so
                 // the copy read first runs it and the other answers with its answer.
                 let seen = dual_requests::key_for(conn.dual_principal, &m, params.as_ref());
@@ -309,6 +322,7 @@ pub(super) async fn serve_connection_from(
                 let hub = hub.clone();
                 let conn = conn.clone();
                 owner.scope.spawn_named("conn-request", async move {
+                    let _update_send = update_send;
                     let perf_started = crate::perf_watch::request_started();
                     let mut first = match dual_requests::before_run(dual).await {
                         Ok(first) => first,
