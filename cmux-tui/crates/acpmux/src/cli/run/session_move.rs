@@ -35,9 +35,10 @@
 //!    `~/Projects/checkouts`), the chat's subfolder checked out in it; any other folder under the
 //!    home is made at the same path under the target's home; `--cwd` names it outright. With
 //!    `--carry-changes` the checkout's uncommitted work is read once the branch is pushed and
-//!    applied in the new worktree (`session_move_carry.rs`). A checkout with no `origin` has
-//!    nowhere to push: its branches and tags go as a `git bundle` over the move's ssh and become
-//!    a fresh repository at the same path under the target's home (`BUNDLE_SCRIPT`,
+//!    applied in the new worktree (`session_move_carry.rs`). A checkout with no `origin` (or one
+//!    that is not an owner/name remote) has nowhere to push: its branches and tags go as a `git
+//!    bundle` over the move's ssh and become a fresh repository at the same path under the
+//!    target's home (`BUNDLE_SCRIPT`,
 //!    `UNBUNDLE_SCRIPT`), with no remote added anywhere; its changes go the same way.
 //! 5. The rest of the move is `session transfer`'s (`transfer.rs`, `hub/transfer_out.rs`), with
 //!    the target daemon's own local socket reached through an `ssh -L` forward
@@ -438,7 +439,7 @@ impl Outcome {
     }
 }
 
-pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
+pub(super) async fn run(mut args: MoveArgs, json_out: bool) -> Result<()> {
     if args.from_snapshot {
         return snapshot::run(args, json_out).await;
     }
@@ -447,6 +448,16 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     super::move_end::reclaim_dead_moves(&super::move_end::journal_dir()).await;
     let peers = local.request("_acpmux/peers", json!({})).await?;
     let here = crate::pairing::machine_name();
+    // `--from MACHINE` of a machine this one reaches only through the team hub: its chats move
+    // as `MACHINE/ID` does, asked of the machine that holds them (`hub::ask_holder`).
+    if let Some(from) = args.from.clone()
+        && !args.all_idle
+        && !names_here(&from, &here)
+        && peer_ssh(&peers, &from).is_none()
+        && hub::resolve(&local, &from).await.is_ok()
+    {
+        from_hub_machine(&mut args, &from);
+    }
     // `--from`: the chats' daemon is the peer's, reached through a forward of its local socket.
     let (src, source, home, _src_forward) = match &args.from {
         None => {
@@ -975,7 +986,7 @@ async fn move_steps(
                 sub_text(subdir)
             ),
             Folder::Bundle { top, branch, subdir, .. } => format!(
-                "{top} on {branch}{} (no origin to push to: its branches go as a git bundle)",
+                "{top} on {branch}{} (no owner/name origin to push to: its branches go as a git bundle)",
                 sub_text(subdir)
             ),
         });
@@ -1171,8 +1182,9 @@ async fn prepare(
         base = Some((commit, *dirty, c.top.clone()));
     }
     if let Some((commit, dirty, top)) = base {
-        if dirty && args.carry_changes {
-            // Read after the freeze and the push: what the agent left, against what was pushed.
+        if args.carry_changes {
+            // Read after the freeze and push even when display status looks clean:
+            // submodule.<name>.ignore can hide work the carry must refuse.
             let read = tokio::task::spawn_blocking({
                 let (top, ssh) = (top.clone(), source.ssh().map(str::to_owned));
                 move || match ssh {
@@ -1229,7 +1241,9 @@ async fn prepare(
         .await;
     }
     let there = there??;
-    if let Some(carry) = carry.filter(|c| !c.patch.is_empty()) {
+    if let Some(carry) = carry.filter(|c| {
+        !c.patch.is_empty() || !c.staged_patch.is_empty() || !c.intent_to_add.is_empty()
+    }) {
         tokio::task::spawn_blocking({
             let (host, there) = (target.ssh.clone(), there.clone());
             move || apply_carry(&host, &there, &carry)
@@ -1381,7 +1395,7 @@ fn push_branch_on(ssh: &str, top: &Path, dest: &str) -> Result<String> {
 /// Applies `carry` in the chat's new folder `there` on the ssh host `host` (this machine when
 /// empty), through [`carry::APPLY_SCRIPT`].
 fn apply_carry(host: &str, there: &str, carry: &Carry) -> Result<()> {
-    let input = carry::apply_input(there, carry);
+    let input = carry::apply_input(there, carry)?;
     let out = if host.is_empty() {
         run_here(carry::APPLY_SCRIPT, &input)?
     } else {
@@ -2033,6 +2047,16 @@ fn outdated_lines(hosts: &[Value], order: &[String]) -> Vec<String> {
             })
         })
         .collect()
+}
+
+/// `--from FROM` as `FROM/ID` keys, for a source machine reached through the team hub.
+fn from_hub_machine(args: &mut MoveArgs, from: &str) {
+    for key in &mut args.sessions {
+        if !key.contains('/') {
+            *key = format!("{from}/{key}");
+        }
+    }
+    args.from = None;
 }
 
 /// What [`walk`] found: the target (with its answer), the hosts it passed over and why, the

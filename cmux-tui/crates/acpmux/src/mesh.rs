@@ -194,6 +194,9 @@ pub struct BookSession {
     pub harness: String,
     #[serde(default)]
     pub state: String,
+    /// A harness sandbox refusal or an explicit blocked result, when the session is failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stuck_reason: Option<String>,
     #[serde(default)]
     pub last_seen_at: u64,
     /// The rest of a row a local one carries: read whenever the hub returns them, each `None`
@@ -595,6 +598,10 @@ pub struct HubError {
     /// It words a failure (`server/team.rs` `inbox_failure`); `refused` alone says whether to
     /// try again.
     pub source: HubErrorSource,
+    /// The request provably never left this daemon (no connection to the hub, a token command
+    /// that failed, a gate that kept it from asking): the hub cannot hold what it carried. Only
+    /// such a failure lets a send go to its machine directly instead (`server/mesh_direct.rs`).
+    pub unsent: bool,
 }
 
 /// Where a [`HubError`] came from.
@@ -626,7 +633,18 @@ impl HubError {
 
     /// A failure that may pass, made by this daemon before it asked (a token command that failed).
     pub fn local(message: impl Into<String>) -> Self {
-        Self { source: HubErrorSource::Daemon, ..Self::unavailable(message) }
+        Self { source: HubErrorSource::Daemon, unsent: true, ..Self::unavailable(message) }
+    }
+
+    /// A failure that may pass, from no connection to the hub at all: nothing was sent.
+    pub fn unconnected(message: impl Into<String>) -> Self {
+        Self { unsent: true, ..Self::unavailable(message) }
+    }
+
+    /// Whether the hub provably holds nothing this call carried ([`HubError::unsent`]). A
+    /// timeout, a dropped connection or any answer of the hub's is not: it may hold the post.
+    pub fn never_reached(&self) -> bool {
+        self.unsent
     }
 
     /// A refusal this daemon made before it asked; [`HubError::from_hub`] marks the hub's.
@@ -640,6 +658,7 @@ impl HubError {
             retry_after: None,
             status: None,
             source: HubErrorSource::Daemon,
+            unsent: false,
         }
     }
 

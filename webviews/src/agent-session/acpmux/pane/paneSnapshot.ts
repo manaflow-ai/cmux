@@ -154,6 +154,7 @@ import {
   lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
+  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
@@ -161,15 +162,14 @@ import {
   HOST_WAKE_EVENTS,
   hostWakeAsks,
   lostRetryStep,
-  hostPlannedRestart,
   reconnectRefusalStarts,
   RETRY_FIRST_MS,
 } from "../hostRetry";
 import {
-  acpmuxSendsReady,
   heldStartStop,
   sendsHeldForHost,
   untilHostAnswers,
+  acpmuxSendsReady,
   pageClientLink,
   paneSends,
 } from "../sendWhenReady";
@@ -2105,6 +2105,7 @@ export function paneSnapshotEffect({
           harness,
           cwd,
           peer,
+          cloudRegistryId,
           deferred,
           noProject,
           model,
@@ -2229,6 +2230,8 @@ export function paneSnapshotEffect({
             noProject === true,
             peer && model ? String(model) : undefined,
             newTabRetainsDraft.current,
+            false,
+            typeof cloudRegistryId === "string" ? cloudRegistryId : undefined,
           );
           await persistSession(started);
           return started;
@@ -2437,6 +2440,9 @@ export function paneSnapshotEffect({
         // Composer drafts belong to the daemon session so every host can restore them.
         "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
         "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
+        "chat.readDraftAttachments": ({ sessionId }) => client.readDraftAttachments(String(sessionId)),
+        "chat.writeDraftAttachments": ({ sessionId, attachments }) =>
+          client.writeDraftAttachments(String(sessionId), Array.isArray(attachments) ? attachments : []),
         "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
         "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
         "file.search": ({ path, query, limit }) =>
