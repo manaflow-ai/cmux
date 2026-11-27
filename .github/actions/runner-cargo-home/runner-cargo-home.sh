@@ -42,10 +42,23 @@ runners=0
 for marker in "$(dirname "$runner_root")"/*/.runner; do
   [[ -f "$marker" ]] && runners=$((runners + 1))
 done
-if [[ "$runners" -lt 2 || ! -f "$runner_root/.runner" ]]; then
+# A ~/.cargo this runner cannot write: rust-cache's restore untars crates into
+# ~/.cargo/registry/cache, tar stops at the first file it cannot open, and cargo
+# then fails with "failed to open .../registry/cache/index.crates.io-*/X.crate".
+# The hetzner-2 runners k>=2 (their own user, /home/runnerK bound on
+# /home/runner) had a registry/cache directory of another user: 711 "Cannot open:
+# Permission denied" in session move tests job on hetzner-2-26, 2026-11-27
+# 21:07Z, 4 of that workflow's 11 failures 18:30-21:10Z (hetzner-2-3, -12, -26,
+# -29). A home of the runner's own builds; the shared one never could.
+unwritable=""
+if [[ -d "$HOME/.cargo" ]]; then
+  unwritable="$(find "$HOME/.cargo" -maxdepth 3 -type d \( -path "$HOME/.cargo/bin" -prune -o ! -writable -print \) 2>/dev/null | head -1 || true)"
+fi
+if [[ -z "$unwritable" && ( "$runners" -lt 2 || ! -f "$runner_root/.runner" ) ]]; then
   echo "this runner does not share its HOME with other runner instances; the default CARGO_HOME is kept"
   exit 0
 fi
+[[ -z "$unwritable" ]] || echo "this runner cannot write $unwritable; it gets a CARGO_HOME of its own"
 
 cargo_home="$work/.cargo-home"
 mkdir -p "$cargo_home/bin"
@@ -57,4 +70,4 @@ for name in config.toml config; do
 done
 echo "CARGO_HOME=$cargo_home" >> "$GITHUB_ENV"
 echo "$cargo_home/bin" >> "$GITHUB_PATH"
-echo "CARGO_HOME=$cargo_home ($runners runner instances share $HOME)"
+echo "CARGO_HOME=$cargo_home ($runners runner instances share $HOME${unwritable:+; $unwritable is not writable})"

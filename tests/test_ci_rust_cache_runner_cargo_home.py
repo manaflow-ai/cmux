@@ -20,8 +20,11 @@ literal ephemeral Linux or Windows label need nothing. A composite action under
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -178,8 +181,40 @@ def self_test() -> list[str]:
     return errors
 
 
+def script_self_test() -> list[str]:
+    """A one-runner host whose ~/.cargo has a directory this runner cannot write gets a CARGO_HOME
+    of its own; one with a writable ~/.cargo keeps the default. rust-cache's restore stops at the
+    first crate it cannot write into ~/.cargo/registry/cache, and cargo then cannot open it
+    (session move tests on hetzner-2-3, -12, -26, -29, 2026-11-27)."""
+    if os.geteuid() == 0:
+        return []  # root writes everything; the unwritable case cannot be made here
+    errors = []
+    script = ROOT / ".github/actions" / SCRIPT
+    with tempfile.TemporaryDirectory() as tmp:
+        t = Path(tmp)
+        idx = t / "home/.cargo/registry/cache/index"
+        idx.mkdir(parents=True)
+        (t / "r1/_work/_temp").mkdir(parents=True)
+        (t / "r1/.runner").touch()
+        for writable in (True, False):
+            idx.chmod(0o755 if writable else 0o555)
+            env_file = t / "env"
+            env_file.write_text("")
+            env = dict(os.environ, HOME=str(t / "home"), RUNNER_TEMP=str(t / "r1/_work/_temp"),
+                       RUNNER_OS="Linux", GITHUB_ENV=str(env_file), GITHUB_PATH=str(t / "path"))
+            env.pop("CARGO_HOME", None)
+            done = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
+            got = env_file.read_text()
+            want = "" if writable else f"CARGO_HOME={t / 'r1/_work/.cargo-home'}\n"
+            if done.returncode != 0 or got != want:
+                errors.append(f"self-test: {SCRIPT} with a {'writable' if writable else 'read-only'} "
+                              f"~/.cargo wrote {got!r}, expected {want!r} (exit {done.returncode}: {done.stderr})")
+        idx.chmod(0o755)
+    return errors
+
+
 def main() -> int:
-    failures = self_test() + provider_failures()
+    failures = self_test() + script_self_test() + provider_failures()
     total = 0
     for path in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
