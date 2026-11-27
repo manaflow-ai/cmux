@@ -10,7 +10,7 @@ import Testing
 @Suite struct DownloadsFolderTests {
     private let userDownloads = URL(filePath: "/Users/someone/Downloads", directoryHint: .isDirectory)
 
-    @Test func aDownloadWithTheVariableSetLandsInThatFolder() throws {
+    @Test func aDownloadWithTheVariableSetLandsInThatFolder() async throws {
         let folder = FileManager.default.temporaryDirectory
             .appending(path: "cmux-downloads-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -20,10 +20,10 @@ import Testing
                                      userDownloads: userDownloads)
         #expect(chosen.url.standardizedFileURL.pathComponents == folder.standardizedFileURL.pathComponents)
 
-        let placement = try #require(BrowserDownloadPolicy.place(
+        let placement = try await BrowserDownloadPolicy.place(
             chosen: nil, suggestedFilename: "report.pdf", directory: chosen.url,
             reservations: BrowserDownloadReservations()
-        ))
+        ).get()
         defer { placement.discard() }
         #expect(placement.finalURL.deletingLastPathComponent().standardizedFileURL.pathComponents
             == folder.standardizedFileURL.pathComponents)

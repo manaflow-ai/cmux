@@ -5,10 +5,8 @@ import UIKit
 
 /// What a terminal page shows over its surface until the Mac's terminal is
 /// attached: the page as last seen on this phone, as it was (never dimmed,
-/// never covered), or, with no saved copy at all, nothing during the quiet
-/// bound and then which Mac cannot be reached, why, and Retry
-/// (``TerminalUnreachable``; Leo, 2026-11-25: "the placeholder's also bad",
-/// which retired the skeleton of fake `$` rows). Never made-up output, and
+/// never covered), or, for a terminal never opened on this phone, a skeleton
+/// of terminal lines with the shimmer (SPEC 7.1). Never made-up output, and
 /// never a status pill over the content: the connection's state is the title
 /// pill's subtitle, and only after ``QuietStatusGate/threshold``
 /// (``TerminalModel/connectionLine``).
@@ -34,16 +32,10 @@ public struct TerminalConnectingView: View {
     /// The still's rows (``TerminalFrameRows``) and whether they were measured yet.
     let rows: TerminalFrameRows?
     let rowsMeasured: Bool
-    /// A page with no saved copy, past the quiet bound: which Mac, why, and Retry (nil: nothing).
-    let unreachable: TerminalUnreachable?
-    let retry: (@MainActor () async -> Void)?
 
     public init(topInset: CGFloat = 0, lastFrame: UIImage? = nil, showsPlaceholder: Bool = true,
                 screenText: String? = nil,
-                rowsLift: CGFloat? = nil, rows: TerminalFrameRows? = nil, rowsMeasured: Bool = true,
-                unreachable: TerminalUnreachable? = nil, retry: (@MainActor () async -> Void)? = nil) {
-        self.unreachable = unreachable
-        self.retry = retry
+                rowsLift: CGFloat? = nil, rows: TerminalFrameRows? = nil, rowsMeasured: Bool = true) {
         self.topInset = topInset
         self.lastFrame = lastFrame
         self.showsPlaceholder = showsPlaceholder
@@ -58,16 +50,21 @@ public struct TerminalConnectingView: View {
     enum Content: Equatable {
         case lastFrame
         case screenText
-        /// No saved copy: nothing faked; past the quiet bound, ``TerminalUnreachable``.
-        case unreachable
+        case skeleton
         case nothing
+    }
+
+    /// Where a cover with no kept frame (the Mac's screen text or the skeleton) ends: the
+    /// composer's top as it rests (`rowsLift` above the view's bottom), never below it.
+    static func coverBottom(height: CGFloat, rowsLift: CGFloat?) -> CGFloat {
+        max(0, height - max(0, rowsLift ?? 0))
     }
 
     static func content(hasLastFrame: Bool, showsPlaceholder: Bool, hasScreenText: Bool = false) -> Content {
         if hasLastFrame { return .lastFrame }
         // Only where the skeleton would be: a warm surface keeps its own live rows.
         if hasScreenText, showsPlaceholder { return .screenText }
-        return showsPlaceholder ? .unreachable : .nothing
+        return showsPlaceholder ? .skeleton : .nothing
     }
 
     public var body: some View {
@@ -106,92 +103,202 @@ public struct TerminalConnectingView: View {
                         }
                     }
                     .accessibilityHidden(true)
-                    .allowsHitTesting(false)
                 }
             case .screenText:
                 GeometryReader { proxy in
                     // Not dimmed: a grayed-out page reads as one that takes no input (Leo,
                     // 2026-11-24: "the entire thing is somehow grayed out").
-                    TerminalCardScreenText(text: screenText ?? "", topInset: topInset, width: proxy.size.width)
+                    // Ends at the composer's top, as the skeleton and a kept frame do: the Mac's
+                    // rows never run on under the composer bar (Aziz, 2026-11-26: "the loading
+                    // terminal placeholder shouldnt leak under the composer bar").
+                    let bottom = Self.coverBottom(height: proxy.size.height, rowsLift: rowsLift)
+                    TerminalCardScreenText(text: screenText ?? "", topInset: topInset, width: proxy.size.width,
+                                           visibleHeight: rowsLift == nil ? nil : bottom)
+                        .frame(width: proxy.size.width, height: bottom, alignment: .top)
+                        .clipped()
+                        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
                 }
                 .accessibilityHidden(true)
-                .allowsHitTesting(false)
-            case .unreachable:
-                if let unreachable {
-                    TerminalUnreachableView(state: unreachable, retry: retry)
-                        .padding(.top, topInset)
-                        .padding(.bottom, rowsLift ?? 0)
-                }
+            case .skeleton:
+                TerminalSkeleton(topInset: topInset, rowsLift: rowsLift)
             case .nothing:
                 EmptyView()
             }
         }
+        .allowsHitTesting(false)
         .accessibilityIdentifier("terminal.connecting")
         .environment(\.colorScheme, .dark)
     }
 }
 
-/// What a page with no saved copy at all says once its outage passed the quiet bound: which Mac
-/// cannot be reached, why in plain words, and Retry. Replaces the skeleton of fake `$` rows
-/// (Leo, 2026-11-25: "the placeholder's also bad").
-public struct TerminalUnreachable: Equatable, Sendable {
-    /// Never shown before the shared quiet bound: a blip draws the page's own background only.
-    public static let shownAfter: Duration = QuietStatusGate.threshold
-    public var title: String
-    public var reason: String
-    public init(title: String, reason: String) {
-        self.title = title
-        self.reason = reason
+/// The bound on a terminal page's connecting cover. A page whose Mac's rows never came drew the
+/// skeleton's gray bars for good (Aziz's TestFlight build, 2026-11-25). Now the cover is a
+/// skeleton only for ``bound``: past it, or at once when the session gave up or the Mac is
+/// offline, the page says what is going on in words with Retry, and tries the attach again by
+/// itself after each of ``retryDelays`` (the last one repeating) while the cover is up.
+enum TerminalLoadWatch {
+    /// How long the skeleton shows before the page offers Retry.
+    static let bound: Duration = .seconds(8)
+    /// The waits between the page's own retries of the attach, the first after ``bound``.
+    static let retryDelays: [Duration] = [.seconds(8), .seconds(15), .seconds(30), .seconds(60)]
+
+    /// The wait before the page's `attempt`th own retry (0 is the first).
+    static func retryDelay(_ attempt: Int) -> Duration {
+        retryDelays[min(max(0, attempt), retryDelays.count - 1)]
     }
 
-    /// The words for `state` past the quiet bound; `linkStatus` is the link's own status line for
-    /// the Mac (a network that blocks the link says so there), preferred over the generic reason.
-    public static func make(state: TerminalConnectionState, linkStatus: String?) -> TerminalUnreachable? {
-        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? String(localized: "your Mac") }
-        let status = linkStatus.flatMap { $0.isEmpty || $0 == "Offline" ? nil : $0 }
+    /// What the cover draws.
+    enum Stage: Equatable {
+        /// The skeleton (or the Mac's screen text): the rows are on their way.
+        case loading
+        /// Retry, with failure details only when the connection has failed or is offline.
+        case stalled
+    }
+
+    static func stage(_ state: TerminalConnectionState, waited: Duration) -> Stage {
         switch state {
         case .attached:
-            return nil
-        case .offline(let mac):
-            return TerminalUnreachable(title: String(localized: "\(named(mac)) is offline"),
-                                       reason: status ?? String(localized: "It may be asleep or off the network. This page fills in when it's back."))
-        case .failed(let message):
-            return TerminalUnreachable(title: String(localized: "Can't reach this terminal"),
-                                       reason: status ?? message)
-        case .connecting(let mac), .reattaching(let mac):
-            return TerminalUnreachable(title: String(localized: "Can't reach \(named(mac))"),
-                                       reason: status ?? String(localized: "No answer yet. cmux keeps trying on its own."))
+            return .loading
+        case .failed, .offline:
+            return .stalled
+        case .connecting, .reattaching:
+            guard waited >= bound else { return .loading }
+            return .stalled
         }
     }
 }
 
-/// The no-cache state: nothing (the page's own background) during the quiet bound, then
-/// ``TerminalUnreachable`` with Retry. Never fake rows.
-struct TerminalUnreachableView: View {
-    let state: TerminalUnreachable
-    let retry: (@MainActor () async -> Void)?
+/// The connecting cover past ``TerminalLoadWatch/bound``: what is going on and Retry, centered
+/// on the page, in place of the skeleton.
+public struct TerminalLoadStalledPanel: View {
+    let state: TerminalConnectionState
+    /// The link's own status line for the Mac (``TerminalModel/linkStatus``): a network that
+    /// blocks the link says so there, and that is the reason shown, over the generic words.
+    let linkStatus: String?
+    let retry: @MainActor () async -> Void
 
-    var body: some View {
-        VStack(spacing: 10) {
-            Text(state.title)
-                .font(.headline)
-                .foregroundStyle(Color.white.opacity(0.92))
-            Text(state.reason)
-                .font(.subheadline)
-                .foregroundStyle(Color.white.opacity(0.62))
-            if let retry {
-                Button(String(localized: "Retry")) { Task { await retry() } }
-                    .buttonStyle(.bordered)
-                    .tint(.white)
-                    .padding(.top, 6)
-                    .accessibilityIdentifier("terminal.unreachable.retry")
-            }
+    public init(state: TerminalConnectionState, linkStatus: String? = nil, retry: @escaping @MainActor () async -> Void) {
+        self.state = state
+        self.linkStatus = linkStatus
+        self.retry = retry
+    }
+
+    /// Keep failure copy with the action that resolves it; an ongoing attach has no notice.
+    static func notice(_ state: TerminalConnectionState, linkStatus: String? = nil) -> (title: String, detail: String)? {
+        // "Offline" alone repeats the title: the generic reason stays.
+        let status = linkStatus.flatMap { $0.isEmpty || $0 == "Offline" ? nil : $0 }
+        switch state {
+        case .failed:
+            return ("Can't reach this terminal", status ?? "Check that the Mac is on and cmux is open.")
+        case .offline:
+            return (state.quietLine ?? "Your Mac is offline", status ?? "The terminal opens when it is back.")
+        case .attached, .connecting, .reattaching:
+            return nil
         }
-        .multilineTextAlignment(.center)
+    }
+
+    public var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "terminal")
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(Color.white.opacity(0.6))
+                .accessibilityHidden(true)
+            if let notice = Self.notice(state, linkStatus: linkStatus) {
+                Text(verbatim: notice.title)
+                    .font(.headline)
+                    .foregroundStyle(Color.white)
+                    .multilineTextAlignment(.center)
+                Text(verbatim: notice.detail)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+            RetryButton(action: retry)
+                .accessibilityIdentifier("terminal.connecting.retry")
+        }
         .padding(.horizontal, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("terminal.unreachable")
+        .accessibilityIdentifier("terminal.connecting.stalled")
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+/// A terminal never opened on this phone, until its Mac's rows arrive: the shape of a
+/// terminal (SPEC 7.1), not a list of grey bars. Rows at the terminal's own line pitch, a
+/// prompt's `$` at each command line's start, output lines of uneven length, and the last
+/// row a prompt with the cursor block, resting on the composer as the live rows do. The
+/// shimmer runs over the text, never over the prompt's cursor.
+struct TerminalSkeleton: View {
+    let topInset: CGFloat
+    let rowsLift: CGFloat?
+
+    /// One row: a command line (the prompt's `$` then a command) or output, as fractions of
+    /// the width. Oldest first; the newest row (the live prompt) is drawn after them.
+    enum Row: Equatable {
+        case command(CGFloat)
+        case output(CGFloat)
+    }
+
+    static let rows: [Row] = [
+        .command(0.34), .output(0.82), .output(0.66), .output(0.74), .output(0.4),
+        .command(0.46), .output(0.9), .output(0.58), .output(0.0), .command(0.28), .output(0.7), .output(0.52),
+    ]
+
+    static let font = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+    static var pitch: CGFloat { ceil(font.lineHeight) + 2 }
+    static let barHeight: CGFloat = 9
+    static let inset: CGFloat = 12
+
+    var body: some View {
+        GeometryReader { proxy in
+            let pitch = Self.pitch
+            let bottom = TerminalConnectingView.coverBottom(height: proxy.size.height, rowsLift: rowsLift)
+            // As many of the rows as fit between the top bar and the composer, newest last.
+            let room = max(0, Int((bottom - topInset - 8) / pitch) - 1)
+            let shown = Array(Self.rows.suffix(room))
+            let textWidth = proxy.size.width - 2 * Self.inset
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(shown.enumerated()), id: \.offset) { _, row in
+                        line(row, width: textWidth)
+                    }
+                }
+                .cmuxMobileShimmer()
+                prompt
+            }
+            .padding(.horizontal, Self.inset)
+            .frame(width: proxy.size.width, height: max(0, bottom - 4), alignment: .bottomLeading)
+        }
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private func line(_ row: Row, width: CGFloat) -> some View {
+        HStack(spacing: 6) {
+            switch row {
+            case .command(let fraction):
+                Text("$").font(Font(Self.font)).foregroundStyle(Color.white.opacity(0.28))
+                bar(width: width * fraction, opacity: 0.14)
+            case .output(let fraction):
+                bar(width: width * fraction, opacity: 0.08)
+            }
+        }
+        .frame(height: Self.pitch, alignment: .leading)
+    }
+
+    private func bar(width: CGFloat, opacity: Double) -> some View {
+        RoundedRectangle(cornerRadius: 3, style: .continuous)
+            .fill(Color.white.opacity(opacity))
+            .frame(width: max(0, width), height: Self.barHeight)
+    }
+
+    /// The live prompt: `$` and the cursor block, where the shell's prompt will be.
+    private var prompt: some View {
+        HStack(spacing: 6) {
+            Text("$").font(Font(Self.font)).foregroundStyle(Color.white.opacity(0.4))
+            Rectangle().fill(Color.white.opacity(0.55)).frame(width: 8, height: ceil(Self.font.lineHeight) - 2)
+        }
+        .frame(height: Self.pitch, alignment: .leading)
     }
 }
 #endif

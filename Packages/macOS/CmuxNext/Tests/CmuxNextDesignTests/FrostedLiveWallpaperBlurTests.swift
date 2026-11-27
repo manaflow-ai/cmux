@@ -33,7 +33,8 @@ import Testing
         input.backgroundBlur = 0
         view.apply(WindowBackdrop(ThemeTokens.derive(from: input), selection: .art(.vanGoghStarryNight)), tint: .black)
         for live in [view.videoView as NSView, view.shaderView as NSView] {
-            #expect((live.layer?.filters ?? []).isEmpty)
+            let filters = live.layer?.filters ?? []
+            #expect(filters.isEmpty)
             #expect(live.frame == view.liveArtClip.bounds)
         }
     }

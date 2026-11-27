@@ -29,35 +29,28 @@ import UIKit
                       quietStatus: QuietStatusGate(delay: delay))
     }
 
-    /// A cached frame wins in every state; with no saved copy at all the page draws no fake rows,
-    /// only the unreachable state past the quiet bound (Leo, 2026-11-25: "the placeholder's also bad").
-    @Test func theCachedFrameNeverGivesWayToThePlaceholder() {
+    /// A cached frame wins over the skeleton in every state; the skeleton is
+    /// only for a terminal never opened on this phone.
+    @Test func theCachedFrameNeverGivesWayToTheSkeleton() {
         #expect(TerminalConnectingView.content(hasLastFrame: true, showsPlaceholder: true) == .lastFrame)
         #expect(TerminalConnectingView.content(hasLastFrame: true, showsPlaceholder: false) == .lastFrame)
-        #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: true) == .unreachable)
+        #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: true) == .skeleton)
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false) == .nothing)
-        // The Mac's pushed screen text stands in for the placeholder, never over a frame or live rows.
+        // The Mac's pushed screen text stands in for the skeleton, never over a frame or live rows.
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: true, hasScreenText: true) == .screenText)
         #expect(TerminalConnectingView.content(hasLastFrame: true, showsPlaceholder: true, hasScreenText: true) == .lastFrame)
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false, hasScreenText: true) == .nothing)
     }
 
-    /// No saved copy: nothing during the quiet bound, then which Mac, why, and Retry.
-    @Test func noSavedCopySaysWhichMacAndWhyOnlyPastTheQuietBound() async throws {
-        let model = makeModel(delay: .milliseconds(20))
-        model.reconnect = {}
-        #expect(model.unreachable == nil)
-        try await Task.sleep(for: .milliseconds(120))
-        let state = try #require(model.unreachable)
-        #expect(state.title == "Can't reach Mac Studio")
-        #expect(!state.reason.isEmpty)
-        // The link's own line (a network that blocks it) wins over the generic words.
-        model.linkStatus = { "This network blocks the connection" }
-        #expect(model.unreachable?.reason == "This network blocks the connection")
-        // "Offline" alone adds nothing to the title: the generic reason stays.
-        #expect(TerminalUnreachable.make(state: .offline(mac: "Mac Studio"), linkStatus: "Offline")?.reason.contains("asleep") == true)
-        #expect(TerminalUnreachable.make(state: .offline(mac: "Mac Studio"), linkStatus: nil)?.title == "Mac Studio is offline")
-        #expect(TerminalUnreachable.make(state: .attached, linkStatus: "x") == nil)
+    /// The link's own line (a network that blocks it) is the stalled panel's reason, over the
+    /// generic words; "Offline" alone adds nothing to the title.
+    @Test func theStalledPanelPrefersTheLinksOwnLine() {
+        #expect(TerminalLoadStalledPanel.notice(.offline(mac: "Mac Studio"), linkStatus: "This network blocks the connection")?.detail
+            == "This network blocks the connection")
+        #expect(TerminalLoadStalledPanel.notice(.offline(mac: "Mac Studio"), linkStatus: "Offline")?.detail
+            == "The terminal opens when it is back.")
+        #expect(TerminalLoadStalledPanel.notice(.failed(message: "x"), linkStatus: "Blocked")?.detail == "Blocked")
+        #expect(TerminalLoadStalledPanel.notice(.reattaching(mac: "Mac Studio"), linkStatus: "Blocked") == nil)
     }
 
     /// The offline subtitle says how old the saved copy is, and only when the page shows one.
@@ -91,6 +84,16 @@ import UIKit
         #expect(!attached.takesLateSeed)
     }
 
+    /// A cover with no kept frame ends at the composer's top, never under the composer bar
+    /// (iOS regression row 20, Aziz 2026-11-26: "the loading terminal placeholder shouldnt leak
+    /// under the composer bar").
+    @Test func theCoverEndsAtTheComposersTop() {
+        #expect(TerminalConnectingView.coverBottom(height: 800, rowsLift: 120) == 680)
+        #expect(TerminalConnectingView.coverBottom(height: 800, rowsLift: nil) == 800)
+        #expect(TerminalConnectingView.coverBottom(height: 800, rowsLift: -5) == 800)
+        #expect(TerminalConnectingView.coverBottom(height: 100, rowsLift: 300) == 0)
+    }
+
     /// Connection changes keep the cached frame (only drawn live rows replace it).
     @Test func connectionChangesKeepTheCachedFrame() {
         let model = makeModel()
@@ -112,8 +115,8 @@ import UIKit
         model.ingest(.connection(.attached))
         model.ingest(.connection(.reattaching(mac: "Mac Studio")))
         #expect(model.connectionLine == nil)
-        for _ in 0..<200 where model.connectionLine == nil { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(model.connectionLine == "Reconnecting to Mac Studio…")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.connectionLine == nil, "a reattach says nothing, however long (Leo 2026-11-22)")
         // Retries keep the first instant; a failure after them reads plainly.
         model.ingest(.connection(.failed(message: "daemon channel closed")))
         #expect(model.connectionLine == "Can't reach this terminal")
@@ -122,13 +125,14 @@ import UIKit
     }
 
     @Test func quietLinesNeverCarryTransportWords() {
-        for state in [TerminalConnectionState.connecting(mac: nil), .reattaching(mac: "Mac Studio"), .offline(mac: nil),
-                      .failed(message: "daemon channel closed")] {
+        for state in [TerminalConnectionState.offline(mac: nil), .failed(message: "daemon channel closed")] {
             let line = state.quietLine ?? ""
             #expect(!line.isEmpty)
             #expect(!line.contains("daemon") && !line.contains("channel"), "\(line)")
         }
         #expect(TerminalConnectionState.attached.quietLine == nil)
+        #expect(TerminalConnectionState.connecting(mac: nil).quietLine == nil)
+        #expect(TerminalConnectionState.reattaching(mac: "Mac Studio").quietLine == nil)
     }
 }
 #endif

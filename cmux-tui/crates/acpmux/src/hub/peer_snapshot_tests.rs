@@ -70,6 +70,7 @@ fn a_copy_survives_a_restart_and_keeps_each_seq_once() {
 }
 
 /// The file's inode, mtime and bytes: what a rewrite (a temporary file renamed in) changes.
+#[cfg(unix)]
 fn file_state(path: &Path) -> (u64, std::time::SystemTime, Vec<u8>) {
     use std::os::unix::fs::MetadataExt as _;
     let meta = std::fs::symlink_metadata(path).unwrap();
@@ -77,6 +78,7 @@ fn file_state(path: &Path) -> (u64, std::time::SystemTime, Vec<u8>) {
 }
 
 #[test]
+#[cfg(unix)]
 fn a_write_with_the_same_content_touches_nothing_and_a_changed_one_rewrites_the_file() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     let mut store = store_at(dir.path());

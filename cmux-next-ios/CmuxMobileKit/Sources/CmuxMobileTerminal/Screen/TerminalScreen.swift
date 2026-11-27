@@ -28,10 +28,10 @@ public struct TerminalScreen: View {
             .background(Color.black)
             .overlay {
                 // A live surface (warm, or fed its kept rows) has nothing over it; only a page with
-                // no rows yet shows the Mac's text, or past the quiet bound which Mac cannot be reached.
+                // no rows yet shows the Mac's text or a skeleton, never a still picture.
                 if !model.connectionState.isAttached, !model.seeded, !model.drewLiveOutput,
                    !model.connectionState.keepsWarmFrame {
-                    TerminalConnectingView(screenText: model.cardScreenText, unreachable: model.unreachable, retry: model.reconnect)
+                    TerminalConnectingView(screenText: model.cardScreenText)
                         .transition(.opacity)
                         .placeholderBound("terminal.connecting", .milliseconds(2000))
                 }
