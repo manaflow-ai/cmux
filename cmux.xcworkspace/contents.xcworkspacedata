@@ -62,12 +62,6 @@
          location = "group:CmuxInstallAuthCore">
       </FileRef>
       <FileRef
-         location = "group:CmuxIrohTransport">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxIrxTransport">
-      </FileRef>
-      <FileRef
          location = "group:CmuxLiveCode">
       </FileRef>
       <FileRef
