@@ -22,7 +22,7 @@ pub struct NodeKeypair {
 }
 
 impl NodeKeypair {
-    fn of(private: &[u8; 32]) -> Self {
+    pub(crate) fn of(private: &[u8; 32]) -> Self {
         Self { public_key: PublicKey::from(&StaticSecret::from(*private)).to_bytes() }
     }
 
