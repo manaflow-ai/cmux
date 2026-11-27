@@ -81,15 +81,15 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           # xctrace aborts on this virtual Mac (run 45993228691), so /usr/bin/sample (task_for_pid,
           # no kperf) samples each launch's threads for 8 s from the moment the process exists.
-          mkdir -p artifacts/ios-sim/samples
+          S="$RUNNER_TEMP/samples"; mkdir -p "$S"  # outside artifacts/: the sim script resets that dir (run 46000664879)
           (
             seen=" "
             while :; do
               for pid in $(pgrep -f 'CmuxMobileApp[.]app/CmuxMobileApp' || true); do
                 case "$seen" in *" $pid "*) continue ;; esac
                 seen="$seen$pid "
-                echo "$pid $(date +%s.%N)" >> artifacts/ios-sim/samples/pids.txt
-                sample "$pid" 8 1 -mayDie -file "artifacts/ios-sim/samples/sample-$pid.txt" > /dev/null 2>&1 &
+                echo "$pid $(date +%s.%N)" >> "$S/pids.txt"
+                sample "$pid" 8 1 -mayDie -file "$S/sample-$pid.txt" > /dev/null 2>&1 &
               done
               sleep 0.02
             done
@@ -98,8 +98,8 @@ jobs:
           bash scripts/ci/cmux-next-ios-sim.sh test ui=LaunchTTIUITests
           echo "status=$?" >> "$GITHUB_OUTPUT"
           kill "$sampler" 2>/dev/null; sleep 9
-          ls -la artifacts/ios-sim/samples | head -40
-          tar -czf artifacts/ios-sim/samples.tgz -C artifacts/ios-sim samples
+          ls -la "$S" | head -40
+          mkdir -p artifacts/ios-sim; tar -czf artifacts/ios-sim/samples.tgz -C "$RUNNER_TEMP" samples
 
       - name: Export the time-profile table
         if: ${{ !cancelled() }}
