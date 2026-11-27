@@ -101,11 +101,9 @@ impl Drop for ApplySlot {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct PlanParams {}
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ApplyParams {
     ids: Vec<String>,
     #[serde(default)]
@@ -175,7 +173,6 @@ impl Failure {
         match error {
             LinkError::Closed => Self::AcpmuxUnavailable,
             LinkError::Timeout => Self::Timeout,
-            LinkError::Busy => Self::Busy,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
             LinkError::BadList(_) => Self::BadList,
         }
@@ -336,16 +333,28 @@ fn plan(socket: &Path) -> Result<Value, Failure> {
     Ok(json!({"harnesses": harnesses, "live_threads": live, "running_threads": running}))
 }
 
-/// The capability of a daemon that answers rows by key (`_acpmux/info` with `sessionIds`).
-const INFO_ROWS: &str = "info-rows-v1";
-
 /// [`threads`] from the v2 list (row 7c): a walk of `live` with origin `local`, each summary
 /// counted as v1's row is. A summary whose `extra` was bounded away holds neither the tags nor
 /// the name the Chief test reads: its row is read by key, a hundred keys a request. `None`:
 /// the daemon serves no v2 list (or no rows by key), and the caller reads v1 whole.
 fn list_threads(link: &AcpmuxLink, socket: &Path) -> Result<Option<(usize, usize)>, Failure> {
+    Ok(list_read(link, socket)?.map(|read| (read.live, read.running)))
+}
+
+/// What [`list_threads`] read: its counts, and how many summaries its walk read (a bounded-away
+/// one counted once, its row by key not again), which a gate checks to prove the read did its work.
+struct ListRead {
+    live: usize,
+    running: usize,
+    // Read by the gate only (`list_tests`): the plan needs the counts.
+    #[cfg_attr(not(test), allow(dead_code))]
+    rows: usize,
+}
+
+/// [`list_threads`], with the rows it read.
+fn list_read(link: &AcpmuxLink, socket: &Path) -> Result<Option<ListRead>, Failure> {
     use crate::server::agent_session_attach::agent_session_link::list_source::{
-        self, Opened, bounded_away, extras, v1_status,
+        self, INFO_ROWS, Opened, bounded_away, extras, v1_status,
     };
     use acpmux_client::wire::{ListFilter, ListView};
     use std::ops::ControlFlow;
@@ -356,10 +365,11 @@ fn list_threads(link: &AcpmuxLink, socket: &Path) -> Result<Option<(usize, usize
         Opened::List(source) => source,
         Opened::V1 => return Ok(None),
     };
-    let (mut live, mut running, mut by_key) = (0, 0, Vec::new());
+    let (mut live, mut running, mut read, mut by_key) = (0, 0, 0, Vec::new());
     let local = ListFilter { origin: Some("local".into()), ..ListFilter::default() };
     source
         .walk(ListView::Live, Some(local), |summaries| {
+            read += summaries.len();
             for summary in summaries {
                 if bounded_away(&summary) {
                     by_key.push(summary.chat_id);
@@ -378,7 +388,7 @@ fn list_threads(link: &AcpmuxLink, socket: &Path) -> Result<Option<(usize, usize
         })
         .map_err(list_failure)?;
     // A reply past its byte budget answers some keys and names the rest (`rest`): asked again,
-    // every request within one deadline, as the walk's are.
+    // every request within one deadline of its own, started once the walk ends.
     let deadline = Instant::now() + CALL_TIMEOUT;
     let mut queue: std::collections::VecDeque<String> = by_key.into();
     while !queue.is_empty() {
@@ -410,7 +420,7 @@ fn list_threads(link: &AcpmuxLink, socket: &Path) -> Result<Option<(usize, usize
             queue.push_front(key);
         }
     }
-    Ok(Some((live, running)))
+    Ok(Some(ListRead { live, running, rows: read }))
 }
 
 /// A list read that failed: past its deadline, or a socket or wire error.

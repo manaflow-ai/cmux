@@ -24,7 +24,7 @@ segment, and only the cmux NEXT classification accepts ring-tagged items. Every 
       pulled from the cmux NEXT feed, a build pulled from the stable feed, and a fail verdict.
   published-tonight --stable STABLE.xml --night-start ISO
       published=true|false: whether the stable feed's newest item was published since night_start.
-  merge-feed --new NEW.xml [--live LIVE.xml] --out OUT.xml [--keep N]
+  merge-feed --new NEW.xml [--live LIVE.xml] --out OUT.xml --source-sha SHA [--keep N]
       The stable feed after publishing NEW's one item: that item, tagged cmux-next-stable, then the
       live feed's items below its build, newest first, KEEP (3) items in all, so a rollback always
       has earlier stable builds to serve. Refuses when the live feed already has this build or a newer.
@@ -61,11 +61,15 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 STABLE_CHANNEL = "cmux-next-stable"
@@ -135,6 +139,31 @@ def window(now: dt.datetime) -> dict[str, str]:
 
 # pick ---------------------------------------------------------------------------------------------
 
+def notes_published(source: str, build: int) -> bool:
+    """Whether notes/<build>.json is published under SOURCE (an https base URL or a folder)."""
+    if not re.match(r"^https://", source):
+        return (Path(source) / f"{build}.json").is_file()
+    request = urllib.request.Request(f"{source.rstrip('/')}/{build}.json", method="HEAD",
+                                     headers={"User-Agent": "cmux-stable-next/1"})
+    last = None
+    for attempt in range(3):  # a transient 5xx or timeout must not fail plan (it counts toward the night's 3 failures)
+        try:
+            # The whole call ends in 30 s, not each socket wait (tests/test_ci_no_bare_urlopen.py).
+            deadline_http.request(request, 30, raise_errors=True)
+            return True
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return False
+            if error.code < 500:
+                raise Refused(f"notes/{build}.json: HTTP {error.code}") from error
+            last = error
+        except (urllib.error.URLError, TimeoutError) as error:
+            last = error
+        if attempt < 2:
+            time.sleep(5 * (attempt + 1))  # backoff between HTTP retries, not synchronization
+    raise Refused(f"notes/{build}.json could not be read: {last}")
+
+
 def read_verdict(source: str | None, build: int) -> str | None:
     if not source:
         return None
@@ -142,8 +171,8 @@ def read_verdict(source: str | None, build: int) -> str | None:
         # The feed's CDN refuses Python's default user agent (403).
         request = urllib.request.Request(f"{source.rstrip('/')}/{build}.json", headers={"User-Agent": "cmux-stable-next/1"})
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.load(response).get("verdict")
+            _, body, _ = deadline_http.request(request, 30, raise_errors=True)
+            return json.loads(body).get("verdict")
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 return None
@@ -165,7 +194,7 @@ def pulled_builds(path: str | None) -> set[int]:
 
 
 def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int | None,
-         stable_pulled: set[int] = frozenset()) -> dict[str, str]:
+         stable_pulled: set[int] = frozenset(), has_notes=None) -> dict[str, str]:
     offered = [(m, b) for m, b in items(feed) if channel_of(m.group(0)) in NIGHTLY_CHANNELS]
     if build is not None and build in stable_pulled:
         raise Refused(f"build {build} was pulled from the stable feed")
@@ -176,7 +205,18 @@ def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int
             raise Refused(f"build {build} is not on the cmux NEXT feed")
     if not offered:
         raise Refused("the cmux NEXT feed offers Nightly apps no build that was not pulled from stable")
-    match, chosen = max(offered, key=lambda entry: entry[1])
+    offered.sort(key=lambda entry: entry[1], reverse=True)
+    passed = []
+    if has_notes is not None:
+        # The gates test the commit a build's release notes record (notes/<build>.json "head"). nightly.yml
+        # publishes them after the feed, sometimes much later, and some runs not at all (4424316677601, 2026-11-17:
+        # plan failed on every tick that night). Take the newest build with notes; a newer one is tested next tick.
+        first = next(((m, b) for m, b in offered if has_notes(b)), None)  # stop at the newest with notes
+        if first is None:
+            raise Refused(f"no build on the feed has published release notes (newest {offered[0][1]})")
+        passed = [b for _, b in offered if b > first[1]]
+        offered = [first]
+    match, chosen = offered[0]
     if chosen in pulled:
         raise Refused(f"build {chosen} was pulled from the cmux NEXT feed")
     verdict = verdict_of(chosen)
@@ -203,6 +243,7 @@ def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int
         # nightly-next/next feed, 11-06 to 11-10) re-tests one build every night.
         "published_at": published.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if published else "",
         "verdict": verdict or "none",
+        "passed_without_notes": ",".join(str(b) for b in passed),
         "skip": "false",
         "skip_reason": "",
     }
@@ -250,12 +291,27 @@ def set_channel(item: str, channel: str) -> str:
     return item.replace("<item>", f"<item>\n            <sparkle:channel>{channel}</sparkle:channel>", 1)
 
 
-def merge_feed(new: str, live: str | None, keep: int = KEEP) -> str:
+SOURCE_TAG = re.compile(r"<cmux:sourceCommit(?:\s[^>]*)?>\s*[0-9a-fA-F]{7,40}\s*</cmux:sourceCommit>")
+
+
+def set_source(item: str, source: str) -> str:
+    """Stamp the build's source commit on the new stable item, as the nightly writer does."""
+    if not re.fullmatch(r"[0-9a-f]{40}", source):
+        raise Refused(f"the stable item needs a full lowercase source commit, got {source!r}")
+    tag = f'<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">{source}</cmux:sourceCommit>'
+    if SOURCE_TAG.search(item):
+        return SOURCE_TAG.sub(tag, item, count=1)
+    return item.replace("</item>", f"    {tag}\n        </item>", 1)
+
+
+def merge_feed(new: str, live: str | None, keep: int = KEEP, source: str | None = None) -> str:
     fresh = items(new)
     if len(fresh) != 1:
         raise Refused(f"the new feed must hold exactly one item, it holds {len(fresh)}")
     match, build = fresh[0]
     item = set_channel(match.group(0).strip("\n"), STABLE_CHANNEL)
+    if source is not None:
+        item = set_source(item, source)
     kept = []
     if live:
         older = []
@@ -385,8 +441,9 @@ def sentry_new_crashes(release: str, org: str, project: str, token: str) -> list
     params = urllib.parse.urlencode({"project": project, "query": query, "statsPeriod": "14d", "limit": 25})
     request = urllib.request.Request(f"https://sentry.io/api/0/organizations/{org}/issues/?{params}",
                                      headers={"Authorization": f"Bearer {token}"})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.load(response)
+    # user-agent: sentry.io's API, no CDN of ours
+    _, body, _ = deadline_http.request(request, 60, raise_errors=True)
+    return json.loads(body)
 
 
 # main ---------------------------------------------------------------------------------------------
@@ -418,6 +475,8 @@ def main(argv: list[str]) -> int:
     p.add_argument("--stable-pulled")
     p.add_argument("--verdicts")
     p.add_argument("--build", type=int)
+    p.add_argument("--notes", help="base URL or folder of the release notes (notes/<build>.json); "
+                                    "take the newest build whose notes are published")
     t = sub.add_parser("published-tonight")
     t.add_argument("--stable", required=True)
     t.add_argument("--night-start", required=True)
@@ -426,6 +485,8 @@ def main(argv: list[str]) -> int:
     m.add_argument("--live")
     m.add_argument("--out", required=True)
     m.add_argument("--keep", type=int, default=KEEP)
+    m.add_argument("--source-sha", required=True,
+                   help="the build's full source commit, stamped as the new item's cmux:sourceCommit")
     r = sub.add_parser("rollback")
     r.add_argument("--live", required=True)
     r.add_argument("--out", required=True)
@@ -460,15 +521,17 @@ def main(argv: list[str]) -> int:
             out(window(now), github_output)
         elif args.command == "pick":
             feed = Path(args.feed).read_text(encoding="utf-8")
+            notes = (lambda b: notes_published(args.notes, b)) if args.notes else None
             result = pick(feed, read_optional(args.stable), pulled_builds(args.pulled),
-                          lambda b: read_verdict(args.verdicts, b), args.build, pulled_builds(args.stable_pulled))
+                          lambda b: read_verdict(args.verdicts, b), args.build, pulled_builds(args.stable_pulled), notes)
             out(result, github_output)
         elif args.command == "published-tonight":
             start = dt.datetime.fromisoformat(args.night_start.replace("Z", "+00:00"))
             out({"published": "true" if published_tonight(read_optional(args.stable), start) else "false"},
                 github_output)
         elif args.command == "merge-feed":
-            merged = merge_feed(Path(args.new).read_text(encoding="utf-8"), read_optional(args.live), args.keep)
+            merged = merge_feed(Path(args.new).read_text(encoding="utf-8"), read_optional(args.live), args.keep,
+                                args.source_sha.lower())
             Path(args.out).write_text(merged, encoding="utf-8")
             print(f"stable feed: {', '.join(str(b) for _, b in items(merged))}")
         elif args.command == "rollback":

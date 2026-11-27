@@ -25,6 +25,9 @@
 # Environment:
 #   CMUX_APP_FFI_ARCHS  macOS architectures, arm64 and/or x86_64 (default: host)
 #   CMUX_APP_FFI_OUT    output directory (default: cmux-tui/target/cmux-app-ffi)
+#   CMUX_APP_FFI_PERSIST_TARGET=1  keep cargo's target directory across runs, in the
+#                       fleet's per-toolchain Rust target root (scripts/ci/fleet-rust-cache.sh),
+#                       so a self-hosted runner recompiles only changed crates
 set -euo pipefail
 REPAIR_URL="https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
 trap 'echo "error: app FFI build failed; see $REPAIR_URL" >&2' ERR
@@ -40,22 +43,43 @@ lib_name="libcmux_app_ffi.a"
 dylib_name="libcmux_app_ffi.dylib"
 headers_in=("$crates/acpmux-client/include/acpmux_client.h:CAcpmuxClientFFI"
             "$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
+            "$crates/cmux-rd-core/include/cmux_screen_kit.h:CCmuxScreenKitFFI"
             "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI"
             "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI"
             "$crates/cmux-app-ffi/include/cmux_motion_ffi.h:CCmuxMotionFFI"
+            "$crates/cmux-app-ffi/include/cmux_wallpaper_ffi.h:CCmuxWallpaperFFI"
+            "$crates/cmux-app-ffi/include/cmux_launch_record.h:CCmuxLaunchRecordFFI"
+            "$crates/cmux-app-ffi/include/cmux_sign_clone_sweep.h:CCmuxSignCloneSweepFFI"
+            "$crates/cmux-app-ffi/include/cmux_files_lister.h:CCmuxFilesListerFFI"
+            "$crates/cmux-app-ffi/include/cmux_system_calendar.h:CCmuxSystemCalendarFFI"
+            "$crates/cmux-app-ffi/include/cmux_settings.h:CCmuxSettingsFFI"
+            "$crates/cmux-app-ffi/include/cmux_updater.h:CCmuxUpdaterFFI"
+            "$crates/cmux-app-ffi/include/cmux_home.h:CCmuxHomeFFI"
+            "$crates/cmux-app-ffi/include/cmux_interactivity.h:CCmuxInteractivityFFI"
+            "$crates/cmux-launch-shell/include/cmux_launch_shell.h:CCmuxLaunchShellFFI"
+            "$crates/cmux-layout-cache/include/cmux_layout_cache.h:CCmuxLayoutCacheFFI"
+            "$crates/cmux-app-ffi/include/cmux_background_ready.h:CCmuxBackgroundReadyFFI"
             "$crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h:CCmuxAgentPanePolicyFFI"
             "$crates/cmux-action-catalog/include/cmux_action_catalog.h:CCmuxActionCatalogFFI"
             "$crates/cmux-cookie-sync/include/cmux_cookie_sync.h:CCmuxCookieSyncFFI"
             "$crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h:CCmuxDaemonConnFFI"
             "$crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h:CCmuxDaemonLaunchFFI"
             "$crates/cmux-health-core/include/cmux_health.h:CCmuxHealthFFI"
+            "$crates/cmux-keymap/include/cmux_keymap.h:CCmuxKeymapFFI"
+            "$crates/cmux-launch-image/include/cmux_launch_image.h:CCmuxLaunchImageFFI"
+            "$crates/cmux-pane-pictures/include/cmux_pane_pictures.h:CCmuxPanePicturesFFI"
+            "$crates/cmux-chat-markdown/include/cmux_chat_markdown.h:CCmuxChatMarkdownFFI"
+            "$crates/cmux-acpmux-remote-wire/include/cmux_acpmux_remote_wire.h:CCmuxAcpmuxRemoteWireFFI"
+            "$crates/cmux-screenshots/include/cmux_screenshots.h:CCmuxScreenshotsFFI"
             "$crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h:CCmuxSdkFFI"
-            "$crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h:CCmuxTerminalPredictionFFI")
+            "$crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h:CCmuxTerminalPredictionFFI"
+            "$crates/cmux-update-prewarm-core/include/cmux_update_prewarm.h:CCmuxUpdatePrewarmFFI"
+            "$crates/cmux-url-input/include/cmux_url_input.h:CCmuxURLInputFFI")
 
 # Also available on Linux so the header/export contract needs no macOS build.
 list_exports() {
   for entry in "${headers_in[@]}"; do
-    grep -oE '\b(cmux_|acpmux_client_)[a-z0-9_]+\(' "${entry%%:*}" | tr -d '(' | sort -u | sed 's/^/_/'
+    grep -oE '\b(cmux_|acpmux_client_|acpmux_page_driver_)[a-z0-9_]+\(' "${entry%%:*}" | tr -d '(' | sort -u | sed 's/^/_/'
   done | sort -u
 }
 if [[ "${1:-}" == --list-exports ]]; then
@@ -84,6 +108,29 @@ for target in "${targets[@]}"; do
 done
 
 export CARGO_TARGET_DIR="$out_root/cargo"
+# A self-hosted runner keeps cargo's target directory between runs. Under
+# runner.temp, which is wiped after every job, each release compiled all ~250
+# crates cold: 160-170 s of a 4m17s-4m33s arm64 cargo build went to dependencies,
+# and 98-101 s to cmux-app-ffi itself (the staticlib and its fat LTO, which no
+# compiler cache can reuse) in app FFI release runs 45777589600 and 45762822886 (2026-11-26).
+# Cargo locks the directory against two builds at once, and its fingerprints
+# include the toolchain, the target, the profile's LTO and RUSTFLAGS.
+if [[ "${CMUX_APP_FFI_PERSIST_TARGET:-0}" == 1 ]]; then
+  # shellcheck source=scripts/ci/fleet-rust-cache.sh
+  source "$repo_root/scripts/ci/fleet-rust-cache.sh"
+  # A directory that cannot be resolved or made keeps the job-private one: a
+  # release never fails for want of a warm cache.
+  if persistent="$(fleet_rust_target_dir cmux-app-ffi "" "$crate_dir")" && mkdir -p "$persistent"; then
+    export CARGO_TARGET_DIR="$persistent"
+    # A fresh crate makes cargo skip rustc, which then prints no native-static-libs
+    # (a rerun of the same commit): rebuild the top crate every time, as a cold
+    # directory did.
+    touch "$crate_dir/src/lib.rs"
+    echo "==> persistent cargo target directory $CARGO_TARGET_DIR" >&2
+  else
+    echo "warning: no persistent cargo target directory; building cold in $CARGO_TARGET_DIR" >&2
+  fi
+fi
 export MACOSX_DEPLOYMENT_TARGET=14.0
 # Machine code only: Xcode's ld and nm cannot read a newer rustc's bitcode.
 # Fat LTO keeps it so: rustc itself runs the one optimization over this crate,
@@ -129,8 +176,23 @@ for target in "${targets[@]}"; do
   # --print native-static-libs: the system libraries and frameworks the static
   # library needs, which the dylib's own link names (the app's link did before).
   # Cargo replays the note from its cache when nothing rebuilds.
-  (cd "$crate_dir" && cargo rustc --lib --locked --release --target "$target" -- --print native-static-libs) 2>&1 \
-    | tee "$work/$target.cargo.log" >&2
+  build_slice() {
+    (cd "$crate_dir" && cargo rustc --lib --locked --release --target "$target" -- --print native-static-libs) 2>&1 \
+      | tee "$work/$target.cargo.log" >&2
+  }
+  if ! build_slice; then
+    # A kept directory is one per Mac, shared by every runner on it. Every app FFI release
+    # from 07:33Z to 10:53Z on 2026-11-27 failed there on four Macs with
+    # `error[E0463]: can't find crate for cmux_embed_macros` (runs 45966494059, 45978120624,
+    # 45983215588, 45985112967; no input or toolchain change since the green 45959223747),
+    # so the FFI pin sat 336 min behind. A release never fails for want of a warm cache:
+    # build cold in the job's own directory, as before the kept one.
+    [[ "$CARGO_TARGET_DIR" != "$out_root/cargo" ]] || exit 1
+    echo "warning: the build in the kept cargo target directory $CARGO_TARGET_DIR failed; building cold in $out_root/cargo" >&2
+    echo "::warning title=app FFI kept target::the build in $CARGO_TARGET_DIR failed for $target; this release builds cold" >&2
+    export CARGO_TARGET_DIR="$out_root/cargo"
+    build_slice
+  fi
   native="$(sed -n 's/^note: native-static-libs: //p' "$work/$target.cargo.log" | tail -n 1)"
   [[ -n "$native" ]] || { echo "error: cargo printed no native-static-libs for $target" >&2; exit 1; }
   # clang links libSystem itself (-lSystem, -lc and -lm are in it).

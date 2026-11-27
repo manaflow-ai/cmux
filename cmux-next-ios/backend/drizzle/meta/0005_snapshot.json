@@ -1,5 +1,5 @@
 {
-  "id": "2135d469-e4da-48c9-ad43-003109e03f31",
+  "id": "0e759c8d-fbb3-47c3-8ade-2606944b45aa",
   "prevId": "8c38f330-9c3e-4cf2-81bf-965084e3687a",
   "version": "7",
   "dialect": "postgresql",
@@ -13,6 +13,13 @@
           "type": "uuid",
           "primaryKey": true,
           "notNull": true
+        },
+        "space": {
+          "name": "space",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
         },
         "owner_user_id": {
           "name": "owner_user_id",
@@ -44,6 +51,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "machine_id": {
+          "name": "machine_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -61,18 +74,6 @@
         "last_seen_at": {
           "name": "last_seen_at",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "machine_id": {
-          "name": "machine_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "model_kind": {
-          "name": "model_kind",
-          "type": "text",
           "primaryKey": false,
           "notNull": false
         }
@@ -132,6 +133,13 @@
           "primaryKey": true,
           "notNull": true
         },
+        "space": {
+          "name": "space",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
         "owner_user_id": {
           "name": "owner_user_id",
           "type": "text",
@@ -162,13 +170,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
         "muted_macs": {
           "name": "muted_macs",
           "type": "text",
@@ -180,6 +181,13 @@
           "type": "boolean",
           "primaryKey": false,
           "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {
@@ -221,6 +229,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "space": {
+          "name": "space",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
         },
         "color": {
           "name": "color",

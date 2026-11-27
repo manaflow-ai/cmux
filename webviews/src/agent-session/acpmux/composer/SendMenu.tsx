@@ -12,6 +12,7 @@ import {
   type ReactElement,
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { KeyHint } from "../../../ui/KeyHint";
 import { contextDescription } from "../../../ui/popupDescriptors";
 import { experimentArm } from "../../../experiments/experiment";
 import { Icon } from "../icons/Icon";
@@ -55,16 +56,10 @@ export function SendMenu({
         <>
           <span className="ui-menu-label">{label}</span>
           {look === "caps" ? (
-            <span className="ui-menu-shortcut acpmux-send-menu-caps" aria-hidden="true">
-              {glyphs.map((glyph) => (
-                <kbd key={glyph} className="acpmux-keycap">
-                  {glyph}
-                </kbd>
-              ))}
-            </span>
+            <KeyHint keys={glyphs.join("")} className="ui-menu-shortcut acpmux-send-menu-caps" aria-hidden="true" />
           ) : (
             <span className="ui-menu-shortcut" aria-hidden="true">
-              {glyphs.join("")}
+              <KeyHint keys={glyphs.join("")} />
             </span>
           )}
         </>

@@ -189,7 +189,6 @@ pub fn peer_row(peer: &str, index: usize, keys: usize) -> Value {
         ("lastPrompt", json!("p".repeat(300))),
         ("preview", json!("y".repeat(400))),
         ("agentSessionId", json!(agent_session_id(index))),
-        ("planStep", json!({"step": 3, "of": 7, "text": "x".repeat(200)})),
         (
             "tags",
             json!({"cmux.lane": {"value": format!("w{index}")}, "cmux.chief.role": {"value": "lane"}}),
@@ -365,6 +364,135 @@ pub fn write_home(home: &Path, claude: &Path, work: &Path, shape: &Shape) -> io:
     Ok(made)
 }
 
+/// The argument that runs [`seed_chat_main`] instead of acpmux's command line.
+pub const SEED_CHAT_ARG: &str = "__seed-chat";
+
+/// Bytes of one turn of a chat [`write_chat`] writes: a long agent chat's turn with a build log.
+pub const SEED_TURN_BYTES: u64 = 16 << 10;
+
+/// One chat of about `bytes` (its acpmux log) in the acpmux home `home`, written through the
+/// store as [`write_home`] writes its god chat, in turns of about [`SEED_TURN_BYTES`], then saved
+/// and sealed as a clean stop leaves it. Returns the log bytes and its last seq.
+pub fn write_chat(
+    home: &Path,
+    id: &str,
+    name: &str,
+    cwd: &str,
+    bytes: u64,
+) -> io::Result<(u64, u64)> {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let store =
+        crate::store::open(&cfg.store, home).map_err(|e| io::Error::other(e.to_string()))?;
+    let turns = bytes.div_ceil(SEED_TURN_BYTES).max(1);
+    let messages = usize::try_from(turns.saturating_mul(4)).map_err(io::Error::other)?;
+    let (written, last_seq) = append_log(store.as_ref(), id, messages, bytes)?;
+    let meta = session_meta(id, name, cwd, &agent_session_id(0), last_seq, AT);
+    let meta = serde_json::from_value(meta).map_err(io::Error::other)?;
+    store.save(&meta).map_err(|e| io::Error::other(e.to_string()))?;
+    store.flush().map_err(|e| io::Error::other(e.to_string()))?;
+    store.close_log(id);
+    store.seal();
+    Ok((written, last_seq))
+}
+
+/// `acpmux __seed-chat --home DIR --id ID --bytes N [--name NAME] [--cwd DIR]`: [`write_chat`],
+/// then one JSON line `{"id", "bytes", "lastSeq"}`. For benches that need one chat of a given
+/// size written by this build's own store (`scripts/cmux-next/chat-size-ratio.py`); not for people.
+pub fn seed_chat_main(args: &[std::ffi::OsString]) -> anyhow::Result<()> {
+    let mut flags = std::collections::HashMap::new();
+    let mut rest = args.iter();
+    while let Some(flag) = rest.next() {
+        let flag = flag.to_string_lossy();
+        let Some(key) = flag.strip_prefix("--") else {
+            anyhow::bail!("{SEED_CHAT_ARG}: unexpected argument {flag}");
+        };
+        let Some(value) = rest.next() else {
+            anyhow::bail!("{SEED_CHAT_ARG}: --{key} needs a value");
+        };
+        flags.insert(key.to_owned(), value.to_string_lossy().into_owned());
+    }
+    let need = |key: &str| {
+        flags
+            .get(key)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("{SEED_CHAT_ARG}: --{key} is required"))
+    };
+    let (home, id) = (need("home")?, need("id")?);
+    let bytes: u64 = need("bytes")?.parse()?;
+    let name = flags.get("name").cloned().unwrap_or_else(|| format!("chat of {bytes} bytes"));
+    let cwd = flags.get("cwd").cloned().unwrap_or_else(|| "/tmp".to_owned());
+    let (written, last_seq) = write_chat(Path::new(&home), &id, &name, &cwd, bytes)?;
+    println!("{}", json!({"id": id, "bytes": written, "lastSeq": last_seq}));
+    Ok(())
+}
+
+/// The slash commands and tool rows one agent reports in folder `variant` (of a few): the large,
+/// rarely-changing part of a chat's metadata (`session.parts.json`). On Leo's Mac on 2026-11-16 its
+/// median was 46 KB over 540 chats (largest 239 KB): his skills, plugins and MCP servers, the same
+/// in most chats, a few project skills apart.
+pub fn agent_catalog(variant: usize) -> (Value, Value) {
+    let commands: Vec<Value> = (0..220)
+        .map(|c| {
+            let scope = if c < 200 { "user".to_owned() } else { format!("project-{variant}") };
+            json!({"name": format!("{scope}-skill-{c}"),
+                   "description": format!("Skill {c} of the {scope} scope: {}", "d".repeat(120)),
+                   "input": {"hint": "what to do"}})
+        })
+        .collect();
+    let commands =
+        json!({"sessionUpdate": "available_commands_update", "availableCommands": commands});
+    let tools: Vec<Value> = (0..80)
+        .map(|t| {
+            json!({"id": format!("mcp:server-{t}"), "name": format!("server-{t}"), "kind": "mcp",
+                   "source": "claude", "enabled": true, "canToggle": true, "status": "connected"})
+        })
+        .collect();
+    (commands, json!({"rows": tools, "mutable": true}))
+}
+
+/// An acpmux home of `chats` chats of `turns` turns each (four records a turn, about 4 KB a turn),
+/// each chat's metadata shaped like a busy Claude chat's with [`agent_catalog`] of one of
+/// `catalogs` folders. Written through the store, as [`write_home`]. Returns the chat ids.
+pub fn write_scale_home(
+    home: &Path,
+    chats: usize,
+    turns: usize,
+    catalogs: usize,
+) -> io::Result<Vec<String>> {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let store =
+        crate::store::open(&cfg.store, home).map_err(|e| io::Error::other(e.to_string()))?;
+    let catalog: Vec<(Value, Value)> = (0..catalogs.max(1)).map(agent_catalog).collect();
+    let mut ids = Vec::with_capacity(chats);
+    for (index, (variant, (commands, tools))) in
+        catalog.iter().enumerate().cycle().take(chats).enumerate()
+    {
+        let id = chat_id(index);
+        let (_, last_seq) =
+            append_log(store.as_ref(), &id, turns.max(1) * 4, turns.max(1) as u64 * 4096)?;
+        let cwd = format!("/home/agent/work/p{variant}");
+        let mut meta = session_meta(
+            &id,
+            &format!("chat-{index}"),
+            &cwd,
+            &agent_session_id(index),
+            last_seq,
+            AT + index as u64,
+        );
+        if let Some(fields) = meta.as_object_mut() {
+            fields.insert("availableCommands".into(), commands.clone());
+            fields.insert("tools".into(), tools.clone());
+        }
+        let meta = serde_json::from_value(meta).map_err(io::Error::other)?;
+        store.save(&meta).map_err(|e| io::Error::other(e.to_string()))?;
+        ids.push(id);
+    }
+    store.flush().map_err(|e| io::Error::other(e.to_string()))?;
+    Ok(ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,6 +504,21 @@ mod tests {
             assert_eq!(row.as_object().unwrap().len(), keys);
             assert_eq!(row["sessionId"], "p-00007");
         }
+    }
+
+    #[test]
+    fn a_seeded_chat_is_its_size_and_listed_by_the_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = 1 << 20;
+        let (written, last_seq) = write_chat(dir.path(), "sized", "sized", "/w", bytes).unwrap();
+        assert!(written.abs_diff(bytes) * 10 <= bytes, "{written} of {bytes}");
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Local;
+        let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+        let metas = store.list().unwrap();
+        assert_eq!(metas.len(), 1);
+        assert_eq!((metas[0].id.as_str(), metas[0].last_seq), ("sized", last_seq));
+        assert_eq!(last_seq, bytes.div_ceil(SEED_TURN_BYTES) * 4);
     }
 
     #[test]

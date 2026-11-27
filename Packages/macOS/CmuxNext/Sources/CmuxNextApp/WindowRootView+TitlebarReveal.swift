@@ -36,6 +36,9 @@ extension WindowRootView {
         }
     }
 
+    /// Revealed by the pointer, or the band open through its close delay: the zone is the whole top row.
+    var titlebarRevealIsSticky: Bool { titlebarReveal.state.pointerInside || collapsedBand.isOpen }
+
     func endSidebarHoverHold() { sidebarHoverHold?.release(); sidebarHoverHold = nil }
 
     /// Whether the buttons hide at rest. With the sidebar open they always
@@ -50,27 +53,17 @@ extension WindowRootView {
         if titlebarReveal.isEnabled != hidesAtRest { titlebarReveal.isEnabled = hidesAtRest }
     }
 
-    /// The region is the top row above a left sidebar, and at least the
-    /// traffic lights and the band at its full width (a right or hidden
-    /// sidebar): the rest of the content's top row (its tab strip) does not
-    /// reveal. The extent is the open band's, never the band's current
-    /// frame: a collapsed band is 0 wide, so a frame-based region was only
-    /// the traffic lights and the pointer over the top-left tab bar did not
-    /// open it (Lawrence 2026-10-09). One fixed region also means the open
-    /// band's growth never moves the edge under the pointer (no flicker).
-    /// The region ends at the open band's Forward button, with no margin
-    /// past it: a strip there opened the band with nothing to click and
-    /// pushed the tabs out for nothing (Leo, relaying Austin, 2026-10-28:
-    /// "you only get that hoverable animation when you're in the area of
-    /// the, like, the rightmost area of the go forward button").
-    /// The glass patch covers the traffic lights with a small margin.
-    /// - Parameter fullBandMaxX: The open band's trailing edge (its Forward
-    ///   button's trailing edge).
-    func layoutTitlebarReveal(rowHeight: CGFloat, fullBandMaxX: CGFloat) {
+    /// The region is the top row above a left sidebar, else (a right or hidden sidebar) the traffic lights and the
+    /// open band's toggle slot, the toggle plus its padding but not Back and Forward; once revealed
+    /// (``titlebarRevealIsSticky``) the whole top row, so the buttons stay until the pointer leaves the tab bar (Leo
+    /// 2026-11-27: "they should stay until you move out of the top tab area / ... should only be around the sidebar
+    /// toggle + maybe its constituent padding? including the back AND the forward button is a bit big..."). The open
+    /// band's extent, never its 0-wide collapsed frame (Lawrence 2026-10-09); the zone grows only under a pointer inside
+    /// it and shrinks only with the pointer out of the row, so its edge never moves under the pointer (no flicker).
+    func layoutTitlebarReveal(rowHeight: CGFloat, openForwardMaxX: CGFloat, openToggleMaxX: CGFloat) {
         let sidebarMaxX = sidebarSide == .left && !sidebar.isHidden ? sidebar.frame.maxX : 0
-        let bandMaxX = max(fullBandMaxX, toolbarBand.frame.maxX)
-        let width = min(bounds.width, max(sidebarMaxX, bandMaxX))
-        titlebarRevealRegion.frame = CGRect(x: 0, y: bounds.maxY - rowHeight, width: width, height: rowHeight)
+        let width = sidebarMaxX > 0 ? max(sidebarMaxX, openForwardMaxX) : titlebarRevealIsSticky ? bounds.width : openToggleMaxX
+        titlebarRevealRegion.frame = CGRect(x: 0, y: bounds.maxY - rowHeight, width: min(bounds.width, width), height: rowHeight)
         guard let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else {
             trafficLightsGlass.frame = .zero
             return

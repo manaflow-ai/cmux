@@ -67,7 +67,8 @@ struct FirstLaunchTests {
                                  exitWithProcess: ProcessInfo.processInfo.processIdentifier),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
+        // As a capture build launches: no launch steps, so no first-run agent chat workspace (cmux#48416) beside the one counted here.
+        let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SKIP_ONBOARDING": "1"]))
         AppActions.bind(services)
         services.palette.bindRegistryActions()
         services.windows.ordersWindowsIn = false

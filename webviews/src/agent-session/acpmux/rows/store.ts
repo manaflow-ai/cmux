@@ -112,6 +112,7 @@ function marked(entry: ChatRowEntry, gap: boolean): ChatRowEntry {
 function lowerBound(ids: readonly number[], id: number): number {
   let lo = 0;
   let hi = ids.length;
+  // ends: binary search: each pass halves hi - lo
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
     if (ids[mid]! < id) lo = mid + 1;
@@ -168,8 +169,10 @@ class SidRows {
     const anchor = this.anchor;
     let at = anchor === "end" ? count - 1 : Math.min(lowerBound(this.ids, anchor.rowId), count - 1);
     if (side === "before") {
+      // ends: `at` falls by one each pass, to 0 at most
       while (at > 0 && !this.entries.get(this.ids[at]!)!.gapBefore) at -= 1;
     } else {
+      // ends: `at` rises by one each pass, to count - 1 at most
       while (at + 1 < count && !this.entries.get(this.ids[at + 1]!)!.gapBefore) at += 1;
     }
     return this.ids[at]!;
@@ -562,6 +565,7 @@ class SidRows {
       anchor === "end" ? this.ids.length - 1 : Math.min(lowerBound(this.ids, anchor.rowId), this.ids.length - 1);
     let lo = 0;
     let hi = this.ids.length - 1;
+    // ends: each pass takes `lo` up or `hi` down by one, until they meet
     while ((rows > STORE_MAX_ROWS || bytes > STORE_MAX_BYTES) && lo < hi) {
       let front = at - lo >= hi - at;
       // Never the anchor's row.
@@ -618,6 +622,11 @@ function openEntry(open: ChatOpenRow): ChatRowEntry {
 }
 
 type Listener = (snapshot: ChatRowsSnapshot) => void;
+
+/// The sids a batch applied in parts has changed, until its `commit`.
+export class StorePart {
+  readonly touched = new Set<SidRows>();
+}
 
 /// Every chat sub of a page, by sid. The host client hands it each batch's changes; it applies
 /// them and tells each sid's subscribers once, after the batch, with the new snapshot.
@@ -697,7 +706,17 @@ export class ChatRowStore {
 
   /// Applies one batch: every change, then one snapshot per sid that changed.
   applyBatch(changes: readonly ChatChange[]): void {
-    const touched = new Set<SidRows>();
+    const part = new StorePart();
+    this.applyPart(part, changes);
+    this.commit(part);
+  }
+
+  /// Applies changes into `part` and tells no one yet. A batch applied in slices (rows/receiver.ts)
+  /// calls this per change and `commit(part)` once at its end, so subscribers are told once, as with
+  /// `applyBatch`. Another batch committed meanwhile tells only the sids it changed itself (with
+  /// their state as it is then).
+  applyPart(part: StorePart, changes: readonly ChatChange[]): void {
+    const touched = part.touched;
     for (const change of changes) {
       const sid = changeSid(change);
       if (sid === null) continue;
@@ -713,7 +732,15 @@ export class ChatRowStore {
       rows.apply(change);
       touched.add(rows);
     }
-    for (const rows of touched) this.notify(rows);
+  }
+
+  /// Tells each sid `part` changed, once, with its new snapshot.
+  commit(part: StorePart): void {
+    if (!part.touched.size) return;
+    const touched = [...part.touched];
+    part.touched.clear();
+    // A sid closed between a part and the commit (a batch spans slices) tells no one.
+    for (const rows of touched) if (this.sids.get(rows.sid) === rows) this.notify(rows);
   }
 
   private notify(rows: SidRows): void {

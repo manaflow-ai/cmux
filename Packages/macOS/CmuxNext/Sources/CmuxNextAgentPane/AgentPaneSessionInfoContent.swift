@@ -153,7 +153,7 @@ extension AgentPaneSessionInfoModel {
 /// The panel's content: a scroll view over the list, drawn again when the store's model or colors
 /// change. AppKit, no SwiftUI (plans/cmux-next/no-swiftui-DESIGN.md).
 final class AgentPaneSessionInfoContent: NSView {
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let list = SessionInfoListView()
     private let edgeFadeMask = CAGradientLayer()
     private weak var store: AgentPaneSessionInfoStore?
@@ -201,14 +201,14 @@ final class AgentPaneSessionInfoContent: NSView {
         // pixels leave the list untouched. At either scroll edge that end becomes fully opaque.
         let topAlpha: CGFloat = offset <= 1 ? 1 : 0
         let bottomAlpha: CGFloat = offset >= maxOffset - 1 ? 1 : 0
-        let fadeFraction = min(0.5, 18 / max(1, scroll.contentView.bounds.height))
-        edgeFadeMask.colors = [
-            NSColor.black.withAlphaComponent(topAlpha).cgColor,
-            NSColor.black.cgColor,
-            NSColor.black.cgColor,
-            NSColor.black.withAlphaComponent(bottomAlpha).cgColor,
-        ]
-        edgeFadeMask.locations = [NSNumber(value: 0), NSNumber(value: Double(fadeFraction)), NSNumber(value: Double(1 - fadeFraction)), NSNumber(value: 1)]
+        // Eased bands, as `ScrollEdgeFadeView`'s: smoothstep from the edge to full ink, so the fade
+        // ends in no line (Leo 2026-11-22: "simultaneously a fade AND a hard break").
+        let n = ScrollEdgeFadeView.bandSamples
+        let fadeFraction = min(0.5, Metrics.scrollEdgeFade / max(1, scroll.contentView.bounds.height))
+        let ramp = (0...n).map { CGFloat($0) / CGFloat(n) }
+        let alphas = ramp.map { max(topAlpha, ScrollEdgeFadeView.ease($0)) } + ramp.map { max(bottomAlpha, ScrollEdgeFadeView.ease(1 - $0)) }
+        edgeFadeMask.colors = alphas.map { NSColor.black.withAlphaComponent($0).cgColor }
+        edgeFadeMask.locations = (ramp.map { fadeFraction * $0 } + ramp.map { 1 - fadeFraction + fadeFraction * $0 }).map { NSNumber(value: Double($0)) }
         edgeFadeMask.frame = scroll.contentView.bounds
     }
 
@@ -343,10 +343,10 @@ final class SessionInfoListView: NSView {
         if let focusedButtonLine, let focusedButtonAction,
            let line = subviews.compactMap({ $0 as? SessionInfoLineView }).first(where: { $0.line.id == focusedButtonLine.line.id }),
            let button = line.buttons.first(where: { $0.button.action == focusedButtonAction }) {
-            window?.makeFirstResponder(button)
+            FocusRoute(.system, "Session Info rows changed: keep the focused row").moveKeyboard(in: window, to: button)
         } else if let focusedIdentity,
                   let focused = subviews.compactMap({ $0 as? SessionInfoLineView }).first(where: { $0.line.id == focusedIdentity }) {
-            window?.makeFirstResponder(focused)
+            FocusRoute(.system, "Session Info rows changed: keep the focused row").moveKeyboard(in: window, to: focused)
         }
         pendingItems = nil
         pendingInk = nil
@@ -581,7 +581,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             control.state = toggle ? .on : .off
             control.target = self
             control.action = #selector(toggleChanged(_:))
-            control.themedToolTip = line.help
+            control.setAccessibilityHelp(line.help) // beside its title: no tooltip (a1315's cut 2: a control that shows its own text has no tooltip)
             self.toggle = control
         }
         if !line.menu.isEmpty {
@@ -595,7 +595,9 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         }
         buttons = line.buttons.map { SessionInfoButtonView(button: $0, ink: ink) }
         for view in [glyph, grip, title, detail, subtitle, trailing, chevron, meter, segmentedMeter, marksView, toggle, menuButton].compactMap({ $0 }) + buttons { addSubview(view) }
-        themedToolTip = [line.help, line.hover?.title, line.hover?.detail].compactMap { $0 }.joined(separator: "\n")
+        // A row has no tooltip (a1315's cut 3); VoiceOver hears what one said.
+        let help = [line.help, line.hover?.title, line.hover?.detail].compactMap { $0 }.joined(separator: ". ")
+        setAccessibilityHelp(help.isEmpty ? nil : help)
         setAccessibilityElement(true)
         setAccessibilityLabel([line.title, line.detail, line.subtitle ?? line.progress, line.trailing].compactMap { $0 }.joined(separator: ", "))
         setAccessibilityRole(line.action != nil ? .button : .staticText)
@@ -712,35 +714,36 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
 
     private var lead: CGFloat { CGFloat(line.indent) * SessionInfoMetrics.indent + SessionInfoMetrics.inset - SessionInfoMetrics.edge }
     /// The title column: the same for a line with an icon and one without, so headers and rows
-    /// start their titles on one line. The grip takes no room of its own (it sits at the line's
-    /// right end).
+    /// start their titles on one line. The grip takes no room of its own (it sits in the gutter left of
+    /// the line's first mark).
     private var textX: CGFloat { lead + SessionInfoMetrics.iconBox + LayoutGrid.gap }
     /// The six-dot grip shows on hover and while it drags; at rest the line draws no glyph for it.
     var showsGrip: Bool { grip != nil && (hovered || isDragging) }
     /// A foldable header's chevron, after its title, shows on hover and keyboard focus.
     var showsChevron: Bool { chevron != nil && (hovered || focused) }
-    /// Where a press grabs the grip, and the box that lights under the pointer: one icon box by one
-    /// pill, its dots ending on the trailing column's right edge, where the head's count and every row's
-    /// trailing value end, so the line's left and right edges are the rows' at rest and under the pointer
-    /// (the web panel's `.acpmux-session-info-section__handle`; Leo, 2026-11-07: "the grip and the lef
-    /// tside aren't flush... simply don't highlight and have a thing you can click"). While it shows it
-    /// takes the trailing value's place. A line with a control at its right end (a switch, buttons, a
-    /// menu) keeps the grip in its right inset, past the control, so the grip never covers it: there the
-    /// box is the inset itself, narrower than an icon box, since one centred on the dots ran 4 pt past the
-    /// line's right end and over the control.
+    /// The line's first mark: its icon's box when it has one, else its title.
+    private var firstMarkX: CGFloat { glyph != nil ? lead : textX }
+
+    /// Where a press grabs the grip, and the box that lights under the pointer: the gutter left of the
+    /// line's first mark (its icon, else its title), as the web panel's `.acpmux-session-info-section__handle`
+    /// (Lawrence, 2026-11-15: "move the grabber dots to left, we have space on the left of the text"). Where
+    /// there is room (a header with no icon) the dots end one grid gap before the title; a line with an icon
+    /// centres them in its lead inset. The box never covers the first mark nor runs past the line's left
+    /// end, and the trailing column (count, meter, controls) keeps its place at rest and under the pointer
+    /// (Leo, 2026-11-07: "simply don't highlight and have a thing you can click").
     var gripHitRect: CGRect? {
         guard grip != nil else { return nil }
         let pill = min(LayoutGrid.pill, bounds.height)
         let dots = SessionInfoGripView.size.width
-        let inset = SessionInfoMetrics.trail
-        let box = gripCoversTrailing ? LayoutGrid.iconBox : inset
-        let dotsRight = gripCoversTrailing ? bounds.width - inset : bounds.width - (inset - dots) / 2
-        let midX = dotsRight - dots / 2
+        let mark = firstMarkX
+        let midX = mark >= dots + 2 * LayoutGrid.gap ? mark - LayoutGrid.gap - dots / 2 : mark / 2
+        let half = (LayoutGrid.iconBox - LayoutGrid.base) / 2
+        let minX = max(0, midX - half), maxX = min(mark, midX + half)
         // Centred on the drawn grip, which sits on the title's line: a row whose subtitle wraps puts its
         // title, and so its grip, above the row's middle, and the box must still hold every dot.
         let midY = gripMidY ?? bounds.midY
         let y = max(0, min(midY - pill / 2, bounds.height - pill))
-        return CGRect(x: midX - box / 2, y: y, width: box, height: pill)
+        return CGRect(x: minX, y: y, width: maxX - minX, height: pill)
     }
 
     /// The drawn grip's vertical centre (its title's line), set by ``layout()``.
@@ -757,19 +760,6 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         return views
     }
 
-    /// A header with a meter (Context, Progress) keeps a slot of its own for the grip at its right end,
-    /// at rest too, so its meter and count sit left of it and the grip never draws across them at any
-    /// width; the meter is never hidden.
-    var gripHasOwnSlot: Bool {
-        grip != nil && gripCoversTrailing && line.kind == .header && (meter != nil || segmentedMeter != nil)
-    }
-
-    /// The room the grip's own slot takes from the trailing column's right edge: its box past the dots.
-    private static let gripSlot: CGFloat = SessionInfoGripView.size.width + (LayoutGrid.iconBox - SessionInfoGripView.size.width) / 2
-
-    /// The grip sits over the trailing column: the line has no control at its right end.
-    private var gripCoversTrailing: Bool { buttons.isEmpty && toggle == nil && menuButton == nil }
-
     func height(forWidth width: CGFloat) -> CGFloat {
         var height = title.naturalSize.height
         if let subtitle { height += 1 + subtitle.size(forWidth: max(1, textWidth(width))).height }
@@ -779,7 +769,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     }
 
     private func trailingWidth(_ width: CGFloat) -> CGFloat {
-        var used: CGFloat = gripHasOwnSlot ? Self.gripSlot : 0
+        var used: CGFloat = 0
         for button in buttons { used += button.naturalWidth + 2 }
         if let toggle { used += toggle.intrinsicContentSize.width + 6 }
         if let menuButton { used += menuButton.naturalWidth + 2 }
@@ -795,7 +785,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     override func layout() {
         super.layout()
         let width = bounds.width, height = bounds.height
-        var x = width - SessionInfoMetrics.trail - (gripHasOwnSlot ? Self.gripSlot : 0)
+        var x = width - SessionInfoMetrics.trail
         for button in buttons.reversed() {
             let size = CGSize(width: button.naturalWidth, height: 18)
             x -= size.width
@@ -1035,11 +1025,6 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         layer?.backgroundColor = hovered && line.action != nil && line.kind != .header ? ink.colors.hover.cgColor : nil
         grip?.isHidden = !showsGrip
         grip?.lit = isDragging
-        // The grip takes the count's place while it shows, as the web head's meta fades under its handle;
-        // a head with a meter keeps its own slot for the grip, so its count and meter stay. Nothing moves.
-        if grip != nil, gripCoversTrailing, !gripHasOwnSlot {
-            for view in trailingMeta { view.isHidden = showsGrip }
-        }
         // Only the grip's own box lights under the pointer (the web handle's :hover), never the head.
         gripFill.backgroundColor = showsGrip && (gripHovered || isDragging) ? ink.colors.hover.cgColor : nil
         chevron?.isHidden = !showsChevron

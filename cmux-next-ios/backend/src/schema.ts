@@ -5,6 +5,12 @@ export const devices = pgTable(
   "devices",
   {
     deviceId: uuid("device_id").primaryKey(),
+    /**
+     * Build space (PROTOCOL.md "Build spaces"): "" for stable and nightly, `dev:<slug>` for a dev build. Every
+     * read filters on it. Device ids stay the key: each build has its own id, and an id held by another space
+     * is refused, never moved.
+     */
+    space: text("space").notNull().default(""),
     /** Owner key: the Stack sub (primary project) or `<projectId>:<sub>` (other projects). */
     ownerUserId: text("owner_user_id").notNull(),
     teamId: text("team_id").notNull(),
@@ -28,8 +34,11 @@ export const devices = pgTable(
 export const teamPrefs = pgTable(
   "team_prefs",
   {
+    /** The owner key; a dev space's row has the space in front (store-types.ts prefsUserKey). */
     userId: text("user_id").notNull(),
     teamId: text("team_id").notNull(),
+    /** Build space, as in devices. */
+    space: text("space").notNull().default(""),
     color: text("color"),
     emoji: text("emoji"),
     /** No filled background behind the icon. Only with a one-grapheme `emoji`; `color` stays the fallback. */
@@ -47,6 +56,8 @@ export const pushTokens = pgTable(
   "push_tokens",
   {
     deviceId: uuid("device_id").primaryKey(),
+    /** The phone's build space, as its device row. */
+    space: text("space").notNull().default(""),
     ownerUserId: text("owner_user_id").notNull(),
     token: text("token").notNull(),
     environment: text("environment", { enum: ["sandbox", "production"] }).notNull(),

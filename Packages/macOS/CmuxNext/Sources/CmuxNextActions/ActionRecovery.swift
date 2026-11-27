@@ -2,17 +2,19 @@
 /// signed-out Cloud action. The action keeps its reason, so the CLI, MCP, scripts and pages are
 /// still refused with it. For a person, the palette and menus keep the row enabled (the palette
 /// shows `note` under it), and a run calls `run` with the action and the person's invocation; it
-/// takes the way past (signs in) and then runs the action itself.
+/// takes the way past (signs in) and then runs the action itself. A recovery with no `note` (the
+/// run waits for cmux to finish starting, then runs) shows the row as an enabled row shows.
 public struct ActionRecovery {
-    public var note: String
+    public var note: String?
     public var run: @MainActor (_ action: ActionID, _ invocation: ActionInvocation) -> Void
 
-    public init(note: String, run: @escaping @MainActor (_ action: ActionID, _ invocation: ActionInvocation) -> Void) {
+    public init(note: String? = nil, run: @escaping @MainActor (_ action: ActionID, _ invocation: ActionInvocation) -> Void) {
         self.note = note
         self.run = run
     }
 }
 
+#if canImport(AppKit)
 extension ActionRegistry {
     /// The recovery a person's run of `id` would take now: the action is available in this context
     /// but disabled by its own reason, the run is the person's (``ActionOrigin/user``, also for the
@@ -28,3 +30,4 @@ extension ActionRegistry {
         return nil
     }
 }
+#endif

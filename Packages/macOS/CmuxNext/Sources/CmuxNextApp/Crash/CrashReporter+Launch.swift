@@ -16,7 +16,7 @@ extension CrashReporter {
         bundleID: String?,
         info: [String: Any] = Bundle.main.infoDictionary ?? [:],
         defaults: UserDefaults = .standard,
-        managed: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
+        managed: any ManagedPreferenceReader = ManagedPreferenceLocation.reader(keys: [CrashReportingPolicy.disableTelemetryPolicyKey]),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> CrashReporter {
         let forced = managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
@@ -76,6 +76,8 @@ struct AppCrashReporting: Sendable {
         chiefPanics = .started(log: RustPanicSource.chiefLog(muxHome: HomeBrainHost.muxHome(tag: environment.tag)),
                                stateDirectory: state, stateName: "chief-panic-forwarder.json", sends: sends, source: .chief)
         Self.installLayoutPassGuard(reporter: reporter)
+        UncaughtExceptionRecorder.reportLostExecutors { [reporter] message, name, frames in reporter.captureNonFatal(
+            message, type: "SwiftExecutorLost", fingerprint: ["swift-executor-lost", name], extra: ["throw": frames]) }
     }
 
     /// A layout feedback loop (one view laid out more than

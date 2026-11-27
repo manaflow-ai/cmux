@@ -1,5 +1,6 @@
 use super::*;
 use cmux_tui_core::resource::ResourceOperation;
+use std::net::Shutdown;
 
 fn plan(operation: ResourceOperation) -> RequestPlan {
     RequestPlan {
@@ -390,10 +391,10 @@ fn stopped_owner_reload_error_is_localized_for_human_output() {
 
         let expected = match locale.as_str() {
             "en_US.UTF-8" => {
-                "the local server stopped before it applied the configuration reload; start the session and retry"
+                "the local server stopped before it applied the configuration reload; it reads the configuration when the session starts again"
             }
             "ja_JP.UTF-8" => {
-                "ローカルサーバーが設定の再読み込みを適用する前に停止しました。セッションを起動して再試行してください"
+                "ローカルサーバーが設定の再読み込みを適用する前に停止しました。セッションを再び起動すると設定が読み込まれます"
             }
             _ => panic!("unexpected probe locale {locale}"),
         };

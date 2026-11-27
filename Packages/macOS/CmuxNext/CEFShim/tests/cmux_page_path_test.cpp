@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "../src/cmux_page_packed.h"
 #include "../src/cmux_page_path.h"
 
 static int g_cases = 0;
@@ -73,6 +74,45 @@ static void Allowed(bool main_frame, const std::string& frame_url, const std::st
          "request from '" + frame_url + "' parent '" + parent_url + "' for " + domain);
 }
 
+// Raw DEFLATE of `text` at level 9 (what pack-webviews-chunks.py writes).
+static std::string DeflateRaw(const std::string& text) {
+  z_stream stream{};
+  if (deflateInit2(&stream, 9, Z_DEFLATED, -15, 9, Z_DEFAULT_STRATEGY) != Z_OK) return "";
+  std::string out(deflateBound(&stream, text.size()), '\0');
+  stream.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(text.data()));
+  stream.avail_in = static_cast<uInt>(text.size());
+  stream.next_out = reinterpret_cast<Bytef*>(&out[0]);
+  stream.avail_out = static_cast<uInt>(out.size());
+  deflate(&stream, Z_FINISH);
+  out.resize(stream.total_out);
+  deflateEnd(&stream);
+  return out;
+}
+
+static void WriteBytes(const std::string& path, const std::string& bytes) {
+  std::ofstream(path, std::ios::binary) << bytes;
+}
+
+// A request the folder answers from its packed copy `want_suffix` with `want_mime`, inflating to `want_body`.
+static void ServedPacked(const std::string& root, const std::string& real_root, const std::string& url_path,
+                         const std::string& want_suffix, const std::string& want_mime, const std::string& want_body) {
+  std::string file;
+  std::string mime;
+  Expect(!cmux_shim::ResolvePagePath(root, url_path, &file, &mime), "no raw file for " + url_path);
+  bool ok = cmux_shim::ResolvePackedPagePath(root, url_path, &file, &mime);
+  Expect(ok && file == real_root + "/" + want_suffix && mime == want_mime,
+         "packed " + url_path + " -> " + (ok ? file + " " + mime : "404"));
+  std::string body;
+  Expect(ok && cmux_shim::ReadPackedPage(file, &body) && body == want_body, "packed " + url_path + " inflates");
+}
+
+static void RefusedPacked(const std::string& root, const std::string& url_path) {
+  std::string file;
+  std::string mime;
+  bool ok = cmux_shim::ResolvePackedPagePath(root, url_path, &file, &mime);
+  Expect(!ok && file.empty() && mime.empty(), "no packed copy for " + url_path + (ok ? " (served " + file + ")" : ""));
+}
+
 int main() {
   Allowed(true, "https://evil.test/", "", "cmux.agent", true);
   Allowed(false, "cmux-page://cmux.agent/index.html", "", "cmux.agent", true);
@@ -88,6 +128,47 @@ int main() {
   Allowed(false, "cmux-page://cmux.agent/__artifact", "cmux-page://cmux.agent/", "cmux.agent", false);
   Allowed(false, "about:blank", "cmux-page://cmux.agent/__artifact", "cmux.agent", false);
   Allowed(false, "about:srcdoc", "cmux-page://cmux.agent/", "cmux.agent", false);
+  {
+    using cmux_shim::JudgePageRequest;
+    using cmux_shim::PageRequestVerdict;
+    auto judged = [](const char* frame, const char* parent, const char* domain, bool settled, PageRequestVerdict want,
+                     const std::string& what) { Expect(JudgePageRequest(false, frame, parent, domain, settled) == want, what); };
+    // A page's own scripts and styles asked for before the browser side saw its top frame commit
+    // (a busy first launch: the frame still reads about:blank, no parent) wait for the frame's URL.
+    // Before, every file of the page was refused and the Markdown tab beside Home stayed blank
+    // (0 of 10 fresh launches on a new profile showed the page on cmux-lawrence-2).
+    judged("about:blank", "", "cmux.markdown", false, PageRequestVerdict::kWaitForFrame, "blank top frame waits");
+    judged("", "", "cmux.markdown", false, PageRequestVerdict::kWaitForFrame, "empty top frame waits");
+    // Settled, it is judged by what the browser then knows: the page's own document, or refused.
+    judged("cmux-page://cmux.markdown/", "", "cmux.markdown", true, PageRequestVerdict::kAllow, "settled page frame");
+    judged("about:blank", "", "cmux.markdown", true, PageRequestVerdict::kRefuse, "a top frame that stays blank");
+    judged("https://evil.test/", "", "cmux.markdown", true, PageRequestVerdict::kRefuse, "settled web frame");
+    judged("cmux-page://cmux.agent/", "", "cmux.markdown", true, PageRequestVerdict::kRefuse, "another cmux page");
+    // Nothing else waits: a frame with a URL, a child frame, an artifact context.
+    judged("https://evil.test/", "", "cmux.markdown", false, PageRequestVerdict::kRefuse, "web frame never waits");
+    judged("about:blank", "https://evil.test/", "cmux.markdown", false, PageRequestVerdict::kRefuse,
+           "blank child of a web page never waits");
+    judged("about:blank", "cmux-page://cmux.agent/__artifact", "cmux.agent", false, PageRequestVerdict::kRefuse,
+           "artifact child never waits");
+    judged("cmux-page://cmux.agent/__artifact", "", "cmux.agent", false, PageRequestVerdict::kRefuse,
+           "artifact frame never waits");
+    // After the wait: the page's document and the page as first party, nothing else.
+    using cmux_shim::DeferredPageRequestAllowed;
+    Expect(DeferredPageRequestAllowed("cmux-page://cmux.markdown/", "cmux-page://cmux.markdown/", "cmux.markdown"),
+           "deferred: page frame, page first party");
+    Expect(!DeferredPageRequestAllowed("cmux-page://cmux.markdown/", "https://evil.test/", "cmux.markdown"),
+           "deferred: a web document that replaced the page");
+    Expect(!DeferredPageRequestAllowed("cmux-page://cmux.markdown/", "", "cmux.markdown"),
+           "deferred: no first party");
+    Expect(!DeferredPageRequestAllowed("https://evil.test/", "cmux-page://cmux.markdown/", "cmux.markdown"),
+           "deferred: frame settled on a web page");
+    Expect(!DeferredPageRequestAllowed("about:blank", "cmux-page://cmux.markdown/", "cmux.markdown"),
+           "deferred: frame stayed blank");
+    Expect(!DeferredPageRequestAllowed("cmux-page://cmux.markdownx/", "cmux-page://cmux.markdownx/", "cmux.markdown"),
+           "deferred: a page whose name only starts the same");
+    Expect(!DeferredPageRequestAllowed("cmux-page://cmux.agent/__artifact", "cmux-page://cmux.agent/", "cmux.agent"),
+           "deferred: artifact frame");
+  }
   {
     const std::string page = "cmux-page://cmux.agent/";
     const std::string artifact = cmux_shim::kArtifactFrameURL;
@@ -185,6 +266,38 @@ int main() {
     for (auto& [name, value] : kept) same |= name == "Content-Security-Policy" && value == "default-src 'none'; frame-ancestors 'none'";
     Expect(same, "a CSP with its own frame-ancestors is kept");
   }
+  {
+    // The focused agent chat's top document is cross-origin isolated (COOP same-origin + COEP
+    // credentialless), which Chromium's one-renderer-per-site map keys apart: the site's isolated
+    // renderer. Never Origin-Agent-Cluster: Chromium CHECKs in the browser process on that opt-in from
+    // a non-HTTP(S) origin such as cmux-page (the app died on the first chat opened so).
+    auto has = [](const std::vector<std::pair<std::string, std::string>>& headers, const char* name,
+                  const char* value) {
+      for (auto& [n, v] : headers)
+        if (n == name && v == value) return true;
+      return false;
+    };
+    auto never_oac = [](const std::vector<std::pair<std::string, std::string>>& headers) {
+      for (auto& [n, v] : headers)
+        if (n == "Origin-Agent-Cluster") return false;
+      return true;
+    };
+    auto own = cmux_shim::OwnRendererHeaders("cmux.agent", true, 7, 7);
+    Expect(own.size() == 2 && has(own, "Cross-Origin-Opener-Policy", "same-origin") &&
+               has(own, "Cross-Origin-Embedder-Policy", "credentialless"),
+           "the named chat's document is cross-origin isolated");
+    Expect(never_oac(own), "no Origin-Agent-Cluster on a cmux-page document (Chromium CHECK)");
+    Expect(cmux_shim::OwnRendererHeaders("cmux.agent", true, 8, 7).empty(), "another chat keeps sharing");
+    Expect(cmux_shim::OwnRendererHeaders("cmux.agent", true, 0, 0).empty(), "no chat named, no headers");
+    // Its workers and frames load inside an isolated document only with a COEP of their own.
+    for (int owner : {0, 7}) {
+      auto sub = cmux_shim::OwnRendererHeaders("cmux.agent", false, 7, owner);
+      Expect(sub.size() == 1 && has(sub, "Cross-Origin-Embedder-Policy", "credentialless") && never_oac(sub),
+             "a chat's worker, frame or subresource carries COEP");
+    }
+    Expect(cmux_shim::OwnRendererHeaders("cmux.markdown", true, 7, 7).empty(), "another page id keeps sharing");
+    Expect(cmux_shim::OwnRendererHeaders("cmux.markdown", false, 7, 7).empty(), "another page id gets no COEP");
+  }
   char tmpl[] = "/tmp/cmux-page-path.XXXXXX";
   if (!mkdtemp(tmpl)) return 2;
   // The root is given through a symlink on purpose (macOS's /tmp is one too),
@@ -252,6 +365,53 @@ int main() {
   // The root itself is reached through a symlink that leaves nothing out.
   symlink(root.c_str(), (base + "/root-link").c_str());
   Served(base + "/root-link", real_root, "/app.js", "app.js", "text/javascript");
+
+  // Packed copies (cmux_page_packed.h): a chunk the app build stored as `<name>.deflate`.
+  {
+    std::string chunk = "export const view = 1;\n";
+    for (int i = 0; i < 2000; ++i) chunk += "export function f" + std::to_string(i) + "() { return " + std::to_string(i) + "; }\n";
+    mkdir((root + "/chunks").c_str(), 0700);
+    WriteBytes(root + "/chunks/view.mjs.deflate", DeflateRaw(chunk));
+    WriteBytes(root + "/chunks/raw.mjs", "raw");
+    WriteBytes(root + "/chunks/raw.mjs.deflate", DeflateRaw("stale"));
+    WriteBytes(root + "/chunks/notes.txt.deflate", DeflateRaw("text"));
+    WriteBytes(root + "/chunks/broken.mjs.deflate", "\xff\xff\xff\xff");
+    WriteBytes(root + "/chunks/cut.mjs.deflate", DeflateRaw(chunk).substr(0, 100));
+    WriteBytes(root + "/chunks/tail.mjs.deflate", DeflateRaw("x") + "more");
+    WriteBytes(base + "/outside/secret.mjs.deflate", DeflateRaw("secret"));
+    symlink("../../outside/secret.mjs.deflate", (root + "/chunks/escape.mjs.deflate").c_str());  // leaves the root
+    symlink("view.mjs.deflate", (root + "/chunks/other.mjs.deflate").c_str());  // another file's copy
+    ServedPacked(root, real_root, "/chunks/view.mjs", "chunks/view.mjs.deflate", "text/javascript", chunk);
+    ServedPacked(base + "/root-link", real_root, "/chunks/view.mjs", "chunks/view.mjs.deflate", "text/javascript", chunk);
+    // The file itself wins over a packed copy beside it (an incremental build copied it again).
+    std::string file;
+    std::string mime;
+    Expect(cmux_shim::ResolvePagePath(root, "/chunks/raw.mjs", &file, &mime) && file == real_root + "/chunks/raw.mjs",
+           "a raw chunk is served as itself");
+    // A packed copy is never served under its own name: .deflate has no MIME type.
+    Refused(root, "/chunks/view.mjs.deflate");
+    RefusedPacked(root, "/chunks/missing.mjs");
+    RefusedPacked(root, "/chunks/notes.txt");                   // the file's own type is outside the table
+    RefusedPacked(root, "/chunks/escape.mjs");                  // symlink escape
+    RefusedPacked(root, "/chunks/other.mjs");                   // a link to another file's copy
+    RefusedPacked(root, "/chunks/../chunks/view.mjs");          // the path rules hold
+    RefusedPacked(root, "/%2e%2e/outside/secret.mjs");
+    RefusedPacked(root, "/chunks/view.mjs.deflate");            // no double suffix lookup of a missing file
+    for (const char* bad : {"/chunks/broken.mjs", "/chunks/cut.mjs", "/chunks/tail.mjs"}) {
+      std::string body = "x";
+      Expect(cmux_shim::ResolvePackedPagePath(root, bad, &file, &mime) && !cmux_shim::ReadPackedPage(file, &body) &&
+                 body.empty(),
+             std::string("a broken packed copy is a 404: ") + bad);
+    }
+    // A copy that inflates past the limit is refused.
+    std::string big(1 << 20, 'a');
+    std::string inflated;
+    Expect(!cmux_shim::InflateRawPage(DeflateRaw(big), &inflated, big.size() - 1) && inflated.empty(),
+           "inflating past the limit fails");
+    Expect(cmux_shim::InflateRawPage(DeflateRaw(big), &inflated, big.size()) && inflated == big,
+           "inflating up to the limit works");
+    Expect(cmux_shim::InflateRawPage(DeflateRaw(""), &inflated) && inflated.empty(), "an empty file inflates");
+  }
 
   Mime("/a.html", "text/html");
   Mime("/a.js", "text/javascript");
@@ -431,6 +591,18 @@ int main() {
     Expect(!cmux_shim::IsContentHashedQuery("h=0123ABCD"), "upper-case digits are not kept");
     Expect(!cmux_shim::IsContentHashedQuery("h=0123abcd&x=1"), "another parameter after the hash is not kept");
     Expect(!cmux_shim::IsContentHashedQuery("v=0123abcd"), "another parameter is not kept");
+  }
+
+  // cmux-page:// asks for V8's code cache (pane.js compiles once, not on every launch), which
+  // Chromium allows only for a standard scheme; the rest of its options stay as they were.
+  {
+    namespace opt = cmux_shim::page_scheme_option;
+    const int options = cmux_shim::kCmuxPageSchemeOptions;
+    Expect((options & opt::kCodeCache) != 0, "cmux-page registers as a code cache scheme");
+    Expect(opt::kCodeCache == (1 << 7), "the code cache bit is the fork's CMUX_CEF_SCHEME_OPTION_CODE_CACHE (1 << 7)");
+    Expect((options & opt::kStandard) != 0, "cmux-page stays standard (Chromium's code cache needs it)");
+    Expect(options == (opt::kStandard | opt::kSecure | opt::kCorsEnabled | opt::kFetchEnabled | opt::kCodeCache),
+           "cmux-page is standard, secure, CORS, fetch and code cache, nothing else (no local, CSP bypass or isolation)");
   }
 
   std::string cleanup = "rm -rf '" + made + "' '" + base + "'";

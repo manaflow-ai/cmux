@@ -49,17 +49,6 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.emptySectionHeight = emptySectionHeight
     }
 
-    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows and group headers (a
-    /// header follows `rowHeight`). A group header keeps its solid bar in the group's color, only
-    /// shorter (Lawrence 2026-10-18).
-    public var minimal: SidebarLayoutMetrics {
-        var m = self
-        let step = (rowHeight * 0.17).rounded()
-        m.rowHeight -= step
-        m.rowHeightWithSubtitle -= step
-        return m
-    }
-
     /// Expanded density's metrics: rows and group headers are two lines tall (`rowStep`).
     public var expanded: SidebarLayoutMetrics {
         var m = self
@@ -67,11 +56,11 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         return m
     }
 
-    /// The metrics a layout under `o` uses: Minimal Mode's shorter rows, or Expanded's two-line
-    /// rows (not with workspaces as tabs, whose rows are one line at any density). Every place
-    /// that sizes list rows reads this, so a header and a row cannot take different steps.
+    /// The metrics a layout under `o` uses: Expanded's two-line rows (not with workspaces as tabs,
+    /// whose rows are one line at any density). Every place that sizes list rows reads this, so a
+    /// header and a row cannot take different steps. Minimal Mode (`sidebar.minimal`) only hides
+    /// chrome until hover and never changes density (Lawrence 2026-11-15).
     public func resolved(for o: SidebarLayoutOptions) -> SidebarLayoutMetrics {
-        if o.minimal { return minimal }
         return o.expanded && !o.workspacesAsTabs ? expanded : self
     }
 
@@ -111,8 +100,6 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Show the drop zone for an empty pinned section: only while a drag reaches the list's top edge
     /// (`SidebarEmptyZones`), or for a drag that empties it, never for a drag's start alone.
     public var showEmptyPinned = false
-    /// A workspace or document drag runs: the Archive stays closed (its rows take no drop).
-    public var dragClosesArchive = false
     /// Live gap to open, and its height.
     public var gap: DropPosition?
     public var gapHeight: CGFloat = 0
@@ -133,6 +120,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// listed: the others, and this Mac with `sidebar.showLocalMachine`. Empty with one machine,
     /// where a mark would tell nothing.
     public var machines: [MachineID: SidebarMachine] = [:]
+    /// The Cloud machines listed: their rows never draw their machine's name, and no cloud either (cmux#55668: the cloud
+    /// belongs only to a Cloud chat's tab, never to a sidebar row).
+    public var cloudMachines: Set<MachineID> = []
     /// Keep the active workspace visible beneath a collapsed group so the
     /// current destination remains anchored while the other members fold away.
     public var activeWorkspaceID: WorkspaceID?
@@ -142,10 +132,7 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     func shown(inCollapsed id: GroupID) -> Set<WorkspaceID> { (revealedWorkspaces[id] ?? []).union(activeWorkspaceID.map { [$0] } ?? []) }
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
-    /// Minimal mode (`sidebar.minimal`): every row draws only its icon, name
-    /// and marks, whatever `workspaceRow` shows (`rowContent`).
-    public var minimal = false
-    /// Expanded rows (`sidebar.density`), unless minimal: `WorkspaceRowContent(expanded:)`.
+    /// Expanded rows (`sidebar.density`): `WorkspaceRowContent(expanded:)`.
     public var expanded = false
     /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): every workspace row is one line.
     public var workspacesAsTabs = false
@@ -161,7 +148,11 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var colorIndicator: WorkspaceColorIndicatorStyle = .leftRail
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
+    /// With `relativeTimes`, the current minute instead.
     public var now = Date(timeIntervalSince1970: 0)
+    /// `sidebar.relativeTimestamps` (with `showsTimestamps`): a change today reads as its age
+    /// (`5m`, `2h`) counted from `now`, not its time.
+    public var relativeTimes = false
     /// Age labels this pass made, shared by its rows (a label per row was most of a 10k group's layout).
     var ages = AgeTextCache()
     /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
@@ -184,11 +175,14 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var chatHistory: SidebarChatHistoryState?
     /// The Done fold: workspaces marked Done fold into a "Done (N)" row at the end of their list.
     public var foldsDone = false
+    /// Settled chats (`sidebar.settleFinished`, `SidebarSettlePlanner`): these rows fold into a "Settled (N)" row at the
+    /// end of their list, before the Done row. Empty (the setting off, the default) draws every row in place.
+    public var settled: Set<WorkspaceID> = []
     /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
     /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
     public var foldsArchived = true
-    /// Archived workspaces and wholly archived groups leave their lists for one closed "Archive (N)" row at the bottom
-    /// of the sidebar (`SidebarLayout+ArchiveSection`, Lawrence 19197); on by default. Off, ``foldsArchived`` applies.
+    /// Archived workspaces, links and wholly archived groups leave the sidebar for Settings > Sidebar > Archived
+    /// workspaces (`SidebarLayout+ArchiveSection`, cmux#51635); on by default. Off, ``foldsArchived`` applies.
     public var archiveSection = true
     /// The "Done (N)" and "Archived (N)" rows the person opened (by ``SidebarDoneFoldID/kind``): their workspaces list
     /// below them.
@@ -202,30 +196,28 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
 }
 
 nonisolated extension SidebarLayoutOptions {
-    /// Icon, the working spinner and progress (spinner and OSC 9;4 bar, Lawrence via cx-htbe5): the name
-    /// and the unread mark always draw (minimal mode).
-    static let minimalRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon, .working, .progress]))
     /// Workspaces as tabs: the icon, the working spinner and the pull request badge, on the name's
     /// line with the status glyph and the unread mark (Claude desktop's chat list).
     static let tabRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon, .working, .pullRequest]))
 
-    /// What `ws`'s row draws under these options. Minimal mode drops the
-    /// second line (including another computer's name and a machine's
-    /// stage), the status block, counts and badges; the working spinner,
-    /// loading, the progress bar and attention states still show, like the unread mark.
+    /// What `ws`'s row draws under these options.
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
-        content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
-        // Every mode (compact, minimal, workspaces as tabs, expanded), mark drawn or not: VoiceOver says the
+        content.statusLeads = workspaceRow.statusPlacement == .leading
+        content.machine = cloudMachines.contains(ws.machineID) ? nil : machines[ws.machineID].map(SidebarMachineMark.init)
+        // Every mode (each density, workspaces as tabs), mark drawn or not: VoiceOver says the
         // computer and its status when it cannot connect, as no line does (review of #28510 at 58ee6d24).
         content.machineLabel = machine.flatMap { $0.isEmpty ? nil : $0 }
         if let sessionTree { content.keycap = keycaps[ws.id] }
         if let parent = parentTitles[ws.id], WorkspaceRowContent.sameTitle(ws.title, parent) { content.subagentOf = parent }
+        // A chat's subagents draw no lines under its row (Leo 2026-11-25: "idk who asked for those in the sidebar"):
+        // the failed ones count on the title line's failed mark, the rest show in the hover card and the chat.
+        if !workspacesAsTabs, let subagents = ws.subagents { content.subagentsFailed = subagents.failedCount }
         // Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row (the
         // hook's text and the read badge, tree or not) follows `sidebar.workspaceRow.pullRequest`,
         // off by default. The hover card keeps the pull request.
-        if workspaceRow.resolved(for: ws.rowKind).shows(.pullRequest) {
+        if content.titleParts == nil, workspaceRow.resolved(for: ws.rowKind).shows(.pullRequest) {
             content.pullRequests = sessionTree?.pullRequests[ws.id] ?? pullRequests[ws.id]
         } else {
             content.badge = nil
@@ -240,10 +232,10 @@ nonisolated extension SidebarLayoutOptions {
         }
         // What the agent needs, for the row's accessibility label only: a row draws no status words
         // (Leo 2026-10-21), its badge's dot says it. Worded on the main actor by the row view.
-        if !minimal, let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
+        if let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
         // A row that already has a second line says there what its agent does now; a one-line row
         // keeps its height, so rows do not grow and shrink as agents start and stop.
-        if !minimal, content.detail != nil, let step = ws.agentStep {
+        if content.titleParts == nil, content.detail != nil, let step = ws.agentStep {
             (content.now, content.detail) = (step, step)
         }
         return content
@@ -252,21 +244,19 @@ nonisolated extension SidebarLayoutOptions {
     private func baseRowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         // Workspaces as tabs: one line at any density; attention states (the needs-you mark) still show.
         if workspacesAsTabs {
-            var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now, ages: ages)
+            var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now, ages: ages, relative: relativeTimes)
             (content.detail, content.status, content.trailingStatus, content.badgeTime) = (nil, nil, nil, nil)
             return content
         }
-        if expanded && !minimal {
+        if workspaceRow.layouts.layout(for: ws.rowKind, agent: ws.kindBrand) != nil {
+            return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine, ages: ages)
+        }
+        if expanded {
             let shown = workspaceRow.resolved(for: ws.rowKind)
             return WorkspaceRowContent(expanded: ws, now: now, machine: machine, showsNotification: shown.shows(.notification),
-                                       showsPullRequest: shown.shows(.pullRequest), ages: ages)
+                                       showsPullRequest: shown.shows(.pullRequest), ages: ages, relative: relativeTimes)
         }
-        guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine, ages: ages) }
-        var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now, ages: ages)
-        content.detail = nil
-        content.badgeTime = nil
-        content.status = nil
-        return content
+        return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine, ages: ages, relative: relativeTimes)
     }
 }
 

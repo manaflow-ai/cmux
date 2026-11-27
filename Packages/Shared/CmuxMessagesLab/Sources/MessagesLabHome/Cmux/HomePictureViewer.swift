@@ -55,6 +55,9 @@ final class HomePictureViewer: NSView {
     private let tools = NSSegmentedControl(frame: .zero)
     /// In the comparison, in the tools' place: Side by Side, Flip, Slider (``HomePictureCompare/Style``).
     private let styles = NSSegmentedControl(frame: .zero)
+    /// Each segmented control's segment tooltips, and the controls whose tooltips `layout` has placed.
+    private var toolTips: [ObjectIdentifier: [String]] = [:]
+    private var toolTipsPlaced: Set<ObjectIdentifier> = []
     /// The comparison's rows ("Light | Dark"), when the gallery's rows have labels.
     private let rowSwitch = NSSegmentedControl(frame: .zero)
     private var rowSwitchRows: [Int] = []
@@ -93,7 +96,6 @@ final class HomePictureViewer: NSView {
         scroll.hasHorizontalScroller = true
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
         scroll.allowsMagnification = true
         scroll.minMagnification = 0.05
         scroll.maxMagnification = 8
@@ -143,9 +145,9 @@ final class HomePictureViewer: NSView {
         tools.segmentStyle = .separated
         for (i, entry) in toolList.enumerated() {
             tools.setImage(NSImage(systemSymbolName: entry.1, accessibilityDescription: entry.2), forSegment: i)
-            tools.setToolTip(entry.2, forSegment: i)
             tools.setWidth(30, forSegment: i)
         }
+        toolTips[ObjectIdentifier(tools)] = toolList.map(\.2)
         tools.selectedSegment = 0
         tools.target = self
         tools.action = #selector(toolChanged)
@@ -160,9 +162,9 @@ final class HomePictureViewer: NSView {
         styles.segmentStyle = .separated
         for (i, entry) in styleList.enumerated() {
             styles.setImage(NSImage(systemSymbolName: entry.1, accessibilityDescription: entry.2), forSegment: i)
-            styles.setToolTip(entry.2, forSegment: i)
             styles.setWidth(30, forSegment: i)
         }
+        toolTips[ObjectIdentifier(styles)] = styleList.map(\.2)
         styles.selectedSegment = HomePictureCompare.Style.sideBySide.rawValue
         styles.target = self
         styles.action = #selector(styleChanged)
@@ -213,7 +215,7 @@ final class HomePictureViewer: NSView {
         b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
         b.symbolConfiguration = .init(pointSize: size, weight: .regular)
         b.contentTintColor = NSColor.white.withAlphaComponent(0.85)
-        b.toolTip = label
+        b.setHomeToolTip(label)
         b.setAccessibilityLabel(label)
     }
 
@@ -296,18 +298,28 @@ final class HomePictureViewer: NSView {
         }
     }
 
-    private func fit() {
-        layoutSubtreeIfNeeded()
-        let size = canvas.frame.size
-        let room = scroll.bounds.size
-        guard size.width > 0, size.height > 0, room.width > 0, room.height > 0 else { return }
-        scroll.magnification = min(1, room.width / size.width, room.height / size.height)
+    /// The zoom that fits a picture `size` points large in `room`, keeping its aspect: a large picture shrinks to fit,
+    /// a small one grows to fill the pane (issue 51939: a pasted screenshot opened at its own small size in the middle
+    /// of an empty viewer), within the scroll view's zoom range. 1 for an empty size or room.
+    static func fitMagnification(_ size: CGSize, in room: CGSize, range: ClosedRange<CGFloat> = 0.05...8) -> CGFloat {
+        guard size.width > 0, size.height > 0, room.width > 0, room.height > 0 else { return 1 }
+        return min(range.upperBound, max(range.lowerBound, min(room.width / size.width, room.height / size.height)))
     }
 
+    private var fitMagnification: CGFloat {
+        Self.fitMagnification(canvas.frame.size, in: scroll.bounds.size, range: scroll.minMagnification...scroll.maxMagnification)
+    }
+
+    private func fit() {
+        layoutSubtreeIfNeeded()
+        guard canvas.frame.width > 0, canvas.frame.height > 0, scroll.bounds.width > 0, scroll.bounds.height > 0 else { return }
+        scroll.magnification = fitMagnification
+    }
+
+    /// Double-click: the picture at its own size, or back to fit.
     private func toggleActualSize() {
-        let size = canvas.frame.size, room = scroll.bounds.size
-        let fitted = min(1, room.width / max(1, size.width), room.height / max(1, size.height))
-        if abs(scroll.magnification - fitted) < 0.01 { scroll.magnification = 1 } else { scroll.magnification = fitted }
+        let fitted = fitMagnification
+        scroll.magnification = abs(scroll.magnification - fitted) < 0.01 && abs(fitted - 1) >= 0.01 ? 1 : fitted
     }
 
     private func showCompare() {
@@ -365,7 +377,14 @@ final class HomePictureViewer: NSView {
         let barWidth = 12 + toolsWidth + 12 + CGFloat(barButtons.count) * buttonWidth + 8
         bar.frame = CGRect(x: (bounds.midX - barWidth / 2).rounded(), y: bounds.maxY - 50, width: barWidth, height: 38)
         for control in [tools, styles] {
-            control.frame = CGRect(x: 12, y: (38 - control.fittingSize.height) / 2, width: control.fittingSize.width, height: control.fittingSize.height)
+            let size = control.fittingSize
+            let sizeChanged = control.frame.size != size || !toolTipsPlaced.contains(ObjectIdentifier(control))
+            control.frame = CGRect(x: 12, y: (38 - size.height) / 2, width: size.width, height: size.height)
+            // Each segment's tooltip is a region of the control: placed again only when the control's size changes.
+            if sizeChanged, let texts = toolTips[ObjectIdentifier(control)] {
+                control.setHomeSegmentToolTips(texts)
+                toolTipsPlaced.insert(ObjectIdentifier(control))
+            }
         }
         var x = shownTools.frame.maxX + 12
         for b in barButtons {

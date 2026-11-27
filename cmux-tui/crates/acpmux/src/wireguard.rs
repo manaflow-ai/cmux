@@ -35,7 +35,27 @@ use tokio::task::{JoinHandle, JoinSet};
 use zeroize::Zeroizing;
 
 const CONNECT_BOUND: Duration = Duration::from_secs(10);
-const MAX_BRIDGES: usize = 64;
+/// How long a restart waits for its own closed UDP socket to free the port.
+const REBIND_BOUND: Duration = Duration::from_secs(5);
+
+/// Binds `local` again after the old mesh closed its socket there. The port can stay taken
+/// for a moment after the close: a child this process is starting holds a copy of every open
+/// socket from its fork until its exec, longer on a loaded machine. So `AddrInUse` is retried
+/// until [`REBIND_BOUND`]; any other error, or one that outlasts it, is the restart's error.
+async fn rebind(local: SocketAddr) -> std::io::Result<UdpSocket> {
+    let deadline = tokio::time::Instant::now() + REBIND_BOUND;
+    loop {
+        match UdpSocket::bind(local).await {
+            Err(error)
+                if error.kind() == std::io::ErrorKind::AddrInUse
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            bound => return bound,
+        }
+    }
+}
 
 /// Static interface settings. `address` is virtual: it creates no system route.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,6 +92,14 @@ pub struct Transport {
     /// The daemon's other users of the node key this lock guards (the hub carrier): each takes a
     /// rotated key as [`Self::put_key`] puts it in place.
     key_users: Mutex<Vec<KeyUser>>,
+    /// This machine's node public key (standard base64), as the mesh runs with it.
+    public_key: Mutex<String>,
+    /// Routes found at runtime and keys admitted by peers, beside the configured ones
+    /// (`wireguard_learned.rs`), kept in `<state dir>/wireguard-learned.json`.
+    learned: Mutex<learned::Learned>,
+    /// Serialize learned mesh mutations, persistence, and mesh replacement on rekey.
+    learned_update: tokio::sync::Mutex<()>,
+    state_dir: PathBuf,
 }
 
 /// Another user of the node key: given the new private key and `write` (which makes it the
@@ -83,7 +111,7 @@ pub(crate) type KeyUser =
 /// (`mesh_node_key::record_link_home`), else `<daemon state dir>/link` by this process's
 /// environment.
 pub(crate) fn link_state_dir() -> Option<PathBuf> {
-    crate::cli::mesh_node_key::recorded_link_dir(&crate::config::home()).or_else(env_link_state_dir)
+    crate::mesh_node_key::recorded_link_dir(&crate::config::home()).or_else(env_link_state_dir)
 }
 
 /// `<daemon state dir>/link` by this process's environment.
@@ -140,7 +168,7 @@ impl Transport {
             return Ok(None);
         };
         let target = local_websocket(websocket)?;
-        if crate::cli::mesh_node_key::link_serves_node_key(link_dir, state_dir) {
+        if crate::mesh_node_key::link_serves_node_key(link_dir, state_dir) {
             tracing::info!(
                 "WireGuard transport off: the cmux link holds this machine's WireGuard key; peers with a link route use the link, the others their URL or ssh"
             );
@@ -176,44 +204,14 @@ impl Transport {
         check_service(settings)?;
         let websocket = local_websocket(websocket)?;
         let local = socket.local_addr()?;
-        let (_, private_key) = crate::cli::mesh_node_key::load_or_create_held(state_dir, &key)?;
+        let (keypair, private_key) = crate::mesh_node_key::load_or_create_held(state_dir, &key)?;
         let mesh = WgMesh::start(mesh_config(private_key, settings.address), socket)?;
         let mut routes = BTreeMap::new();
         let mut peers: BTreeMap<[u8; 32], WgPeer> = BTreeMap::new();
         for (name, peer) in configured {
             let Some(peer) = &peer.wireguard else { continue };
             let public_key = check_peer(settings, peer)?;
-            let endpoints = tokio::time::timeout(
-                CONNECT_BOUND,
-                tokio::net::lookup_host(peer.endpoint.as_str()),
-            )
-            .await
-            .context("WireGuard endpoint lookup timed out")??;
-            // Every address the name resolves to is a path: the mesh probes
-            // each one and the path selector picks (LAN before routed).
-            let mut usable: Vec<SocketAddr> = Vec::new();
-            for address in endpoints {
-                if address.is_ipv4() == local.is_ipv4()
-                    && address.port() != 0
-                    && !usable.contains(&address)
-                {
-                    usable.push(address);
-                }
-            }
-            let endpoint = *usable
-                .first()
-                .context("WireGuard endpoint has no address matching the UDP socket family")?;
-            let wg_peer = WgPeer {
-                public_key,
-                preshared_key: None,
-                allowed_ips: vec![IpNetwork::new(
-                    peer.address.ip(),
-                    host_prefix(peer.address.ip()),
-                )?],
-                route: Some(endpoint.into()),
-                candidates: usable.into_iter().map(PeerCandidate::from).collect(),
-                persistent_keepalive: None,
-            };
+            let wg_peer = resolve_peer(local, peer, public_key).await?;
             // Configured names may alias one host. Its cryptographic identity
             // owns one session, with all explicitly configured addresses and
             // endpoint candidates; adding it twice would replace that session.
@@ -242,6 +240,8 @@ impl Transport {
             // The mesh still refuses an address claimed by different keys.
             mesh.add_peer(peer.clone()).await?;
         }
+        let learned =
+            learned::Learned::start(state_dir, &mesh, local, settings, &peers, configured).await;
         let listener = mesh.listen(settings.address.port()).await?;
         let (stop, stopped) = watch::channel(false);
         let bridge = tokio::spawn(bridge(listener, websocket, stopped));
@@ -256,6 +256,10 @@ impl Transport {
             peers,
             websocket,
             key_users: Mutex::new(Vec::new()),
+            public_key: Mutex::new(keypair.public_key_b64()),
+            learned: Mutex::new(learned),
+            learned_update: tokio::sync::Mutex::new(()),
+            state_dir: state_dir.to_path_buf(),
         }))
     }
 
@@ -297,6 +301,7 @@ impl Transport {
     /// address: what a rekey (`machine_tunnel.rs`) does once the new key is on disk. Open
     /// tunnel streams and bridges end; peers handshake again with the new key.
     pub(crate) async fn restart(&self, private_key: Zeroizing<[u8; 32]>) -> Result<()> {
+        let _update = self.learned_update.lock().await;
         let mut mesh = self.mesh.write().await;
         ensure!(!*self.stop.borrow() && mesh.is_some(), "WireGuard transport stopped");
         let old_bridge =
@@ -308,11 +313,20 @@ impl Transport {
         if let Some(old) = mesh.take() {
             old.shutdown().await;
         }
-        let socket = UdpSocket::bind(self.local).await.context("bind WireGuard UDP again")?;
+        let socket = rebind(self.local).await.context("bind WireGuard UDP again")?;
+        let public = crate::mesh_node_key::NodeKeypair::of(&private_key).public_key_b64();
         let fresh = WgMesh::start(mesh_config(private_key, self.service), socket)?;
         for peer in &self.peers {
             fresh.add_peer(peer.clone()).await?;
         }
+        for peer in self.learned_peers() {
+            if let Err(error) = fresh.add_peer(peer).await {
+                tracing::warn!(
+                    "a learned WireGuard peer was not added again after the rekey: {error}"
+                );
+            }
+        }
+        *self.public_key.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = public;
         let listener = fresh.listen(self.service.port()).await?;
         let task = tokio::spawn(bridge(listener, self.websocket, self.stop.subscribe()));
         *self.bridge.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(task);
@@ -364,11 +378,11 @@ impl Transport {
             let home = state_dir.to_path_buf();
             let wanted = tokio::task::spawn_blocking(move || {
                 let link_dir =
-                    crate::cli::mesh_node_key::recorded_link_dir(&home).or_else(env_link_state_dir);
+                    crate::mesh_node_key::recorded_link_dir(&home).or_else(env_link_state_dir);
                 // Cheap first (two reads); the full check (with the clone check) only then.
                 link_dir.as_deref().is_some_and(|dir| {
                     dir.join("config.json").is_file()
-                        && crate::cli::mesh_node_key::link_serves_node_key(Some(dir), &home)
+                        && crate::mesh_node_key::link_serves_node_key(Some(dir), &home)
                 })
             })
             .await
@@ -431,6 +445,42 @@ fn mesh_config(private_key: Zeroizing<[u8; 32]>, service: SocketAddr) -> WgMeshC
         mtu: cmux_wg::DEFAULT_MTU,
     }
 }
+
+/// `peer` as a mesh peer from `local`'s UDP socket: every address its endpoint resolves to (in
+/// the socket's family) is a path the mesh probes, the first its route.
+pub(crate) async fn resolve_peer(
+    local: SocketAddr,
+    peer: &StaticPeer,
+    public_key: [u8; 32],
+) -> Result<WgPeer> {
+    let endpoints =
+        tokio::time::timeout(CONNECT_BOUND, tokio::net::lookup_host(peer.endpoint.as_str()))
+            .await
+            .context("WireGuard endpoint lookup timed out")??;
+    // Every address the name resolves to is a path: the mesh probes
+    // each one and the path selector picks (LAN before routed).
+    let mut usable: Vec<SocketAddr> = Vec::new();
+    for address in endpoints {
+        if address.is_ipv4() == local.is_ipv4() && address.port() != 0 && !usable.contains(&address)
+        {
+            usable.push(address);
+        }
+    }
+    let endpoint = *usable
+        .first()
+        .context("WireGuard endpoint has no address matching the UDP socket family")?;
+    Ok(WgPeer {
+        public_key,
+        preshared_key: None,
+        allowed_ips: vec![IpNetwork::new(peer.address.ip(), host_prefix(peer.address.ip()))?],
+        route: Some(endpoint.into()),
+        candidates: usable.into_iter().map(PeerCandidate::from).collect(),
+        persistent_keepalive: None,
+    })
+}
+
+#[path = "wireguard_learned.rs"]
+mod learned;
 
 /// The static settings the transport starts with: None while `transport.wireguard` is off, else
 /// the `wireguardStatic` block once it and every configured WireGuard peer pass the checks the
@@ -526,7 +576,8 @@ async fn bridge(mut listener: WgMeshListener, target: SocketAddr, mut stop: watc
             Some(_) = connections.join_next(), if !connections.is_empty() => {},
             accepted = listener.accept() => {
                 let Some((stream, _authenticated_key)) = accepted else { break };
-                if connections.len() >= MAX_BRIDGES { continue; }
+                // No count cap: each bridge is one TCP socket to `target` for an
+                // authenticated mesh peer; a failed connect drops just that stream.
                 let stop = stop.clone();
                 connections.spawn(async move {
                     let Ok(Ok(local)) = tokio::time::timeout(CONNECT_BOUND, TcpStream::connect(target)).await

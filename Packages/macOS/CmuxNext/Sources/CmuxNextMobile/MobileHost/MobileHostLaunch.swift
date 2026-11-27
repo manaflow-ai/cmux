@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 public import Foundation
 
 /// How the app starts one `cmux-mobile-host` (cmux-next-ios/rust/README.md lists its
@@ -53,6 +54,12 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// The surface source streams phone tabs' simulators too; off (no SimulatorKit), hostd streams
     /// Cloud desktops only and says no `surface-stream-v1` (`CMUX_MOBILE_SURFACE_SIMULATORS=0`).
     public var simulatorSurfaces = true
+    /// The surface source streams this Mac's own displays (`d~<CGDirectDisplayID>`, view only):
+    /// hostd serves those tabs and says `mac-display-v1` (`CMUX_MOBILE_MAC_DISPLAY=1`).
+    public var macDisplays = false
+    /// A tagged dev build's cloud data space: hostd sends it as `X-Cmux-Build-Space` on every mobile service
+    /// request and its signaling socket (`CMUX_MOBILE_BUILD_SPACE`). Nil (nightly, stable): no variable, no header.
+    public var buildSpace: CMUXBuildSpace?
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,
                 daemonSocket: String, stateDirectory: URL, fileRoots: [String], stackProjectID: String,
@@ -122,9 +129,11 @@ public struct MobileHostLaunch: Sendable, Equatable {
         if let agentTabHost, !agentTabHost.isEmpty { environment["CMUX_MOBILE_AGENT_TAB_HOST"] = agentTabHost }
         if let chiefSession, !chiefSession.isEmpty { environment["CMUX_MOBILE_CHIEF_SESSION"] = chiefSession }
         if let chiefSocket, !chiefSocket.isEmpty { environment["CMUX_MOBILE_CHIEF_SOCKET"] = chiefSocket }
+        if let buildSpace { environment["CMUX_MOBILE_BUILD_SPACE"] = buildSpace.headerValue }
         if browserHosts { environment["CMUX_MOBILE_BROWSER_HOSTS"] = "1" }
         if surfaceHosts { environment["CMUX_MOBILE_SURFACE_HOSTS"] = "1" }
         if surfaceHosts, !simulatorSurfaces { environment["CMUX_MOBILE_SURFACE_SIMULATORS"] = "0" }
+        if surfaceHosts, macDisplays { environment["CMUX_MOBILE_MAC_DISPLAY"] = "1" }
         return environment
     }
 
@@ -175,12 +184,6 @@ public struct MobileHostLaunch: Sendable, Equatable {
         line(["type": "drop_phone", "phone_device_id": phoneDeviceID])
     }
 
-    /// The person's per-chat Remote Control choice. Persistence and enforcement stay in
-    /// `cmux-mobile-host`; this line is only an intent sent to the running host.
-    public static func sessionExposureLine(sessionID: String, allowed: Bool) -> Data {
-        anyLine(["type": "session_exposure", "session_id": sessionID, "allowed": allowed])
-    }
-
     /// The answer to `need_browser` `request`: the browser host listens on
     /// `127.0.0.1:port` and admits the hello that carries `secret` (never logged).
     public static func browserLine(request: UInt64, port: UInt16, secret: String) -> Data {
@@ -211,6 +214,15 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// The surface source of `tab` ended.
     public static func surfaceGoneLine(tab: String) -> Data {
         line(["type": "surface_gone", "tab": tab])
+    }
+
+    /// A browser tab's favicon or thumbnail for the phones' tab overview (`tab_picture`,
+    /// `tab_snapshots.rs`): `surface` is the tab's daemon surface id, `part` `thumb` or `favicon`,
+    /// `path` a JPEG or PNG the app wrote in its own cache folder. hostd checks the file.
+    public static func tabPictureLine(surface: UInt64, part: String, path: String, width: Int, height: Int,
+                                      capturedAtMs: Int64) -> Data {
+        anyLine(["type": "tab_picture", "surface": surface, "part": part, "path": path, "w": width, "h": height,
+                 "captured_at_ms": capturedAtMs])
     }
 
     static func anyLine(_ object: [String: Any]) -> Data {

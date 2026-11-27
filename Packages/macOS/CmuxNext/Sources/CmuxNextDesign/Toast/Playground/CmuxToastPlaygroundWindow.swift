@@ -14,14 +14,25 @@ public import AppKit
 public final class CmuxToastPlaygroundWindow {
     private let center: CmuxToastCenter
     private let target: @MainActor () -> NSWindow?
+    private let cards: [CmuxToastPlaygroundCard]
+    private let openKeycaps: (@MainActor () -> Void)?
+    private let openTooltips: (@MainActor () -> Void)?
     private var window: NSWindow?
 
     /// - Parameters:
     ///   - center: The toasts' center (the app's shared one).
     ///   - window: The window Fire it shows toasts in (the active one); nil shows them in the playground.
-    public init(center: CmuxToastCenter, window: @escaping @MainActor () -> NSWindow?) {
+    ///   - cards: The sidebar cards it can show for real (``CmuxToastPlaygroundCard``); none by default.
+    ///   - openKeycaps: Opens the Keycap Playground (``CmuxKeycapPlaygroundWindow``) from a button at the top; nil
+    ///     shows no button.
+    ///   - openTooltips: Opens the Tooltip Gallery (``TooltipGalleryWindow``) from a button beside it; nil shows none.
+    public init(center: CmuxToastCenter, window: @escaping @MainActor () -> NSWindow?, cards: [CmuxToastPlaygroundCard] = [],
+                openKeycaps: (@MainActor () -> Void)? = nil, openTooltips: (@MainActor () -> Void)? = nil) {
         self.center = center
         target = window
+        self.cards = cards
+        self.openKeycaps = openKeycaps
+        self.openTooltips = openTooltips
     }
 
     /// The playground's window, once opened (tests, captures).
@@ -34,7 +45,8 @@ public final class CmuxToastPlaygroundWindow {
         self.window = window
         let center = center, target = target
         let view = CmuxToastPlaygroundView(center: center, themes: themes,
-                                           focus: CmuxToastTunables.playgroundFocus.value(in: center.tunables)) { [weak window] style in
+                                           focus: CmuxToastTunables.playgroundFocus.value(in: center.tunables), cards: cards,
+                                           openKeycaps: openKeycaps, openTooltips: openTooltips) { [weak window] style in
             guard let shownIn = target() ?? window else { return }
             for var toast in CmuxToastPlaygroundSamples.fired {
                 toast.style = style

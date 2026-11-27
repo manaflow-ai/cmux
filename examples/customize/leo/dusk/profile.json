@@ -1,0 +1,7 @@
+{
+  "name": "leo-dusk",
+  "description": "The Leo collection's look: violet glass over a painted dusk, a mint, gold and rose terminal, and the same tones in the clock, weather, gacha and usage extensions.",
+  "settings": {
+    "appearance.themeFile": "leo-dusk"
+  }
+}

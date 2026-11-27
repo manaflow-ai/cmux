@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Foundation
 import WebKit
 
@@ -169,7 +170,8 @@ final class PageWKWebView: WKWebView {
         super.scrollWheel(with: event)
     }
 
-    override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }
+    /// The key's edit renders now, not at the next display refresh (``NSView/renderKeyEditNow()``).
+    override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event); renderKeyEditNow() }
     override func keyUp(with event: NSEvent) { noteUserEvent(event); super.keyUp(with: event) }
     override func mouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.mouseDown(with: event) }
     override func mouseUp(with event: NSEvent) { noteUserEvent(event); super.mouseUp(with: event) }
@@ -205,12 +207,16 @@ final class PageWKWebView: WKWebView {
         menuAutoFill.menuWillOpen()
         if let contextMenuEditor { contextMenuEditor(menu) } else { Self.keepDesktopItems(in: menu) }
         contextMenuTail?(menu)
+        // A cmux page's menu is cmux's: no "Ask Siri" field, Services or Writing Tools from AppKit.
+        menu.withoutSystemItems()
+        menu.confineTracking(at: event, in: self)
         super.willOpenMenu(menu, with: event)
     }
 
     override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
         menuAutoFill.menuDidClose()
         super.didCloseMenu(menu, with: event)
+        menu.restoreTrackingDelegate()
     }
 
     /// Removes every item but Copy and Copy Link (and the separators around removed items).

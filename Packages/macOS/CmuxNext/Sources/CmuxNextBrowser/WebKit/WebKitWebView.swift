@@ -1,12 +1,18 @@
 import AppKit
+import CmuxNextDesign
 import WebKit
 
-/// `WKWebView` with cmux context menu wording. App shortcuts reach the host
-/// before the page: the host routes system and navigation keys app-wide and
-/// content keys in its window, before any view (the page is in-window).
+/// `WKWebView` with cmux context menu wording. The host routes app shortcuts
+/// app-wide before any view; the keys a page may own (Find and its
+/// neighbors) go to the page first, and the host runs its action when WebKit
+/// sends the key back unhandled (`KeyRouter+PageFirstKeys`).
 // webview-allow: the WebKit browser engine; BrowserEngineResolver picks it
 final class WebKitWebView: WKWebView {
     weak var owner: WebKitTab?
+    /// WebKit's `WebPageProxy::m_isSuspended`, kept where cmux sends `_suspendPage:` and `_resumePage:` the
+    /// way WebKit keeps it (`WebKitTab+Freeze`): set on a suspend, cleared on a resume, each only while the
+    /// page's process runs. True after that process ended: WebKit then never resumes the page.
+    var pageSuspended = false
     /// The last mouse-down or key-down the user gave this view: a page may
     /// enter pane fullscreen only shortly after one (transient activation).
     private(set) var lastUserInput: ContinuousClock.Instant?
@@ -72,6 +78,12 @@ final class WebKitWebView: WKWebView {
         }
         super.willOpenMenu(menu, with: event)
         adjustContextMenu(menu)
+        menu.confineTracking(at: event, in: self)
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        super.didCloseMenu(menu, with: event)
+        menu.restoreTrackingDelegate()
     }
 
     /// The host rows for the last right-click's hit (none when the hit

@@ -31,12 +31,17 @@ public final class DeviceHubService {
         public var userID: @MainActor () -> String?
         /// The account's access token for the hub.
         public var accessToken: @Sendable () async throws -> String
+        /// Whether a saved sign-in is still being restored (neither signed in nor out yet);
+        /// read inside an observation, so the restore's end is seen.
+        public var isRestoring: @MainActor () -> Bool
 
         public init(awaitRestored: @escaping @MainActor () async -> Void, userID: @escaping @MainActor () -> String?,
-                    accessToken: @escaping @Sendable () async throws -> String) {
+                    accessToken: @escaping @Sendable () async throws -> String,
+                    isRestoring: @escaping @MainActor () -> Bool = { false }) {
             self.awaitRestored = awaitRestored
             self.userID = userID
             self.accessToken = accessToken
+            self.isRestoring = isRestoring
         }
     }
 
@@ -48,6 +53,9 @@ public final class DeviceHubService {
     private let account: Account
     private let bundleIdentifier: String
     private let selectedBaseURL: URL?
+    /// The build space every hub this service makes carries (``DeviceHubBuildSpace``): a tagged dev build's Mac
+    /// is a device of its own space only, never of NIGHTLY's or another tag's.
+    public let buildSpace: DeviceHubBuildSpace
     /// The app's one guard of the Keychain UI switch (the hub's identity and relay secrets).
     private let loginKeychain: LoginKeychain
     /// Settings > Devices (the React page's `devices` card).
@@ -63,6 +71,8 @@ public final class DeviceHubService {
     private var watch: Task<Void, Never>?
     /// Follows this Mac's kind (``follow(deviceKind:)``).
     private var kindWatch: Task<Void, Never>?
+    /// Follows what the pages say before a hub exists: whether the address is valid, and the restore.
+    private var setupWatch: Task<Void, Never>?
     /// Follows the running hub's socket: another device removed this Mac.
     private var removalWatch: Task<Void, Never>?
     private struct TrackedTask {
@@ -79,12 +89,16 @@ public final class DeviceHubService {
     private var captureCleanupActive = false
     /// Loads this Mac's identity off the main thread, then installs the hub.
     private var loading: Task<Void, Never>?
-    /// What `loading` is making a hub for.
-    private var loadingFor: (url: URL, user: String)?
+    /// What `loading` is making a hub for. While it is set the pages say they are loading: a signed-in account
+    /// whose hub is not up yet is never "sign in".
+    private var loadingFor: (url: URL, user: String)? {
+        didSet { pages.hubConnecting = loadingFor != nil }
+    }
     private var loadingID: UUID?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
     /// cmux Remote serves this Mac (docs/cmux-remote.md): the hub for an address and account,
     /// with the worker's device identity and push relay, or nil to use this app's own. The App sets it.
+    /// Asked only in the default build space (``remoteHubFactory``).
     public var makeRemoteHub: (@MainActor (URL, String) async throws -> DeviceHub?)?
     /// The running hub, its account and address after every change (the App anchors cmux Remote).
     public var hubChanged: (@MainActor (DeviceHub?, String?, URL?) -> Void)?
@@ -95,11 +109,12 @@ public final class DeviceHubService {
     }
 
     public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?, loginKeychain: LoginKeychain, selectedBaseURL: URL? = nil,
-                retryClock: any Clock<Duration> = ContinuousClock(), makeAppHub: AppHubFactory? = nil) {
+                buildSpace: DeviceHubBuildSpace = .nightly, retryClock: any Clock<Duration> = ContinuousClock(), makeAppHub: AppHubFactory? = nil) {
         self.retryClock = retryClock
+        self.buildSpace = buildSpace
         self.makeAppHub = makeAppHub ?? { url, bundle, name, tokens, keychain in
             try await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundle, deviceName: name,
-                                      tokens: tokens, loginKeychain: keychain)
+                                      tokens: tokens, loginKeychain: keychain, buildSpace: buildSpace)
         }
         self.selectedBaseURL = selectedBaseURL
         self.pages = pages
@@ -129,6 +144,7 @@ public final class DeviceHubService {
     nonisolated deinit {
         loading?.cancel()
         watch?.cancel()
+        setupWatch?.cancel()
         removalWatch?.cancel()
         kindWatch?.cancel()
     }
@@ -139,6 +155,18 @@ public final class DeviceHubService {
         if let deviceKind { follow(deviceKind: deviceKind) }
         guard watch == nil else { return }
         let account = account, selectedBaseURL = selectedBaseURL
+        // The pages' setup words never wait for the restore: "not configured" means only an address that is
+        // not valid, and a restore that has not ended reads as restoring, never as a bad address.
+        let setup: @MainActor @Sendable () -> (Bool, Bool) = { ((selectedBaseURL ?? Self.address(settings)) != nil, account.isRestoring()) }
+        (pages.hubConfigured, pages.hubRestoring) = setup()
+        // task-owner: DeviceHubService.setupWatch: follows deviceHub.url and the restore for the app's life
+        setupWatch = Task { [weak self] in
+            for await (configured, restoring) in ObservationStream(setup) {
+                guard let self else { return }
+                pages.hubConfigured = configured
+                pages.hubRestoring = restoring
+            }
+        }
         // task-owner: DeviceHubService.watch: follows deviceHub.url and sign-in for the app's life
         watch = Task { [weak self] in
             await account.awaitRestored()
@@ -147,7 +175,6 @@ public final class DeviceHubService {
                 guard let self else { return }
                 url = address
                 self.user = user
-                pages.hubConfigured = url != nil
                 reconcile()
             }
         }
@@ -176,6 +203,9 @@ public final class DeviceHubService {
     private func reconcile() {
         guard !captureCleanupActive else { return }
         guard let url, let user, !leftHub else {
+            // The hub stays off without a word otherwise, and Your Devices has nothing to read (ask-6a79af928f).
+            let address = url == nil ? "missing" : "set", signedIn = user != nil, left = leftHub
+            logger.info("device hub not started: address \(address, privacy: .public), signed in \(signedIn, privacy: .public), left hub \(left, privacy: .public)")
             stopHub(endingSessions: true)
             return
         }
@@ -193,7 +223,7 @@ public final class DeviceHubService {
         let id = UUID()
         loadingFor = (url, user)
         loadingID = id
-        let makeRemoteHub = makeRemoteHub, makeAppHub = makeAppHub, clock = retryClock
+        let makeRemoteHub = remoteHubFactory, makeAppHub = makeAppHub, clock = retryClock
         // task-owner: DeviceHubService.loading: identity attempts and backoff; stopHub cancels both
         loading = Task { [weak self] in
             // Rust owns exponential spacing and jitter. Identity availability has no change event:
@@ -232,6 +262,14 @@ public final class DeviceHubService {
         if let task { trackLoading(task) }
     }
 
+    /// ``makeRemoteHub`` in the default build space (NIGHTLY, release: unchanged); nil in a dev build space, so the app's
+    /// own hub serves this Mac there. That hub names the space on every call and its User DO socket; a remote hub's device
+    /// renews and connects through its own process, and the cmux Remote (dev) DEV builds pin predates build spaces, so it
+    /// would renew in the default space and the tag's Mac would never be online in its own (its iPhone could not share it).
+    private var remoteHubFactory: (@MainActor (URL, String) async throws -> DeviceHub?)? {
+        buildSpace == .nightly ? makeRemoteHub : nil
+    }
+
     /// Platform error codes only: diagnostics must never include tokens or key material.
     private static func startupError(_ error: any Error) -> String {
         if case .configurationTimeout? = error as? CmuxRemoteError { return "device_hub_configuration_timeout" }
@@ -249,8 +287,24 @@ public final class DeviceHubService {
         running = (url, user)
         hub.deviceKind = deviceKind
         pages.hub = hub
-        // task-owner: one registration and socket start; stop() cancels the socket
-        trackHubStart(Task { await hub.start() })
+        // task-owner: the registration and socket start, tried again after each failed registration (the page
+        // says "cmux keeps trying"); stopHub cancels it with the hub's other starts.
+        let clock = retryClock
+        trackHubStart(Task { [weak self] in
+            // Rust owns the spacing and jitter, as for the identity above; no network-ready event exists.
+            var retry = cmux_retry_pacer_new(cmux_retry_policy_new(1_000_000_000, 30_000_000_000, 10, 0, true))
+            // wakeup-allow: each failed registration suspends for Rust backoff (capped at 30s); success, cancellation or a replaced hub ends it.
+            while !Task.isCancelled {
+                await hub.start()
+                guard case let .failed(detail) = hub.status, hub.connection != .removed, !Task.isCancelled, self?.hub === hub else { return }
+                // DeviceHubError's words: a code, an HTTP status or a transport error, never a token.
+                self?.logger.error("device hub registration failed: \(detail, privacy: .public); trying again")
+                let delay = cmux_retry_pacer_failed(&retry, Double.random(in: 0..<1))
+                guard delay >= 0 else { return }
+                // wakeup-allow: cancellable backoff after a failed registration, paced by Rust and capped at 30s.
+                do { try await clock.sleep(for: .nanoseconds(delay)) } catch { return }
+            }
+        })
         // task-owner: DeviceHubService.removalWatch: lives with this hub; stopHub cancels it
         removalWatch = Task { [weak self] in
             for await removed in ObservationStream({ hub.connection == .removed }) where removed {
@@ -263,6 +317,17 @@ public final class DeviceHubService {
         }
         hubChanged?(hub, user, url)
         logger.info("device hub started")
+    }
+
+    /// `hub` runs a device this Mac should no longer use (the acpmux daemon came online as another, ShareHostDevice.swift):
+    /// the hub starts again for the same account and address, so ``makeRemoteHub`` picks the device again. The old one only
+    /// stops: no sign-out, so its sharing bit stays as the person set it and its sessions end as the hub ends an offline
+    /// device's. Nothing when `hub` no longer runs.
+    func restartHub(replacing hub: DeviceHub) {
+        guard self.hub === hub, let running else { return }
+        logger.info("device hub restarting: this Mac's device changed")
+        stopHub(endingSessions: false)
+        startHub(url: running.url, user: running.user)
     }
 
     /// A sign-out starts (the account's tokens still work): the hub hears
@@ -335,7 +400,8 @@ public final class DeviceHubService {
         running = nil
         hubChanged?(nil, nil, nil)
         if removed { pages.endHubSessions(reason: "device_removed:viewer") }
-        let ids = Set(hub.tickets.keys).union(pages.hubHost.session.map { [$0.id] } ?? [])
+        // A session the acpmux daemon serves is the daemon's: this app never ends it.
+        let ids = Set(hub.tickets.filter { !$0.value.isServedByDaemon }.keys).union(pages.hubHost.session.map { [$0.id] } ?? [])
         pages.hub = nil
         guard endingSessions else {
             trackStop(Task {
@@ -348,19 +414,24 @@ public final class DeviceHubService {
         }
         // task-owner: the sign-out call (an older hub: one /end per session), then the stop
         let completion = Task {
+            // Signed out, this Mac is no longer the account's to view: its sharing bit goes off first (the
+            // hub's sign-out keeps it; a removal clears it there). Not the person's off: a later sign-in
+            // turns it on again by default.
+            await Self.clearSharing(hub)
             await hub.freezeForCapture()
             for start in starts { await start.completion.value }
-            do { try await hub.signOutDevice() } catch {
-                await withTaskGroup(of: Void.self) { group in
-                    for id in ids {
-                        group.addTask { try? await hub.endSession(id, reason: MacScreenHubReason.signedOut.rawValue) }
-                    }
-                }
-            }
+            await hub.signOut(ending: ids, reason: MacScreenHubReason.signedOut.rawValue)
             await hub.stopAndWait()
         }
         trackStop(completion)
         logger.info("device hub signing out")
+    }
+
+    /// Sign-out turns this Mac's sharing bit off when the hub has it on (one write; it fails only with
+    /// the hub unreachable, and then no device can reach this Mac through it either).
+    static func clearSharing(_ hub: DeviceHub) async {
+        guard hub.thisDevice?.macScreenShared == true else { return }
+        try? await hub.setMacScreenShared(false)
     }
 
     private func trackLoading(_ task: Task<Void, Never>) {

@@ -12,8 +12,9 @@ import type { Folds } from "../conversation/viewFolds";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { permissionDecision } from "../permissions/record";
 import { permissionOptionKind } from "../permissions/prompt";
+import { chatRowsFeed } from "../../../../test/support/chatRowsFeed";
 import { adaptChat, askDecision } from "./adapter";
-import { ChatRowsHost } from "./host";
+import { ChatRowsHost, type ChatRowsPost } from "./host";
 import { NOT_IN_CORPUS, NOT_YET } from "./notYet";
 import { ChatRowStore } from "./store";
 import type { ChatRow } from "./wire";
@@ -65,6 +66,25 @@ const NAMED: readonly { field: string; row: string; why: string; view: "same" | 
   },
 ];
 
+/// Differences introduced by turn shaping. They never occur in the raw row comparison above.
+const VIEW_ONLY: readonly { field: string; row: string; why: string }[] = [
+  {
+    field: "worked.workedRuns",
+    row: "seed-turn:worked",
+    why: "the store's worked fold has the same run content but keeps its tool timing fields out",
+  },
+  {
+    field: "worked.foldedPrompt",
+    row: "parity:worked",
+    why: "the worked fold carries the store's prompt row identity",
+  },
+  {
+    field: "worked.foldCalls",
+    row: "seed-turn:worked",
+    why: "the worked fold's hidden calls carry the same run content as workedRuns, so their timing fields differ alike",
+  },
+];
+
 /// Fields neither comparison reads, beside NAMED: what each side names a row by, never drawn.
 const UNCOMPARED: readonly { field: string; why: string }[] = [
   {
@@ -107,6 +127,16 @@ const DRAWN_FROM: readonly { field: string; from: readonly string[]; why: string
     why: "the turn's Retry is named by its prompt row's id",
   },
   {
+    field: "worked.workedRun",
+    from: ["id"],
+    why: "a reply-less turn's fold names the turns it joins by their fold keys, made from their prompts' ids",
+  },
+  {
+    field: "worked.foldedPrompt",
+    from: ["id"],
+    why: "a turn's fold carries the prompt row it folds whole (conversation/turns.ts), named by its id",
+  },
+  {
     field: "row:worked",
     from: ["row:permissionRecord"],
     why: "v1's receipt is the work of its turn, which the turn folds",
@@ -145,17 +175,14 @@ async function v2(name: string) {
       .map((line) => JSON.parse(line)) as string[]
   ).map((text) => ({ text, change: JSON.parse(text) as { kind: string } }));
   const store = new ChatRowStore();
-  const host = new ChatRowsHost(
-    async (method, params) => (method === "chat.rows.open" ? { sid: params.sid } : {}),
-    store,
-    () => SID,
-  );
+  const post: ChatRowsPost = async (method, params) => (method === "chat.rows.open" ? { sid: params.sid } : {});
+  const host = new ChatRowsHost(post, store, () => SID);
   await host.open("parity");
-  let batch = 0;
+  const feed = chatRowsFeed(host, post);
   const folds: number[] = [];
   for (const { text, change } of changes) {
     if (change.kind === "chatPage") expect(host.page(SID, "after", { from: folds[0], fold: folds.shift() })).toBe(true);
-    host.receive({ batch: ++batch, changes: [text] });
+    feed([text]);
     if (change.kind === "chatWindow")
       for (const row of (change as unknown as { window: { rows: ChatRow[] } }).window.rows)
         if (row.kind === "group" && !row.open) folds.push(row.id);
@@ -302,6 +329,7 @@ test("the view draws both the same: turnView over v1's rows and over the adapter
   const allowed = new Set([
     ...NOT_YET.map((entry) => entry.field),
     ...NAMED.filter((entry) => entry.view === "differs").map((entry) => entry.field),
+    ...VIEW_ONLY.map((entry) => entry.field),
     ...DRAWN_FROM.map((entry) => entry.field),
   ]);
   for (const [key, examples] of found)

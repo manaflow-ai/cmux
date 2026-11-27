@@ -51,11 +51,34 @@ enum Command {
         #[serde(default)]
         brief: bool,
     },
+    /// `cmux <cli.name> <path…>`: the installed app whose manifest
+    /// `cli.name` is `name`, and its op whose `cli.path` the words start
+    /// with (apps/cli_commands.rs). The CLI then runs the op with `apps-run`.
+    #[serde(rename = "apps-cli")]
+    Cli {
+        name: String,
+        #[serde(default)]
+        words: Vec<String>,
+    },
+    /// `cmux mcp serve`'s `tools/list`: every installed extension op whose
+    /// catalog offers it to agents (apps/mcp_tools.rs), read on each list so
+    /// an install or a saved app shows with no restart.
+    #[serde(rename = "apps-mcp-tools")]
+    McpTools,
     #[serde(rename = "apps-place")]
     Place {
         contribution: String,
         #[serde(default)]
         region: Option<cmux_layout_reducer::sidebar_doc::Region>,
+    },
+    /// Reads the local app folders again now and reloads `app`, or every
+    /// local app, as a save would (`Supervisor::reload_local_now`). No
+    /// gesture: it changes no install, grant or placement, only reruns
+    /// scripts the person already installed.
+    #[serde(rename = "apps-reload")]
+    Reload {
+        #[serde(default)]
+        app: Option<String>,
     },
     #[serde(rename = "apps-set")]
     Set {
@@ -83,6 +106,7 @@ enum Command {
     },
     /// Safe mode (apps/safe_mode.rs): `op` is `safe_mode.get`,
     /// `safe_mode.set {on}` (leaving needs origin user),
+    /// `safe_mode.bisect {step}` (start, good and bad never from an agent),
     /// `safe_mode.launch_began` or `safe_mode.launch_settled {reason?}` (the
     /// launch ops from the verified app connection only).
     #[serde(rename = "apps-safe-mode")]
@@ -126,10 +150,33 @@ enum Command {
     /// to its usual open.
     #[serde(rename = "apps-open-link")]
     OpenLink { url: String },
+    /// A picked message action (`cmux.chat.action/1`, apps/chat_actions.rs):
+    /// the row's catalog op runs with `{action, message}` on the `apps-run` path.
+    #[serde(rename = "apps-chat-action")]
+    ChatAction {
+        app: String,
+        action: String,
+        message: crate::apps::ChatMessage,
+        /// The click's token (origin user only).
+        #[serde(default)]
+        gesture: Option<String>,
+    },
     /// Open terminal connector links and their local sockets (for this
     /// daemon's clients; apps never get a socket path).
     #[serde(rename = "apps-terminal-links")]
     TerminalLinks,
+    /// Read the local app folders again now and apply what changed, as the
+    /// file watch does on a save (`Supervisor::reload_local_apps_now`): the
+    /// caller that just wrote an app's files (`cmux ext dev`) asks, so its
+    /// reload never waits on file events. The `apps-changed` and
+    /// `apps-reload-failed` events of the pass go out before the reply.
+    /// `folders` names the package folders the caller wrote: the pass reads
+    /// only those when each is a watched one, else every folder.
+    #[serde(rename = "apps-reload-local")]
+    ReloadLocal {
+        #[serde(default)]
+        folders: Option<Vec<std::path::PathBuf>>,
+    },
     #[serde(rename = "apps-logs")]
     Logs {
         app: String,
@@ -145,6 +192,17 @@ enum Command {
     /// `team.event` line (`Supervisor::team_event`). Verified app only.
     #[serde(rename = "apps-team-event")]
     TeamEvent { event: String, data: Value },
+    /// The Cloud machines the app shows: the daemon holds each one's state socket and answers
+    /// with `apps-cloud-machine` events (`server/machine_state_push.rs`). Replaces this
+    /// connection's list; an empty one closes its sockets. Verified app only.
+    #[serde(rename = "apps-machine-state-watch")]
+    MachineStateWatch {
+        machines: Vec<cmux_cloud_machine::record::Machine>,
+        #[serde(default)]
+        platform: String,
+        #[serde(default)]
+        team: Option<String>,
+    },
     /// The Mac app serves ops the daemon does not own (app-op-routing.md).
     #[serde(rename = "apps-provider-register")]
     ProviderRegister {
@@ -158,6 +216,24 @@ enum Command {
     /// The verified app's provider of `family` says its data changed (`<family>.changed`).
     #[serde(rename = "apps-provider-changed")]
     ProviderChanged { family: String },
+    /// One bridge message of an app's web pane (`render: web`,
+    /// apps/page_calls.rs), from the Mac app that hosts the page: `page`
+    /// names the open page, `message` is the page's raw `{id, op, params}`
+    /// (the size limit applies before it is parsed). Verified app only. The
+    /// reply is the page's answer `{id, ok, value | error}`.
+    #[serde(rename = "apps-page-call")]
+    PageCall { app: String, page: String, message: String },
+    /// The person approves a credential for an app's `external` server
+    /// (apps/server_external.rs): origin user, the verified app only.
+    #[serde(rename = "apps-server-credential")]
+    ServerCredential { app: String },
+    /// A process the person started serves `app` on this connection, with
+    /// the credential they approved.
+    #[serde(rename = "apps-server-attach")]
+    ServerAttach { app: String, credential: String },
+    /// One `result` or `event` line of the external server on this connection.
+    #[serde(rename = "apps-server-line")]
+    ServerLine { app: String, line: Value },
     #[serde(rename = "apps-provider-result")]
     ProviderResult {
         request_id: u64,
@@ -222,6 +298,28 @@ pub fn start_apps_when_ready(mux: &Arc<Mux>) {
         let _ = spawn_off_startup(move || {
             mux.control_clients.apps.get_or_init(&mux);
         });
+    }
+}
+
+/// Runs `job` on a thread of its own and replies to `id` with its result
+/// when it ends; the connection reads its next request meanwhile.
+fn answer_off_thread(
+    writer: &MessageWriter,
+    id: Option<Value>,
+    job: impl FnOnce() -> Result<Value, crate::apps::ApiError> + Send + 'static,
+) -> bool {
+    let answer = writer.clone();
+    let asked = id.clone();
+    let spawned = std::thread::Builder::new()
+        .name("cmux-apps-reload".into())
+        .spawn(move || reply(&answer, asked, job()));
+    match spawned {
+        Ok(_) => true,
+        Err(error) => reply(
+            writer,
+            id,
+            Err(crate::apps::ApiError::new("operation.failed", error.to_string())),
+        ),
     }
 }
 
@@ -359,10 +457,12 @@ pub(super) fn try_handle(
     // origin it claims, and every request with origin user (gestures) need a
     // verified cmux app connection. A declared kind app does not count.
     let changes_apps = match &request.command {
-        Command::Set { .. } => true,
+        Command::Set { .. } | Command::ServerCredential { .. } => true,
         Command::Store { op, .. } => crate::apps::store_op_mutates(op),
         // Only the app that runs the link reports its changes (cx-rtipa).
-        Command::LinkChanged | Command::TeamEvent { .. } => true,
+        Command::LinkChanged | Command::TeamEvent { .. } | Command::MachineStateWatch { .. } => {
+            true
+        }
         _ => false,
     };
     // The capability manifest is this daemon's own read-only table: no
@@ -409,10 +509,28 @@ pub(super) fn try_handle(
             )),
         ));
     }
+    // A bisect step runs extensions in safe mode: never an agent's call
+    // (apps/safe_mode_bisect.rs).
+    if let Command::SafeMode { op, args } = &request.command
+        && op.ends_with("safe_mode.bisect")
+        && crate::apps::bisect_step_runs_extensions(args)
+        && origin_claim.agent
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.safe_mode.origin",
+                "an agent cannot run extensions in safe mode: run the bisect yourself",
+            )),
+        ));
+    }
     // An agent-bound connection never reports a link change, also when it
     // is the verified app's (as `apps-provider-register`).
-    if matches!(request.command, Command::LinkChanged | Command::TeamEvent { .. })
-        && !crate::apps::hosting_app_connection(&origin_claim)
+    if matches!(
+        request.command,
+        Command::LinkChanged | Command::TeamEvent { .. } | Command::MachineStateWatch { .. }
+    ) && !crate::apps::hosting_app_connection(&origin_claim)
     {
         return Some(reply(
             writer,
@@ -420,6 +538,20 @@ pub(super) fn try_handle(
             Err(crate::apps::ApiError::new(
                 "apps.origin_forbidden",
                 "only the verified cmux app connection reports a link change",
+            )),
+        ));
+    }
+    // A web pane's call runs with its app's grant: only the app that hosts
+    // the page may send it, so no other connection borrows that grant.
+    if matches!(request.command, Command::PageCall { .. })
+        && !crate::apps::hosting_app_connection(&origin_claim)
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.origin_forbidden",
+                "only the verified cmux app connection hosts an extension's web pane",
             )),
         ));
     }
@@ -438,13 +570,63 @@ pub(super) fn try_handle(
     );
     let Request { id, origin, command } = request;
     let user = origin == crate::apps::Origin::User;
+    // A forced reload reads every local folder and may wait on a load trial
+    // per open view (seconds): it answers from its own thread, so this
+    // connection's mounts and events go on meanwhile (`apps-reload`, and the
+    // app's Reload Custom Views, the App Store op `apps.local.reload`).
+    let command = match command {
+        Command::Reload { app } => {
+            return Some(answer_off_thread(writer, id, move || {
+                supervisor.reload_local_now(app.as_deref())
+            }));
+        }
+        Command::Store { op, args }
+            if op == "apps.local.reload" || crate::apps::store_op_fetches(&op, &args) =>
+        {
+            return Some(answer_off_thread(writer, id, move || {
+                supervisor.store_call(client, &op, args, origin)
+            }));
+        }
+        command => command,
+    };
     let result = match command {
         Command::List => Ok(supervisor.list()),
+        Command::ReloadLocal { folders } => Ok(supervisor.reload_local_apps_named(folders)),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
+        Command::Cli { name, words } => supervisor.cli_resolve(&name, &words),
+        Command::McpTools => Ok(supervisor.mcp_tools()),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
+        // Answered on its own thread above.
+        Command::Reload { .. } => Err(crate::apps::ApiError::new(
+            "operation.failed",
+            "apps-reload is answered off this thread",
+        )),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
         Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
         Command::TeamEvent { event, data } => supervisor.team_event(&event, &data),
+        #[cfg(unix)]
+        Command::MachineStateWatch { machines, platform, team } => {
+            let sink: super::machine_state_push::Sink = {
+                let writer = writer.clone();
+                Arc::new(move |event: &Value| writer.send_control(event).is_ok())
+            };
+            let host = Arc::new(super::machine_state_push::MuxHost(Arc::downgrade(mux)));
+            mux.cloud_services()
+                .machine_state
+                .watch(
+                    client,
+                    sink,
+                    host,
+                    super::machine_state_push::Watch { machines, platform, team },
+                )
+                .map(|()| json!({ "ok": true }))
+                .map_err(|why| crate::apps::ApiError::new("validation.invalid", why))
+        }
+        #[cfg(not(unix))]
+        Command::MachineStateWatch { .. } => Err(crate::apps::ApiError::new(
+            "apps.unavailable",
+            "this daemon holds no state sockets",
+        )),
         Command::Set {
             idempotency_key,
             app,
@@ -466,12 +648,14 @@ pub(super) fn try_handle(
                 hidden_access,
                 sandboxed,
                 grant: grant.map(|g| (g.scope, g.granted)),
+                settings: None,
+                grant_optional: false,
             },
         ),
         Command::Store { op, args } => supervisor.store_call(client, &op, args, origin),
         Command::SafeMode { op, args } => supervisor.safe_mode_call(&op, args, origin),
         Command::Mount { app, interface, mount_id, context } => {
-            supervisor.mount(client, &mount_id, &app, &interface, context)
+            supervisor.mount_as(client, &mount_id, &app, &interface, context, origin)
         }
         Command::Unmount { mount_id } => supervisor.unmount(client, &mount_id),
         Command::Dispatch { mount_id, node, event, payload } => {
@@ -485,6 +669,39 @@ pub(super) fn try_handle(
                     op,
                     args,
                     idempotency_key,
+                    origin,
+                    gesture,
+                    caller: Some(crate::apps::Caller {
+                        client,
+                        request: id.clone().unwrap_or(Value::Null),
+                    }),
+                },
+                Box::new(move |result| {
+                    reply(&writer, id, result);
+                }),
+            );
+            return Some(true);
+        }
+        Command::PageCall { app, page, message } => {
+            let writer = writer.clone();
+            supervisor.page_call(
+                client,
+                &app,
+                &page,
+                &message,
+                Box::new(move |result| {
+                    reply(&writer, id, result);
+                }),
+            );
+            return Some(true);
+        }
+        Command::ChatAction { app, action, message, gesture } => {
+            let writer = writer.clone();
+            supervisor.chat_action(
+                crate::apps::ChatActionRequest {
+                    app,
+                    action,
+                    message,
                     origin,
                     gesture,
                     caller: Some(crate::apps::Caller {
@@ -533,432 +750,15 @@ pub(super) fn try_handle(
         Command::ProviderResult { request_id, ok, body } => {
             supervisor.provider_result(client, request_id, ok, body)
         }
+        Command::ServerCredential { app } => supervisor.server_credential(&app, origin),
+        Command::ServerAttach { app, credential } => {
+            supervisor.server_attach(client, claim_for(mux, client).agent, &app, &credential)
+        }
+        Command::ServerLine { app, line } => supervisor.server_line_from(client, &app, line),
     };
     Some(reply(writer, id, result.map(|v| if v.is_null() { json!({}) } else { v })))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::SurfaceOptions;
-    use crate::server::{BoundedOutbound, ClientTransport, QueuedSink};
-
-    /// A local connection with `kind`, bound to an agent when `agent`.
-    fn connection(mux: &Arc<Mux>, kind: Option<&str>, agent: bool) -> (u64, Arc<BoundedOutbound>) {
-        let outbound = Arc::new(BoundedOutbound::default());
-        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
-        let client = mux.control_clients.register(ClientTransport::Unix, writer);
-        mux.control_clients.state.lock().unwrap().clients.get_mut(&client).unwrap().kind =
-            kind.map(str::to_string);
-        if agent {
-            mux.bind_conversation_principal(client, "agent:test".to_string()).unwrap();
-        }
-        (client, outbound)
-    }
-
-    /// Sends `request` on `client` and returns the reply's error code
-    /// (`None` when the reply is ok).
-    fn error_code(
-        mux: &Arc<Mux>,
-        client: u64,
-        outbound: &BoundedOutbound,
-        request: Value,
-    ) -> Option<String> {
-        let writer = mux.control_clients.state.lock().unwrap().clients[&client].writer.clone();
-        assert_eq!(try_handle(mux, client, &request.to_string(), &writer), Some(true));
-        let reply: Value = serde_json::from_str(&outbound.try_pop().expect("reply")).unwrap();
-        reply["error_code"].as_str().map(str::to_string)
-    }
-
-    fn install(origin: &str) -> Value {
-        json!({ "id": 1, "cmd": "apps-set", "origin": origin, "idempotency_key": "k1", "app": "cmux/demo", "installed": true })
-    }
-
-    fn grant(origin: &str) -> Value {
-        json!({ "id": 2, "cmd": "apps-set", "origin": origin, "idempotency_key": "k2", "app": "cmux/demo", "grant": { "scope": "workspace:write", "granted": true } })
-    }
-
-    const FORBIDDEN: Option<&str> = Some("apps.origin_forbidden");
-    /// Gate A2 on apps-set (request-origin.md): not a verified app.
-    const NOT_VERIFIED: Option<&str> = Some("origin.forbidden");
-
-    /// Makes `client` a verified cmux app connection (what P8's proof sets).
-    fn verify(mux: &Arc<Mux>, client: u64) {
-        crate::server::origin_gate::set_role_for_test(mux, client, "main");
-        crate::server::origin_gate::set_verified_app_for_test(mux, client, true);
-    }
-
-    #[test]
-    fn apps_set_needs_the_verified_app_and_origin_user_needs_no_agent() {
-        let mux = Mux::new_for_test("apps-origin-gate", SurfaceOptions::default());
-        // An agent connection is refused even when it is a verified app.
-        let (agent, agent_out) = connection(&mux, Some("app"), true);
-        for request in [install("user"), grant("user")] {
-            assert_eq!(error_code(&mux, agent, &agent_out, request).as_deref(), NOT_VERIFIED);
-        }
-        // A local client that is not the app is refused too.
-        let (cli, cli_out) = connection(&mux, Some("cli"), false);
-        for request in [install("user"), grant("user")] {
-            assert_eq!(error_code(&mux, cli, &cli_out, request).as_deref(), NOT_VERIFIED);
-        }
-        // A self-declared kind app is not the verified app.
-        let (declared, declared_out) = connection(&mux, Some("app"), false);
-        for request in [install("user"), grant("user")] {
-            assert_eq!(error_code(&mux, declared, &declared_out, request).as_deref(), NOT_VERIFIED);
-        }
-        // The verified app passes both gates (the request then reaches the
-        // supervisor, or apps.unavailable in a daemon without an app host).
-        let (app, app_out) = connection(&mux, Some("app"), false);
-        verify(&mux, app);
-        for request in [install("user"), grant("user")] {
-            let code = error_code(&mux, app, &app_out, request);
-            assert!(code.as_deref() != FORBIDDEN && code.as_deref() != NOT_VERIFIED, "{code:?}");
-        }
-        // A verified connection that is bound to an agent still cannot act
-        // with origin user.
-        let (agent_app, agent_app_out) = connection(&mux, Some("app"), true);
-        verify(&mux, agent_app);
-        for request in [install("user"), grant("user")] {
-            assert_eq!(error_code(&mux, agent_app, &agent_app_out, request).as_deref(), FORBIDDEN);
-        }
-    }
-
-    /// Safe mode on the wire: leaving needs origin user, which only the
-    /// verified app may claim; launches come from the verified app only.
-    #[test]
-    fn safe_mode_leaving_and_launch_reports_need_the_verified_app() {
-        let mux = Mux::new_for_test("apps-safe-mode-gate", SurfaceOptions::default());
-        let leave = || json!({"id": 1, "cmd": "apps-safe-mode", "origin": "user", "op": "safe_mode.set", "args": {"on": false}});
-        let began = |origin: &str| json!({"id": 2, "cmd": "apps-safe-mode", "origin": origin, "op": "safe_mode.launch_began"});
-        let settled = || json!({"id": 3, "cmd": "apps-safe-mode", "op": "safe_mode.launch_settled", "args": {"reason": "quit"}});
-        let (cli, cli_out) = connection(&mux, Some("cli"), false);
-        assert_eq!(error_code(&mux, cli, &cli_out, leave()).as_deref(), NOT_VERIFIED);
-        assert_eq!(error_code(&mux, cli, &cli_out, began("cli")).as_deref(), FORBIDDEN);
-        assert_eq!(error_code(&mux, cli, &cli_out, settled()).as_deref(), FORBIDDEN);
-        let (agent_app, agent_out) = connection(&mux, Some("app"), true);
-        verify(&mux, agent_app);
-        assert_eq!(error_code(&mux, agent_app, &agent_out, began("cli")).as_deref(), FORBIDDEN);
-        // The verified app passes the gates (then the supervisor, or
-        // apps.unavailable in a daemon without an app host).
-        let (app, app_out) = connection(&mux, Some("app"), false);
-        verify(&mux, app);
-        for request in [leave(), began("user"), settled()] {
-            let code = error_code(&mux, app, &app_out, request);
-            assert!(code.as_deref() != FORBIDDEN && code.as_deref() != NOT_VERIFIED, "{code:?}");
-        }
-    }
-
-    /// `apps-capabilities` answers the capability manifest on any local
-    /// connection, with no app host: every op row, the never list, the API
-    /// version and the typed global; `op` asks for one row.
-    #[test]
-    fn capabilities_answer_the_manifest_without_an_app_host() {
-        let mux = Mux::new_for_test("apps-capabilities", SurfaceOptions::default());
-        let (cli, out) = connection(&mux, Some("cli"), false);
-        let writer = mux.control_clients.state.lock().unwrap().clients[&cli].writer.clone();
-        let ask = |request: Value| -> Value {
-            assert_eq!(try_handle(&mux, cli, &request.to_string(), &writer), Some(true));
-            serde_json::from_str(&out.try_pop().expect("reply")).unwrap()
-        };
-        let all = ask(json!({"id": 1, "cmd": "apps-capabilities"}));
-        assert_eq!(all["ok"], true, "{all}");
-        let table = cmux_app_manifest::Capabilities::get();
-        assert_eq!(all["data"]["apiVersion"], table.api_version.as_str());
-        assert_eq!(all["data"]["types"], cmux_app_manifest::capabilities::APP_TYPES);
-        assert_eq!(all["data"]["ops"].as_array().map(Vec::len), Some(table.ops().count()));
-        let one = ask(json!({"id": 2, "cmd": "apps-capabilities", "op": "workspace.list"}));
-        assert_eq!(one["data"]["ops"][0]["scope"], "workspace:read", "{one}");
-        let brief = ask(json!({"id": 4, "cmd": "apps-capabilities", "brief": true}));
-        assert_eq!(
-            brief["data"]["typesDigest"],
-            cmux_app_manifest::capabilities::types_digest(),
-            "{brief}"
-        );
-        assert!(brief["data"].get("types").is_none(), "{brief}");
-        let unknown = ask(json!({"id": 3, "cmd": "apps-capabilities", "op": "made.up"}));
-        assert_eq!(unknown["error_code"], "apps.op.unknown", "{unknown}");
-    }
-
-    /// `user_origin_allowed` (the `client-hello` field) matches the door:
-    /// only the verified app that is not bound to an agent.
-    #[test]
-    fn user_origin_allowed_matches_the_apps_door() {
-        let mux = Mux::new_for_test("apps-user-origin-allowed", SurfaceOptions::default());
-        let (cli, _cli_out) = connection(&mux, Some("app"), false);
-        assert!(!user_origin_allowed(&mux, cli));
-        let (app, _app_out) = connection(&mux, Some("app"), false);
-        verify(&mux, app);
-        assert!(user_origin_allowed(&mux, app));
-        let (agent_app, _agent_app_out) = connection(&mux, Some("app"), true);
-        verify(&mux, agent_app);
-        assert!(!user_origin_allowed(&mux, agent_app));
-    }
-
-    /// P8 3b-2: kind `app` is a self-declared label. Provider registration
-    /// counts only the verified app, never a declared kind or a page relay.
-    #[test]
-    fn only_the_verified_app_is_the_hosting_app_for_providers() {
-        let mux = Mux::new_for_test("apps-provider-claim", SurfaceOptions::default());
-        let (declared, _declared_out) = connection(&mux, Some("app"), false);
-        assert!(!claim_for(&mux, declared).verified_app);
-        let (relay, _relay_out) = connection(&mux, Some("app"), false);
-        crate::server::origin_gate::set_role_for_test(&mux, relay, "page_relay");
-        crate::server::origin_gate::set_verified_app_for_test(&mux, relay, true);
-        assert!(!claim_for(&mux, relay).verified_app);
-        let (app, _app_out) = connection(&mux, None, false);
-        verify(&mux, app);
-        assert!(claim_for(&mux, app).verified_app);
-    }
-
-    #[test]
-    fn cmux_next_agent_inventory_invalidation_requires_a_verified_non_agent_local_connection() {
-        let mux = Mux::new_for_test("inventory-provider-claim", SurfaceOptions::default());
-        let frame =
-            || json!({"id":1,"cmd":"apps-agent-inventory-changed","demand_sequence":u64::MAX});
-        let (declared, out) = connection(&mux, Some("app"), false);
-        assert_eq!(
-            error_code(&mux, declared, &out, frame()).as_deref(),
-            Some("apps.provider.forbidden")
-        );
-        let (agent, out) = connection(&mux, Some("app"), true);
-        verify(&mux, agent);
-        assert_eq!(
-            error_code(&mux, agent, &out, frame()).as_deref(),
-            Some("apps.provider.forbidden")
-        );
-        for transport in [ClientTransport::WebSocket, ClientTransport::Remote] {
-            let outbound = Arc::new(BoundedOutbound::default());
-            let writer =
-                MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
-            let client = mux.control_clients.register(transport, writer);
-            verify(&mux, client);
-            assert_eq!(error_code(&mux, client, &outbound, frame()).as_deref(), Some("apps.local"));
-        }
-        let (relay, out) = connection(&mux, Some("app"), false);
-        crate::server::origin_gate::set_role_for_test(&mux, relay, "page_relay");
-        crate::server::origin_gate::set_verified_app_for_test(&mux, relay, true);
-        assert_eq!(
-            error_code(&mux, relay, &out, frame()).as_deref(),
-            Some("apps.provider.forbidden")
-        );
-    }
-
-    #[test]
-    fn cmux_next_agent_inventory_invalidation_rejects_payloads_selectors_and_malformed_sequences() {
-        let mux = Mux::new_for_test("inventory-provider-frame", SurfaceOptions::default());
-        let (client, out) = connection(&mux, Some("app"), false);
-        for key in [
-            "origin",
-            "machine",
-            "expected_machine_id",
-            "event",
-            "stream",
-            "clis",
-            "command",
-            "params",
-        ] {
-            let mut frame =
-                json!({"id":1,"cmd":"apps-agent-inventory-changed","demand_sequence":1});
-            frame[key] = json!("untrusted");
-            assert_eq!(error_code(&mux, client, &out, frame).as_deref(), Some("bad-request"));
-        }
-        for sequence in [
-            Value::Null,
-            json!(true),
-            json!(-1),
-            json!(1.5),
-            json!("1"),
-            serde_json::from_str("18446744073709551616").unwrap(),
-        ] {
-            let frame =
-                json!({"id":1,"cmd":"apps-agent-inventory-changed","demand_sequence":sequence});
-            assert_eq!(error_code(&mux, client, &out, frame).as_deref(), Some("bad-request"));
-        }
-        assert_eq!(
-            error_code(&mux, client, &out, json!({"id":1,"cmd":"apps-agent-inventory-changed"}))
-                .as_deref(),
-            Some("bad-request")
-        );
-        // The full UInt64 range is parsed exactly before the authority gate.
-        let frame = json!({"id":1,"cmd":"apps-agent-inventory-changed","demand_sequence":u64::MAX});
-        assert_eq!(
-            error_code(&mux, client, &out, frame).as_deref(),
-            Some("apps.provider.forbidden")
-        );
-    }
-
-    #[test]
-    fn cmux_next_provider_changed_frame_names_only_its_family() {
-        let mux = Mux::new_for_test("provider-changed-frame", SurfaceOptions::default());
-        let (client, out) = connection(&mux, Some("app"), false);
-        for key in ["stream", "event", "body", "demand_sequence", "origin"] {
-            let mut frame = json!({"id":1,"cmd":"apps-provider-changed","family":"agent_chat"});
-            frame[key] = json!("untrusted");
-            assert_eq!(error_code(&mux, client, &out, frame).as_deref(), Some("bad-request"));
-        }
-        for family in [Value::Null, json!(1), json!(["agent_chat"])] {
-            let frame = json!({"id":1,"cmd":"apps-provider-changed","family":family});
-            assert_eq!(error_code(&mux, client, &out, frame).as_deref(), Some("bad-request"));
-        }
-        let frame = json!({"id":1,"cmd":"apps-provider-changed"});
-        assert_eq!(error_code(&mux, client, &out, frame).as_deref(), Some("bad-request"));
-        // A well-formed frame from a connection that is not the verified app stops at the gate.
-        let frame = json!({"id":1,"cmd":"apps-provider-changed","family":"agent_chat"});
-        assert_eq!(
-            error_code(&mux, client, &out, frame).as_deref(),
-            Some("apps.provider.forbidden")
-        );
-    }
-
-    #[test]
-    fn hiding_needs_the_verified_app_and_listing_does_not() {
-        let mux = Mux::new_for_test("apps-origin-other", SurfaceOptions::default());
-        let hide = |origin: &str| json!({ "id": 3, "cmd": "apps-set", "origin": origin, "idempotency_key": format!("h-{origin}"), "app": "cmux/demo", "hidden": true });
-        // apps-set changes apps, so an agent connection cannot hide either
-        // (Gate A2 on every apps-set change).
-        let (agent, out) = connection(&mux, None, true);
-        for origin in ["cli", "script", "mcp"] {
-            assert_eq!(error_code(&mux, agent, &out, hide(origin)).as_deref(), NOT_VERIFIED);
-        }
-        let list = json!({ "id": 4, "cmd": "apps-list" });
-        assert_ne!(error_code(&mux, agent, &out, list).as_deref(), NOT_VERIFIED);
-        // The verified app hides with any origin.
-        let (app, app_out) = connection(&mux, Some("app"), false);
-        verify(&mux, app);
-        for origin in ["cli", "script", "mcp"] {
-            let code = error_code(&mux, app, &app_out, hide(origin));
-            assert!(code.as_deref() != FORBIDDEN && code.as_deref() != NOT_VERIFIED, "{code:?}");
-        }
-    }
-
-    fn parse(value: Value) -> Request {
-        serde_json::from_value(value).expect("request")
-    }
-
-    #[test]
-    fn requests_parse_with_origin_defaulting_to_cli() {
-        let list = parse(json!({ "id": 1, "cmd": "apps-list" }));
-        assert!(matches!(list.command, Command::List) && list.origin == crate::apps::Origin::Cli);
-        let set = parse(
-            json!({ "id": 2, "cmd": "apps-set", "origin": "user", "idempotency_key": "k", "app": "cmux/a", "hidden": true, "grant": { "scope": "agent:read", "granted": true } }),
-        );
-        assert_eq!(set.origin, crate::apps::Origin::User);
-        assert!(matches!(
-            set.command,
-            Command::Set { hidden: Some(true), grant: Some(GrantParam { granted: true, .. }), .. }
-        ));
-        let mount = parse(
-            json!({ "cmd": "apps-mount", "app": "cmux/a", "interface": "cmux.section/1", "mount_id": "m", "context": { "preview": true } }),
-        );
-        assert!(
-            matches!(mount.command, Command::Mount { ref context, .. } if context["preview"] == true)
-        );
-        assert!(
-            serde_json::from_value::<Request>(json!({ "cmd": "apps-set", "app": "cmux/a" }))
-                .is_err(),
-            "apps-set needs an idempotency key"
-        );
-        let register =
-            parse(json!({ "cmd": "apps-provider-register", "families": ["fs", "action"] }));
-        assert!(
-            matches!(register.command, Command::ProviderRegister { ref families, inventory_watch: false } if families.len() == 2)
-        );
-        let result = parse(
-            json!({ "cmd": "apps-provider-result", "request_id": 4, "ok": false, "body": { "code": "x" } }),
-        );
-        assert!(matches!(result.command, Command::ProviderResult { request_id: 4, ok: false, .. }));
-    }
-
-    #[test]
-    fn error_replies_carry_details_and_retryable() {
-        let mux = Mux::new_for_test("apps-error-details", SurfaceOptions::default());
-        let (client, outbound) = connection(&mux, Some("app"), false);
-        let writer = mux.control_clients.state.lock().unwrap().clients[&client].writer.clone();
-        let mut error = crate::apps::ApiError::new("cmux.cloud.not_found", "no such machine");
-        error.details = Some(json!({ "status": 404, "upstream_code": "vm_not_found" }));
-        error.retryable = true;
-        assert!(reply(&writer, Some(json!(7)), Err(error)));
-        let sent: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
-        assert_eq!(
-            sent,
-            json!({ "id": 7, "ok": false, "error": "no such machine", "error_code": "cmux.cloud.not_found",
-                "error_details": { "status": 404, "upstream_code": "vm_not_found" }, "retryable": true })
-        );
-        // Without details the reply still says whether a retry may help.
-        assert!(reply(
-            &writer,
-            Some(json!(8)),
-            Err(crate::apps::ApiError::new("apps.unknown", "no"))
-        ));
-        let plain: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
-        assert_eq!((plain.get("error_details"), plain["retryable"].clone()), (None, json!(false)));
-    }
-
-    /// The CLI's Ctrl-C (spec/cli.md "apps run"): `cancel-request` on the
-    /// connection that sent the `apps-run` reaches the apps door and is
-    /// answered `{}`, also when no such run exists (an unknown or answered
-    /// request changes nothing).
-    #[test]
-    fn a_cancel_request_is_answered_on_the_apps_door() {
-        let mux = Mux::new_for_test("apps-cancel-request", SurfaceOptions::default());
-        let (cli, out) = connection(&mux, Some("cli"), false);
-        let writer = mux.control_clients.state.lock().unwrap().clients[&cli].writer.clone();
-        let cancel =
-            json!({ "id": "cancel-request-1", "cmd": "cancel-request", "target": "apps-run-1" });
-        assert_eq!(try_handle(&mux, cli, &cancel.to_string(), &writer), Some(true));
-        let reply: Value = serde_json::from_str(&out.try_pop().expect("reply")).unwrap();
-        assert_eq!(
-            (reply["id"].clone(), reply["ok"].clone(), reply["data"].clone()),
-            (json!("cancel-request-1"), json!(true), json!({}))
-        );
-        // Without a target the frame is a bad request, not silence.
-        let bad = json!({ "id": 2, "cmd": "cancel-request" });
-        assert_eq!(try_handle(&mux, cli, &bad.to_string(), &writer), Some(true));
-        let reply: Value = serde_json::from_str(&out.try_pop().expect("reply")).unwrap();
-        assert_eq!(reply["error_code"], "bad-request");
-    }
-
-    /// `identify` advertises cancel-request-v1 exactly when it advertises
-    /// apps-v1: the frame cancels `apps-run` requests, so a daemon without
-    /// an app host does not offer it (the CLI then closes the connection).
-    #[test]
-    fn cancel_request_is_advertised_with_the_app_host() {
-        assert_eq!(
-            crate::apps::advertised_with(true),
-            vec![crate::apps::CAPABILITY, crate::apps::CANCEL_REQUEST_CAPABILITY]
-        );
-        assert!(crate::apps::advertised_with(false).is_empty());
-        assert_eq!(crate::apps::CANCEL_REQUEST_CAPABILITY, "cancel-request-v1");
-    }
-
-    #[test]
-    fn a_client_open_token_is_not_part_of_an_apps_run_request() {
-        // The supervisor alone mints open tokens; a client's top-level one is
-        // not a field of the request, so it is dropped while parsing.
-        let run = parse(
-            json!({ "id": 5, "cmd": "apps-run", "origin": "user", "app": "cmux/a", "op": "a.go", "open_token": "forged", "args": {} }),
-        );
-        let Command::Run { args, .. } = run.command else { panic!("apps-run") };
-        assert_eq!(args, json!({}));
-    }
-
-    #[test]
-    fn the_app_supervisor_starts_off_the_daemon_startup_path() {
-        // The job stands in for building the supervisor; it blocks until
-        // released, and the caller must already have returned.
-        let (release, wait) = std::sync::mpsc::channel::<()>();
-        let (done, finished) = std::sync::mpsc::channel::<()>();
-        let handle = spawn_off_startup(move || {
-            wait.recv().unwrap();
-            done.send(()).unwrap();
-        })
-        .unwrap();
-        assert!(finished.try_recv().is_err(), "the caller returned while the start still runs");
-        release.send(()).unwrap();
-        handle.join().unwrap();
-        assert!(finished.try_recv().is_ok());
-        // Without an app host (no apps-v1) nothing starts and nothing blocks.
-        let mux = Mux::new_for_test("apps-start-off-path", SurfaceOptions::default());
-        start_apps_when_ready(&mux);
-    }
-}
+#[path = "apps_tests.rs"]
+mod tests;

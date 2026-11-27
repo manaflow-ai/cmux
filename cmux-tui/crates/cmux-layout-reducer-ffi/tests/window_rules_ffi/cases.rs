@@ -131,6 +131,12 @@ fn tabs_small_rules_answer_over_the_channel() {
         &json!({"chat": true, "agent": "claude", "session": "s"}),
     );
     assert_eq!(body, json!({"route": "resumeInTerminal", "harness": "claude", "session": "s"}));
+    // Where nothing can start a terminal, a chat no terminal runs offers no toggle.
+    let (_, body) = call_json(
+        c"window_tabs_terminal_chat_toggle",
+        &json!({"chat": true, "agent": "claude", "session": "s", "cannotStartTerminal": true}),
+    );
+    assert_eq!(body, json!({"route": "noTerminal"}));
     let (_, body) = call_json(
         c"window_tabs_terminal_chat_toggle",
         &json!({"chat": true, "agent": "codex", "session": "s", "now": 1.0,
@@ -202,6 +208,10 @@ fn panes_terminal_tables_answer_over_the_channel() {
     assert_eq!(body, json!({"kind": "timed out"}));
     let (_, body) = call_json(c"window_panes_shell_quote", &json!({"text": "it's"}));
     assert_eq!(body, json!({"text": "'it'\\''s'"}));
+    let (_, body) = call_json(c"window_panes_go_to_directory", &json!({"text": "~/a b"}));
+    assert_eq!(body, json!({"text": "\u{15}cd -- ~/'a b'\r"}));
+    let (_, body) = call_json(c"window_panes_go_to_directory", &json!({"text": " "}));
+    assert_eq!(body, json!({"text": null}));
     assert_eq!(call(c"window_tabs_nope", b"{}").0, ERR_INVALID);
     assert_eq!(call(c"window_panes_split", b"[").0, ERR_INVALID);
 }
@@ -625,6 +635,67 @@ fn notifications_last_prompt_mute_and_banners() {
 }
 
 #[test]
+fn notifications_decide_an_arrival() {
+    let (code, body) = call_json(
+        c"window_notifications_decide",
+        &json!({
+            "prefs": {"dismissal": "click", "sound": "Glass", "dockBounce": "once",
+                      "sounds": {"volume": 0.5, "workspaces": {"ws_1": {"sound": "Frog", "volume": 0.4}}}},
+            "arrival": {"source": "agent", "appActive": false, "soundEvent": "needsInput",
+                        "soundScope": {"workspace": "ws_1"}}
+        }),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        body,
+        json!({"acknowledge": false, "attention": true, "alerts": true, "desktop": true,
+               "sound": "Frog", "soundVolume": 0.2, "soundEvent": "needsInput",
+               "soundLevel": "workspace:ws_1", "timeout": null, "bounce": "once"})
+    );
+    let (code, _) = call_json(c"window_notifications_decide", &json!({"prefs": {}}));
+    assert_ne!(code, OK, "an arrival is required");
+}
+
+#[test]
+fn notifications_clears_table_and_sound_cooldown() {
+    let (code, body) = call_json(c"window_notifications_clears_table", &json!({}));
+    assert_eq!(code, OK);
+    assert_eq!(body["focus"], json!(["focus", "click", "keystroke", "open"]));
+    assert_eq!(body["never"], json!([]));
+    let (_, body) = call_json(
+        c"window_notifications_sound_admit",
+        &json!({"event": "finished", "nowMs": 100, "cooldownMs": 1500}),
+    );
+    assert_eq!(body, json!({"admitted": true, "last": {"atMs": 100, "urgency": 1}}));
+    let (_, body) = call_json(
+        c"window_notifications_sound_admit",
+        &json!({"last": {"atMs": 100, "urgency": 1}, "event": "bell", "nowMs": 300, "cooldownMs": 1500}),
+    );
+    assert_eq!(body, json!({"admitted": false}));
+}
+
+#[test]
+fn notifications_sound_choice_and_event() {
+    let (code, body) = call_json(
+        c"window_notifications_sound_choice",
+        &json!({"sounds": {"volume": 0.5, "groups": {"Ops": {"sound": "Tink"}}}, "event": "finished",
+                "scope": {"groups": [{"id": "g1", "name": "Ops"}]}, "fallback": "Glass"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"choice": {"name": "Tink", "volume": 0.5, "level": "group:Ops"}}));
+    let (_, body) = call_json(
+        c"window_notifications_sound_choice",
+        &json!({"event": "bell", "fallback": "none"}),
+    );
+    assert_eq!(body, json!({"choice": null}));
+    let (_, body) = call_json(
+        c"window_notifications_sound_event",
+        &json!({"source": "cli", "level": "warning"}),
+    );
+    assert_eq!(body, json!({"event": "needsInput"}));
+}
+
+#[test]
 fn history_actions_and_layout_undo() {
     let (code, body) = call_json(c"window_history_actions", &json!({}));
     assert_eq!(code, OK);
@@ -856,4 +927,148 @@ fn toggle_terminal_and_chat_approval_answers_over_the_channel() {
     let stale = json!({"screen": "❯ ", "key": 2, "label": "No", "id": id});
     let (_, body) = call_json(c"window_tabs_terminal_approval_keys", &stale);
     assert_eq!(body, json!({"keys": null}));
+}
+
+#[test]
+fn restore_order_makes_the_front_window_now_and_the_others_later() {
+    let (code, body) = call_json(
+        c"window_restore_order",
+        &json!({"windows": [
+            {"id": "front", "open": true, "made": true},
+            {"id": "closed", "open": false, "made": false},
+            {"id": "second", "open": true, "made": false},
+            {"id": "third", "open": true, "made": false}
+        ], "adopted": "front"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"front": "front", "later": ["second", "third"]}));
+}
+
+/// cmuxterm-hq#12660: the app's facts after the live tree applied, the snapshot's standing back.
+#[test]
+fn launch_snapshot_verdict_names_another_sessions_snapshot_stale() {
+    let other = json!({"snapshotSession": "4cd043ac", "liveSession": "9e1f", "shown": "home-a",
+                       "listed": ["home-a"], "live": []});
+    assert_eq!(
+        call_json(c"window_launch_snapshot_verdict", &other),
+        (OK, json!({"verdict": "otherSession"}))
+    );
+    let gone = json!({"snapshotSession": "s1", "liveSession": "s1", "shown": "w1", "listed": ["w1"], "live": []});
+    assert_eq!(
+        call_json(c"window_launch_snapshot_verdict", &gone).1,
+        json!({"verdict": "unknownWorkspaces"})
+    );
+    let own = json!({"snapshotSession": "s1", "liveSession": "s1", "shown": "w1", "listed": ["w1"], "live": ["w1"]});
+    assert_eq!(call_json(c"window_launch_snapshot_verdict", &own).1, json!({"verdict": "current"}));
+    assert_eq!(call(c"window_launch_snapshot_verdict", b"[").0, ERR_INVALID);
+}
+
+/// cmuxterm-hq#12660: the registry id this home recorded, read through the one Rust reader.
+#[test]
+fn launch_current_registry_reads_this_homes_file() {
+    let root = std::env::temp_dir().join(format!("ffi-launch-registry-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("cmux-next")).expect("temporary folder");
+    std::fs::write(root.join("cmux-next/launch-snapshot-registry.cmux-app"), "9e1f\n")
+        .expect("write");
+    let request = json!({"appSupport": root.to_string_lossy(), "session": "cmux-app"});
+    assert_eq!(
+        call_json(c"window_launch_current_registry", &request),
+        (OK, json!({"registryId": "9e1f"}))
+    );
+    let other = json!({"appSupport": root.to_string_lossy(), "session": "cmux-app-other"});
+    assert_eq!(call_json(c"window_launch_current_registry", &other).1, json!({"registryId": null}));
+    assert_eq!(call(c"window_launch_current_registry", b"{}").0, ERR_INVALID);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Leo ask-b7aac8d3f9: a relaunch lands on the last workspace and tab, a first launch on Home.
+#[test]
+fn launch_landing_reopens_the_last_workspace_and_tab() {
+    let kept = json!({"last": {"kind": "workspace", "workspace": "w2", "pane": "p1", "tab": "t3"},
+                      "workspaceLive": true, "tab": "ended"});
+    assert_eq!(
+        call_json(c"window_launch_landing", &kept),
+        (OK, json!({"kind": "workspace", "workspace": "w2", "pane": "p1", "tab": "t3"}))
+    );
+    assert_eq!(
+        call_json(c"window_launch_landing", &json!({})).1,
+        json!({"kind": "home", "why": "firstLaunch"})
+    );
+    assert_eq!(
+        call_json(c"window_launch_landing", &json!({"last": {"kind": "home"}})).1,
+        json!({"kind": "home", "why": "lastWasHome"})
+    );
+    assert_eq!(call(c"window_launch_landing", b"[").0, ERR_INVALID);
+}
+
+/// A Home landing that waits for Home's workspace lands in the saved front window, not the active one.
+#[test]
+fn launch_pending_home_waits_then_lands_in_the_front_window() {
+    let waits =
+        json!({"window": "front", "active": "second", "windowOpen": true, "homeReady": false});
+    assert_eq!(call_json(c"window_launch_pending_home", &waits), (OK, json!({"step": "wait"})));
+    let ready =
+        json!({"window": "front", "active": "second", "windowOpen": true, "homeReady": true});
+    assert_eq!(
+        call_json(c"window_launch_pending_home", &ready).1,
+        json!({"step": "land", "window": "front"})
+    );
+    let moved = json!({"window": "front", "windowOpen": true, "homeReady": true, "moved": true});
+    assert_eq!(call_json(c"window_launch_pending_home", &moved).1, json!({"step": "stop"}));
+    assert_eq!(call(c"window_launch_pending_home", b"[").0, ERR_INVALID);
+}
+
+/// Open in Editor: the table the app reads, and the pick with the person's `editor.default`.
+#[test]
+fn editors_table_and_pick_answer_the_app() {
+    let (code, body) = call_json(c"window_editors_table", &json!({}));
+    assert_eq!(code, OK);
+    let first = &body["editors"][0];
+    assert_eq!(first["id"], "vscode");
+    assert_eq!(first["bundleIds"][0], "com.microsoft.VSCode");
+    assert_eq!(first["remoteScheme"], "vscode");
+    assert_eq!(
+        call_json(
+            c"window_editors_pick",
+            &json!({"installed": ["zed", "vscode"], "configured": "zed"})
+        ),
+        (OK, json!({"default": "zed", "ordered": ["zed", "vscode"]}))
+    );
+    assert_eq!(
+        call_json(
+            c"window_editors_pick",
+            &json!({"installed": ["zed", "vscode"], "configured": null})
+        ),
+        (OK, json!({"default": "vscode", "ordered": ["vscode", "zed"]}))
+    );
+    assert_eq!(
+        call_json(c"window_editors_pick", &json!({"installed": [], "configured": "nova"})),
+        (OK, json!({"default": null, "ordered": []}))
+    );
+}
+
+/// Leo ask-b7aac8d3f9: a fresh launch lands on Home, a New Tab workspace when no saved window is open, and waits
+/// while Home is not ensured yet.
+#[test]
+fn launch_fresh_landing_answers_home_new_tab_or_wait() {
+    let empty = json!({"emptyTree": true, "homeEnsured": true});
+    assert_eq!(call_json(c"window_launch_fresh_landing", &empty), (OK, json!({"kind": "home"})));
+    let none_open = json!({"noSavedWindowOpen": true, "homeEnsured": true});
+    assert_eq!(call_json(c"window_launch_fresh_landing", &none_open).1, json!({"kind": "newTab"}));
+    let waiting = json!({"emptyTree": true, "homeNotEnsuredYet": true});
+    assert_eq!(
+        call_json(c"window_launch_fresh_landing", &waiting).1,
+        json!({"kind": "waitForHome"})
+    );
+    assert_eq!(call(c"window_launch_fresh_landing", b"[").0, ERR_INVALID);
+}
+
+/// Review F1 of #46087: once the person left the restored place, coming back before Home is listed lands nothing.
+#[test]
+fn launch_pending_home_stays_dropped_once_the_person_left() {
+    let back = json!({
+        "window": "front", "active": "front", "windowOpen": true, "homeReady": true,
+        "moved": false, "movedSinceRestore": true
+    });
+    assert_eq!(call_json(c"window_launch_pending_home", &back), (OK, json!({"step": "stop"})));
 }

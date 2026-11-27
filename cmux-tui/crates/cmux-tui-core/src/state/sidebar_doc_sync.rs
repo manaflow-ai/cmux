@@ -128,7 +128,7 @@ pub(crate) fn clear_dirty(transaction: &Transaction<'_>) -> anyhow::Result<()> {
 /// Apply one op to the running document; a refusal is logged and skipped
 /// (an old write the document cannot follow, for example a group of two
 /// machines, leaves the document as it was).
-fn try_apply(batch: &mut Batch<'_>, op: Op) {
+pub(super) fn try_apply(batch: &mut Batch<'_>, op: Op) {
     let mut mint = mint_item_id;
     if let Err(refusal) = batch.apply(std::slice::from_ref(&op), &mut mint) {
         eprintln!("cmux-tui: sidebar doc does not follow an old write ({refusal})");
@@ -156,7 +156,7 @@ pub(crate) fn commit_derived(
 
 /// Store a finished batch's changes (the document is at `revision`) and
 /// queue them into the current commit's batch.
-fn commit_applied(
+pub(super) fn commit_applied(
     transaction: &Transaction<'_>,
     previous_revision: u64,
     revision: u64,
@@ -214,32 +214,6 @@ fn loose_before(connection: &Connection, position: i64) -> anyhow::Result<Option
         .map(|(session, key, position)| Row { session, key, position, group: None }))
 }
 
-/// What shows right before a row in the old order.
-enum Neighbor {
-    Row(Row),
-    Group(String),
-}
-
-/// The old-order neighbor of a loose row at `position`: the last group
-/// slotted between the previous loose row and it, else that row.
-fn loose_neighbor(connection: &Connection, position: i64) -> anyhow::Result<Option<Neighbor>> {
-    let previous = loose_before(connection, position)?;
-    let floor = previous.as_ref().map_or(i64::MIN, |row| row.position);
-    let group: Option<String> = connection
-        .query_row(
-            "SELECT group_id FROM personal_groups
-             WHERE top_position IS NOT NULL AND top_position <= ?1 AND top_position > ?2
-             ORDER BY top_position DESC, position DESC LIMIT 1",
-            params![position, floor],
-            |r| r.get(0),
-        )
-        .optional()?;
-    Ok(match group {
-        Some(group) => Some(Neighbor::Group(group)),
-        None => previous.map(Neighbor::Row),
-    })
-}
-
 /// The previous member of `group` before `position`.
 fn member_before(
     connection: &Connection,
@@ -286,13 +260,19 @@ fn row_item<'a>(doc: &'a Doc, workspace: &LegacyWorkspace) -> Option<&'a Item> {
 
 /// The document item of an old group id: `itm_g_<id>` (migrated or synced)
 /// or the id itself (a group the document made, written back).
-fn group_item<'a>(doc: &'a Doc, group: &str) -> Option<&'a Item> {
+pub(super) fn group_item<'a>(doc: &'a Doc, group: &str) -> Option<&'a Item> {
     doc.item(&group_item_id(group)).or_else(|| doc.item(group)).filter(|item| item.body.is_group())
 }
 
 /// The old group id of a group item (the inverse of [`group_item`]).
 pub(crate) fn legacy_group_id(item: &str) -> String {
     item.strip_prefix("itm_g_").unwrap_or(item).to_string()
+}
+
+/// What shows right before a group slot in the old order.
+enum Neighbor {
+    Row(Row),
+    Group(String),
 }
 
 fn neighbor_item(
@@ -308,8 +288,110 @@ fn neighbor_item(
     })
 }
 
+/// The id of `item` when it sits among `(section, parent)`.
+fn sibling(item: Option<&Item>, section: &str, parent: Option<&str>) -> Option<ItemId> {
+    item.filter(|item| item.section == section && item.parent.as_deref() == parent)
+        .map(|item| item.id.clone())
+}
+
+/// The document item of personal row `row` when it sits among `(section,
+/// parent)`. None for a closed local workspace: it keeps its row (its place,
+/// which reopen gives back) but has no item.
+fn row_sibling(
+    connection: &Connection,
+    doc: &Doc,
+    local: &str,
+    row: &Row,
+    section: &str,
+    parent: Option<&str>,
+) -> anyhow::Result<Option<ItemId>> {
+    Ok(legacy_workspace(connection, local, &row.session, &row.key)?
+        .and_then(|workspace| sibling(row_item(doc, &workspace), section, parent)))
+}
+
+/// The item a loose entry at `position` of the old order shows right
+/// after in `section`: the nearest earlier loose row, or (with `groups`)
+/// group slotted between it and `position`, that has an item there. Rows
+/// and groups with no item in `section` (closed workspaces, other machines,
+/// Pinned) are passed over, so a reopened workspace lands after its nearest
+/// open neighbor and not at the end (#56144). None: nothing before it.
+///
+/// One pass, newest first: the earlier loose rows and the slotted groups
+/// are each read once, in old order (a group slotted at `top` shows before
+/// the rows at `top` and after, so it comes ahead of a row at `< top`).
+fn placed_loose_before(
+    connection: &Connection,
+    doc: &Doc,
+    local: &str,
+    section: &str,
+    position: i64,
+    groups: bool,
+) -> anyhow::Result<Option<ItemId>> {
+    let mut row_statement = connection.prepare_cached(
+        "SELECT w.session_id, w.workspace_key, w.position FROM personal_workspaces AS w
+         WHERE w.position < ?1
+           AND (w.group_id IS NULL
+                OR NOT EXISTS (SELECT 1 FROM personal_groups AS g WHERE g.group_id = w.group_id))
+         ORDER BY w.position DESC",
+    )?;
+    let mut rows = row_statement.query_map([position], |r| {
+        Ok(Row { session: r.get(0)?, key: r.get(1)?, position: r.get(2)?, group: None })
+    })?;
+    let mut group_statement = connection.prepare_cached(
+        "SELECT group_id, top_position FROM personal_groups
+         WHERE top_position IS NOT NULL AND top_position <= ?1 AND ?2
+         ORDER BY top_position DESC, position DESC",
+    )?;
+    let mut slotted = group_statement.query_map(params![position, groups], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+    })?;
+    let mut row = rows.next().transpose()?;
+    let mut group = slotted.next().transpose()?;
+    loop {
+        let group_first = match (&row, &group) {
+            (_, None) => false,
+            (None, Some(_)) => true,
+            (Some(row), Some((_, top))) => *top > row.position,
+        };
+        if group_first {
+            if let Some((id, _)) = group.take()
+                && let Some(item) = sibling(group_item(doc, &id), section, None)
+            {
+                return Ok(Some(item));
+            }
+            group = slotted.next().transpose()?;
+            continue;
+        }
+        let Some(next_row) = row.take() else { return Ok(None) };
+        if let Some(item) = row_sibling(connection, doc, local, &next_row, section, None)? {
+            return Ok(Some(item));
+        }
+        row = rows.next().transpose()?;
+    }
+}
+
+/// The item of the nearest earlier member of `group` (before `position`)
+/// that is in the group's item `parent`, passing over closed members.
+fn placed_member_before(
+    connection: &Connection,
+    doc: &Doc,
+    local: &str,
+    (section, parent): (&str, &str),
+    group: &str,
+    mut position: i64,
+) -> anyhow::Result<Option<ItemId>> {
+    while let Some(row) = member_before(connection, group, position)? {
+        if let Some(id) = row_sibling(connection, doc, local, &row, section, Some(parent))? {
+            return Ok(Some(id));
+        }
+        position = row.position;
+    }
+    Ok(None)
+}
+
 /// Where an item lands among `(section, parent)`: right after `anchor`
-/// when it is a sibling; first when there is no neighbor; else at the end.
+/// when it is a sibling; first when there is no neighbor; else at the end
+/// (an item already placed stays where it is).
 fn anchored(
     section: &str,
     parent: Option<&str>,
@@ -369,18 +451,15 @@ fn sync_row(
             return Ok(());
         }
     }
-    let neighbor = match &row.group {
-        Some(group) if parent.is_some() => {
-            member_before(connection, group, row.position)?.map(Neighbor::Row)
+    let anchor = match (&row.group, parent.as_deref()) {
+        (Some(group), Some(parent)) => {
+            placed_member_before(connection, doc, local, (&section, parent), group, row.position)?
         }
-        _ => loose_neighbor(connection, row.position)?,
+        _ => placed_loose_before(connection, doc, local, &section, row.position, true)?,
     };
-    let anchor = match &neighbor {
-        Some(neighbor) => neighbor_item(connection, doc, local, neighbor)?,
-        None => None,
-    };
+    // No open neighbor before it in its section or group: it goes first.
     let anchor_item = anchor.as_deref().and_then(|id| doc.item(id)).cloned();
-    let target = anchored(&section, parent.as_deref(), anchor_item.as_ref(), neighbor.is_some());
+    let target = anchored(&section, parent.as_deref(), anchor_item.as_ref(), false);
     match placed {
         Some(item) if already_at(doc, &item, &target) => {}
         Some(item) => try_apply(batch, Op::Move { items: vec![item.id], to: target }),
@@ -514,6 +593,8 @@ fn sync_group(
     if doc.section(&item.section).is_none_or(|section| section.kind.machine().is_none()) {
         return Ok(());
     }
+    // A slot keeps the old anchor rule: a closed or foreign neighbor leaves
+    // a placed group where it is, so group order among groups never jumps.
     let neighbor = match group.top_position {
         Some(top) => loose_before(connection, top)?.map(Neighbor::Row),
         None => {
@@ -722,7 +803,7 @@ pub(crate) fn move_room_items(
 
 /// The old key of a workspace item: this machine's by its public id, another
 /// machine's by its placement reference.
-fn item_key(
+pub(super) fn item_key(
     connection: &Connection,
     local: &str,
     reference: &WorkspaceRef,

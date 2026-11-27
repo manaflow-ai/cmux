@@ -20,12 +20,19 @@ extension CEFTab: BrowserFreezing {
         return runtime.postDevTools(browserID, method: "Page.setWebLifecycleState", params: ["state": frozen ? "frozen" : "active"])
     }
 
+    /// An enabled extension of the tab's profile can script its web page (Bitwarden's passkey scripts:
+    /// two live copies after a frozen worker restart failed every sign-in).
+    public var freezeDropsExtensionEvents: Bool {
+        runtime.extensionStores.scriptsPage(at: state.url, profile: profileID)
+    }
+
     /// Freezes a page that is never shown (the spare window's about:blank placeholder) through DevTools
     /// `Page.setWebLifecycleState`, which hides it to Chromium first (`WasHidden`): the fork's
     /// `cmux_shim_tab_set_frozen` freezes only pages Chromium already counts hidden, and
     /// `CefBrowserHost::WasHidden` does nothing for a windowed Chrome-style browser. Unfrozen, the
     /// placeholder counted visible and ran rAF at ~98/s at idle (fleet probe 4e065838, macOS 27). It is
-    /// never thawed: a take closes it on the next turn (`CEFPaneHost.closeSparePlaceholder`).
+    /// thawed only when a cmux page takes it as its own browser (`CEFPaneHost.adoptPlaceholder`); otherwise a
+    /// take closes it on the next turn (`CEFPaneHost.closeSparePlaceholder`).
     func freezeNeverShownPage(_ browser: Int32) {
         runtime.postDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": "frozen"])
     }

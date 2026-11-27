@@ -39,7 +39,7 @@ final class ExtensionsMenuView: NSView {
     private let titleLabel = ThemedLabel(labelWithString: "")
     private let siteLabel = ThemedLabel(labelWithString: "")
     let closeButton: ExtensionsMenuHoverButton
-    private let scrollView = NSScrollView()
+    private let scrollView = OverlayScrollView()
     private let fade: ScrollEdgeFadeView
     private let list = ExtensionsMenuListView()
     private var sectionLabels: [ExtensionSiteAccess.Group: ThemedLabel] = [:]

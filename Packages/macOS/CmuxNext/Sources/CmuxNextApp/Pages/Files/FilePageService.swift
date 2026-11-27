@@ -12,6 +12,7 @@ import CmuxNextSettings
 import Foundation
 import CmuxNextWakeups
 import typealias CmuxNextDaemon.SurfaceID
+import class CmuxNextDaemon.PaneModel
 
 /// Owns one file page's tabs (diff-host S6 `cmux.markdown`, S7 `cmux.editor`): pane tabs, one
 /// ``FilePageProvider`` and page view per tab, one shared look per page (its settings section,
@@ -180,6 +181,19 @@ final class FilePageService: InternalPageProvider {
             tabs[key]?.page?.reload()
         }
         return key
+    }
+
+    /// `file` as a new tab of `model`, a pane no window shows (an agent's workspace off screen): the
+    /// tab goes into the daemon's model unselected and shows when its workspace shows (user, 2026-11-18).
+    func open(_ file: URL, parkedIn model: PaneModel, of daemon: DaemonService, window: WindowController, userChose: Bool) -> Bool {
+        guard daemon.isLocal, services.pages.keepsRoutes(daemon) else { return false }
+        let files = machineFiles(on: daemon), real = files.canonical(file), key = LocalPageTab.makeKey(kind.page)
+        tabs[key] = Tab(file: real, userChose: userChose, readOnly: false, recoveredText: nil, reveal: nil, files: files, machine: "local")
+        guard services.pages.openStoreTab(kind.page, in: model, of: daemon, services: services, controller: nil, window: window, focus: false, key: key) != nil else {
+            tabs[key] = nil
+            return false
+        }
+        return true
     }
 
     /// The files of `machine` (#25581): this Mac's disk (nil or the local daemon), or the machine's daemon over its own

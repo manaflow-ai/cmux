@@ -12,6 +12,7 @@ fn body(frame: u32, len: usize, keyframe: bool) -> FrameBody {
     FrameBody {
         t_capture_us: u64::from(frame) * 16_667,
         ref_frame: if keyframe { REF_NONE } else { frame - 1 },
+        ltr_token: None,
         access_unit: (0..len).map(|i| (i as u32 ^ frame) as u8).collect(),
     }
 }
@@ -289,11 +290,11 @@ fn missing_shards_wake_the_receiver_after_the_reorder_grace() {
     assert_eq!(fb.nacks[0].indexes, vec![0]);
     assert!(!fb.need_recovery);
     assert!(feedback(&r, 30_000).is_none(), "no same-tick retry loop");
-    assert!(feedback(&r, 79_999).is_none(), "a lost request retries on the feedback cadence");
+    assert!(feedback(&r, 79_999).is_none(), "a lost request retries after 50 ms with no RTT known");
     let retry = decode_feedback(&feedback(&r, 80_000).expect("bounded NACK retry"));
     assert_eq!(retry.nacks[0].indexes, vec![0]);
-    // The repair arrives one 50 ms RTT after the first request, before the
-    // 100 ms on-time frame deadline; no replacement keyframe is needed.
+    // The repair arrives one 50 ms RTT after the first request, inside the
+    // window (no RTT known yet: the 200 ms ceiling); no recovery is needed.
     push(&r, &sent[1].1[0], 80_000);
     let ready = pop_all(&r);
     assert_eq!(ready.len(), 1);
@@ -314,11 +315,19 @@ fn loss_produces_nacks_then_recovery() {
     for d in sent[1].1.iter().skip(1) {
         push(&r, d, 1_000);
     }
+    // The link stays live (frame 1's datagrams again, dropped as duplicates):
+    // the missing shard is loss, not a hold.
+    for t in (6_000..50_000).step_by(5_000) {
+        push(&r, &sent[0].1[0], t);
+    }
     // NACK after nack_after_us (5 ms) at the next due feedback (50 ms interval).
     let fb = decode_feedback(&feedback(&r, 50_000).expect("due"));
     assert_eq!(fb.nacks.len(), 1);
     assert_eq!(fb.nacks[0].frame, 2);
     assert_eq!(fb.nacks[0].indexes, vec![0]);
+    for t in (50_000..=200_000).step_by(5_000).chain([201_001]) {
+        push(&r, &sent[0].1[0], t);
+    }
     // The deadline (200 ms) names the next wakeup, then the frame is lost.
     // SAFETY: live receiver.
     let deadline = unsafe { cmux_rd_receiver_next_deadline_us(r.0) };
@@ -371,7 +380,8 @@ fn a_panic_poisons_only_that_receiver() {
     let other = receiver(CMUX_RD_CARRIER_DATAGRAM);
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
-    let rc = with_receiver(r.0, |_| panic!("boom"));
+    // SAFETY: a live receiver from cmux_rd_receiver_new; this test is its only user.
+    let rc = unsafe { with_receiver(r.0, |_| panic!("boom")) };
     std::panic::set_hook(hook);
     assert_eq!(rc, CMUX_RD_ERR_PANIC);
     // SAFETY: live (poisoned) receiver.
@@ -391,7 +401,11 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         include_str!("line_reader_ffi.rs"),
         include_str!("session_ffi.rs"),
         include_str!("upstream_ffi.rs"),
-        include_str!("bulk_ffi.rs")
+        include_str!("bulk_ffi.rs"),
+        include_str!("clipboard_ffi.rs"),
+        include_str!("record_ffi.rs"),
+        include_str!("ui/mod.rs"),
+        include_str!("view_ffi.rs")
     );
     let declared: std::collections::BTreeSet<&str> = header
         .lines()
@@ -418,6 +432,8 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_ERR_STREAM", CMUX_RD_ERR_STREAM),
         ("CMUX_RD_ERR_CONSENT", CMUX_RD_ERR_CONSENT),
         ("CMUX_RD_ERR_FULL", CMUX_RD_ERR_FULL),
+        ("CMUX_RD_ERR_TOO_LARGE", CMUX_RD_ERR_TOO_LARGE),
+        ("CMUX_RD_ERR_IO", CMUX_RD_ERR_IO),
     ] {
         assert!(header.contains(&format!("#define {name} ({value})")), "{name}");
     }
@@ -427,6 +443,8 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_BULK_MAX_TRANSFERS", CMUX_RD_BULK_MAX_TRANSFERS),
         ("CMUX_RD_BULK_FRAME_MAX", CMUX_RD_BULK_FRAME_MAX),
         ("CMUX_RD_BULK_CREDIT_MAX", CMUX_RD_BULK_CREDIT_MAX),
+        ("CMUX_RD_CLIPBOARD_MAX_TEXT", CMUX_RD_CLIPBOARD_MAX_TEXT),
+        ("CMUX_RD_CLIPBOARD_FRAME_MAX", CMUX_RD_CLIPBOARD_FRAME_MAX),
     ] {
         assert!(header.contains(&format!("#define {name} {value}u")), "{name}");
     }
@@ -445,7 +463,7 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
     // Layouts on 64-bit targets (the Swift tests check the imported layouts).
     assert_eq!(size_of::<CmuxRdFrame>(), 40);
     assert_eq!(size_of::<CmuxRdMessage>(), 24);
-    assert_eq!(size_of::<CmuxRdStats>(), 24);
+    assert_eq!(size_of::<CmuxRdStats>(), 32);
     assert_eq!(size_of::<CmuxRdInputEvent>(), 48);
     assert_eq!(size_of::<CmuxRdUpstreamStats>(), 32);
     assert_eq!(size_of::<CmuxRdLine>(), 120);
@@ -507,4 +525,53 @@ fn a_flood_of_empty_control_messages_is_bounded() {
     }
     // Each message costs its overhead, so the queue budget ends the session.
     assert_eq!(rc, CMUX_RD_ERR_FAILED);
+}
+
+#[test]
+fn a_frame_is_ready_in_the_push_that_completes_it() {
+    // A long deadline: release must not wait on it or on a tick.
+    let mut r = Receiver::new(Carrier::Datagram, 10_000_000, 5_000);
+    for (_, datagrams) in frames(3, 3000, 1) {
+        // The parity shard goes last: the frame is complete before it.
+        let (last, rest) = datagrams.split_last().expect("datagrams");
+        for d in rest {
+            r.push_datagram(d, 0).expect("push");
+        }
+        assert_eq!(r.ready_frames(), 1, "ready without parity or a tick");
+        r.push_datagram(last, 0).expect("late parity");
+        assert_eq!(r.ready_frames(), 1);
+        assert!(r.pop_frame().is_some());
+    }
+}
+
+/// Review F3 on #47487: a decode report acknowledges the LTR token of the frame
+/// that decoded. Frames A and B are popped before A's decode is reported, and B
+/// is dropped (never decoded): the feedback names A's token, never B's.
+#[test]
+fn a_decode_acknowledges_the_decoded_frames_ltr_token_only() {
+    const A_TOKEN: u64 = 0xA0A0;
+    const B_TOKEN: u64 = 0xB0B0;
+    let r = receiver(CMUX_RD_CARRIER_DATAGRAM);
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    for (frame, token) in [(1, None), (2, Some(A_TOKEN)), (3, Some(B_TOKEN))] {
+        let mut b = body(frame, 400, frame == 1);
+        b.ltr_token = token;
+        let flags = if frame == 1 { flags::KEYFRAME } else { 0 };
+        for d in p.packetize(frame, flags, &b, 0).expect("packetize").datagrams {
+            push(&r, &d, 1_000);
+        }
+    }
+    let popped = pop_all(&r);
+    assert_eq!(popped.iter().map(|f| f.0).collect::<Vec<_>>(), [1, 2, 3]);
+    // The keyframe and A decoded; B was popped but its decode never reported.
+    note_decode(&r, 1, 900);
+    note_decode(&r, 2, 1_100);
+    let fb = decode_feedback(&feedback(&r, 50_000).expect("due"));
+    assert_eq!(fb.acked_ltr_tokens, [A_TOKEN], "only the decoded frame's token");
+}
+
+/// Reports frame `frame`'s decode.
+fn note_decode(r: &Owned, frame: u32, decode_us: u32) {
+    // SAFETY: live receiver.
+    assert_eq!(unsafe { cmux_rd_receiver_note_frame_decode(r.0, frame, decode_us) }, CMUX_RD_OK);
 }

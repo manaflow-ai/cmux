@@ -305,6 +305,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_set_transparent_background, "cmux_tab_set_transparent_background");
   CMUX_BIND(browser_set_layer_hosting, "cmux_browser_set_layer_hosting");
   CMUX_BIND(browser_set_resize_sync, "cmux_browser_set_resize_sync");
+  CMUX_BIND(browser_resize_fence, "cmux_browser_resize_fence");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");
@@ -324,6 +325,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(side_panel_press, "cmux_side_panel_press");
   CMUX_BIND(profile_passkeys_list, "cmux_profile_passkeys_list");
   CMUX_BIND(profile_passkey_delete, "cmux_profile_passkey_delete");
+  CMUX_BIND(tab_set_webauthn_mode, "cmux_tab_set_webauthn_mode");
   CMUX_BIND(password_list, "cmux_password_list");
   CMUX_BIND(password_remove, "cmux_password_remove");
   CMUX_BIND(password_exception_remove, "cmux_password_exception_remove");
@@ -346,6 +348,9 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
   CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
   CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
+  CMUX_BIND(set_keychain_item, "cmux_set_keychain_item");
+  CMUX_BIND(browser_set_draw_on_input, "cmux_browser_set_draw_on_input");
+  CMUX_BIND(draw_on_input_key_frames, "cmux_draw_on_input_key_frames");
 #undef CMUX_BIND
 }
 
@@ -398,6 +403,12 @@ void cmux_shim_set_default_search(const char* template_url_json) {
 
 // Read once by cmux_shim_initialize (CefSettings.chrome_policy_id).
 static std::string g_chrome_policy_id;
+// Read once by cmux_shim_initialize (CefSettings.locales_dir_path).
+static std::string g_locales_dir;
+
+void cmux_shim_set_locales_dir(const char* dir) {
+  g_locales_dir = dir ? dir : "";
+}
 
 void cmux_shim_set_chrome_policy_id(const char* policy_id) {
   g_chrome_policy_id = policy_id ? policy_id : "";
@@ -405,6 +416,14 @@ void cmux_shim_set_chrome_policy_id(const char* policy_id) {
 
 int cmux_shim_fork_api_version(void) {
   return fork_api().version;
+}
+
+int cmux_shim_set_keychain_item(const char* service, const char* account) {
+  // The fork refuses once a CefContext exists and refuses the shared item's names.
+  if (!fork_api().set_keychain_item || !service || !account) {
+    return 0;
+  }
+  return fork_api().set_keychain_item(service, account) == 1 ? 1 : 0;
 }
 
 int cmux_shim_prepare_application(void) {
@@ -487,6 +506,11 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   if (!g_chrome_policy_id.empty()) {
     CefString(&settings.chrome_policy_id) = g_chrome_policy_id;
   }
+  if (!g_locales_dir.empty()) {
+    // Locale paks downloaded on first use live outside the signed framework: CEF looks here
+    // first and keeps the framework's own en pak as the fallback (cef#47).
+    CefString(&settings.locales_dir_path) = g_locales_dir;
+  }
   settings.background_color = BackgroundColor();
   g_accept_languages = accept_languages ? accept_languages : "";
   if (!g_accept_languages.empty()) {
@@ -561,6 +585,7 @@ void cmux_shim_shutdown(void) {
   // Download callbacks hold Chromium objects: release them first.
   ForgetDownloads();
   ForgetPermissionPrompts();
+  StopDeferredPageRequests();
   CefShutdown();
 }
 

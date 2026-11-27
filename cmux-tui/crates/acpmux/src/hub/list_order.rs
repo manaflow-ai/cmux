@@ -24,33 +24,89 @@ struct Order {
     built: bool,
     /// The list position the order is current to.
     head: u64,
-    sorted: BTreeMap<(Reverse<u64>, String), Arc<Session>>,
+    sorted: BTreeMap<(Reverse<u64>, String), OrderRow>,
     /// Each row's `updatedAt` as it is placed: its key in `sorted`.
     at: HashMap<String, u64>,
+    /// The rows by their byte-page key (`session_pages::page_key_of`, fixed by the id): a byte
+    /// page of the whole list reads its own rows from here, not a hash and sort of every chat.
+    by_key: BTreeMap<(u128, String), OrderRow>,
     /// How many times every chat was sorted again (`Hub::list_order_rebuilds_for_test`).
     #[cfg(test)]
     rebuilds: u64,
 }
 
-impl Order {
-    /// Places row `id` again: where `session`'s `updatedAt` puts it, or nowhere when it is gone.
-    fn place(&mut self, id: &str, session: Option<Arc<Session>>) {
-        if let Some(old) = self.at.remove(id) {
-            self.sorted.remove(&(Reverse(old), id.to_owned()));
+/// A row of the order: a session in memory, or an evicted chat's row (`evict.rs`).
+#[derive(Clone)]
+pub(crate) enum OrderRow {
+    Own(Arc<Session>),
+    Evicted(Arc<super::evict::Evicted>),
+}
+
+impl OrderRow {
+    #[cfg(test)]
+    pub(crate) fn id(&self) -> &str {
+        match self {
+            Self::Own(session) => &session.id,
+            Self::Evicted(row) => row.id(),
         }
-        if let Some(session) = session {
-            let updated = session.read_meta(|m| m.updated_at);
-            self.at.insert(id.to_owned(), updated);
-            self.sorted.insert((Reverse(updated), id.to_owned()), session);
+    }
+
+    fn updated_at(&self) -> u64 {
+        match self {
+            Self::Own(session) => session.read_meta(|m| m.updated_at),
+            Self::Evicted(row) => row.updated_at(),
+        }
+    }
+
+    /// The session, when it is in memory.
+    pub(crate) fn live(&self) -> Option<&Arc<Session>> {
+        match self {
+            Self::Own(session) => Some(session),
+            Self::Evicted(_) => None,
         }
     }
 }
 
-type Placed<'a> = (&'a (Reverse<u64>, String), &'a Arc<Session>);
+impl Order {
+    /// Places row `id` again: where its `updatedAt` puts it, or nowhere when it is gone.
+    fn place(&mut self, id: &str, row: Option<OrderRow>) {
+        let key = (super::session_pages::page_key_of(id, None), id.to_owned());
+        if let Some(old) = self.at.remove(id) {
+            self.sorted.remove(&(Reverse(old), id.to_owned()));
+            self.by_key.remove(&key);
+        }
+        if let Some(row) = row {
+            let updated = row.updated_at();
+            self.at.insert(id.to_owned(), updated);
+            self.sorted.insert((Reverse(updated), id.to_owned()), row.clone());
+            self.by_key.insert(key, row);
+        }
+    }
+
+    /// Row `id` is `row` from now on, where it is placed (in list order and by its byte-page
+    /// key); whether it was placed.
+    fn replace(&mut self, id: &str, row: OrderRow) -> bool {
+        let Some(&at) = self.at.get(id) else { return false };
+        let Some(entry) = self.sorted.get_mut(&(Reverse(at), id.to_owned())) else {
+            return false;
+        };
+        *entry = row.clone();
+        let key = (super::session_pages::page_key_of(id, None), id.to_owned());
+        if let Some(entry) = self.by_key.get_mut(&key) {
+            *entry = row;
+        }
+        true
+    }
+}
+
+/// The order's lock, held by an eviction across its map change (`evict.rs`).
+pub(super) struct OrderGuard<'a>(std::sync::MutexGuard<'a, Order>);
+
+type Placed<'a> = (&'a (Reverse<u64>, String), &'a OrderRow);
 
 /// A row of the order and the `updatedAt` it is placed by.
-fn row(((Reverse(at), _), session): Placed<'_>) -> (Arc<Session>, u64) {
-    (session.clone(), *at)
+fn row(((Reverse(at), _), placed): Placed<'_>) -> (OrderRow, u64) {
+    (placed.clone(), *at)
 }
 
 impl Hub {
@@ -65,7 +121,10 @@ impl Hub {
                     let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
                     let session = sessions.get(&id).cloned();
                     drop(sessions);
-                    order.place(&id, session);
+                    let row = session
+                        .map(OrderRow::Own)
+                        .or_else(|| self.evicted.get(&id).map(OrderRow::Evicted));
+                    order.place(&id, row);
                 }
             }
             order.head = since.head;
@@ -77,15 +136,31 @@ impl Hub {
             order.head = self.events.list_head();
             order.sorted.clear();
             order.at.clear();
+            order.by_key.clear();
             for session in self.session_handles() {
                 let id = session.id.clone();
-                order.place(&id, Some(session));
+                order.place(&id, Some(OrderRow::Own(session)));
+            }
+            for evicted in self.evicted.rows() {
+                let id = evicted.id().to_owned();
+                order.place(&id, Some(OrderRow::Evicted(evicted)));
             }
             order.built = true;
             #[cfg(test)]
             {
                 order.rebuilds += 1;
             }
+        }
+        // A row only its agent's stream changed takes its list position when it is told, at
+        // most once per `STREAM_TELL_EVERY` (#47984); until then it is placed by its `updatedAt`
+        // as it is now, as a sort of every chat would place it.
+        for id in self.events.stream_waiting() {
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let session = sessions.get(&id).cloned();
+            drop(sessions);
+            let row =
+                session.map(OrderRow::Own).or_else(|| self.evicted.get(&id).map(OrderRow::Evicted));
+            order.place(&id, row);
         }
         order
     }
@@ -97,14 +172,37 @@ impl Hub {
         &self,
         from: Option<u64>,
         most: usize,
-    ) -> (Vec<(Arc<Session>, u64)>, bool) {
+    ) -> (Vec<(OrderRow, u64)>, bool) {
         let order = self.patched_order();
-        let rows: Vec<(Arc<Session>, u64)> = match from {
+        let rows: Vec<(OrderRow, u64)> = match from {
             None => order.sorted.iter().take(most).map(row).collect(),
             Some(from) => {
                 order.sorted.range((Reverse(from), String::new())..).take(most).map(row).collect()
             }
         };
+        let all = rows.len() < most;
+        (rows, all)
+    }
+
+    /// At most `most` of this daemon's rows in byte-page key order past key `after` (from the
+    /// first when None), each with its key; and whether they are all the rows past it. Costs the rows changed since the
+    /// last read, and `most`.
+    pub(super) fn own_rows_by_key(
+        &self,
+        after: Option<u128>,
+        most: usize,
+    ) -> (Vec<(u128, OrderRow)>, bool) {
+        if after == Some(u128::MAX) {
+            return (Vec::new(), true);
+        }
+        let start = after.map_or(0, |after| after + 1);
+        let order = self.patched_order();
+        let rows: Vec<(u128, OrderRow)> = order
+            .by_key
+            .range((start, String::new())..)
+            .take(most)
+            .map(|((key, _), row)| (*key, row.clone()))
+            .collect();
         let all = rows.len() < most;
         (rows, all)
     }
@@ -119,17 +217,43 @@ impl Hub {
             .sorted
             .iter()
             .take_while(|((Reverse(at), _), _)| *at >= cutoff)
-            .map(|(_, session)| session.clone())
+            // An evicted chat did nothing for its idle period: its usage is in its stored row.
+            .filter_map(|(_, row)| row.live().cloned())
             .collect()
     }
 
-    /// How many times the order sorted every chat (its first read, a cursor the log could not
-    /// follow, a count that did not match): a gate's timed read must be none of those.
+    /// The order, patched, held across an eviction's map change (lock order: the order, then
+    /// the map, as [`Self::patched_order`] takes them).
+    pub(super) fn list_order_lock(&self) -> OrderGuard<'_> {
+        OrderGuard(self.patched_order())
+    }
+
+    /// Row `id` is an evicted chat's from now on; whether it was placed.
+    pub(super) fn order_evict(
+        order: &mut OrderGuard<'_>,
+        id: &str,
+        row: &Arc<super::evict::Evicted>,
+    ) -> bool {
+        order.0.replace(id, OrderRow::Evicted(row.clone()))
+    }
+
+    /// An eviction that did not happen gives row `id` its session back.
+    pub(super) fn order_restore(order: &mut OrderGuard<'_>, id: &str, session: &Arc<Session>) {
+        order.0.replace(id, OrderRow::Own(session.clone()));
+    }
+
+    /// Sorts the order if it is not sorted yet, else patches it: the daemon's start task does it
+    /// first, before any log is read (`daemon.rs`), and the load pass again once every log is
+    /// read (`log_load.rs`), where it patches what the logs moved.
+    pub(crate) fn sort_list_order(&self) {
+        drop(self.patched_order());
+    }
+
     /// Reads the order as a daemon's load pass does once every log is read (`log_load.rs`): a
     /// seed that puts sessions in place goes through no load pass.
     #[cfg(test)]
     pub(crate) fn warm_list_order_for_test(&self) {
-        let _ = self.own_rows_from(None, 0);
+        self.sort_list_order();
     }
 
     /// The order as a deferred start holds it before its load pass (`Hub::new` sorts it at
@@ -140,6 +264,8 @@ impl Hub {
         *order = Order::default();
     }
 
+    /// How many times the order sorted every chat (its first read, a cursor the log could not
+    /// follow, a count that did not match): a gate's timed read must be none of those.
     #[cfg(test)]
     pub(crate) fn list_order_rebuilds_for_test(&self) -> u64 {
         self.list_order.0.lock().unwrap_or_else(|e| e.into_inner()).rebuilds
@@ -149,7 +275,7 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn kept_order_for_test(&self) -> Vec<String> {
         let (rows, _) = self.own_rows_from(None, usize::MAX);
-        rows.into_iter().map(|(session, _)| session.id.clone()).collect()
+        rows.into_iter().map(|(row, _)| row.id().to_owned()).collect()
     }
 }
 

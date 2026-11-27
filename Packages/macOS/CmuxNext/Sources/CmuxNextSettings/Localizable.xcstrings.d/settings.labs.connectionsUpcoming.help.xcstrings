@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.labs.connectionsUpcoming.help" : {
+      "comment" : "Settings > Advanced > Labs: help under the Upcoming Connections toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lists Slack and Google in Connections before they can be connected."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يعرض Slack وGoogle في الاتصالات قبل أن يصبح ربطها ممكنًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prikazuje Slack i Google u Vezama prije nego što se mogu povezati."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viser Slack og Google under Forbindelser, før de kan forbindes."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt Slack und Google unter Verbindungen, bevor sie verbunden werden können."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muestra Slack y Google en Conexiones antes de que se puedan conectar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche Slack et Google dans Connexions avant qu’ils puissent être connectés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra Slack e Google in Connessioni prima che si possano collegare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続できるようになる前に、Slack と Google を接続に表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បង្ហាញ Slack និង Google ក្នុងការតភ្ជាប់ មុនពេលអាចតភ្ជាប់បាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "연결할 수 있기 전에 Slack과 Google을 연결 목록에 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viser Slack og Google under Tilkoblinger før de kan kobles til."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokazuje Slack i Google w Połączeniach, zanim będzie można je połączyć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra Slack e Google em Conexões antes que possam ser conectados."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывает Slack и Google в разделе «Подключения» до того, как их можно подключить."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสดง Slack และ Google ในการเชื่อมต่อก่อนที่จะเชื่อมต่อได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack ve Google'ı bağlanabilir olmadan önce Bağlantılar'da listeler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показує Slack і Google у розділі «Підключення» ще до того, як їх можна підключити."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiện Slack và Google trong Kết nối trước khi có thể kết nối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在可以连接之前，于“连接”中列出 Slack 和 Google。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在可以連線之前，於「連線」中列出 Slack 和 Google。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

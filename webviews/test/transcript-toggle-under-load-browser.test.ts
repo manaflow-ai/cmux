@@ -19,28 +19,28 @@
 // finished run of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { pinArms } from "./support/pinArms";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("transcript-toggle-under-load-browser.test.ts", async () => {
   setDefaultTimeout(180_000);
-  try {
-    await (await chromium.launch({ headless: true })).close();
-  } catch {
-    console.warn("transcript-toggle-under-load-browser: skipping (run `bunx playwright install chromium`)");
-    describe.skip("a toggle under load opens in place", () => test("chromium", () => {}));
-    return;
-  }
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
-  const engines = { chromium, webkit } as const;
+  // Each engine is probed first: one that cannot launch here (the fleet pool has no WebKit host
+  // libraries) skips its cases; GitHub Actions still fails the file (probeEngineOrSkip).
+  const allEngines = { chromium, webkit } as const;
+  const engines: Partial<Record<keyof typeof allEngines, BrowserType>> = {};
+  for (const name of Object.keys(allEngines) as (keyof typeof allEngines)[])
+    if (await probeEngineOrSkip("transcript-toggle-under-load-browser.test.ts", name, allEngines[name]))
+      engines[name] = allEngines[name];
+  if (Object.keys(engines).length === 0) return;
   const browsers: Partial<Record<keyof typeof engines, Browser>> = {};
   beforeAll(async () => {
     vite = await createServer({
@@ -52,7 +52,7 @@ await requireBrowserLane("transcript-toggle-under-load-browser.test.ts", async (
     await vite.listen();
     await warmViteServer(vite, "/test/browser/transcript-follow.html");
     for (const name of Object.keys(engines) as (keyof typeof engines)[])
-      browsers[name] = await engines[name].launch({ headless: true });
+      browsers[name] = await engines[name]!.launch({ headless: true });
   });
   afterAll(async () => {
     for (const each of Object.values(browsers)) await each?.close();
@@ -95,7 +95,8 @@ await requireBrowserLane("transcript-toggle-under-load-browser.test.ts", async (
     row(`t${index}-answer`, "assistant", paragraphs(2, "keeper")),
   ]).flat();
   const calls = [
-    call("b1", "cat /tmp/review/output.txt"),
+    // Three commands, not a read: a finished `cat` of one file is a plain read row since 2026-11-17.
+    call("b1", "grep -c pass /tmp/review/output.txt"),
     call("b2", "git log --oneline -14 -- Sources/Cloud"),
     call("b3", "router-review manaflow-ai/cmux 9062"),
   ];

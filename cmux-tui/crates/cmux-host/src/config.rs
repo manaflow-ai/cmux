@@ -29,6 +29,18 @@ pub const TEMPLATE_BOUND_FILE: &str = "/run/cmux/bound";
 pub const AGENT_DIR: &str = "/run/cmux-host";
 pub const DAEMON_PID_FILE: &str = "/run/cmux-host/daemon.pid";
 pub const STATUS_FILE: &str = "/run/cmux-host/status.json";
+/// The session host's files on the supervisor contract (`cmux-supervise-core`): its owner record
+/// and its per-day restart budget with the causes, kept across reboots (the record's boot id
+/// tells a record of an earlier boot from a live host).
+/// Written once by the first agent on a VM disk; its presence later means the VM was reused.
+pub const MACHINE_MARKER: &str = "/var/lib/cmux/host/first-agent-start";
+pub const SUPERVISE_DIR: &str = "/var/lib/cmux/host";
+/// The session host's name in [`SUPERVISE_DIR`].
+pub const SESSION_HOST_NAME: &str = "session-host";
+/// Session host faults (exits while it was meant to run, failed spawns) a day before the agent
+/// holds: it reads `restart-budget-exceeded` and restarts it only every
+/// [`crate::machine::BUDGET_HOLD_RETRY_MS`].
+pub const SESSION_HOST_BUDGET: u32 = 20;
 /// Present while the agent keeps an adopted session host of an older build
 /// because a person's carrier session is attached to it (`machine.rs`,
 /// `ReplaceWhy`): the updater's health deadline starts at its replacement.

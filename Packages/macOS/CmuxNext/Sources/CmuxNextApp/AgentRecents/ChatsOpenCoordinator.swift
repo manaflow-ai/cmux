@@ -120,7 +120,7 @@ final class ChatsOpenCoordinator {
         guard pane.daemon.isLocal else { return false }
         if NewTabPage.opensBeside(page, in: pane, mainPane: false) {
             let closePage = NewTabPage.closingPage(page, in: pane)
-            return services.linkOpener.open(from: pane, mainPane: false) { [services] target, placed in
+            return services.linkOpener.open(from: pane, mainPane: false, opening: .tool) { [services] target, placed in
                 services.agentTabs.openTab(in: target, seed: AgentPaneSeedSource(seed), select: placed == nil) { key in
                     if let placed, let surface = services.locateTab(key, onMachine: target.daemon.machineID)?.0.surface { placed(surface) }
                     closePage()

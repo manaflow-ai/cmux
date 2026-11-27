@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxNextCompat
 public import Foundation
 
@@ -35,6 +36,8 @@ public struct DeviceHubAccountSession: Sendable, Equatable {
 /// when the server refuses it.
 public actor DeviceHubClient {
     public nonisolated let baseURL: URL
+    /// The build space every request and socket upgrade carries (``DeviceHubBuildSpace``).
+    public nonisolated let buildSpace: DeviceHubBuildSpace
     private nonisolated let signerBox: Mutex<DeviceRequestSigner>
     let tokens: any DeviceHubAccountTokenProvider
     let session: URLSession
@@ -53,8 +56,10 @@ public actor DeviceHubClient {
     }
 
     public init(baseURL: URL, identity: DeviceIdentity, tokens: any DeviceHubAccountTokenProvider,
+                buildSpace: DeviceHubBuildSpace = .nightly,
                 session: URLSession = DeviceHubClient.transport, now: @escaping @Sendable () -> Date = { Date() }) {
         self.baseURL = baseURL
+        self.buildSpace = buildSpace
         signerBox = Mutex(DeviceRequestSigner(identity: identity, now: now))
         self.tokens = tokens
         self.session = session
@@ -68,7 +73,7 @@ public actor DeviceHubClient {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpCookieStorage = nil
         configuration.timeoutIntervalForRequest = 30
-        return URLSession(configuration: configuration)
+        return CmuxEgress.session(site: "CmuxNextDevices.DeviceHubClient", configuration: configuration)
     }()
 
     // MARK: Account
@@ -94,11 +99,18 @@ public actor DeviceHubClient {
 
     private func exchangeStackToken() async throws -> DeviceHubAccountSession {
         let stack: String
-        do { stack = try await tokens.stackAccessToken() } catch { throw DeviceHubError.notSignedIn }
+        let tokens = self.tokens
+        // A token read that never answers held every hub call behind it (the account exchange is shared); bound it.
+        do { stack = try await DeviceHub.within(.seconds(30), what: "the account token") { try await tokens.stackAccessToken() } } catch let error as DeviceHubError {
+            if case .transport = error { throw error }
+            throw DeviceHubError.notSignedIn
+        } catch { throw DeviceHubError.notSignedIn }
         var request = URLRequest(url: url("/v1/auth/stack"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(["token": stack])
+        // The session is the space's: the hub binds it to this header and refuses it in any other space.
+        try buildSpace.apply(to: &request)
         let data = try await perform(request)
         struct Answer: Decodable {
             var session: String
@@ -134,13 +146,21 @@ public actor DeviceHubClient {
         try await call("GET", "/v1/me", as: HubMe.self)
     }
 
-    /// Registers or updates this device, signed by the key it registers. `kind` is what this device
-    /// is (PROTOCOL.md, Device kind); nil leaves it out, and the hub keeps the one it has.
-    public func registerDevice(name: String, platform: DevicePlatform, kind: String? = nil) async throws -> HubDevice {
-        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String; var kind: String? }
+    /// Registers or updates this device, signed by the key it registers. `machine` identifies the
+    /// Mac/build space for cross-build permissions; `machineKey` and `appId` identify this install
+    /// so a renewed identity can retire its offline predecessor.
+    public func registerDevice(name: String, platform: DevicePlatform, kind: String? = nil, machineKey: String? = nil,
+                               appId: String? = nil) async throws -> HubDevice {
+        struct Body: Encodable {
+            var id, name: String
+            var platform: DevicePlatform
+            var signingKey, agreementKey: String
+            var machine, machineKey, appId, kind: String?
+        }
         let identity = signer.identity
         let body = Body(id: identity.id, name: name, platform: platform, signingKey: identity.signingKey,
-                        agreementKey: identity.agreementKey, kind: kind)
+                        agreementKey: identity.agreementKey, machine: DeviceMachine.current(in: buildSpace).id,
+                        machineKey: machineKey, appId: appId, kind: kind)
         return try await call("POST", "/v1/devices", body: body, as: DeviceAnswer.self).device
     }
 
@@ -170,6 +190,27 @@ public actor DeviceHubClient {
                        as: DeviceAnswer.self).device
     }
 
+    /// The same, for an owner's agent under the account's standing permission: the hub's audit
+    /// row names the agent session and its device.
+    public func setMacScreenShared(_ shared: Bool, agent: HubAgentActor) async throws -> HubDevice {
+        struct Body: Encodable { var shared: Bool; var agent: HubAgentActor }
+        return try await call("PUT", "/v1/devices/\(segment(signer.identity.id))/mac-screen", body: Body(shared: shared, agent: agent),
+                              as: DeviceAnswer.self).device
+    }
+
+    /// The account's settings (`GET /v1/settings`), one value per account.
+    public func accountSettings() async throws -> HubAccountSettings {
+        struct Answer: Decodable { var settings: HubAccountSettings }
+        return try await call("GET", "/v1/settings", as: Answer.self).settings
+    }
+
+    /// "My agents can turn screen sharing and control on my machines" (`PUT /v1/settings`). Only a
+    /// full app session writes it, after the person's click; the hub audits and pushes the change.
+    public func setAgentsMayShare(_ on: Bool) async throws -> HubAccountSettings {
+        struct Answer: Decodable { var settings: HubAccountSettings }
+        return try await call("PUT", "/v1/settings", body: ["agentsMayShare": on], as: Answer.self).settings
+    }
+
     public func permissions(host: String) async throws -> [HubPermission] {
         struct Answer: Decodable { var permissions: [HubPermission] }
         return try await call("GET", "/v1/permissions", query: [URLQueryItem(name: "host", value: host)], as: Answer.self).permissions
@@ -185,6 +226,13 @@ public actor DeviceHubClient {
     public func requestSession(host: String, scope: SessionScope) async throws -> HubSession {
         struct Body: Encodable { var hostId: String; var scope: SessionScope }
         return try await call("POST", "/v1/sessions", body: Body(hostId: host, scope: scope), as: SessionAnswer.self).session
+    }
+
+    /// From the viewer: a fresh viewer ticket for an approved or live session (the hub pushes the
+    /// host's matching one), for a ticket push that never came or a dropped stream.
+    public func reattachSession(_ id: String) async throws -> SessionTicket {
+        struct Answer: Decodable { var ticket: SessionTicket }
+        return try await call("POST", "/v1/sessions/\(segment(id))/reattach", body: [String: String](), as: Answer.self).ticket
     }
 
     /// From the host: answers a pending request. `always` stores the permission with `scope`.
@@ -241,6 +289,7 @@ public actor DeviceHubClient {
             throw DeviceHubError.identity("\(error)")
         }
         headers["Authorization"] = "Bearer \(account.token)"
+        try buildSpace.apply(to: &headers)
         return DeviceHubHandshake(url: url, headers: headers)
     }
 
@@ -254,6 +303,7 @@ public actor DeviceHubClient {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
+        try buildSpace.apply(to: &request)
         let account = try await accountSession()
         request.setValue("Bearer \(account.token)", forHTTPHeaderField: "Authorization")
         do { try signer.sign(&request) } catch { throw DeviceHubError.identity("\(error)") }

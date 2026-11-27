@@ -22,12 +22,14 @@ final class WindowState: CloseSelectionWindow {
     /// Stable id that survives relaunch (the projection record id). Changes
     /// once, when the window opened at launch adopts a restored record.
     private(set) var id: String
-    /// `WorkspaceModel.id` of the workspace shown; nil shows the empty
-    /// state (the only window, with no workspaces).
+    /// `WorkspaceModel.id` of the workspace shown; nil shows the empty state (the only window, with no workspaces).
     var workspaceID: String? {
-        didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue); onShownChange?(workspaceID, oldValue) } }
+        didSet { if workspaceID != oldValue { FileHandle.standardError.write(Data("notification reveal: window \(id) workspace \(oldValue ?? "nil") -> \(workspaceID ?? "nil") via \(shownVia)\n".utf8)); noteShown(workspaceID, after: oldValue); onShownChange?(workspaceID, oldValue) }; latchLeftRestore(); shownVia = "set" } // one stderr line per real change, naming who set it (notify-banner-click-concurrent-chats)
     }
+    @ObservationIgnored var shownVia = "set" // who sets `workspaceID` next: reveal, claim, repair, reconcile-repair, showWorkspace-fallback, ...
+    private(set) var restoreWatch: (shown: String?, left: Bool)? // a relaunch's pending Home landing (`launch::pending_home`): the restored workspace, and whether the window showed another one or a top page but Home since; latched, so coming back does not clear it (F1 of #46087)
     @ObservationIgnored var onShownChange: ((String?, String?) -> Void)? // each change of `workspaceID` (new, old): the close-selection rule's feed
+    @ObservationIgnored var onProfileChange: (() -> Void)? // the window entered another space: its shared workspaces follow (`WindowManager.spaceDidChange`)
     /// The workspaces shown side by side, `workspaceID` focused among them (Debug Settings `sidebar.multiView`,
     /// `WindowController.arrangeOnScreen`); nil shows `workspaceID` alone. Persisted in the record.
     var viewSet: WorkspaceViewSet?
@@ -39,10 +41,9 @@ final class WindowState: CloseSelectionWindow {
     /// The Chief panel (`WindowController+ChiefPanel`): the Chief chat floating or docked over the workspaces this
     /// window shows, never over Home. Persisted in the record.
     var chiefPanel = ChiefPanel()
-    /// The top page this window shows in place of its workspace
-    /// (TOP-SECTION-ITEMS-ARE-PAGES); nil shows the workspace. Selecting a
-    /// workspace clears it (`showWorkspace(_:)`). Persisted in the record.
-    var page: TopPageRoute?
+    /// The top page this window shows in place of its workspace (TOP-SECTION-ITEMS-ARE-PAGES); nil shows the
+    /// workspace. Selecting a workspace clears it (`showWorkspace(_:)`). Persisted in the record.
+    var page: TopPageRoute? { didSet { latchLeftRestore() } }
     /// A New Cloud Workspace this window shows until its terminal opens
     /// (`CloudMachineCreation.id`, cx-lu8f): its progress fills the content
     /// area and its sidebar row is selected. A top page still shows over
@@ -124,10 +125,9 @@ extension WindowState {
         adopt(record)
     }
 
-    /// Takes over a saved window's identity and state (the window opened at
-    /// launch, before the saved state could load, becomes that window).
+    /// Takes over a saved window's identity and state (the window opened at launch, before the saved state could load, becomes that window).
     func adopt(_ record: WindowRecord) {
-        id = record.id
+        id = record.id; shownVia = "adopt"
         workspaceID = record.workspaceKey?.rawValue
         page = record.page.flatMap(TopPageRoute.init(rawValue:))
         viewSet = record.multiView.flatMap(WorkspaceViewSet.init(record:)).flatMap { Set($0.ids).count == $0.ids.count ? $0 : nil }
@@ -150,21 +150,21 @@ extension WindowState {
         profileRecency = [profileID]
     }
 
-    /// Makes `profile` current, remembering the shown workspace of the
-    /// profile it leaves.
+    /// Makes `profile` current, remembering the shown workspace of the profile it leaves.
     func enterProfile(_ profile: ProfileID) {
         if let workspaceID { profileWorkspaces[profileID] = workspaceID }
+        let changed = profileID != profile
         profileID = profile
         profileRecency.removeAll { $0 == profile }
         profileRecency.insert(profile, at: 0)
+        if changed { onProfileChange?() }
     }
 }
 
 extension WindowState {
     /// Shows `id` (nil: the empty state): the window leaves its top page unless `keepsPage` (one in place of a workspace that left).
-    /// Unless `keepsCreation` (a repair, or the creation's own workspace,
-    /// kept until it is mirrored), another workspace also ends the window's
-    /// Cloud creation view; the creation goes on in its sidebar row.
+    /// Unless `keepsCreation` (a repair, or the creation's own workspace, kept until it is mirrored), another workspace also ends
+    /// the window's Cloud creation view; the creation goes on in its sidebar row.
     func showWorkspace(_ id: String?, keepsCreation: Bool = true, keepsPage: Bool = false) {
         workspaceID = id
         if id != nil, !keepsPage { page = nil }
@@ -173,6 +173,10 @@ extension WindowState {
 
     /// The workspace shown before the current one, if any.
     var lastUsedWorkspace: String? { workspaceRecency.first { $0 != workspaceID } }
+    /// Starts `restoreWatch` at the shown workspace; `awayFromRestore`: another workspace or a top page but Home shows now.
+    func watchRestore() { restoreWatch = (workspaceID, false) }
+    var awayFromRestore: Bool { workspaceID != restoreWatch?.shown || page.map { $0 != .home } == true }
+    fileprivate func latchLeftRestore() { if restoreWatch?.left == false, awayFromRestore { restoreWatch?.left = true } }
 
     /// Forgets workspaces this window no longer lists.
     func pruneRecency(keeping members: Set<String>) {

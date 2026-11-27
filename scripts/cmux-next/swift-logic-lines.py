@@ -3,8 +3,9 @@
 
 plans/cmux-next/layer-ownership.md (binding) says Rust owns every state, list and rule and Swift is only the platform
 shell; Lawrence 2026-11-02: "move as much from swift into rust as possible." This script measures what is left. It is a
-report, never a CI job and not a pre-push gate: the tip watcher (cmux-ad's) runs it per tip and turns a row red when it
-rises over the last green tip.
+report that never blocks anything, no CI gate and no pre-push gate: the tip watcher (cmux-ad's) runs it per tip and
+turns a row red when it rises over the last green tip, and swift-logic-delta.py runs it at a change's merge base and
+head, so a lane sees its own share of a rise before it merges (warn only; it exits 0 on growth).
 
   python3 -I scripts/cmux-next/swift-logic-lines.py --repo ROOT --rev SHA --json   one JSON object (below)
   python3 -I scripts/cmux-next/swift-logic-lines.py --rev SHA                      the totals, as text
@@ -73,7 +74,8 @@ there) and in the others (closure packages that only the default rule counts yet
 
 Each file's declarations are kept by (blob id, path) in arch_counts' facts cache under this script's fingerprint, so
 a second count reads only the files that changed. Tests: scripts/cmux-next/tests/test_swift_logic_lines.py (run them
-yourself, `python3 -I scripts/cmux-next/tests/test_swift_logic_lines.py`; no CI job runs them).
+yourself, `python3 -I scripts/cmux-next/tests/test_swift_logic_lines.py`; the cmux-next checks job's script tests run
+them too).
 """
 
 from __future__ import annotations
@@ -133,8 +135,6 @@ GENERATORS = (
      "scripts/cmux-next/gen-chrome-styles.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift",
      "scripts/cmux-next/art/generate_backdrop_art.py"),
-    ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift",
-     "scripts/cmux-next/art/generate_backdrop_art.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StaticStatusGlyph.generated.swift",
      "scripts/cmux-next/gen-status-glyphs.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift", "scripts/cmux-next/gen-type-scale.py"),
@@ -146,8 +146,6 @@ GENERATORS = (
      "scripts/cmux-next/gen-phone-lane-fields.py"),
     ("Packages/Shared/CmuxAgentBrands/Sources/CmuxAgentBrands/AgentBrandCatalog+Generated.swift",
      "scripts/agent-icons/generate.py"),
-    ("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/CtlWireModels.swift", "quicktype"),
-    ("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift", "quicktype"),
 )
 # The claim opens the comment line: prose that mentions generated values (`// The defaults are generated from`) is
 # none.

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5. */
+/* cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -8,7 +8,10 @@ export type JsonObject = { [key: string]: JsonValue };
 
 export type ActivitySnapshot = {
   "attached_clients": number;
+  "echo_at_ms"?: (bigint) | null;
+  "echo_input_at_ms"?: (bigint) | null;
   "last_agent_action_at_ms": (bigint) | null;
+  "last_person_attach_at_ms"?: (bigint) | null;
   "last_user_input_at_ms": (bigint) | null;
   "live_agents": number;
 };
@@ -34,6 +37,8 @@ export type AgentRecord = {
   /** What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`. */
   "status"?: (AgentState) | null;
   "surface": Id;
+  /** The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab. */
+  "terminal_id"?: string;
   "updated_at_ms": bigint;
 };
 
@@ -566,6 +571,7 @@ export type HomeInboxRow = {
   "chief"?: string;
   "chief_state"?: HomeChiefState;
   "id": string;
+  "index"?: bigint;
   "kind": HomeInboxKind;
   "last_author"?: string;
   "marked_unread": boolean;
@@ -598,8 +604,17 @@ export type IdMapping = {
   "short_id": string;
 };
 
+export type IdentifyRestore = {
+  "done": (bigint) | null;
+  "elapsed_ms": bigint;
+  "last_advance_ms": bigint;
+  "phase": string;
+  "total": (bigint) | null;
+};
+
 export type IdentifyResult = {
   "api_revision"?: (number) | null;
+  "api_version"?: (string) | null;
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
@@ -620,9 +635,11 @@ export type IdentifyResult = {
   "machine_platform"?: MachinePlatform;
   "machine_symbol"?: string;
   "min_api_revision"?: (number) | null;
+  "min_api_version"?: (string) | null;
   "pid": number;
   "protocol": number;
   "registry_id": string;
+  "restore"?: IdentifyRestore;
   "screen_device_id"?: (string) | null;
   "session": string;
   "session_id"?: string;
@@ -671,6 +688,22 @@ export type Layout = ({ "type": "leaf" } & {
   "panes": Array<Id>;
   "type": "stack";
 });
+
+export type LayoutColumnNode = {
+  /** dock-columns-v1: the viewport edge the column is pinned to. */
+  "dock"?: JsonValue;
+  "id": Id;
+  "layout": Layout;
+  /** rows-v1: only for a column with two or more rows. */
+  "rows"?: Array<LayoutRowNode>;
+  "width": number;
+};
+
+export type LayoutRowNode = {
+  "height": bigint;
+  "id": Id;
+  "layout": Layout;
+};
 
 export type LayoutSizePaneWidth = {
   "pane": Id;
@@ -721,12 +754,21 @@ export type ListWorkspacesKnown = {
   "workspace_revision"?: (bigint) | null;
 };
 
+export type ListWorkspacesSince = {
+  "epoch": string;
+  "seq": bigint;
+};
+
 export type LivePane = {
   "active_tab": bigint;
   "focused_at"?: bigint;
   "id": Id;
   "name": (string) | null;
+  /** The pane's public id. */
+  "resource_id"?: (string) | null;
   "short_id"?: string;
+  /** The pane's tab group runs. */
+  "tab_groups"?: Array<TabGroupRun>;
   "tabs": Array<Tab>;
 };
 
@@ -843,6 +885,10 @@ export type PaneSurfaceResult = {
   "workspace_id"?: string;
 };
 
+export type PhoneLinkOfferResult = {
+  "offered": boolean;
+};
+
 export type PingResult = {
   "build_commit"?: (string) | null;
   "ghostty_commit"?: (string) | null;
@@ -883,6 +929,18 @@ export type ReadScrollbackResult = {
 export type ReattachViewResult = {
   "participant": string;
   "state": SizeState;
+};
+
+export type ReleaseWorkspaceNamesResult = {
+  /** Workspace names this call handed back to the automatic namer. */
+  "released": bigint;
+  /** User-owned names left pinned: a row renamed between the read and its release. */
+  "still_pinned": bigint;
+};
+
+export type RemoteHostAppPermissions = {
+  "accessibility"?: (boolean) | null;
+  "screen_recording"?: (boolean) | null;
 };
 
 export type RemoteHostAppResult = {
@@ -1074,12 +1132,47 @@ export type SavedTabGroupRecord = {
 export type Screen = {
   "active": boolean;
   "active_pane": Id;
+  /** The screen color. */
+  "color"?: (string) | null;
+  /** The screen's layout columns. */
+  "columns"?: Array<LayoutColumnNode>;
+  /** floating-panes-v1: panes above the tiled layout, back to front. */
+  "floating"?: JsonValue;
+  /** The screen group the screen is in. */
+  "group"?: (string) | null;
+  /** split-divider-visibility-v1: splits whose divider is hidden. */
+  "hidden_dividers"?: Array<Id>;
+  /** The screen icon. */
+  "icon"?: (string) | null;
   "id": Id;
   "layout": Layout;
   "name": (string) | null;
   "panes": Array<Pane>;
+  /** The screen is pinned. */
+  "pinned"?: boolean;
+  /** quick-terminal-v1: the screen's quick terminal. */
+  "quick_terminal"?: JsonValue;
+  /** The screen's public id. */
+  "resource_id"?: (string) | null;
   "short_id"?: string;
+  /** The viewport width the split widths are relative to. */
+  "viewport_base_width"?: number;
+  /** Viewport widths of splits. */
+  "viewport_splits"?: Array<ViewportSplitWidth>;
   "zoomed_pane": (Id) | null;
+};
+
+export type ScreenGroupRun = {
+  "collapsed": boolean;
+  "color": string;
+  "count": bigint;
+  "icon"?: (string) | null;
+  "id": string;
+  "name": string;
+  "saved_id": (string) | null;
+  "screens": Array<Id>;
+  /** The index of the run's first screen. */
+  "start": bigint;
 };
 
 export type SelectionPane = {
@@ -1131,6 +1224,7 @@ export type ServerStatsConnections = {
 };
 
 export type ServerStatsDisk = {
+  "checkpoints"?: (ServerStatsDiskCheckpoints) | null;
   "error": (string) | null;
   "files": Array<ServerStatsDiskFile>;
   "files_truncated": boolean;
@@ -1143,6 +1237,14 @@ export type ServerStatsDisk = {
   "segments": (ServerStatsDiskSegments) | null;
   "shm_bytes": bigint;
   "wal_bytes": bigint;
+};
+
+export type ServerStatsDiskCheckpoints = {
+  "budget_bytes": bigint;
+  "bytes": bigint;
+  "checkpoints": bigint;
+  "largest_bytes": bigint;
+  "over_budget": boolean;
 };
 
 export type ServerStatsDiskFile = {
@@ -1356,6 +1458,11 @@ export type SetCellPixelsResult = {
   "resizes": Array<CellPixelResize>;
 };
 
+export type SetClientInfoResult = {
+  "api_revision"?: number;
+  "api_version"?: string;
+};
+
 export type SetHostSizePolicyResult = {
   "policy": HostSizePolicy;
 };
@@ -1494,31 +1601,84 @@ export type SurfaceResult = {
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: string;
+  /** The transaction of a new-tab request, when it sent one. */
+  "transaction"?: string;
   "workspace_id"?: string;
 };
 
 export type Tab = {
+  /** app-screens-v1: the app (and route) an app tab shows. */
+  "app"?: JsonValue;
+  /** tab-attention-v1: an agent needs the person in this tab. */
+  "attention"?: (TabAttention) | null;
+  /** A frontend browser's engine. */
+  "browser_engine"?: (string) | null;
   "browser_error"?: (string) | null;
   "browser_frames_stalled"?: (boolean) | null;
+  /** The frontend that owns the browser. */
+  "browser_owner"?: (string) | null;
+  /** A frontend browser's profile. */
+  "browser_profile_id"?: (string) | null;
+  /** Who renders a browser tab. */
+  "browser_renderer"?: ("daemon" | "frontend") | null;
   "browser_source": ("external" | "launched") | null;
   "browser_status"?: ("starting" | "live" | "failed") | null;
+  /** The public id of what the tab shows. */
+  "content_resource_id"?: (string) | null;
+  /** What a conversation tab shows. */
+  "conversation"?: (ConversationTabRecord) | null;
+  /** The terminal's working directory. */
+  "cwd"?: (string) | null;
   "dead": boolean;
-  "kind": "pty" | "browser" | "conversation";
+  /** terminal-state-v1: why a dead terminal ended. */
+  "end"?: (JsonValue) | null;
+  /** A frontend browser's favicon. */
+  "favicon_url"?: (string) | null;
+  /** The git branch of cwd. */
+  "git_branch"?: (string) | null;
+  /** cwd's checkout has a detached HEAD. */
+  "git_detached"?: boolean;
+  /** The tab group the tab is in. */
+  "group"?: (string) | null;
+  /** The record version of a terminal its host has but cannot adopt. */
+  "host_record_version"?: (bigint) | null;
+  "kind": "pty" | "browser" | "conversation" | "remote-terminal";
   "name": (string) | null;
   "notification"?: (NotificationMarker) | null;
+  /** The tab is pinned. */
+  "pinned"?: boolean;
+  /** A pinned browser tab's home URL. */
+  "pinned_url"?: (string) | null;
   "program_status"?: (ShownProgramStatus) | null;
+  /** How the tab relaunches after a restart. */
+  "relaunch"?: (JsonValue) | null;
+  /** A remote terminal tab's record. */
+  "remote"?: JsonValue;
   "short_id"?: string;
   "size": (Size) | null;
   "supports_clear_history_key_fallback"?: boolean;
   "surface": Id;
+  /** The tab's public id. */
+  "tab_resource_id"?: (string) | null;
   /** Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason. */
   "terminal_host_fallback"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: (string) | null;
+  /** running, reconnecting, failed or exited, for a terminal tab. */
+  "terminal_state"?: (string) | null;
   "title": string;
   "title_activity"?: (string) | null;
   "title_text"?: string;
+  /** A browser tab's URL. */
+  "url"?: (string) | null;
+};
+
+export type TabAttention = {
+  /** When it was marked, in Unix milliseconds. */
+  "at_ms": bigint;
+  /** Why the tab needs the person. */
+  "reason": string;
 };
 
 export type TabGroupEndedTerminal = {
@@ -1555,6 +1715,8 @@ export type TabGroupRun = {
   /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "count": bigint;
+  /** tab-group-icon-v1: the group's icon string. */
+  "icon"?: (string) | null;
   "id": string;
   "name": string;
   "pane"?: Id;
@@ -1563,6 +1725,19 @@ export type TabGroupRun = {
   "start": bigint;
   "surfaces": Array<Id>;
   [key: string]: unknown;
+};
+
+export type TabPlace = {
+  /** Right after this tab of pane. */
+  "after"?: (Id) | null;
+  /** Right after the tab of an earlier create request of this connection for pane: the transaction of that request (1 to 128 printable ASCII). That tab does not have to be there yet. */
+  "after_creation"?: (string) | null;
+  /** Right before this tab of pane. */
+  "before"?: (Id) | null;
+  /** true: the tab joins the tab group of the tab that after, after_creation or before names. Refused with start. */
+  "joins"?: (boolean) | null;
+  /** true: the first tab after the pinned tabs. */
+  "start"?: (boolean) | null;
 };
 
 /** Opaque JSON: A tab named by its numeric surface id or its public tab_ id. */
@@ -1602,6 +1777,21 @@ export type TerminalColors = {
   "palette"?: Record<string, ColorHex>;
   "selection_bg": (ColorHex) | null;
   "selection_fg": (ColorHex) | null;
+};
+
+export type TerminalCommandContext = {
+  "command": (string) | null;
+  "cwd": (string) | null;
+  "exit_code": (number) | null;
+  "output": string;
+  "text": string;
+  "truncated": boolean;
+};
+
+export type TerminalCommandContextIntent = "context" | "fix";
+
+export type TerminalCommandContextResult = {
+  "context": (TerminalCommandContext) | null;
 };
 
 export type TerminalCommandDeleteResult = {
@@ -1809,9 +1999,20 @@ export type TerminalResumeCommandResult = {
 };
 
 export type Tree = {
+  "changed"?: Array<Workspace>;
+  "delta"?: boolean;
+  "epoch"?: string;
   "generation"?: string;
+  /** The sidebar workspace groups. */
+  "groups"?: Array<WorkspaceGroup>;
+  /** How many lines the connection had written when the tree was read: a later line may carry a change the tree lacks. */
+  "lines_written_before_read"?: bigint;
+  "next"?: bigint;
+  "order"?: Array<Id>;
   "pane_revision"?: bigint;
   "registry_id"?: string;
+  "removed"?: Array<Id>;
+  "seq"?: bigint;
   "terminal_revision"?: bigint;
   "total"?: bigint;
   "tree_revision"?: string;
@@ -1823,6 +2024,11 @@ export type Tree = {
 export type ViewAttachmentOutcome = "applied" | "passive" | "superseded";
 
 export type ViewportPaneWidthResult = {
+  "width": number;
+};
+
+export type ViewportSplitWidth = {
+  "split": Id;
   "width": number;
 };
 
@@ -1842,13 +2048,39 @@ export type WaitForResult = {
 
 export type Workspace = {
   "active": boolean;
+  /** The app an app workspace shows. */
+  "app"?: (string) | null;
+  /** The workspace color. */
+  "color"?: (string) | null;
+  /** The sidebar group the workspace is in. */
+  "group"?: (string) | null;
+  /** The workspace icon. */
+  "icon"?: (string) | null;
   "id": Id;
+  /** workspace-keep-awake-v1: the freeing timer never ends this workspace's shells. */
+  "keep_awake"?: boolean;
   "key"?: string;
+  /** What the workspace is. */
+  "kind"?: "normal" | "home" | "app";
+  /** The person marked the workspace unread. */
+  "marked_unread"?: boolean;
   "name": string;
   "name_revision"?: string;
   "name_source"?: NameSource;
+  /** The workspace is pinned. */
+  "pinned"?: boolean;
+  /** workspace-recovered-v1: every tab is a recovered terminal. */
+  "recovered"?: boolean;
+  /** The workspace's public id. */
+  "resource_id"?: (string) | null;
+  /** The workspace's screen group runs. */
+  "screen_groups"?: Array<ScreenGroupRun>;
   "screens": Array<Screen>;
   "short_id"?: string;
+  /** The workspace title. */
+  "title"?: (string) | null;
+  /** Tabs with an unread notification. */
+  "unread_count"?: bigint;
 };
 
 export type WorkspaceFirstTab = ({ "kind": "browser" } & {
@@ -1864,6 +2096,14 @@ export type WorkspaceFirstTab = ({ "kind": "browser" } & {
   "title"?: (string) | null;
   "url": string;
 });
+
+export type WorkspaceGroup = {
+  "collapsed": boolean;
+  "color": (string) | null;
+  "id": string;
+  "index": bigint;
+  "name": string;
+};
 
 export type WorkspaceMutationResult = {
   "changed"?: boolean;

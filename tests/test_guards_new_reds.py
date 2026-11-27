@@ -22,12 +22,14 @@ import run_ci_guards  # noqa: E402
 
 
 class NewReds(unittest.TestCase):
-    def run_it(self, head, base):
+    def run_it(self, head, base, *, base_complete=True):
         with tempfile.TemporaryDirectory() as tmp:
             paths = []
             for name, results in (("head", head), ("base", base)):
                 path = Path(tmp) / f"{name}.json"
                 if results is not None:
+                    if name == "base" and not base_complete:
+                        results = {"_cmux_complete": False, **results}
                     path.write_text(json.dumps(results))
                 paths.append(str(path))
             return subprocess.run([sys.executable, str(SCRIPT), *paths], capture_output=True, text=True)
@@ -191,17 +193,42 @@ class NewReds(unittest.TestCase):
 
     def test_no_first_base_pass_means_no_flake_verdict_from_a_later_replay(self):
         # #41414 review F2: a later base replay that fails a test proves the base flaps on it only when the first
-        # replay passed it. A missing or unreadable first result, or a first replay whose file timed out (it names no
-        # test), followed by a replay that names the test red, turned "no base result is the change's" into a pass.
+        # replay passed it. A missing or unreadable first result stays unknown, never a flake. A first replay whose
+        # file timed out (it names no test) followed by replays that name the test red is no flake either: the base
+        # failed it by name, so it is red on the base too (cmux#50088), never excused as flaky.
         red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
         file = red.split(" > ")[0]
         for first in ("unreadable", {file: False}, {f"{file} > other": False, file: False}):
             done = self.run_again({red: False}, first, {red: False})
-            self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
-            self.assertIn(f"::error title=Webview test red on this change::{red}", done.stdout)
-            self.assertIn(f"webview test red step (new): {red}", done.stdout)
+            self.assertNotIn(f"webview test red step (flaky): {red}", done.stdout)
+            if first == "unreadable":
+                self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
+                self.assertIn(f"webview test red step (unknown): {red}", done.stdout)
+            else:
+                self.assertEqual(done.returncode, 0, f"{first}: {done.stdout}{done.stderr}")
+                self.assertIn(f"webview test red step (base): {red}", done.stdout)
             listed = self.run_again({red: False}, first, {red: False}, new_files=True)
-            self.assertEqual(listed.stdout.splitlines(), [file], first)
+            self.assertEqual(listed.stdout.splitlines(), [], first)
+
+    def test_a_red_the_first_replay_timed_out_on_is_the_bases_when_every_later_replay_fails_it(self):
+        # cmux#50088 (job 137410904472): feel-plan-tray.test.ts timed out on the first base replay, naming the tests
+        # it finished; both later base replays failed "five drags in a row" by name with the head's own numbers, and
+        # the compare called it the change's.
+        file = "test/feel-plan-tray.test.ts"
+        red = f"{file} > feel: plan tray rim drag > five drags in a row, up and down: each follows the hand, none jumps"
+        other = f"{file} > feel: plan tray rim drag > a click on the rim (no drag) moves and changes nothing"
+        head = {red: False, other: False, file: False}
+        first = {other: False, file: False}
+        done = self.run_again(head, first, {red: False, other: False, file: False}, {red: False, file: False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("::error", done.stdout)
+        self.assertIn(f"::warning title=Webview test red on the base too::{red}", done.stdout)
+        self.assertIn(f"webview test red step (base): {red}", done.stdout)
+        # One later replay that passes it, or none that names it: still the change's.
+        for again in (({red: False}, {red: True}), ({file: False},), ({file: False}, {file: False})):
+            done = self.run_again(head, first, *again)
+            self.assertEqual(done.returncode, 1, f"{again}: {done.stdout}{done.stderr}")
+            self.assertIn(f"webview test red step (new): {red}", done.stdout)
         # A first replay whose file passed whole (it names no passing test) did pass it.
         done = self.run_again({red: False}, {file: True}, {red: False})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -243,23 +270,108 @@ class NewReds(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("::warning title=Guard red on the base too::lint", done.stdout)
 
-    def test_a_new_step_that_fails_is_the_changes(self):
+    def test_a_step_that_fails_on_a_completed_base_is_the_changes(self):
         done = self.run_it({"new step": False}, {})
         self.assertEqual(done.returncode, 1)
+
+    def test_a_step_with_no_base_result_is_unknown_not_new(self):
+        # Detector for the cut-pass class: an absent base entry must never become a `new` line.
+        done = self.run_it({"cut step": False}, None)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("guard red step (unknown): cut step", done.stdout)
+        self.assertNotIn("guard red step (new): cut step", done.stdout)
+        self.assertIn("0 guard steps red on this change", done.stdout)
+
+    def test_a_partial_base_keeps_finished_green_new_and_missing_unknown(self):
+        done = self.run_it({"cut step": False, "finished green": False}, {"finished green": True}, base_complete=False)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("guard red step (new): finished green", done.stdout)
+        self.assertIn("guard red step (unknown): cut step", done.stdout)
+        self.assertNotIn("guard red step (new): cut step", done.stdout)
+
+    def test_a_file_the_cut_base_replay_never_reached_is_unknown_not_the_changes(self):
+        # react-apps-base-check's first base replay stops at the job's budget (CMUX_WEB_TEST_STOP_AT). Job
+        # 137225088381 replayed 152 files one at a time and was cancelled at the 55 minutes with no verdict; cut
+        # instead, the files it never reached have no base result, and their reds must not read as the change's.
+        reached, cut = "test/reached.test.ts", "test/cut.test.ts"
+        head = {f"{reached} > a": False, f"{cut} > b": False, cut: False}
+        with tempfile.TemporaryDirectory() as tmp:
+            files, base, head_path = Path(tmp) / "files", Path(tmp) / "base.json", Path(tmp) / "head.json"
+            files.write_text(f"{reached}\n{cut}\n")
+            base.write_text(json.dumps({f"{reached} > a": True}))
+            head_path.write_text(json.dumps(head))
+            marked = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--mark-unreached",
+                                     str(files), str(base)], capture_output=True, text=True)
+            self.assertEqual(marked.returncode, 0, marked.stdout + marked.stderr)
+            self.assertIn(f"  {cut}", marked.stdout)
+            self.assertEqual(json.loads(base.read_text())["_cmux_unreached"], [cut])
+            done = subprocess.run([sys.executable, str(SCRIPT), "--label", "Webview test", str(head_path), str(base)],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            self.assertIn(f"webview test red step (new): {reached} > a", done.stdout)
+            self.assertIn(f"webview test red step (unknown): {cut} > b", done.stdout)
+            self.assertIn(f"webview test red step (unknown): {cut}", done.stdout)
+            self.assertNotIn(f"(new): {cut}", done.stdout)
+            listed = subprocess.run([sys.executable, str(SCRIPT), "--new-files", str(head_path), str(base)],
+                                    capture_output=True, text=True)
+            self.assertEqual(listed.stdout.splitlines(), [reached])
+            # A replay that reached every file is left as it was.
+            base.write_text(json.dumps({f"{reached} > a": True, cut: True}))
+            subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--mark-unreached",
+                            str(files), str(base)], check=True, capture_output=True)
+            self.assertNotIn("_cmux_unreached", json.loads(base.read_text()))
+
+    def test_the_first_base_replay_never_stops_before_the_head_reds(self):
+        # cmux#53976, run 45519691376 job 138896898305: the job started 00:59:13, the replay's setup (bundles,
+        # browsers) took it to 01:24:09, and the fixed REPLAY_RESERVE put CMUX_WEB_TEST_STOP_AT at 01:25:53. Its one
+        # head-red file was "NOT RUN ... past CMUX_WEB_TEST_STOP_AT", so a red from the base had no base verdict
+        # and failed the job. The first replay holds only head reds: it gets a whole file's time from when it starts.
+        started, now = 1_700_000_000, 1_700_000_000 + 1496
+
+        def stop_at(*args):
+            done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"),
+                                   "--first-replay-stop-at", *map(str, args)], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            return done.stdout.strip()
+
+        at = int(stop_at(started, 55, 1700, now))
+        self.assertGreaterEqual(at, now + 900)  # the runner's per-file ceiling
+        self.assertLessEqual(at, started + 55 * 60 - 120)  # never past the verdict's margin
+        # With time to spare the reserve for the head re-run still holds.
+        self.assertEqual(int(stop_at(started, 55, 1700, started + 60)), started + 55 * 60 - 1700)
+        # Late in the job it ends at the verdict's margin, not past the job's timeout.
+        self.assertEqual(int(stop_at(started, 55, 1700, started + 50 * 60)), started + 55 * 60 - 120)
+        # No job clock: no stop.
+        self.assertEqual(stop_at(0, 55, 1700, now), "")
 
     def test_a_step_the_change_fixes_is_said(self):
         done = self.run_it({"lint": True}, {"lint": False})
         self.assertEqual(done.returncode, 0)
         self.assertIn("fixed by this change: lint", done.stdout)
 
-    def test_no_base_results_means_every_red_is_the_changes(self):
+    def test_no_base_results_are_deferred_to_the_merge_gate(self):
         done = self.run_it({"lint": False}, None)
         self.assertEqual(done.returncode, 1)
         self.assertIn("no base results", done.stdout)
+        self.assertIn("guard red step (unknown): lint", done.stdout)
 
     def test_no_head_results_fails(self):
         done = self.run_it(None, {"lint": True})
         self.assertEqual(done.returncode, 1)
+
+
+class IncrementalGuardResults(unittest.TestCase):
+    def test_a_completed_step_is_written_before_the_run_finishes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "guards-base.json"
+            unit = run_ci_guards.Unit("workflow-guard-tests", "ci", [])
+            step = run_ci_guards.Step("finished", "", {}, None)
+            writer = run_ci_guards.IncrementalResults(path, root)
+            writer.add(run_ci_guards.StepResult(unit, step, True, 0.1, ""))
+            self.assertEqual(json.loads(path.read_text()), {"_cmux_complete": False, "finished": True})
+            writer.complete()
+            self.assertEqual(json.loads(path.read_text()), {"_cmux_complete": True, "finished": True})
 
 
 class RedStepsForTheBaseRerun(unittest.TestCase):
@@ -561,6 +673,22 @@ class AWarningLineIsNotAFailureName(unittest.TestCase):
         ])
         self.assertIn("tests/test_keychain.py::test_probe", names)
         self.assertFalse({name for name in names if name.startswith("sys")}, names)
+
+
+class AnObjectAddressIsNotAFailureName(unittest.TestCase):
+    """An object repr's address (`<function f at 0x758be97b8360>`) differs in every process. "0x" glued it into one
+    word the sha pattern never matched, so "Validate the Cloud chat proof script", red on the base for the same
+    reason, read new on every pull request (cmux-next CI guard group, 2026-11-26: `x0e0a0>`, `x0be0b0>`)."""
+
+    def test_two_runs_of_the_same_failure_name_the_same_things(self):
+        import guards_new_reds
+
+        head = guards_new_reds.failure_names(
+            ["Exception ignored in atexit callback: <function _remove_cached_logins_on_exit at 0x758be97b8360>"])
+        base = guards_new_reds.failure_names(
+            ["Exception ignored in atexit callback: <function _remove_cached_logins_on_exit at 0x7f01c0ea2de0>"])
+        self.assertEqual(head, base)
+        self.assertIn("_remove_cached_logins_on_exit", head)
 
 
 if __name__ == "__main__":

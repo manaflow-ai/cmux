@@ -27,11 +27,14 @@ this page; rename one here, in the catalog and in the dashboard script in the sa
 - A host that starts with telemetry off makes no `analytics/` folder, id or state; when consent
   turns on later it makes them and sends `chief_host_started`.
 
-## Consent (opt-out)
+## Consent (opt-in)
 
-On by default in release builds, the same rule as the cmux CLI's crash reports
-([privacy.md](../privacy.md#telemetry)). Off, and the queue deleted at once (read again every 5
-minutes), when any of these holds:
+Off until the person turns it on (Leo, 2026-11-24: "whatever we do, we need to make sure it's opt
+out by defautl i assume?"; [privacy.md](../privacy.md#telemetry)). A release build sends only when
+the app's `sendAnonymousTelemetry` preference is true (Settings > Privacy and Security > Send Crash
+Reports and Analytics) or, with no app preference (a CLI or Cloud host),
+`app.sendAnonymousTelemetry: true` is in `cmux-next.json`. Off, and the queue deleted at once (read
+again every 5 minutes), when the person never turned it on or when any of these holds:
 
 | Switch | Who sets it |
 | --- | --- |
@@ -76,17 +79,25 @@ minutes), when any of these holds:
 | --- | --- | --- |
 | `chief_host_started` | A Chief host starts with telemetry on | `is_new_install`, `engine` (`acpmux`, `native`) |
 | `chief_activation_milestone_reached` | First time per install | `milestone`, `days_since_install` |
-| `chief_daily_active` | First completed turn of a UTC day | none |
+| `chief_daily_active` | First finished turn of a UTC day: `ok`, or `stopped` by the Chief after it replied | none |
 | `chief_message_received` | A message reaches the Chief (its own chat or a side chat) | `sender` (`human`, `agent`, `other`), `images`, `files`, `remote`, `side` |
 | `chief_turn_completed` | A Chief turn ends | `turn_status` (`ok`, `error`, `cancelled`, `stopped`, `owner_stopped`, `superseded`, `refused`), `error_class`, `replied`, `harness`, `harness_kind`, `model`, `effort`, `tier`, `duration_ms`, `start_ms`, `ttft_ms`, `headers_ms`, `first_draft_ms`, `posted_to_first_draft_ms`, `requests`, `tools`, `tool_errors`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `cache_hit_rate`, `cost_usd`, `harness_refused` |
 | `chief_tool_used` | First use of a tool per UTC day | `tool` (the Chief's tools by name, harness built-ins by name, `mcp_cmux`, `mcp_other`, `other`) |
 | `chief_subagents_spawned` | One `spawn` call | `count`, `harness`, `here`, `cloud`, `peer`, `settle_ms` |
 | `chief_subagent_started` | A subagent's session starts | `harness`, `harness_kind`, `goal`, `peer`, `start_ms` |
 | `chief_subagent_finished` | A subagent reports done | `outcome` (`landed`, `unlanded`, `stopped`, `done`), `landed`, `stopped`, `duration_ms`, `tools`, `tool_errors` |
-| `chief_compactor_failed` | A memory summary failed or hit a capacity limit | `reason` (`node_failed`, `capacity`), `error_class`, `harness`, `http_status`, `failover`, `duration_ms` |
-| `chief_error` | A host-side failure | `kind` (`harness_refused`, `capacity_wait`, `turn_ttl_refused`, `subagent_stuck`, `subagent_stop_refused`, `tell_undelivered`, `reply_too_long`, `subagent_workspace_failed`), `role`, `harness` |
+| `chief_compactor_failed` | A memory summary failed or hit a capacity limit (capped, see below) | `reason` (`node_failed`, `capacity`), `error_class`, `harness`, `http_status`, `failover`, `duration_ms`, `repeats_dropped` |
+| `chief_error` | A host-side failure (capped, see below) | `kind` (`harness_refused`, `capacity_wait`, `turn_ttl_refused`, `subagent_stuck`, `subagent_stop_refused`, `tell_undelivered`, `reply_too_long`, `subagent_workspace_failed`), `role`, `harness` |
 | `chief_usage_daily` | Once a UTC day is over, at the next unit or host start | `day`, `turns`, `compactor_nodes`, `subagent_prompts`, `turn_cost_usd`, `compactor_cost_usd`, `subagent_cost_usd`, `cost_usd`, the four token counts, `cache_hit_rate` |
 | `chief_analytics_dropped` | The full queue refused events | `count` |
+
+`replied` is true when the turn posted a reply: a `reply` on the turn, or a successful `send` or
+`reply` tool call in it. The Chief normally answers by `send` and then ends its own turn, so most
+good turns have `turn_status: stopped` and `replied: true`; read "good turns" as `ok` plus that.
+
+`chief_compactor_failed` and `chief_error` send at most 10 events per reason or kind, per install
+and UTC hour (`catalog::BURST_PER_HOUR`); the next one sent carries `repeats_dropped`, the count
+held back before it. Count failures as `count() + sum(repeats_dropped)`.
 
 `landed` comes from the subagent's report on the Mac (`sub_watch::landed`: a commit range such as
 `OLD..NEW`, or "landed" next to a sha, and none of the not-landed words); only the flag is sent.

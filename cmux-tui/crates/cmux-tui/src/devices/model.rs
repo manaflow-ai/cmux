@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use super::network::{NetworkNode, NetworkStatus};
 use cmux_device_kind::DeviceKind;
+use cmux_device_kind::screen::{self, NoScreen, Screen};
 
 /// What the stores said, as their own `--json` printed it.
 #[derive(Clone, Debug, Default)]
@@ -113,6 +114,19 @@ pub(crate) struct Device {
     /// may run chats here in Full access. None for every other row, which has no such setting.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_access: Option<bool>,
+    /// An acpmux peer down a day or more (acpmux `parked`): offline, retried hourly. The CLI
+    /// adds how to remove it (`print_listing`); `detail` itself stays plain for every surface.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub parked: bool,
+    /// What the Screen Sharing page offers for it (`cmux_device_kind::screen::offer`): View, or
+    /// nothing with the reason. None for a row that is not a machine (a person's login).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen: Option<Screen>,
+    /// The device hub's id of this machine's screen host, when the hub lists one: what a viewer
+    /// opens (`cmux tab new-mac-screen --device`), so a row that offers View names the screen it
+    /// opens. None when the hub lists none or was not read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hub_device: Option<String>,
 }
 
 /// Where an available computer was found.
@@ -130,8 +144,12 @@ pub(crate) enum Found {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Available {
     pub name: String,
-    /// What enroll dials: the MagicDNS name, else the address; an ssh
-    /// config host's own name.
+    /// What enroll dials (`cmux device add ADDRESS --yes`): the person's ssh
+    /// config alias for the computer when one names it, since that alias
+    /// carries their user, key and HostKeyAlias pin (hq#11835: the MagicDNS
+    /// name failed `Host key verification failed` where the alias reached
+    /// it); else the MagicDNS name, else the address; an ssh config host's
+    /// own name.
     pub address: String,
     /// Empty for an ssh config host: nothing says what it runs until enroll reaches it.
     pub os: String,
@@ -139,6 +157,10 @@ pub(crate) struct Available {
     /// a host the person's own ssh config names.
     pub mine: bool,
     pub found: Found,
+    /// Whether ssh answers on it from here (`reach.rs`): set before `cmux device list` prints,
+    /// and with `--json --probe`; absent when nothing probed it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<super::reach::SshReach>,
 }
 
 /// Hosts a person reaches with ssh that are never a computer to add: git
@@ -192,7 +214,7 @@ pub(crate) struct Listing {
 /// The pool stem of a machine name that ends in a generated id: a last part of 6 or more hex
 /// characters with both a digit and a letter (`3fa17bde`), with any all-digit parts before it
 /// (a timestamp) dropped too. `swarm-01` and `release-20261114` have no generated id.
-fn pool_stem(name: &str) -> Option<&str> {
+pub(crate) fn pool_stem(name: &str) -> Option<&str> {
     let (rest, last) = name.rsplit_once('-')?;
     let generated = last.len() >= 6
         && last.chars().all(|c| c.is_ascii_hexdigit())
@@ -228,17 +250,48 @@ fn fold_pools(available: Vec<(bool, Available)>) -> (Vec<(bool, Available)>, Vec
     (kept, counts.into_iter().map(|(stem, count)| Pool { stem, count }).collect())
 }
 
-/// What a peer down for over a day says: it is not failing now, it is gone.
-fn parked_detail(name: &str) -> String {
-    format!(
-        "Not reachable for over a day; tried again hourly. If it is gone for good: cmux device remove {name}"
-    )
+/// What a peer down for over a day says: it is not failing now, it is gone quiet, and the last
+/// reason it failed stays visible, since a failure that lasted a day may be one to fix. Plain
+/// for every surface: the CLI adds its own remove hint (`print_listing`).
+fn parked_detail(error: Option<&str>) -> String {
+    let base = "Not reachable for over a day; tried again hourly.";
+    match error.filter(|e| !acpmux_parking_line(e)) {
+        Some(reason) => format!("{base} Last error: {reason}"),
+        None => base.to_owned(),
+    }
+}
+
+/// acpmux's own words for a parked link (this build's, and an older build's frozen
+/// countdown), not a reason the link failed.
+fn acpmux_parking_line(error: &str) -> bool {
+    error.starts_with("peer unreachable for over a day")
+        || error.starts_with("peer unavailable; next automatic retry")
+}
+
+/// The person's ssh config alias for network computer `node`: one whose
+/// HostName is the node (its MagicDNS name, short name or address) first, else
+/// one named as the node is. ssh dials such an alias with the person's own
+/// user, key and known-hosts pin, which the bare MagicDNS name lacks.
+fn ssh_alias(
+    hosts: &[crate::machine_runtime::SshConfigHost],
+    node: &NetworkNode,
+) -> Option<String> {
+    let by_host_name =
+        hosts.iter().find(|h| h.host_name.as_deref().is_some_and(|name| node.answers_to(name)));
+    by_host_name
+        .or_else(|| {
+            // An alias with its own HostName goes elsewhere, whatever its name says.
+            hosts.iter().find(|h| h.host_name.is_none() && node.answers_to(&h.alias))
+        })
+        .map(|h| h.alias.clone())
 }
 
 /// Merges the stores and the network's nodes into one row per device.
 ///
 /// - an acpmux peer is a computer that runs your agents; its URL's host is
-///   matched to a network node for its OS and address;
+///   matched to a network node for its OS and address (a peer with no URL,
+///   a joined machine and a paired computer by their name), so the node is
+///   never offered again as "Not added yet";
 /// - a daemon-role pairing is the record behind a peer of the same name, so
 ///   it joins that row; a client or read-only pairing is its own row;
 /// - remote hosting's `allow` logins and live grants are rows while remote
@@ -253,7 +306,11 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
     for peer in array(&sources.peers, "peers") {
         let Some(name) = text(peer, "name") else { continue };
         let url = text(peer, "url").unwrap_or_default();
-        let node = url_host(&url).and_then(|host| nodes.iter().find(|n| n.answers_to(&host)));
+        // A peer joined over the mesh has no URL: its name is the only key to its node.
+        let node = match url_host(&url) {
+            Some(host) => nodes.iter().find(|n| n.answers_to(&host)),
+            None => node_named(nodes, &name),
+        };
         let error = text(peer, "error").filter(|e| !e.is_empty());
         let connected = peer["connected"].as_bool().unwrap_or(false);
         // acpmux's `parked`: down a day or more. Gone quiet, not a failure a person can act
@@ -268,7 +325,15 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         } else {
             State::Offline
         };
-        let device = peer_device(peer, &url, node);
+        let hub = hub_screen(peer);
+        let device = peer_device(peer, &url, node, hub.as_ref());
+        let os = node
+            .map(|n| n.os.clone())
+            .filter(|os| !os.is_empty())
+            .or_else(|| hub.as_ref().and_then(HubScreen::platform).map(str::to_owned));
+        let screen = hub_refusal(hub.as_ref(), device).map(|reason| Screen::None {
+            reason: if connected { reason } else { NoScreen::Offline },
+        });
         devices.push(Device {
             id: format!("peer:{name}"),
             name: name.clone(),
@@ -277,23 +342,21 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             symbol: device.symbol(),
             roles: vec![Role::RunsAgents],
             state,
-            os: node.map(|n| n.os.clone()).filter(|os| !os.is_empty()),
-            reach: node.map(|n| Reach {
-                network: net_name,
-                address: n.address(),
-                ips: n.ips.iter().map(ToString::to_string).collect(),
-                online: n.online,
-            }),
+            os,
+            reach: node.map(|n| reach_of(n, net_name)),
             via: vec![Via::Peer { name: name.clone() }],
             added_at: None,
             detail: if parked {
-                Some(parked_detail(&name))
+                Some(parked_detail(error.as_deref()))
             } else if state == State::Error {
                 error
             } else {
                 None
             },
             full_access: None,
+            parked,
+            screen,
+            hub_device: hub.as_ref().and_then(HubScreen::id).map(str::to_owned),
         });
     }
     for paired in array(&sources.pairing, "devices") {
@@ -313,6 +376,8 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         }
         let open = paired["connections"].as_u64().unwrap_or(0) > 0;
         let device = paired_device(paired, &role);
+        // A paired computer has no address of its own: a network node of its name is it.
+        let node = if role == "phone" { None } else { node_named(nodes, &name) };
         devices.push(Device {
             id: format!("paired:{id}"),
             name,
@@ -327,13 +392,16 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
                 _ => Role::UsesThis,
             }],
             state: if open { State::Connected } else { State::Offline },
-            os: None,
-            reach: None,
+            os: node.map(|n| n.os.clone()).filter(|os| !os.is_empty()),
+            reach: node.map(|n| reach_of(n, net_name)),
             via: vec![Via::Paired { id }],
             added_at,
             detail: None,
             full_access: matches!(role.as_str(), "client" | "phone")
                 .then(|| paired["full_access"] == true),
+            parked: false,
+            screen: None,
+            hub_device: None,
         });
     }
     for row in sources.joined.as_array().map(Vec::as_slice).unwrap_or_default() {
@@ -345,20 +413,25 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         }
         let device = reported(row)
             .unwrap_or_else(|| DeviceKind::from_os(&text(row, "platform").unwrap_or_default()));
+        let name = text(row, "name").unwrap_or_else(|| id.clone());
+        let node = node_named(nodes, &name);
         devices.push(Device {
             id: format!("joined:{id}"),
-            name: text(row, "name").unwrap_or_else(|| id.clone()),
+            name,
             kind: Kind::Computer,
             device,
             symbol: device.symbol(),
             roles: vec![Role::RunsAgents],
             state: if state == "online" { State::Connected } else { State::Offline },
             os: text(row, "platform"),
-            reach: None,
+            reach: node.map(|n| reach_of(n, net_name)),
             via: vec![Via::Joined { machine_id: id }],
             added_at: text(row, "createdAt"),
             detail: None,
             full_access: None,
+            parked: false,
+            screen: None,
+            hub_device: None,
         });
     }
     if sources.remote["enabled"].as_bool() == Some(true) {
@@ -403,6 +476,9 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             ));
         }
     }
+    for d in devices.iter_mut().filter(|d| d.screen.is_none()) {
+        d.screen = screen_of(d);
+    }
     devices.sort_by(|a, b| {
         rank(a.state)
             .cmp(&rank(b.state))
@@ -420,10 +496,11 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
                 n.mine,
                 Available {
                     name: n.name.clone(),
-                    address: n.address(),
+                    address: ssh_alias(&sources.ssh_hosts, n).unwrap_or_else(|| n.address()),
                     os: n.os.clone(),
                     mine: n.mine,
                     found: Found::Network,
+                    ssh: None,
                 },
             )
         })
@@ -459,6 +536,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             os: String::new(),
             mine: true,
             found: Found::SshConfig,
+            ssh: None,
         })
         .collect();
     ssh.sort_by_key(|a| a.name.to_ascii_lowercase());
@@ -507,7 +585,20 @@ fn login_row(
         added_at,
         detail,
         full_access: None,
+        parked: false,
+        screen: None,
+        hub_device: None,
     }
+}
+
+/// What the Screen Sharing page offers for a row: none for a person's login (not a machine), else
+/// what its kind (or, when it reported none, its OS) can do there.
+fn screen_of(d: &Device) -> Option<Screen> {
+    if d.via.iter().all(|v| matches!(v, Via::Grant { .. } | Via::Allow { .. })) {
+        return None;
+    }
+    let os = if d.kind == Kind::Phone { Some("ios") } else { d.os.as_deref() };
+    Some(screen::offer(d.device, os, d.state == State::Connected))
 }
 
 /// The order rows show in: what needs a person first.
@@ -526,14 +617,100 @@ fn reported(record: &Value) -> Option<DeviceKind> {
 }
 
 /// An acpmux peer's kind: a Cloud machine (a `ws://`/`wss://` peer, as the app's location picker
-/// tells them apart) by its source; else what the peer reported in its health; else its OS.
-fn peer_device(peer: &Value, url: &str, node: Option<&NetworkNode>) -> DeviceKind {
+/// tells them apart) by its source; else what the peer reported in its health; else, for a
+/// machine only the mesh hub reaches (no health), what the device hub says of it (a Linux one
+/// sharing its screen is a Linux desktop); else its OS.
+fn peer_device(
+    peer: &Value,
+    url: &str,
+    node: Option<&NetworkNode>,
+    hub: Option<&HubScreen>,
+) -> DeviceKind {
     if url.starts_with("ws://") || url.starts_with("wss://") {
         return DeviceKind::Cloud;
     }
     reported(&peer["health"])
         .or_else(|| reported(peer))
+        .or_else(|| match hub {
+            Some(HubScreen::Listed { platform, shared: true, .. })
+                if platform.eq_ignore_ascii_case("linux") =>
+            {
+                Some(DeviceKind::LinuxDesktop)
+            }
+            _ => None,
+        })
         .unwrap_or_else(|| node.map_or(DeviceKind::Generic, |n| DeviceKind::from_os(&n.os)))
+}
+
+/// What the device hub says of the screen of a machine only the mesh hub reaches: acpmux's
+/// `deviceHub` on its `peers` row, read from the hub's device list (`GET /v1/devices`) by the
+/// share host. Absent when nothing read that list (no share host runs here).
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum HubScreen {
+    /// No device hub record has its name: no screen host signed in for it.
+    Absent,
+    /// Its record: its hub id (empty from an acpmux before it sent one), the platform it
+    /// registered as, whether it shares its screen, and whether its screen host holds the hub's
+    /// socket (`online`; true from an acpmux before it sent one). A screen host the hub lists
+    /// offline refuses a View with `host_offline` (the tab's "Is Offline"), however the mesh
+    /// reaches the machine.
+    Listed { id: String, platform: String, shared: bool, online: bool },
+}
+
+impl HubScreen {
+    fn platform(&self) -> Option<&str> {
+        match self {
+            HubScreen::Listed { platform, .. } if !platform.is_empty() => Some(platform),
+            _ => None,
+        }
+    }
+
+    fn id(&self) -> Option<&str> {
+        match self {
+            HubScreen::Listed { id, .. } if !id.is_empty() => Some(id),
+            _ => None,
+        }
+    }
+}
+
+/// A peer row's [`HubScreen`]: a mesh host's (`via: "hub"`) or, from an acpmux that sends it,
+/// an ssh peer's. None for a row with no `deviceHub` (no share host read the hub's list).
+fn hub_screen(peer: &Value) -> Option<HubScreen> {
+    let hub = &peer["deviceHub"];
+    match hub["listed"].as_bool()? {
+        false => Some(HubScreen::Absent),
+        true => Some(HubScreen::Listed {
+            id: text(hub, "id").unwrap_or_default(),
+            platform: text(hub, "platform").unwrap_or_default(),
+            shared: hub["screenShared"].as_bool() == Some(true),
+            online: hub["online"].as_bool() != Some(false),
+        }),
+    }
+}
+
+/// Why a machine whose kind says nothing, or a Linux desktop, has no screen to view, when the
+/// device hub tells: no screen host signed in, or a Linux one with sharing off. None leaves it
+/// to its kind and OS (`screen::offer`). A Linux desktop's View opens only the screen host the hub
+/// lists (`macScreen.open` refuses any other), so a row the hub lists none for says why instead
+/// of offering a View that opens nothing (a Linux desktop read "view" while no share could open it,
+/// 2026-11-23). A Mac keeps its View: cmux Remote's screen worker there may register under
+/// another name than the peer's.
+fn hub_refusal(hub: Option<&HubScreen>, device: DeviceKind) -> Option<NoScreen> {
+    if !matches!(device, DeviceKind::Generic | DeviceKind::LinuxDesktop) {
+        return None;
+    }
+    match hub? {
+        HubScreen::Absent => Some(NoScreen::NoScreenHost),
+        // The machine answers the mesh, but its screen host is not on the hub: a View would
+        // open a tab that says it is offline (2026-11-26: listed online, tab "Is Offline").
+        HubScreen::Listed { online: false, .. } => Some(NoScreen::Offline),
+        HubScreen::Listed { platform, shared: false, .. }
+            if platform.eq_ignore_ascii_case("linux") =>
+        {
+            Some(NoScreen::SharingOff)
+        }
+        HubScreen::Listed { .. } => None,
+    }
 }
 
 /// A pairing's kind: what the device reported, else its OS, else an iPhone for a phone pairing.
@@ -542,6 +719,22 @@ fn paired_device(paired: &Value, role: &str) -> DeviceKind {
         .or_else(|| text(paired, "os").map(|os| DeviceKind::from_os(&os)))
         .filter(|k| *k != DeviceKind::Generic)
         .unwrap_or(if role == "phone" { DeviceKind::IPhone } else { DeviceKind::Generic })
+}
+
+/// The network node a record with no address of its own names: the node's name, or the
+/// first label of its DNS name. Mesh-joined peers, joined machines and paired computers
+/// have no URL; without this their node is listed again under "Not added yet".
+fn node_named<'a>(nodes: &'a [NetworkNode], name: &str) -> Option<&'a NetworkNode> {
+    nodes.iter().find(|n| n.answers_to(name))
+}
+
+fn reach_of(n: &NetworkNode, network: &'static str) -> Reach {
+    Reach {
+        network,
+        address: n.address(),
+        ips: n.ips.iter().map(ToString::to_string).collect(),
+        online: n.online,
+    }
 }
 
 fn kind_of(os: Option<&str>) -> Kind {

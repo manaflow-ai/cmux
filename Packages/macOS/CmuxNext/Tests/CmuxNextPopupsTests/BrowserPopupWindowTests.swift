@@ -1,5 +1,6 @@
 import AppKit
-import CmuxNextBrowser
+@testable import CmuxNextBrowser
+import CmuxNextDesign
 @testable import CmuxNextPopups
 import CmuxNextTestSupport
 import Foundation
@@ -111,6 +112,30 @@ import Testing
         #expect(page.frame.size == CGSize(width: 480, height: 360))
     }
 
+    /// The popup's location row is the window's own, not a pane's toolbar: no tab strip sits above it and no pane outline
+    /// borders it, so the bar starts at the row's top (the window's `omnibarTopGap` under the title bar) with none of the
+    /// pane chrome's gaps, and fits the row. Default's Chrome omnibar row (6 pt above and below) with an outlined pane style
+    /// (Card Outlined) once pushed the 34 pt bar past the row, across the separator and into the page.
+    @Test func theLocationBarStartsAtItsRowsTopWithNoPaneGaps() {
+        let design = DesignSettings.shared
+        let saved = (design.densityTokens, design.chromeStyle)
+        defer { (design.densityTokens, design.chromeStyle) = saved }
+        design.densityTokens = DensityPreset.cozy.tokens
+        design.chromeStyle = .cardOutlined
+        let (popups, _, window, _) = open("https://example.com")
+        defer { popups.closeAll() }
+        window.contentView?.layoutSubtreeIfNeeded()
+        let row = window.locationBar
+        let bar = row.convert(window.addressBar.bounds, from: window.addressBar)
+        let above = row.isFlipped ? bar.minY : row.bounds.maxY - bar.maxY
+        let below = row.bounds.height - bar.height - above
+        #expect(bar.height == 34, "Default's bar is \(bar.height) pt")
+        #expect(above >= 0 && below >= 0, "the bar leaves its \(row.bounds.height) pt row: \(above) pt above, \(below) pt below")
+        #expect(above == 0, "the bar starts \(above) pt under its row's top")
+        // No tab strip sits above the popup's row, so the open suggestion card does not reach above the bar into the title bar.
+        #expect(OmnibarStyle.cardTopOutset(bar: window.addressBar) == 0, "the card reaches \(OmnibarStyle.cardTopOutset(bar: window.addressBar)) pt above the bar")
+    }
+
     @Test func theTitleIsThePageTitleElseTheAddress() {
         #expect(BrowserPopupWindow.title(for: BrowserTabState(url: URL(string: "https://a.example.com/x"), title: "Sign in")) == "Sign in")
         #expect(BrowserPopupWindow.title(for: BrowserTabState(url: URL(string: "https://www.example.com/login"), title: " ")) == "example.com/login")
@@ -210,6 +235,16 @@ import Testing
         #expect(window.addressBar.isEditing, "Cmd-L puts the keyboard in the popup's omnibar")
         let editor = try #require(window.firstResponder as? NSTextView)
         #expect(editor.selectedRange() == NSRange(location: 0, length: (editor.string as NSString).length), "the whole address is selected")
+    }
+
+    /// A popup opens with the keyboard in its page, not its omnibar with the address selected (a deck's presenter
+    /// window showed its whole address highlighted, 2026-11-22).
+    @Test func aPopupOpensWithThePageAsItsFirstResponder() {
+        let (popups, _, window, _) = open("https://example.com/deck.html")
+        defer { popups.closeAll() }
+        #expect(window.initialFirstResponder === window.page.contentView)
+        window.makeFirstResponder(window.initialFirstResponder)
+        #expect(!window.addressBar.isEditing)
     }
 
     @Test func aSignInWindowTakesCmdL() {

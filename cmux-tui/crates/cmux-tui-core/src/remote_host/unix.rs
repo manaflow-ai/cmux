@@ -20,7 +20,18 @@ mod capture_platform;
 #[cfg(test)]
 #[path = "capture_tests.rs"]
 mod capture_tests;
+#[path = "computer_use_lifecycle.rs"]
+mod computer_use_lifecycle;
+#[path = "computer_use_preview_place.rs"]
+mod computer_use_preview_place;
 
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[path = "linux_screen.rs"]
+mod linux_screen;
+#[cfg(test)]
+#[path = "linux_screen_tests.rs"]
+mod linux_screen_tests;
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
 mod platform;
@@ -36,8 +47,13 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 /// A host that ran at least this long before it stopped restarts at the
 /// first backoff delay again.
 const HEALTHY_RUN: Duration = Duration::from_secs(30);
+/// Status reason after the person quit cmux Remote.
+const QUIT_REASON: &str = "cmux Remote was quit; it starts again with `cmux remote-host restart` or when a feature is turned on";
+/// What the stop intent says stopped it (cmux-supervise-core `intent`, F17).
+const QUIT_INTENT: &str = "person quit cmux Remote";
 
 /// What the person turned on (`config.json`, kept for the next daemon start).
+/// The app sends its switches at every launch; until then this file is the last word.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct RemoteConfig {
     #[serde(default)]
@@ -77,6 +93,14 @@ struct HostRecord {
     socket: PathBuf,
 }
 
+impl HostRecord {
+    /// This host's epoch for the stop intent: its process start time, so a later start is
+    /// always newer than the one the person quit.
+    fn epoch(&self) -> u64 {
+        self.start_sec.saturating_mul(1_000_000).saturating_add(self.start_usec)
+    }
+}
+
 /// Where one daemon's host lives.
 #[derive(Clone, Debug)]
 pub(crate) struct Paths {
@@ -102,6 +126,11 @@ impl Paths {
     }
     fn log(&self) -> PathBuf {
         self.runtime.join("host.log")
+    }
+    /// The person's Quit (F17): durable, so neither a restart after the host exits nor the
+    /// next daemon start brings the host back. Only an explicit start clears it.
+    fn stop_intent(&self) -> cmux_supervise_core::intent::Intent {
+        cmux_supervise_core::intent::Intent::new(self.state.join("stop-intent.json"))
     }
 }
 
@@ -150,7 +179,26 @@ struct Inner {
     unavailable: Mutex<Option<String>>,
     /// A newer embedded build waits for the running host to become idle.
     upgrade_pending: Mutex<bool>,
+    /// Told whether a viewer is connected (the host's `busy`) on each status, and false when
+    /// the host goes away: the agent share's auto-off timer (`agent_share.rs`).
+    viewer_observer: std::sync::OnceLock<Box<dyn Fn(bool) + Send + Sync>>,
+    /// The Computer Use worker's activity the host reported last
+    /// (`workers["computer-use"].activity`), and where a change goes (the
+    /// mux's `computer-use-activity` event, set by `configure_remote_host`).
+    activity: Mutex<Value>,
+    on_activity: Mutex<Option<ActivitySink>>,
+    /// Set while the daemon's `preview/watch` connection to the worker is
+    /// open (computer_use_lifecycle.rs).
+    preview_watching: std::sync::atomic::AtomicBool,
+    /// Where each session's preview card sits and whether it shows
+    /// (computer_use_preview_place.rs).
+    preview_places: Mutex<computer_use_preview_place::PreviewPlaces>,
+    /// The verified app's own grants (memory only; the app reports them again on connect).
+    app_permissions: Mutex<Option<super::AppPermissions>>,
 }
+
+/// Where the Computer Use worker's activity goes (any thread; must not block).
+type ActivitySink = Arc<dyn Fn(Value) + Send + Sync>;
 
 #[derive(Default)]
 enum State {
@@ -172,6 +220,8 @@ struct Connection {
     status: Mutex<Value>,
     /// Set when the host's connection ended (it exited or drained).
     closed: (Mutex<bool>, std::sync::Condvar),
+    /// The person quit cmux Remote (its `quit` event): no restart on its own.
+    quit: std::sync::atomic::AtomicBool,
 }
 
 impl RemoteHostSupervisor {
@@ -194,12 +244,18 @@ impl RemoteHostSupervisor {
         }
     }
 
+    /// Where the Computer Use worker's activity goes from now on.
+    fn on_activity(&self, sink: ActivitySink) {
+        *lock(&self.inner.on_activity) = Some(sink);
+    }
+
     /// The person's choices changed (the app's settings): saved, sent to the
     /// host, and the host started or stopped to match.
     pub(crate) fn set_config(&self, update: &Value) -> Result<Value, String> {
         let _starting = lock(&self.inner.starting);
         capture::require_open(&self.inner)?;
-        let mut config = lock(&self.inner.config).clone();
+        let previous = lock(&self.inner.config).clone();
+        let mut config = previous.clone();
         if let Some(value) = update.get("computer_use").and_then(Value::as_bool) {
             config.computer_use = value;
         }
@@ -209,12 +265,29 @@ impl RemoteHostSupervisor {
         if let Some(value) = update.get("headless").and_then(Value::as_bool) {
             config.headless = value;
         }
+        if previous.computer_use && !config.computer_use {
+            // Only the app turns it off (its Computer Use mode `off`, or a managed
+            // setting): never silent, so a switch nobody meant to flip shows in the log.
+            eprintln!(
+                "cmux-tui: cmux Remote: Computer Use turned off by the app (Settings > Computer Use mode is off, or a managed setting)"
+            );
+        }
         *lock(&self.inner.config) = config.clone();
         if let Some(paths) = lock(&self.inner.paths).clone() {
             write_config(&paths.config(), &config);
         }
         if !config.wanted() {
             Inner::stop(&self.inner);
+            return Ok(self.status());
+        }
+        // The person turning a feature on is an explicit start; the app sending the same
+        // switches again (its launch) is not, so it never brings back a host the person quit.
+        let turned_on = (config.computer_use && !previous.computer_use)
+            || (config.screen_sharing && !previous.screen_sharing);
+        if turned_on {
+            Inner::explicit_start(&self.inner)?;
+        } else if Inner::quit_standing(&self.inner, 0) {
+            *lock(&self.inner.unavailable) = Some(QUIT_REASON.into());
             return Ok(self.status());
         }
         let connection = Inner::ensure_locked(&self.inner, None)?;
@@ -229,6 +302,13 @@ impl RemoteHostSupervisor {
         Ok(self.status())
     }
 
+    /// The verified app's own Screen Recording and Accessibility, for `status()`'s
+    /// `app.permissions`. Never saved, never starts or stops the host, never touches the switches.
+    pub(crate) fn set_app_permissions(&self, permissions: super::AppPermissions) -> Value {
+        *lock(&self.inner.app_permissions) = Some(permissions);
+        self.status()
+    }
+
     /// One request to the host, starting it first when it is wanted and none runs.
     pub(crate) fn call(&self, method: &str, params: Value) -> Result<Value, String> {
         // Held only for admission and start: the request itself never serializes other calls.
@@ -239,11 +319,21 @@ impl RemoteHostSupervisor {
             // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
             // no host starts for a request, so an off switch never runs cmux Remote.
             if !lock(&self.inner.config).wanted() {
-                return Err("cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
+                return Err(OFF.into());
+            }
+            // `cmux remote-host restart` is the person's explicit start. Any other request
+            // (an agent's, the app's hourly anchor) never starts a host the person quit.
+            if method == "restart" {
+                Inner::explicit_start(&self.inner)?;
             }
             Inner::ensure_locked(&self.inner, None)?
         };
         connection.call(method, params)
+    }
+
+    /// Calls `observer` with whether a viewer is connected, on each host status (set once).
+    pub(crate) fn observe_viewer(&self, observer: Box<dyn Fn(bool) + Send + Sync>) {
+        let _ = self.inner.viewer_observer.set(observer);
     }
 
     /// The host's state for `remote-host-status` (never starts one).
@@ -256,8 +346,15 @@ impl RemoteHostSupervisor {
                 "headless": config.headless,
             },
             "upgrade": if *lock(&self.inner.upgrade_pending) { "pending" } else { "none" },
+            // false in a cmux build without cmux Remote (Release and NIGHTLY embed none): the
+            // cmux app shares the screen itself there, and `cmux remote-host` says so.
+            "bundled": bundled(),
         });
         let Some(fields) = status.as_object_mut() else { return status };
+        // The app's own grants: the ones that matter where no cmux Remote is bundled.
+        if let Some(permissions) = *lock(&self.inner.app_permissions) {
+            fields.insert("app".into(), json!({"permissions": permissions.status()}));
+        }
         match &*lock(&self.inner.state) {
             State::Running(connection) => {
                 fields.insert("state".into(), json!("running"));
@@ -305,6 +402,12 @@ impl Inner {
         if let State::Running(connection) = &*lock(&this.state) {
             return Ok(Arc::clone(connection));
         }
+        // A standing stop intent (F17) covers every start but an explicit one, which clears
+        // it first: the restart after the host exits, the next daemon start, any request.
+        if Self::quit_standing(this, 0) {
+            *lock(&this.unavailable) = Some(QUIT_REASON.into());
+            return Err(QUIT_REASON.into());
+        }
         let paths = lock(&this.paths).clone().ok_or("this daemon has no cmux Remote")?;
         let result = Self::adopt_or_start(this, &paths, config);
         match result {
@@ -314,6 +417,62 @@ impl Inner {
                 Err(reason)
             }
         }
+    }
+
+    /// Whether a stop the person meant stands for the host of `epoch` (0: any host). An intent
+    /// file that cannot be read counts as one (cmux-supervise-core fails closed).
+    fn quit_standing(this: &Arc<Self>, epoch: u64) -> bool {
+        lock(&this.paths).as_ref().is_some_and(|paths| paths.stop_intent().meant(epoch).is_some())
+    }
+
+    /// The person quit the host of `connection`: written down before it stops (its `quit`
+    /// event comes before it ends its workers and exits), so whatever would start it again
+    /// reads "meant", not "crashed".
+    fn record_quit(this: &Arc<Self>, connection: &Connection) {
+        let Some(paths) = lock(&this.paths).clone() else { return };
+        let written = paths.stop_intent().record_with(
+            QUIT_INTENT,
+            connection.record.epoch(),
+            &|path, bytes| write_private_checked(path, bytes),
+        );
+        if let Err(error) = written {
+            // The connection's own flag still keeps this daemon from restarting it.
+            eprintln!("cmux-tui: cmux Remote: cannot record the quit: {error}");
+        }
+    }
+
+    /// An explicit start (the person's `restart`, a feature turned on): the quit no longer stands.
+    fn explicit_start(this: &Arc<Self>) -> Result<(), String> {
+        let Some(paths) = lock(&this.paths).clone() else { return Ok(()) };
+        paths
+            .stop_intent()
+            .clear()
+            .map_err(|error| format!("cannot clear cmux Remote's stop intent: {error}"))?;
+        {
+            let mut unavailable = lock(&this.unavailable);
+            if unavailable.as_deref() == Some(QUIT_REASON) {
+                *unavailable = None;
+            }
+        }
+        // The host the person quit may still be ending its workers. It no longer counts as quit
+        // (so its exit restarts it if this start gives up), and this start waits for it to exit
+        // instead of answering from the host that is leaving.
+        let leaving = match &*lock(&this.state) {
+            State::Running(connection)
+                if connection.quit.load(std::sync::atomic::Ordering::Relaxed) =>
+            {
+                Some(Arc::clone(connection))
+            }
+            _ => None,
+        };
+        if let Some(connection) = leaving {
+            connection.quit.store(false, std::sync::atomic::Ordering::Relaxed);
+            if !connection.wait_closed(READY_TIMEOUT) {
+                return Err("cmux Remote is still quitting; it starts again once it exits".into());
+            }
+            Self::retire(this, &connection);
+        }
+        Ok(())
     }
 
     /// Install a connected host and publish the identity from its latest
@@ -411,6 +570,9 @@ impl Inner {
                     ),
                 }
             }
+            // No host runs from the staged copy now: a new build moves into
+            // the one stable path here.
+            platform::promote(&staged)?;
             let config = override_config.cloned().unwrap_or_else(|| lock(&this.config).clone());
             let secret = mint_secret()?;
             let pid = platform::spawn_host(
@@ -490,6 +652,7 @@ impl Inner {
             next_id: std::sync::atomic::AtomicU64::new(1),
             status: Mutex::new(answer),
             closed: (Mutex::new(false), std::sync::Condvar::new()),
+            quit: std::sync::atomic::AtomicBool::new(false),
         });
         let reading = Arc::clone(&connection);
         std::thread::Builder::new()
@@ -522,11 +685,27 @@ impl Inner {
                 }
                 continue;
             }
+            if message.get("event").and_then(Value::as_str) == Some("quit") {
+                connection.quit.store(true, std::sync::atomic::Ordering::Relaxed);
+                if let Some(inner) = this.upgrade() {
+                    Self::record_quit(&inner, connection);
+                }
+                continue;
+            }
             if message.get("event").and_then(Value::as_str) == Some("status") {
                 let status = message.get("status").cloned().unwrap_or(Value::Null);
                 let idle = !status.get("busy").and_then(Value::as_bool).unwrap_or(false);
+                if let Some(inner) = this.upgrade() {
+                    Self::note_activity(&inner, &status);
+                }
                 *lock(&connection.status) = status.clone();
                 Self::update_screen_device_id(this, connection, &status);
+                if let Some(inner) = this.upgrade()
+                    && let Some(observer) = inner.viewer_observer.get()
+                {
+                    // The timer only records the change; it never calls the host from here.
+                    observer(!idle);
+                }
                 if idle
                     && this.upgrade().is_some_and(|inner| {
                         *lock(&inner.upgrade_pending) && capture::require_open(&inner).is_ok()
@@ -541,7 +720,29 @@ impl Inner {
         *lock(&connection.closed.0) = true;
         connection.closed.1.notify_all();
         let Some(inner) = this.upgrade() else { return };
+        if let Some(observer) = inner.viewer_observer.get() {
+            observer(false);
+        }
         Self::host_gone(&inner, connection);
+    }
+
+    /// Sends the worker's activity on when it changed since the last status
+    /// (a status event comes for any change of the host, most of them not
+    /// Computer Use's).
+    fn note_activity(this: &Arc<Self>, status: &Value) {
+        let activity =
+            status.pointer("/workers/computer-use/activity").cloned().unwrap_or_else(|| json!([]));
+        {
+            let mut last = lock(&this.activity);
+            if *last == activity || (last.is_null() && activity == json!([])) {
+                return;
+            }
+            *last = activity.clone();
+        }
+        let sink = lock(&this.on_activity).clone();
+        if let Some(sink) = sink {
+            sink(json!({"event": "computer-use-activity", "sessions": activity}));
+        }
     }
 
     /// Read only the authenticated host status. The supervisor socket is
@@ -587,16 +788,16 @@ impl Inner {
         }
     }
 
-    /// The host's connection ended (it exited, crashed or drained): forget it,
-    /// and start a new one after the backoff delay while one is wanted.
-    fn host_gone(this: &Arc<Self>, connection: &Arc<Connection>) {
+    /// Forgets the ended `connection` if it is still the installed one (its reader's `host_gone`,
+    /// or an explicit start that waited for it to exit); whether this call did.
+    fn retire(this: &Arc<Self>, connection: &Arc<Connection>) -> bool {
         // Fence the identity clear with the exact connection pointer. The
         // state and UUID transition are linearized together, so a replacement
         // host cannot be cleared by an old reader finishing late.
         {
             let mut state = lock(&this.state);
             if !matches!(&*state, State::Running(running) if Arc::ptr_eq(running, connection)) {
-                return;
+                return false;
             }
             *state = State::Idle;
             let mut current = lock(&this.screen_device_id);
@@ -610,12 +811,34 @@ impl Inner {
                 }
             }
         }
-        let upgraded = std::mem::take(&mut *lock(&this.upgrade_pending));
+        // No host, no agent acting through it.
+        Self::note_activity(this, &json!({}));
         if let Some(paths) = lock(&this.paths).clone()
             && read_record(&paths.record()).is_some_and(|record| record == connection.record)
             && capture::may_remove_record(this, &connection.record)
         {
             let _ = std::fs::remove_file(paths.record());
+        }
+        true
+    }
+
+    /// The host's connection ended (it exited, crashed or drained): forget it,
+    /// and start a new one after the backoff delay while one is wanted. A host
+    /// the person quit stays stopped until the next request or daemon start.
+    fn host_gone(this: &Arc<Self>, connection: &Arc<Connection>) {
+        if !Self::retire(this, connection) {
+            return;
+        }
+        let upgraded = std::mem::take(&mut *lock(&this.upgrade_pending));
+        if connection.quit.load(std::sync::atomic::Ordering::Relaxed)
+            || Self::quit_standing(this, connection.record.epoch())
+        {
+            eprintln!(
+                "cmux-tui: cmux Remote pid {} was quit; not starting it again",
+                connection.pid
+            );
+            *lock(&this.unavailable) = Some(QUIT_REASON.into());
+            return;
         }
         if !lock(&this.config).wanted() || capture::require_open(this).is_err() {
             return;
@@ -763,11 +986,27 @@ fn mint_secret() -> Result<String, String> {
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
+/// The saved switches. No file is the defaults (nothing on until the app sends its
+/// switches); a file that cannot be read or parsed is said in the log, never
+/// turned into everything off with nothing shown.
 fn read_config(path: &Path) -> RemoteConfig {
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+            eprintln!(
+                "cmux-tui: cmux Remote: {} is not valid ({error}); nothing on until the app sends its switches",
+                path.display()
+            );
+            RemoteConfig::default()
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => RemoteConfig::default(),
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: cmux Remote: cannot read {} ({error}); nothing on until the app sends its switches",
+                path.display()
+            );
+            RemoteConfig::default()
+        }
+    }
 }
 
 fn write_config(path: &Path, config: &RemoteConfig) {
@@ -788,22 +1027,40 @@ fn write_record(path: &Path, record: &HostRecord) {
 
 /// Writes `bytes` to `path` atomically, mode 0600, in a 0700 directory.
 fn write_private(path: &Path, bytes: &[u8]) {
+    let _ = write_private_checked(path, bytes);
+}
+
+/// [`write_private`], saying whether the file is in place.
+fn write_private_checked(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let Some(dir) = path.parent() else { return };
-    if std::fs::create_dir_all(dir).is_err() {
-        return;
-    }
+    let dir = path.parent().ok_or_else(|| std::io::Error::other("no folder"))?;
+    std::fs::create_dir_all(dir)?;
     let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
     let temporary = path.with_extension("tmp");
     let _ = std::fs::remove_file(&temporary);
-    let written = std::fs::OpenOptions::new()
+    std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(&temporary)
-        .and_then(|mut file| file.write_all(bytes));
-    if written.is_ok() {
-        let _ = std::fs::rename(&temporary, path);
+        .and_then(|mut file| file.write_all(bytes))?;
+    std::fs::rename(&temporary, path)
+}
+
+/// Why a request found nothing turned on (Computer Use off, and signed out of Screen Sharing).
+/// Callers read "is off" in it as the off state.
+const OFF: &str = "Computer Use is off. Turn it on in Settings > Computer Use.";
+
+/// Whether this cmux build embeds cmux Remote (`CMUX_REMOTE_APP`, or the app
+/// bundle that holds this daemon). Never starts or stages it.
+fn bundled() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        platform::embedded().is_ok()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
     }
 }
 
@@ -817,182 +1074,55 @@ impl crate::mux::Mux {
     /// Lets this daemon run cmux Remote (macOS): the host for the daemon on
     /// `daemon_socket`, with durable state beside the daemon's own.
     pub fn configure_remote_host(self: &Arc<Self>, daemon_socket: &Path) {
+        // Linux runs Computer Use in the daemon's own worker, not cmux Remote. So does a Mac
+        // whose cmux build embeds no cmux Remote (Release and NIGHTLY): its worker runs in the
+        // Screen Sharing helper (computer_use_host/macos.rs). cmux Remote stays configured for
+        // its status and app permissions either way.
+        #[cfg(target_os = "linux")]
+        self.configure_computer_use(daemon_socket);
+        #[cfg(target_os = "macos")]
+        if !bundled() {
+            self.configure_computer_use(daemon_socket);
+        }
         let Some(state_root) = crate::platform::workspace_state_dir()
             .and_then(|sessions| sessions.parent().map(Path::to_path_buf))
         else {
             return;
         };
+        let mux = Arc::downgrade(self);
+        self.control_clients.remote_host.on_activity(Arc::new(move |payload| {
+            if let Some(mux) = mux.upgrade() {
+                // An agent acts: its live preview reaches the app from the worker.
+                let acting = payload
+                    .get("sessions")
+                    .and_then(Value::as_array)
+                    .is_some_and(|s| !s.is_empty());
+                mux.emit(crate::MuxEvent::ComputerUseActivity(Arc::new(payload)));
+                if acting {
+                    mux.ensure_computer_use_preview();
+                }
+            }
+        }));
         self.control_clients
             .remote_host
             .configure(paths_for(daemon_socket, &state_root), Arc::downgrade(self));
+        // No cmux Remote on Linux: the machine's screen is its cmux-rd host's device.
+        #[cfg(target_os = "linux")]
+        linux_screen::watch(&self.control_clients.remote_host.inner);
+        // An agent's share turns itself off with no viewer: the host's status says who views,
+        // and the host's own session may turn sharing off (the hub allows it that much).
+        let agents = Arc::clone(&self.control_clients.remote_agents);
+        self.control_clients
+            .remote_host
+            .observe_viewer(Box::new(move |viewer| agents.viewer(viewer)));
+        let mux = Arc::downgrade(self);
+        self.control_clients.remote_agents.set_turn_off(Box::new(move || {
+            let mux = mux.upgrade().ok_or("the daemon is stopping")?;
+            mux.control_clients.remote_host.call("screen.share", json!({"on": false})).map(|_| ())
+        }));
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        Connection, HostRecord, Inner, State, screen_device_id_from_status,
-        validated_screen_device_id,
-    };
-    use serde_json::{Value, json};
-    use std::sync::Arc;
-    use std::sync::{Condvar, Mutex};
-    use std::time::Instant;
-
-    fn connection(status: Value) -> Arc<Connection> {
-        let (writer, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
-        Arc::new(Connection {
-            pid: 7,
-            record: HostRecord {
-                pid: 7,
-                start_sec: 1,
-                start_usec: 2,
-                secret: "secret".into(),
-                bundle_digest: "digest".into(),
-                socket: "/tmp/cmux-remote-test.sock".into(),
-            },
-            adopted: false,
-            started: Instant::now(),
-            writer: Mutex::new(writer),
-            pending: Mutex::new(std::collections::HashMap::new()),
-            next_id: std::sync::atomic::AtomicU64::new(1),
-            status: Mutex::new(status),
-            closed: (Mutex::new(false), Condvar::new()),
-        })
-    }
-
-    #[test]
-    fn screen_identity_rejects_missing_malformed_and_wrong_shape_values() {
-        for status in [
-            json!({}),
-            json!({"host":{"screen":{"device_id":"not-a-uuid"}}}),
-            json!({"host":{"screen":{"device_id":42}}}),
-        ] {
-            assert_eq!(screen_device_id_from_status(&status), None);
-        }
-        assert_eq!(validated_screen_device_id("not-a-uuid"), None);
-    }
-
-    #[test]
-    fn screen_identity_reads_only_the_authenticated_status_path() {
-        let status = json!({
-            "device_id": "550e8400-e29b-41d4-a716-446655440000",
-            "screen": {"device_id": "550e8400-e29b-41d4-a716-446655440000"}
-        });
-        let expected = Some("550e8400-e29b-41d4-a716-446655440000".to_string());
-        assert_eq!(screen_device_id_from_status(&status), expected);
-    }
-
-    #[test]
-    fn screen_identity_normalizes_a_valid_uuid() {
-        assert_eq!(
-            validated_screen_device_id("550E8400-E29B-41D4-A716-446655440000"),
-            Some("550e8400-e29b-41d4-a716-446655440000".to_string())
-        );
-    }
-
-    #[test]
-    fn screen_identity_cache_dedupes_rotation_and_removal() {
-        let inner = Arc::new(Inner::default());
-        let first = "550e8400-e29b-41d4-a716-446655440000".to_string();
-        let second = "6ba7b810-9dad-11d1-80b4-00c04fd430c8".to_string();
-        assert!(Inner::set_screen_device_id(&inner, Some(first.clone())));
-        assert!(!Inner::set_screen_device_id(&inner, Some(first)));
-        assert!(Inner::set_screen_device_id(&inner, Some(second)));
-        assert!(Inner::set_screen_device_id(&inner, None));
-        assert!(!Inner::set_screen_device_id(&inner, None));
-    }
-
-    #[test]
-    fn screen_identity_ready_status_is_seeded_when_connection_becomes_running() {
-        let inner = Arc::new(Inner::default());
-        let id = "550e8400-e29b-41d4-a716-446655440000";
-        let installed =
-            Inner::install_running(&inner, connection(json!({"screen": {"device_id": id}})))
-                .unwrap();
-
-        assert_eq!(super::lock(&inner.screen_device_id).clone(), Some(id.to_string()));
-        assert!(matches!(
-            &*super::lock(&inner.state),
-            State::Running(current) if Arc::ptr_eq(current, &installed)
-        ));
-    }
-
-    #[test]
-    fn screen_identity_ready_update_while_idle_is_ignored_until_install() {
-        let inner = Arc::new(Inner::default());
-        let id = "550e8400-e29b-41d4-a716-446655440000";
-        let connection = connection(json!({"screen": {"device_id": id}}));
-
-        Inner::update_screen_device_id(
-            &Arc::downgrade(&inner),
-            &connection,
-            &json!({"screen": {"device_id": id}}),
-        );
-        assert_eq!(super::lock(&inner.screen_device_id).clone(), None);
-        Inner::install_running(&inner, connection).unwrap();
-        assert_eq!(super::lock(&inner.screen_device_id).clone(), Some(id.to_string()));
-    }
-
-    #[test]
-    fn screen_identity_closed_connection_is_rejected_before_install() {
-        let inner = Arc::new(Inner::default());
-        let connection = connection(json!({
-            "screen": {"device_id": "550e8400-e29b-41d4-a716-446655440000"}
-        }));
-        *super::lock(&connection.closed.0) = true;
-
-        let error = Inner::install_running(&inner, connection)
-            .err()
-            .expect("closed connection must be rejected");
-        assert_eq!(error, "cmux Remote closed before becoming current");
-        assert!(matches!(&*super::lock(&inner.state), State::Idle));
-        assert_eq!(super::lock(&inner.screen_device_id).clone(), None);
-    }
-
-    #[test]
-    fn stopping_a_running_host_clears_screen_identity_before_reader_exit() {
-        let inner = Arc::new(Inner::default());
-        let id = "550e8400-e29b-41d4-a716-446655440000";
-        Inner::install_running(
-            &inner,
-            connection(json!({
-                "screen": {"device_id": id}
-            })),
-        )
-        .unwrap();
-
-        Inner::stop(&inner);
-
-        assert!(matches!(&*super::lock(&inner.state), State::Idle));
-        assert_eq!(super::lock(&inner.screen_device_id).clone(), None);
-    }
-
-    #[test]
-    fn screen_identity_stale_reader_cannot_restore_identity_after_clear_and_replacement() {
-        let inner = Arc::new(Inner::default());
-        let first_id = "550e8400-e29b-41d4-a716-446655440000";
-        let second_id = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
-        let first = connection(json!({"screen": {"device_id": first_id}}));
-        let second = connection(json!({"screen": {"device_id": second_id}}));
-
-        Inner::install_running(&inner, Arc::clone(&first)).unwrap();
-        Inner::host_gone(&inner, &first);
-        assert_eq!(super::lock(&inner.screen_device_id).clone(), None);
-        Inner::install_running(&inner, Arc::clone(&second)).unwrap();
-
-        Inner::host_gone(&inner, &first);
-        assert_eq!(super::lock(&inner.screen_device_id).clone(), Some(second_id.to_string()));
-
-        Inner::update_screen_device_id(
-            &Arc::downgrade(&inner),
-            &first,
-            &json!({"screen": {"device_id": first_id}}),
-        );
-        assert_eq!(super::lock(&inner.screen_device_id).clone(), Some(second_id.to_string()));
-        assert!(matches!(
-            &*super::lock(&inner.state),
-            State::Running(current) if Arc::ptr_eq(current, &second)
-        ));
-    }
-}
+#[path = "unix_tests.rs"]
+mod tests;

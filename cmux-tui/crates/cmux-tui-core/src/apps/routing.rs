@@ -93,7 +93,7 @@ impl OpRouter for MuxRouter {
         is_daemon_op(op) || op == AGENT_CHAT_LIST
     }
 
-    fn start_events(&self, publish: Box<dyn Fn(&str) + Send + Sync>) {
+    fn start_events(&self, publish: super::supervisor::StreamPublish) {
         let Some(mux) = self.mux.upgrade() else { return };
         // Only the events that invalidate an app stream: every other daemon
         // event (terminal output, titles, notifications) was cloned into this
@@ -103,10 +103,18 @@ impl OpRouter for MuxRouter {
         let _ = std::thread::Builder::new().name("cmux-apps-events".into()).spawn(move || {
             while let Ok(event) = events.recv() {
                 for stream in streams(&event) {
-                    publish(stream);
+                    publish(stream, body(&event));
                 }
             }
         });
+    }
+
+    /// `github.changed` is live while the Cloud pushes GitHub changes on the feed socket.
+    fn stream_live(&self, stream: &str) -> Option<bool> {
+        if !GITHUB_STREAMS.contains(&stream) {
+            return None;
+        }
+        Some(self.mux.upgrade().is_some_and(|mux| mux.feed_client().github_push_live()))
     }
 
     fn spawn_backend_terminal(
@@ -126,19 +134,54 @@ impl OpRouter for MuxRouter {
             mux.close_backend_terminal(surface);
         }
     }
+
+    fn setting_get(&self, key: &str) -> Option<Value> {
+        let mux = self.mux.upgrade()?;
+        let root = mux.settings_effective_root();
+        let mut value = &root;
+        for part in cmux_config::Target::Key(key.to_string()).path() {
+            value = value.get(&part)?;
+        }
+        Some(value.clone())
+    }
+
+    fn setting_set(&self, key: &str, value: Value) -> Result<(), super::supervisor::ApiError> {
+        let mux = self.mux.upgrade().ok_or_else(|| {
+            super::supervisor::ApiError::new("apps.setting.unavailable", "the daemon is stopping")
+        })?;
+        // The person's own switch in the App Store: the store admitted only origin user.
+        let meta = cmux_config::WriteMeta {
+            origin: cmux_config::Origin::User,
+            idempotency_key: None,
+            if_revision: None,
+        };
+        mux.settings_apply(cmux_config::Op::Set {
+            target: cmux_config::Target::Key(key.to_string()),
+            value,
+            meta,
+        })
+        .map(|_| ())
+        .map_err(|refusal| super::supervisor::ApiError::new("apps.setting", refusal.to_string()))
+    }
 }
 
 /// The first App Store chat read (scope `agent_chat:read`), kept for the apps and templates
 /// that call it: the daemon answers it from the same chat index as `chat.list`
-/// (`mux/chat_index.rs`), in its first shape `{chats}` with times as numbers.
+/// (`mux/chat_index.rs`), in its first shape `{chats}` with times as numbers. It takes
+/// `chat.list`'s fields (`limit`, `state`, `before_ms`, `before_id`, `before_machine`), newest first.
 const AGENT_CHAT_LIST: &str = "agent_chat.list";
 
 fn agent_chat_list(mux: &Mux, params: &Value) -> Result<Value, Value> {
-    if !(params.is_null() || params.as_object().is_some_and(serde_json::Map::is_empty)) {
-        return Err(error("validation.invalid", "agent_chat.list takes no params"));
-    }
+    let empty = serde_json::Map::new();
+    let fields = match params {
+        Value::Null => &empty,
+        Value::Object(fields) => fields,
+        _ => return Err(error("validation.invalid", "agent_chat.list takes an object of fields")),
+    };
+    let query = crate::mux::chat_index::ChatQuery::from_fields(fields)
+        .map_err(|(field, reason)| error("validation.invalid", format!("{field}: {reason}")))?;
     let chats = mux
-        .chat_rows()
+        .chat_rows_matching(&query)
         .into_iter()
         .map(|mut row| {
             if let Some(fields) = row.as_object_mut() {
@@ -164,6 +207,9 @@ const TREE_STREAMS: &[&str] =
 const AGENT_STREAMS: &[&str] = &["agent.changed"];
 /// The streams a change to the chat index (`mux/chat_index.rs`) invalidates.
 const CHAT_STREAMS: &[&str] = &["chat.changed", "agent_chat.changed"];
+
+/// The stream a Cloud-pushed GitHub change invalidates (feed_client.rs, the Cloud's webhooks).
+const GITHUB_STREAMS: &[&str] = &["github.changed"];
 
 /// The stream every settings change invalidates (`settings-v1`; `mux/settings.rs`).
 const SETTINGS_STREAMS: &[&str] = &["settings.changed"];
@@ -202,136 +248,20 @@ fn streams(event: &MuxEvent) -> &'static [&'static str] {
             SETTINGS_AND_THEME_STREAMS
         }
         MuxEvent::SettingsChanged(_) => SETTINGS_STREAMS,
+        MuxEvent::GitHubChanged { .. } => GITHUB_STREAMS,
         _ => &[],
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_stream_the_daemon_publishes_is_in_the_sdks_event_table() {
-        let table: Value =
-            serde_json::from_str(include_str!("../../../cmux-app-host/schema/v2/events.json"))
-                .unwrap();
-        let declared = table["events"].as_object().unwrap();
-        assert_eq!(streams(&MuxEvent::TreeChanged), TREE_STREAMS);
-        for stream in TREE_STREAMS
-            .iter()
-            .chain(AGENT_STREAMS)
-            .chain(CHAT_STREAMS)
-            .chain(SETTINGS_STREAMS)
-            .chain(SETTINGS_AND_THEME_STREAMS)
-        {
-            assert!(
-                declared.contains_key(*stream),
-                "{stream} is published to apps but not declared in schema/v2/events.json"
-            );
-        }
-    }
-
-    fn settings_changed(keys: &[&str]) -> MuxEvent {
-        MuxEvent::SettingsChanged(cmux_config::store::Change {
-            revision: 1,
-            keys: keys.iter().map(|key| (*key).to_string()).collect(),
-            origin: cmux_config::store::Origin::User,
-        })
-    }
-
-    /// Every settings change invalidates `settings.changed`; one that touches a key the theme is
-    /// made from also invalidates `theme.changed`. Both are declared with `settings.get`, so an app
-    /// hears them with `settings:read`.
-    #[test]
-    fn settings_changes_publish_settings_changed_and_theme_keys_also_theme_changed() {
-        assert_eq!(streams(&settings_changed(&["terminal.fontSize"])), ["settings.changed"]);
-        for key in ["appearance.theme", "appearance.themeFile", "appearance.accent"] {
-            assert_eq!(
-                streams(&settings_changed(&["terminal.fontSize", key])),
-                ["settings.changed", "theme.changed"],
-                "{key}"
-            );
-        }
-        assert_eq!(
-            streams(&settings_changed(&["appearance.themeEdits.dark.background"])),
-            ["settings.changed", "theme.changed"]
-        );
-        assert_eq!(streams(&settings_changed(&["appearance.themeful"])), ["settings.changed"]);
-        for stream in ["settings.changed", "theme.changed"] {
-            assert_eq!(super::super::subscriptions::declared_reads(stream), Some("settings.get"));
-        }
-        assert_eq!(super::super::subscriptions::declared_reads("made.changed"), None);
-    }
-
-    #[test]
-    fn requests_fill_current_selectors_only_where_the_op_takes_them() {
-        let message: Value =
-            serde_json::from_str(&request("workspace.list", json!({}), None).unwrap()).unwrap();
-        assert_eq!(message["params"], json!({ "machine": "current", "session": "current" }));
-        assert!(message.get("idempotency_key").is_none());
-        let focus: Value = serde_json::from_str(
-            &request("tab.focus", json!({ "tab": "tab_1" }), Some("k".into())).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(focus["idempotency_key"], "k");
-        assert_eq!(
-            request("made.up", json!({}), None).unwrap_err()["code"],
-            "operation.unsupported"
-        );
-    }
-
-    #[test]
-    fn answers_wrap_reads_and_pass_mutation_results_through() {
-        assert_eq!(
-            answer("workspace.list", json!({ "ok": true, "result": [1] })).unwrap(),
-            json!({ "value": [1] })
-        );
-        let mutation =
-            json!({ "value": {}, "revision": "3", "replayed": false, "generation": "g" });
-        assert_eq!(
-            answer("tab.focus", json!({ "ok": true, "result": mutation.clone() })).unwrap(),
-            mutation
-        );
-        let err = answer("tab.focus", json!({ "ok": false, "error": { "code": "selector.not_found", "message": "no tab", "retryable": false } })).unwrap_err();
-        assert_eq!(err["code"], "selector.not_found");
-    }
-
-    /// `chat.list` and its older name `agent_chat.list` answer the same chats from the daemon's
-    /// chat index (no Mac provider), and a chat change invalidates both app streams.
-    #[test]
-    fn chat_list_and_agent_chat_list_answer_the_same_chats() {
-        let mux = Mux::new_for_test("apps-chat-list", crate::SurfaceOptions::default());
-        mux.change_chats(|chats| {
-            chats.page(&[json!({
-                "sessionId": "s1", "name": "fix", "harness": "codex", "status": "idle",
-                "cwd": "/src/cmux", "unread": true, "unreadTurns": 1, "tags": {"pinned": "true"},
-                "updatedAt": 2_000, "createdAt": 1_000, "pullRequests": [],
-                "lane": {"state": "idle", "title": "Fix upload", "since": 1_500},
-            })])
-        });
-        let router = MuxRouter::new(&mux);
-        assert!(router.owns("chat.list") && router.owns("agent_chat.list"));
-        let list = router.route("a/b", "chat.list", json!({}), None, Origin::Script).unwrap();
-        let row = &list["value"][0];
-        assert_eq!(
-            (row["id"].clone(), row["pinned"].clone(), row["since_ms"].clone()),
-            (json!("s1"), json!(true), json!("1500"))
-        );
-        let old = router.route("a/b", "agent_chat.list", json!({}), None, Origin::Script).unwrap();
-        let chat = &old["value"]["chats"][0];
-        assert_eq!(
-            (chat["id"].clone(), chat["unread"].clone(), chat["since_ms"].clone()),
-            (json!("s1"), json!(true), json!(1500))
-        );
-        assert_eq!(
-            router
-                .route("a/b", "agent_chat.list", json!({"x": 1}), None, Origin::Script)
-                .unwrap_err()["code"],
-            "validation.invalid"
-        );
-        assert_eq!(
-            streams(&MuxEvent::ChatsChanged { revision: 1 }),
-            ["chat.changed", "agent_chat.changed"]
-        );
+/// An event's body for apps: `{}` (an invalidation), or `{"live": bool}` when a pushed stream's
+/// channel went up or down (a watch keeps its slow re-read while it is down).
+fn body(event: &MuxEvent) -> Value {
+    match event {
+        MuxEvent::GitHubChanged { live: Some(live) } => json!({ "live": live }),
+        _ => json!({}),
     }
 }
+
+#[cfg(test)]
+#[path = "routing_tests.rs"]
+mod tests;

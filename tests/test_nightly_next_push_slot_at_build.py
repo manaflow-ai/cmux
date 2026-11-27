@@ -9,7 +9,8 @@ dispatch-published-in), 5-10 min after the feed write, and the next landing wait
 43608103300; 22.1 and 23.9 min from landing to run created.
 
 - With the one job on, a push run and the loop's retry are run-scoped at the workflow level, and nightly-next-one
-  takes nightly-next-one-push (never cancel-in-progress). With it off, the workflow-level push group is as before.
+  takes nightly-next-one-push-<host> (never cancel-in-progress), host from pick-nightly-next-signer on the attempt
+  that made it, else cmux15 (note-33). With it off, the workflow-level push group is as before.
   The group reads every repository variable decide's one_job reads: with NIGHTLY_NEXT_SUBMISSIONS_PAUSED=1 or
   NIGHTLY_NEXT_NOTARY_PAUSED=1 decide builds the split jobs, which the workflow-level push group alone serializes.
   The test reads decide's oneJob from its script, so a new input there fails it until the group reads it too.
@@ -19,7 +20,7 @@ dispatch-published-in), 5-10 min after the feed write, and the next landing wait
 - nightly-next-one's end asks main's tick at once (wake-nightly-next-tick), since the tick's workflow_run trigger
   fires only when the whole run ends.
 
-Manual lane (Lawrence 2026-10-23: no new CI tests): python3 tests/test_nightly_next_push_slot_at_build.py.
+Manual lane (Lawrence 2026-10-23: no new CI tests, lifted 2026-11-18): python3 tests/test_nightly_next_push_slot_at_build.py.
 """
 from __future__ import annotations
 
@@ -30,6 +31,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import yaml
@@ -71,9 +73,6 @@ for name, ctx in (("a push run", context(one_job="")), ("the loop's retry", cont
     group = substitute(top, ctx)
     if group != "nightly-build-nightly-next-push":
         failures.append(f"with the one job off, {name} must keep the workflow-level push group, got {group!r}")
-if substitute(top, context("workflow_dispatch", inputs__x="") | {"inputs.nightly_next_sign_stage": "true"}) \
-        != "nightly-build-nightly-next-sign":
-    failures.append("a sign stage keeps the sign group")
 if DOC.get("concurrency", {}).get("cancel-in-progress") is not False:
     failures.append("the workflow-level group never cancels in progress")
 
@@ -140,7 +139,7 @@ for values in itertools.product(*choices.values()):
     vars_ctx = {f"vars.{var}": value for var, value in zip(choices, values)}
     decide_env = {one_job_vars[var]: value for var, value in zip(choices, values)}
     for name, event, extra in (("a push run", "push", {}), ("the loop's retry", "workflow_dispatch", RETRY)):
-        env = {**decide_env, "LOOP_RETRY": extra.get("inputs.nightly_next_loop_retry", ""), "SIGN_STAGE": ""}
+        env = {**decide_env, "LOOP_RETRY": extra.get("inputs.nightly_next_loop_retry", "")}
         try:
             one_job = bool(decide_eval("oneJob", env, event))
         except LookupError as missing:
@@ -157,10 +156,33 @@ one_concurrency = ONE.get("concurrency") or {}
 one_group = str(one_concurrency.get("group", ""))
 if one_concurrency.get("cancel-in-progress") is not False:
     failures.append("nightly-next-one's group must never cancel a started build (cancel-in-progress: false)")
+# One slot per signer Mac (docs/ci/nightly-workflow-notes.md#note-33): the pick's host on the attempt that made it,
+# else cmux15 (a failed or skipped pick, or a re-run of failed jobs that kept an older pick).
+PICK = "needs.pick-nightly-next-signer.outputs"
 for name, ctx in (("a push run", context()), ("the loop's retry", context("workflow_dispatch", **RETRY))):
-    group = substitute(one_group, ctx)
-    if group != "nightly-next-one-push":
-        failures.append(f"{name}'s nightly-next-one must take the push slot nightly-next-one-push, got {group!r}")
+    for pick_ctx, want in (({f"{PICK}.host": "ultra1", f"{PICK}.attempt": "1", "github.run_attempt": "1"},
+                            "nightly-next-one-push-ultra1"),
+                           ({f"{PICK}.host": "cmux15", f"{PICK}.attempt": "1", "github.run_attempt": "1"},
+                            "nightly-next-one-push-cmux15"),
+                           ({f"{PICK}.host": "", f"{PICK}.attempt": "", "github.run_attempt": "1"},
+                            "nightly-next-one-push-cmux15"),
+                           ({f"{PICK}.host": "ultra1", f"{PICK}.attempt": "1", "github.run_attempt": "2"},
+                            "nightly-next-one-push-cmux15")):
+        group = substitute(one_group, {**ctx, **pick_ctx, "vars.NIGHTLY_NEXT_SLOTS": "2"})
+        if group != want:
+            failures.append(f"{name}'s nightly-next-one with {pick_ctx} must take the slot {want}, got {group!r}")
+        for count, mini in (("", ""), ("1", ""), ("2", "one-mini")):
+            group = substitute(one_group, {**ctx, **pick_ctx, "vars.NIGHTLY_NEXT_SLOTS": count, "vars.CI_NIGHTLY_MINI": mini})
+            if group != "nightly-next-one-push":
+                failures.append(f"{name} with slots={count!r} mini={mini!r} must keep the shared group, got {group!r}")
+PICK_JOB = JOBS.get("pick-nightly-next-signer") or {}
+if "pick-nightly-next-signer" not in (ONE.get("needs") or []):
+    failures.append("nightly-next-one must need pick-nightly-next-signer (its group and pin)")
+pick_if = str(PICK_JOB.get("if", ""))
+for clause in ("github.ref == 'refs/heads/nightly-next'", "github.event_name == 'push'",
+               "inputs.nightly_next_loop_retry != ''", "needs.decide.outputs.one_job == 'true'", "!cancelled()"):
+    if clause not in pick_if:
+        failures.append(f"pick-nightly-next-signer runs only for a loop run with the one job on: its if lacks {clause!r}")
 other = substitute(one_group, {**context("workflow_dispatch"), "github.ref": "refs/heads/main", "github.ref_name": "main"})
 if other != "nightly-next-one-43608103300":
     failures.append(f"any other run's nightly-next-one stays run-scoped, got {other!r}")
@@ -244,8 +266,61 @@ else:
     if "-f sha=" in runs:
         failures.append("wake-nightly-next-tick asks with no sha, so the tick applies its rolling rule")
     runs_on = workflow_jobs.single_runs_on(wake)
-    if "blacksmith" in runs_on.lower() or "CI_NIGHTLY_MINI" not in runs_on:
-        failures.append("wake-nightly-next-tick runs on the nightly mini, as the other loop control jobs")
+    # Both dispatch jobs hold App keys and now use the dedicated one-job JIT nightly VM.
+    # Keep the route assertion aligned with that isolation boundary, never Blacksmith.
+    if "blacksmith" in runs_on.lower() or "cmux-gcp-nightly-jit-x64" not in runs_on:
+        failures.append("wake-nightly-next-tick runs on the dedicated nightly JIT runner, never Blacksmith")
+    # The wait for the promotion moved off the signing Mac: a nightly-next-one that left before nightly-next moved
+    # (left_pending) gets the loop's retry of its commit from here, unless nightly-next moved meanwhile.
+    retry_step = next((s for s in wake.get("steps", [])
+                       if "slot-left-retry.sh" in str(s.get("run", ""))), None)
+    if retry_step is None:
+        failures.append("wake-nightly-next-tick must retry a commit that left the slot pending (slot-left-retry.sh)")
+    else:
+        retry_if = str(retry_step.get("if", ""))
+        if "needs.nightly-next-one.outputs.left_pending == 'true'" not in retry_if or "!cancelled()" not in retry_if:
+            failures.append("the retry step runs only for a pending leave, even after a failed tick ask")
+        retry_env = retry_step.get("env") or {}
+        if "needs.resolve-nightly-cmux-tui-client.outputs.tip_sha" not in str(retry_env.get("TIP_SHA", "")) \
+                or "inputs.nightly_next_loop_retry" not in str(retry_env.get("RETRY", "")):
+            failures.append("the retry step reads the commit that left (TIP_SHA) and this run's retry count (RETRY)")
+    if "steps.one-leave.outputs.pending" not in str((ONE.get("outputs") or {}).get("left_pending", "")):
+        failures.append("nightly-next-one outputs left_pending (it left before nightly-next moved)")
+    checkout = next((s for s in wake.get("steps", []) if "actions/checkout" in str(s.get("uses", ""))), {})
+    if "scripts/cmux-next/lib" not in str((checkout.get("with") or {}).get("sparse-checkout", "")):
+        failures.append("wake-nightly-next-tick checks out scripts/cmux-next/lib (origin-net.sh, the ls-remote read)")
+
+
+def slot_left_retry(head: str | None, tip: str, retry: str = "") -> list[str]:
+    """slot-left-retry.sh with nightly-next at `head` (None: the remote does not answer); the gh calls it made."""
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "gh").write_text(f'#!/bin/sh\necho "$*" >> {tmp}/calls\n')
+        (Path(tmp) / "gh").chmod(0o755)
+        answer = "exit 128" if head is None else f"printf '%s\\trefs/heads/nightly-next\\n' {head}"
+        (Path(tmp) / "git").write_text(f'#!/bin/sh\n[ "$1" = -C ] && shift 2\n[ "$1" = ls-remote ] || exit 1\n{answer}\n')
+        (Path(tmp) / "git").chmod(0o755)
+        env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "TIP_SHA": tip, "REPOSITORY": "o/r",
+               "RETRY": retry, "ORIGIN_NET_TRIES": "1"}
+        proc = subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/slot-left-retry.sh")], env=env,
+                              capture_output=True, text=True, timeout=60)
+        if proc.returncode != 0:
+            return [f"exit {proc.returncode}: {proc.stderr[-200:]}"]
+        calls = Path(tmp) / "calls"
+        return calls.read_text().splitlines() if calls.exists() else []
+
+
+RETRY_ASK = "workflow run nightly.yml --repo o/r --ref nightly-next -f nightly_next_loop_retry="
+OLD, NEW = "c31b2b6786669f7d25210f6496653b58bcc71dd3", "7341dd7bef6021463ef2ad54a9189502e8361adf"
+if slot_left_retry(OLD, OLD) != [RETRY_ASK + "1"]:
+    failures.append("a push run that left the slot pending, with nightly-next still at its commit, gets retry 1")
+if slot_left_retry(OLD, OLD, "1") != [RETRY_ASK + "2"]:
+    failures.append("a first retry that left the slot pending gets retry 2")
+if slot_left_retry(OLD, OLD, "2") != []:
+    failures.append("the loop never dispatches a third retry")
+if slot_left_retry(NEW, OLD) != []:
+    failures.append("no retry once nightly-next moved: the newer push's run builds it")
+if slot_left_retry(None, OLD) != [RETRY_ASK + "1"]:
+    failures.append("an unread nightly-next counts as not moved (the retry leaves in resolve if it did move)")
 
 # Latest wins at the slot too. A push run checks for a newer push before the slot (resolve's leave step), then may
 # wait ~30 min at nightly-next-one-push while newer commits land; admitted, it would build its old commit. So the
@@ -302,15 +377,19 @@ else:
             failures.append(f"{job_id} must not run for a nightly-next-one that left the slot")
 
 
-def leave_in_slot(heads: list[str], tip: str, *, feat: str = "", asked_min_ago: float = 0.5, **env_extra) -> tuple:
+def leave_in_slot(heads: list[str], tip: str, *, feat: str = "", asked_min_ago: float = 0.5, calls: list | None = None,
+                  gh_prelude: str = "", **env_extra) -> tuple:
     """resolve-leave-build-slot.sh with IN_SLOT=1: the fake gh answers `heads` for nightly-next in turn (the last one
-    repeats), `feat` for feat-cmux-next and, for the run's jobs, resolve's end `asked_min_ago` minutes ago."""
+    repeats), `feat` for feat-cmux-next and, for the run's jobs, resolve's end `asked_min_ago` minutes ago. Every gh
+    call, with the GH_BUDGET_WAIT_MAX_SECONDS it saw, is appended to `calls`; `gh_prelude` runs first in the fake."""
     import datetime as dt
     asked = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=asked_min_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "heads").write_text("\n".join(heads) + "\n")
         fake = Path(tmp) / "gh"
         fake.write_text(f"""#!/bin/sh
+echo "budget=${{GH_BUDGET_WAIT_MAX_SECONDS-unset}} $*" >> {tmp}/calls
+{gh_prelude}
 case "$2" in
   */heads/nightly-next) n=$(cat {tmp}/n 2>/dev/null || echo 1); sed -n "${{n}}p" {tmp}/heads | grep . || tail -n 1 {tmp}/heads
                         echo $((n + 1)) > {tmp}/n ;;
@@ -335,18 +414,58 @@ echo $((n + 1)) > {tmp}/n
         env.update(PATH=f"{tmp}:{os.environ['PATH']}", GITHUB_OUTPUT=str(out), GITHUB_ENV=str(envfile), TIP_SHA=tip,
                    REPOSITORY="o/r", GITHUB_RUN_ID="1", YIELD_MINUTES="1", YIELD_POLL_SECONDS="0", IN_SLOT="1")
         env.update(env_extra)
-        subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/resolve-leave-build-slot.sh")], env=env,
-                       check=True, capture_output=True, timeout=120)
+        try:
+            subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/resolve-leave-build-slot.sh")], env=env,
+                           check=True, capture_output=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            return "still running after 120 s", ""
+        if calls is not None:
+            calls_file = Path(tmp) / "calls"
+            calls.extend(calls_file.read_text().splitlines() if calls_file.exists() else [])
         return out.read_text().strip(), envfile.read_text().strip()
 
 
 OLD_HEAD, NEW_HEAD = "c31b2b6786669f7d25210f6496653b58bcc71dd3", "7341dd7bef6021463ef2ad54a9189502e8361adf"
 FEAT_TIP = "fdb12f557063a1c5d4bb55b4ef47c6e70f6ef0b3"
-# P2(C) waited 30 min at the slot while D and E landed: admitted, it waits for the tick's promotion and leaves to it.
-if leave_in_slot([OLD_HEAD, OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, asked_min_ago=30) \
-        != ("superseded=true", "LEFT_SLOT=1"):
-    failures.append("a push run admitted after 30 min at the slot, with newer commits on feat-cmux-next, must wait "
-                    "for the promotion and leave (superseded=true, LEFT_SLOT=1 in the job's env)")
+TICK_ASK = "workflow run nightly-next-tick.yml --repo o/r --ref main"
+# P2(C) waited 30 min at the slot while D and E landed. Admitted, it waits for nothing on the signing Mac (2026-11-19:
+# 63.5 of 83.0 Mac-minutes in 29 runs with no feed were this step waiting for the tick; run 44014825385 24.7 min). It
+# asks main's tick at once and leaves with pending=true; wake-nightly-next-tick retries the commit unless it moves.
+slot_calls: list[str] = []
+started = time.monotonic()
+got = leave_in_slot([OLD_HEAD, OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, asked_min_ago=30, calls=slot_calls,
+                    YIELD_POLL_SECONDS="30")
+if got != ("superseded=true\npending=true", "LEFT_SLOT=1"):
+    failures.append(f"a push run admitted after 30 min at the slot, with newer commits on feat-cmux-next, must leave at "
+                    f"once with the promotion pending (superseded=true, pending=true, LEFT_SLOT=1), got {got!r}")
+if time.monotonic() - started > 20:
+    failures.append("the leave step at the slot must not wait for the promotion on the signing Mac")
+if not any(call.endswith(TICK_ASK) for call in slot_calls):
+    failures.append(f"a stale run at the slot asks main's tick at once ({TICK_ASK}), got {slot_calls!r}")
+if any(not call.startswith("budget=0 ") for call in slot_calls):
+    failures.append(f"every gh call of the leave step skips the rate-limit wait (GH_BUDGET_WAIT_MAX_SECONDS=0), "
+                    f"got {slot_calls!r}")
+# nightly-next already moved when it is admitted: it leaves to that push, nothing pending, no ask needed.
+moved_calls: list[str] = []
+got = leave_in_slot([OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, asked_min_ago=30, calls=moved_calls)
+if got != ("superseded=true", "LEFT_SLOT=1") or any(TICK_ASK in call for call in moved_calls):
+    failures.append(f"a stale run whose head nightly-next already moved past leaves to it with nothing pending, got {got!r}")
+# The loop's last retry has no retry after it: it asks the tick and builds its own commit, with no wait.
+last_calls: list[str] = []
+got = leave_in_slot([OLD_HEAD], OLD_HEAD, feat=FEAT_TIP, asked_min_ago=30, calls=last_calls, LOOP_RETRY="2")
+if got != ("superseded=false", "") or not any(call.endswith(TICK_ASK) for call in last_calls):
+    failures.append(f"the loop's last retry, stale at the slot, asks the tick and builds its commit, got {got!r}")
+# A failed ask never holds the Mac: the run still leaves (the wake job asks again).
+got = leave_in_slot([OLD_HEAD], OLD_HEAD, feat=FEAT_TIP, asked_min_ago=30,
+                    gh_prelude='[ "$1" = workflow ] && exit 1')
+if got != ("superseded=true\npending=true", "LEFT_SLOT=1"):
+    failures.append(f"a refused tick ask still leaves the slot with the promotion pending, got {got!r}")
+# A gh call that hangs (a rate-limit wait, a dead connection) is bounded: unknown keeps the slot and builds.
+started = time.monotonic()
+got = leave_in_slot([OLD_HEAD], OLD_HEAD, feat=FEAT_TIP, asked_min_ago=30, gh_prelude="sleep 60", GH_CALL_SECONDS="1")
+if time.monotonic() - started > 30 or got != ("superseded=false", ""):
+    failures.append(f"each gh call of the leave step is bounded (GH_CALL_SECONDS) and an unanswered read builds, "
+                    f"got {got!r} after {time.monotonic() - started:.0f} s")
 # Admitted at once (the slot was free): it builds, however old the run (resolve already checked its age).
 if leave_in_slot([OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, asked_min_ago=1) != ("superseded=false", ""):
     failures.append("a run admitted with no wait at the slot builds its commit at once")

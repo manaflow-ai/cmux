@@ -26,19 +26,16 @@
       "paths": [
         "webviews/src/ui/Tooltip.tsx",
         "webviews/src/ui/titleTooltips.ts",
-        "webviews/src/ui/tooltipTokens.ts"
+        "webviews/src/ui/tooltipTokens.ts",
+        "webviews/scripts/check-key-hints.ts"
       ]
     },
     "onboarding": {
       "spec": "leo-workspace design/onboarding.md",
       "aliases": [
-        "onboarding",
-        "bring your history",
-        "memory import"
+        "onboarding"
       ],
       "paths": [
-        "webviews/src/pages/import-history/ImportHistory.tsx",
-        "webviews/src/pages/import-history/styles.css",
         "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/OnboardingModel.swift"
       ]
     },
@@ -358,8 +355,7 @@
         "home inbox"
       ],
       "paths": [
-        "webviews/src/pages/home-channels/",
-        "webviews/src/pages/home-messages/"
+        "webviews/src/pages/home-channels/"
       ]
     },
     "diff-viewer": {

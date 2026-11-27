@@ -38,7 +38,8 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
     }
 
     /// The media hub: observer (media world), page actions recorder, hidden sound recorder, page busy recorder and the
-    /// protected media probe (page world), protected media relay (media world).
+    /// protected media probe (page world), protected media relay (media world); the web notification wrapper (page
+    /// world) and its relay (media world), main frame only.
     var media: [Script]
     /// The email verification detector (its own world, main frame).
     var verification: [Script]
@@ -48,10 +49,14 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
     /// The settled scroll report (its own world, main frame); the page-channel path only: a fork
     /// without it keeps the position measured when the person leaves the app and at quit.
     var scrollReport: [Script]
+    /// The Chrome Web Store's install buttons say cmux, not Chrome (its own world, main frame;
+    /// the script returns at once on every other page).
+    var webStoreLabels: [Script]
 
     init(post: Post) {
         let mediaChannel = BrowserMediaState.channel
         let protectedChannel = BrowserProtectedMedia.channel
+        let notificationChannel = BrowserWebNotificationScript.channel
         media = [
             Script(world: BrowserMediaState.world,
                    source: BrowserMediaState.observerScript(post: post.send(mediaChannel, "JSON.stringify(message)"), ready: post.ready(mediaChannel)),
@@ -64,6 +69,12 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
             Script(world: BrowserMediaState.world,
                    source: BrowserProtectedMedia.relayScript(post: post.send(protectedChannel, "name"), ready: post.ready(protectedChannel)),
                    allFrames: true),
+            // Notifications show as cmux banners for an allowed site (BrowserWebNotificationScript).
+            Script(world: "", source: BrowserWebNotificationScript.pageScript, allFrames: false),
+            Script(world: BrowserMediaState.world,
+                   source: BrowserWebNotificationScript.relayScript(post: post.send(notificationChannel, "report"),
+                                                                    ready: post.ready(notificationChannel)),
+                   allFrames: false),
         ]
         let verifyChannel = VerificationPageScripts.channel
         verification = [Script(world: VerificationPageScripts.world,
@@ -82,10 +93,11 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
                       source: BrowserScrollReportScript.source(post: post.send(scrollChannel, "String(y)"), ready: post.ready(scrollChannel)),
                       allFrames: false)]
             : []
+        webStoreLabels = [Script(world: BrowserWebStoreLabels.world, source: BrowserWebStoreLabels.source, allFrames: false)]
     }
 
     /// Every script, in install order.
-    var all: [Script] { media + verification + firstPaint + scrollReport }
+    var all: [Script] { media + verification + firstPaint + scrollReport + webStoreLabels }
 
     /// Installs every script and channel for every browser (fork API 29). Returns the names the
     /// shim refused (empty when all went in).

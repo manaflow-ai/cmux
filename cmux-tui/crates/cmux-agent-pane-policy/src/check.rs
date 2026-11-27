@@ -18,8 +18,8 @@ use crate::error::Refusal;
 use crate::frame::{Refused, allowlist_check, contains, raw_id, with_local_app_token};
 use crate::gesture::{Gesture, PermissionOptions, is_click_only, needs_click, needs_gesture};
 use crate::params::{
-    breaks_params_rule, requested_setting, session_refusal, stripping_prompt_meta,
-    take_gesture_ticket,
+    breaks_params_rule, requested_setting, session_refusal, stripping_initialize_opt_ins,
+    stripping_prompt_meta, stripping_unknown_params, take_gesture_ticket,
 };
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -185,11 +185,19 @@ pub struct Setting {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Facts {
     pub is_first: bool,
+    /// The params the frame carried that this host's lists do not name,
+    /// dropped before it was sent (`limit`, `_meta.acpmux.peerRowBatches`):
+    /// the host logs them, once each, so a page newer than the host shows.
+    pub dropped: Vec<String>,
     pub method: Option<String>,
     /// The page's JSON-RPC id as raw JSON.
     pub page_id: Option<String>,
     /// The gesture ticket the frame carried (stripped from it), and whether
-    /// its `_meta` held anything else (R1).
+    /// its `_meta` held anything else (R1). The host redeems it, but a
+    /// frame that needs no gesture (a Send) is granted even when its ticket
+    /// does not redeem (Swift `granted = !facts.needsGesture || (redeemed &&
+    /// ...)`; Leo, 2026-11-17, on "Not sent: it needs your own key press or
+    /// click": "go remove this").
     pub ticket: Option<String>,
     pub other_meta: bool,
     pub pick: Option<GesturePick>,
@@ -228,9 +236,14 @@ pub struct Facts {
 }
 
 impl Facts {
-    /// No host state decides this frame: it is sent as checked.
+    /// No host state decides this frame: it is sent as checked. A
+    /// `session/prompt` never is, though it needs no gesture (Leo,
+    /// 2026-11-17, on "Not sent: it needs your own key press or click": "go
+    /// remove this"): it goes on disk first (the prompt journal) and ends
+    /// its tickets and credits (Swift `Facts.free`).
     pub fn free(&self) -> bool {
-        self.ticket.is_none()
+        self.method.as_deref() != Some("session/prompt")
+            && self.ticket.is_none()
             && !self.needs_gesture
             && !self.needs_path_check
             && self.setting.is_none()
@@ -322,9 +335,21 @@ pub fn redacted(frame: &Map<String, Value>) -> Value {
 /// The full check of `text` (see the module docs).
 pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
     let p = policy();
-    let object = match allowlist_check(text, state.is_first) {
+    let mut object = match allowlist_check(text, state.is_first) {
         Err(refused) => return Checked::Refuse { refused, spend: None },
         Ok(object) => object,
+    };
+    // The handshake fails safe: an initialize's unknown `_meta.acpmux` opt-ins
+    // are removed before every rule, so they never reach the daemon and never
+    // fail the connect (cmux#46563; Swift `strippingInitializeOptIns`).
+    if let Some((stripped, _keys)) = stripping_initialize_opt_ins(&object, state.mode_fields) {
+        object = stripped;
+    }
+    // P0: any other key this host's lists do not name is dropped, not refused
+    // ([`stripping_unknown_params`]): a newer page never loses its chat to it.
+    let (object, dropped) = match stripping_unknown_params(&object, state.mode_fields) {
+        Some((stripped, dropped)) => (stripped, dropped),
+        None => (object, Vec::new()),
     };
     let method = object.get("method").and_then(Value::as_str).map(str::to_owned);
     let page_id = object.get("id").and_then(raw_id);
@@ -351,8 +376,13 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
         return Checked::Refuse { refused, spend: carried };
     }
     let mut frame = stripping_prompt_meta(&object).unwrap_or_else(|| object.clone());
-    let mut facts =
-        Facts { is_first: state.is_first, method: method.clone(), page_id, ..Facts::default() };
+    let mut facts = Facts {
+        is_first: state.is_first,
+        method: method.clone(),
+        page_id,
+        dropped,
+        ..Facts::default()
+    };
     if !state.is_first {
         let taken = take_gesture_ticket(&frame);
         frame = taken.object;

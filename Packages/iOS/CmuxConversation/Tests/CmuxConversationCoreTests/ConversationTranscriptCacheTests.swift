@@ -93,7 +93,7 @@ import Testing
         #expect(!store.isShowingKeptTranscript)
     }
 
-    /// The newest `limit` acknowledged messages are kept: no unsent send (the outbox owns it),
+    /// The newest `limit` acknowledged messages are kept: no unsent send (only its store holds it),
     /// no Send Later row, no image bytes picked on the phone.
     @Test func keepsTheNewestAcknowledgedMessagesOnly() {
         let image = ConversationAttachment(id: "a", kind: .image, width: 4, height: 3, url: URL(string: "https://example.com/a.jpg"),
@@ -148,8 +148,10 @@ import Testing
         for count in 1...5 { cache.save("k", info: nil, meID: "me", messages: Array(messages.prefix(count))) }
         cache.flush()
         #expect(await ConversationTranscriptCache(directory: directory).load("k")?.messages.count == 5)
+        #if canImport(Darwin)  // iCloud backup exclusion is an Apple resource value
         let values = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
         #expect(values.isExcludedFromBackup == true)
+        #endif
     }
 
     /// Sign-out while a store shows kept rows: they go, and it keeps nothing more.

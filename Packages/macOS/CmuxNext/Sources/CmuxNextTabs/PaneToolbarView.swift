@@ -26,18 +26,38 @@ public struct PaneToolbarItem: Equatable, Sendable {
 }
 
 /// The pane's controls at the tab bar's trailing end (``PaneToolbar``; Leo 2026-10-12, Lawrence
-/// 2026-10-12): only the actions the person pinned as buttons (`tabs.toolbarButtons`, none by default),
-/// a zoomed pane's Exit Zoom button, and a page's own tools in the row. The bar draws no "…" and no
-/// Toggle Terminal and Chat pair of its own (user 2026-11-13: "get rid of these buttons"): with nothing
-/// pinned it takes no width and the tabs keep the whole row. What "…" offered is the tab bar's
-/// right-click (``PaneToolbar/tabBarMenuRows()``) and the Command Palette. Pins always show by default
+/// 2026-10-12): the actions the person pinned as buttons (`tabs.toolbarButtons`, none by default), a page's own
+/// tools in the row, and a zoomed pane's Exit Zoom. The bar has no "…" pane actions menu (user 2026-11-23,
+/// https://github.com/manaflow-ai/cmux/issues/53356: "this menu and the three dots ant the end, no more"): what it
+/// listed stays on its keys, the strip's +, the tab's right-click and the command palette. Controls always show by default
 /// (user 2026-11-15). In Minimal Mode they hide at rest
 /// (`tabs.restingControlOpacity`, 0 by default; Lawrence 2026-10-20) while the tabs leave room, show
 /// muted at rest once the tabs fill the bar (`tabs.crowdedControls`; Leo 2026-10-20), and fade in while
 /// the pointer is over the tab bar or these controls (`HoverReveal`, like the strip's plus) and while
-/// one has keyboard focus. Their width is kept while they are faded, so no tab moves when they appear.
-/// A zoomed pane's Exit Zoom button (``zoomButton``) sits in the trailing slot, lit.
+/// one has keyboard focus or a tool's menu is open. Their width is kept while they are faded, so no tab moves when they
+/// appear. A zoomed pane shows its Exit Zoom button (``zoomButton``) in the trailing slot, at rest.
 public final class PaneToolbarView: NSView {
+    /// A non-interactive host glass surface behind a native row control. Native controls remain the
+    /// hit target while the experiment borrows the App's shared chrome material.
+    @MainActor private final class NativeGlassSurfaceView: NSView {
+        let surface = Glass.makeHostSurface(level: .chrome)
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            addSubview(surface)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+        override func layout() {
+            super.layout()
+            surface.frame = bounds
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
     /// Runs a pinned button's action (its catalog id).
     public var onPerform: ((String) -> Void)?
     public var onNativeTool: ((String, String?) -> Void)?
@@ -63,6 +83,8 @@ public final class PaneToolbarView: NSView {
     public private(set) var buttons: [TitlebarBandButton] = []
     public private(set) var nativeItems: [PaneTabRowTool] = []
     public private(set) var nativeButtons: [TitlebarBandButton] = []
+    private var nativeGlass = false
+    private var nativeGlassSurfaces: [NativeGlassSurfaceView] = []
     /// Each tab's room at the row's trailing end, so its pane's strip ends in one place whichever tab is selected.
     public private(set) var trailingSlots = PaneTrailingSlots()
 #if DEBUG
@@ -71,7 +93,7 @@ public final class PaneToolbarView: NSView {
     var nativeMenuPresenterOverride: (@MainActor (NSMenu, TitlebarBandButton) -> Void)?
     var nativeMenuPresentationObserver: ((NSMenu) -> Void)?
 #endif
-    /// A zoomed pane's indicator in the trailing slot: its click restores the layout through the
+    /// A zoomed pane's indicator, in the trailing slot: its click restores the layout through the
     /// strip's ``TabStripIntent/toggleZoom(_:)``, the tab double-click's and Cmd-Shift-Return's one path.
     public let zoomButton = TitlebarBandButton(symbol: PaneZoomIndicatorView.symbol)
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
@@ -84,6 +106,7 @@ public final class PaneToolbarView: NSView {
 
     override public init(frame: NSRect) {
         super.init(frame: frame)
+        zoomButton.roundsAsTabBarControl = true
         zoomButton.target = self
         zoomButton.action = #selector(exitZoom)
         zoomButton.longPressOpensMenu = false
@@ -94,13 +117,16 @@ public final class PaneToolbarView: NSView {
         zoomButton.state = .on
         zoomButton.isHidden = true
         addSubview(zoomButton)
+        // The grouped and glass styles' pill, under every button (`appearance.toolbarButtonStyle`).
+        addSubview(groupPill, positioned: .below, relativeTo: nil)
+        _ = reveal.add(groupPill)
         // Hidden at rest by default (Lawrence 2026-10-20; Leo's muted look is a value above 0); a Debug
         // Settings change applies at once. task-owner: this view (cancelled in deinit); event-driven.
         applyRest()
         restObservation = Task { [weak self] in
             for await _ in ObservationStream({
                 (TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value,
-                 DesignSettings.shared.sidebarSections.hidesControlsUntilHover)
+                 DesignSettings.shared.sidebarSections.hidesControlsUntilHover, DesignSettings.shared.toolbarButtonStyle)
             }) { self?.applyRest() }
         }
     }
@@ -108,6 +134,7 @@ public final class PaneToolbarView: NSView {
     /// Hidden at rest while the tabs leave room; muted once they fill the bar (Leo 2026-10-20: no
     /// reservation of hidden icons, and no push or overlay that takes the rightmost tabs away).
     private func applyRest() {
+        applyButtonStyle()
         reveal.restAlpha = TabTunables.restingControlAlpha(crowded: strip?.isCrowded ?? false, minimal: DesignSettings.shared.sidebarSections.hidesControlsUntilHover)
     }
 
@@ -123,16 +150,21 @@ public final class PaneToolbarView: NSView {
     override public var isFlipped: Bool { true }
     override public var mouseDownCanMoveWindow: Bool { false }
 
-    /// The pinned buttons, the page's own tools and whether the pane is zoomed (shown without hover).
+    /// The pinned buttons, the page's own tools and whether the pane is zoomed (its Exit Zoom shows without hover).
     ///
-    /// - Parameter reserving: buttons' room to keep even while fewer show: the most any tab of the
-    ///   pane shows, so the strip's width (and every tab's) does not follow the selected tab.
+    /// - Parameter reserving: slots to keep even while fewer show: the most any tab of the pane shows, so the
+    ///   strip's width (and every tab's) does not follow the selected tab.
     /// - Parameter zoomed: the pane is zoomed: ``zoomButton`` shows in the trailing slot.
-    public func show(_ items: [PaneToolbarItem] = [], zoomed: Bool = false, reserving: Int = 0, nativeItems: [PaneTabRowTool] = []) {
-        guard items != self.items || zoomed != self.zoomed || reserving != reservedCount || nativeItems != self.nativeItems else { return }
+    public func show(_ items: [PaneToolbarItem] = [], zoomed: Bool = false, reserving: Int = 0,
+                     nativeItems: [PaneTabRowTool] = []) {
+        let glassChanged = nativeItems.contains(where: \.glass) != self.nativeGlass
+        guard items != self.items || zoomed != self.zoomed || reserving != reservedCount
+            || nativeItems != self.nativeItems || glassChanged else { return }
         reservedCount = reserving
+        self.nativeGlass = nativeItems.contains(where: \.glass)
         if items != self.items { setButtons(items) }
-        if nativeItems != self.nativeItems { setNativeButtons(nativeItems) }
+        if nativeItems != self.nativeItems || glassChanged { setNativeButtons(nativeItems) }
+        applyButtonStyle()
         self.zoomed = zoomed
         zoomButton.isHidden = !zoomed
         applyTint()
@@ -148,6 +180,7 @@ public final class PaneToolbarView: NSView {
         buttons.forEach { reveal.remove($0); $0.removeFromSuperview() }
         buttons = items.enumerated().map { index, item in
             let button = TitlebarBandButton(symbol: item.symbol)
+            button.roundsAsTabBarControl = true
             button.tag = index
             button.target = self
             button.action = #selector(press(_:))
@@ -174,10 +207,13 @@ public final class PaneToolbarView: NSView {
 
     private func setNativeButtons(_ items: [PaneTabRowTool]) {
         nativeButtons.forEach { reveal.remove($0); $0.removeFromSuperview() }
-        // A chat's own menu ("chat-menu") is a tool like the others, last in the row: the bar has no "…" to host it.
+        nativeGlassSurfaces.forEach { $0.removeFromSuperview() }
+        nativeGlassSurfaces = []
+        // A chat's own menu ("chat-menu") is a tool like the others, last in the row.
         nativeItems = items
         nativeButtons = items.enumerated().map { index, item in
             let button = TitlebarBandButton(symbol: item.symbol, text: item.text)
+            button.roundsAsTabBarControl = true
             button.customImage = Self.packGlyph
             button.tag = index
             button.setAccessibilityLabel(item.label)
@@ -219,6 +255,11 @@ public final class PaneToolbarView: NSView {
                         menuHold = nil
                     }
                 }
+            }
+            if nativeGlass {
+                let surface = NativeGlassSurfaceView(frame: .zero)
+                nativeGlassSurfaces.append(surface)
+                addSubview(surface)
             }
             addSubview(button)
             reveal.add(button)
@@ -354,8 +395,8 @@ public final class PaneToolbarView: NSView {
         let count = max(shownCount, reservedCount)
         guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
-        let reservedWidth = CGFloat(max(0, count - allButtons.count)) * TitlebarBandButton.side // pins another tab shows, the zoom button
-        let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
+        let reservedWidth = CGFloat(max(0, count - allButtons.count)) * Metrics.tabBarControlSide // the zoom button, pins another tab shows
+        let gaps = CGFloat(max(count - 1, 0)) * Self.toolGap
         return NSSize(width: buttonWidth + reservedWidth + gaps + Self.trailingGap, height: NSView.noIntrinsicMetric)
     }
 
@@ -369,14 +410,24 @@ public final class PaneToolbarView: NSView {
     public var tabRowWidth: CGFloat {
         let allButtons = buttons + nativeButtons
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
-        let gaps = CGFloat(max(shownCount - 1, 0)) * Metrics.space1 / 2
-        return buttonWidth + (zoomed ? TitlebarBandButton.side : 0) + gaps + Self.trailingGap
+        let gaps = CGFloat(max(shownCount - 1, 0)) * Self.toolGap
+        return buttonWidth + (zoomed ? 1 : 0) * Metrics.tabBarControlSide + gaps + Self.trailingGap
     }
 
     /// The bar's width in a pane `width` wide, which gives it at most half: `sharing`, beside a chat's tools in the row
-    /// (``tabRowWidth(fitting:)``, only the buttons that still show), else what the strip keeps for it.
+    /// (``tabRowWidth(fitting:)``, only the buttons that still show), else what the strip keeps for it (``fittedWidth(cap:)``).
     public func paneWidth(in width: CGFloat, sharing: Bool) -> CGFloat {
-        sharing ? tabRowWidth(fitting: width / 2) : min(intrinsicContentSize.width, width / 2)
+        sharing ? tabRowWidth(fitting: width / 2) : fittedWidth(cap: width / 2)
+    }
+
+    /// The bar's width beside its tab alone in a pane that gives it at most `cap`: its intrinsic width (with the room kept
+    /// for pins another tab shows) while that fits, else only what ``layout()`` still shows at the cap
+    /// (``tabRowWidth(fitting:)``). The capped intrinsic width kept the room of the buttons that fold at the cap (the
+    /// + menu's creation buttons, a button with no whole slot) empty beside the tabs, which then shrank to fit the rest
+    /// (Leo 2026-11-24: "why half of the space taken up by blank!?").
+    public func fittedWidth(cap: CGFloat) -> CGFloat {
+        let intrinsic = intrinsicContentSize.width
+        return intrinsic <= cap ? intrinsic : min(max(0, cap), tabRowWidth(fitting: cap))
     }
 
     /// The bar's width beside a parked chat in a pane `width` wide (#37548): its width the last time a chat of the pane
@@ -390,7 +441,7 @@ public final class PaneToolbarView: NSView {
     /// resize's hold), so its need is kept: this bar as it is now, and `sharer`'s tools.
     public func stripSlot(_ tools: CGFloat, in width: CGFloat, of model: TabStripModel, recording: Bool, sharer: PaneTabRowSharing?) -> CGFloat {
         if recording, let selected = model.selectedID {
-            trailingSlots.record(.init(intrinsic: intrinsicContentSize.width, shared: sharer == nil ? nil : tabRowWidth,
+            trailingSlots.record(.init(intrinsic: fittedWidth(cap: width / 2), shared: sharer == nil ? nil : tabRowWidth,
                                        tools: sharer?.tabRowToolsNeed), for: selected, live: model.tabs)
         }
         return max(tools, trailingSlots.reserve(in: width, besides: model.selectedID))
@@ -404,7 +455,7 @@ public final class PaneToolbarView: NSView {
     public func tabRowWidth(fitting limit: CGFloat) -> CGFloat {
         let full = tabRowWidth
         guard full > limit else { return full }
-        let side = TitlebarBandButton.side, gap = Metrics.space1 / 2
+        let side = Metrics.tabBarControlSide, gap = Self.toolGap
         let allButtons = buttons + nativeButtons
         // The same walk as layout(), at the capped width: a button shows only in a whole slot; creation buttons fold
         // together once the bar is capped (`alwaysVisible`, the cap being why we are here).
@@ -422,18 +473,22 @@ public final class PaneToolbarView: NSView {
         return max(0, min(limit, limit - leading))
     }
 
+    /// The gap between the pane's tool buttons: a look's `appearance.metrics.toolbarButtonGap` (its header buttons'
+    /// pitch less their size), else half a `space1`.
+    static var toolGap: CGFloat { Metrics.lookOverride(.toolbarButtonGap) ?? Metrics.space1 / 2 }
+
     override public func layout() {
         super.layout()
-        let side = TitlebarBandButton.side, gap = Metrics.space1 / 2
-        // Fixed slots from the trailing end: Exit Zoom in the last while the pane is zoomed, the buttons
-        // before it in order, so fewer pins leave room only at the leading end.
+        let side = Metrics.tabBarControlSide, gap = Self.toolGap
+        // Fixed slots from the trailing end: Exit Zoom in the last while the pane is zoomed, the buttons before it in
+        // order, so fewer pins leave room only at the leading end.
         let y = buttonTop
         appliedButtonTop = y
         let allButtons = buttons + nativeButtons
         let widths = allButtons.map(\.preferredWidth)
         // Creation actions remain in the + menu. Fold their buttons away together when the
         // pane caps this toolbar's width, keeping pins in their trailing slots. Pins that also
-        // cannot fit return to the more menu instead of overlapping the remaining controls.
+        // cannot fit hide (the palette and their keys still run them) instead of overlapping the remaining controls.
         let requiredWidth = Self.trailingGap + widths.reduce(0, +) + CGFloat(max(0, allButtons.count - 1)) * gap
             + (zoomed ? side + gap : 0)
         let creationFits = requiredWidth <= bounds.width
@@ -444,21 +499,58 @@ public final class PaneToolbarView: NSView {
             let button = allButtons[index]
             let available = max(0, cursor)
             // A button needs its complete icon slot to stay reachable. If only a
-            // partial slot remains, hide it (the tab bar's right-click or the chat's
-            // own menu offers it) instead of drawing over the neighbor.
+            // partial slot remains, hide it (the chat's own menu
+            // offers a page's tool) instead of drawing over the neighbor.
             let fits = available >= side
             let width = fits ? min(widths[index], available) : 0
             let x = cursor - width
             button.isHidden = !fits || x < 0 || (index < items.count && items[index].alwaysVisible && !creationFits)
             button.frame = NSRect(x: max(0, x), y: y, width: max(side, width), height: side)
+            if index >= buttons.count {
+                let nativeIndex = index - buttons.count
+                if nativeGlassSurfaces.indices.contains(nativeIndex) {
+                    let surface = nativeGlassSurfaces[nativeIndex]
+                    surface.frame = button.frame
+                    surface.isHidden = button.isHidden
+                }
+            }
             cursor = x - gap
         }
+        layoutGroupPill()
         applyTint()
+    }
+
+    // MARK: The pill (`appearance.toolbarButtonStyle`)
+
+    /// The grouped and glass styles' one pill behind the shown buttons; hidden in the other styles. It fades with the
+    /// buttons (``reveal``), so a Minimal Mode bar at rest shows no empty pill.
+    let groupPill = ToolbarGroupPill()
+
+    /// The style's hover on the pane's own buttons: inside a pill they brighten their glyph only.
+    private func applyButtonStyle() {
+        let style = DesignSettings.shared.toolbarButtonStyle
+        let paintsFill = style.hoverStyle?.paintsFill ?? true
+        for button in buttons + nativeButtons + [zoomButton] { button.hover.paintsFill = paintsFill }
+        groupPill.style = style
+        needsLayout = true
+    }
+
+    /// The pill around every button that shows, padded by a quarter step, its ends round.
+    private func layoutGroupPill() {
+        let shown = (buttons + nativeButtons + [zoomButton]).filter { !$0.isHidden }.map(\.frame)
+        groupPill.frame = Self.groupPillFrame(around: shown, padding: Metrics.space1 / 4)
+        groupPill.isHidden = !DesignSettings.shared.toolbarButtonStyle.drawsGroup || shown.isEmpty
+    }
+
+    /// The pill's frame around `frames`, `padding` out on every side; zero with nothing to hold.
+    static func groupPillFrame(around frames: [NSRect], padding: CGFloat) -> NSRect {
+        guard let first = frames.first else { return .zero }
+        return frames.dropFirst().reduce(first) { $0.union($1) }.insetBy(dx: -padding, dy: -padding)
     }
 
     /// The Exit Zoom button's slot: the trailing one, on the row, at a tab bar button's size.
     func zoomFrame(trailing: CGFloat) -> NSRect {
-        let side = TitlebarBandButton.side
+        let side = Metrics.tabBarControlSide
         return NSRect(x: max(0, trailing - side), y: buttonTop, width: side, height: side)
     }
 
@@ -469,19 +561,19 @@ public final class PaneToolbarView: NSView {
 
     /// The last button's gap to the trailing edge: its center on the pane's trailing control column,
     /// above the browser toolbar's ⋮ (`Metrics.paneTrailingControlCenter`, Lawrence msg 19627).
-    static var trailingGap: CGFloat { max(0, Metrics.paneTrailingControlCenter - TitlebarBandButton.side / 2) }
+    static var trailingGap: CGFloat { max(0, Metrics.paneTrailingControlCenter - Metrics.tabBarControlSide / 2) }
 
     /// The buttons' gap above them in a bar `height` tall, which is also the trailing button's gap to
     /// the trailing edge, so it rests evenly in the pane's corner as the first tab does.
     static func edgeInset(height: CGFloat) -> CGFloat {
-        max(0, ((height - TitlebarBandButton.side) / 2).rounded())
+        max(0, ((height - Metrics.tabBarControlSide) / 2).rounded())
     }
 
     /// The buttons' top: ``edgeInset(height:)``, or in a minimal window's top row the top that centers them on the
     /// row's shared line with the tabs, the traffic lights and the sidebar's + (`TopRowLine`, Leo 2026-11-07).
     /// Measured where the pane will rest (the strip's ``TabStripView/restingDrop``), as the tabs are.
     var buttonTop: CGFloat {
-        let side = TitlebarBandButton.side
+        let side = Metrics.tabBarControlSide
         guard TopRowLineLook.tunable.value != .off, let window, let content = window.contentView else { return Self.edgeInset(height: bounds.height) }
         let resting = convert(bounds, to: nil).offsetBy(dx: 0, dy: -(strip?.restingDrop ?? 0))
         guard WindowTitlebar.isInTopRow(resting, in: window), let line = WindowTitlebar.topRowLine(in: window) else { return Self.edgeInset(height: bounds.height) }
@@ -550,7 +642,7 @@ public final class PaneToolbarView: NSView {
     public func refreshCorner() {
         let rect = strip.map { $0.frame.union(frame) } ?? frame
         // Any control that shows brightens on hover.
-        let live = superview != nil && window != nil && (!buttons.isEmpty || !nativeButtons.isEmpty) && !isHiddenOrHasHiddenAncestor
+        let live = superview != nil && window != nil && (zoomed || !buttons.isEmpty || !nativeButtons.isEmpty) && !isHiddenOrHasHiddenAncestor
         // In a pane the screen's one area serves the corner by its geometry: no own area, which a resize moved with the
         // strip in every layout pass (RESIZE MAIN BUDGET, PaneMotionPointerAreasTests).
         let serving = live ? enclosingPanePointerArea : nil

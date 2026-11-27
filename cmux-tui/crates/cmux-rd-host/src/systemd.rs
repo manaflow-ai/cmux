@@ -11,6 +11,7 @@
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::sync::Mutex;
 
 /// The first fd systemd passes (`SD_LISTEN_FDS_START`).
 pub const LISTEN_FDS_START: RawFd = 3;
@@ -58,8 +59,7 @@ fn sockopt_int(fd: RawFd, name: libc::c_int) -> io::Result<libc::c_int> {
 }
 
 /// Takes the passed fd as a listener after checking it is a listening Unix stream socket,
-/// marks it close-on-exec (the browser child must not inherit it) and clears the
-/// `LISTEN_*` variables.
+/// marks it close-on-exec (the browser child must not inherit it).
 pub fn take_listener(fd: RawFd) -> Result<UnixListener, String> {
     let bad = |what: String| format!("--listen-systemd: fd {fd} {what}");
     if sockopt_int(fd, libc::SO_DOMAIN).map_err(|e| bad(format!("is not a socket: {e}")))?
@@ -77,18 +77,40 @@ pub fn take_listener(fd: RawFd) -> Result<UnixListener, String> {
     if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
         return Err(bad(format!("close-on-exec: {}", io::Error::last_os_error())));
     }
-    for var in ["LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES"] {
-        std::env::remove_var(var);
-    }
     // SAFETY: systemd passed this fd to this process and nothing else owns it.
     Ok(unsafe { UnixListener::from_raw_fd(fd) })
 }
 
-/// The listener systemd passed to this process.
-pub fn listener_from_env() -> Result<UnixListener, String> {
+/// What [`take_env`] read from `LISTEN_PID` and `LISTEN_FDS`, until [`listener_from_env`]
+/// takes it (once: the fd has one owner).
+static PASSED: Mutex<Option<Result<RawFd, String>>> = Mutex::new(None);
+
+/// Reads the `LISTEN_*` variables systemd set for this process and clears them, so no child
+/// (the browser) inherits them and takes the socket for its own.
+///
+/// # Safety
+///
+/// No other thread may exist: `remove_var` races any concurrent read of the environment, a C
+/// library's `getenv` included. cmux-rd's `main` calls it through
+/// [`crate::prepare_process_env`].
+pub(crate) unsafe fn take_env() {
     let pid = std::env::var("LISTEN_PID").ok();
     let fds = std::env::var("LISTEN_FDS").ok();
-    let fd = listen_fd_from_env(pid.as_deref(), fds.as_deref(), std::process::id())?;
+    let passed = listen_fd_from_env(pid.as_deref(), fds.as_deref(), std::process::id());
+    *PASSED.lock().unwrap_or_else(|e| e.into_inner()) = Some(passed);
+    for var in ["LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES"] {
+        // SAFETY: the caller's: no other thread exists.
+        unsafe { std::env::remove_var(var) };
+    }
+}
+
+/// The listener systemd passed to this process, as [`take_env`] found it at start.
+pub fn listener_from_env() -> Result<UnixListener, String> {
+    let passed = PASSED.lock().unwrap_or_else(|e| e.into_inner()).take();
+    let fd = passed.ok_or(
+        "--listen-systemd: the LISTEN_* variables were not taken at start (only the cmux-rd \
+         executable takes them), or the listener was taken already",
+    )??;
     take_listener(fd)
 }
 
@@ -156,126 +178,5 @@ pub fn accept_within(listener: &UnixListener, idle_ms: u64) -> io::Result<Option
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::{Read, Write};
-
-    #[test]
-    fn missing_listen_fds_refuses() {
-        let err = listen_fd_from_env(None, None, 42).expect_err("refused");
-        assert!(err.contains("LISTEN_FDS is not set"), "{err}");
-        assert!(listen_fd_from_env(Some("42"), None, 42).is_err());
-        assert!(listen_fd_from_env(None, Some("1"), 42).is_err());
-    }
-
-    #[test]
-    fn listen_fds_for_another_process_or_count_refuses() {
-        assert!(listen_fd_from_env(Some("41"), Some("1"), 42)
-            .expect_err("pid")
-            .contains("not this process"));
-        assert!(listen_fd_from_env(Some("x"), Some("1"), 42).is_err());
-        for n in ["0", "2", "", "one"] {
-            assert!(listen_fd_from_env(Some("42"), Some(n), 42).is_err(), "{n}");
-        }
-        assert_eq!(listen_fd_from_env(Some("42"), Some("1"), 42), Ok(LISTEN_FDS_START));
-    }
-
-    #[test]
-    fn a_passed_fd_that_is_not_a_listening_unix_socket_refuses() {
-        let tcp = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
-        assert!(take_listener(tcp.as_raw_fd()).expect_err("tcp").contains("not a Unix socket"));
-        let (a, _b) = UnixStream::pair().expect("pair");
-        assert!(take_listener(a.as_raw_fd()).expect_err("not listening").contains("not listening"));
-        let file = std::fs::File::open("/dev/null").expect("open");
-        assert!(take_listener(file.as_raw_fd()).expect_err("file").contains("not a socket"));
-    }
-
-    #[test]
-    fn a_listening_unix_socket_is_taken() {
-        let (dir, l) = listener();
-        let fd = std::os::fd::IntoRawFd::into_raw_fd(l);
-        let taken = take_listener(fd).expect("taken");
-        let _client = UnixStream::connect(dir.path().join("desktop.sock")).expect("connect");
-        assert!(accept_within(&taken, 2000).expect("accept").is_some());
-        // SAFETY: fcntl on the fd we own.
-        let flags = unsafe { libc::fcntl(taken.as_raw_fd(), libc::F_GETFD) };
-        assert_ne!(flags & libc::FD_CLOEXEC, 0);
-    }
-
-    fn me() -> u32 {
-        // SAFETY: getuid has no preconditions.
-        unsafe { libc::getuid() }
-    }
-
-    fn listener() -> (tempdir::Dir, UnixListener) {
-        let dir = tempdir::Dir::new();
-        let l = UnixListener::bind(dir.path().join("desktop.sock")).expect("bind");
-        (dir, l)
-    }
-
-    #[test]
-    fn peer_uid_mismatch_closes_before_reading() {
-        let (dir, l) = listener();
-        let mut client = UnixStream::connect(dir.path().join("desktop.sock")).expect("connect");
-        client.write_all(b"\x01\x05\x00\x00\x00hello").expect("write");
-        let (server, _) = l.accept().expect("accept");
-        let err = admit_peer(server, me().wrapping_add(1)).expect_err("mismatch");
-        assert!(err.contains(&format!("refused peer uid {}", me())), "{err}");
-        // Closed with nothing sent back.
-        client.set_read_timeout(Some(std::time::Duration::from_secs(2))).expect("timeout");
-        let mut buf = [0u8; 16];
-        // Closed: end of file, or a reset because the host never read what was sent. A read
-        // timeout (the connection still open) fails.
-        match client.read(&mut buf) {
-            Ok(n) => assert_eq!(n, 0, "nothing is sent back"),
-            Err(e) => assert_eq!(
-                e.kind(),
-                std::io::ErrorKind::ConnectionReset,
-                "closed, not timed out: {e}"
-            ),
-        }
-    }
-
-    #[test]
-    fn the_expected_peer_uid_is_admitted() {
-        let (dir, l) = listener();
-        let _client = UnixStream::connect(dir.path().join("desktop.sock")).expect("connect");
-        let (server, _) = l.accept().expect("accept");
-        assert_eq!(peer_uid(&server).expect("cred"), me());
-        assert!(admit_peer(server, me()).is_ok());
-    }
-
-    #[test]
-    fn accept_within_times_out_when_idle_and_returns_a_connection() {
-        let (dir, l) = listener();
-        let t = std::time::Instant::now();
-        assert!(accept_within(&l, 150).expect("wait").is_none());
-        assert!(t.elapsed() >= std::time::Duration::from_millis(150));
-        let _client = UnixStream::connect(dir.path().join("desktop.sock")).expect("connect");
-        assert!(accept_within(&l, 2000).expect("wait").is_some());
-    }
-
-    /// A private temporary directory removed on drop (no extra dependency).
-    mod tempdir {
-        pub struct Dir(std::path::PathBuf);
-        impl Dir {
-            pub fn new() -> Self {
-                static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let p = std::env::temp_dir()
-                    .join(format!("cmux-rd-systemd-{}-{n}", std::process::id()));
-                let _ = std::fs::remove_dir_all(&p);
-                std::fs::create_dir(&p).expect("mkdir");
-                Self(p)
-            }
-            pub fn path(&self) -> &std::path::Path {
-                &self.0
-            }
-        }
-        impl Drop for Dir {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-    }
-}
+#[path = "systemd_tests.rs"]
+mod tests;

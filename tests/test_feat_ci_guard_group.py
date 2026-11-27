@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ci-guards.yml's `ci` group runs for feat-cmux-next pull requests and pushes.
+"""The ci guard group remains reachable on opted-in feat pull requests and pushes.
 
 ci.yml's "CI fast guards" job runs the group (scripts/ci/guards-local.sh, among them
 tests/test_preflight_trust.py and every workflow lint) but skips pull requests into
@@ -18,7 +18,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from blacksmith_linux_sizes import entry  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -27,6 +26,11 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 import workflow_jobs  # noqa: E402
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import docs_only_paths  # noqa: E402
+from pr_test_lanes import Expression, truthy  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from real_git import real_git, run_bounded  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
 
 
@@ -39,25 +43,47 @@ def covers_feat(trigger) -> bool:
     if trigger is None:
         return True
     branches = (trigger or {}).get("branches")
-    return not (trigger or {}).get("paths") and (branches is None or "feat-cmux-next" in branches)
+    # The docs-only block (scripts/ci/docs_only_paths.py) still covers every change the group can judge.
+    paths = (trigger or {}).get("paths")
+    unfiltered = not paths or [str(p) for p in paths] == list(docs_only_paths.DOCS_ONLY_PATHS)
+    return unfiltered and (branches is None or "feat-cmux-next" in branches)
 
 
-def runs_ci_group(job: dict) -> bool:
-    """The job runs guards-local.sh's default set (the `ci` group) and nothing keeps it off feat-cmux-next."""
-    condition = str(job.get("if", ""))
-    if "feat-cmux-next" in condition and "!=" in condition:
+class GuardExpression(Expression):
+    @staticmethod
+    def call(name, args):
+        if name.lower() == "contains" and len(args) == 2 and isinstance(args[0], list):
+            return args[1] in args[0]
+        return Expression.call(name, args)
+
+
+def runs_ci_group(job: dict, event: str) -> bool:
+    """The opted-in full-CI PR or a push can run the default ci guard group."""
+    context = {
+        "github.event_name": event,
+        "github.event.action": "synchronize" if event == "pull_request" else "",
+        "github.event.pull_request.base.ref": "feat-cmux-next",
+        "github.event.pull_request.labels.*.name": ["full-ci"],
+        "vars.CI_GUARD_GROUP_ON_FULL_CI": "1",
+        "needs.coalesce.outputs.run": "true",
+        "needs.full-carry.outputs.tier": "full",
+        "needs.fast-check-route.outputs.ci_guard_group": "true",
+        "needs.fast-check-route.result": "success",
+    }
+    condition = str(job.get("if", "true")).removeprefix("${{").removesuffix("}}").strip()
+    if truthy(GuardExpression(condition, context).evaluate()) is not True:
         return False
     for step in job.get("steps") or []:
         command = str(step.get("run", ""))
         # No --group runs the fast set (the ci group) plus the groups --feat-routes picks.
-        if ("scripts/ci/guards-local.sh" in command and "--list" not in command
+        if (any("scripts/ci/guards-local.sh" in line and "--list" not in line for line in command.splitlines())
                 and ("--group" not in command or "--group ci " in command)):
             return True
     return False
 
 
 class FeatRunsTheCiGuardGroup(unittest.TestCase):
-    def test_a_workflow_runs_the_ci_group_on_feat_pull_requests_and_pushes(self):
+    def test_a_workflow_runs_the_ci_group_on_opted_in_feat_pull_requests_and_pushes(self):
         for event in ("pull_request", "push"):
             with self.subTest(event=event):
                 found = []
@@ -67,7 +93,7 @@ class FeatRunsTheCiGuardGroup(unittest.TestCase):
                     if event not in on or not covers_feat(on[event]):
                         continue
                     found += [f"{path.name}:{name}" for name, job in (workflow.get("jobs") or {}).items()
-                              if runs_ci_group(job)]
+                              if runs_ci_group(job, event)]
                 self.assertTrue(found, f"no {event} workflow for feat-cmux-next runs scripts/ci/guards-local.sh")
 
 
@@ -139,9 +165,9 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
             env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 
             def git(*args: str) -> str:
-                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
-                                       "-c", "commit.gpgsign=false", *args], cwd=repo, env=env, check=True,
-                                      capture_output=True, text=True).stdout.strip()
+                return run_bounded(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
+                                    "-c", "commit.gpgsign=false", *args], cwd=repo, env=env, check=True,
+                                   capture_output=True, text=True, timeout=60).stdout.strip()
 
             git("init", "--quiet")
             (repo / "a.txt").write_text("a\n", encoding="utf-8")
@@ -157,13 +183,13 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
             git("add", "-A")
             git("commit", "--quiet", "-m", "head")
             # The push path fetches the previous tip; this repository already has it.
-            real_git = shutil.which("git")
+            # The git binary, never a wrapper on PATH that would exec this fake again (tests/real_git.py).
             (bin_dir / "git").write_text(
-                f'#!/bin/sh\n[ "$1" = fetch ] && exit 0\nexec "{real_git}" "$@"\n', encoding="utf-8")
+                f'#!/bin/sh\n[ "$1" = fetch ] && exit 0\nexec "{real_git()}" "$@"\n', encoding="utf-8")
             (bin_dir / "git").chmod(0o755)
             output = runner_temp / "github_output"
-            subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=repo, check=True,
-                           capture_output=True, text=True,
+            run_bounded(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=repo, check=True,
+                        capture_output=True, text=True, timeout=120,
                            env={**env, "PATH": f"{bin_dir}:{env['PATH']}", "EVENT_NAME": event,
                                 "BEFORE": before if event == "push" else "", "RUNNER_TEMP": str(runner_temp),
                                 "GITHUB_OUTPUT": str(output)})
@@ -257,27 +283,34 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
         return workflow["jobs"]["ci-guard-group"]
 
-    def test_the_job_runs_on_its_measured_size_and_follows_the_outage_switch(self):
-        # Linux only: fleet Linux, then Blacksmith at its measured size. On a mini 24 of its steps red (no
-        # python3.9 or node, temp-cwd scripts), so portable-placement never places it.
-        measured = entry("cmux-next-guards.yml", "ci-guard-group")
-        pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
-                      f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
-        self.assertNotIn("needs", self.job())
-        self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
+    def test_the_job_runs_on_the_persistent_linux_pool(self):
+        # Linux only, never a mini (24 of its steps went red there: no python3.9 or node, temp-cwd scripts). Linux CI
+        # is one persistent pool (hq decisions/junctions.md 2026-11-20): cmux-linux past the fork branches.
+        # The window gate (base-coalesce.yml) and the 2-vCPU path route (fast_check_route.py): a pull request that
+        # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
+        self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route", "full-carry"])
+        condition = self.job()["if"]
+        for required in (
+            "!cancelled()",
+            "needs.coalesce.outputs.run != 'false'",
+            "needs.full-carry.outputs.tier != 'none'",
+            "needs.fast-check-route.outputs.ci_guard_group != 'false'",
+            "github.event_name != 'pull_request' || needs.fast-check-route.result == 'success' || needs.fast-check-route.result == 'skipped'",
+            "vars.CI_GUARD_GROUP_ON_FULL_CI == '1'",
+        ):
+            self.assertIn(required, condition)
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
-            " && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'"
-            " || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER"
-            " || " + pool_route + " }}",
+            " && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'"
+            " || 'cmux-linux' }}",
         )
 
     def test_each_guard_pass_uses_a_worker_per_core(self):
         run = "\n".join(str(step.get("run", "")) for step in self.job()["steps"])
-        calls = [line for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
-        # The head (a pull request's call, a push's call without release-notary), then the base.
-        self.assertEqual(len(calls), 3, calls)
+        calls = [line for line in run.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]
+        # The head (one call for a pull request and a push), then the base.
+        self.assertEqual(len(calls), 2, calls)
         for call in calls:
             with self.subTest(call=call):
                 # getconf, not nproc: a mini (macOS) has no GNU coreutils.

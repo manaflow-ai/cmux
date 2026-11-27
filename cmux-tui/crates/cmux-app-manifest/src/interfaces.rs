@@ -15,8 +15,12 @@ macro_rules! interfaces {
 }
 
 interfaces! {
+    "cmux.chat.action/1" => "cmux.chat.action",
+    "cmux.composer.chip/1" => "cmux.composer.chip",
+    "cmux.composer.toolbar/1" => "cmux.composer.toolbar",
     "cmux.composer.command/1" => "cmux.composer.command",
     "cmux.composer.mention/1" => "cmux.composer.mention",
+    "cmux.composer.model.picker/1" => "cmux.composer.model.picker",
     "cmux.chat.widget/1" => "cmux.chat.widget",
     "cmux.contact.provider/1" => "cmux.contact.provider",
     "cmux.credential.provider/1" => "cmux.credential.provider",
@@ -33,11 +37,14 @@ interfaces! {
     "cmux.search.provider/1" => "cmux.search.provider",
     "cmux.section/1" => "cmux.section",
     "cmux.session.info.section/1" => "cmux.session.info.section",
+    "cmux.sidebar/1" => "cmux.sidebar",
     "cmux.sidebar.rows/1" => "cmux.sidebar.rows",
+    "cmux.signal.source/1" => "cmux.signal.source",
     "cmux.status/1" => "cmux.status",
     "cmux.terminal.backend/1" => "cmux.terminal.backend",
     "cmux.terminal.connector/1" => "cmux.terminal.connector",
     "cmux.viewer/1" => "cmux.viewer",
+    "cmux.widget/1" => "cmux.widget",
 }
 
 /// Host capabilities this cmux version provides (`requires.hostCapabilities`;

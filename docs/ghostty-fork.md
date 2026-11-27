@@ -12,6 +12,46 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### vt-1.0.1 and the cell background keys in one pin (ghostty-next, cmux #50150)
+
+- Release branch `release/cmux-vt-1.0.1-cell-bg` at `5c01c7171`: a `--no-ff` merge of `release/cmux-gi-land-1-cell-guard`
+  (`a84a1c7e4`, fork PR #93) into `release/cmux-vt-1.0.1` (`2bd5d2503`, fork PR #92). Clean merge, no conflicts. The
+  pin is `5c01c7171`. GhosttyNextKit `xcframework-5c01c7171dc2c00d486f231adda7fb5bf6e55c97-apple-v6` (zip sha256 `ead90aeb...99c686c`, run 45296449754).
+- Both entries below still describe what each side brings.
+
+### Upstream libghostty-vt vt-1.0.1 merged into the pin (ghostty-next)
+
+- Release branch `release/cmux-vt-1.0.1` at `2bd5d2503`: a merge of upstream tag `vt-1.0.1` (`108cacb17`, on
+  ghostty-org/ghostty main, 2026-11-11) into `b37a94dfe`, plus three fixups (manaflow-ai/ghostty-next#92). It brings the
+  209 upstream commits since the last sync `c7f68a7f4` (2026-11-03), `vt-1.0.0` and `vt-1.0.1` included. Base per
+  `plans/cmux-next/ghostty-next.md` section 1; sync target per `skills/cmux-ghostty` (newest upstream `vt-*` tag).
+  GhosttyNextKit `xcframework-2bd5d2503393243a2cf64b1cb21987f09d583477-apple-v6` (zip sha256 `b64cc772...efa546`, run 45009529949).
+- C API: upstream's 1.0 ABI wins where it renamed or renumbered; the fork's additions stay (1024+ option and data
+  values, Kitty replay, history digest, deferred prompt clear, deferred clipboard token). Renames cmux-tui's binding
+  follows: `GhosttyTerminalCursorStyle` and the render state's cursor visual style are `GhosttyCursorStyle`
+  (`GHOSTTY_CURSOR_STYLE_*`); `GHOSTTY_KITTY_IMAGE_DATA_*` are `GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_*` and the pixels
+  are one `GhosttyString` (`..._PIXELS`); the formatter options struct is gone (`ghostty_formatter_set` per option,
+  extras as `GHOSTTY_FORMATTER_EXTRA_*` bits); `*_setopt` are `*_set`; `GHOSTTY_SCROLL_VIEWPORT_*` are
+  `GHOSTTY_TERMINAL_SCROLL_VIEWPORT_*`; `GhosttySelection`, `GhosttyGridRef`, `GhosttyStyle`,
+  `GhosttyClipboardRead` and `GhosttyTerminalProgramStatus` have no `size` field; `GhosttyStyle` attributes are
+  `flags` bits; `GHOSTTY_TERMINAL_OPT_*` 40-48 are renumbered (upstream added `CLIPBOARD_WRITE_MAX_BYTES = 40`).
+- Prompt redraw on resize: upstream's design (prompt start tracked before the resize, `PageList.Resize.blank` keeps the
+  prompt's row count on reflow) replaces the fork's cursor-up fix on the immediate path. The deferred clear
+  (`prompt_redraw_waits_for_shell`) keeps its cursor-up in `Screen.clearPromptAtCursor`.
+- Conflict notes: the merge commit's message lists each conflict and its resolution. The next sync merges the next
+  `vt-*` tag the same way.
+
+### Explicit cell backgrounds can show the window background (ghostty-next, cmux #50576)
+
+- Release branch `release/cmux-gi-land-1-cell-guard` at `a84a1c7e4`: fork PR manaflow-ai/ghostty-next#93 on
+  `b37a94dfe`. The pin is `a84a1c7e4`. GhosttyNextKit `xcframework-a84a1c7e4f95edf682920a0782ee914531fd2a15-apple-v6`
+  (zip sha256 `12d5f79c...be46b`, run 45038230807).
+- What: `background-cells-opacity` (an alpha for every explicit cell background) and
+  `background-cells-neutral-fade` (an explicit background whose Oklab chroma differs from the theme background's by
+  under 0.03 fades to clear by its lightness distance; 0 = off). Both unset keep the old rule. The alpha is
+  `src/renderer/cell_bg_alpha.zig`, read in `generic.zig`'s `bg_alpha`. No C API change.
+- Why: Leo, 2026-11-22: the Claude Code sent-message band "doesn't show my background! it's not transparent".
+
 ### A frame with no built cells draws the background only (ghostty-next, cmux f14)
 
 - Release branch `release/cmux-gi-land-1-cell-guard` at `b37a94dfe`: `c370b103a` (`release/cmux-gi-land-1`) and the

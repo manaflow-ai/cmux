@@ -5,9 +5,11 @@ import { memoryStore, modelKind } from "../src/store.ts"
 import { type TeamHub, userHubName } from "../src/team-hub.ts"
 import { call, connect, DEV_PROJECT, register, token } from "./helpers.ts"
 
+const S = ""
+
 const hubOf = (owner: string) => {
   const ns = (env as unknown as { TEAM_HUB: DurableObjectNamespace<TeamHub> }).TEAM_HUB
-  return ns.get(ns.idFromName(userHubName(owner)))
+  return ns.get(ns.idFromName(userHubName(owner, S)))
 }
 
 describe("device model kind", () => {
@@ -72,7 +74,7 @@ describe("device model kind", () => {
     const deviceId = crypto.randomUUID()
     const legacyId = crypto.randomUUID()
     for (const [id, model] of [[deviceId, "imac"], [legacyId, undefined]] as const) {
-      await store.upsertDevice({ deviceId: id, ownerUserId: owner, teamId, kind: "mac", name: "Mac", wgPublicKey: null, modelKind: model })
+      await store.upsertDevice({ space: S, deviceId: id, ownerUserId: owner, teamId, kind: "mac", name: "Mac", wgPublicKey: null, modelKind: model })
     }
     const phoneId = await register(t, "phone", teamId)
     const phone = await connect(t, teamId, phoneId)

@@ -37,6 +37,13 @@ public final class OverlaySurfaceView: NSView {
     public let glassVariant: OverlayGlassVariant
     /// The neutral glass's specular rim; nil for the theme tone and on the opaque material.
     public private(set) var rimView: GlassRimView?
+    /// The theme's edge on Liquid Glass with no neutral rim (variant 1, the theme tone): one
+    /// device-pixel stroke of the theme's card rim (the web's `--glass-edge`, `--cmux-card-rim`) over
+    /// the glass's own edge, opaque so the system's dark outline under it never shows (Leo 2026-11-21,
+    /// on the tab hover card: "has a black border... no bueno. no cohesiveness/theme synchronizing!").
+    /// Nil on the other materials (their hairline is the theme separator already), on a card (its
+    /// tint view draws the rim), clear glass and a surface that stands on its window.
+    public private(set) var edgeView: ThemeEdgeView?
     private let reduceTransparency: ReduceTransparency
     /// The glass keeps its key-window look while its window is not key (``GlassPanelView``): a
     /// dialog's card, whose overlay panel gives key back as the dialog starts to fade out; the
@@ -50,6 +57,24 @@ public final class OverlaySurfaceView: NSView {
 
     public var cornerRadius: CGFloat = Metrics.panelCornerRadius {
         didSet { if cornerRadius != oldValue { applyShape() } }
+    }
+
+    /// The edge the solid surface draws, in points: nil is the device-pixel hairline (a card's
+    /// one-point rim), 0 draws none. The hover surfaces pick it from their look (``HoverSurfaceLook``).
+    public var edgeWidth: CGFloat? {
+        didSet { if edgeWidth != oldValue { applyShape() } }
+    }
+
+    /// The shadow the surface casts along its own shape, on every material (the tooltip's,
+    /// ``Glass/makeTooltipGlass(cornerRadius:interactive:)``); nil casts none, as the overlays whose
+    /// window or owner draws it.
+    public var castShadow: Elevation? {
+        didSet { if castShadow != oldValue { applyShadow() } }
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if castShadow != nil { applyShadow() }
     }
 
     /// The vibrancy fallback blurs what is behind the window instead of the window's own
@@ -98,6 +123,14 @@ public final class OverlaySurfaceView: NSView {
 
     /// Whether the surface draws no material now (``standsOnWindow`` on a non-opaque material).
     public var drawsNoMaterial: Bool { standsOnWindow && material != .opaque }
+
+    /// Whether the surface is real Liquid Glass (`NSGlassEffectView`), which casts its own soft shadow and
+    /// edge: a host that drew the popup shadow too laid a second, black one around it, a dark ring on a dark
+    /// theme (Leo 2026-11-22, the tab hover card: "has a black border... no cohesiveness"; "doubled up
+    /// glass/wack looking glass all over the place").
+    public var castsSystemGlassShadow: Bool {
+        !drawsNoMaterial && (materialView as? GlassPanelView)?.isLiquidGlass == true
+    }
 
     /// `material` pins one material (tests, previews); nil follows
     /// `reduceTransparency` on this Mac.
@@ -225,7 +258,9 @@ public final class OverlaySurfaceView: NSView {
         addSubview(view, positioned: .below, relativeTo: nil)
         materialView = view
         installRim()
-        if let focused, let window = focused.window { window.makeFirstResponder(focused) }
+        // A host that draws the popup shadow skips it on Liquid Glass (``castsSystemGlassShadow``).
+        superview?.needsLayout = true
+        if let focused, let window = focused.window { FocusRoute(.system, "an overlay rebuilt: keep its focused view").moveKeyboard(in: window, to: focused) }
         applyShape()
         applyTheme()
         // Content colors may depend on the material (a veil that only
@@ -240,8 +275,11 @@ public final class OverlaySurfaceView: NSView {
               material != .liquidGlass || floatingVariant?.drawsRim != false else {
             rimView?.removeFromSuperview()
             rimView = nil
+            installEdge()
             return
         }
+        edgeView?.removeFromSuperview()
+        edgeView = nil
         let rim = rimView ?? GlassRimView(cornerRadius: cornerRadius, look: style.look(isDark: themeTokens.isDark))
         rim.frame = bounds
         rim.autoresizingMask = [.width, .height]
@@ -250,8 +288,40 @@ public final class OverlaySurfaceView: NSView {
         rimView = rim
     }
 
+    /// The theme edge over Liquid Glass that draws no rim of its own (``edgeView``).
+    private func installEdge() {
+        guard material == .liquidGlass, !isCard, !drawsNoMaterial else {
+            edgeView?.removeFromSuperview()
+            edgeView = nil
+            return
+        }
+        let edge = edgeView ?? ThemeEdgeView(cornerRadius: cornerRadius)
+        edge.frame = bounds
+        edge.autoresizingMask = [.width, .height]
+        edge.removeFromSuperview()
+        addSubview(edge)
+        edgeView = edge
+    }
+
+    private func applyShadow() {
+        guard let layer else { return }
+        guard let shadow = castShadow else {
+            layer.shadowOpacity = 0
+            layer.shadowPath = nil
+            return
+        }
+        layer.masksToBounds = false
+        layer.shadowColor = NSColor.black.cgColor
+        layer.shadowOpacity = Float(shadow.alpha)
+        layer.shadowRadius = shadow.layerRadius
+        layer.shadowOffset = shadow.layerOffset(flipped: isFlipped)
+        layer.shadowPath = CGPath(roundedRect: bounds, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+    }
+
     private func applyShape() {
+        if castShadow != nil { applyShadow() }
         rimView?.cornerRadius = cornerRadius
+        edgeView?.cornerRadius = cornerRadius
         // The content takes the surface's shape on every material. The blur and the solid
         // surface clip it already (their layer masks to bounds), but `NSGlassEffectView` never
         // clips its content view: a content background (`OverlayBackingView`'s veil) painted
@@ -275,7 +345,8 @@ public final class OverlaySurfaceView: NSView {
             layer.cornerCurve = .continuous
             layer.masksToBounds = true
             layer.borderWidth = drawsNoMaterial ? 0
-                : Metrics.lineWidth(isCard ? Self.cardRimWidth : 1 / max(window?.backingScaleFactor ?? 2, 1))
+                : edgeWidth.map { $0 == 0 ? 0 : Metrics.lineWidth($0) }
+                ?? Metrics.lineWidth(isCard ? Self.cardRimWidth : 1 / max(window?.backingScaleFactor ?? 2, 1))
         }
     }
 
@@ -297,6 +368,11 @@ public final class OverlaySurfaceView: NSView {
             let veil = tone.style.map { Palette.veil(of: $0) }
             switch material {
             case .liquidGlass:
+                if let edgeView {
+                    // Clear glass (a dragged row) shows only the lens, no drawn edge.
+                    edgeView.isHidden = isClear
+                    edgeView.color = Self.themeEdge(cardMaterial)
+                }
                 let untinted = tone.style.map { floatingVariant?.tintsGlass($0) == false } ?? false
                 (materialView as? GlassPanelView)?.tintColor = isClear || untinted ? nil : veil ?? overlayTint
                 if let card {
@@ -314,6 +390,13 @@ public final class OverlaySurfaceView: NSView {
             }
         }
         applyShape()
+    }
+
+    /// The theme's edge as one opaque color: the card rim (the primary text at its rim alpha, the web's
+    /// `--cmux-card-rim`) over the theme's popup fill, so it covers the glass's own outline.
+    static func themeEdge(_ card: CardMaterial) -> NSColor {
+        let rim = card.rim.nsColor
+        return card.fill.nsColor.blended(withFraction: rim.alphaComponent, of: rim.withAlphaComponent(1)) ?? rim
     }
 
     /// The card material of the theme in effect (call inside `performWithTheme`).

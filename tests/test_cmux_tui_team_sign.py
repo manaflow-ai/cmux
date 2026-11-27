@@ -177,19 +177,62 @@ class TeamSignedWorkflow(unittest.TestCase):
         self.assertEqual(self.jobs["sign"]["environment"], "release-next")
         self.assertEqual(self.jobs["sign"]["needs"], "plan")
 
-    def test_only_the_sign_job_holds_the_signing_secrets_and_it_deletes_its_keychain(self):
+    def test_only_the_sign_jobs_hold_the_signing_secrets_and_they_delete_their_keychain(self):
+        signers = {"sign", "sign-helper"}
         for name, job in self.jobs.items():
             text = yaml.safe_dump(job)
             holds = "APPLE_CERTIFICATE" in text or "APPLE_SIGNING_IDENTITY" in text
-            self.assertEqual(holds, name == "sign", name)
-        steps = self.jobs["sign"]["steps"]
-        runs = [step.get("run", "") for step in steps]
-        create = next(i for i, run in enumerate(runs) if "signing-keychain.sh create" in run)
+            self.assertEqual(holds, name in signers, name)
+        for name in signers:
+            steps = self.jobs[name]["steps"]
+            runs = [step.get("run", "") for step in steps]
+            create = next(i for i, run in enumerate(runs) if "signing-keychain.sh create" in run)
+            delete = next(i for i, run in enumerate(runs) if "signing-keychain.sh delete" in run)
+            self.assertLess(next(i for i, run in enumerate(runs) if "signing-runner-claim.sh" in run), create)
+            self.assertLess(create, delete)
+            self.assertEqual(steps[delete].get("if"), "always()")
+            self.assertNotIn("env", self.jobs[name])
+            self.assertEqual(self.jobs[name]["environment"], "release-next")
+
+    def test_the_helper_is_built_without_secrets_and_signed_as_data(self):
+        build = self.jobs["build-helper"]
+        self.assertNotIn("environment", build)
+        self.assertNotIn("secrets.", yaml.safe_dump(build))
+        self.assertEqual(build["needs"], "plan")
+        self.assertIn("needs.plan.outputs.helper_needed == 'true'", build["if"])
+        sign = self.jobs["sign-helper"]
+        self.assertEqual(sign["needs"], ["plan", "build-helper"])
+        # Its checkout is this workflow's tools, never the commit: no commit code runs where the key is.
+        refs = [step["with"]["ref"] for step in sign["steps"] if "actions/checkout@" in step.get("uses", "")]
+        self.assertEqual(refs, ["${{ github.sha }}"])
+        runs = [step.get("run", "") for step in sign["steps"]]
+        self.assertIn("screen_sharing_helper_release.py check", "\n".join(runs))
+        self.assertNotIn("cargo", "\n".join(runs))
         delete = next(i for i, run in enumerate(runs) if "signing-keychain.sh delete" in run)
-        self.assertLess(next(i for i, run in enumerate(runs) if "signing-runner-claim.sh" in run), create)
-        self.assertLess(create, delete)
-        self.assertEqual(steps[delete].get("if"), "always()")
-        self.assertNotIn("env", self.jobs["sign"])
+        record = next(i for i, run in enumerate(runs) if "screen_sharing_helper_release.py record" in run)
+        self.assertLess(delete, record)
+        publish = "\n".join(step.get("run", "") for step in self.jobs["publish-helper"]["steps"])
+        self.assertIn("--write-once", publish)
+        self.assertIn("screen_sharing_helper_release.py objects", publish)
+        self.assertEqual(self.jobs["publish-helper"]["needs"], ["plan", "sign-helper"])
+
+    def test_the_plan_checks_the_commit_from_git_not_the_api(self):
+        # Runs 45646188220 and 45645935931 (2026-11-25) failed at "Check the commit": the REST compare
+        # call was refused for the installation's rate limit past a 5-minute wait, so the helper was never
+        # signed and the Mac live file of 965f1485 went out with no screen_sharing_helper. The plan reads
+        # feat-cmux-next's history with git and makes no GitHub API call at all.
+        steps = self.jobs["plan"]["steps"]
+        names = [step.get("name") for step in steps]
+        check = steps[names.index("Check the commit")]
+        self.assertIn("git -C onbranch fetch", check["run"])
+        self.assertIn("refs/heads/feat-cmux-next", check["run"])
+        self.assertIn('grep -qx "$COMMIT"', check["run"])
+        self.assertNotIn("GH_TOKEN", check.get("env", {}))
+        # A failed fetch is named as one, never read as "not on feat-cmux-next".
+        self.assertIn("could not read feat-cmux-next's history", check["run"])
+        for step in steps:
+            self.assertNotRegex(step.get("run", ""), r"\bgh (api|run|workflow)\b", step.get("name"))
+            self.assertNotIn("GH_TOKEN", step.get("env", {}), step.get("name"))
 
     def test_it_never_writes_the_ad_hoc_tree(self):
         run = "\n".join(step.get("run", "") for step in self.jobs["publish"]["steps"])
@@ -201,15 +244,20 @@ class TeamSignedWorkflow(unittest.TestCase):
         request = jobs["request-team-signed-tree"]
         self.assertTrue(request["continue-on-error"])
         self.assertIn("refs/heads/feat-cmux-next", request["if"])
+        # The windowed tree build is a feat-cmux-next dispatch; its tree's pushes deferred before it
+        # published, so a push-only request never signed it (run 44978301534, 2026-11-22).
+        self.assertIn("(github.event_name == 'push' || github.event_name == 'workflow_dispatch')", request["if"])
         # A push whose tree another run published (the same-key owner wait) asks too: run 43725236906,
         # #43724's own merge, skipped the request when it read publish-tree's result.
         self.assertEqual(request["needs"], ["tree-preflight", "publish-tree-tested"])
         self.assertIn("needs.publish-tree-tested.result != 'failure'", request["if"])
         self.assertNotIn("needs.publish-tree.result", request["if"])
-        run = request["steps"][0]["run"]
+        (step,) = [s for s in request["steps"] if s.get("name") == "Dispatch cmux-tui-team-signed.yml on nightly-next"]
+        run = step["run"]
         self.assertIn("--ref nightly-next", run)
         # A push whose key is signed already dispatches nothing; one that does names the key's group.
-        self.assertLess(run.index("team-signed/completion.json"), run.index("gh workflow run"))
+        # The dispatch goes through gh_budget_wait.sh, which moves a rate-limited call to the bot token.
+        self.assertLess(run.index("team-signed/completion.json"), run.index("gh_budget_wait.sh workflow run"))
         self.assertIn('-f key="$KEY"', run)
         self.assertIn("inputs.key", self.doc["concurrency"]["group"])
         for name, job in jobs.items():

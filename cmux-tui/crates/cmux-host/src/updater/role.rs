@@ -7,9 +7,9 @@ use std::fs;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::{Condvar, LazyLock, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -18,7 +18,8 @@ use serde_json::{Value, json};
 
 use super::carrier::{CARRIER_MAX_HOLD, CarrierHold, CarrierLook};
 use super::channel::{self, CHANNEL_MAX_BYTES, CHANNEL_URL, CMUX_TUI, CMUX_TUI_HOOK};
-use super::gate::{Gate, HoldKind, Honor};
+use super::credential_wake::{self, WakeTries};
+use super::gate::{Gate, HoldKind, Honor, Refused};
 use super::resolve::{
     GuardStep, Resolved, guard_rollback_waits, resolve_with, timeout_rollback_waits,
 };
@@ -30,6 +31,9 @@ use super::{
 use crate::agent::PauseSeen;
 use crate::config::Paths;
 use crate::daemon_spec::{WORK_HOME, WORK_USER};
+use machine::{Caller, Event, Refusal, Verdict};
+
+pub mod machine;
 
 /// The first check after `cmux host run` starts (a boot or an update's restart).
 const BOOT_DELAY: Duration = Duration::from_secs(30);
@@ -58,6 +62,41 @@ const JITTER: Duration = Duration::from_millis(3_750);
 pub(super) fn next_look(outcome: &Outcome, draw: u64) -> Duration {
     let base = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
     base + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
+}
+
+/// Between looks on a machine nobody uses: no agent turn runs or waits and no
+/// carrier session is attached ([`busy_sessions`] answered empty). Leo,
+/// 2026-11-27: "we defo dont wanna waste the freestyle vms TOO much". Each
+/// [`INTERVAL`] look is a GET of the channel, outbound traffic, and the
+/// provider pauses a VM only after `idleTimeoutSeconds` (300 s) with none, so
+/// the 15 s look alone kept every idle machine that the platform did not pause
+/// itself running for days (staging, 2026-11-27: 77 running VMs showed
+/// traffic in the last 2 minutes, 23 of one team's 24 older than a day). This
+/// is longer than any provider idle timeout, so an idle machine goes quiet
+/// and pauses. A wake (`Resumed`), a bind (`Bound`) or a channel change sends
+/// [`Msg::Check`] and the worker looks at once, so a machine someone comes back
+/// to still takes a merged fix within seconds, and a busy machine keeps the
+/// 15 s look.
+pub(super) const IDLE_INTERVAL: Duration = Duration::from_secs(30 * 60);
+
+/// Whether a look that ended in `outcome` read (or tried to read) the channel
+/// over the network: only those keep a VM awake.
+pub(super) fn read_channel_look(outcome: &Outcome) -> bool {
+    matches!(
+        outcome,
+        Outcome::Current(_) | Outcome::Older | Outcome::RolledBackBefore | Outcome::Failed(_)
+    )
+}
+
+/// [`next_look`] for a machine the look after `outcome` found `idle`:
+/// [`IDLE_INTERVAL`] (plus [`JITTER`]) after a look that read the channel, so
+/// its GETs stop holding the VM awake; otherwise [`next_look`].
+pub(super) fn next_look_when(outcome: &Outcome, idle: bool, draw: u64) -> Duration {
+    if idle && read_channel_look(outcome) {
+        IDLE_INTERVAL + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
+    } else {
+        next_look(outcome, draw)
+    }
 }
 
 /// A fresh random draw for [`next_look`] (std's per-process random hash keys).
@@ -93,17 +132,73 @@ pub(super) enum Msg {
     Stop,
 }
 
-/// Bumped by every stop: a worker whose generation it no longer is has been
-/// told to stop, also one that outlived its role's deadline, and touches
-/// nothing more ([`stopped`]). The `cmux host update` verbs run outside any
-/// worker and never stop.
-static GENERATION: AtomicU64 = AtomicU64::new(0);
+/// The role's state in this process ([`machine::State`]): the stop count (a worker whose
+/// generation it no longer is has been told to stop, also one that outlived its role's
+/// deadline, and touches nothing more, [`stopped`]; the `cmux host update` verbs run outside
+/// any worker and never stop), the commit section ([`Committing`]) and the holds the gate
+/// could not record. Locked only for one [`machine::step`].
+static ROLE: LazyLock<Mutex<machine::State>> = LazyLock::new(Mutex::default);
 
-/// Held from a worker's last [`stopped`] look through the flip and the
-/// queued restarts, and by a stop while it bumps [`GENERATION`]: once a stop
-/// returns, no worker flips or restarts anything; a stop that comes during
-/// one waits for it (a rename and a few `--no-block` systemctl calls).
-static COMMIT: Mutex<()> = Mutex::new(());
+/// Notified whenever a commit leaves its section.
+static COMMIT_LEFT: Condvar = Condvar::new();
+
+/// `event` on [`ROLE`].
+fn role_step(event: Event) -> Verdict {
+    let mut state = ROLE.lock().unwrap_or_else(|e| e.into_inner());
+    let step = machine::step(state.clone(), event);
+    *state = step.state;
+    step.verdict
+}
+
+/// A verdict the machine never gives for `event`: logged, and the caller does the safe thing.
+fn unexpected(event: Event, verdict: Verdict) {
+    log(&format!("the role machine answered {event:?} with {verdict:?}"));
+}
+
+/// The commit section ([`machine::Commit::Held`]): held from a worker's last [`stopped`] look
+/// through the flip and the queued restarts, and waited for by a stop before it bumps the
+/// count: once a stop returns, no worker flips or restarts anything; a stop that comes during
+/// one waits for it (a rename and a few `--no-block` systemctl calls). Left when dropped, also
+/// on a panic, as the mutex it replaces was still taken once poisoned.
+struct Committing {
+    entered: bool,
+}
+
+impl Committing {
+    /// Enters the section, waiting for the commit in it.
+    fn enter() -> Committing {
+        let mut state = ROLE.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            let step = machine::step(state.clone(), Event::Enter);
+            match step.verdict {
+                Verdict::Entered => {
+                    *state = step.state;
+                    return Committing { entered: true };
+                }
+                Verdict::Refused(Refusal::CommitHeld) => {
+                    state = COMMIT_LEFT.wait(state).unwrap_or_else(|e| e.into_inner());
+                }
+                other => {
+                    unexpected(Event::Enter, other);
+                    return Committing { entered: false };
+                }
+            }
+        }
+    }
+}
+
+impl Drop for Committing {
+    fn drop(&mut self) {
+        if !self.entered {
+            return;
+        }
+        match role_step(Event::Leave) {
+            Verdict::Left => {}
+            other => unexpected(Event::Leave, other),
+        }
+        COMMIT_LEFT.notify_all();
+    }
+}
 
 pub(super) fn wall_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
@@ -125,8 +220,44 @@ pub(super) fn wall_ms() -> u64 {
 /// (or [`hold_if_paused`], [`flip_look`], [`carrier_busy_from`]) inside
 /// [`Gate::run`] or [`flip_in_gate`], which would deadlock on that flock.
 /// Inside, use `Inside::hold_connects(now)`.
+///
+/// A hold the gate can't record is kept in this process ([`ROLE`]),
+/// and this process's flips wait for it; the caller then does not bind.
 pub(crate) fn hold_connects(paths: &Paths, kind: HoldKind) -> bool {
-    super::gate::hold_connects(paths, wall_ms(), kind)
+    hold_connects_at(paths, wall_ms(), kind)
+}
+
+/// [`hold_connects`] at `now` (wall ms).
+fn hold_connects_at(paths: &Paths, now: u64, kind: HoldKind) -> bool {
+    match super::gate::hold_connects(paths, now, kind) {
+        Ok(go) => go,
+        Err(e) => {
+            log(&format!("the connect hold was not recorded ({e}); this process holds it"));
+            unrecorded_hold(now, kind);
+            false
+        }
+    }
+}
+
+/// Keeps a hold of `kind` from `now` the gate failed to record.
+fn unrecorded_hold(now: u64, kind: HoldKind) {
+    let event = Event::HoldNotRecorded { kind, now_ms: now };
+    match role_step(event) {
+        Verdict::Kept => {}
+        other => unexpected(event, other),
+    }
+}
+
+/// What is left at `now_ms` of the unrecorded holds `honor` honors.
+fn unrecorded_left(now_ms: u64, honor: Honor) -> Option<Duration> {
+    let event = Event::HeldLeft { honor, now_ms };
+    match role_step(event) {
+        Verdict::HeldLeft(left) => left,
+        other => {
+            unexpected(event, other);
+            None
+        }
+    }
 }
 
 /// What the flip answers when the connect hold is on: a bind or resume that
@@ -232,7 +363,7 @@ fn hold_if_paused_past(
         return false;
     }
     // A stop is the machine's own wake (as a resume is): a person's link takes its own connect hold.
-    super::gate::hold_connects(paths, now.1, HoldKind::Resume);
+    hold_connects_at(paths, now.1, HoldKind::Resume);
     log("the machine was stopped (a pause or restore): no flip during the connect hold");
     true
 }
@@ -289,7 +420,7 @@ pub(super) fn flip_look(
     let paused = hold_if_paused_past(paths, watch, handled, own, now);
     let restored = restore_look(last, offset_now);
     if restored {
-        super::gate::hold_connects(paths, now.1, HoldKind::Resume);
+        hold_connects_at(paths, now.1, HoldKind::Resume);
         log("a snapshot restore: no flip during the connect hold");
     }
     paused || restored
@@ -417,9 +548,15 @@ fn wait_watching(paths: &Paths, rx: &Receiver<Msg>, d: Duration) -> bool {
     go_on
 }
 
-/// How much of the connect hold is left now.
+/// How much of the connect hold is left now, with the holds this process
+/// could not record. A gate that can't be read holds for [`BUSY_RETRY`].
 pub(super) fn held_for(paths: &Paths) -> Option<Duration> {
-    Gate::new(paths).held_left(wall_ms())
+    let now = wall_ms();
+    let gate = Gate::new(paths).held_left(now).unwrap_or_else(|e| {
+        log(&format!("the restart gate can't be read ({e}); no flip"));
+        Some(BUSY_RETRY)
+    });
+    gate.max(unrecorded_left(now, Honor::All))
 }
 
 thread_local! {
@@ -444,8 +581,58 @@ fn past_deadline() -> bool {
     DEADLINE.with(Cell::get).is_some_and(|at| Instant::now() >= at)
 }
 
+thread_local! {
+    /// The deadline every `systemctl` and `systemd-run` this thread runs ends by
+    /// ([`commands_within`]); none outside it but each command's own 60 s.
+    static COMMANDS_BY: Cell<Option<Instant>> = const { Cell::new(None) };
+}
+
+/// The longest any one `systemctl` or `systemd-run` may take.
+const COMMAND_LIMIT: Duration = Duration::from_secs(60);
+
+/// Runs `f` with every `systemctl` and `systemd-run` it runs ([`systemctl`],
+/// [`arm_guard`], [`restart_others`]) killed at `deadline`, and none started
+/// past it: the restore's step holds the restart gate's flock, which a bind
+/// waits on, at most until `deadline` ([`super::first_ready::RESTORE_BOUND`]).
+pub(super) fn commands_within<T>(deadline: Instant, f: impl FnOnce() -> T) -> T {
+    let before = COMMANDS_BY.with(|d| d.replace(Some(deadline)));
+    let out = f();
+    COMMANDS_BY.with(|d| d.set(before));
+    out
+}
+
+/// The `timeout` argument for the next command, at most [`COMMAND_LIMIT`] and
+/// at most what is left before [`commands_within`]'s deadline (in whole
+/// milliseconds rounded up, never `0`, which is no timeout at all); `None` past
+/// that deadline: the command does not run.
+pub(super) fn command_timeout() -> Option<String> {
+    command_timeout_at(COMMANDS_BY.with(Cell::get), Instant::now())
+}
+
+pub(super) fn command_timeout_at(by: Option<Instant>, now: Instant) -> Option<String> {
+    let left = match by {
+        Some(by) if now >= by => return None,
+        Some(by) => (by - now).min(COMMAND_LIMIT),
+        None => COMMAND_LIMIT,
+    };
+    let ms = left.as_nanos().div_ceil(1_000_000).max(1);
+    Some(format!("{}.{:03}", ms / 1000, ms % 1000))
+}
+
 fn stopped() -> bool {
-    WORKER_GENERATION.with(Cell::get).is_some_and(|mine| mine != GENERATION.load(Ordering::SeqCst))
+    let by = match WORKER_GENERATION.with(Cell::get) {
+        Some(generation) => Caller::Worker { generation },
+        None => Caller::Verb,
+    };
+    let event = Event::Live { by };
+    match role_step(event) {
+        Verdict::Live => false,
+        Verdict::Refused(Refusal::Stale { .. }) => true,
+        other => {
+            unexpected(event, other);
+            true
+        }
+    }
 }
 
 struct Worker {
@@ -468,24 +655,20 @@ impl UpdaterRole {
     fn halt(&mut self, deadline: Instant) -> Result<(), RoleError> {
         let Some(worker) = self.worker.take() else { return Ok(()) };
         let _ = worker.tx.send(Msg::Stop);
-        // Bump the generation under COMMIT, so a flip in progress finishes
-        // first and none starts after.
+        // Bump the generation once no commit runs, so a flip in progress
+        // finishes first and none starts after.
         loop {
-            match COMMIT.try_lock() {
-                Ok(_commit) => {
-                    GENERATION.fetch_add(1, Ordering::SeqCst);
-                    break;
-                }
-                Err(std::sync::TryLockError::Poisoned(e)) => {
-                    let _commit = e.into_inner();
-                    GENERATION.fetch_add(1, Ordering::SeqCst);
-                    break;
-                }
-                Err(std::sync::TryLockError::WouldBlock) if Instant::now() < deadline => {
+            match role_step(Event::Stop) {
+                Verdict::Stopped { .. } => break,
+                Verdict::Refused(Refusal::CommitHeld) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(20));
                 }
-                Err(std::sync::TryLockError::WouldBlock) => {
+                Verdict::Refused(Refusal::CommitHeld) => {
                     return Err(RoleError("updater was flipping at the deadline".to_owned()));
+                }
+                other => {
+                    unexpected(Event::Stop, other);
+                    break;
                 }
             }
         }
@@ -522,7 +705,15 @@ impl Role for UpdaterRole {
         let (tx, rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel::<()>();
         let paths = self.paths.clone();
-        let generation = GENERATION.load(Ordering::SeqCst);
+        let generation = match role_step(Event::Start) {
+            Verdict::Started { generation } => generation,
+            other => {
+                // A count no stop reaches: the worker is stale from its first look.
+                unexpected(Event::Start, other);
+                u64::MAX
+            }
+        };
+        LIVE_GENERATION.store(generation, Ordering::SeqCst);
         let thread = std::thread::Builder::new()
             .name("cmux-host-updater".to_owned())
             .spawn(move || {
@@ -580,7 +771,7 @@ pub(super) fn start_hold(paths: &Paths, now_ms: u64, offset_ns: i128) -> bool {
         log("the restart after this machine's own update: no start hold");
         return true;
     }
-    super::gate::hold_connects(paths, now_ms, HoldKind::Resume);
+    hold_connects_at(paths, now_ms, HoldKind::Resume);
     false
 }
 
@@ -603,20 +794,139 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
     }
     loop {
         // A check during the hold waits it out (a Check message only wakes it
-        // to look again).
+        // to look again), but on a machine never bound to Cloud, where the
+        // hold guards no link yet ([`adopt_before_bind`]).
         hold_after_restore(paths);
         if let Some(left) = held_for(paths) {
-            if !wait_watching(paths, rx, left) {
+            let wait = adopt_before_bind(paths).map_or(left, |next| next.min(left));
+            if !wait_watching(paths, rx, wait) {
                 return;
             }
             continue;
         }
         let (outcome, _) = check(paths, Honor::All);
-        let next = next_look(&outcome, jitter_draw());
+        // Local looks only (acpmux and the session host's admin channel): an
+        // idle machine stops reading the channel until a wake or a bind.
+        let idle = read_channel_look(&outcome)
+            && matches!(busy_sessions(paths), Ok(busy) if busy.is_empty());
+        let next = next_look_when(&outcome, idle, jitter_draw());
         if !wait_watching(paths, rx, next) {
             return;
         }
     }
+}
+
+/// The worker generation the role started last ([`UpdaterRole::start`]); `u64::MAX` while no
+/// worker ever started in this process.
+static LIVE_GENERATION: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// `realtime - boottime` and the pause count when [`adopt_before_bind`] last decided the
+/// channel's build (current, or flipped to it): a restore since moves the first by the stopped
+/// time ([`restored_between`]) on a provider whose boot clock stops, and the pause watch counts
+/// it on one whose boot clock runs through.
+static STEPPED_AT: Mutex<Option<(i128, u64)>> = Mutex::new(None);
+
+/// The Cloud role's first bind runs the step before the first bind itself, unless it already
+/// ran since this machine's last restore. A machine restored from the image's snapshot gets
+/// its bind token and its supervisor `Resumed` in the same moments, and the worker only looks
+/// after the `Resumed` reaches it: when the bind went first, its connect hold refused the step
+/// ("the restart gate: connect hold, 299 s left") and the new machine served the image's build
+/// through its first five minutes (development read-back, 2026-11-26: most guests). Here the
+/// step comes first; a flip queues the service's restart, the gate then refuses the bind, and
+/// the restarted service binds on the channel's build. It runs as the live worker's
+/// generation, so a stopped updater flips nothing ([`stopped`]), and ends by
+/// [`super::first_ready::RESTORE_BOUND`].
+pub(crate) fn before_first_bind(paths: &Paths) {
+    let generation = LIVE_GENERATION.load(Ordering::SeqCst);
+    if generation == u64::MAX {
+        return;
+    }
+    let stepped = *STEPPED_AT.lock().unwrap_or_else(|e| e.into_inner());
+    let (offset, boot) = (crate::linux::realtime_minus_boottime_ns(), crate::linux::boottime_ns());
+    if stepped_since_restore(stepped, offset, crate::agent::PAUSES.seen(), boot) {
+        return;
+    }
+    let before = WORKER_GENERATION.with(|g| g.replace(Some(generation)));
+    let _ = adopt_before_bind(paths);
+    WORKER_GENERATION.with(|g| g.set(before));
+}
+
+/// Whether the step decided the channel's build (`stepped`, [`STEPPED_AT`]) with no stop of
+/// this machine since: `realtime - boottime` is `offset` now, the pause watch as `seen` at boot
+/// time `boot`. A watch still waking may not have counted the stop yet.
+pub(super) fn stepped_since_restore(
+    stepped: Option<(i128, u64)>,
+    offset: i128,
+    seen: PauseSeen,
+    boot: i128,
+) -> bool {
+    !seen.waking(boot)
+        && stepped
+            .is_some_and(|(at, seq)| seq == seen.pauses && !restored_between(Some(at), offset))
+}
+
+/// The channel's build at once on a machine never bound to Cloud that a
+/// resume hold holds: a new machine is a restore of the image's memory
+/// snapshot, whose `cmux host run` goes on (so `first_ready::run` never
+/// sees it) and whose restore starts that hold ([`hold_after_restore`],
+/// [`hold_if_paused`]). The hold guards a person's first link, and none can
+/// come before the bind, which the step's gate run orders after the flip
+/// ([`super::first_ready::after_restore`]). When to look again, or None
+/// when the machine is bound (or the step is not its to take): it waits the
+/// hold out.
+fn adopt_before_bind(paths: &Paths) -> Option<Duration> {
+    if !paths.is_system_root() || super::first_ready::not_before_bind(paths).is_some() {
+        return None;
+    }
+    let target = channel::local_target()?;
+    // A stopped worker touches nothing more ([`stopped`]).
+    if stopped() {
+        return None;
+    }
+    let started = Instant::now();
+    let deadline = started + super::first_ready::RESTORE_BOUND;
+    // Every GET and every systemctl and systemd-run in the step ends by the
+    // deadline, so the gate's flock, which a bind waits on, is held that long
+    // at most.
+    let first = within(deadline, || {
+        commands_within(deadline, || {
+            super::first_ready::after_restore(
+                paths,
+                target,
+                deadline,
+                &mut super::first_ready::Machine,
+                // As [`check`]'s flip: the commit section from the last
+                // [`stopped`] look through the flip and the queued restarts,
+                // so once a stop returns this worker flips and restarts nothing.
+                || {
+                    let commit = Committing::enter();
+                    if stopped() { Err("the updater stopped".to_owned()) } else { Ok(commit) }
+                },
+                || {
+                    let _ = systemctl(&["restart", "--no-block", HOST_UNIT]);
+                },
+            )
+        })
+    });
+    use super::first_ready::First;
+    if matches!(first, First::Current(_) | First::Flipped(_)) {
+        *STEPPED_AT.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((crate::linux::realtime_minus_boottime_ns(), crate::agent::PAUSES.pause_seq()));
+    }
+    let outcome = match first {
+        First::NotFirst(_) => return None,
+        First::Current(commit) => Outcome::Current(commit),
+        First::Flipped(commit) => {
+            log(&format!(
+                "before the first bind: updated in {} ms; restarting the service",
+                started.elapsed().as_millis()
+            ));
+            Outcome::Updating(commit)
+        }
+        First::OnImage(why) => Outcome::Failed(why),
+    };
+    save_outcome(paths, &outcome, "before the first bind: ");
+    Some(next_look(&outcome, jitter_draw()))
 }
 
 /// What one check did.
@@ -773,7 +1083,7 @@ fn check_inner(
         return Outcome::Failed("an update is waiting for its health check".to_owned());
     }
     let Some(target) = channel::local_target() else {
-        return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
+        return Outcome::Off(format!("no build for {}", channel::local_platform()));
     };
     let payload = match read_channel() {
         Ok(payload) => payload,
@@ -817,13 +1127,13 @@ fn check_inner(
     // carrier sessions' last look is inside the gate ([`flip_in_gate`]).
     let last = match off_reason(paths) {
         Some(why) => Some(Outcome::Off(why)),
-        None => match acpmux_busy_sessions() {
+        None => match acpmux_busy_before_flip() {
             Ok(busy) if busy.is_empty() => None,
             Ok(busy) => Some(Outcome::Busy(busy)),
             Err(e) => Some(Outcome::Busy(vec![e])),
         },
     };
-    let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
+    let commit = Committing::enter();
     // A stop during this check (its download, its busy look) holds its flip.
     stops.before_gate(paths, crate::linux::realtime_minus_boottime_ns(), clocks());
     let last =
@@ -900,7 +1210,7 @@ pub fn adopt(paths: &Paths) -> Outcome {
         return Outcome::Failed("an update is waiting for its health check".to_owned());
     }
     let Some(target) = channel::local_target() else {
-        return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
+        return Outcome::Off(format!("no build for {}", channel::local_platform()));
     };
     let payload = match read_channel() {
         Ok(payload) => payload,
@@ -922,6 +1232,63 @@ pub fn adopt(paths: &Paths) -> Outcome {
     }
     record_installed(&mut state, &plan);
     let _ = save_state(paths, &state);
+    flip_and_restart(paths, *plan, "adopt")
+}
+
+/// `cmux host update install --file PATH --commit C --committed-at T`: puts the build at
+/// `file` (a client's own pinned cmux-tui, the cmux NEXT app's: `cmux link machine update
+/// --to-bundled` on a machine whose work link is the store link) in the store and flips
+/// the profile to it, as [`adopt`] does with the channel's build: it relinks the work
+/// user's cmux-tui into `current`, arms the guard, restarts acpmux, the cmux units and
+/// last `cmux-host.service`, and the new `cmux host run` proves the build or rolls it
+/// back ([`healthy`]). Run as root, from the new build itself. Only cmux-tui changes
+/// ([`super::decide_pinned`]); a build not newer than the last one applied here, or one
+/// rolled back here, is left out, so the channel and the app never move a machine back.
+/// Like [`adopt`] it honors no hold: the caller asked for it while it waits.
+pub fn install_pinned(paths: &Paths, file: &Path, commit: &str, committed_at: u64) -> Outcome {
+    let Some(_lock) = Lock::take(paths, false) else {
+        return Outcome::Failed("another update check runs".to_owned());
+    };
+    if paths.at(super::OFF_FILE).exists() {
+        return Outcome::Off(format!("{} exists", super::OFF_FILE));
+    }
+    if load_pending(paths).is_some() {
+        return Outcome::Failed("an update is waiting for its health check".to_owned());
+    }
+    let sha256 = match store::sha256_file(file) {
+        Ok(sha) => sha,
+        Err(e) => return Outcome::Failed(format!("{}: {e}", file.display())),
+    };
+    let size = fs::metadata(file).map(|m| m.len()).unwrap_or(0);
+    let pinned = super::Pinned { sha256, size, commit: commit.to_owned(), committed_at };
+    let mut state = load_state(paths);
+    let plan = match super::decide_pinned(paths, &state, &pinned) {
+        Ok(Decision::Update(plan)) => plan,
+        Ok(Decision::Current) => return Outcome::Current(pinned.commit),
+        Ok(Decision::Older) => return Outcome::Older,
+        Ok(Decision::RolledBack) => return Outcome::RolledBackBefore,
+        Err(e) => return Outcome::Failed(e),
+    };
+    if !store::has_entry(paths, &pinned.sha256, CMUX_TUI)
+        && let Err(e) = store::add_entry(paths, &pinned.sha256, CMUX_TUI, file)
+    {
+        return Outcome::Failed(format!("adding {} to the store: {e}", file.display()));
+    }
+    if let Err(e) = store::build_profile(paths, plan.from, plan.to, &plan.replacements()) {
+        return Outcome::Failed(format!("building profile {}: {e}", plan.to));
+    }
+    // Only the new cmux-tui is this update's: the hook entry stays the profile's own.
+    if !state.installed.contains(&pinned.sha256) {
+        state.installed.push(pinned.sha256);
+    }
+    let _ = save_state(paths, &state);
+    flip_and_restart(paths, *plan, "install")
+}
+
+/// The last steps of [`adopt`] and [`install_pinned`], once the next profile is built:
+/// records the update as pending, arms the guard, relinks the work link, flips
+/// `/opt/cmux/current` and restarts the services. `what` names the verb in the log.
+fn flip_and_restart(paths: &Paths, plan: Plan, what: &str) -> Outcome {
     let pending = plan.pending(now());
     if let Err(e) = save_pending(paths, &pending) {
         return Outcome::Failed(format!("recording the update: {e}"));
@@ -932,7 +1299,7 @@ pub fn adopt(paths: &Paths) -> Outcome {
         clear_pending(paths);
         return Outcome::Failed(format!("arming the guard: {e}"));
     }
-    let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
+    let commit = Committing::enter();
     // Last before the flip, so a step that failed above left the work link as it was.
     let relinked = match super::relink_work_link(paths) {
         Ok(relinked) => relinked,
@@ -954,7 +1321,7 @@ pub fn adopt(paths: &Paths) -> Outcome {
         log(&format!("{} links {} again", super::WORK_CMUX_TUI_LINK, super::CURRENT_CMUX_TUI));
     }
     log(&format!(
-        "adopt: profile {} -> {}: cmux-tui {} ({}); restarting the services",
+        "{what}: profile {} -> {}: cmux-tui {} ({}); restarting the services",
         plan.from,
         plan.to,
         short_hex(&plan.cmux_tui.sha256),
@@ -999,6 +1366,10 @@ pub(super) fn flip_in_gate<E>(
     stopped: impl FnOnce() -> bool,
     flip: impl FnOnce(&super::gate::Inside) -> Result<(), E>,
 ) -> (Gated<E>, Option<HoldKind>) {
+    // A hold this process could not record holds its own flips.
+    if let Some(left) = unrecorded_left(clock(), honor) {
+        return (Gated::Held(left), None);
+    }
     let ran = Gate::new(paths).run(clock(), honor, |inside| {
         if paths.at(super::OFF_FILE).exists() {
             return (Gated::Off(format!("{} exists", super::OFF_FILE)), inside.skipped());
@@ -1013,7 +1384,11 @@ pub(super) fn flip_in_gate<E>(
                 limit.as_secs()
             )),
             read => carrier_look(read.map_err(Unread::why), || {
-                inside.hold_connects(clock());
+                let now = clock();
+                if let Err(e) = inside.hold_connects(now) {
+                    log(&format!("the connect hold was not recorded ({e}); this process holds it"));
+                    unrecorded_hold(now, HoldKind::Connect);
+                }
                 new_session.set(true);
             }),
         };
@@ -1021,7 +1396,11 @@ pub(super) fn flip_in_gate<E>(
             Some(why) => Gated::Busy(why),
             None if new_session.get() => Gated::Held(CONNECT_HOLD),
             None if stopped() => {
-                inside.hold(HoldKind::Resume, clock());
+                let now = clock();
+                if let Err(e) = inside.hold(HoldKind::Resume, now) {
+                    log(&format!("the resume hold was not recorded ({e}); this process holds it"));
+                    unrecorded_hold(now, HoldKind::Resume);
+                }
                 log("the machine was stopped during the carrier look: no flip during the connect hold");
                 Gated::Held(CONNECT_HOLD)
             }
@@ -1032,7 +1411,10 @@ pub(super) fn flip_in_gate<E>(
         };
         (gated, inside.skipped())
     });
-    ran.unwrap_or_else(|left| (Gated::Held(left), None))
+    ran.unwrap_or_else(|refused| match refused {
+        Refused::Held(left) => (Gated::Held(left), None),
+        refused => (Gated::Busy(refused.to_string()), None),
+    })
 }
 
 /// The first 12 characters of a hash for a log line; a shorter or non-ASCII text is logged whole, never sliced
@@ -1255,12 +1637,32 @@ fn carrier_busy(paths: &Paths) -> Option<String> {
     carrier_busy_from(paths, carrier_sessions())
 }
 
-/// [`carrier_busy`] for a rollback: only sessions the list shows hold it,
-/// under the same bound. A list that can't be read holds nothing here: the
-/// session host that would answer is the build being rolled back, and
+/// [`carrier_busy`] for a rollback's wait: only sessions the list shows hold
+/// it, under the same bound. A list that can't be read holds nothing here:
+/// the session host that would answer is the build being rolled back, and
 /// keeping a broken build is worse than a restart (#37280).
-fn rollback_carrier_busy(paths: &Paths) -> Option<String> {
-    carrier_sessions().ok().and_then(|ids| carrier_busy_from(paths, Ok(ids)))
+///
+/// Each wait has its own hold, started when the wait begins: the forward
+/// update's hold ([`CARRIER`]) may have passed its bound, and a session that
+/// reconnected since would get no hold at all.
+#[derive(Default)]
+pub(super) struct RollbackCarrier {
+    hold: CarrierHold,
+}
+
+impl RollbackCarrier {
+    /// One look at `now` at the sessions read.
+    pub(super) fn look(
+        &mut self,
+        paths: &Paths,
+        now: Instant,
+        sessions: Result<Vec<String>, String>,
+    ) -> Option<String> {
+        let ids = sessions.ok()?;
+        act_on_look(self.hold.look(now, Ok(ids)), || {
+            hold_connects(paths, HoldKind::Connect);
+        })
+    }
 }
 
 /// [`carrier_busy`] for the sessions one look read.
@@ -1268,7 +1670,16 @@ pub(super) fn carrier_busy_from(
     paths: &Paths,
     sessions: Result<Vec<String>, String>,
 ) -> Option<String> {
-    carrier_look(sessions, || {
+    carrier_busy_at(paths, Instant::now(), sessions)
+}
+
+/// [`carrier_busy_from`] at `now`.
+pub(super) fn carrier_busy_at(
+    paths: &Paths,
+    now: Instant,
+    sessions: Result<Vec<String>, String>,
+) -> Option<String> {
+    carrier_look_at(now, sessions, || {
         hold_connects(paths, HoldKind::Connect);
     })
 }
@@ -1279,8 +1690,17 @@ fn carrier_look(
     sessions: Result<Vec<String>, String>,
     start_hold: impl FnOnce(),
 ) -> Option<String> {
+    carrier_look_at(Instant::now(), sessions, start_hold)
+}
+
+/// [`carrier_look`] at `now`.
+fn carrier_look_at(
+    now: Instant,
+    sessions: Result<Vec<String>, String>,
+    start_hold: impl FnOnce(),
+) -> Option<String> {
     let mut hold = CARRIER.lock().unwrap_or_else(|e| e.into_inner());
-    let look = hold.get_or_insert_with(CarrierHold::default).look(Instant::now(), sessions);
+    let look = hold.get_or_insert_with(CarrierHold::default).look(now, sessions);
     drop(hold);
     act_on_look(look, start_hold)
 }
@@ -1441,13 +1861,18 @@ pub(super) fn output_within(mut cmd: Command, limit: Duration) -> Result<Vec<u8>
 /// which the caller counts as busy, unless acpmux answered. Empty only when
 /// it answered that no daemon runs and its unit is down (or absent).
 fn acpmux_busy_sessions() -> Result<Vec<String>, String> {
+    Ok(acpmux_look()?.0)
+}
+
+/// [`acpmux_busy_sessions`] with the list it read (`acpmux --json ls`; None when no daemon runs).
+fn acpmux_look() -> Result<(Vec<String>, Option<String>), String> {
     let (_, status) = acpmux(&["--json", "daemon", "status"]).ok_or("acpmux did not run")?;
     match super::daemon_running(&status) {
         None => return Err("acpmux daemon status is unreadable".to_owned()),
         Some(false) => {
             return match user_unit_state(ACPMUX_UNIT).as_deref() {
-                Some("inactive" | "failed") => Ok(Vec::new()),
-                _ if !Path::new(ACPMUX_UNIT_FILE).exists() => Ok(Vec::new()),
+                Some("inactive" | "failed") => Ok((Vec::new(), None)),
+                _ if !Path::new(ACPMUX_UNIT_FILE).exists() => Ok((Vec::new(), None)),
                 state => Err(format!("no acpmux daemon answered, its unit is {state:?}")),
             };
         }
@@ -1457,7 +1882,38 @@ fn acpmux_busy_sessions() -> Result<Vec<String>, String> {
     if !ok {
         return Err("acpmux ls failed".to_owned());
     }
-    super::busy_sessions_in(&ls).ok_or_else(|| "acpmux ls is unreadable".to_owned())
+    let busy = super::busy_sessions_in(&ls).ok_or_else(|| "acpmux ls is unreadable".to_owned())?;
+    Ok((busy, Some(ls)))
+}
+
+/// What the wakes keep between looks ([`super::credential_wake`]).
+static CREDENTIAL_WAKES: Mutex<WakeTries> = Mutex::new(WakeTries::new());
+
+/// How long one look may keep starting wakes. The guard is armed by then
+/// ([`GUARD_AFTER_SECS`]), and each wake starts an agent (seconds; `acpmux` gives it 20 s). A
+/// session not reached in time holds the look and is woken at the next, with its tries intact.
+const WAKES_WITHIN: Duration = Duration::from_secs(90);
+
+/// The last look before a flip: [`acpmux_busy_sessions`], and with none busy, the wake of every
+/// chat whose launch credential only acpmux's memory holds, so the restart does not lose it
+/// ([`WakeTries::before_flip`]). A wake that failed or was not reached holds the update like a
+/// busy session. No wake starts once the updater is told to stop (a park waits only
+/// `ROLE_STOP_GRACE` for this thread).
+fn acpmux_busy_before_flip() -> Result<Vec<String>, String> {
+    let began = Instant::now();
+    CREDENTIAL_WAKES.lock().unwrap_or_else(|e| e.into_inner()).before_flip(
+        acpmux_look,
+        |id| {
+            if stopped() || began.elapsed() >= WAKES_WITHIN {
+                return credential_wake::Woke::NotReached;
+            }
+            match acpmux(&["--json", "session", "wake", id]) {
+                Some((ok, reply)) => credential_wake::woke(ok, &reply),
+                None => credential_wake::Woke::Failed,
+            }
+        },
+        log,
+    )
 }
 
 /// `systemctl --user is-active UNIT` in the work user's manager: its word.
@@ -1544,16 +2000,19 @@ fn resolve(paths: &Paths, pending: &Pending, rx: &Receiver<Msg>) -> bool {
         }
         Resolved::Stopped => false,
         Resolved::TimedOut => {
-            if !timeout_rollback_waits(&mut || rollback_carrier_busy(paths), rx) {
-                return false;
-            }
-            rollback(
-                paths,
-                pending,
-                "the new build did not serve within ten minutes of its restart",
-                true,
-            );
-            true
+            let mut carrier = RollbackCarrier::default();
+            timeout_rollback_waits(
+                &mut || carrier.look(paths, Instant::now(), carrier_sessions()),
+                || {
+                    rollback(
+                        paths,
+                        pending,
+                        "the new build did not serve within ten minutes of its restart",
+                        true,
+                    )
+                },
+                rx,
+            )
         }
     }
 }
@@ -1598,20 +2057,23 @@ pub(super) fn settled_look(
 }
 
 /// Flips back to the previous profile and restarts what runs the new build.
-fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
+/// `Some(wait)` when a bind's request is in flight: the rollback did nothing,
+/// and its caller looks at carrier sessions again after `wait` (the bound
+/// machine's first link may be one) and retries.
+fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) -> Option<Duration> {
     let _lock = Lock::take(paths, true);
     if load_pending(paths).as_ref() != Some(pending) {
-        return;
+        return None;
     }
     // A stopped worker leaves the rollback to the guard.
-    let _commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
+    let _commit = Committing::enter();
     if stopped() {
-        return;
+        return None;
     }
-    log(&format!("rolling {} back to profile {}: {why}", pending.commit, pending.from));
     // The flip back and its restarts go through the gate, so no bind goes out
-    // between them; the hold does not stop a rollback.
-    let _ = Gate::new(paths).run(wall_ms(), Honor::Nothing, |inside| {
+    // between them and none is in flight; the hold does not stop a rollback.
+    let rolled = Gate::new(paths).run(wall_ms(), Honor::Nothing, |inside| {
+        log(&format!("rolling {} back to profile {}: {why}", pending.commit, pending.from));
         if let Err(e) = store::flip(paths, pending.from) {
             log(&format!("flipping back to profile {}: {e}", pending.from));
             return;
@@ -1630,11 +2092,22 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
         inside.restart_queued(wall_ms());
         restart_after_flip(paths, &store_binary(&pending.cmux_tui));
     });
+    match rolled {
+        Ok(()) => None,
+        Err(refused) => {
+            log(&format!("the rollback waits: {refused}"));
+            Some(refused.retry_in())
+        }
+    }
 }
 
 fn systemctl(args: &[&str]) -> bool {
+    let Some(limit) = command_timeout() else {
+        log(&format!("systemctl {} not run: past the bound", args.join(" ")));
+        return false;
+    };
     Command::new("timeout")
-        .arg("60")
+        .arg(limit)
         .arg("systemctl")
         .args(args)
         .stdin(Stdio::null())
@@ -1644,11 +2117,16 @@ fn systemctl(args: &[&str]) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-/// `systemctl --user …` in the work user's manager, at most 60 s.
+/// `systemctl --user …` in the work user's manager, at most 60 s ([`command_timeout`]).
 fn user_systemctl(args: &[&str]) -> bool {
     let Some(user) = crate::linux::spawn::lookup_user(WORK_USER) else { return false };
+    let Some(limit) = command_timeout() else {
+        log(&format!("systemctl --user {} not run: past the bound", args.join(" ")));
+        return false;
+    };
     Command::new("timeout")
-        .args(["60", "runuser", "-u", WORK_USER, "--", "env"])
+        .arg(limit)
+        .args(["runuser", "-u", WORK_USER, "--", "env"])
         .arg(format!("XDG_RUNTIME_DIR=/run/user/{}", user.uid))
         .args(["systemctl", "--user"])
         .args(args)
@@ -1675,7 +2153,12 @@ fn arm_guard_with(pending: &Pending, program: &Path) -> Result<(), String> {
         &format!("{GUARD_UNIT}.service"),
         &format!("{GUARD_UNIT}.timer"),
     ]);
-    let status = Command::new("systemd-run")
+    // Bounded as every systemctl is ([`command_timeout`]): systemd-run waits on
+    // the manager, which a loaded boot keeps busy.
+    let limit = command_timeout().ok_or("systemd-run not run: past the bound")?;
+    let status = Command::new("timeout")
+        .arg(limit)
+        .arg("systemd-run")
         .arg(format!("--unit={GUARD_UNIT}"))
         .arg(format!("--on-active={GUARD_AFTER_SECS}"))
         // --collect: the units go once they ran or stopped, failed or not, so
@@ -1763,45 +2246,80 @@ pub(super) fn report_then_restart(
 }
 
 /// [`restart_after_flip`] but `cmux-host.service`: the work user's acpmux and the
-/// other `cmux-*` system services that run `old`.
-pub(super) fn restart_others(old: &Path) {
+/// other `cmux-*` system services whose `ExecStart` program is a cmux-tui. systemd says
+/// which units run and what each starts, so nothing lists processes and `_old` (the
+/// binary just replaced) does not decide which unit restarts (plans/cmux-next/pty-holder.md
+/// section 4); a pinned install's old binary may not be the store entry the profile named.
+pub(super) fn restart_others(_old: &Path) {
     if !user_systemctl(&["restart", "--no-block", ACPMUX_UNIT]) {
         log("restarting the work user's acpmux.service failed (none on this image?)");
     }
-    for unit in services_running(old) {
+    let listed = systemctl_stdout(&[
+        "list-units",
+        "--type=service",
+        "--state=running",
+        "--plain",
+        "--no-legend",
+        "--no-pager",
+        "cmux-*.service",
+    ]);
+    for unit in running_units(listed.as_deref().unwrap_or_default()) {
         // Only the image's own cmux units: a provider agent or an operator's
         // shell that happens to run the binary (`cmux host update check`) stays.
-        if unit.starts_with("cmux-") && unit != HOST_UNIT && !unit.starts_with(GUARD_UNIT) {
+        if unit == HOST_UNIT || unit.starts_with(GUARD_UNIT) {
+            continue;
+        }
+        let exec = systemctl_stdout(&["show", "--property=ExecStart", "--value", &unit]);
+        if exec.as_deref().is_some_and(starts_cmux_tui) {
             let _ = systemctl(&["restart", "--no-block", &unit]);
         }
     }
 }
 
-/// The system services (`/system.slice/<unit>.service`) with a process
-/// whose executable is `binary`. Terminal hosts (their own scopes) and the
-/// user's units are not services here.
-fn services_running(binary: &Path) -> Vec<String> {
-    let mut units = Vec::new();
-    for entry in fs::read_dir("/proc").into_iter().flatten().flatten() {
-        let dir = entry.path();
-        if !entry.file_name().to_str().is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit())) {
-            continue;
-        }
-        if fs::read_link(dir.join("exe")).ok().as_deref() != Some(binary) {
-            continue;
-        }
-        let Ok(cgroup) = fs::read_to_string(dir.join("cgroup")) else { continue };
-        for line in cgroup.lines() {
-            if let Some(unit) = line.strip_prefix("0::/system.slice/")
-                && unit.ends_with(".service")
-                && !unit.contains('/')
-                && !units.iter().any(|u| u == unit)
-            {
-                units.push(unit.to_owned());
-            }
+/// `systemctl …`'s standard output, at most 60 s ([`command_timeout`]); `None` when it fails.
+fn systemctl_stdout(args: &[&str]) -> Option<String> {
+    let Some(limit) = command_timeout() else {
+        log(&format!("systemctl {} not run: past the bound", args.join(" ")));
+        return None;
+    };
+    let output = Command::new("timeout")
+        .arg(limit)
+        .arg("systemctl")
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// The `cmux-*` service names in `systemctl list-units --plain --no-legend`
+/// output (the first word of each line).
+pub(super) fn running_units(listed: &str) -> Vec<String> {
+    let mut units: Vec<String> = Vec::new();
+    for line in listed.lines() {
+        let Some(unit) = line.split_whitespace().next() else { continue };
+        if unit.starts_with("cmux-")
+            && unit.ends_with(".service")
+            && !unit.contains('/')
+            && !units.iter().any(|u| u == unit)
+        {
+            units.push(unit.to_owned());
         }
     }
     units
+}
+
+/// Whether a unit's `ExecStart` (`systemctl show --property=ExecStart
+/// --value`: `{ path=/x/cmux-tui ; argv[]=… }`, one per command) starts a
+/// program named cmux-tui.
+pub(super) fn starts_cmux_tui(exec_start: &str) -> bool {
+    exec_start.split(';').any(|field| {
+        let field = field.trim().trim_start_matches('{').trim();
+        field
+            .strip_prefix("path=")
+            .is_some_and(|path| Path::new(path.trim()).file_name().is_some_and(|n| n == CMUX_TUI))
+    })
 }
 
 /// `cmux host update status [--json] | check [--skip-resume-hold] | guard --to N`.
@@ -1832,6 +2350,13 @@ pub fn verb(args: &[String]) -> u8 {
             println!("{}", outcome.json(None));
             if matches!(outcome, Outcome::Failed(_)) { 1 } else { 0 }
         }
+        ["install", "--file", file, "--commit", commit, "--committed-at", at] => {
+            let Ok(at) = at.parse::<u64>() else { return 2 };
+            let outcome = install_pinned(&paths, Path::new(file), commit, at);
+            log(&outcome.line());
+            println!("{}", outcome.json(None));
+            if matches!(outcome, Outcome::Failed(_)) { 1 } else { 0 }
+        }
         ["check"] | ["check", "--skip-resume-hold"] => {
             let honor = if args.len() > 1 { Honor::AllButResume } else { Honor::All };
             let (outcome, skipped) = check(&paths, honor);
@@ -1850,18 +2375,24 @@ pub fn verb(args: &[String]) -> u8 {
                 clear_pending(&paths);
                 return 0;
             }
-            guard_rollback_waits(&mut || rollback_carrier_busy(&paths), std::thread::sleep);
-            rollback(
-                &paths,
-                &pending,
-                "the new build did not prove itself within twenty minutes of the flip",
-                false,
+            let mut carrier = RollbackCarrier::default();
+            guard_rollback_waits(
+                &mut || carrier.look(&paths, Instant::now(), carrier_sessions()),
+                || {
+                    rollback(
+                        &paths,
+                        &pending,
+                        "the new build did not prove itself within twenty minutes of the flip",
+                        false,
+                    )
+                },
+                std::thread::sleep,
             );
             0
         }
         _ => {
             eprintln!(
-                "usage: cmux host update status [--json] | check [--skip-resume-hold] | adopt | guard --to GENERATION"
+                "usage: cmux host update status [--json] | check [--skip-resume-hold] | adopt | install --file PATH --commit SHA --committed-at SECONDS | guard --to GENERATION"
             );
             2
         }

@@ -2,12 +2,20 @@
 // The shipped columns picker must leave room for model names as chrome text grows.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
   setDefaultTimeout(240_000);
+  const engines: [string, BrowserType][] = [];
+  for (const engine of [
+    ["chromium", chromium],
+    ["webkit", webkit],
+  ] as [string, BrowserType][])
+    if (await probeEngineOrSkip("model-picker-scaling.browser.test.ts", engine[0], engine[1])) engines.push(engine);
+  if (engines.length === 0) return;
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>>;
   const browsers = new Map<string, Browser>();
@@ -20,10 +28,9 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    browsers.set("chromium", await chromium.launch({ headless: true }));
-    browsers.set("webkit", await webkit.launch({ headless: true }));
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
     await warmGalleryFrame(vite, entry, {
-      browser: browsers.get("chromium"),
+      browser: [...browsers.values()][0],
       params: { variant: "reported-codex-menu" },
     });
   });
@@ -51,7 +58,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
       };
     });
 
-  for (const engine of ["chromium", "webkit"]) {
+  for (const [engine] of engines) {
     for (const left of [16, 496])
       test(`${engine}: rail hints stay outside the picker at x=${left}, keeping the account hint's default position`, async () => {
         const page = await open(engine, 1200, "quick-menu");
@@ -61,7 +68,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
           await page.addStyleTag({
             content: `.acpmux-model { position: fixed; left: ${left}px; top: 300px; margin: 0; }`,
           });
-          await page.locator(".acpmux-model .acpmux-picker-button").click();
+          await page.locator(MODEL_PICKER).click();
           await page.addScriptTag({
             type: "module",
             content: `
@@ -230,7 +237,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
         const reopen = async () => {
           await page.keyboard.press("Escape");
           await page.locator(".acpmux-cols").waitFor({ state: "detached" });
-          await page.locator(".acpmux-model .acpmux-picker-button").click();
+          await page.locator(MODEL_PICKER).click();
           await page.locator(".acpmux-cols-body").waitFor();
           await page.waitForFunction(
             () => !!document.querySelector<HTMLElement>(".acpmux-cols-frame")?.dataset.fitHeight,

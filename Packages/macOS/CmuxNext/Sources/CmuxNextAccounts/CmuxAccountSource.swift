@@ -17,13 +17,14 @@ public protocol CmuxAccountSource: AnyObject {
 extension CmuxAccountState {
     /// The row's state from `source`: a masked label when signed in, where
     /// a sign-in in progress stands (Switch Account runs while signed in),
-    /// and whether the last one failed.
+    /// and whether the last one failed. `backend` is a dev build's Cloud backend line
+    /// (`CloudRuntimeSelection.developerBackendLabel`: its tag's backend.json, a launch override or the picker's).
     @MainActor
-    public init(_ source: some CmuxAccountSource) {
+    public init(_ source: some CmuxAccountSource, backend: String? = nil, signInBackend: String? = nil) {
         self.init(signedIn: source.isSignedIn,
                   label: source.isSignedIn ? Self.mask(source.accountEmail) ?? source.accountName : nil,
                   signingIn: source.isSigningIn, waitingForBrowser: source.signInWaitsInBrowser,
-                  failed: source.signInFailed)
+                  failed: source.signInFailed, backend: backend, signInBackend: signInBackend)
     }
 }
 
