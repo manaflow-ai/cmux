@@ -119,7 +119,7 @@ fn the_first_refusal_is_the_answer_with_the_contexts_before_it() {
 #[test]
 fn exit_two_refuses_and_other_failures_add_nothing() {
     let two = Ran { code: Some(2), stdout: String::new(), stderr: "too heavy\n".into() };
-    let a = answer("PreToolUse", &[two.clone()]);
+    let a = answer("PreToolUse", std::slice::from_ref(&two));
     assert_eq!(a["hookSpecificOutput"]["permissionDecision"], "deny");
     assert_eq!(a["hookSpecificOutput"]["permissionDecisionReason"], "too heavy");
     let b = answer("Stop", &[two]);

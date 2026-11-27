@@ -23,7 +23,7 @@ fn payload(event: &str, command: &str) -> Vec<u8> {
 fn rules_run_with_the_payload_on_stdin_and_the_callers_env() {
     let rules = r#"{"rules": [
       {"name": "echo", "events": ["PreToolUse"], "tools": "Bash", "screen": "cargo",
-       "command": "printf '{\"hookSpecificOutput\":{\"additionalContext\":\"%s %s\"}}' \"$HOOK_WORD\" \"$(head -c 13)\"",
+       "command": "printf '{\"hookSpecificOutput\":{\"additionalContext\":\"%s %s\"}}' \"$HOOK_WORD\" \"$(head -c 13 | tr -d '\"{')\"",
        "env": ["HOOK_WORD"]}
     ]}"#;
     let config = Config::parse(rules).unwrap();
@@ -31,7 +31,7 @@ fn rules_run_with_the_payload_on_stdin_and_the_callers_env() {
     let p: Value = serde_json::from_slice(&body).unwrap();
     let env = HashMap::from([("HOOK_WORD".to_owned(), "hi".to_owned())]);
     let a = run_rules(&config, "PreToolUse", &p, &body, &env, None);
-    assert_eq!(a["hookSpecificOutput"]["additionalContext"], "hi {\"session_id\"");
+    assert_eq!(a["hookSpecificOutput"]["additionalContext"], "hi session_id");
     // a call the screen does not match starts nothing
     let quiet = payload("PreToolUse", "git status");
     let q: Value = serde_json::from_slice(&quiet).unwrap();
