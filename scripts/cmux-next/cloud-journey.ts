@@ -3967,6 +3967,15 @@ export const STUB_BYPASS_PROGRAM =
  * real-model one keeps it. Codex keeps the machine login and the stub's own provider
  * (CODEX_STUB_CONFIG), which a launch credential would replace with api.openai.com.
  */
+/**
+ * Whether GET /v1/cloud/inference-gateway's answer is a team stranded in gateway mode: mode gateway, no gateway online.
+ * A run that is not a --gateway run puts such a team back to off (the journey's own default for a mode it cannot read).
+ */
+export function strandedGatewayMode(body: unknown): boolean {
+  const g = (body as { gateway?: { mode?: unknown; online?: unknown } } | null)?.gateway;
+  return g?.mode === "gateway" && g?.online !== true;
+}
+
 export function startsOnLaunchCredential(o: { modelStub: boolean; provider?: string; login: string; gatewayAny: boolean; startVia: string; preclaimLogin?: boolean }): boolean {
   return o.provider === "claude" && Boolean(o.login) && !o.gatewayAny && o.startVia === "acp" && (o.modelStub || !o.preclaimLogin);
 }
@@ -5640,6 +5649,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         gatewayMachineBefore = beforeMachine;
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
+    } else if (provider) {
+      // A team left in gateway mode with no gateway online (a --gateway run killed before its restore step) sends every
+      // later chat machine's model calls to "400 No cmux inference gateway is online for this team": the real legs
+      // read no reply for 42 hours that way. Read the mode before the machine is made (its edge route is picked at
+      // create) and put a stranded one back to off, the product default. Never fails the run: a read error only skips.
+      const name = "team gateway mode (not stranded)";
+      const t0 = Date.now();
+      try {
+        const g = await installApi.raw("GET", "/v1/cloud/inference-gateway");
+        if (g.status !== 200) throw new Error(`GET HTTP ${g.status} ${short(g.body?.error ?? g.body)}`);
+        if (strandedGatewayMode(g.body)) {
+          const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: "off", machine: null });
+          if (r.status !== 200) throw new Error(`PUT off HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+          J.record({ step: name, status: "pass", ms: Date.now() - t0, detail: "was gateway with no gateway online; set back to off before the chat machine is made" });
+        } else {
+          J.record({ step: name, status: "pass", ms: Date.now() - t0, detail: `mode ${String(g.body?.gateway?.mode ?? "off")}, online ${g.body?.gateway?.online === true}` });
+        }
+      } catch (e) {
+        J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: String((e as Error)?.message ?? e).slice(0, 300) });
+      }
     }
     if (!keep) {
       // Machines that killed or timed-out runs left behind hold the account's quota (cloud.quota.exceeded at create).
