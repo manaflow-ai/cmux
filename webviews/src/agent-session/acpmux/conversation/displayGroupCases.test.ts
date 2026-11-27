@@ -70,6 +70,8 @@ test("the page classifies each shared call as the daemon is told it is", () => {
       expect(kind, name).toBe(call.class as typeof kind);
     } else if (call.class === "edits+diff") {
       expect([kind, Boolean(tool.diffs?.length)], name).toEqual(["edits", true]);
+    } else if (call.class === "card") {
+      expect(drawn(toolGroups([{ kind: "tool", text: name, tool }])[0]!, new Map())[0], name).toBe("card");
     } else if (call.class === "plain") {
       expect([kind, mcp], name).toEqual([undefined, undefined]);
     }

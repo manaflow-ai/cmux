@@ -13,7 +13,7 @@
     "mcpIssue": { "class": "mcp:github.get_issue", "tool": { "kind": "other", "title": "mcp__github__get_issue", "inputSummary": "{\"number\":1}", "status": "completed", "output": "issue" } },
     "start": { "class": "subsession-start", "tool": { "kind": "other", "title": "mcp__cmux-subsessions__start_session", "inputSummary": "{\"prompt\":\"Run the tests\",\"name\":\"tests\"}", "status": "completed", "output": "Started sub-session tests (sessionId 0199a-child, depth 1)." } },
     "message": { "class": "sent", "tool": { "kind": "other", "title": "mcp__cmux-sessions__send_to_session", "inputSummary": "{\"session\":\"lint\",\"text\":\"go\"}", "status": "completed", "output": "sent" } },
-    "wait": { "class": "card", "tool": { "kind": "other", "title": "mcp__cmux-subsessions__wait_for_sessions", "inputSummary": "{}", "status": "completed", "output": "[]" } }
+    "wait": { "class": "card", "tool": { "kind": "other", "title": "mcp__cmux-subsessions__wait_for_sessions", "inputSummary": "{}", "status": "completed", "output": "None of your sub-sessions is running." } }
   },
   "cases": [
     { "name": "three commands gather", "entries": ["c1:command", "c2:command", "c3:command"], "groups": [["run:commands", "c1", "c2", "c3"]] },
