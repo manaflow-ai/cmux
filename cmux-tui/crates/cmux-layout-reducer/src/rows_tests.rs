@@ -364,3 +364,19 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn explicit_row_range_returns_empty_for_stale_index() {
+    let column = Column {
+        id: 10,
+        panes: vec![100, 101],
+        rows: vec![
+            Row { id: 20, height_permille: 500, len: 1 },
+            Row { id: 21, height_permille: 500, len: 1 },
+        ],
+    };
+    assert_eq!(column.row_range(0), 0..1);
+    assert_eq!(column.row_range(1), 1..2);
+    assert!(column.row_range(2).is_empty());
+    assert!(column.row_range(usize::MAX).is_empty());
+}
