@@ -70,5 +70,28 @@ class Alarm(unittest.TestCase):
         self.assertIsNone(heal.alarm(24 * 60, [], 0))
 
 
+class Gh(unittest.TestCase):
+    def test_failed_call_names_what_gh_said(self):
+        # 2026-11-25: two ticks died on a bare CalledProcessError; gh's stderr was captured and dropped.
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            fake = os.path.join(d, "gh")
+            with open(fake, "w") as f:
+                f.write("#!/bin/sh\necho 'HTTP 403: API rate limit exceeded for installation' >&2\nexit 1\n")
+            os.chmod(fake, 0o755)
+            old_path, old_here = os.environ["PATH"], heal.HERE
+            os.environ["PATH"] = d + os.pathsep + old_path
+            os.environ["GH_BUDGET_WAIT_ATTEMPTS"] = "1"
+            heal.HERE = d  # no wrapper there: plain gh
+            try:
+                with self.assertRaises(heal.GhError) as ctx:
+                    heal.gh("GET", "repos/o/r/actions/runs")
+            finally:
+                os.environ["PATH"], heal.HERE = old_path, old_here
+                os.environ.pop("GH_BUDGET_WAIT_ATTEMPTS", None)
+        self.assertIn("rate limit exceeded", str(ctx.exception))
+        self.assertIn("exited 1", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
