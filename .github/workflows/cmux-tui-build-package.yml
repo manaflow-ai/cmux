@@ -523,7 +523,10 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          backend: r2
           path: ${{ steps.pane-compiler-cache.outputs.dir }}
           key: ${{ steps.pane-compiler-cache.outputs.key }}
           restore-keys: ${{ steps.pane-compiler-cache.outputs.prefix }}
@@ -532,16 +535,25 @@ jobs:
         shell: bash
         env:
           CMUX_VITE_TRANSFORM_CACHE: ${{ steps.pane-compiler-cache.outputs.dir }}
+        # A content-named folder with fixed mtimes (scripts/ci/pane-content-dir.sh): an unchanged pane
+        # leaves acpmux fresh in the restored target instead of recompiling it every run.
         run: |
-          pane="$RUNNER_TEMP/acpmux-agent-pane"
-          scripts/cmux-next/build-agent-pane-web.sh --out "$pane"
+          built="$RUNNER_TEMP/acpmux-agent-pane-build"
+          scripts/cmux-next/build-agent-pane-web.sh --out "$built"
+          pane="$(scripts/ci/pane-content-dir.sh "$built" "$RUNNER_TEMP")"
           echo "ACPMUX_BUNDLED_APP_ASSETS_DIR=$pane" >> "$GITHUB_ENV"
 
       - name: Save the pane's React Compiler cache
         if: ${{ steps.pane-compiler-cache.outputs.key != '' && steps.pane-compiler-cache-restore.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
         continue-on-error: true
         uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
         with:
+          backend: r2
           path: ${{ steps.pane-compiler-cache.outputs.dir }}
           key: ${{ steps.pane-compiler-cache.outputs.key }}
 
@@ -1868,8 +1880,12 @@ jobs:
     name: build acpmux x86_64-pc-windows-gnu (Linux)
     if: inputs.include_windows && inputs.windows_acpmux
     continue-on-error: true
+    # Only trusted NEXT pushes receive this bucket's write credentials.
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' && 'next-cache-writer' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 60
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     permissions:
       contents: read
     steps:
@@ -1907,15 +1923,35 @@ jobs:
       - name: Install Rust target
         run: rustup target add x86_64-pc-windows-gnu
 
-      - name: Cache the reviewed MinGW-Builds sysroot
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Published binaries must not read GitHub's PR-writable cache scope.
+      # Only trusted branch pushes save this toolchain in the R2 store below.
+      - name: Restore the reviewed MinGW-Builds sysroot
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          backend: r2
           path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
           key: cmux-windows-gnu-sysroot-${{ hashFiles('cmux-tui/dist/notices/package-notices.json', 'scripts/ci/windows-gnu-cross-build.sh') }}
 
       # The script checks the sysroot (check-windows-sysroot) and the binary (check-windows-binary).
       - name: Build acpmux (Windows GNU, on Linux)
         run: bash scripts/ci/windows-gnu-cross-build.sh build-acpmux dist
+
+      - name: Save the reviewed MinGW-Builds sysroot from trusted pushes
+        if: ${{ success() && github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' }}
+        timeout-minutes: 6
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
+          key: cmux-windows-gnu-sysroot-${{ hashFiles('cmux-tui/dist/notices/package-notices.json', 'scripts/ci/windows-gnu-cross-build.sh') }}
 
       - name: Verify acpmux starts (Wine)
         run: bash scripts/ci/wine-smoke.sh acpmux dist dist

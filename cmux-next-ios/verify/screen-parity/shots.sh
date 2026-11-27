@@ -99,6 +99,10 @@ if [ "$backend" = fleet ]; then
   # pr, idle): a base-branch seed render runs as pr, since as a plain agent step 45993456716 sat 75 min behind 8 older
   # agent steps (simulator p90 queue wait 392 min) and was cancelled before a worker took it.
   rank=(--queue-timeout "${FLEET_QUEUE_S:-0}")
+  # FLEET_KEY (a seed render: the golden's input-hash name) is the step's idempotency key, so a step that outlasts
+  # this job's queue bound keeps its place and the next run of the same inputs re-attaches to it instead of queueing
+  # anew: 46021311352 waited 60 min behind a 222 min p90 simulator queue and gave its place back.
+  [ -z "${FLEET_KEY:-}" ] || rank+=(--key "$FLEET_KEY")
   if [ -n "${FLEET_PRIORITY:-}" ] && "$client" run --help 2>/dev/null | grep -q -- '--priority {'; then
     rank+=(--priority "$FLEET_PRIORITY")
     [ "${FLEET_QUEUE_S:-0}" = 0 ] || rank+=(--deadline "${FLEET_QUEUE_S}s")
@@ -108,7 +112,12 @@ if [ "$backend" = fleet ]; then
     --arg shots --arg statusbar=clean --arg "device=${model// /,}" "${scene_args[@]}" 2>&1 | tee "$log" || status=$?
   step=$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)
   [ -n "$step" ] || { echo "fleet: no step id in the client's output (exit $status)" >&2; exit 1; }
-  # 75: the step never left the queue; it would keep its place and run for nobody, so take it back.
+  # 75: the step never left the queue. Keyed, it keeps its place for the next run of the same key; unkeyed it would
+  # run for nobody, so take it back.
+  if [ "$status" = 75 ] && [ -n "${FLEET_KEY:-}" ]; then
+    echo "fleet: step $step is still queued after ${FLEET_QUEUE_S:-0}s; it keeps its place under key $FLEET_KEY: run again to re-attach" >&2
+    exit 75
+  fi
   if [ "$status" = 75 ]; then
     "$client" cancel --reason "screen-parity shots: not out of the queue in ${FLEET_QUEUE_S:-0}s" "$step" || true
     echo "fleet: step $step did not leave the queue in ${FLEET_QUEUE_S:-0}s" >&2; exit 1

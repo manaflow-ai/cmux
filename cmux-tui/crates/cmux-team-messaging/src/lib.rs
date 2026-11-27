@@ -35,6 +35,9 @@
 //! - [`shared_doc`]: phase 3's shared-document projection: RFD 0077 roles capped by space grants,
 //!   suggestions with a one-way state machine, RFD drafts that land through a PR, and bounded,
 //!   deduplicated live updates.
+//! - [`doc_room`]: a shared document's live room: RFD 0141 presence leases for who is viewing,
+//!   RFD 0077 access requests, and every connection re-checked in the same step as each update, so
+//!   a revoke emits the disconnect the transport closes.
 //! - [`service::Messenger`]: preview a draft (destination, audience, wake mode, before send), then
 //!   send it once: the same idempotency key is the same message.
 //!
@@ -44,6 +47,7 @@
 pub mod backend;
 pub mod customization;
 pub mod delivery;
+pub mod doc_room;
 pub mod fake;
 pub mod feedback;
 pub mod forum;
