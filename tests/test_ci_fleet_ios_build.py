@@ -320,6 +320,17 @@ class KitWorkflow(unittest.TestCase):
         self.assertIn("|| status=$?", steps["build"]["run"])
         self.assertEqual(steps["pool"]["run"].strip(), "bash scripts/ci/kit_sim_fleet.sh pool")
 
+    def test_every_pool_submit_selects_its_bundle_mode(self):
+        for job_name, job in self.jobs.items():
+            for step in job["steps"]:
+                if step.get("run", "").strip() != "bash scripts/ci/kit_sim_fleet.sh pool":
+                    continue
+                with self.subTest(job=job_name):
+                    # The build comparison always runs all bundles. Production submits
+                    # must preserve the cutover split, including the owned-Mac fallback.
+                    expected = "shadow" if job_name == "kit-sim-fleet" else "${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}"
+                    self.assertEqual(step.get("env", {}).get("CMUX_IOS_SIM_LINUX"), expected)
+
     def test_no_pool_step_reads_an_exit_after_a_bare_command(self):
         # A step is bash -e: `cmd; status=$?` never reads a failure, and `grep -c || echo 0` prints "0\n0".
         text = WORKFLOW.read_text()
