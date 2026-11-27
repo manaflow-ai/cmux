@@ -140,7 +140,7 @@ jobs:
     name: tab switch scope
     # After merge only (see the header): a pull request's run takes no runner.
     if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -149,7 +149,7 @@ jobs:
       base_sha: ${{ steps.scope.outputs.base_sha }}
     steps:
       # A pull request checks out its merge commit; HEAD^1 is the base it merges into.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -177,7 +177,7 @@ jobs:
     if: >-
       needs.scope.outputs.in_scope == 'true' && github.repository == 'manaflow-ai/cmux'
       && github.event_name != 'pull_request' && vars.CI_EVAL_STEP_GATEWAY != ''
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
     # The job holds one of the gateway runner's two tokens while it waits, so it waits only when the queue is short
     # (ADMIT), at most QUEUE_WAIT_S (20 min) for a display worker, and an hour for the build and the measure. Past
     # QUEUE_WAIT_S in the queue the client stops waiting (exit 75), the job cancels the step and the verdict reads not measured
@@ -279,12 +279,12 @@ jobs:
     name: tab switch (frames, under load)
     needs: [scope, frames]
     if: ${{ !cancelled() && github.event_name != 'pull_request' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |

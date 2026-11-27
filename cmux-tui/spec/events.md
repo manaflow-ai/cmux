@@ -1576,6 +1576,32 @@ Example:
 {"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
 ```
 
+### phone-open-link
+
+| Field | Value |
+| --- | --- |
+| event | `phone-open-link` |
+| status | implemented targeted control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"phone-open-link",terminal_id:string,url:string}
+```
+
+Meaning: A program in terminal `terminal_id` asked a browser for `url` while this phone drove
+the terminal (`offer-link-to-phone`, [commands.md](commands.md#offer-link-to-phone)). Sent on the
+control queue of one connection of that phone that is attached to the terminal and declared
+`phone-open-link-v1` in `set-client-info`. The phone opens the page in its own browser; the
+Mac does not open it. Never replayed.
+
+Example:
+
+```json
+{"event":"phone-open-link","terminal_id":"term_0123456789abcdef0123456789abcdef","url":"https://github.com/login/device"}
+```
+
 ### device-setup-step
 
 | Field | Value |
@@ -1593,7 +1619,7 @@ object{event:"device-setup-step",device:string,step:string,
 
 Meaning: One step of a `device-setup` request ([commands.md](commands.md#device-setup)), sent
 on the control queue of the connection that asked, before the request's reply. The fields are
-the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `login-item`,
+the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `daemon`, `login-item`,
 `start`, `sign-in`, `share` and `agents`, and `fix` is empty when there is nothing to do.
 
 Example:
@@ -1829,6 +1855,8 @@ object{event:"output",surface:Id,data:Base64,colors?:TerminalColors}
 Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk.
 
 Without `attach-output-coalesce-v1`, each PTY read is one `output` event. A connection that declared `attach-output-coalesce-v1` in `set-client-info` before a bytes attach (see `attach-surface`, `output_coalesce_ms`) gets at most one `output` per interval (default 16.667 ms): the bytes of one interval concatenated in order, the first bytes after an idle interval at once, at most about 1 MiB per event, and any held bytes before any other attach event. Its `scroll-changed` events follow the same interval (the newest position). The event's shape is unchanged.
+
+`attach-frames-v1` (local Unix connections only; refused on a WebSocket and the remote entry): a connection that declared it in `set-client-info` gets each plain `output` of its byte attach and its snapshot viewer as a binary OUTPUT frame instead of this line, in the same order among the stream's JSON lines. A frame starts with byte `0xFF` (never the first byte of a JSON line) and a 16-byte little-endian header: `u8 0xFF`, `u8 kind` (1 = OUTPUT), `u16 stream` (0: the connection's only attach), `u32 len`, `u64 offset` (the terminal stream offset of the payload's first byte; a snapshot viewer's JSON `offset` is the end, so the first frame after a READY starts at the READY's `offset`), then `len` raw PTY bytes and no newline. `output` with `colors`, and every other event, stays a JSON line. Wire details: `plans/cmux-next/app-daemon-connection-DESIGN.md` section 3.2.
 
 Example:
 
