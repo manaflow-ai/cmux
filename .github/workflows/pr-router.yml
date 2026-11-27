@@ -385,6 +385,14 @@ jobs:
     permissions:
       contents: read
 
+  transcript-replay-perf-report:
+    name: transcript-replay perf report
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'transcript-replay-perf-report.yml') }}
+    uses: ./.github/workflows/transcript-replay-perf-report.yml
+    permissions:
+      contents: read
+
   screen-share-drop-gate:
     name: screen share drop gate
     # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
@@ -392,6 +400,14 @@ jobs:
     needs: [route, fast-gates]
     if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'screen-share-drop-gate.yml') }}
     uses: ./.github/workflows/screen-share-drop-gate.yml
+    permissions:
+      contents: read
+
+  nightly-pr-build:
+    name: nightly pr build
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'nightly-pr-build.yml') }}
+    uses: ./.github/workflows/nightly-pr-build.yml
     permissions:
       contents: read
 
@@ -445,6 +461,11 @@ jobs:
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-fast-gates.yml') }}
     uses: ./.github/workflows/cmux-next-fast-gates.yml
+    # Reusable workflows do not receive repository secrets implicitly (including status-post fallbacks).
+    secrets:
+      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
+      CI_POOL_TOKEN_1: ${{ secrets.CI_POOL_TOKEN_1 }}
+      CI_POOL_TOKEN_2: ${{ secrets.CI_POOL_TOKEN_2 }}
     permissions:
       contents: read
       pull-requests: read
@@ -490,6 +511,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
+          # Same as the route job's checkout: a same-repo head reads the runner's git mirror with whole blobs.
+          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
           sparse-checkout: |
             scripts/ci/ios_fast_verdict.py
             scripts/ci/ci_steps.py
