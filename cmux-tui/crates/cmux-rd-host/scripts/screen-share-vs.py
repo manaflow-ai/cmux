@@ -184,6 +184,7 @@ Mac) and never from argv. Without them it is skipped and the table says so.
 """
 import argparse
 import contextlib
+import errno
 import ipaddress
 import json
 import os
@@ -1095,6 +1096,50 @@ def cmd_clock_serve(args):
         s.sendto(data[:8] + struct.pack("!Q", mono_ns()), peer)
 
 
+LOCALNET_FIX = (
+    "macOS Local Network privacy refuses this process sends to the LAN (Errno 65, EHOSTUNREACH): a launchd "
+    "job's own processes get no prompt and so no grant. The pair job runs both LAN halves inside "
+    "CmuxScreenEvalLauncher.app; allow that app once at this Mac's console (the prompt it raises on its first "
+    "LAN send, or System Settings > Privacy & Security > Local Network).")
+
+
+def default_gateway():
+    """This Mac's default gateway (a LAN address every Mac on the office LAN has), or None."""
+    try:
+        out = subprocess.run(["route", "-n", "get", "default"], capture_output=True, text=True,
+                             timeout=5).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    m = re.search(r"gateway:\s*(\S+)", out)
+    return m.group(1) if m else None
+
+
+def localnet_probe(to=None, sock_factory=None):
+    """Whether this process may send UDP to the LAN address TO (default: the gateway). macOS Local
+    Network privacy answers a refused send at once with EHOSTUNREACH, so three datagrams to the
+    discard port tell `denied` from `ok` without the other side answering. The cmux media path is
+    UDP; the TCP the peer and clock calls ride is accepted on the other Mac, so it never showed this."""
+    to = to or default_gateway()
+    if not to:
+        return {"localnet": "unknown", "error": "no LAN address to send to"}
+    s = (sock_factory or socket.socket)(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        for _ in range(3):
+            s.sendto(b"cmux-localnet-probe", (to, 9))
+            time.sleep(0.02)
+    except OSError as e:
+        if e.errno == errno.EHOSTUNREACH:
+            return {"localnet": "denied", "to": to, "error": f"[Errno {e.errno}] {e.strerror}", "fix": LOCALNET_FIX}
+        return {"localnet": "unknown", "to": to, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        s.close()
+    return {"localnet": "ok", "to": to}
+
+
+def cmd_localnet_probe(args):
+    print(json.dumps(localnet_probe(args.to)), flush=True)
+
+
 def clock_serve_tcp(args):
     """clock-serve --tcp: the same 8-byte question and 16-byte answer over one TCP connection at a
     time. A fleet pair job runs it on the viewer, so the host dials in over the path its peer-serve
@@ -1327,6 +1372,8 @@ def cmd_rig(args):
         try:
             if cmd == "ping":
                 reply["pid"] = os.getpid()
+            elif cmd == "localnet":
+                reply["localnet"] = localnet_probe(req.get("to") if isinstance(req.get("to"), str) else None)
             elif cmd == "marker":
                 stop("marker")
                 flags = [x for x in req.get("flags", []) if x in MARKER_FLAGS]
@@ -2363,6 +2410,7 @@ def cmd_peer_serve(args):
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     print(f"peer-serve: listening on {args.bind}:{args.port} for {args.hold_s} s", flush=True)
+    print("peer-serve: localnet " + json.dumps(localnet_probe()), flush=True)
     deadline = time.time() + args.hold_s
     while not stop.wait(1):
         if time.time() > deadline:
@@ -2611,6 +2659,36 @@ class Orchestrator:
         r["offset_ns"] = -r["offset_ns"]
         r["path"] = "tcp host->viewer"
         return r
+
+    def localnet_check(self):
+        """A fleet pair job: whether each Mac's stream process may send UDP to the other's LAN
+        address, before any leg. The viewer's bench runs under peer-serve and the host's serve under
+        the rig (source=screen) or this step (synthetic); macOS Local Network privacy refuses a
+        process with no grant at once (EHOSTUNREACH), and every leg then failed the same way, as "link
+        failed: no network path ... sends refused: No route to host (os error 65)" (2026-11-27)."""
+        from urllib.parse import urlsplit
+        viewer_ip = urlsplit(self.viewer.url).hostname
+        rec = {}
+        try:
+            out = self.viewer.run(f"{self.py} {self.me} localnet-probe --to {shlex.quote(self.a.host_ip)}", timeout=30)
+            rec["viewer"] = json.loads(out.strip().splitlines()[-1])
+        except Exception as e:  # noqa: BLE001 - an older peer or a broken probe: unknown, not denied
+            rec["viewer"] = {"localnet": "unknown", "error": repr(e)[-200:]}
+        try:
+            if self.synthetic:
+                out = self.host.run(f"{self.py} {self.me} localnet-probe --to {shlex.quote(viewer_ip)}", timeout=30)
+                rec["host"] = json.loads(out.strip().splitlines()[-1])
+            else:
+                rec["host"] = self.rig({"cmd": "localnet", "to": viewer_ip}).get("localnet") or {}
+        except Exception as e:  # noqa: BLE001
+            rec["host"] = {"localnet": "unknown", "error": repr(e)[-200:]}
+        self.log({"localnet": rec})
+        denied = [side for side in ("viewer", "host") if rec[side].get("localnet") == "denied"]
+        if denied:
+            names = {"viewer": self.a.viewer, "host": self.a.host}
+            raise SystemExit("localnet: " + "; ".join(
+                f"the {side} Mac ({names[side]}) may not send to {rec[side].get('to')}" for side in denied)
+                + ". " + LOCALNET_FIX)
 
     # cmux ------------------------------------------------------------------------------
 
@@ -3419,6 +3497,8 @@ class Orchestrator:
         clock0 = self.clock()
         self.log({"clock": clock0, "host": self.a.host, "viewer": self.a.viewer,
                   "host_ip": self.a.host_ip, "link": self.a.link})
+        if self.clock_over_peer():
+            self.localnet_check()
         results = {}
         stacks = self.a.stacks.split(",")
         rows = []
@@ -3733,6 +3813,9 @@ def build_parser():
     ps.add_argument("--token-file", required=True)
     ps.add_argument("--hold-s", type=int, default=7200)
     ps.set_defaults(fn=cmd_peer_serve)
+    ln = sub.add_parser("localnet-probe", help="whether this process may send UDP to a LAN address (JSON)")
+    ln.add_argument("--to", help="the LAN address (default: the gateway)")
+    ln.set_defaults(fn=cmd_localnet_probe)
     m = sub.add_parser("compare", help="two result files side by side")
     m.add_argument("before")
     m.add_argument("after")
