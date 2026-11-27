@@ -238,7 +238,7 @@ async function renderWorked(rows: readonly AcpmuxRow[]) {
   return labels;
 }
 const workedOf = (rows: AcpmuxRow[]) => {
-  globalThis.cmuxExperiments = { "turn-fold-steered": "header" };
+  globalThis.cmuxExperiments = { "turn-fold-steered": "header", "worked-line": "time" };
   return view(rows, "codex").find((shown) => shown.kind === WORKED)!;
 };
 const withRun = (id: string, run: AcpmuxRow) => steered.map((shown) => (shown.id === id ? run : shown));
