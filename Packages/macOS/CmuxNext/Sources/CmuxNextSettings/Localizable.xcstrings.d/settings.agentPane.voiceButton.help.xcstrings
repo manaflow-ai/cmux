@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.voiceButton.help" : {
+      "comment" : "Settings > Agent Chat > Composer.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Speak to the chat’s agent using the selected dictation engine and hear replies in the system voice."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
