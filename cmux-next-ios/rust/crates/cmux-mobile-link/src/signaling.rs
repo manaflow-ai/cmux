@@ -8,7 +8,7 @@
 //! dials), so trickled signals that follow it are never lost. Other signals
 //! for unknown sessions are dropped.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use futures_util::StreamExt;
@@ -99,6 +99,12 @@ pub enum SignalPayload {
         /// which never join.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         relay: Option<String>,
+        /// This side's round trip to each relay it was offered, in ms, by
+        /// relay host (PROTOCOL.md "Relay ranking"; a dead relay as
+        /// `relay_rank::DEAD_MS`): the peer ranks relays for the pair by the
+        /// sum of both legs. Absent from older peers, which rank nothing.
+        #[serde(rename = "relayRtt", default, skip_serializing_if = "BTreeMap::is_empty")]
+        relay_rtt: BTreeMap<String, u32>,
         /// The dialer asks the service for its own relay ticket now, as a
         /// `wg-ticket` back to it (PROTOCOL.md "Early relay ticket"), so it
         /// can join the relay while the answer is still on its way. Set only
@@ -133,6 +139,12 @@ pub enum SignalPayload {
         /// older Macs.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         relay: Option<String>,
+        /// This side's round trip to each relay it was offered, in ms, by
+        /// relay host (PROTOCOL.md "Relay ranking"; a dead relay as
+        /// `relay_rank::DEAD_MS`): the peer ranks relays for the pair by the
+        /// sum of both legs. Absent from older peers, which rank nothing.
+        #[serde(rename = "relayRtt", default, skip_serializing_if = "BTreeMap::is_empty")]
+        relay_rtt: BTreeMap<String, u32>,
     },
     /// A WireGuard side's new endpoints after a roam (or a new TURN
     /// allocation), the same announcement it sends inside the tunnel
@@ -235,6 +247,7 @@ pub struct MailboxResult {
 /// Every JSON message on the socket.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
+#[allow(clippy::large_enum_variant)] // a few per dial; boxing buys nothing
 pub enum SignalMessage {
     Hello {
         you: String,
@@ -1337,6 +1350,7 @@ mod tests {
             version: 0,
             relay: Some(RELAY_NOW.into()),
             ticket_early,
+            relay_rtt: BTreeMap::new(),
         };
         let quiet = serde_json::to_value(init(false)).unwrap();
         assert!(quiet.get("ticketEarly").is_none(), "{quiet}");
@@ -1413,6 +1427,52 @@ mod tests {
         );
         let text = serde_json::to_string(&old).unwrap();
         assert!(!text.contains("mapped"), "{text}");
+    }
+
+    /// Relay ranking (`relayRtt`), old and new both ways: a new peer's
+    /// vector round-trips; an older peer's message (no field) parses with an
+    /// empty vector and writes none back; and the new field is only an extra
+    /// key that a decoder without it skips.
+    #[test]
+    fn wg_relay_rtt_old_and_new() {
+        for kind in ["wg-init", "wg-resp"] {
+            let json = serde_json::json!(
+                {"kind":kind,"publicKey":"k","endpoints":[],"overlayIP":"10.77.0.1",
+                 "relayRtt":{"turn-a.example":18,"turn-b.example":10000}});
+            let new: SignalPayload = serde_json::from_value(json.clone()).unwrap();
+            let vector = match &new {
+                SignalPayload::WgInit { relay_rtt, .. } | SignalPayload::WgResp { relay_rtt, .. } => {
+                    relay_rtt.clone()
+                }
+                other => panic!("{other:?}"),
+            };
+            assert_eq!(vector.get("turn-a.example"), Some(&18));
+            assert_eq!(vector.len(), 2);
+            assert_eq!(serde_json::to_value(&new).unwrap()["relayRtt"], json["relayRtt"]);
+
+            // An older peer's message: no vector, none written back.
+            let old: SignalPayload = serde_json::from_value(serde_json::json!(
+                {"kind":kind,"publicKey":"k","endpoints":[],"overlayIP":"10.77.0.1"}))
+            .unwrap();
+            assert!(matches!(&old,
+                SignalPayload::WgInit { relay_rtt, .. } | SignalPayload::WgResp { relay_rtt, .. } if relay_rtt.is_empty()));
+            assert!(!serde_json::to_string(&old).unwrap().contains("relayRtt"));
+
+            // An older peer decoding the new message: the fields it knows,
+            // the vector skipped (a decoder of the pre-field shape).
+            #[derive(Deserialize)]
+            #[allow(dead_code)]
+            struct OlderWg {
+                kind: String,
+                #[serde(rename = "publicKey")]
+                public_key: String,
+                endpoints: Vec<String>,
+                #[serde(rename = "overlayIP")]
+                overlay_ip: String,
+            }
+            let older: OlderWg = serde_json::from_value(serde_json::to_value(&new).unwrap()).unwrap();
+            assert_eq!(older.kind, kind);
+        }
     }
 
     #[test]

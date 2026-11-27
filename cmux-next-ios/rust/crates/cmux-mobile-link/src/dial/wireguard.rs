@@ -433,15 +433,24 @@ impl EarlyTurn {
     /// dial will use, ICE servers included): only a WireGuard dial takes one.
     /// Call it inside a Tokio runtime.
     pub fn for_dial(kind: super::TransportKind, options: &DialOptions) -> Option<Self> {
-        (kind == super::TransportKind::WireGuard).then(|| Self::start(options))
+        (kind == super::TransportKind::WireGuard).then(|| Self::start(options, None))
+    }
+
+    /// [`Self::for_dial`] to the Mac `mac`: the allocation takes the relay
+    /// that pair ranks first (`relay_rank`).
+    pub fn for_dial_to(kind: super::TransportKind, options: &DialOptions, mac: &str) -> Option<Self> {
+        (kind == super::TransportKind::WireGuard).then(|| Self::start(options, Some(mac)))
     }
 
     /// Start the allocation `options` ask for (`turn_early_allocated` once
-    /// it is in hand).
-    pub(crate) fn start(options: &DialOptions) -> Self {
+    /// it is in hand), ranked for `mac` when the dial names it.
+    pub(crate) fn start(options: &DialOptions, mac: Option<&str>) -> Self {
         let (stun, turn_side) = stun_turn_link();
         // Debug "relay via cmux only" takes no TURN allocation, early or not.
-        let options = effective_options(options).into_owned();
+        let options = match mac {
+            Some(mac) => effective_options(options, mac).into_owned(),
+            None => options.clone(),
+        };
         let task = tokio::spawn(async move {
             let turn = turn_beside(&options, true, turn_side).await;
             if turn.carrier.is_some() {
@@ -537,11 +546,18 @@ fn no_plain_udp(options: &DialOptions) -> bool {
 /// The options a dial or answer runs with: debug "relay via cmux only"
 /// (`force_relay`) takes no TURN allocation either, so it lists no TURN
 /// server.
-fn effective_options(options: &DialOptions) -> std::borrow::Cow<'_, DialOptions> {
-    if !options.force_relay {
+fn effective_options<'o>(options: &'o DialOptions, peer: &str) -> std::borrow::Cow<'o, DialOptions> {
+    let named = options.relay_peer.as_deref() == Some(peer);
+    if !options.force_relay && named {
         return std::borrow::Cow::Borrowed(options);
     }
     let mut forced = options.clone();
+    // The pair's relay ranking (`relay_rank`): this dial's allocations, and
+    // its roams' after it, rank relays for this peer.
+    forced.relay_peer = Some(peer.to_owned());
+    if !options.force_relay {
+        return std::borrow::Cow::Owned(forced);
+    }
     for server in &mut forced.ice_servers {
         server.urls.retain(|url| !url.starts_with("turn:") && !url.starts_with("turns:"));
     }
@@ -2898,7 +2914,7 @@ pub(super) fn dial_wireguard<'a>(
 ) -> DialFuture<'a> {
     Box::pin(async move {
         // Debug "relay via cmux only": no TURN server, no plain UDP.
-        let effective = effective_options(options);
+        let effective = effective_options(options, mac);
         let options: &DialOptions = &effective;
         // Relay first: tell the Mac now, before the gather that `wg-init` waits
         // for, so it joins the relay meanwhile (an older Mac ignores the kind).
@@ -2990,6 +3006,7 @@ pub(super) fn dial_wireguard<'a>(
                     relayed_tls,
                     version: WG_VERSION,
                     relay: relay_offer,
+                    relay_rtt: super::relay_rank::own_vector(),
                     ticket_early: ask_ticket_early,
                 },
             )
@@ -3017,8 +3034,11 @@ pub(super) fn dial_wireguard<'a>(
                         relayed_tls,
                         version,
                         relay,
+                        relay_rtt,
                     } => {
                         options.timeline.mark("wg_resp_received");
+                        // The Mac's legs, for this pair's next allocation (`relay_rank`).
+                        super::relay_rank::note_far(mac, &relay_rtt);
                         let ip: Ipv4Addr = overlay_ip
                             .parse()
                             .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
@@ -3235,7 +3255,7 @@ impl Dialer for WireGuardDialer {
                 return dormant::resumed(ticket);
             }
             let from_user_id = first.from_user_id.clone();
-            let effective = effective_options(options);
+            let effective = effective_options(options, &first.from);
             let options: &DialOptions = &effective;
             // The phone's early `wg-relay` came first (relay first): join the relay now,
             // while its `wg-init` is still being gathered, then wait for that. The cue bound
@@ -3285,11 +3305,15 @@ impl Dialer for WireGuardDialer {
                 relayed_tls: peer_relayed_tls,
                 version: peer_version,
                 relay: peer_relay,
+                relay_rtt: peer_relay_rtt,
                 ticket_early: _,
             } = first.payload
             else {
                 return Err(DialError::Unexpected("expected wg-init".into()));
             };
+            // The phone's legs, before this side allocates (`relay_rank`).
+            super::relay_rank::note_far(&first.from, &peer_relay_rtt);
+            super::turn::refresh_ranking(options);
             let agreed = super::input_lane_agreed(options, &lanes);
             let reliable = super::reliable_agreed(options, &lanes);
             let video_wanted = options.video_lane && super::video_lane_listed(&lanes);
@@ -3429,6 +3453,7 @@ impl Dialer for WireGuardDialer {
                         relayed_tls: own_relayed_tls,
                         version: WG_VERSION,
                         relay: relay_offer,
+                        relay_rtt: super::relay_rank::own_vector(),
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;

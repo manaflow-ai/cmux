@@ -274,8 +274,10 @@ closed with 4001 `moved`.
     An offer with `mediaFor` (added 2026-10-19) opens a media session for
     the WireGuard link with that session id, not a link of its own ("Media
     session" below).
-  - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP, lanes?, relayed?, relayedTls?, version?}`,
-    `wg-resp` `{publicKey, endpoints, overlayIP, lanes?, relayed?, relayedTls?, version?}`.
+  - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP, lanes?, relayed?, relayedTls?, version?, relayRtt?}`,
+    `wg-resp` `{publicKey, endpoints, overlayIP, lanes?, relayed?, relayedTls?, version?, relayRtt?}`.
+    `relayRtt` (optional, added 2026-11-25): the sender's round trip in ms
+    to each TURN relay host it measured ("Relay ranking" below).
     `relayed` (optional) lists which of the sender's endpoints are its TURN
     relayed addresses (the phone's; a Mac's only when its network blocks
     UDP). The peer sends plain UDP to them like any endpoint, and labels
@@ -561,6 +563,33 @@ hole punching alone ends on TURN.
   remembered per (gateway, local address), and a router that maps nothing
   is not asked again until either changes.
 - `CMUX_MOBILE_PORTMAP=0` in hostd's environment turns it off.
+
+### Relay ranking (`relayRtt`; added 2026-11-25, backward compatible)
+
+When `/v1/ice` lists TURN servers on more than one host, both ends try
+them in the order that minimizes the relayed path, this side's leg plus
+the peer's leg (`cmux-mobile-link/src/dial/relay_rank.rs`), not the
+service's order.
+
+- Each side sends one STUN Binding (two tries, 700 ms each) to every UDP
+  TURN host it was offered (at most 8), in the background, at most every
+  30 s; a dial never waits for it. Answers fold into a moving average
+  (half weight); an unanswered probe marks the relay dead.
+- `relayRtt` on `wg-init` and `wg-resp` is `{host: ms}`; a dead relay is
+  `10000`. The receiver keeps the peer's vector 30 minutes. A leg nobody
+  measured costs 250 ms, so a measured relay goes first unless it is slower.
+- Order: by the sum of both legs, ties in the service's order, so both ends
+  get the same order. Hysteresis: the relay that last carried the pair
+  stays first unless the best beats it by 10 ms or 20 % of its cost,
+  whichever is larger, and a dead relay never keeps it. Every allocation
+  ranks again (a redial, a roam, a replaced TURN stream), so a pair moves
+  when an end's round trip moves past the margin. The 60 s demotion of a
+  relay that just failed still applies after ranking.
+- Fallback: with no measurement on either side, or a single relay host, the
+  order is the service's (today's). No probe runs with UDP blocked or
+  relay only.
+- Backward compatible both ways: an older peer ignores `relayRtt` and sends
+  none; this side then ranks by its own legs alone.
 
 ## WebSocket relay (API 0.17.0)
 
