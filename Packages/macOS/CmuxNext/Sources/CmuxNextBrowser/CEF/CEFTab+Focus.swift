@@ -173,15 +173,21 @@ extension CEFRuntime {
 
     /// A window became key (``windowGuard``). A window switch reports the window on screen before it reports it key, so
     /// an ask re-asked when it came on screen found another window key and waited: it is granted now, as on screen. A
-    /// grant that finds the window off screen (key before it was ordered in) waits for its occlusion change.
+    /// grant that finds the window off screen (key before it was ordered in) waits for its occlusion change. A page
+    /// window of a cmux window (its child) can take the keys without the cmux window becoming key (Cmd-` back to a
+    /// window whose page window had them); the hold counts a key child as its window having the keys
+    /// (``CEFTab/grantPendingFocusIfShown()``), so the asks waiting for the parent are granted too.
     func windowBecameKey(_ window: NSWindow) {
         grantAsks(waitingFor: window)
+        if let parent = window.parent { grantAsks(waitingFor: parent) }
     }
 
     /// Grants, after this pass's frame commit, the asks that wait for `window`. Each is told once, then forgotten: a
-    /// grant that still cannot run keeps its ask for the window's next change.
+    /// grant that still cannot run keeps its ask for the window's next change. An entry whose page or window is gone is
+    /// dropped on the way (nothing reports a gone window again); a page still asking is re-asked, and its grant records
+    /// the window it is in now.
     private func grantAsks(waitingFor window: NSWindow) {
-        for (page, ask) in asksAwaitingWindow where ask.window === window || ask.tab == nil {
+        for (page, ask) in asksAwaitingWindow where ask.window === window || ask.tab == nil || ask.window == nil {
             asksAwaitingWindow[page] = nil
             guard let tab = ask.tab else { continue }
             AfterFrameCommit().run { [weak tab] in tab?.grantPendingFocusIfShown() }
