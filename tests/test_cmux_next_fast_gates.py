@@ -202,7 +202,7 @@ class WorkflowShape(unittest.TestCase):
                 run = pool["run"]
                 self.assertIn('echo "$mirror" > .git/objects/info/alternates', run)
                 self.assertIn("find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +", run)
-                fetch = next(line for line in run.splitlines() if "git fetch" in line)
+                fetch = next(line for line in run.splitlines() if re.search(r"\bgit\b.* fetch ", line))
                 self.assertNotIn("--filter", fetch)
                 self.assertIn("--depth=2", fetch)
                 self.assertNotIn("$TOKEN", fetch)
@@ -324,6 +324,11 @@ class WorkflowShape(unittest.TestCase):
         # them (else every gate runs and nothing of the PR's is read).
         for step in resolve["steps"]:
             if step.get("uses", "").startswith("actions/checkout@") or step.get("name", "").startswith("Pool mirror:"):
+                if "the base for the receipt verifier (lane dispatch)" in step.get("name", ""):
+                    # A lane dispatch checks out the base commit's verifier, never the pull request's code (#60742).
+                    self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", step["if"])
+                    self.assertIn("steps.resolve.outputs.base", str(step.get("with", {}).get("ref", "")) + str(step.get("env", {})))
+                    continue
                 self.assertTrue(step["if"].replace(" ", "").startswith("${{github.event_name=='pull_request'&&"),
                                 step.get("name"))
             if step.get("id") == "route":
@@ -390,9 +395,9 @@ class WorkflowShape(unittest.TestCase):
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(output),
                 "CALLS": str(calls), "WAITS": str(waits), "FAILURES": str(failures),
                 "API_ERROR": error or "",
-                "GRAPHQL_FIELDS": (graphql_fields or "open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40)
+                "GRAPHQL_FIELDS": (graphql_fields or "open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x|" + "c" * 40)
                 .replace("|", "\t"),
-                "PR_FIELDS": fields.replace("|", "\t") if fields is not None else "open\tmanaflow-ai/cmux\tfeat-cmux-next\t" + "a" * 40,
+                "PR_FIELDS": fields.replace("|", "\t") if fields is not None else "open\tmanaflow-ai/cmux\tfeat-cmux-next\t" + "a" * 40 + "\ttopic/x",
                 **(event or {}),
             }
             result = subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True, timeout=10)
@@ -447,9 +452,9 @@ class WorkflowShape(unittest.TestCase):
 
     def test_dispatch_graphql_fallback_still_refuses_a_fork_or_a_closed_pr(self):
         limited = "gh: API rate limit exceeded for installation (HTTP 403)"
-        for fields, words in (("open|fork/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40, "comes from fork/cmux"),
-                              ("merged|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40, "is merged"),
-                              ("open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|", "incomplete")):
+        for fields, words in (("open|fork/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x|" + "c" * 40, "comes from fork/cmux"),
+                              ("merged|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x|" + "c" * 40, "is merged"),
+                              ("open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x|", "incomplete")):
             result, calls, waits, output = self.resolve_dispatch(error=limited, failures=1, graphql_fields=fields)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(words, result.stdout + result.stderr)
@@ -481,7 +486,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(output, "")
 
     def test_dispatch_valid_fork_is_still_refused(self):
-        result, calls, waits, output = self.resolve_dispatch(fields="open|fork/cmux|feat-cmux-next|" + "a" * 40)
+        result, calls, waits, output = self.resolve_dispatch(fields="open|fork/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("comes from fork/cmux", result.stdout + result.stderr)
         self.assertEqual(len(calls), 1)
@@ -609,7 +614,8 @@ class WorkflowShape(unittest.TestCase):
             self.assertIn(fragment, verify["if"])
         # A verifier that fails or hangs leaves resolve green, and the gates run.
         self.assertIs(verify["continue-on-error"], True)
-        self.assertLessEqual(int(verify["timeout-minutes"]), 3)
+        # 5: OIDC 20 s + the lookup's 60 s deadline (#61555) + the head-tree and base git reads, 60 s each.
+        self.assertLessEqual(int(verify["timeout-minutes"]), 5)
         self.assertLess(int(verify["timeout-minutes"]), int(resolve["timeout-minutes"]))
         body = verify["run"]
         # The verifier is the base commit's, copied out of git, never a file of the pull request's work tree.
@@ -2354,6 +2360,12 @@ class WebviewsChecksGate(unittest.TestCase):
                     ":3176:23)\n")
         self.assertEqual(self.module.added(frames("1795522394672-bd727a4797f8c8"), frames("1795522301234-0a1b2c3d4e5f60")),
                          [])
+
+    def test_a_crash_dump_keys_without_its_process_id(self):
+        def dump(pid: int) -> str:
+            return f"Error: spawnSync tsgo ETIMEDOUT\n{{\n  errno: -110,\n  code: 'ETIMEDOUT',\n  pid: {pid},\n}}\n"
+        self.assertEqual(self.module.added(dump(1276995), dump(1180412)), [])
+        self.assertEqual(self.module.added(dump(1276995) + "Error: new crash\n", dump(1180412)), ["Error: new crash"])
 
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:

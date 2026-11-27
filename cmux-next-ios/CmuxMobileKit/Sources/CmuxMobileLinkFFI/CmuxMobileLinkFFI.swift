@@ -14375,6 +14375,89 @@ public func FfiConverterTypeMailboxTarget_lower(_ value: MailboxTarget) -> RustB
 
 
 /**
+ * What [`wait_for_network_return`] ended on (`cmux_mobile_link::net_return::Return`).
+ */
+public struct NetworkReturn: Equatable, Hashable {
+    /**
+     * A probe got through after one that did not: the network is back; redial now.
+     */
+    public var back: Bool
+    /**
+     * The first probe got through: the network was not down (stop watching).
+     */
+    public var neverDown: Bool
+    /**
+     * With `back`: from the first failed probe to the one that got through.
+     */
+    public var downMillis: UInt64
+    public var probes: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * A probe got through after one that did not: the network is back; redial now.
+         */back: Bool, 
+        /**
+         * The first probe got through: the network was not down (stop watching).
+         */neverDown: Bool, 
+        /**
+         * With `back`: from the first failed probe to the one that got through.
+         */downMillis: UInt64, probes: UInt32) {
+        self.back = back
+        self.neverDown = neverDown
+        self.downMillis = downMillis
+        self.probes = probes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension NetworkReturn: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeNetworkReturn: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NetworkReturn {
+        return
+            try NetworkReturn(
+                back: FfiConverterBool.read(from: &buf), 
+                neverDown: FfiConverterBool.read(from: &buf), 
+                downMillis: FfiConverterUInt64.read(from: &buf), 
+                probes: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: NetworkReturn, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.back, into: &buf)
+        FfiConverterBool.write(value.neverDown, into: &buf)
+        FfiConverterUInt64.write(value.downMillis, into: &buf)
+        FfiConverterUInt32.write(value.probes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNetworkReturn_lift(_ buf: RustBuffer) throws -> NetworkReturn {
+    return try FfiConverterTypeNetworkReturn.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNetworkReturn_lower(_ value: NetworkReturn) -> RustBuffer {
+    return FfiConverterTypeNetworkReturn.lower(value)
+}
+
+
+/**
  * One waiting request as a card on the phone.
  */
 public struct PairRequestCard: Equatable, Hashable {
@@ -27118,6 +27201,27 @@ public func terminalLeanStreamCapabilities() -> [String]  {
 })
 }
 /**
+ * Probes the cmux service at `base_url` once a second (a TCP connect, each
+ * bounded under a second) until one gets through or `max_wait_millis`
+ * passes: the network-back signal when iOS reports no path change. The app
+ * runs it only while a link is down and the app is in front.
+ */
+public func waitForNetworkReturn(baseUrl: String, maxWaitMillis: UInt64)async  -> NetworkReturn  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_func_wait_for_network_return(FfiConverterString.lower(baseUrl),FfiConverterUInt64.lower(maxWaitMillis)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeNetworkReturn_lift,
+            errorHandler: nil
+            
+        )
+}
+/**
  * Sizes a picked image to what an agent needs (design/attachment-upload.md, Next, item 2): the
  * original when its long side is <= 2048 px and it is <= 2 MiB; otherwise a JPEG (q 0.85) with
  * the long side at most 2048 px. HEIC in, JPEG out: agents read JPEG. A width or height of 0
@@ -28622,6 +28726,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_lean_stream_capabilities() != 31447) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_wait_for_network_return() != 9115) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_image_plan() != 32375) {
