@@ -37,6 +37,8 @@
 //! redraw `i` or a newer one, on any path. With `CMUX_MOBILE_VIEWPORT_SYNC=1` (cmux#50638, off by
 //! default: hostd's gate and the phone's) the screen goes as newest-wins datagrams and only
 //! `shown` (and `paint`) apply; the stream legs need the stream's own redraw lines.
+//! `CMUX_MOBILE_VIEWPORT_SKIP_SUPERSEDED=1` (off by default) adds the switch's skip of the stream
+//! batches still queued; `shown_late` is the second half's `shown`, past the switch.
 
 use std::hint::black_box;
 use std::net::SocketAddr;
@@ -569,7 +571,11 @@ fn median(mut v: Vec<f64>) -> f64 {
 #[ignore = "a measurement (a few minutes): --release --ignored --nocapture"]
 async fn mac_scroll_to_phone_paint_legs() {
     let trials: usize = std::env::var("LEGS_TRIALS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
-    let flag = std::env::var(cmux_mobile_link::viewport::ENV).unwrap_or_default();
+    let flag = format!(
+        "{}+skip:{}",
+        std::env::var(cmux_mobile_link::viewport::ENV).unwrap_or_default(),
+        std::env::var(cmux_mobile_host::viewport_sync::SKIP_SUPERSEDED_ENV).unwrap_or_default()
+    );
     for path_name in env_list("LEGS_PATHS", "direct,relay") {
         let path = if path_name == "relay" { Path::Relay } else { Path::Direct };
         for profile_name in env_list("LEGS_PROFILES", "rtt-400,lossy-3") {
