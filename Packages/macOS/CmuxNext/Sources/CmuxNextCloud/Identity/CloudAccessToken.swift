@@ -106,7 +106,7 @@ public struct CloudAccessToken: Sendable, Equatable {
 
     /// The backend team the platform's machine routes act in (join-token mint, credentials list, revoke, doctor):
     /// nil, the install's own (personal) team, where the app makes and lists its Cloud machines
-    /// (`CloudAPIClient.workerMachines`' `x-cmux-team`). Never the active Stack team: a Mac joined there sits in another
+    /// (`CloudDaemon.workerMachines`' `x-cmux-team`). Never the active Stack team: a Mac joined there sits in another
     /// team's mesh than the Cloud machines its ssh backup carrier dials, and its tunnel answers "no mesh"
     /// (cloud-carrier-ssh-failover, 2026-11-15T21:18Z: joined in the account's Stack sign-up team, while its machines
     /// and its mesh were in its personal team). A device restricted to a managed team uses only that team, only while
@@ -193,7 +193,10 @@ extension CloudAuth {
     /// The install is registered first when sign-in has not bound it yet (`signedIn` reuses a bound one): the
     /// sign-in enroll asks as soon as the sign-in finishes, which can be before `CloudService` binds it, and a
     /// nil then would leave the enroll waiting for a report that never comes (#43841 review F1).
+    /// It binds only after the stored session has restored: before that ``user`` is the cached account,
+    /// which can differ from the stored token's, and an install bound to it is refused for another user.
     public func machineRoutesToken(identity: MacInstallIdentity) async -> String? {
+        await awaitRestored()
         guard isSignedIn, let stackUser = user?.id else { return nil }
         do {
             try await identity.signedIn(stackUser: stackUser, session: { [weak self] in

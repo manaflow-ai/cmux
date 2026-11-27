@@ -11,8 +11,8 @@ import Testing
 /// Leo 2026-11-22: "the cross doesnt replace the blue button. ... it seems like now the blue dot is sticking when i
 /// hover. in all cases, the hovered buttons should just replace the other ones." While a row's hover controls show
 /// (the ✕, the ⋮, the pin), no status mark draws anywhere in the row's trailing cluster: not the blue dot, the
-/// spinner, the error mark, the unread count, the task count or the usage warning triangle (the row's hover card still
-/// names each warning). Only what a person points at keeps its place: the pull request badge and roll-up chips beside
+/// spinner, the error mark, the unread count or the task count (the usage warning triangle is gone altogether,
+/// `SidebarUsageWarningTests`). Only what a person points at keeps its place: the pull request badge and roll-up chips beside
 /// the controls, the audio button, the drive indicator, the tree fold, and the Cloud mark after the name.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarHoverReplacesMarksTests {
@@ -22,7 +22,6 @@ struct SidebarHoverReplacesMarksTests {
     static func statusMarksDrawn(in row: WorkspaceRowView) -> [String] {
         let marks: [(String, NSView?)] = [
             ("unread", row.badge), ("rowBadge", row.rowBadge), ("activity", row.activity), ("prText", row.prBadge),
-            ("usageWarning", row.usageWarningMark),
             ("muted", row.mutedMark), ("tabCount", row.tabCount), ("keycap", row.keycap), ("time", row.timeLabel),
             ("presence", row.presenceDots),
             ("agentMark", row.agentMarkVariant == .besideTitle ? nil : row.agentMark),
@@ -39,13 +38,11 @@ struct SidebarHoverReplacesMarksTests {
         Motion.reduceMotionOverride = true // the marks clear at once instead of fading out
         defer { Motion.reduceMotionOverride = nil }
         for spot in SidebarRowCloseSpot.allCases {
-            for (pinned, warned) in [(false, false), (true, false), (false, true), (true, true)] {
+            for pinned in [false, true] {
                 try SidebarRowCloseSpotTests.withCloseSpot(spot) {
-                    // A warned row draws the usage triangle too: it gives way like every other mark (Mango 2026-11-22,
-                    // on Leo's "in all cases").
-                    let (sidebar, window) = SidebarRowCloseClearsMarksTests.sidebar(marks, style: style, warned: warned)
+                    let (sidebar, window) = SidebarRowCloseClearsMarksTests.sidebar(marks, style: style)
                     defer { window.close() }
-                    // A pinned row draws the ⋮ and Unpin, no ✕ (Lawrence msg 19392); an unpinned one the ✕, the ⋮ and Pin.
+                    // A pinned row draws the ✕, the ⋮ and Unpin (Leo 2026-11-23, ask c-b5d3e0efb6); an unpinned one the ✕, the ⋮ and Pin.
                     sidebar.list.model.workspacePin = (isPinned: { _ in pinned }, toggle: { _ in })
                     sidebar.list.contextMenuProvider = { _ in NSMenu() }
                     window.orderFrontRegardless()
@@ -64,12 +61,9 @@ struct SidebarHoverReplacesMarksTests {
                     let controls = [row.closeButton, row.moreButton, row.pinSlot.made].compactMap(\.self)
                         .filter { !$0.isHidden && $0.alphaValue > 0 }
                     try #require(!controls.isEmpty, "\(spot) pinned \(pinned): no hover control on the hovered row")
-                    if warned { try #require(resting.contains("usageWarning"), "\(spot) \(marks): the warned row draws no triangle at rest") }
-                    let triangle = row.usageWarningMark.frame
                     #expect(Self.statusMarksDrawn(in: row).isEmpty,
-                            "\(spot), \(style), \(marks), pinned \(pinned), warned \(warned): \(Self.statusMarksDrawn(in: row)) still draw beside the hover controls")
+                            "\(spot), \(style), \(marks), pinned \(pinned): \(Self.statusMarksDrawn(in: row)) still draw beside the hover controls")
                     #expect(row.title.frame.width == titleWidth, "\(spot) \(marks): the title moved on hover (a layout shift)")
-                    #expect(row.usageWarningMark.frame == triangle, "\(spot) \(marks): the triangle moved on hover (a layout shift)")
                     // The hover ends: every mark the row drew at rest is back.
                     row.isHovered = false
                     row.layoutSubtreeIfNeeded()
@@ -79,8 +73,8 @@ struct SidebarHoverReplacesMarksTests {
         }
     }
 
-    /// A pinned workspace's tile (Pinned, a band row): its ⋮ and Unpin replace the blue dot, the spinner, the unread
-    /// count and the task count ("2/9"), and all of them come back when the controls go.
+    /// A pinned workspace's tile (Pinned, a band row): its ⋮ and Unpin replace the blue dot, the spinner and the unread
+    /// count, and all of them come back when the controls go.
     @Test(arguments: [false, true])
     func aWorkspaceTileHidesEveryMarkUnderItsControls(_ unreadDot: Bool) throws {
         let view = SidebarItemRowView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
@@ -88,16 +82,15 @@ struct SidebarHoverReplacesMarksTests {
         info.workspace = CmuxNextSidebar.WorkspaceID("ws")
         info.unreadDot = unreadDot
         info.activity = .working(progress: nil)
-        info.taskProgress = SidebarTaskProgress(done: 2, total: 9)
         view.onMore = {}
         view.onUnpin = {}
         view.isPinned = { true }
         view.configure(info, style: .list)
         view.layoutSubtreeIfNeeded()
-        let marks: [(String, NSView)] = [("unread", view.badge), ("rowBadge", view.rowBadge), ("activity", view.activity), ("taskCount", view.taskCount)]
+        let marks: [(String, NSView)] = [("unread", view.badge), ("rowBadge", view.rowBadge), ("activity", view.activity)]
         func drawn() -> [String] { marks.filter { !$0.1.isHidden && $0.1.frame.width > 0 && $0.1.alphaValue > 0.01 }.map(\.0) }
         let resting = drawn()
-        #expect(resting.contains("taskCount"), "the tile draws no task count at rest")
+        #expect(!resting.isEmpty, "the tile draws no mark at rest")
         view.showsMenu = true // reveals the controls as the pointer does
         view.layoutSubtreeIfNeeded()
         #expect(view.hoverMore.map { !$0.isHidden } == true, "no ⋮ on the revealed tile")
