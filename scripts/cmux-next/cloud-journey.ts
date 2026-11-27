@@ -3239,8 +3239,12 @@ export async function cleanupWakeMachine(record: WakeCleanupRecord | null, deps:
   if (!record) return;
   const gone = (row: { status: string } | null) => row === null || row.status === "deleted" || row.status === "deleting";
   if (gone(await deps.get(record.machine))) return;
-  await deps.remove(record.machine, record.key);
-  if (!gone(await deps.get(record.machine))) throw new Error(`wake cleanup delete not confirmed for ${record.machine}`);
+  let failure: unknown;
+  try { await deps.remove(record.machine, record.key); } catch (e) { failure = e; }
+  // A timed-out or indeterminate answer does not prove deletion failed; read back the same ID in either case.
+  if (gone(await deps.get(record.machine))) return;
+  if (failure) throw failure;
+  throw new Error(`wake cleanup delete not confirmed for ${record.machine}`);
 }
 
 async function cleanupWakeMode(file: string, backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined): Promise<number> {

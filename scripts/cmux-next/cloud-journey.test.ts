@@ -3999,6 +3999,21 @@ describe("wake-echo own-run cleanup", () => {
     })).rejects.toThrow(/not confirmed/);
   }));
 
+  test("a lost delete reply is settled by readback without hiding a live machine or another error", async () => withFile(async (file) => {
+    journey.writeWakeCleanup(file, scope, machine, key);
+    const record = journey.readWakeCleanup(file, scope);
+    for (const status of ["deleted", "deleting"]) {
+      let called = false;
+      await journey.cleanupWakeMachine(record, {
+        get: async () => ({ status: called ? status : "paused" }),
+        remove: async () => { called = true; throw new Error("TimeoutError"); },
+      });
+    }
+    await expect(journey.cleanupWakeMachine(record, {
+      get: async () => ({ status: "paused" }), remove: async () => { throw new Error("mutation.indeterminate"); },
+    })).rejects.toThrow("mutation.indeterminate");
+  }));
+
   test("workflow cleans its record on failure or cancellation before artifact upload", () => {
     const workflow = readFileSync(new URL("../../.github/workflows/cloud-wake-echo.yml", import.meta.url), "utf8");
     const cleanup = workflow.indexOf("- name: Delete this run's machine");
