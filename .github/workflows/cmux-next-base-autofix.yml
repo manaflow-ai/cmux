@@ -16,7 +16,9 @@ name: cmux-next base autofix
 # webviews formatting (vp fmt in the read-only webviews-fmt job), cargo clippy --fix
 # (machine-applicable lints, on the crates the changed cmux-tui Rust can affect:
 # scripts/cmux-next/autofix-clippy.sh --affected), cargo fmt
-# in cmux-tui and the OptChat crates, and every tracked Cargo.lock that no longer
+# in cmux-tui and the OptChat crates, the acpmux protocol IR and ABI surface (acpmux's
+# protocol tests with ACPMUX_PROTOCOL_BLESS=1, which bless the surface only when every
+# ABI break has a compat rule), and every tracked Cargo.lock that no longer
 # matches its workspace's manifests (scripts/cmux-next/cargo-locks.py fix: a
 # manifest change in one workspace can leave another's lock stale, as
 # eb4f3eb1d94's direct push did to cmux-app-ffi). Each
@@ -153,6 +155,16 @@ on:
       - cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**
       - scripts/ios-ffi-bindings.sh
 
+# At most one run in flight and one waiting per branch, with no GitHub read: a newer push replaces the waiting run,
+# and the run that starts diffs from the last successful one (base-autofix-since.sh), so it covers every replaced
+# push. The window job's 120-minute hold reads the runs list and fails open when every token's hour is spent;
+# 2026-11-26 20:00-23:30Z it failed open on all but a few reads and 37 repairs ran in 3 h, each about 27 min and red
+# on a base red (about 8.7k runner-min/day, plus the Mac exports each one started). This bound holds either way.
+# Its group name differs from the autofix job's own (cmux-next-base-autofix-<ref>[-exports-<run>]).
+concurrency:
+  group: cmux-next-base-autofix-run-${{ github.ref_name }}
+  cancel-in-progress: false
+
 permissions: {}
 
 env:
@@ -174,7 +186,7 @@ jobs:
     outputs:
       run: ${{ steps.window.outputs.run }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -186,14 +198,27 @@ jobs:
         id: window
         env:
           GH_TOKEN: ${{ github.token }}
+          # The CI pool Apps' tokens (each its own installation hour), read after the job token is refused.
+          BASE_AUTOFIX_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           NEXT_BASE_AUTOFIX_WINDOW_MINUTES: ${{ vars.NEXT_BASE_AUTOFIX_WINDOW_MINUTES }}
+          # A push that changes a Cargo manifest or lock repairs now: a stale sibling lock fails every --locked build
+          # (app-ffi-release.yml among them) until cargo-locks.py fix commits it (cmux#57132).
+          BASE_AUTOFIX_CARGO_CHANGED: ${{ github.event_name == 'push' && (contains(join(github.event.head_commit.modified, ' '), 'Cargo.toml') || contains(join(github.event.head_commit.modified, ' '), 'Cargo.lock') || contains(join(github.event.head_commit.added, ' '), 'Cargo.toml') || contains(join(github.event.head_commit.removed, ' '), 'Cargo.toml')) }}
         run: bash scripts/cmux-next/base-autofix-window.sh "$GITHUB_RUN_ID" "$GITHUB_REF_NAME" | tee -a "$GITHUB_OUTPUT" "$GITHUB_STEP_SUMMARY"
 
+      # The job token's hour is often spent (HTTP 403), so the pool tokens follow it, as the window read does. A cancel
+      # every token refuses leaves the run green; base-autofix-window.sh passes over such a short run (it repaired nothing).
       - name: Cancel the held run
         if: steps.window.outputs.run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" || echo "::warning::cancel failed; the repair jobs skip on this job's run=false"
+          BASE_AUTOFIX_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+        run: |
+          for token in "$GH_TOKEN" $BASE_AUTOFIX_POOL_TOKENS; do
+            [ -n "$token" ] || continue
+            GH_TOKEN="$token" gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" && exit 0
+          done
+          echo "::warning::cancel failed with every token; the repair jobs skip on this job's run=false"
 
   # Whether the Mac action-exports job runs: the paths changed since the last
   # successful run, as autofix's Changed areas step computes them.
@@ -215,7 +240,7 @@ jobs:
       mac_busy: ${{ steps.busy.outputs.mac_busy }}
       mac_busy_run: ${{ steps.busy.outputs.mac_busy_run }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -279,7 +304,7 @@ jobs:
       # (the Mac job then takes Blacksmith macOS).
       mac_runner: ${{ steps.mac-runner.outputs.runs_on }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         id: checkout
         continue-on-error: true
         timeout-minutes: 3
@@ -427,9 +452,9 @@ jobs:
       # git before the checkout, or it downloads a tarball the script cannot move to the newest tip.
       - name: Install git, python3 and curl
         timeout-minutes: 5
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
+        run: for try in 1 2 3; do apt-get update -qq -o Acquire::Retries=3 && apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 git python3 curl ca-certificates && break; [ "$try" = 3 ] && exit 1; echo "apt try $try failed (a mirror mid-sync?), updating again"; sleep 15; done
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -537,7 +562,7 @@ jobs:
           # An inherited socket would still name another home's daemon; empty is unset.
           echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -594,7 +619,8 @@ jobs:
     needs: [action-areas, pushed-exports, action-exports-linux, settings-exports-linux]
     # The action exports only as action-exports-linux's fallback and the settings exports only as
     # settings-exports-linux's (each logs why).
-    if: ${{ !cancelled() && ((needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true')) || (needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true'))) && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' }}
+    if: >-
+      ${{ !cancelled() && ((needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true')) || (needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true'))) && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
     # No concurrency group: a queued job keeps its place. Cancelling a running one meant that with
     # merges minutes apart no Mac export ever finished (2026-10-19), and replacing a pending one did
     # the same once the Mac runners were saturated: each job waited minutes for a runner and the next
@@ -633,7 +659,7 @@ jobs:
     env:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
     steps:
       # This job's tests can start acpmux daemons: they get a home of the job's
       # own, never the runner's ~/.acpmux, the mini's own daemon
@@ -650,7 +676,7 @@ jobs:
         shell: bash
         run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -831,7 +857,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -897,13 +923,13 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-target-graph-${{ github.ref_name }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 15
     permissions:
       actions: write # dispatch cmux-tui-artifacts.yml for the bot head (publish-bot-head-tree.sh)
       contents: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -1002,7 +1028,7 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-${{ github.ref_name }}${{ ((needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' || needs.action-exports-linux.outputs.exports == 'true' || needs.settings-exports-linux.outputs.exports == 'true') && format('-exports-{0}', github.run_id) || '' }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     # 20 minutes of repair and push, plus the compile gate's wait (base-autofix-compile-gate.sh, 40 min) when a repair changes Swift.
     timeout-minutes: 65
     permissions:
@@ -1011,7 +1037,12 @@ jobs:
       pull-requests: write # the Swift rewrites' pull request when the App's pull-request token can't be minted
       statuses: read # the compile gate reads fleet/compile-check on its candidate
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The rounds on a moved tip (base-autofix-land.sh) end before timeout-minutes, not at it: a round
+      # cut off by the job's cancel made the run red (45994733335, 2026-11-27), though the move it chased
+      # started a run that repairs that tip.
+      - name: Note when this job started
+        run: echo "AUTOFIX_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -1217,6 +1248,7 @@ jobs:
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           LOCKS: ${{ steps.areas.outputs.locks }}
+          ACPMUXIR: ${{ steps.areas.outputs.acpmuxir }}
           IOSFFI: ${{ steps.areas.outputs.iosffi }}
           FMT: ${{ steps.areas.outputs.fmt }}
           CLIPPY: ${{ steps.areas.outputs.clippy }}
@@ -1270,8 +1302,22 @@ jobs:
           log="$RUNNER_TEMP/cmux-config-tests.log"
           if ! (cd cmux-tui && cargo test --locked -p cmux-config 2>&1 | tee "$log" | tail -60); then
             if python3 scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi
-            echo "::error::the regenerated schemas/settings/settings-schema.json fails cmux-config's tests (the daemon would not start); not pushing. Teach cmux-tui/crates/cmux-config/src/schema the change first."
-            exit 1
+            # A test that fails with the base's own schema too is a base red, not this schema's:
+            # theme contrast and shader-name reds held every base autofix from 15:20Z on 2026-11-25.
+            # The schema is blamed only for failures it adds; a build that runs no test stays a refusal.
+            failed() { sed -n 's/^test \(.*\) \.\.\. FAILED$/\1/p' "$1" | sort -u; }
+            schema=schemas/settings/settings-schema.json
+            cp "$schema" "$RUNNER_TEMP/settings-schema.regenerated.json"
+            git show "HEAD~1:$schema" > "$schema"
+            (cd cmux-tui && cargo test --locked -p cmux-config > "$RUNNER_TEMP/cmux-config-tests.base.log" 2>&1) || true
+            cp "$RUNNER_TEMP/settings-schema.regenerated.json" "$schema"
+            new_failures=$(comm -23 <(failed "$log") <(failed "$RUNNER_TEMP/cmux-config-tests.base.log"))
+            if [[ -z "$(failed "$log")" || -n "$new_failures" ]]; then
+              [[ -n "$new_failures" ]] && printf 'fails only with the regenerated schema: %s\n' $new_failures
+              echo "::error::the regenerated schemas/settings/settings-schema.json fails cmux-config's tests (the daemon would not start); not pushing. Teach cmux-tui/crates/cmux-config/src/schema the change first."
+              exit 1
+            fi
+            echo "::warning title=Base autofix::cmux-config tests also fail with the base's own schema (a base red, not this schema's): $(failed "$log" | paste -sd ' ')"
           fi
 
       # The push token: an App push starts the push workflows (Push identity, above).
@@ -1324,6 +1370,7 @@ jobs:
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           LOCKS: ${{ steps.areas.outputs.locks }}
+          ACPMUXIR: ${{ steps.areas.outputs.acpmuxir }}
           IOSFFI: ${{ steps.areas.outputs.iosffi }}
           FMT: ${{ steps.areas.outputs.fmt }}
           CLIPPY: ${{ steps.areas.outputs.clippy }}
@@ -1355,6 +1402,10 @@ jobs:
           fi
           echo "::add-mask::$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
           remote="https://github.com/$GITHUB_REPOSITORY.git"
+          # timeout-minutes (65) less 8 for the last round's push and the steps after it.
+          if [[ -n "${AUTOFIX_JOB_STARTED:-}" ]]; then
+            export CMUX_BASE_AUTOFIX_AGAIN_DEADLINE=$((AUTOFIX_JOB_STARTED + (65 - 8) * 60))
+          fi
           # Lands the repair on the newest tip file by file (base-autofix-push.sh): a file whose input areas
           # the tip changed, or that a newer commit wrote, waits (with its export and what is built from it).
           # A held file this job makes itself (the CI target graph, say) is made again on the new tip and
@@ -1402,13 +1453,13 @@ jobs:
     concurrency:
       group: cmux-next-ghosttykit-checksum
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 100
     permissions:
       actions: write # dispatch build-ghosttykit.yml and read its runs
       contents: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 

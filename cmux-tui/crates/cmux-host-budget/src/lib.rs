@@ -394,6 +394,10 @@ pub use probe::{
 // Timer lateness, the interactive-speed signal (RFD 0072): a thread, and the pure window.
 pub mod lateness;
 
+// Memory stall shaped as PSI from `/proc/vmstat` where PSI is off (RFD 0182 B1): a thread,
+// and the pure averages.
+pub mod mem_stall;
+
 // The level the app shows, which does not flicker, and a verdict judged again
 // with a newer memory pressure.
 mod level;
@@ -419,6 +423,10 @@ pub use shadow::{
 // name both placers log, so their shadow lines join.
 mod pressure_digest;
 pub use pressure_digest::{canonical_pressure, host_short, pressure_digest};
+
+// Auto on reserve (RFD 0072): what Auto would move while agents use more than the
+// person left them; stage 1 only records it.
+pub mod reserve;
 
 // The JSON calls the app's C ABI makes, and that C ABI (`include/cmux_host_budget_ffi.h`).
 pub mod ffi;

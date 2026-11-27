@@ -8,7 +8,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import {
   DevicesIcon,
   EnvironmentIcon,
@@ -30,6 +30,9 @@ import {
   withCloudMachines,
   withCloudSleep,
   type CloudMachine,
+  currentCloudLastSeenAt,
+  freshCloudMachine,
+  useCloudLastSeenAt,
 } from "./cloudMachines";
 import {
   environmentReady,
@@ -43,6 +46,7 @@ import {
   type EnvironmentKind,
   type OffloadKind,
   type OffloadReasons,
+  type PeerGroup,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
@@ -139,6 +143,7 @@ const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
 const NO_PEER_STATES: Record<string, string> = {};
 const NO_PEER_RESOURCES: Record<string, MachineResources> = {};
+const NO_PEER_GROUPS: Record<string, PeerGroup> = {};
 const NO_PEER_LINKS: Record<string, PeerLinkDetail> = {};
 const NO_OFFLOADS: readonly OffloadKind[] = [];
 
@@ -155,6 +160,7 @@ export function ComposerContext({
   peerConnected = NO_PEER_CONNECTED,
   peerStates = NO_PEER_STATES,
   peerResources = NO_PEER_RESOURCES,
+  peerGroups = NO_PEER_GROUPS,
   peerLinks = NO_PEER_LINKS,
   environments = false,
   started = false,
@@ -222,6 +228,9 @@ export function ComposerContext({
   peerStates?: Record<string, string>;
   /// Each peer's cached one-minute host health from the same acpmux reading as the sidebar.
   peerResources?: Record<string, MachineResources>;
+  /// Each peer's group (`AcpmuxSnapshot.peerGroups`): an agent machine is behind the picker's Agent
+  /// machines list, an own one inline.
+  peerGroups?: Record<string, PeerGroup>;
   /// Each peer's whole link (`AcpmuxSnapshot.peerLinks`): how long a machine has been down, so the
   /// machine lists group one down for long under Unavailable (environments.ts environmentUnavailable).
   peerLinks?: Record<string, PeerLinkDetail>;
@@ -380,6 +389,9 @@ export function ComposerContext({
   const pageGitHub = useGitHubPicker();
   const github = githubSeam ?? pageGitHub;
   const shownMachines = cloudMachines ?? accountMachines;
+  // The kept list's age (cloudMachines.ts lastSeenAt): only the app's list has one, never a seam's.
+  const accountLastSeenAt = useCloudLastSeenAt();
+  const cloudLastSeenAt = cloudMachines ? undefined : accountLastSeenAt;
   // The page's own acpmux by name: this Mac, or the machine a remote route reaches (chatMachine.ts).
   const ownName = ownMachineName(summary, localName, peerKinds, route);
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
@@ -399,6 +411,7 @@ export function ComposerContext({
         peerStates,
         peerResources,
         peerLinks,
+        peerGroups,
       ),
       shownMachines,
       newChat,
@@ -417,6 +430,7 @@ export function ComposerContext({
     peerStates,
     peerResources,
     peerLinks,
+    peerGroups,
     ownName,
     newChat,
     shownMachines,
@@ -533,13 +547,25 @@ export function ComposerContext({
   // good, so a chat that comes back to the same key (an empty New Tab id) never inherits it; a
   // machine the account stops listing ends it for good too (it does not come back with the
   // machine), and one that failed to start stops it moving.
-  const [waitingPick, setWaiting] = useState<{ key: string; id: string; name: string; folder?: string }>();
+  // `phase` is set while a pick of a kept row (the list from the last launch) waits on a fresh read:
+  // `checking` until it lands, `unreachable` when cmux Cloud still did not answer (the machine is not acted on).
+  const [waitingPick, setWaiting] = useState<{
+    key: string;
+    id: string;
+    name: string;
+    folder?: string;
+    phase?: "checking" | "unreachable";
+  }>();
+  // Each kept-row pick's turn: a fresh read that lands after another pick changes nothing.
+  const keptPicks = useRef(0);
   const clearWaiting = () => {
     setWaiting(undefined);
     if (waitingPick?.folder) onCloudFolderWaiting?.(false);
   };
   const waitMachine = waitingPick?.key === pickKey ? shownMachines.find((m) => m.id === waitingPick.id) : undefined;
   if (waitingPick && !waitMachine) setWaiting(undefined);
+  // A kept-row pick that found cmux Cloud unreachable ends once a fresh list lands: its machine reads as listed again.
+  else if (waitingPick?.phase === "unreachable" && cloudLastSeenAt === undefined) setWaiting(undefined);
   const waiting = waitMachine ? waitingPick : undefined;
   const waitFailed = waitMachine?.stage === "failed";
   const pendingFolder = Boolean(waiting?.folder);
@@ -769,13 +795,30 @@ export function ComposerContext({
   // paused machine is one pick, not a pick, a wait and the same pick again.
   const pickCloudMachine = (id: string, folder?: string) => {
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
-    if (machine && !readOnly) {
-      onCloudMachinePicked?.(machine);
+    const run = (picked: CloudMachine) => {
+      onCloudMachinePicked?.(picked);
       // Folders are the machine's: the pick drops this machine's at once, not when (or if) it arrives (cmux#34527).
       if (extraFolders?.draft) extraFolders.onChange(undefined);
-      onCloudMachine(machine);
-      setWaiting({ key: pickKey, id: machine.id, name: machine.name, folder });
+      onCloudMachine(picked);
+      setWaiting({ key: pickKey, id: picked.id, name: picked.name, folder });
       if (folder) onCloudFolderWaiting?.(true);
+    };
+    keptPicks.current += 1;
+    // A row of the list kept from the last launch (cloudMachines.ts lastSeenAt) never acts on it: the
+    // control reads Checking cmux Cloud… while one fresh read runs, then the machine as that read lists
+    // it starts; cmux Cloud still unreachable says so (picking it again tries again); gone ends the wait.
+    if (machine && !readOnly) {
+      if (!cloudMachines && currentCloudLastSeenAt() !== undefined) {
+        const turn = keptPicks.current;
+        setWaiting({ key: pickKey, id: machine.id, name: machine.name, folder, phase: "checking" });
+        void freshCloudMachine(machine).then((fresh) => {
+          if (turn !== keptPicks.current) return;
+          if (fresh.state === "fresh") run(fresh.machine);
+          else if (fresh.state === "unreachable")
+            setWaiting({ key: pickKey, id: machine.id, name: machine.name, folder, phase: "unreachable" });
+          else setWaiting(undefined);
+        });
+      } else run(machine);
     }
     return machine !== undefined;
   };
@@ -821,7 +864,15 @@ export function ComposerContext({
   };
   // The machine control's name: the machine a Cloud pick waits for, as starting, else the current one.
   const waitingName = waiting
-    ? `${waiting.name} · ${t(waitFailed ? "switch.failedShort" : "composer.envStarting")}`
+    ? `${waiting.name} · ${t(
+        waiting.phase === "checking"
+          ? "composer.envCloudChecking"
+          : waiting.phase === "unreachable"
+            ? "composer.envCloudUnreachableShort"
+            : waitFailed
+              ? "switch.failedShort"
+              : "composer.envStarting",
+      )}`
     : undefined;
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
   const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
@@ -974,6 +1025,7 @@ export function ComposerContext({
     // A fresh home may not have a Cloud list reply yet: EnvironmentPicker offers Sign in for Cloud
     // (in place of Cloud) only once the app said signed out, never before it knows.
     cloudSignedIn,
+    ...(cloudLastSeenAt !== undefined ? { cloudLastSeenAt } : {}),
     ...(savedRows ? { saved: savedRows } : {}),
     ...(onRefreshMachines ? { onOpen: onRefreshMachines } : {}),
     ...(runMode && !readOnly
@@ -1114,6 +1166,7 @@ export function ComposerContext({
         chevron
         {...(machineLive !== undefined ? { live: machineLive } : {})}
         {...(machineSleep ? { sleep: machineSleep } : {})}
+        {...(machineLive === false && !machineSleep ? { liveWords: t("composer.envNotConnected") } : {})}
       />
     );
   // The one combined control's face (a started chat, and the `combined` arm): as before.
@@ -1488,6 +1541,7 @@ function availableComputers(
   peerStates: Record<string, string>,
   peerResources: Record<string, MachineResources>,
   peerLinks: Record<string, PeerLinkDetail>,
+  peerGroups: Record<string, PeerGroup>,
 ): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
@@ -1502,6 +1556,7 @@ function availableComputers(
       detail,
       ...(peerResources[machine.id] ? { resources: peerResources[machine.id] } : {}),
       ...(downSince !== undefined ? { downSince } : {}),
+      ...(peerGroups[machine.id] ? { group: peerGroups[machine.id] } : {}),
     });
   }
   return computers;
@@ -1604,7 +1659,8 @@ export function LocationFace({
   /// Paused, resuming draws a spinner in the dot's place and says Resuming (never a pulsing dot).
   sleep?: "paused" | "resuming";
   /// The live dot's words for screen readers in place of Connected / Paused (the machine card's
-  /// Awake / Asleep).
+  /// Awake / Asleep). A ring that is neither live nor asleep says only what its caller passes: the
+  /// machine chip passes Not connected once its hold (computerDipSaid) is past.
   liveWords?: string;
   /// The folder chip's state (folderlessCloud.ts), for tests.
   state?: FolderChipState;
@@ -1634,17 +1690,14 @@ export function LocationFace({
       )}
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">
-          <Spinner size={12} loading className="acpmux-env-live-spinner" />
+          <WaitSpinner size={12} loading className="acpmux-env-live-spinner" />
           <span className="acpmux-env-status-text">{liveWords ?? t("composer.envResuming")}</span>
         </span>
       )}
       {live !== undefined && sleep !== "resuming" && (
         <span className="acpmux-env-live" data-connected={String(live)} data-sleep={sleep}>
           <span className="acpmux-env-status-text">
-            {liveWords ??
-              t(
-                live ? "composer.envConnected" : sleep === "paused" ? "composer.envPaused" : "composer.envNotConnected",
-              )}
+            {liveWords ?? (live ? t("composer.envConnected") : sleep === "paused" ? t("composer.envPaused") : null)}
           </span>
         </span>
       )}

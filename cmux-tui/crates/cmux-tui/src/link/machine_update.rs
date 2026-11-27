@@ -68,10 +68,11 @@ const USAGE: &str =
 /// Every Cloud image bakes an x86_64 machine (images/cmux-vm inputs.lock.json).
 const CLOUD_ARCH: &str = "x86_64";
 /// The verbs whose absence makes a machine worth updating.
-const NEEDED: [&str; 3] = [
+const NEEDED: [&str; 4] = [
     cmux_tui_core::fs_ops::FS_CAPABILITY,
     cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_CAPABILITY,
     cmux_tui_core::server::agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY,
+    cmux_tui_core::server::agent_transfer::chat_folders::CHAT_FOLDER_CAPABILITY,
 ];
 /// What the old daemon must serve for the update to reach it.
 const REACHES: [&str; 2] = [cmux_tui_core::fs_ops::FS_CAPABILITY, "detached-terminals-v1"];
@@ -110,7 +111,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         eprintln!("{USAGE}");
         return 64;
     };
-    match update(&request) {
+    match update_when_free(&request, BUSY_PATIENCE) {
         Ok(mut line) => {
             line.set("ok", json!(true));
             println!("{line}");
@@ -125,6 +126,31 @@ pub(super) fn run(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+/// How long a `busy` machine (another update of it runs, or its daemon
+/// restarted since it was read) is waited for: the update starts over by
+/// itself, and a machine the other update already moved to this build ends
+/// as `updated: false`.
+const BUSY_PATIENCE: Duration = Duration::from_secs(120);
+
+/// [`update`], started over while the machine answers `busy`.
+fn update_when_free(request: &Request, patience: Duration) -> Result<Value, Failed> {
+    retry_busy(patience, || update(request))
+}
+
+fn retry_busy<T>(
+    patience: Duration,
+    mut attempt: impl FnMut() -> Result<T, Failed>,
+) -> Result<T, Failed> {
+    use cmux_tui_core::retry::{Attempt, Patience};
+    Patience::new("the machine's other update to finish", patience)
+        .spaced(Duration::from_secs(2), Duration::from_secs(15))
+        .run(|| match attempt() {
+            Err(failed) if failed.code == "machine_update_busy" => Err(Attempt::Retry(failed)),
+            Err(failed) => Err(Attempt::Fail(failed)),
+            Ok(value) => Ok(value),
+        })
 }
 
 /// One `link machine update`'s arguments.
@@ -490,7 +516,7 @@ fn ended(outcome: &Value, own: &str) -> Result<String, Failed> {
         )),
         Some("busy") => Err(Failed::new(
             "machine_update_busy",
-            format!("not now: {}; try again", detail(outcome)),
+            format!("the machine stayed busy: {}", detail(outcome)),
         )),
         // The daemon runs someone's own build from another path, or the
         // machine's updater kept its build (off, this build rolled back

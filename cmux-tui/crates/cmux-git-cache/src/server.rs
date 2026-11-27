@@ -43,6 +43,10 @@ pub struct Config {
     /// Where the counters go as JSON after each serve, fallback and bypass (NOW reads it):
     /// `stats.json` beside the include by default.
     pub stats_file: Option<PathBuf>,
+    /// `https://codeload.github.com`: source archives (`archive`).
+    pub codeload: String,
+    /// The release asset and archive cache's size in bytes (`archive`).
+    pub archive_cap: u64,
     /// crates.io's sparse index and download bases (`crates`).
     pub crates_index: String,
     pub crates_dl: String,
@@ -60,6 +64,8 @@ impl Config {
             auth_ttl: Duration::from_secs(60),
             max_body: 64 << 20,
             stats_file: None,
+            codeload: "https://codeload.github.com".to_owned(),
+            archive_cap: crate::archive::DEFAULT_CAP,
             crates_index: crate::crates::INDEX_UPSTREAM.to_owned(),
             crates_dl: crate::crates::DL_UPSTREAM.to_owned(),
         }
@@ -78,6 +84,13 @@ pub struct Stats {
     pub fallbacks: AtomicU64,
     /// Ref advertisements sent to github.com because the caller has `CMUX_GIT_CACHE=0`.
     pub bypassed: AtomicU64,
+    /// Release assets and archives served from the cache, and their bytes.
+    pub archive_hits: AtomicU64,
+    pub archive_bytes: AtomicU64,
+    /// Redirected to GitHub because the cache did not hold the bytes GitHub names now.
+    pub archive_misses: AtomicU64,
+    /// Redirected to GitHub because something failed (GitHub unreachable, disk).
+    pub archive_fallbacks: AtomicU64,
     /// Fetches github.com answered because the mirror did not hold them yet.
     pub misses: AtomicU64,
     /// Upstream packs written into the mirror as they streamed to a clone (`Mirrors::keep`).
@@ -96,6 +109,10 @@ impl Stats {
             "refused": n(&self.refused),
             "fallbacks": n(&self.fallbacks),
             "bypassed": n(&self.bypassed),
+            "archiveHits": n(&self.archive_hits),
+            "archiveBytes": n(&self.archive_bytes),
+            "archiveMisses": n(&self.archive_misses),
+            "archiveFallbacks": n(&self.archive_fallbacks),
             "misses": n(&self.misses),
             "keptPacks": n(&self.kept_packs),
             "keptBytes": n(&self.kept_bytes),
@@ -136,11 +153,14 @@ pub struct State {
     pub mirrors: Mirrors,
     pub stats: Arc<Stats>,
     pub(crate) http: reqwest::Client,
+    /// Follows no redirect: reads GitHub's redirect for a release asset or archive.
+    pub(crate) probe: reqwest::Client,
+    pub(crate) archives: crate::archive::Archives,
     pub crate_stats: crate::crates::CrateStats,
     /// Repositories the edge answered for callers without credentials.
     via_edge: std::sync::Mutex<std::collections::HashSet<String>>,
     /// Owns each local upload-pack's stdin writer and reaper.
-    scope: cmux_scope::Scope,
+    pub(crate) scope: cmux_scope::Scope,
 }
 
 impl State {
@@ -161,9 +181,23 @@ impl State {
             .user_agent("git/cmux-git-cache")
             .build()
             .map_err(|e| e.to_string())?;
+        // A git a restart or a crash cut leaves its partial pack; nothing else ever removes it.
+        let (n, bytes) = crate::mirror::sweep_stale_partial_writes(&cfg.cache_root);
+        if n > 0 {
+            eprintln!("git-cache: gave back {n} partial writes left behind, {} MiB", bytes >> 20);
+        }
+        let probe = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent("cmux-git-cache")
+            .build()
+            .map_err(|e| e.to_string())?;
         Ok(Arc::new(Self {
+            probe,
+            archives: crate::archive::Archives::default(),
             auth: AuthCache::new(cfg.auth_ttl),
-            mirrors: Mirrors::new(cfg.cache_root.clone()),
+            mirrors: Mirrors::new(cfg.cache_root.clone()).with_http(http.clone()),
             stats: Arc::new(Stats::default()),
             crate_stats: crate::crates::CrateStats::default(),
             cfg,
@@ -200,7 +234,7 @@ impl State {
         self.via_edge.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(route.key());
     }
 
-    fn write_stats(&self) {
+    pub(crate) fn write_stats(&self) {
         StatsWriter(self.cfg.stats_file.clone()).write(&self.stats);
     }
 
@@ -262,6 +296,11 @@ async fn handle(
     axum::extract::State(state): axum::extract::State<Arc<State>>,
     req: Request,
 ) -> Response {
+    if let Some(resp) =
+        crate::archive::handle(&state, req.method(), req.uri().path(), req.headers()).await
+    {
+        return resp;
+    }
     let Some(route) = route::parse(req.uri().path()) else {
         return (StatusCode::NOT_FOUND, "cmux git cache: not a GitHub repository path\n")
             .into_response();

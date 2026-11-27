@@ -26,13 +26,16 @@ EXEMPTIONS: dict[str, str] = {
     # whole, which contains each backend path the pull_request list names.
     "cmux-vm-cloud.yml": "push covers backend/** on codex/vm-api-cloud-* branches; pull requests "
     "name the cloud-VM API files inside it",
-    # The push filter only registers the workflow on feat-cmux-next (its jobs skip on push); pull requests take
-    # only the paths a look can apply without a build (the workflow's path gate).
-    "cmux-tui-spec.yml": "pull requests start every run and the `changes` job decides from the diff "
-    "(cmux-tui-spec-changed.py); the push list is the same decision made by GitHub. The pull request trigger lists "
-    "only `types` (opened, synchronize, reopened, ready_for_review: a draft skips its jobs until it is ready)",
     "cmux-next-hot-verify.yml": "push names only its own file, to register the workflow for dispatch; pull "
     "requests name the paths a no-build look can apply (web and Rust layers)",
+    # #55455: the push runs only the `seed` job, which fills the R2 dependency cache from its key's inputs; the
+    # journey itself runs on pull requests, on the CLI paths it dials through.
+    "cloud-journey-pr.yml": "push seeds the R2 cargo cache from its key's inputs (Cargo.lock, rust-toolchain.toml, "
+    "cloud-journey-cargo-key.sh); pull requests run the journey on the CLI paths it exercises",
+    # #56329: pull requests get the before/after receipt only for the component library; the base push takes
+    # webviews/** whole (which contains each pull_request path) and the gallery's build inputs.
+    "gallery-advisory.yml": "push covers webviews/** and the gallery's build inputs on feat-cmux-next; pull requests "
+    "name the component-library paths inside webviews/** (#56329)",
 }
 
 # name -> (filter, push-only patterns, why). A narrower exemption: only these
@@ -72,6 +75,8 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
             "scripts/ci/lib/signing-runtime-guard.sh", "scripts/ci/macho_minos.py",
             "scripts/ci/swift_incremental_diagnostics.py", "scripts/cmux-next/cef-license/LICENSE.txt",
             "scripts/cmux-next/cmux-tui-tree-inputs.txt",
+            # The web jobs' own-bun step (#48817); pull requests admit it through scripts/cmux-next/**.
+            "scripts/cmux-next/private-bun.sh",
         }),
         "base pushes also compile for the nightly release inputs, so a nightly repair "
         "earns its Release compile before promotion; the base-red classifier runs "

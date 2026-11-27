@@ -203,6 +203,18 @@ def crate_references(root: Path, crates: list[Crate]) -> dict[str, set[str]]:
     return refs
 
 
+def outside_reads(root: Path, ws: str = WORKSPACE) -> dict[str, set[str]]:
+    """crate_references without cargo metadata, for a planner on a host with no cargo
+    (focused_tests.py): each folder under WS/crates/ with a Cargo.toml is a crate owning that folder.
+    Whole-tree references (".") are left out: a source that names the repository root and lists no
+    `// affected-reads:` paths would select cargo for every change."""
+    crates = []
+    for manifest in sorted((Path(root) / ws).glob("crates/*/Cargo.toml")) + sorted((Path(root) / ws).glob("crates/*/*/Cargo.toml")):
+        rel = PurePosixPath(os.path.relpath(manifest.parent, root)).as_posix()
+        crates.append(Crate(manifest.parent.name, rel, [rel], set(), set()))
+    return {ref: names for ref, names in crate_references(root, crates).items() if ref != "."}
+
+
 AFFECTED_READS = re.compile(r"//\s*affected-reads:([^\n]*)")
 
 
