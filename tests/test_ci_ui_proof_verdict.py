@@ -267,5 +267,44 @@ class RouterTest(unittest.TestCase):
         self.assertIn("ui_proof_verdict.py gate", job["steps"][-1]["run"])
 
 
+class GateTokensTest(unittest.TestCase):
+    """A refused github.token (rate limit, 403) falls through to the pool tokens; an unread gate is never a pass."""
+
+    def refuse(self, code):
+        import urllib.error
+        return urllib.error.HTTPError("https://api.github.com/x", code, "refused", {}, None)
+
+    def test_tokens_dedup_github_token_first(self):
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "a", "TOKENS": "a b  c"}, clear=False):
+            self.assertEqual(proof_record.read_tokens(), ["a", "b", "c"])
+
+    def test_refused_token_falls_through(self):
+        seen = []
+
+        def read(t):
+            seen.append(t)
+            if t == "a":
+                raise self.refuse(403)
+            return ("success", f"read with {t}")
+        self.assertEqual(proof_record.gate_with(["a", "b"], read), ("success", "read with b"))
+        self.assertEqual(seen, ["a", "b"])
+
+    def test_every_token_refused_is_an_error_naming_the_code(self):
+        def read(t):
+            raise self.refuse(429)
+        state, desc = proof_record.gate_with(["a", "b"], read)
+        self.assertEqual(state, "error")
+        self.assertIn("HTTPError 429, 2 tokens", desc)
+
+    def test_a_refused_request_does_not_try_other_tokens(self):
+        seen = []
+
+        def read(t):
+            seen.append(t)
+            raise self.refuse(404)
+        self.assertEqual(proof_record.gate_with(["a", "b"], read)[0], "error")
+        self.assertEqual(seen, ["a"])
+
+
 if __name__ == "__main__":
     unittest.main()
