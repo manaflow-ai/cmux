@@ -1367,7 +1367,23 @@ fn sha(parts: &[String]) -> String {
 /// 1..=SWEEP_TOTAL once each in order with no journal sequence twice or backwards, and the
 /// sha of what it was shown equals the sha of B's own journal of the turn (the pass rule
 /// cloud-carrier-chaos-staging applies on a real machine: contiguous seq, matching sha).
-async fn sweep_one(offset: u64, cut: Cut) -> Result<String, String> {
+/// Where one offset's cut fell, so a red names the frame that went missing: the frame the
+/// carrier dropped at, the last journal seq A's client held then (A's reconnect cursor only
+/// moves on what was delivered, so this is the seq the resume asks after), and the first and
+/// last seq A's client got after the cut (the replay plus the live tail).
+#[derive(Default)]
+struct SweepFacts {
+    acked_seq: Option<u64>,
+    replayed: Option<(u64, u64)>,
+}
+
+async fn sweep_one(offset: u64, cut: Cut) -> (SweepFacts, Result<String, String>) {
+    let mut facts = SweepFacts::default();
+    let outcome = sweep_run(offset, cut, &mut facts).await;
+    (facts, outcome)
+}
+
+async fn sweep_run(offset: u64, cut: Cut, facts: &mut SweepFacts) -> Result<String, String> {
     let tag = format!("sweep-{offset}");
     let w = world(&tag, Route::Ws).await;
     let gate = w.scratch.join("gate");
@@ -1387,6 +1403,8 @@ async fn sweep_one(offset: u64, cut: Cut) -> Result<String, String> {
     ca.find(0, STEP, |v| (chunk_text(v) == Some(at.as_str())).then_some(()))
         .await
         .ok_or_else(|| format!("chunk {offset} never reached A's client before the cut"))?;
+    let before = ca.len();
+    facts.acked_seq = ca.lines().iter().filter_map(journal_seq).max();
     w.carrier.cut(cut);
     std::fs::write(&gate, b"go").unwrap();
     w.until_not("connected", DETECT_BOUND + STEP).await.ok_or("the link never left connected")?;
@@ -1409,6 +1427,8 @@ async fn sweep_one(offset: u64, cut: Cut) -> Result<String, String> {
     let last = format!("ev-{SWEEP_TOTAL} ");
     cb.find(0, STEP, |v| (chunk_text(v) == Some(last.as_str())).then_some(())).await;
     ca.find(0, STEP, |v| (chunk_text(v) == Some(last.as_str())).then_some(())).await;
+    let after: Vec<u64> = ca.lines()[before..].iter().filter_map(journal_seq).collect();
+    facts.replayed = after.iter().min().zip(after.iter().max()).map(|(a, b)| (*a, *b));
     let (shown, held) = (chunks(&ca), chunks(&cb));
     let numbers: Vec<u64> =
         shown.iter().filter_map(|t| t.strip_prefix("ev-")?.trim().parse().ok()).collect();
@@ -1449,23 +1469,42 @@ async fn carrier_drop_sweep_every_frame_offset_loses_nothing() {
         _ => (1..=SWEEP_TOTAL).collect(),
     };
     let mut failed = Vec::new();
+    let mut rows = Vec::new();
     for offset in offsets {
         let cut = sweep_cut(seed, offset);
         // Each offset in its own task, so one offset's panic is a row of the list, not the end.
-        let outcome = tokio::spawn(sweep_one(offset, cut)).await;
-        let outcome = match outcome {
+        let (facts, outcome) = match tokio::spawn(sweep_one(offset, cut)).await {
             Ok(r) => r,
-            Err(e) => Err(format!("panicked: {e}")),
+            Err(e) => (SweepFacts::default(), Err(format!("panicked: {e}"))),
         };
+        let seq = |s: Option<u64>| s.map_or("none".to_owned(), |s| s.to_string());
+        let replayed = facts.replayed.map_or("none".to_owned(), |(a, b)| format!("{a}..={b}"));
+        let at =
+            format!("drop_at=frame{offset} acked_seq={} replayed={replayed}", seq(facts.acked_seq));
         match &outcome {
             Ok(sha) => {
-                eprintln!("carrier_sweep seed={seed} offset={offset} cut={cut:?} ok sha={sha}")
+                eprintln!("carrier_sweep seed={seed} offset={offset} cut={cut:?} {at} ok sha={sha}")
             }
             Err(why) => {
-                eprintln!("carrier_sweep seed={seed} offset={offset} cut={cut:?} FAIL {why}");
-                failed.push(format!("{offset} ({cut:?}): {why}"));
+                eprintln!("carrier_sweep seed={seed} offset={offset} cut={cut:?} {at} FAIL {why}");
+                failed.push(format!("{offset} ({cut:?}, {at}): {why}"));
             }
         }
+        rows.push(json!({
+            "offset": offset,
+            "cut": format!("{cut:?}"),
+            "drop_at_frame": offset,
+            "acked_seq": facts.acked_seq,
+            "replayed": facts.replayed.map(|(a, b)| json!([a, b])),
+            "ok": outcome.is_ok(),
+            "sha": outcome.as_ref().ok(),
+            "error": outcome.as_ref().err(),
+        }));
+    }
+    // CARRIER_SWEEP_REPORT: the rows as JSON, for the pre-gate of cloud-carrier-chaos-staging.
+    if let Ok(path) = std::env::var("CARRIER_SWEEP_REPORT") {
+        let report = json!({"seed": seed, "total": SWEEP_TOTAL, "rows": rows});
+        std::fs::write(&path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
     }
     assert!(
         failed.is_empty(),
