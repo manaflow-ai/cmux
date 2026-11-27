@@ -1264,7 +1264,7 @@ fn a_clone_token_is_an_installation_token_for_that_repository_reading_only() {
     for bad in [
         answer("ghp_a", "acme/web", read.clone()),
         answer("ghs_a-b", "acme/web", read.clone()),
-        answer("ghs_a", "acme/api", read.clone()),
+        answer("ghs_a", "acme/api", read),
         answer("ghs_a", "acme/web", json!({ "contents": "write" })),
         answer("ghs_a", "acme/web", json!({ "issues": "read" })),
         json!({ "token": "ghs_a" }),

@@ -246,7 +246,6 @@ mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
 pub(crate) mod outbox_stats;
-pub(crate) mod team_send_queue;
 mod own_host;
 #[cfg(test)]
 mod owned_scope_bench_tests;
@@ -271,7 +270,11 @@ mod peer_grace_tests;
 mod peer_idle;
 mod peer_lease;
 #[cfg(test)]
+mod peer_list_slot_tests;
+#[cfg(test)]
 mod peer_notice_cost_tests;
+#[cfg(test)]
+mod peer_refresh_cost_tests;
 mod peer_row;
 pub(crate) mod peer_snapshot;
 mod peer_table;
@@ -280,6 +283,9 @@ mod permission_groups;
 pub(crate) mod permission_modes;
 mod permissions;
 pub mod person;
+/// Four session states, never unknown (`hub/session_state.rs`).
+pub(crate) mod session_state;
+pub(crate) mod team_send_queue;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 mod person_prompt_at;
@@ -362,6 +368,7 @@ pub(crate) mod session_auth;
 pub(crate) mod session_budget_watch;
 pub(crate) mod session_hold;
 pub(crate) mod session_pages;
+mod session_usage;
 mod settings_watch;
 pub(crate) mod settled_view;
 #[cfg(test)]
@@ -375,6 +382,7 @@ mod silent_listing;
 mod silent_turn;
 #[cfg(feature = "sim")]
 mod sim_startup;
+pub(crate) mod soft_delete;
 mod spawn;
 mod spoken_handles;
 mod stale_host_respawn;
@@ -424,6 +432,8 @@ mod tailnet_controller;
 mod tap;
 mod task_names;
 pub(crate) mod tasks;
+mod team_directory;
+pub use team_directory::{TeamView, view_of_book};
 mod team_information;
 mod team_sent;
 mod terminal_input;
@@ -461,7 +471,7 @@ mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 pub(crate) mod turn_cap;
-mod turn_cost;
+pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
 mod turn_git;
 mod turn_retry;
@@ -1120,6 +1130,8 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// The chats that left memory, each a compact row (`evict.rs`).
     pub(crate) evicted: evict::Tier,
+    /// The deleted chats inside their grace, out of the map (`soft_delete.rs`).
+    pub(crate) deleted: soft_delete::Deleted,
     spoken_handle_renames: StdMutex<()>,
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
     /// disk for history, search, export and restore, but list/peer hot paths never walk them.
@@ -1214,6 +1226,8 @@ pub struct Hub {
     pending_peer_routes: StdMutex<peer_idle::PendingRoutes>,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
+    /// RFD 0170's team directory for the navigator, picker and Session Info (`team_directory.rs`).
+    pub(super) team_directory: team_directory::TeamDirectoryCell,
     /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
     pub(crate) hub_health: Arc<StdMutex<hub_health::HubHealth>>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
@@ -1633,6 +1647,9 @@ pub struct Hub {
     pub(crate) outbox: outbox::Outbox,
     /// Team messages accepted while the mesh hub is offline (`team_send_queue.rs`).
     pub(crate) team_send_queue: team_send_queue::TeamSendQueue,
+    /// Active outbox attempts share a budget across replay, retries and reconnects. Waiters
+    /// park before taking the journal lock or starting a blocking SSH carrier.
+    pub(crate) outbox_attempts: tokio::sync::Semaphore,
     /// Per host, how long no ssh carry goes to it after one was not taken
     /// (`server/ssh_carry.rs`): this daemon's alone, so two hubs (or two tests) never share it.
     pub(crate) ssh_carry_cooldown: std::sync::Mutex<crate::server::ssh_carry::Cooldown>,
@@ -1802,6 +1819,7 @@ impl Hub {
             forum_hosted: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             evicted: Default::default(),
+            deleted: Default::default(),
             spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
@@ -1844,6 +1862,7 @@ impl Hub {
             remote_sessions: Default::default(),
             pending_peer_routes: Default::default(),
             mesh_book: Default::default(),
+            team_directory: Default::default(),
             hub_health: Default::default(),
             mesh_read_parts: Default::default(),
             mesh_read_flights: Default::default(),
@@ -2050,6 +2069,7 @@ impl Hub {
             trust_waits: Default::default(),
             outbox: Default::default(),
             team_send_queue: Default::default(),
+            outbox_attempts: tokio::sync::Semaphore::new(8),
             ssh_carry_cooldown: Default::default(),
             mesh: Default::default(),
             mesh_relay: Default::default(),
@@ -2168,24 +2188,43 @@ impl Hub {
         self.outbox.unsettled()
     }
 
-    /// Flushes offline team sends after the relay has proved the hub reachable again.
-    pub(crate) async fn flush_team_send_queue(&self, mesh: Arc<dyn crate::mesh::MeshHub>) {
-        for (queued, receipt) in self.team_send_queue.flush(mesh.as_ref()).await {
-            if !self.outbox.record_team_receipt(
-                &receipt.message_id,
-                &queued.address,
-                queued.caller.as_deref(),
-            ) {
-                tracing::warn!(message_id = %receipt.message_id, "team send receipt could not be persisted");
-                continue;
-            }
-            if let Some(caller) = queued.caller.as_deref()
-                && let Ok(session) = self.resolve(caller)
-                && !self.record_team_send(&session, &receipt.message_id)
-            {
-                tracing::warn!(message_id = %receipt.message_id, "team sender receipt could not be persisted");
-            }
-        }
+    /// Replay is opt-in at the moment of delivery as well as admission.
+    pub(crate) async fn flush_team_send_queue(
+        self: &Arc<Self>,
+        mesh: Arc<dyn crate::mesh::MeshHub>,
+    ) {
+        let hub = self.clone();
+        self.team_send_queue
+            .flush(
+                mesh.as_ref(),
+                move |queued, receipt| {
+                    if !hub.outbox.record_team_receipt(
+                        &receipt.message_id,
+                        &queued.address,
+                        queued.caller.as_deref(),
+                    ) {
+                        return false;
+                    }
+                    if let Some(caller) = queued.caller.as_deref()
+                        && let Ok(session) = hub.resolve(caller)
+                    {
+                        return hub.record_team_send(&session, &receipt.message_id);
+                    }
+                    true
+                },
+                || async {
+                    !self.is_stopping()
+                        && self.mesh.get().is_some_and(|current| Arc::ptr_eq(&current, &mesh))
+                        && self
+                            .config
+                            .read()
+                            .await
+                            .mesh_relay
+                            .as_ref()
+                            .is_some_and(|relay| relay.team_messaging)
+                },
+            )
+            .await;
     }
 
     /// A background reader of [`Hub::subscribe`] fell `missed` events behind (rework stage 3,
@@ -2277,6 +2316,8 @@ impl Hub {
         }
         // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
         let unsaved = self.settle_legacy_grants(&mut metas);
+        // A deleted chat stays out of the map through its grace (`soft_delete.rs`).
+        self.hold_deleted(&mut metas);
         self.store_load.total.store(metas.len(), Ordering::SeqCst);
         // A first start with no ledger file: each session's running totals (`hub/ledger`).
         if self.ledger.wants_seed() {
@@ -3535,9 +3576,9 @@ impl Hub {
             meta.composer_draft = draft.clone();
             meta.updated_at = now_ms();
         }
-        // It dates the chat with no record: told before the next list read, and placed again in
-        // the list's order (`list_order.rs`).
-        self.events.row_changed(session);
+        // It dates the chat with no record: told now, so a peer following this list hears it
+        // (`row_changed_told`), and placed again in the list's order (`list_order.rs`).
+        self.events.row_changed_told(session);
         self.chat_activity_cache.note(
             &session.id,
             "composer_draft",
