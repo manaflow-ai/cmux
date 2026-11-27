@@ -216,7 +216,9 @@ public final class AgentPaneDroppedPaths {
         guard let record = held[.drop]?.last, !record.items.contains(where: \.needsSnapshot) else { return nil }
         let items = record.items.map { item -> [String: Any] in
             var entry: [String: Any] = ["path": item.url.path, "folder": item.url.hasDirectoryPath]
-            if !local {
+            // A directory cannot be streamed by AgentPaneDroppedFileReader. Leave its token
+            // absent so the page keeps the WebKit folder/zip bridge fallback for remote chats.
+            if !local && !item.url.hasDirectoryPath {
                 let token = Self.putTokenPrefix + UUID().uuidString
                 putTokens.append((token, item.url))
                 entry["token"] = token

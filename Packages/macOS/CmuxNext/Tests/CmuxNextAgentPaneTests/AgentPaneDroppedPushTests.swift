@@ -54,6 +54,30 @@ struct AgentPaneDroppedPushTests {
         #expect(AgentPaneDroppedPaths().pushed(local: true) == nil)
     }
 
+    @Test func nativePushIDMatchesFallbackAndSuccessiveDropsDiffer() throws {
+        let paths = AgentPaneDroppedPaths()
+        paths.stash([URL(fileURLWithPath: "/Users/you/clip.mov")], kind: .drop)
+        let first = try #require(paths.pushed(local: true))
+        let firstID = try #require(first["id"] as? String)
+        let fallback = try #require(paths.takeItemsWithID(.drop, names: ["clip.mov"]))
+        #expect(fallback.id.uuidString == firstID)
+
+        paths.stash([URL(fileURLWithPath: "/Users/you/clip.mov")], kind: .drop)
+        let secondID = try #require(paths.pushed(local: true)?["id"] as? String)
+        #expect(secondID != firstID)
+    }
+
+    @Test func aRemoteDropLeavesFolderForTheWebKitBridge() throws {
+        let paths = AgentPaneDroppedPaths()
+        paths.stash([
+            URL(fileURLWithPath: "/Users/you/clip.mov"),
+            URL(fileURLWithPath: "/Users/you/docs/", isDirectory: true),
+        ], kind: .drop)
+        let items = Self.items(paths.pushed(local: false))
+        #expect(items.map { $0["token"] as? String != nil } == [true, false])
+        #expect(items.map { $0["folder"] as? Bool } == [false, true])
+    }
+
     @Test func aRemoteDropsTokenNamesItsFileOnce() throws {
         let paths = AgentPaneDroppedPaths()
         paths.stash([URL(fileURLWithPath: "/Users/you/clip.mov")], kind: .drop)
