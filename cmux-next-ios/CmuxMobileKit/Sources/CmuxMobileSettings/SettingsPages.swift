@@ -456,6 +456,8 @@ struct TerminalPage: View {
 struct ComposerPage: View {
     let settings: SettingsStore
     let voice: VoiceCallPreferences
+    /// `ComposerFooterFactsMode` (CmuxMobileAgentChat), stored by its raw value.
+    @AppStorage(CmuxMobilePreferences.Key.composerFooterFacts) private var footerFacts = "off"
 
     var body: some View {
         @Bindable var settings = settings
@@ -468,6 +470,16 @@ struct ComposerPage: View {
                 Toggle(isOn: $settings.swipeDownCollapsesComposer) {
                     SettingsLabel("Swipe down to collapse", symbol: "chevron.compact.down")
                 }
+                // RFD 0130: the session's facts in the composer, off by default ("default MAY need a call").
+                Picker(selection: $footerFacts) {
+                    Text("Off").tag("off")
+                    Text("Counters").tag("pulse")
+                    Text("Card Only").tag("door")
+                } label: {
+                    SettingsLabel("Session Facts", symbol: "info.circle")
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.composer.sessionFacts")
                 Picker(selection: $settings.followUp) {
                     ForEach(FollowUpBehavior.allCases) { Text($0.title).tag($0) }
                 } label: {

@@ -1,13 +1,13 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and replies), not shipped UI.
 // A closed "Ran N commands" line at the very bottom of a chat, for N = 5, 20 and 100 (Leo,
 // 2026-11-06: "The tool call expansion, when it has several tool calls, I think sometimes it lags a
-// bit"). Opening it costs the same at any N: the rows the view shows draw in the click's frame, the
-// rest after the fold (ToolGroupRow.tsx `StepList`), under a box already as tall as all of them.
+// bit"). Opening it costs the same at any N: the rows the run's view shows, and a view's worth over
+// and under them, draw in the click's frame and the rest never until scrolled to (ToolGroupRow.tsx
+// `StepList`, stepWindow.ts), under a box already as tall as all of them.
 // test/tool-group-expand-cost.test.ts measures click to fully opened frame on these.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, activity, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxActivity } from "../model";
-import { stepProbe } from "./toolGroupRowModel";
 import type { Play } from "../../../gallery/play";
 import { pinnedVariants } from "./pinnedToolRowsScenes";
 
@@ -75,13 +75,6 @@ const mixedCommands: AcpmuxActivity[] = [
   ),
 ];
 
-declare global {
-  interface Window {
-    /** The scene's hold on an opened run's deferred row draws (ToolGroupRow.tsx `stepProbe.hold`). */
-    cmuxStepDraws?: { held: (() => void)[]; hold: (on: boolean) => void };
-  }
-}
-
 /// Opens the turn's "Worked for" line (a finished turn folds its run under it), then puts the view
 /// at the transcript's very bottom, as the reader leaves it after reading the reply.
 const atBottom: Play = async (ctx) => {
@@ -98,24 +91,16 @@ const atBottom: Play = async (ctx) => {
   scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
   scroller.scrollTop = scroller.scrollHeight;
   scroller.dispatchEvent(new Event("scroll"));
-  // A test holds the rows an opened run draws after its fold, to look at the page between draws.
-  const held: (() => void)[] = [];
-  ctx.document.defaultView!.cmuxStepDraws = {
-    held,
-    hold: (on) => {
-      stepProbe.hold = on ? (draw) => void held.push(draw) : undefined;
-    },
-  };
 };
 
 const variant = (n: number) => ({
-  note: `Scrolled to the very bottom with “Ran ${n} commands” closed. Opening it draws the rows in view at once and the rest after the fold, under a box as tall as all of them.`,
+  note: `Scrolled to the very bottom with “Ran ${n} commands” closed. Opening it draws the rows in view at once and the rest as its box scrolls to them, under a box as tall as all of them.`,
   snapshot: chat(rows(n), { title: "Fetch cases" }),
   play: atBottom,
 });
 
 const mixed = (what: string, items: AcpmuxActivity[]) => ({
-  note: `Scrolled to the very bottom with a closed run of 100 ${what} of mixed heights (a long lead thought, failures, later thoughts, images). Opened, the rows drawn after the fold take their own heights and nothing in view moves.`,
+  note: `Scrolled to the very bottom with a closed run of 100 ${what} of mixed heights (a long lead thought, failures, later thoughts, images). Opened and scrolled, the rows its box brings in take their own heights and nothing in view moves.`,
   snapshot: chat(rows(100, items), { title: "Fetch cases" }),
   play: atBottom,
 });
@@ -133,6 +118,9 @@ export default agentPaneEntry({
     n5: variant(5),
     n20: variant(20),
     n100: variant(100),
+    // A run as long as a long agent session's: opened, it mounts the same window as at 100.
+    n1000: variant(1_000),
+    n10000: variant(10_000),
     "mixed-commands": mixed("commands", mixedCommands),
     // An opened call stays open and in place when the next call regroups the run (pinnedToolRowsScenes.ts).
     ...pinnedVariants,
