@@ -1508,6 +1508,7 @@ jobs:
         run: |
           python3 tests/test_ios_asc_ops.py
           python3 -I tests/test_ios_publication_snapshot.py
+          python3 -I tests/test_ios_snapshot_dispatch.py
 
       - name: Validate the cmux CLASSIC upload marker follows the receipt
         if: ${{ matrix.group == 'release-ios' }}

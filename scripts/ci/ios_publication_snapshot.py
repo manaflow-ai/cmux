@@ -17,10 +17,24 @@ REPO = "manaflow-ai/cmux"
 ASC = "https://api.appstoreconnect.apple.com/v1/"
 GITHUB = f"https://api.github.com/repos/{REPO}/"
 SOURCE = re.compile(r"\bfeat-cmux-next ([0-9a-f]{10,40})\b")
+YOLO_SOURCE = re.compile(r"^cmux-next iPhone[^\r\n]* YOLO, feat-cmux-next [0-9a-f]{10,40}"
+                         r" \+ (?:#[0-9]+ )+\(([0-9a-f]{10,40})\)\. Internal testers only\.$")
 SHA = re.compile(r"[0-9a-f]{40}")
 SCAN_LIMIT = 20
 UNAVAILABLE = {"PROCESSING", "PROCESSING_EXCEPTION", "MISSING_EXPORT_COMPLIANCE",
                "READY_FOR_BETA_TESTING", "EXPIRED", "FAILED"}
+
+
+def source_prefixes(note):
+    # ios_internal_notes.lead_line records the base after feat-cmux-next for
+    # YOLO builds; only the parenthesized stack SHA describes the shipped app.
+    yolo = [line for line in note.splitlines() if line.startswith("cmux-next iPhone") and " YOLO," in line]
+    if yolo:
+        matches = [YOLO_SOURCE.fullmatch(line) for line in yolo]
+        if not all(matches):
+            raise ValueError("YOLO source notes omit the exact built stack SHA")
+        return {match.group(1) for match in matches}
+    return set(SOURCE.findall(note))
 
 
 def date(value):
@@ -136,7 +150,7 @@ def snapshot(document, resolve_source, *, head_sha, request_id, producer, now=No
         for ref in relationships.get("betaBuildLocalizations", {}).get("data", []):
             localization = included.get((ref["type"], ref["id"]), {})
             note = localization.get("attributes", {}).get("whatsNew", "") or ""
-            prefixes.update(SOURCE.findall(note))
+            prefixes.update(source_prefixes(note))
         if len(prefixes) != 1:
             raise ValueError(f"ASC build {release_id} has missing or conflicting source notes")
         prefix = prefixes.pop()
@@ -160,4 +174,3 @@ def snapshot(document, resolve_source, *, head_sha, request_id, producer, now=No
             "order": "uploadedDate-desc", "app_id": APP_ID, "releases": releases,
             "request": {"repository": REPO, "head_sha": head_sha, "request_id": request_id},
             "producer": producer}
-

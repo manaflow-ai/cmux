@@ -49,6 +49,25 @@ def snapshot(doc=None, **kwargs):
 
 
 class SnapshotTests(unittest.TestCase):
+    def test_actual_release_note_emitter_normal_and_yolo_headers(self):
+        # Captured by executing ios_internal_notes.lead_line at feat source
+        # 2bc87d7190ceee99c9e100b199c31883fc216c26 (lines242-249).
+        headers = (
+            ("cmux-next iPhone 1.4.0, feat-cmux-next aaaaaaaaaaaa. Internal testers only.", "a"),
+            ("cmux-next iPhone 1.4.0 YOLO, feat-cmux-next aaaaaaaaaaaa + #61292 (dddddddddddd). Internal testers only.", "d"),
+        )
+        for note, expected in headers:
+            with self.subTest(note=note):
+                doc = document()
+                doc["included"][1]["attributes"]["whatsNew"] = note
+                self.assertEqual(snapshot(doc)["releases"][0]["sha"], expected * 40)
+
+    def test_malformed_yolo_cannot_substitute_base_for_the_shipped_source(self):
+        doc = document()
+        doc["included"][1]["attributes"]["whatsNew"] = "cmux-next iPhone YOLO, feat-cmux-next aaaaaaaaaaaa + #61292"
+        with self.assertRaisesRegex(ValueError, "built stack SHA"):
+            snapshot(doc)
+
     def test_available_window_has_source_and_request_binding_without_fake_publication_time(self):
         result = snapshot()
         self.assertEqual([r["sha"] for r in result["releases"]], [c * 40 for c in "abc"])
