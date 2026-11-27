@@ -64,6 +64,10 @@ pub struct Rgba {
     pub pixels: Vec<u8>,
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "chunks_exact guarantees each PNG pixel group has the indexed channels"
+)]
 fn decode(png: &[u8]) -> Result<Rgba, String> {
     let mut decoder =
         png::Decoder::new_with_limits(Cursor::new(png), png::Limits { bytes: DECODE_LIMIT });
@@ -107,6 +111,10 @@ impl Rgba {
     }
 
     /// A PNG at the best compression; RGB when every pixel is opaque.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "chunks_exact guarantees each RGBA pixel has four channels"
+    )]
     pub fn encode(&self) -> Result<Vec<u8>, String> {
         let opaque = self.pixels.chunks_exact(4).all(|p| p[3] == 255);
         let (color, data) = if opaque {
